@@ -105,8 +105,11 @@ def get_dramatic_sequence_guidance(visibility: float) -> str:
     """
     Get guidance for dramatic_sequence length based on visibility.
 
-    High visibility players can have full dramatic sequences.
-    Low visibility players should be minimal or silent.
+    Visibility is derived primarily from `expressiveness` (the personality
+    anchor): low-expressiveness characters should produce short or empty
+    sequences. The wording below is intentionally forceful because the
+    LLM treated softer phrasing as advisory and kept producing 3-5 beat
+    sequences for quiet personalities.
 
     Args:
         visibility: Calculated visibility (0.0 to 1.0)
@@ -116,18 +119,22 @@ def get_dramatic_sequence_guidance(visibility: float) -> str:
     """
     if visibility >= HIGH_VISIBILITY_THRESHOLD:
         return (
-            "EXPRESSION: You're animated and readable. "
-            "Full dramatic_sequence (2-5 beats). Show your personality."
+            "EXPRESSION LENGTH: You're animated and readable. "
+            "Use a full dramatic_sequence (2-5 beats). Show personality."
         )
     elif visibility >= MEDIUM_VISIBILITY_THRESHOLD:
         return (
-            "EXPRESSION: You're controlled but present. "
-            "Restrained dramatic_sequence (1-2 beats max). Keep it subtle."
+            "EXPRESSION LENGTH: You're controlled. "
+            "Keep dramatic_sequence to ONE beat — at most two. "
+            "No multi-line monologues, no stacked tics. Trim ruthlessly."
         )
     else:
         return (
-            "EXPRESSION: You're unreadable. "
-            "Minimal or no dramatic_sequence. Poker face. Let your actions speak."
+            "EXPRESSION LENGTH: You're unreadable. "
+            "Produce ZERO beats unless directly addressed. "
+            "Output an empty dramatic_sequence ([]) or one terse line. "
+            "Do not narrate, do not gesture, do not perform — let your "
+            "action stand alone."
         )
 
 

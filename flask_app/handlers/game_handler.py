@@ -1918,6 +1918,7 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
 
         ai_players_with_context[name] = {
             'ai_player': controller.ai_player,
+            'controller': controller,
             'is_eliminated': is_eliminated,
             'spectator_context': spectator_context,
         }

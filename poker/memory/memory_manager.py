@@ -9,6 +9,7 @@ Coordinates:
 """
 
 import logging
+import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional, Any, Set, Tuple
@@ -740,10 +741,12 @@ class AIMemoryManager:
             # Extract context (support both old format and new dict format)
             if isinstance(context, dict):
                 ai_player = context.get('ai_player')
+                controller = context.get('controller')
                 is_eliminated = context.get('is_eliminated', False)
                 spectator_context = context.get('spectator_context')
             else:
                 ai_player = context
+                controller = None
                 is_eliminated = False
                 spectator_context = None
 
@@ -766,11 +769,21 @@ class AIMemoryManager:
                 ),
                 'confidence': getattr(ai_player, 'confidence', 'neutral'),
                 'attitude': getattr(ai_player, 'attitude', 'neutral'),
-                'chattiness': self._get_chattiness(ai_player),
+                'chattiness': self._resolve_chattiness(controller, ai_player),
                 'assistant': getattr(ai_player, 'assistant', None),
                 'is_eliminated': is_eliminated,
                 'spectator_context': spectator_context,
             }
+
+        # Pre-roll _should_speak for each player and apply a per-hand
+        # speaker cap. Without this, every AI who passes _should_reflect
+        # (effectively all post-flop participants) emits a visible chat
+        # line on showdown hands — 5 simultaneous reactions feels like
+        # spam. Cap is soft: top-3 by priority get through unconditionally,
+        # additional speakers must pass a 15% gate.
+        speaker_overrides = self._cap_post_hand_speakers(
+            recorded_hand, player_snapshots, big_blind
+        )
 
         def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
             """Generate commentary for a single player. Returns (player_name, commentary).
@@ -798,6 +811,7 @@ class AIMemoryManager:
                     big_blind=big_blind,
                     is_eliminated=snapshot['is_eliminated'],
                     spectator_context=snapshot['spectator_context'],
+                    should_speak_override=speaker_overrides.get(player_name),
                 )
                 return (player_name, commentary)
             except Exception as e:
@@ -823,6 +837,79 @@ class AIMemoryManager:
                             logger.warning(f"Commentary callback failed for {player_name}: {e}")
 
         return commentaries
+
+    # Soft cap: above this many speakers per hand we start gating with the
+    # OVERFLOW_SPEAK_PROB roll. Three reactions feel like a table; five
+    # feel like everyone shouting over the hand.
+    MAX_UNCAPPED_SPEAKERS = 3
+    OVERFLOW_SPEAK_PROB = 0.15
+
+    def _cap_post_hand_speakers(
+        self,
+        recorded_hand: RecordedHand,
+        player_snapshots: Dict[str, Dict[str, Any]],
+        big_blind: Optional[int],
+    ) -> Dict[str, bool]:
+        """Decide which players visibly speak after the hand.
+
+        Per-player `_should_speak` rolls run first (so quiet personalities
+        still self-suppress). If more than MAX_UNCAPPED_SPEAKERS clear
+        their roll, the winner and biggest-contributor non-winner take the
+        first two slots, the third slot is chattiness-weighted among the
+        remaining, and anyone beyond that must clear a small extra gate.
+
+        Returns a dict suitable for passing into
+        `generate_commentary(..., should_speak_override=...)` — keys are
+        every player in `player_snapshots`, values are the final decision.
+        """
+        wants_speak: Dict[str, bool] = {}
+        for name, snap in player_snapshots.items():
+            wants_speak[name] = self.commentary_generator._should_speak(
+                recorded_hand,
+                name,
+                big_blind,
+                snap['chattiness'],
+            )
+
+        speakers = [n for n, ok in wants_speak.items() if ok]
+        if len(speakers) <= self.MAX_UNCAPPED_SPEAKERS:
+            return wants_speak
+
+        winner_names = {w.name for w in recorded_hand.winners}
+        contributions = recorded_hand.get_player_contributions()
+
+        def priority_key(name: str) -> tuple:
+            # Sort key: winners first, then non-winners by chips committed
+            # (biggest stake in the pot = most emotional investment in
+            # talking about it), then chattiness as a tiebreaker.
+            is_winner = name in winner_names
+            return (
+                0 if is_winner else 1,
+                -contributions.get(name, 0),
+                -player_snapshots[name]['chattiness'],
+            )
+
+        ranked = sorted(speakers, key=priority_key)
+        protected = set(ranked[:self.MAX_UNCAPPED_SPEAKERS])
+        overflow = ranked[self.MAX_UNCAPPED_SPEAKERS:]
+
+        final: Dict[str, bool] = {}
+        for name in wants_speak:
+            if not wants_speak[name]:
+                final[name] = False
+            elif name in protected:
+                final[name] = True
+            else:
+                # Rare extra speaker beyond the cap
+                final[name] = random.random() < self.OVERFLOW_SPEAK_PROB
+
+        kept = [n for n, v in final.items() if v]
+        if len(speakers) != len(kept):
+            logger.debug(
+                f"Post-hand speaker cap applied: {len(speakers)} wanted, "
+                f"{len(kept)} kept ({sorted(kept)})"
+            )
+        return final
 
     def get_decision_context(self, player_name: str, opponents: List[str]) -> str:
         """Get memory context for a decision prompt.
@@ -1030,10 +1117,34 @@ class AIMemoryManager:
             # Apply adjustment to elastic personality
             elastic_personality.apply_learned_adjustment(avg_tendencies)
 
-    def _get_chattiness(self, ai_player: Any) -> float:
-        """Extract chattiness/table_talk from AI player.
+    def _resolve_chattiness(self, controller: Any, ai_player: Any) -> float:
+        """Single source of truth for the player's chattiness signal.
 
-        Checks for new 'table_talk' trait first, falls back to 'chattiness'.
+        Prefers the live `psychology.energy` axis (same value the
+        per-action narration gate reads via psychology.table_talk). This
+        unifies the two gates onto one personality knob — `baseline_energy`
+        in personalities.json — and makes post-hand commentary mood-aware
+        (a tilted player goes quiet post-hand too).
+
+        Falls back to the legacy static personality_traits when the
+        controller isn't available (e.g., the deprecated sync path on
+        on_hand_complete that hands raw ai_players in).
+        """
+        if controller is not None:
+            psychology = getattr(controller, 'psychology', None)
+            if psychology is not None:
+                energy = getattr(psychology, 'energy', None)
+                if energy is not None:
+                    return float(energy)
+        return self._get_chattiness(ai_player)
+
+    def _get_chattiness(self, ai_player: Any) -> float:
+        """Legacy chattiness lookup from static personality config.
+
+        Retained for the sync `on_hand_complete` path that passes raw
+        ai_player objects without controllers. Prefer `_resolve_chattiness`
+        for new call sites — it reads the live psychology axis when a
+        controller is available.
         """
         if hasattr(ai_player, 'elastic_personality'):
             # Try new trait name first, fall back to old

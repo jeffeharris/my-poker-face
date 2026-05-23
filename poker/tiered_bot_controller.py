@@ -2985,6 +2985,7 @@ class TieredBotController(AIPlayerController):
                 pot_committed=extras['pot_committed'],
                 recent_actions=extras['recent_actions'],
                 recent_own_speech_beats=self.recent_own_speech_beats(),
+                recent_own_action_beats=self.recent_own_action_beats(),
                 callouts=self.find_callouts(
                     getattr(self, '_current_game_messages', None)
                 ),

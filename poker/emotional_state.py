@@ -100,9 +100,11 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
         # Focus: composure dominates, table_talk slightly reduces
         focus = _clamp(composure * 0.85 - table_talk * 0.1, 0.0, 1.0)
     else:
-        # Old 4-trait model (backward compatibility)
+        # Old 4-trait model (backward compatibility for personalities that
+        # predate the table_talk rename). Prefer table_talk when present so
+        # storage migrations don't need to also rewrite emotional baselines.
         aggression = _trait_val('aggression')
-        chattiness = _trait_val('chattiness', 0.5)
+        talk = _trait_val('table_talk', _trait_val('chattiness', 0.5))
         emoji = _trait_val('emoji_usage', 0.3)
 
         # Average drift from anchor across all traits
@@ -112,7 +114,7 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
         valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
         arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
         control = _clamp(0.7 - avg_abs_drift * 3.0, 0.0, 1.0)
-        focus = _clamp(0.7 - chattiness * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
+        focus = _clamp(0.7 - talk * 0.15 - emoji * 0.1 - avg_abs_drift * 1.5, 0.0, 1.0)
 
     return {
         'valence': round(valence, 3),

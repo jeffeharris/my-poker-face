@@ -52,8 +52,9 @@ SECTION 1 — BEHAVIORAL TRAITS:
 4. personality_traits: Numeric values between 0.0 and 1.0 for:
    - bluff_tendency: How often they bluff (0=never, 1=always)
    - aggression: How aggressive their betting is (0=passive, 1=very aggressive)
-   - chattiness: How much they talk/emote (0=silent, 1=very talkative)
    - emoji_usage: How often they use emojis (0=never, 1=frequently)
+   (Animation/talkativeness is controlled by anchors.baseline_energy, not a
+   personality_traits field — set that instead.)
 5. elasticity_config: How flexible each trait is:
    - trait_elasticity: How much each trait can vary during play (0.0-1.0)
      * For extreme personality traits (near 0 or 1), use lower elasticity (0.1-0.3)
@@ -152,7 +153,7 @@ values 0.0–1.0.
         Yoda/Buddha ≈ 0.90; volatile/emotional characters ≈ 0.25.
     - expressiveness: Emotional transparency. 0=poker face, 1=open book.
         Mime/Buddha ≈ 0.10; theatrical characters ≈ 0.80. Should correlate
-        roughly with personality_traits.chattiness.
+        roughly with baseline_energy below.
     - risk_identity: Variance tolerance. 0=risk-averse, 1=risk-seeking. Maps to
         whether the character would prefer high-variance gambles or steady value.
         Maniac/gambler types ≈ 0.85; cautious types ≈ 0.25.
@@ -217,14 +218,12 @@ Respond with ONLY a JSON object in this exact format:
     "personality_traits": {{
         "bluff_tendency": 0.5,
         "aggression": 0.5,
-        "chattiness": 0.5,
         "emoji_usage": 0.3
     }},
     "elasticity_config": {{
         "trait_elasticity": {{
             "bluff_tendency": 0.4,
             "aggression": 0.3,
-            "chattiness": 0.5,
             "emoji_usage": 0.4
         }},
         "mood_elasticity": 0.4,
@@ -457,7 +456,6 @@ Respond with ONLY a JSON object in this exact format:
             "personality_traits": {
                 "bluff_tendency": round(random.uniform(0.2, 0.8), 2),
                 "aggression": round(random.uniform(0.3, 0.7), 2),
-                "chattiness": round(random.uniform(0.3, 0.8), 2),
                 "emoji_usage": round(random.uniform(0.1, 0.6), 2)
             },
             "verbal_tics": [

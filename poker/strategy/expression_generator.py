@@ -202,6 +202,7 @@ class ExpressionGenerator:
         'recent_actions',
         'callouts',
         'recent_own_beats',
+        'recent_own_action_beats',
         'emotional_state',
         'drama',
         'mode_indicator',
@@ -304,6 +305,9 @@ class ExpressionGenerator:
             'recent_own_beats': "\n".join(
                 f'  - "{b}"' for b in ctx.recent_own_speech_beats
             ),
+            'recent_own_action_beats': "\n".join(
+                f'  - {b}' for b in ctx.recent_own_action_beats
+            ),
             'callouts': "\n".join(f'  - {c}' for c in ctx.callouts),
             'tier_paren': tier_paren,
             'situational_reads': situational_reads,
@@ -321,6 +325,8 @@ class ExpressionGenerator:
             skip.add('recent_actions')
         if not ctx.recent_own_speech_beats:
             skip.add('recent_own_beats')
+        if not ctx.recent_own_action_beats:
+            skip.add('recent_own_action_beats')
         if not ctx.callouts:
             skip.add('callouts')
         if not situational_reads:

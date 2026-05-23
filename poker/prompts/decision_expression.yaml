@@ -39,6 +39,11 @@ sections:
     repeat these lines:
     {recent_own_beats}
 
+  recent_own_action_beats: |-
+    Your recent ACTION beats this session — vary your gestures, do NOT
+    repeat these tics:
+    {recent_own_action_beats}
+
   callouts: |-
     [CALLED OUT] An opponent just mentioned you by name — consider reacting:
     {callouts}
