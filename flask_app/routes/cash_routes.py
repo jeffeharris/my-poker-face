@@ -3864,7 +3864,7 @@ def get_lobby():
     # documents this as intentional: lazy cadence vs. background ticker.
     try:
         from flask_app.extensions import (
-            chip_ledger_repo, relationship_repo, stake_repo,
+            chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
         )
         refresh_unseated_tables(
             cash_table_repo=cash_table_repo,
@@ -3875,6 +3875,7 @@ def get_lobby():
             chip_ledger_repo=chip_ledger_repo,
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
+            vice_repo=vice_state_repo,
         )
     except Exception as e:
         logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)

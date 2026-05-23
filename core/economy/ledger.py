@@ -48,6 +48,9 @@ LEDGER_REASONS = frozenset({
                            # audit can still query historical entries.
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
     'table_rake',          # per-hand pot rake destroyed at award time
+    'vice_spending',       # AI voluntary spend-down (vice mechanic). Fires
+                           # from the lobby refresh when a flush AI rolls a
+                           # vice; chips leave the AI bankroll for the bank.
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
@@ -409,5 +412,35 @@ def record_forgive_balance(
         amount=0,
         reason='forgive_balance',
         context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_vice_spending(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """ai → central_bank for a vice spend.
+
+    Fired by `resolve_ai_vice_spending` when a flush AI rolls a vice.
+    The chips move from the AI's bankroll to the central bank as part
+    of the standard destruction pattern; the AI then sits off-grid for
+    the vice duration before returning. No-op when `amount <= 0`.
+
+    Mirrors `record_cap_clamp`'s shape (single-personality destruction).
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=ai(personality_id),
+        sink=bank(),
+        amount=amount,
+        reason='vice_spending',
+        context=context,
         sandbox_id=sandbox_id,
     )

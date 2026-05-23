@@ -425,6 +425,10 @@ def refresh_unseated_tables(
     # them — tests for take_stake plumbing pass both).
     relationship_repo=None,
     stake_repo=None,
+    # Vice spending repo. When None, the vice mechanic is disabled —
+    # no expiry pass, no start pass. Optional so existing test callers
+    # that don't care about vice can pass nothing and keep working.
+    vice_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -449,6 +453,49 @@ def refresh_unseated_tables(
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+
+    # Vice expiry pass — runs BEFORE the table loop so AIs whose vice
+    # ended this refresh become immediately eligible for seating /
+    # staking. Returns a list of ViceEndResults; Commit 2 will emit
+    # ticker rows from them.
+    vice_ends: list = []
+    on_vice: Set[str] = set()
+    if vice_repo is not None and sandbox_id is not None:
+        try:
+            from cash_mode.ai_vice_spending import tick_vice_expirations
+            vice_ends = tick_vice_expirations(
+                vice_repo=vice_repo,
+                bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice expiry pass failed: %s", exc,
+            )
+        try:
+            on_vice = vice_repo.active_pids(sandbox_id=sandbox_id, now=now)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice active_pids failed: %s", exc,
+            )
+            on_vice = set()
+
+    # Filter the idle pool and eligible-personality lists to exclude
+    # AIs currently on vice. Every downstream gate (live-fill,
+    # staking-candidate selection, cross-table pool) reads these
+    # variables, so a single filter at the top covers all the seating
+    # / staking eligibility surfaces without per-call-site changes.
+    if on_vice:
+        idle_pool = [
+            entry for entry in idle_pool
+            if entry.personality_id not in on_vice
+        ]
+        eligible = [
+            cand for cand in eligible
+            if cand.get("personality_id") not in on_vice
+        ]
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
@@ -1412,6 +1459,41 @@ def refresh_unseated_tables(
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] AI carry resolution failed: %s", exc,
+            )
+
+    # AI vice spending — start pass. Runs after carry resolution so a
+    # carry-settling AI in the same refresh isn't immediately whisked
+    # off-grid. Candidate set is idle-pool AIs minus already-vicing
+    # AIs (the filter above already removed them from idle_pool).
+    # Each fire is a sync narration call + ledger entry + state row.
+    # Commit 2 wires ticker emission; Commit 1 keeps it silent.
+    vice_starts: list = []
+    if vice_repo is not None and sandbox_id is not None and chip_ledger_repo is not None:
+        try:
+            from cash_mode.ai_vice_spending import resolve_ai_vice_spending
+            # Idle-only candidates per the design's "sim-seated AIs
+            # are deferred" decision (see CASH_MODE_AI_VICE_SPENDING.md).
+            # idle_pool was already filtered to exclude on_vice AIs at
+            # the top of this function. Refresh from the current idle
+            # snapshot so any AIs who entered idle during the table
+            # loop are eligible too.
+            current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
+            candidates = {
+                e.personality_id for e in current_idle
+                if e.personality_id not in on_vice
+            }
+            vice_starts = resolve_ai_vice_spending(
+                candidates=candidates,
+                vice_repo=vice_repo,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] AI vice spending failed: %s", exc,
             )
 
     return out
