@@ -2906,32 +2906,15 @@ def offer_stake_to_ai():
             "detail": detail,
         }), 200
 
-    # Find an open seat at the canonical lobby table for this stake.
-    # Lobby v1.5 has exactly one canonical table per stake; if it has
-    # no open seat (rare — 4 baseline AIs + 2 open), the offer can't
-    # be honored even on accept.
-    from cash_mode.lobby import _table_id_for_stake
+    # Find an open seat at any lobby table for this stake. v111+ runs
+    # N tables per tier; pick randomly among tables with an open seat
+    # so offers spread across the tier rather than always landing at
+    # the canonical -001 table (which may be full). Also verifies the
+    # AI isn't already seated elsewhere (global double-seat invariant).
+    import random as _random
     from cash_mode.tables import ai_slot
-    target_table_id = _table_id_for_stake(stake_label)
-    table = cash_table_repo.load_table(target_table_id, sandbox_id=sandbox_id)
-    if table is None:
-        return jsonify({
-            "error": f"No lobby table exists for {stake_label}",
-        }), 503
-    open_seat_index: Optional[int] = None
-    for idx, slot in enumerate(table.seats):
-        if slot.get("kind") == "open":
-            open_seat_index = idx
-            break
-    if open_seat_index is None:
-        return jsonify({
-            "error": f"No open seat at the {stake_label} table right now",
-        }), 503
-
-    # Also check the AI isn't already seated at SOME table (would
-    # double-seat them). The lobby seed enforces global uniqueness;
-    # belt-and-suspenders.
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
     for t in all_tables:
         for slot in t.seats:
             if slot.get("kind") == "ai" and slot.get("personality_id") == target_pid:
@@ -2941,6 +2924,23 @@ def offer_stake_to_ai():
                         f"{t.stake_label} — can't double-seat"
                     ),
                 }), 409
+
+    seatable = []
+    for t in all_tables:
+        if t.stake_label != stake_label:
+            continue
+        for idx, slot in enumerate(t.seats):
+            if slot.get("kind") == "open":
+                seatable.append((t, idx))
+                break
+
+    if not seatable:
+        return jsonify({
+            "error": f"No open seat at any {stake_label} table right now",
+        }), 503
+
+    table, open_seat_index = _random.choice(seatable)
+    target_table_id = table.table_id
 
     # Atomic-ish commit: debit player bankroll (+ AI bankroll for the
     # match in match-share), persist seat, persist stake row. If any
@@ -3012,6 +3012,7 @@ def offer_stake_to_ai():
         carry_amount=0,
         stake_tier=stake_label,
         created_at=now,
+        table_id=target_table_id,
     ))
 
     # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
