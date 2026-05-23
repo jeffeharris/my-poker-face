@@ -27,6 +27,13 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+from flask_app import config
+# `limiter` is set by init_limiter() during init_extensions(), which runs
+# before blueprints are imported, and is never reassigned afterward — so a
+# top-level import captures the real instance (unlike the repo globals, which
+# are reassigned by init_persistence() and must be imported lazily).
+from flask_app.extensions import limiter
+
 from cash_mode.bankroll import (
     AIBankrollState,
     PlayerBankrollState,
@@ -3831,6 +3838,7 @@ def top_up():
 
 
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_lobby():
     """GET /api/cash/lobby — multi-table lobby snapshot.
 
@@ -4590,6 +4598,7 @@ def get_net_worth():
 
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_state():
     """GET /api/cash/state — entry-screen snapshot.
 

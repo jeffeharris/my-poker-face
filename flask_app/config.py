@@ -52,6 +52,11 @@ else:
     RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
 RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
 RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
+# High-frequency read-only state polling (cash/game state, lobby). A single
+# generous per-minute window — these are cheap GETs driven by client polling,
+# and a day/hour cap would punish long play sessions. The minute cap still
+# blocks runaway loops. Overrides the default limits for the decorated routes.
+RATE_LIMIT_POLLING = os.environ.get('RATE_LIMIT_POLLING', '600 per minute')
 RATE_LIMIT_CHAT_SUGGESTIONS = os.environ.get('RATE_LIMIT_CHAT_SUGGESTIONS', '100 per hour')
 RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALITY', '15 per hour')
 RATE_LIMIT_GENERATE_THEME = os.environ.get('RATE_LIMIT_GENERATE_THEME', '10 per hour')

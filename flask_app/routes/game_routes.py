@@ -472,6 +472,7 @@ def list_games():
 
 
 @game_bp.route('/api/game-state/<game_id>')
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = game_state_service.get_game(game_id)
