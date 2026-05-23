@@ -239,6 +239,29 @@ class BankrollRepository(BaseRepository):
             result[row["personality_id"]] = row["emotional_state_json"]
         return result
 
+    def list_all_ai_bankroll_chips(
+        self,
+        *,
+        sandbox_id: str,
+    ) -> List[int]:
+        """Return stored chip counts of every AI bankroll in the sandbox.
+
+        Used by the vice mechanic to compute cast median for the
+        concentration-based trigger. Returns stored (not projected)
+        chips — regen lag is acceptable here since the median is
+        robust to small per-AI drift, and computing projected for
+        every row each refresh would be expensive.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT chips FROM ai_bankroll_state
+                WHERE sandbox_id = ?
+                """,
+                (sandbox_id,),
+            ).fetchall()
+        return [int(r["chips"]) for r in rows]
+
     def load_aspiration_cooldown_until(
         self,
         personality_id: str,

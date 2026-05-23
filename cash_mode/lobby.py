@@ -2109,7 +2109,7 @@ def _emit_vice_spending_events(
                 personality_id=s.personality_id,
                 name=name,
                 reason=s.duration_bucket,
-                message=format_vice_start_message(s.narration),
+                message=format_vice_start_message(name, s.narration),
                 created_at=ts,
                 sandbox_id=sandbox_id,
             ))

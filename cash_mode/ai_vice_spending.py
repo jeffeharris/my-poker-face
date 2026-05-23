@@ -36,9 +36,25 @@ logger = logging.getLogger(__name__)
 
 # --- Trigger constants ------------------------------------------------------
 
-COMFORT_FLOOR = 1.2
-"""excess_ratio ignores everything below 1.2 × starting_bankroll —
-gives flush-but-not-yet-flooded AIs a 20% buffer before vice kicks in."""
+CONCENTRATION_FLOOR = 2.5
+"""An AI must hold >= this multiple of the cast median to be eligible
+for vice. With CONCENTRATION_FLOOR = 2.5, an AI at 2.5x the cast
+median has excess_ratio = 0 (just at threshold); at 5x median,
+excess_ratio = 2.5 (clearly above). The dominant outlier ($2M vs a
+$14K median) produces a huge excess_ratio that's capped by MAX_PROB.
+
+Replaces the prior per-personality `starting_bankroll × COMFORT_FLOOR`
+gate — that produced character-by-character thresholds where a
+low-baseline AI could "qualify as wealthy" while being objectively
+poor compared to the cast. Concentration is cast-relative, so vice
+targets actual wealth concentration rather than personal comfort.
+"""
+
+MIN_CAST_MEDIAN_FOR_VICE = 5_000
+"""Suppress the vice pass entirely when the cast median is below this.
+"Everyone is broke" should not produce vice — there's no real "top"
+to drain in a poor cast, and a near-zero median makes the
+concentration ratio meaningless (every chip is "concentrated")."""
 
 EXCESS_WEIGHT = 0.04
 """Per-unit excess_ratio contribution to vice probability."""
@@ -169,19 +185,48 @@ class ViceSpendingBatch:
 # --- Pure formulas ----------------------------------------------------------
 
 
-def compute_excess_ratio(bankroll: int, starting_bankroll: int) -> float:
-    """Fraction of starting_bankroll the AI is sitting above the comfort floor.
+def compute_cast_median(bankrolls: List[int]) -> int:
+    """Median of a list of bankroll chip counts.
 
-    Zero when bankroll <= starting_bankroll × COMFORT_FLOOR. Linearly
-    increases above that. A 5× starting bankroll AI has
-    `excess_ratio = (5 − 1.2) = 3.8`.
+    Used by the vice mechanic to anchor the concentration trigger.
+    Returns 0 when the input is empty.
+
+    Pure / deterministic — the caller controls when the median is
+    re-computed (once per lobby refresh in practice). Median is more
+    robust to outliers than mean: a single $2M outlier in a cast of
+    80 doesn't move the median, but pulls the mean up dramatically
+    and would make the concentration gate too strict for everyone else.
     """
-    if starting_bankroll <= 0:
+    if not bankrolls:
+        return 0
+    sorted_brs = sorted(bankrolls)
+    n = len(sorted_brs)
+    if n % 2 == 1:
+        return int(sorted_brs[n // 2])
+    return int((sorted_brs[n // 2 - 1] + sorted_brs[n // 2]) // 2)
+
+
+def compute_excess_ratio(bankroll: int, cast_median: int) -> float:
+    """Wealth concentration above the floor, used to drive vice_prob.
+
+    `concentration = bankroll / cast_median` — the AI's bankroll as a
+    multiple of the typical AI's. `excess_ratio = max(0, concentration
+    − CONCENTRATION_FLOOR)`.
+
+    Returns 0 when:
+      - cast_median <= 0 (no reference to compare against)
+      - concentration <= CONCENTRATION_FLOOR (not concentrated enough)
+
+    Unbounded upward — the $2M outlier in an otherwise-modest cast
+    produces a large excess_ratio, which then gets capped by MAX_PROB
+    inside `compute_vice_probability`.
+    """
+    if cast_median <= 0:
         return 0.0
-    threshold = starting_bankroll * COMFORT_FLOOR
-    if bankroll <= threshold:
+    concentration = bankroll / cast_median
+    if concentration <= CONCENTRATION_FLOOR:
         return 0.0
-    return (bankroll - threshold) / starting_bankroll
+    return concentration - CONCENTRATION_FLOOR
 
 
 def compute_pressure(
@@ -597,15 +642,19 @@ def resolve_ai_vice_spending(
     now: datetime,
     narrate_fn: Optional[NarrateFn] = None,
     max_starts: int = VICE_STARTS_PER_REFRESH,
+    concentration_floor: float = CONCENTRATION_FLOOR,
 ) -> List[ViceStartResult]:
     """Roll vice for each candidate; fire up to `max_starts` this refresh.
 
     `candidates` is the idle-pool AI set minus any AIs already on a
     vice (the lobby builds this set before calling). The dispatcher:
 
+      0. Loads ALL cast bankrolls once, computes cast median. If the
+         median is below MIN_CAST_MEDIAN_FOR_VICE, the whole pass
+         short-circuits (no point draining "the rich" when nobody is).
       1. Per candidate, loads bankroll + psych snapshot + computes
-         vice_prob. Skips candidates with probability 0 or that fail
-         the rng roll.
+         vice_prob using the concentration-based excess_ratio. Skips
+         candidates with probability 0 or that fail the rng roll.
       2. Computes the amount; skip if it falls below MIN_VICE_AMOUNT
          or breaches floor protection (compute_vice_amount returns 0).
       3. Sorts the surviving fires by amount DESC, takes the top
@@ -614,12 +663,32 @@ def resolve_ai_vice_spending(
          comes back here), inserts vice state row, debits bankroll,
          records ledger entry.
 
+    `concentration_floor` is exposed as a kwarg so tests can override
+    the gate independently of the module-level default.
+
     Returns `ViceStartResult`s in the order they were committed.
     """
     if not candidates or vice_repo is None or bankroll_repo is None:
         return []
     if narrate_fn is None:
         narrate_fn = _templated_narrate_fn
+
+    # Phase 0: load cast bankrolls + compute median. One query for the
+    # whole pass; cheap relative to the per-candidate work that follows.
+    try:
+        cast_chips = bankroll_repo.list_all_ai_bankroll_chips(
+            sandbox_id=sandbox_id,
+        )
+    except Exception as exc:
+        logger.warning("[VICE] list_all_ai_bankroll_chips failed: %s", exc)
+        return []
+    cast_median = compute_cast_median(cast_chips)
+    if cast_median < MIN_CAST_MEDIAN_FOR_VICE:
+        # Cast is too poor for the "drain the wealthy" framing to make
+        # sense. Skip the pass entirely; AIs grind back to wealth via
+        # the normal regen/play loop and vice resumes when the median
+        # crosses the floor.
+        return []
 
     # Phase 1: collect candidates that pass the probability roll, with
     # their computed amounts. Phase 2 picks top-N and commits.
@@ -647,7 +716,12 @@ def resolve_ai_vice_spending(
             )
             continue
 
-        excess = compute_excess_ratio(current, knobs.starting_bankroll)
+        # Concentration gate (with optional test override).
+        if concentration_floor != CONCENTRATION_FLOOR:
+            concentration = current / cast_median if cast_median > 0 else 0.0
+            excess = max(0.0, concentration - concentration_floor)
+        else:
+            excess = compute_excess_ratio(current, cast_median)
         if excess <= 0:
             continue
 

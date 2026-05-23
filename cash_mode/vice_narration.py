@@ -36,9 +36,10 @@ Respond with JSON only, in the form:
 
 Narration rules:
   - ONE sentence describing what they're doing.
+  - START WITH THE CHARACTER'S NAME — third-person past tense. Example: "Napoleon commissioned an oversized bronze bust of himself." NOT: "Commissioned an oversized bronze bust." NOT: "Pre-ordered a flight." Without the name leading, the ticker reads as an unattributed quote.
   - In character (use their style, attitude, and personality anchors as cues).
   - Specific and slightly cheeky.
-  - No quotation marks. No preamble. No explanation.
+  - No quotation marks. No preamble. No explanation. No leading dash, ellipsis, or honorific — just the name.
 
 Duration buckets (the character picks based on what they're indulging in):
   - "short"  — a quick indulgence: a bar visit, a haircut, a meal.

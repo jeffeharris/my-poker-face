@@ -359,14 +359,24 @@ AI_CARRY_TICKER_THRESHOLD = 2000
 AI_STAKE_TICKER_THRESHOLD = 2000
 
 
-def format_vice_start_message(narration: str) -> str:
-    """The narration IS the start message.
+def format_vice_start_message(name: str, narration: str) -> str:
+    """The narration leads the start message; we ensure the name is in it.
 
-    Returned verbatim — the LLM (or templated fallback) is the source
-    of phrasing. Vice-start ticker rows show the full character line
-    from the narration field of `ViceStartResult`.
+    The LLM is prompted to lead with the character's name ("Napoleon
+    commissioned..."), but models occasionally drop it ("Pre-ordered a
+    private jet..."). That leaves the ticker reading like an
+    unattributed quote, which is what the user reported. As a defensive
+    fallback, prepend `{name} — ` when the narration doesn't already
+    lead with the personality name. Case-insensitive match so
+    "napoleon" or "Napoleon's" both count as name-led.
     """
-    return narration
+    narration = narration.strip()
+    if not narration:
+        # Degenerate fallback — at least say WHO went off-grid.
+        return f"{name} stepped out"
+    if narration.lower().startswith(name.lower()):
+        return narration
+    return f"{name} — {narration}"
 
 
 def format_vice_end_message(name: str) -> str:

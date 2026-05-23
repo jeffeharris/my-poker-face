@@ -23,18 +23,20 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from cash_mode.ai_vice_spending import (
     BASE_FRACTION,
     BASE_RECOVERY,
-    COMFORT_FLOOR,
+    CONCENTRATION_FLOOR,
     DURATION_RANGES,
     EXCESS_WEIGHT,
     FLOOR_PROTECTION_FRACTION,
     MAX_PROB,
     MAX_RECOVERY,
     MAX_VICE_FRACTION,
+    MIN_CAST_MEDIAN_FOR_VICE,
     MIN_VICE_AMOUNT,
     PRESSURE_BOOST,
     VICE_STARTS_PER_REFRESH,
     ViceEndResult,
     ViceStartResult,
+    compute_cast_median,
     compute_excess_ratio,
     compute_pressure,
     compute_recovered_axes,
@@ -60,22 +62,46 @@ SBX = "test-sandbox-vice"
 # --- Pure-math tests --------------------------------------------------------
 
 
+class TestCastMedian(unittest.TestCase):
+    def test_empty_returns_zero(self):
+        self.assertEqual(compute_cast_median([]), 0)
+
+    def test_odd_count(self):
+        self.assertEqual(compute_cast_median([1, 5, 9]), 5)
+
+    def test_even_count_averages_middle_two(self):
+        self.assertEqual(compute_cast_median([1, 5, 9, 13]), 7)
+
+    def test_robust_to_outlier(self):
+        # One $2M outlier in an otherwise-modest cast — median ignores it
+        chips = [14_000] * 79 + [2_170_000]
+        self.assertEqual(compute_cast_median(chips), 14_000)
+
+
 class TestExcessRatio(unittest.TestCase):
-    def test_zero_below_comfort_floor(self):
-        # 1.2x starting → exactly at the floor → 0
-        self.assertEqual(compute_excess_ratio(12_000, 10_000), 0.0)
+    def test_at_threshold_returns_zero(self):
+        # Concentration = exactly CONCENTRATION_FLOOR → zero (just at)
+        bankroll = int(14_000 * CONCENTRATION_FLOOR)
+        self.assertEqual(compute_excess_ratio(bankroll, 14_000), 0.0)
 
-    def test_zero_below_threshold(self):
-        # 0.5x starting → way below → 0
-        self.assertEqual(compute_excess_ratio(5_000, 10_000), 0.0)
+    def test_below_threshold_returns_zero(self):
+        # Concentration < CONCENTRATION_FLOOR → no excess
+        self.assertEqual(compute_excess_ratio(20_000, 14_000), 0.0)
 
-    def test_5x_starting_gives_38(self):
-        # 5x - 1.2 = 3.8 from the worked examples in the design doc
+    def test_above_threshold_linear(self):
+        # bankroll = 5x median; concentration = 5; excess = 5 - 2.5 = 2.5
         self.assertAlmostEqual(
-            compute_excess_ratio(50_000, 10_000), 3.8, places=3,
+            compute_excess_ratio(70_000, 14_000), 5.0 - CONCENTRATION_FLOOR,
+            places=3,
         )
 
-    def test_handles_zero_starting(self):
+    def test_extreme_outlier_unbounded(self):
+        # $2M against a $14K median produces a very large excess —
+        # caller's job to cap via MAX_PROB.
+        excess = compute_excess_ratio(2_170_000, 14_000)
+        self.assertGreater(excess, 100)
+
+    def test_zero_median_returns_zero(self):
         # Defensive: never divide by zero
         self.assertEqual(compute_excess_ratio(100_000, 0), 0.0)
 
@@ -232,7 +258,14 @@ class TestDurationForBucket(unittest.TestCase):
 
 @pytest.fixture
 def db_setup(tmp_path):
-    """Schema + repos + two seeded AIs (one flush, one broke)."""
+    """Schema + repos + cast distribution that produces a usable median.
+
+    Seeds:
+      - `flush_ai` at $50K — should vice (concentration >> 2.5)
+      - `broke_ai` at $5K — never vices
+      - 7 "background" AIs at $14K each so the cast median lands at
+        $14K. flush_ai concentration = 3.57 → above the 2.5 floor.
+    """
     db = str(tmp_path / "vice.db")
     SchemaManager(db).ensure_schema()
     bankroll = BankrollRepository(db)
@@ -240,7 +273,6 @@ def db_setup(tmp_path):
     vice_repo = ViceStateRepository(db)
     personality = PersonalityRepository(db)
 
-    # Two AI bankrolls: a flush one (vices) and a broke one (doesn't).
     bankroll.save_ai_bankroll(AIBankrollState(
         personality_id="flush_ai",
         chips=50_000,
@@ -251,6 +283,13 @@ def db_setup(tmp_path):
         chips=5_000,
         last_regen_tick=ANCHOR,
     ), sandbox_id=SBX, chip_ledger_repo=ledger)
+    # 7 background AIs at $14K each — anchors the cast median there.
+    for i in range(7):
+        bankroll.save_ai_bankroll(AIBankrollState(
+            personality_id=f"bg_ai_{i}",
+            chips=14_000,
+            last_regen_tick=ANCHOR,
+        ), sandbox_id=SBX, chip_ledger_repo=ledger)
 
     # Seed an emotional state for the flush AI — pressure 0.3-ish.
     flush_psych = {
@@ -432,6 +471,9 @@ class TestResolveAiViceSpending:
                 personality_id=pid, chips=50_000, last_regen_tick=ANCHOR,
             ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
 
+        # Use a low concentration_floor override so we're testing the
+        # cap mechanic, not the median-shift effect from adding 5
+        # flush AIs to the cast.
         result = resolve_ai_vice_spending(
             candidates={f"flush_{i}" for i in range(5)},
             vice_repo=db_setup["vice"],
@@ -441,6 +483,7 @@ class TestResolveAiViceSpending:
             rng=_AlwaysLowRng(),
             now=ANCHOR,
             max_starts=2,
+            concentration_floor=0.5,
         )
         assert len(result) == 2
 
@@ -469,6 +512,58 @@ class TestResolveAiViceSpending:
             - before_destructions.get('vice_spending', 0)
         )
         assert vice_destroyed == result[0].amount
+
+    def test_short_circuits_when_cast_too_poor(self, db_setup):
+        """If the cast median is below MIN_CAST_MEDIAN_FOR_VICE, vice
+        suppresses entirely — even a flush AI shouldn't fire when
+        "everybody is broke." Regression for the design intent: drain
+        the rich, not the relatively-richer-than-broke."""
+        # Drop everyone (including flush_ai) to near-zero so median collapses
+        for pid in ["flush_ai", "broke_ai"] + [f"bg_ai_{i}" for i in range(7)]:
+            db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
+                personality_id=pid, chips=500, last_regen_tick=ANCHOR,
+            ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+        # Now make one AI "relatively rich" by cast standards: $5K
+        # against a median of $500. Concentration = 10 (above floor).
+        # But cast median ($500) is below MIN_CAST_MEDIAN_FOR_VICE, so
+        # the pass short-circuits.
+        db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
+            personality_id="flush_ai", chips=5_000, last_regen_tick=ANCHOR,
+        ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+
+        result = resolve_ai_vice_spending(
+            candidates={"flush_ai"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result == []
+
+    def test_concentration_gate_excludes_modestly_above_average(self, db_setup):
+        """Reported bug: Ace at $24K vicing while median is $14K.
+        Under the concentration gate (2.5× median = $35K threshold),
+        an AI at $24K is only 1.71× — below the floor — so doesn't vice.
+        """
+        # Seed an "Ace-like" AI at $24K against the standing $14K median
+        db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
+            personality_id="ace_like",
+            chips=24_000,
+            last_regen_tick=ANCHOR,
+        ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+
+        result = resolve_ai_vice_spending(
+            candidates={"ace_like"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result == []
 
     def test_no_chip_ledger_repo_still_fires(self, db_setup):
         # vice should fire even when the ledger is unavailable —
@@ -594,6 +689,67 @@ class TestTickViceExpirations:
         assert db_setup["vice"].load("no_psych", sandbox_id=SBX) is None
 
 
+class TestFormatViceStartMessage:
+    """Defensive prefix logic — never let the ticker show an unattributed line."""
+
+    def test_name_led_narration_passes_through(self):
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message(
+            "Napoleon",
+            "Napoleon commissioned an oversized bronze bust",
+        )
+        assert out == "Napoleon commissioned an oversized bronze bust"
+
+    def test_case_insensitive_name_lead(self):
+        from cash_mode.activity import format_vice_start_message
+        # LLM lowercased the name — still counts as name-led.
+        out = format_vice_start_message(
+            "Buddha",
+            "buddha donated to the silent retreat fund",
+        )
+        assert out == "buddha donated to the silent retreat fund"
+
+    def test_possessive_name_lead(self):
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message(
+            "Napoleon",
+            "Napoleon's tailor delivered a new uniform",
+        )
+        assert out == "Napoleon's tailor delivered a new uniform"
+
+    def test_missing_name_gets_prepended(self):
+        """The reported UX bug: LLM dropped the name → ticker reads as
+        unattributed. The formatter prepends the name as a fallback."""
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message(
+            "Bezos",
+            "Pre-ordered a private flight he won't be on for two years",
+        )
+        assert out.startswith("Bezos — ")
+        assert "private flight" in out
+
+    def test_empty_narration_falls_back_to_name(self):
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message("Hemingway", "")
+        assert "Hemingway" in out
+        assert "stepped out" in out
+
+    def test_whitespace_only_narration_falls_back(self):
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message("Hemingway", "   \n  ")
+        assert "Hemingway" in out
+
+    def test_no_double_prepend_when_name_already_there(self):
+        """Don't produce 'Napoleon — Napoleon did X' on name-led inputs."""
+        from cash_mode.activity import format_vice_start_message
+        out = format_vice_start_message(
+            "Napoleon",
+            "Napoleon did the thing",
+        )
+        # Exactly one occurrence of the name at the start
+        assert out.count("Napoleon") == 1
+
+
 class TestEmitViceSpendingEvents:
     """Vice start / end events emit to the lobby ticker correctly."""
 
@@ -677,6 +833,44 @@ class TestEmitViceSpendingEvents:
         vice_events = [e for e in events if e.type == "vice_end"]
         assert len(vice_events) == 1
         assert "Buddha is back" in vice_events[0].message
+
+    def test_unattributed_narration_gets_name_prepended(self, db_setup):
+        """Regression for the reported UX bug: LLM returned a narration
+        without the character's name, ticker rendered as an
+        unattributed quote. The emit helper now resolves the name and
+        the formatter prepends it."""
+        from cash_mode import activity
+        from cash_mode.lobby import _emit_vice_spending_events
+
+        with activity._events_lock:
+            activity._events.clear()
+
+        self._setup_personality_repo(db_setup, "bezos_id", "Bezos")
+
+        start = ViceStartResult(
+            personality_id="bezos_id",
+            amount=4500,
+            duration_bucket='long',
+            started_at=ANCHOR,
+            ends_at=ANCHOR + timedelta(hours=3),
+            # LLM dropped the name in this case — the bug condition.
+            narration="Pre-ordered a private flight he won't be on for two years",
+            excess_ratio=4.0,
+            pressure=0.4,
+        )
+        _emit_vice_spending_events(
+            starts=[start],
+            ends=[],
+            personality_repo=db_setup["personality"],
+            now=ANCHOR,
+            sandbox_id=SBX,
+        )
+        events = activity.recent_events(limit=10, sandbox_id=SBX)
+        vice_events = [e for e in events if e.type == "vice_start"]
+        assert len(vice_events) == 1
+        # The displayed message identifies WHO is spending.
+        assert vice_events[0].message.startswith("Bezos")
+        assert "private flight" in vice_events[0].message
 
     def test_no_events_when_starts_and_ends_empty(self, db_setup):
         from cash_mode import activity

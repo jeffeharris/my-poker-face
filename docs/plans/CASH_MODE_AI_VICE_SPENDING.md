@@ -2,7 +2,7 @@
 purpose: Design and implementation plan for AI vice spending — a chip-sink that doubles as a psychology-regulation mechanic, with LLM-generated flavor narration driven by character + current psych state rather than authored vice configs.
 type: design
 created: 2026-05-21
-last_updated: 2026-05-22
+last_updated: 2026-05-23
 ---
 
 # Cash Mode — AI Vice Spending
@@ -75,15 +75,34 @@ multiplicative modifier). Wealth alone produces a baseline vice
 rate; pressure amplifies it. Broke AIs never vice regardless of
 how tilted they are.
 
-### Wealth — bankroll excess
+### Wealth — concentration relative to the cast
 
 ```
-excess_ratio = max(0, (bankroll − starting_bankroll × COMFORT_FLOOR) / starting_bankroll)
+concentration  = bankroll / cast_median
+excess_ratio   = max(0, concentration − CONCENTRATION_FLOOR)
 ```
 
-- `COMFORT_FLOOR = 1.2` — vice ignores everything up to 20% above
-  `starting_bankroll`. The 20% buffer keeps mildly-flush AIs from
-  triggering spending spirals.
+Where `cast_median` is the median bankroll across **all** AI bankroll
+rows in the sandbox (a single SQL query per refresh, robust to
+outliers — a $2M dominant AI doesn't pull the median up the way the
+mean would).
+
+- `CONCENTRATION_FLOOR = 2.5` — an AI must hold ≥ 2.5× the cast
+  median to be vice-eligible. In a sandbox with median = $14K that's
+  a $35K floor; in a $30K-median sandbox it's $75K. Scales naturally
+  with the economy.
+- `MIN_CAST_MEDIAN_FOR_VICE = 5_000` — when the cast median is below
+  this, vice suppresses entirely. "Everyone is broke" should not
+  produce vice; there's no real top to drain.
+
+**Why concentration replaced the prior per-personality gate:** the
+earlier formula used `bankroll > starting_bankroll × 1.2`, which
+made a low-baseline character (e.g., Ace Ventura at $24K with a
+$20K starting_bankroll) qualify for vice while objectively being
+mid-pack. The concentration gate measures wealth relative to the
+cast, not relative to each character's personal comfort, so vice
+genuinely targets the wealthy. The per-character flavor still comes
+through the LLM narration; the *trigger* is now an economic signal.
 
 ### Pressure — worst-axis psych distress
 
@@ -125,24 +144,29 @@ vice_prob = clamp(0, MAX_PROB,
   vices ~25% per refresh
 
 Properties:
-- **Broke gate** stays hard: `excess_ratio = 0` ⇒ `vice_prob = 0`
-  regardless of pressure
+- **Concentration gate** stays hard: below 2.5× cast median ⇒
+  `vice_prob = 0` regardless of pressure
 - **Wealth dominates**: a calm flush AI still vices regularly
 - **Pressure amplifies**: same wealth, tilted = ~1.5× the calm rate
-- **Tilted + flush is the protagonist** of vice events; calm flush
-  is the supporting cast; broke + tilted goes unmedicated
+- **Tilted + concentrated is the protagonist** of vice events; calm
+  flush is the supporting cast; mid-pack and broke go unmedicated
+- **Self-balancing**: in a wealthy sandbox the threshold rises with
+  the median; in a poor sandbox it falls (until the median dips
+  below `MIN_CAST_MEDIAN_FOR_VICE`, at which point vice suppresses
+  entirely)
 
-Worked examples (default `starting_bankroll = 10,000`):
+Worked examples (cast median = $14K, threshold = 2.5 × $14K = $35K):
 
-| AI | bankroll | excess | conf | comp | energy | pressure | vice_prob |
-|---|---|---|---|---|---|---|---|
-| Bezos calm | $50K | 3.8 | 0.70 | 0.90 | 0.60 | 0.40 | 0.152 × 1.24 = **0.19** |
-| Bezos rough (low confidence) | $50K | 3.8 | 0.20 | 0.85 | 0.70 | 0.80 | 0.152 × 1.48 = **0.22** |
-| Napoleon calm | $35K | 2.3 | 0.80 | 0.70 | 0.60 | 0.40 | 0.092 × 1.24 = **0.11** |
-| Napoleon tilted (low composure) | $35K | 2.3 | 0.60 | 0.25 | 0.50 | 0.75 | 0.092 × 1.45 = **0.13** |
-| Buddha calm | $25K | 1.3 | 0.75 | 0.95 | 0.55 | 0.45 | 0.052 × 1.27 = **0.07** |
-| Hemingway flush + drained | $13K | 0.1 | 0.60 | 0.50 | 0.15 | 0.85 | 0.004 × 1.51 = **0.006** |
-| Broke + anything | $6K | 0.0 | * | * | * | * | **0.00** |
+| AI | bankroll | concentration | excess | conf | comp | energy | pressure | vice_prob |
+|---|---|---|---|---|---|---|---|---|
+| Median AI | $14K | 1.00 | 0.0 | 0.70 | 0.70 | 0.60 | 0.40 | **0.00** |
+| Ace @ $24K (mid-pack) | $24K | 1.71 | 0.0 | 0.70 | 0.70 | 0.60 | 0.40 | **0.00** |
+| AI @ $37K (just over) | $37K | 2.64 | 0.14 | 0.70 | 0.70 | 0.60 | 0.40 | 0.006 × 1.24 = **0.007** |
+| AI @ $50K | $50K | 3.57 | 1.07 | 0.70 | 0.90 | 0.60 | 0.40 | 0.043 × 1.24 = **0.05** |
+| Bezos @ $80K calm | $80K | 5.71 | 3.21 | 0.70 | 0.90 | 0.60 | 0.40 | 0.128 × 1.24 = **0.16** |
+| Bezos @ $80K rough | $80K | 5.71 | 3.21 | 0.20 | 0.85 | 0.70 | 0.80 | 0.128 × 1.48 = **0.19** |
+| $2M outlier | $2.17M | 155 | 153 | * | * | * | * | **0.25** (capped) |
+| Broke AI | $5K | 0.36 | 0.0 | * | * | * | * | **0.00** |
 
 A flush AI rolls multiple times before vice fires (vice_prob 0.20 →
 expected gap ~5 refreshes ≈ ~40s of player-attention time), then
@@ -828,14 +852,21 @@ treatment for "away" state. Commit 4 polishes the UI.
 
 ## Locked decisions
 
-1. **Vice has a wealth gate and a pressure modifier.** Excess
-   bankroll is the hard gate — broke AIs never vice. Pressure
+1. **Vice has a wealth-concentration gate and a pressure modifier.**
+   The gate is cast-relative: an AI must hold ≥ `CONCENTRATION_FLOOR
+   × cast_median` chips to be eligible. This replaced the prior
+   per-personality `starting_bankroll × 1.2` gate, which let
+   low-baseline characters (e.g., Ace @ $24K) qualify while being
+   mid-pack by cast standards. Pressure
    (`1 − min(confidence, composure, energy)`) amplifies the
    probability when present, capped via `PRESSURE_BOOST`. Wealth
-   dominates; pressure shapes the cadence. Psych recovery is a
-   side benefit applied at vice end, not part of the firing
-   condition, but the formula's pressure factor means tilted AIs
-   vice more often and therefore recover more often.
+   concentration dominates; pressure shapes the cadence. Psych
+   recovery is a side benefit applied at vice end, not part of the
+   firing condition, but the formula's pressure factor means tilted
+   AIs vice more often and therefore recover more often. When the
+   cast median itself is below `MIN_CAST_MEDIAN_FOR_VICE`, the
+   entire pass short-circuits (no top to drain in a uniformly poor
+   cast).
 
 2. **Vice is a state, not an atomic event.** AIs on a vice are
    physically unavailable: not seatable, not stakeable in either
@@ -946,17 +977,25 @@ against actual cast economics:
    seat churn in `refresh_table_roster`, or a periodic "step away
    from the sim table" rotation rule.
 
-8. **Pressure: min vs drift?** Current design uses `1 − min(conf,
-   comp, energy)`, which gives every character a baseline pressure
-   floor (~0.4 when nothing is wrong, because axes typically sit
-   around 0.5-0.7). Alternative: `max(baseline_axis − current_axis)`
-   over the three axes, which puts a perfectly-anchored AI at
-   pressure = 0 cleanly. The min has the nice property that
-   inherently-stressed characters (e.g. low energy baseline) carry
-   a slight chronic vice-proneness — which is character expression
-   baked into the math. The drift version is purer mathematically
-   but treats Hemingway and Buddha identically when both are at
-   their baselines. Choose based on playtest feel.
+8. **Is `CONCENTRATION_FLOOR = 2.5` the right multiple?** A 2.5×
+   floor gives ~10% of the cast vice eligibility in a typical
+   sandbox (top decile). Lower (e.g., 1.5) gives a broader vice
+   population — more frequent events, more diffuse drain. Higher
+   (e.g., 3.0–4.0) restricts vice to the truly dominant. Adjust
+   from playtest by watching: how often does vice fire per refresh,
+   and does it correctly track "the AIs the player perceives as
+   running away with the economy"?
+
+9. **Pressure: min vs drift?** Current design uses
+   `1 − min(conf, comp, energy)`, which gives every character a
+   baseline pressure floor (~0.4 when nothing is wrong, because
+   axes typically sit around 0.5-0.7). Alternative:
+   `max(baseline_axis − current_axis)` over the three axes, which
+   puts a perfectly-anchored AI at pressure = 0 cleanly. The min
+   has the nice property that inherently-stressed characters
+   (e.g. low energy baseline) carry a slight chronic
+   vice-proneness — character expression baked into the math.
+   Choose based on playtest feel.
 
 9. **Does the pressure→recovery feedback loop create equilibria?**
    Tilted AI vices more → recovers more → vices less. Stable. But
