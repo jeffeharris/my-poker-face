@@ -84,7 +84,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
                 'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo',
+                'stake_repo', 'vice_state_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -588,3 +588,54 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn('seat_index', response.get_json()['error'])
+
+
+class TestSponsorRoutesViceFilter(_CashSponsorRouteBase):
+    """Vice spending: route refuses to stake an AI who's off-grid, and
+    the offer list excludes vicing AIs entirely.
+    """
+
+    def _put_napoleon_on_vice(self):
+        """Insert a vice state row for Napoleon."""
+        from datetime import timedelta
+        from poker.repositories.vice_state_repository import ViceState
+        now = datetime.utcnow()
+        self.vice_repo = self.app.extensions  # not used; reach via test_db
+        from poker.repositories.vice_state_repository import ViceStateRepository
+        vice_repo = ViceStateRepository(self.test_db.name)
+        vice_repo.insert_vice_state(ViceState(
+            personality_id=self.napoleon_id,
+            sandbox_id=self.test_sandbox_id,
+            started_at=now,
+            ends_at=now + timedelta(hours=2),
+            amount=2500,
+            duration_bucket='long',
+            narration='Napoleon commissioned a bronze bust',
+        ))
+
+    def test_sponsor_offers_excludes_vicing_ai(self):
+        """A vicing AI should not appear in the personality offers list."""
+        self._put_napoleon_on_vice()
+        response = self.client.get('/api/cash/sponsor-offers?stake_label=$10')
+        self.assertEqual(response.status_code, 200)
+        offers = response.get_json()['offers']
+        lender_ids = [o.get('lender_id') for o in offers if o['kind'] == 'personality']
+        self.assertNotIn(self.napoleon_id, lender_ids)
+
+    def test_sponsor_and_sit_refuses_vicing_lender(self):
+        """Stake-create against a vicing AI returns 409 with a clear payload."""
+        self._put_napoleon_on_vice()
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': '$10',
+                'lender_id': self.napoleon_id,
+                'opponents': 2,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        data = response.get_json()
+        self.assertIn('away', data['error'])
+        self.assertEqual(data['lender_id'], self.napoleon_id)
+        self.assertIn('vice_ends_at', data)
+        self.assertIn('vice_narration', data)

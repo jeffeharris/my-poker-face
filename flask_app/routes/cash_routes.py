@@ -1269,6 +1269,26 @@ def sponsor_offers_for_stake():
     from cash_mode.staking_tier import resolve_tier
 
     broad_candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+
+    # Vice spending: drop any candidates currently off-grid on a vice.
+    # Best-effort — if the lookup fails, fall through with the full
+    # list rather than failing the route.
+    try:
+        from flask_app.extensions import vice_state_repo
+        if vice_state_repo is not None:
+            on_vice_pids = vice_state_repo.active_pids(
+                sandbox_id=sandbox_id, now=datetime.utcnow(),
+            )
+            if on_vice_pids:
+                broad_candidates = [
+                    c for c in broad_candidates
+                    if c.get("personality_id") not in on_vice_pids
+                ]
+    except Exception as exc:
+        logger.warning(
+            "[CASH][SPONSOR_OFFERS] vice filter failed: %s", exc,
+        )
+
     candidates = broad_candidates
 
     if table_id:
@@ -1529,6 +1549,33 @@ def sponsor_and_sit():
         return jsonify({
             "error": "table_id and seat_index must be sent together",
         }), 400
+
+    # Vice spending: refuse staking an AI who's currently off-grid.
+    # The AI's bankroll is part of the stake's economic shape (offers
+    # are re-materialized server-side from their projected bankroll),
+    # and vicing AIs are not in the lobby anyway. Surface a clear
+    # message so the frontend can advise "back in X min" rather than
+    # a generic failure.
+    if lender_id is not None:
+        try:
+            from flask_app.extensions import vice_state_repo
+            if vice_state_repo is not None:
+                vstate = vice_state_repo.load(
+                    lender_id, sandbox_id=sandbox_id,
+                )
+                if vstate is not None and vstate.ends_at > datetime.utcnow():
+                    return jsonify({
+                        "error": "lender is currently away",
+                        "lender_id": lender_id,
+                        "vice_ends_at": vstate.ends_at.isoformat(),
+                        "vice_narration": vstate.narration,
+                    }), 409
+        except Exception as exc:
+            # Don't fail the route on a vice-check error — log and proceed.
+            logger.warning(
+                "[CASH][SPONSOR] vice check failed lender=%r: %s",
+                lender_id, exc,
+            )
     if table_id is not None and not isinstance(table_id, str):
         return jsonify({"error": "table_id must be a string"}), 400
     if seat_index is not None and (
@@ -4135,6 +4182,35 @@ def get_lobby():
             )
 
     from cash_mode.activity import recent_events, serialize_event
+
+    # Vice spending: surface AIs currently on a vice so the frontend
+    # can render an "Away" group + ETA badges. Best-effort — failures
+    # here shouldn't break the lobby response.
+    active_vices_payload = []
+    try:
+        from flask_app.extensions import vice_state_repo
+        if vice_state_repo is not None and sandbox_id is not None:
+            actives = vice_state_repo.list_active(
+                sandbox_id=sandbox_id, now=datetime.utcnow(),
+            )
+            for v in actives:
+                try:
+                    p = personality_repo.load_personality_by_id(v.personality_id)
+                except Exception:
+                    p = None
+                name = (p.get("name") if isinstance(p, dict) else None) or v.personality_id
+                active_vices_payload.append({
+                    "personality_id": v.personality_id,
+                    "name": name,
+                    "narration": v.narration,
+                    "duration_bucket": v.duration_bucket,
+                    "started_at": v.started_at.isoformat(),
+                    "ends_at": v.ends_at.isoformat(),
+                    "amount": v.amount,
+                })
+    except Exception as exc:
+        logger.warning("[CASH][LOBBY] active_vices payload failed: %s", exc)
+
     return jsonify({
         "bankroll": bankroll.chips,
         "tier": current_tier,
@@ -4145,6 +4221,7 @@ def get_lobby():
             for e in recent_events(limit=5, sandbox_id=sandbox_id)
         ],
         "pending_forgiveness_count": pending_forgiveness_count,
+        "active_vices": active_vices_payload,
     })
 
 

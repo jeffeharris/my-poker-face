@@ -15,7 +15,7 @@
  */
 
 import { useMemo } from 'react';
-import { HandCoins, Gift, ReceiptText } from 'lucide-react';
+import { HandCoins, Gift, ReceiptText, Sparkles, DoorOpen } from 'lucide-react';
 import type { LobbyEvent } from './types';
 import './CashMode.css';
 
@@ -87,6 +87,18 @@ export function ActivityTicker({ events }: ActivityTickerProps) {
               />
             ) : event.type === 'ai_default' ? (
               <ReceiptText
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'vice_start' ? (
+              <Sparkles
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'vice_end' ? (
+              <DoorOpen
                 size={14}
                 className="lobby-ticker__icon"
                 aria-hidden="true"
