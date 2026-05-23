@@ -127,20 +127,19 @@ def db_setup(tmp_path):
     ledger = ChipLedgerRepository(db)
     personality = PersonalityRepository(db)
 
-    fish_pids = []
-    for i in range(CASINO_FISH_MAX + 1):  # +1 spare
-        pid = f"test_fish_{i}"
+    # Fish are now generated ephemerally from the four named templates
+    # at casino spawn / refill time. Seed the templates so
+    # `spawn_ephemeral_fish` can clone them. No bankroll rows — the
+    # templates themselves never seat; their clones do.
+    from cash_mode.closed_economy import EPHEMERAL_FISH_TEMPLATES
+    fish_pids = list(EPHEMERAL_FISH_TEMPLATES)
+    for pid in fish_pids:
+        # Display name e.g. "Vacation Greg" for `vacation_greg`.
+        display = ' '.join(word.capitalize() for word in pid.split('_'))
         personality.save_personality(
-            f"TestFish{i}", _fish_config(pid, f"TestFish{i}"),
+            display, _fish_config(pid, display),
             personality_id=pid,
         )
-        bankroll.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=pid, chips=0, last_regen_tick=ANCHOR,
-            ),
-            sandbox_id=SBX,
-        )
-        fish_pids.append(pid)
 
     # 3 hungry grinders at the casino tier — well below the hunger threshold.
     grinder_pids = []
@@ -300,6 +299,7 @@ class TestCasinoSpawn:
         ledger = db_setup["ledger"]
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -322,6 +322,7 @@ class TestCasinoSpawn:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -335,6 +336,7 @@ class TestCasinoSpawn:
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -355,12 +357,14 @@ class TestCasinoSpawn:
 
         first = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
         # Second tick should NOT re-spawn (refill at most).
         second = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -382,6 +386,7 @@ class TestCasinoRefill:
         # Spawn with rng pinned so we know how many fish landed initially.
         spawn_batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -408,6 +413,7 @@ class TestCasinoRefill:
 
         refill_batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(2), now=ANCHOR,
         )
@@ -423,6 +429,7 @@ class TestCasinoRefill:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -446,6 +453,7 @@ class TestCasinoRefill:
         # Now resolve — pool is empty, so no refill should happen.
         result = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -464,6 +472,7 @@ class TestClosingState:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -484,6 +493,7 @@ class TestClosingState:
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -509,6 +519,7 @@ class TestClosingState:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -539,6 +550,7 @@ class TestClosingState:
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -561,6 +573,7 @@ class TestClosingState:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -581,6 +594,7 @@ class TestClosingState:
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -595,6 +609,7 @@ class TestClosingState:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=20_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -607,6 +622,7 @@ class TestClosingState:
         # Pool still healthy. Spawn should NOT fire at $2 because one is closing.
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
@@ -630,6 +646,7 @@ class TestSpawnConservation:
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -663,6 +680,7 @@ class TestPersistence:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -689,6 +707,7 @@ class TestPersistence:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -709,6 +728,7 @@ class TestPersistence:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
@@ -732,6 +752,7 @@ class TestPersistence:
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
         resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )

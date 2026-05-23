@@ -28,10 +28,13 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from cash_mode.closed_economy import (
     CASINO_TIER_STAKE_LABELS,
+    EPHEMERAL_FISH_TEMPLATES,
     compute_bank_pool_reserves,
+    is_ephemeral_fish_pid,
     is_hungry_grinder,
     list_hungry_grinders,
     load_fish_ids,
+    spawn_ephemeral_fish,
 )
 from cash_mode.stakes_ladder import (
     STAKES_LADDER,
@@ -244,23 +247,6 @@ def _casino_has_seated_fish(
     return False
 
 
-def _pick_fish_for_spawn(
-    fish_ids: Set[str],
-    *,
-    already_seated: Set[str],
-    count: int,
-    rng: random.Random,
-) -> List[str]:
-    """Pick up to `count` fish not currently seated elsewhere.
-
-    Returns shuffled order. Falls back to fewer fish if not enough
-    are available (caller decides whether to spawn anyway or skip).
-    """
-    available = [pid for pid in fish_ids if pid not in already_seated]
-    rng.shuffle(available)
-    return available[:count]
-
-
 # --- Resolver ---------------------------------------------------------
 
 
@@ -284,21 +270,38 @@ def _refill_one_fish(
     fish_buy_in: int,
     chip_ledger_repo,
     cash_table_repo,
+    personality_repo,
+    bankroll_repo,
     sandbox_id: str,
     rng: random.Random,
     now: datetime,
-    fish_ids: Set[str],
     already_seated: Set[str],
+    fish_ids: Set[str],
 ) -> Optional[CasinoRefill]:
-    """Seed one fish into one open seat at a casino. Returns None when
-    no seat is open, no fish is available, or pool can't fund it."""
+    """Spawn a new ephemeral fish and seat it at one open seat.
+
+    Returns None when no seat is open, ephemeral spawn fails, or
+    save_table fails. Mutates `already_seated` and `fish_ids` to
+    include the new pid so subsequent passes in the same refresh
+    see it.
+    """
     open_seats = _open_seat_indices(table)
     if not open_seats:
         return None
-    available = [pid for pid in fish_ids if pid not in already_seated]
-    if not available:
+
+    template = rng.choice(EPHEMERAL_FISH_TEMPLATES)
+    spawned = spawn_ephemeral_fish(
+        template_pid=template,
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        rng=rng,
+        sandbox_id=sandbox_id,
+        now=now,
+        chip_ledger_repo=chip_ledger_repo,
+    )
+    if spawned is None:
         return None
-    pid = rng.choice(available)
+    pid, _name = spawned
     seat_idx = rng.choice(open_seats)
     new_seats = list(table.seats)
     new_seats[seat_idx] = ai_slot(pid, fish_buy_in)
@@ -332,10 +335,12 @@ def _refill_one_fish(
             'site': 'casino_refill',
             'stake_label': stake_label,
             'table_id': table.table_id,
+            'template_pid': template,
         },
         sandbox_id=sandbox_id,
     )
     already_seated.add(pid)
+    fish_ids.add(pid)
     return CasinoRefill(
         table_id=table.table_id,
         stake_label=stake_label,
@@ -348,6 +353,7 @@ def resolve_casino_provisioning(
     *,
     cash_table_repo,
     bankroll_repo,
+    personality_repo,
     chip_ledger_repo,
     sandbox_id: str,
     rng: random.Random,
@@ -358,9 +364,9 @@ def resolve_casino_provisioning(
     Per refresh, for each stake in `CASINO_SPAWN_THRESHOLDS`:
 
       1. **Refill pass** — for active (not-closing) casinos with fewer
-         than `CASINO_FISH_MAX` fish seated, seed exactly ONE additional
-         fish if the pool can fund it. Creates the "trickle in" feel
-         as fish bust and the casino slowly tops back up.
+         than `CASINO_FISH_MAX` fish seated, generate one ephemeral
+         fish (alliterative variant of a template) and seat it if the
+         pool can fund the buy-in. Creates the "trickle in" feel.
 
       2. **Teardown pass** — for casinos with zero fish AND pool
          can't refund a new fish: enter `closing` state with countdown
@@ -368,9 +374,9 @@ def resolve_casino_provisioning(
          actually delete the row.
 
       3. **Spawn pass** — for stakes with no active OR closing casino:
-         if pool ≥ threshold AND there are ≥ MIN_FISH free fish AND
-         ≥ MIN_HUNGRY_GRINDERS in the idle pool, spawn a new casino
-         with a random fish count in [MIN, MAX].
+         if pool ≥ threshold AND ≥ MIN_HUNGRY_GRINDERS in the idle
+         pool, spawn a new casino. Fish are generated on demand from
+         the ephemeral pool — no pre-existing fish supply gated.
 
     Spawns draw `N × buy_in` from the pool atomically; refills draw
     one buy-in. Best-effort wrapping at each pass.
@@ -378,15 +384,16 @@ def resolve_casino_provisioning(
     batch = CasinoProvisioningBatch()
     if cash_table_repo is None or chip_ledger_repo is None:
         return batch
-    if bankroll_repo is None:
+    if bankroll_repo is None or personality_repo is None:
         return batch
 
+    # Snapshot of current fish (templates + already-spawned ephemerals)
+    # for `_count_seated_fish`. Mutated by spawn/refill passes so
+    # downstream passes see freshly-generated fish.
     fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
-    if not fish_ids:
-        return batch
 
-    # Globally-seated fish — avoid double-picking the same pid for
-    # multiple tables in one resolve.
+    # Globally-seated personalities — avoid double-picking the same pid
+    # for multiple tables in one resolve.
     already_seated: Set[str] = set()
     for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
         for slot in table.seats:
@@ -422,6 +429,8 @@ def resolve_casino_provisioning(
                 fish_buy_in=fish_buy_in,
                 chip_ledger_repo=chip_ledger_repo,
                 cash_table_repo=cash_table_repo,
+                personality_repo=personality_repo,
+                bankroll_repo=bankroll_repo,
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
@@ -458,11 +467,42 @@ def resolve_casino_provisioning(
             if currently_closing:
                 if countdown is not None and countdown <= 0:
                     # Countdown elapsed — actually delete.
+                    # First snapshot ephemeral fish that were seated
+                    # here so we can clean them up after the table
+                    # row is gone (no other place to find them once
+                    # the seats_json blob is deleted).
+                    ephemeral_pids = [
+                        slot.get('personality_id')
+                        for slot in table.seats
+                        if slot.get('kind') == 'ai'
+                        and slot.get('personality_id')
+                        and is_ephemeral_fish_pid(slot['personality_id'])
+                    ]
                     try:
                         cash_table_repo.delete_table(
                             table.table_id, sandbox_id=sandbox_id,
                         )
                         clear_closing(cash_table_repo, sandbox_id, table.table_id)
+                        # Ephemeral fish cleanup — best-effort. A failure
+                        # here leaves an orphan personality row but
+                        # doesn't break the teardown.
+                        for pid in ephemeral_pids:
+                            try:
+                                bankroll_repo.delete_ai_bankroll(
+                                    pid, sandbox_id=sandbox_id,
+                                )
+                                personality_repo.delete_personality_by_id(pid)
+                                fish_ids.discard(pid)
+                            except Exception as exc:
+                                logger.warning(
+                                    "[CASH][CASINO] ephemeral cleanup "
+                                    "failed for %s: %s", pid, exc,
+                                )
+                        if ephemeral_pids:
+                            logger.info(
+                                "[CASH][CASINO] cleaned up %d ephemeral fish "
+                                "from %s", len(ephemeral_pids), table.table_id,
+                            )
                         batch.teardowns.append(CasinoTeardown(
                             table_id=table.table_id,
                             stake_label=stake_label,
@@ -513,13 +553,18 @@ def resolve_casino_provisioning(
     by_stake_after_teardown = _existing_casinos_by_stake(
         cash_table_repo, sandbox_id=sandbox_id,
     )
+    # Hungry-grinder demand signal — count ALL hungry grinders in the
+    # sandbox, including those currently at lobby tables. They're the
+    # casino's target customer base; the casino spawns precisely to
+    # attract them away from low-EV lobby tables. Excluding
+    # already-seated grinders here would collapse the signal to zero
+    # any time the lobby refresh seats first (which is always — the
+    # casino check runs after the lobby loop).
     hungry_grinders = list_hungry_grinders(
         bankroll_repo,
         sandbox_id=sandbox_id,
         now=now,
-        exclude=already_seated,
     )
-    free_fish = [pid for pid in fish_ids if pid not in already_seated]
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
     for stake_label in threshold_order:
@@ -529,13 +574,13 @@ def resolve_casino_provisioning(
         # until their countdown elapses.
         if by_stake_after_teardown.get(stake_label):
             continue
-        # Economic + supply + demand gates.
+        # Economic + demand gates only. Fish supply is generated on
+        # demand from `EPHEMERAL_FISH_TEMPLATES` — no pre-existing
+        # fish pool to check.
         current_pool = compute_bank_pool_reserves(
             chip_ledger_repo, sandbox_id=sandbox_id,
         )
         if current_pool < threshold:
-            continue
-        if len(free_fish) < CASINO_FISH_MIN:
             continue
         if len(hungry_grinders) < CASINO_MIN_HUNGRY_GRINDERS:
             continue
@@ -545,29 +590,38 @@ def resolve_casino_provisioning(
             int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER),
             max_buy_in,
         )
-        # Variable spawn size — random [MIN, MAX]; capped by free fish + pool.
+        # Variable spawn size — random [MIN, MAX]; capped by pool depth.
+        # Pool funds buy-in × N; N is bounded by what the pool can
+        # cover. MIN guards against spawning a casino too small to
+        # feel populated.
         target_count = rng.randint(CASINO_FISH_MIN, CASINO_FISH_MAX)
-        target_count = min(target_count, len(free_fish))
         target_count = min(target_count, current_pool // fish_buy_in)
         if target_count < CASINO_FISH_MIN:
             continue
 
-        picked_fish = _pick_fish_for_spawn(
-            set(free_fish),
-            already_seated=already_seated,
-            count=target_count,
-            rng=rng,
-        )
-        if len(picked_fish) < CASINO_FISH_MIN:
-            continue
-
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         fish_positions = sorted(rng.sample(
-            range(TABLE_SEAT_COUNT), len(picked_fish),
+            range(TABLE_SEAT_COUNT), target_count,
         ))
         seated: List[str] = []
         total_drawn = 0
-        for pid, seat_idx in zip(picked_fish, fish_positions):
+        for seat_idx in fish_positions:
+            template = rng.choice(EPHEMERAL_FISH_TEMPLATES)
+            spawned = spawn_ephemeral_fish(
+                template_pid=template,
+                personality_repo=personality_repo,
+                bankroll_repo=bankroll_repo,
+                rng=rng,
+                sandbox_id=sandbox_id,
+                now=now,
+                chip_ledger_repo=chip_ledger_repo,
+            )
+            if spawned is None:
+                # Personality / bankroll write failed — leave the
+                # seat open and keep going. The next refresh's refill
+                # pass will retry.
+                continue
+            pid, _name = spawned
             seats[seat_idx] = ai_slot(pid, fish_buy_in)
             record_casino_seat_seed(
                 chip_ledger_repo,
@@ -576,15 +630,20 @@ def resolve_casino_provisioning(
                 context={
                     'site': 'casino_spawn',
                     'stake_label': stake_label,
-                    'fish_count': len(picked_fish),
+                    'fish_count': target_count,
+                    'template_pid': template,
                 },
                 sandbox_id=sandbox_id,
             )
             seated.append(pid)
             total_drawn += fish_buy_in
             already_seated.add(pid)
-            # Don't reuse this fish at another spawn in the same tick.
-            free_fish = [p for p in free_fish if p != pid]
+            fish_ids.add(pid)
+
+        # If we couldn't spawn enough fish (every spawn attempt
+        # failed), skip the table — the next refresh will try again.
+        if len(seated) < CASINO_FISH_MIN:
+            continue
 
         table_id = _casino_table_id(stake_label)
         new_state = CashTableState(
