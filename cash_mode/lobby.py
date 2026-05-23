@@ -1470,6 +1470,7 @@ def refresh_unseated_tables(
     if vice_repo is not None and sandbox_id is not None and chip_ledger_repo is not None:
         try:
             from cash_mode.ai_vice_spending import resolve_ai_vice_spending
+            from cash_mode.vice_narration import narrate_vice
             # Idle-only candidates per the design's "sim-seated AIs
             # are deferred" decision (see CASH_MODE_AI_VICE_SPENDING.md).
             # idle_pool was already filtered to exclude on_vice AIs at
@@ -1481,6 +1482,16 @@ def refresh_unseated_tables(
                 e.personality_id for e in current_idle
                 if e.personality_id not in on_vice
             }
+
+            def _vice_narrate(pid, amount, snapshot):
+                # Bind the personality_repo so the LLM prompt can
+                # include style + anchors + verbal tics. Fail-soft
+                # internal to narrate_vice — never raises.
+                return narrate_vice(
+                    pid, amount, snapshot,
+                    personality_repo=personality_repo,
+                )
+
             vice_starts = resolve_ai_vice_spending(
                 candidates=candidates,
                 vice_repo=vice_repo,
@@ -1489,6 +1500,7 @@ def refresh_unseated_tables(
                 sandbox_id=sandbox_id,
                 rng=rng,
                 now=now,
+                narrate_fn=_vice_narrate,
             )
         except Exception as exc:
             logger.warning(
