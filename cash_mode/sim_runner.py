@@ -383,27 +383,23 @@ def _capture_tick_metrics(
     casino_seated_fish_count = 0
     casino_seated_total_chips = 0
     casino_closing_count = 0
-    # bankroll_repo gives us the sandbox via the same DB; reuse its
-    # connection via a fresh cash_table_repo on the same path.
-    db_path_for_tables = (
-        bankroll_repo._db_path if hasattr(bankroll_repo, '_db_path') else None
-    )
-    if db_path_for_tables:
-        cash_table_repo = CashTableRepository(db_path_for_tables)
-        for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
-            if table.table_type != 'casino':
+    # Reuse the run-level db_path (already in scope as a kwarg) for a
+    # short-lived CashTableRepository — the per-tick walk is read-only.
+    cash_table_repo = CashTableRepository(db_path)
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'casino':
+            continue
+        casino_count += 1
+        if is_closing(cash_table_repo, sandbox_id, table.table_id):
+            casino_closing_count += 1
+        for slot in table.seats:
+            if slot.get('kind') != 'ai':
                 continue
-            casino_count += 1
-            if is_closing(cash_table_repo, sandbox_id, table.table_id):
-                casino_closing_count += 1
-            for slot in table.seats:
-                if slot.get('kind') != 'ai':
-                    continue
-                pid = slot.get('personality_id')
-                chips = int(slot.get('chips', 0))
-                casino_seated_total_chips += chips
-                if pid in fish_ids_set:
-                    casino_seated_fish_count += 1
+            pid = slot.get('personality_id')
+            chips = int(slot.get('chips', 0))
+            casino_seated_total_chips += chips
+            if pid in fish_ids_set:
+                casino_seated_fish_count += 1
 
     hungry_grinder_count = len(list_hungry_grinders(
         bankroll_repo, sandbox_id=sandbox_id, now=now,
