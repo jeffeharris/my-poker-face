@@ -28,10 +28,18 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, List, Optional
 
-from cash_mode.lender_profile import LenderProfile
+from cash_mode.staker_profile import StakerProfile
+from cash_mode.stakes import BORROWER_KIND_HUMAN
+from cash_mode.staking_tier import (
+    TIER_HOUSE_ONLY,
+    TIER_PREMIUM,
+    TIER_RESTRICTED,
+    TIER_STANDARD,
+    resolve_tier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +242,62 @@ class PersonalitySponsorOffer:
                    # used for sorting and for capacity-disclosure UX in v2.
 
 
+@dataclass(frozen=True)
+class LenderRejection:
+    """Captured reason a personality lender didn't surface an offer.
+
+    Phase 2 Commit 3 will surface these in the lobby response so the
+    player can see *why* Napoleon won't back them. Kept here (next to
+    the offer dataclasses) so the offer-generation site naturally
+    produces them as side-output, and the route layer can join them
+    onto the response without re-deriving the eligibility logic.
+
+    `reason` is a short stable identifier (good for analytics / UI
+    styling); `detail` is a free-text explanation suitable for display.
+    """
+
+    lender_id: str
+    lender_name: str
+    reason: str
+    detail: str
+
+
+# Phase 2 — 7-day cooldown gating re-stakes after a default. Locked
+# decision #1 from the backing-system handoff. Mirrors the player-
+# staker side cooldown in `player_staking.PLAYER_STAKE_DEFAULT_COOLDOWN_SECONDS`
+# (kept as a separate constant rather than imported to avoid a
+# cash_mode → cash_mode cross-dependency cycle).
+LENDER_DEFAULT_COOLDOWN_SECONDS = 7 * 24 * 60 * 60
+
+
+# Per-tier knobs for the cut bump applied on top of the relationship-
+# axis adjustments. Tunable; midpoints of the ranges given in the
+# Phase 2 spec ("standard cuts bumped 5-10%, restricted bumped 15-25%").
+TIER_RATE_BUMP = {
+    TIER_PREMIUM: 0.00,
+    TIER_STANDARD: 0.075,
+    TIER_RESTRICTED: 0.20,
+    TIER_HOUSE_ONLY: 0.00,  # unused — house_only returns empty list
+}
+
+# Per-tier minimums on relationship axes for a personality lender to
+# surface at all. Falling below either kicks the lender out of the pool.
+# Premium is open to everyone the legacy gates allow; standard is mildly
+# selective; restricted requires high trust on both axes.
+TIER_RELATIONSHIP_FLOORS = {
+    TIER_PREMIUM:    {"likability": 0.0, "respect": 0.0},
+    TIER_STANDARD:   {"likability": 0.4, "respect": 0.5},
+    TIER_RESTRICTED: {"likability": 0.6, "respect": 0.6},
+    TIER_HOUSE_ONLY: {"likability": 1.1, "respect": 1.1},  # impossible
+}
+
+# Per-staker garnishment cap (locked decision: +20pp max). The bump
+# itself is `outstanding_carry / new_principal`, clamped to this.
+GARNISHMENT_RATE_CAP = 0.20
+
+
 def _adjusted_terms(
-    profile: LenderProfile,
+    profile: StakerProfile,
     *,
     likability: float,
     heat: float,
@@ -300,7 +362,7 @@ def _relationship_hint(
 
 
 def _capacity_for_lender(
-    profile: LenderProfile,
+    profile: StakerProfile,
     projected_bankroll: int,
     *,
     min_buy_in: int,
@@ -325,8 +387,17 @@ def compute_personality_offers(
     candidate_personalities: List[dict],
     bankroll_repo,
     relationship_repo,
+    sandbox_id: str,
     now: Optional[datetime] = None,
     count: int = 3,
+    # Phase 2 additions — when provided, the function applies tier
+    # filtering + per-staker garnishment. Backward compatible: callers
+    # that omit both knobs get pre-Phase-2 behavior (no tier logic, no
+    # garnishment). Production callers always pass them.
+    stake_repo=None,
+    stake_label: Optional[str] = None,
+    borrower_kind: str = BORROWER_KIND_HUMAN,
+    rejections_out: Optional[List["LenderRejection"]] = None,
 ) -> List[PersonalitySponsorOffer]:
     """Generate up to `count` AI-personality sponsor offers.
 
@@ -341,9 +412,19 @@ def compute_personality_offers(
          a min buy-in is filtered.
       3. `relationship.respect >= profile.respect_floor`
       4. `relationship.projected_heat <= profile.heat_ceiling`
+      5. **Tier floors (Phase 2):** when `stake_repo`+`stake_label`
+         are provided, the borrower's tier is resolved and lenders
+         falling below the tier's likability/respect floors drop out
+         (standard ≥ 0.4 likability + 0.5 respect; restricted ≥ 0.6 on
+         both; house_only returns []).
 
     For each qualifying candidate, terms are trimmed by relationship
-    axes (see `_adjusted_terms`).
+    axes (see `_adjusted_terms`) and then bumped by:
+      - Tier rate-bump (standard ≈ +7.5pp, restricted ≈ +20pp).
+      - Per-staker garnishment (Phase 2): if the borrower has an
+        existing carry with this specific lender, the lender's rate
+        rises by `outstanding_carry / new_principal`, capped at
+        `GARNISHMENT_RATE_CAP` (+20pp).
 
     No-relationship-row case: `relationship_repo.load_relationship_state`
     returns None → treated as default neutral state (respect=0.5,
@@ -351,20 +432,85 @@ def compute_personality_offers(
     their anchor terms unmodified.
 
     "No outstanding loan from THIS lender" gate (eligibility 5 in the
-    handoff): the caller filters this — `compute_personality_offers`
-    is pure and doesn't know the player's bankroll state. The route
-    skips this gate when the player has no active loan (the common
-    case for the sponsor screen, which fires at bankroll < min
-    buy-in).
+    Path B handoff): unchanged — still the caller's responsibility.
+    The Phase 2 per-staker garnishment doesn't *block* a same-lender
+    re-stake; it makes the terms worse so the borrower feels the
+    weight of the prior unpaid carry on the new offer.
 
     Returns offers sorted by capacity descending — bigger-stake
-    lenders surface first.
+    lenders surface first. Empty list when `tier == 'house_only'`.
+
+    Side-output: `rejections_out` is an optional list the function
+    appends `LenderRejection` rows to as candidates fail eligibility
+    gates 3/4/5. Phase 2 Commit 3 reads this so the sponsor modal
+    can surface "Napoleon refuses — you defaulted last week"-style
+    UI. Pass `None` to skip the side-output (zero overhead).
 
     `now` defaults to `datetime.utcnow()`; explicit `now` lets tests
     pin the projection point for stable results.
     """
     if now is None:
         now = datetime.utcnow()
+
+    # Phase 2: resolve the borrower's tier if the caller supplied the
+    # bits we need. Tier knobs are no-op (premium-equivalent) when
+    # the caller didn't opt in.
+    tier = TIER_PREMIUM
+    if stake_repo is not None and stake_label is not None:
+        tier = resolve_tier(
+            borrower_id=player_owner_id,
+            borrower_kind=borrower_kind,
+            current_stake_label=stake_label,
+            stake_repo=stake_repo,
+        )
+        if tier == TIER_HOUSE_ONLY:
+            # House-only — no personality offers surface; route falls
+            # back to anonymous archetypes entirely.
+            return []
+
+    # Per-staker carry lookup, indexed by staker_id for cheap inner-loop
+    # access. Same `stake_repo` opt-in as tier resolution.
+    carries_by_staker: dict = {}
+    if stake_repo is not None:
+        carries = stake_repo.list_carries_for_borrower(
+            player_owner_id, borrower_kind,
+        )
+        for c in carries:
+            if c.staker_id is None:
+                continue  # house stakes never carry; defensive skip
+            carries_by_staker.setdefault(c.staker_id, 0)
+            carries_by_staker[c.staker_id] += int(c.carry_amount)
+
+    # Phase 2 — 7-day default cooldown. One bulk SQL to build the set
+    # of lenders the player defaulted on within the window; per-candidate
+    # check is then O(1) in the loop below. Mirrors the carries-by-staker
+    # lookup pattern. Skipped when `stake_repo` is None (legacy callers).
+    defaulted_staker_ids: set = set()
+    if stake_repo is not None:
+        cooldown_threshold = now - timedelta(
+            seconds=LENDER_DEFAULT_COOLDOWN_SECONDS,
+        )
+        with stake_repo._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT staker_id FROM stakes
+                WHERE borrower_id = ?
+                  AND borrower_kind = ?
+                  AND status = 'defaulted'
+                  AND settled_at IS NOT NULL
+                  AND settled_at >= ?
+                  AND staker_id IS NOT NULL
+                """,
+                (
+                    player_owner_id,
+                    borrower_kind,
+                    cooldown_threshold.isoformat(),
+                ),
+            ).fetchall()
+        defaulted_staker_ids = {row[0] for row in rows}
+
+    tier_floors = TIER_RELATIONSHIP_FLOORS[tier]
+    tier_rate_bump = TIER_RATE_BUMP[tier]
 
     qualifying: List[PersonalitySponsorOffer] = []
 
@@ -374,12 +520,14 @@ def compute_personality_offers(
         if not pid:
             continue
 
-        profile = bankroll_repo.load_lender_profile(pid)
+        profile = bankroll_repo.load_staker_profile(pid)
         if not profile.willing:
             continue
 
         # Projected bankroll via projection-on-read.
-        projected = bankroll_repo.load_ai_bankroll_current(pid, now=now)
+        projected = bankroll_repo.load_ai_bankroll_current(
+            pid, sandbox_id=sandbox_id, now=now,
+        )
         if projected is None:
             # No bankroll row yet — can't lend out of nothing. Skip.
             continue
@@ -389,6 +537,24 @@ def compute_personality_offers(
             min_buy_in=min_buy_in, max_buy_in=max_buy_in,
         )
         if capacity < min_buy_in:
+            continue
+
+        # Phase 2 — 7-day default cooldown. If the player defaulted
+        # on a stake from THIS lender within the window, the lender
+        # refuses outright. Surfaces a specific "you defaulted on
+        # them recently" reason in the rejections side-output so the
+        # sponsor modal can render it without re-deriving the
+        # eligibility logic.
+        if pid in defaulted_staker_ids:
+            if rejections_out is not None:
+                rejections_out.append(LenderRejection(
+                    lender_id=pid, lender_name=name,
+                    reason="recent_default",
+                    detail=(
+                        f"{name} won't back you yet — you defaulted "
+                        "on them recently."
+                    ),
+                ))
             continue
 
         # Relationship state — lender's POV of the player. None → default neutral.
@@ -403,8 +569,37 @@ def compute_personality_offers(
             likability = rel.likability
 
         if respect < profile.respect_floor:
+            if rejections_out is not None:
+                rejections_out.append(LenderRejection(
+                    lender_id=pid, lender_name=name,
+                    reason="respect_too_low",
+                    detail=f"{name} doesn't respect your game right now.",
+                ))
             continue
         if heat > profile.heat_ceiling:
+            if rejections_out is not None:
+                rejections_out.append(LenderRejection(
+                    lender_id=pid, lender_name=name,
+                    reason="heat_too_high",
+                    detail=f"{name} is too heated to stake you.",
+                ))
+            continue
+
+        # Tier floors — only applied when the caller opted in. Lenders
+        # that pass legacy gates 1-4 may still fail tier 5 here.
+        if (
+            likability < tier_floors["likability"]
+            or respect < tier_floors["respect"]
+        ):
+            if rejections_out is not None:
+                rejections_out.append(LenderRejection(
+                    lender_id=pid, lender_name=name,
+                    reason="tier_floor",
+                    detail=(
+                        f"{name} won't back you at the {tier} tier — "
+                        "you haven't built up enough goodwill."
+                    ),
+                ))
             continue
 
         floor, rate = _adjusted_terms(
@@ -413,6 +608,22 @@ def compute_personality_offers(
             heat=heat,
             respect=respect,
         )
+
+        # Tier-based rate bump (standard / restricted).
+        rate = rate + tier_rate_bump
+
+        # Per-staker garnishment (Phase 2): if the borrower has a
+        # carry owed to THIS lender, bump the cut so the new offer's
+        # economics partially pay it down.
+        carry_owed = carries_by_staker.get(pid, 0)
+        if carry_owed > 0 and capacity > 0:
+            garnish = min(carry_owed / capacity, GARNISHMENT_RATE_CAP)
+            rate += garnish
+
+        # Re-clamp to the same window `_adjusted_terms` enforces so the
+        # tier + garnishment bumps can't push past 0.55.
+        rate = max(0.00, min(0.55, rate))
+
         hint = _relationship_hint(
             likability=likability, heat=heat, respect=respect,
         )

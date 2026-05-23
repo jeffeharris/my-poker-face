@@ -20,10 +20,12 @@ them).
 """
 
 from collections import defaultdict
-from typing import Any, Dict, Optional
+from itertools import combinations
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 
 from core.card import Card
+from poker.hand_evaluator import HandEvaluator
 from poker.hand_narrator import (
     evaluate_hand_label,
     format_action_phrase,
@@ -223,12 +225,22 @@ def _format_hand_context_rich(
 
     Output sections:
       1. OUTCOME — single-line "You WON/LOST/FOLDED" prefix the LLM can lean on.
-      2. Recap from ``narrate_hand_recap`` — player list with positions,
+      2. YOUR CARDS / BOARD / WINNER — explicit always-present facts so the
+         LLM always sees what cards the player held, the community cards,
+         and who won with what. These are surfaced up front because the
+         narrator recap can drop them on sparse hands (e.g. preflop folds
+         or hands with incomplete action records).
+      3. Recap from ``narrate_hand_recap`` — player list with positions,
          street-by-street action with "You" substitution, RESULT, SHOWDOWN.
-      3. YOUR HAND BREAKDOWN — per-card explanation of which cards formed
+      4. YOUR HAND BREAKDOWN — per-card explanation of which cards formed
          the player's best 5-card hand (when at least 3 board cards exist).
     """
     parts = [f"OUTCOME: {_OUTCOME_DESCRIPTIONS.get(context['outcome'], context['outcome'])}"]
+
+    facts = _build_explicit_card_facts(context, recorded_hand, player_name, big_blind)
+    if facts:
+        parts.append("")
+        parts.extend(facts)
 
     recap = narrate_hand_recap(
         recorded_hand, big_blind=big_blind, perspective=player_name,
@@ -246,6 +258,263 @@ def _format_hand_context_rich(
         parts.append(f"\n{context['drama_note']}")
 
     return '\n'.join(parts)
+
+
+def _build_explicit_card_facts(
+    context: Dict[str, Any],
+    recorded_hand: RecordedHand,
+    player_name: str,
+    big_blind: Optional[int],
+) -> list:
+    """Explicit cards block the LLM can't misread.
+
+    Lists separately:
+      - YOUR HOLE CARDS — the two cards dealt to the player.
+      - COMMUNITY CARDS — the board.
+      - YOUR BEST 5 CARDS — the actual 5 cards forming the player's best
+        hand, tagged ``(yours)`` / ``(board)`` so a small model can't claim
+        the player "won with their cards" when the pair came off the board.
+      - HOLE CARDS USED — which of the player's hole cards are active.
+      - RIVER IMPACT — whether the river card actually changed the player's
+        best 5. Hard guard against the "lucky river!" trope when the river
+        was a blank.
+      - OPPONENT AT SHOWDOWN — best-5 for every non-folded opponent.
+    """
+    lines = []
+
+    hole_strs = recorded_hand.hole_cards.get(player_name) or context.get('player_cards') or []
+    community_strs = (
+        list(recorded_hand.community_cards) if recorded_hand.community_cards
+        else (context.get('community_cards') or [])
+    )
+
+    if hole_strs:
+        lines.append(f"YOUR HOLE CARDS: {' '.join(hole_strs)}")
+
+    if community_strs:
+        lines.append(f"COMMUNITY CARDS: {' '.join(community_strs)}")
+    elif hole_strs:
+        lines.append("COMMUNITY CARDS: (none — hand ended preflop)")
+
+    best5 = _compute_best5_info(hole_strs, community_strs)
+    if best5:
+        provenance, hand_name, used_hole_strs, river_impact = best5
+        if hand_name:
+            lines.append(f"YOUR BEST 5 CARDS: {provenance}  →  {hand_name}")
+        else:
+            lines.append(f"YOUR BEST 5 CARDS: {provenance}")
+
+        unused = [c for c in hole_strs if c not in used_hole_strs]
+        if used_hole_strs and unused:
+            lines.append(
+                f"HOLE CARDS USED: {', '.join(used_hole_strs)} — "
+                f"your {', '.join(unused)} played no role."
+            )
+        elif used_hole_strs:
+            lines.append(f"HOLE CARDS USED: {', '.join(used_hole_strs)}.")
+        else:
+            lines.append("HOLE CARDS USED: none — the board played your hand.")
+
+        if river_impact is not None:
+            lines.append(f"RIVER IMPACT: {river_impact}")
+
+    winner_lines = _build_winner_summary(recorded_hand, player_name, big_blind)
+    lines.extend(winner_lines)
+
+    opponent_lines = _build_opponent_showdowns(recorded_hand, player_name)
+    if opponent_lines:
+        lines.append("")
+        lines.append("OPPONENTS AT SHOWDOWN:")
+        lines.extend(opponent_lines)
+
+    return lines
+
+
+def _build_winner_summary(
+    recorded_hand: RecordedHand,
+    player_name: str,
+    big_blind: Optional[int],
+) -> list:
+    """One line per winner: name, amount won, cards (if shown), made hand."""
+    from poker.hand_narrator import _fmt_amount  # local import to avoid cycle
+
+    if not recorded_hand.winners:
+        return []
+
+    lines = []
+    for w in recorded_hand.winners:
+        name = "You" if w.name == player_name else w.name
+        amount = _fmt_amount(w.amount_won, big_blind)
+        cards = recorded_hand.hole_cards.get(w.name) if recorded_hand.was_showdown else None
+        cards_part = f" with [{', '.join(cards)}]" if cards else ""
+        hand_part = f" — {w.hand_name}" if w.hand_name else ""
+        lines.append(f"WINNER: {name} won {amount}{cards_part}{hand_part}")
+    return lines
+
+
+def _build_opponent_showdowns(
+    recorded_hand: RecordedHand, player_name: str,
+) -> list:
+    """One indented line per non-folded showdown opponent.
+
+    Format::
+
+        - Lady Macbeth: hole 6♠ 10♦  →  best 5: 2♠ 2♣ 10♦(hers) J♥ 7♣  (One Pair, 2's)
+    """
+    if not recorded_hand.was_showdown:
+        return []
+
+    folded = {a.player_name for a in recorded_hand.actions if a.action == 'fold'}
+    acted = {a.player_name for a in recorded_hand.actions}
+    opponents = [
+        p.name for p in recorded_hand.players
+        if p.name != player_name
+        and p.name in acted
+        and p.name not in folded
+        and p.name in recorded_hand.hole_cards
+    ]
+
+    community_strs = list(recorded_hand.community_cards) if recorded_hand.community_cards else []
+    if not community_strs or not opponents:
+        return []
+
+    winner_hand_names = {w.name: w.hand_name for w in recorded_hand.winners if w.hand_name}
+
+    lines = []
+    for name in opponents:
+        opp_hole = recorded_hand.hole_cards.get(name) or []
+        if not opp_hole:
+            continue
+        best5 = _compute_best5_info(opp_hole, community_strs, hole_label="hers")
+        if best5:
+            provenance, hand_name, _, _ = best5
+            label = winner_hand_names.get(name) or hand_name
+            label_part = f"  ({label})" if label else ""
+            lines.append(
+                f"  - {name}: hole {' '.join(opp_hole)}  →  best 5: {provenance}{label_part}"
+            )
+        else:
+            label = winner_hand_names.get(name)
+            label_part = f"  ({label})" if label else ""
+            lines.append(f"  - {name}: hole {' '.join(opp_hole)}{label_part}")
+
+    return lines
+
+
+def _compute_best5_info(
+    hole_strs: list,
+    community_strs: list,
+    hole_label: str = "yours",
+) -> Optional[Tuple[str, str, List[str], Optional[str]]]:
+    """Return (provenance_str, hand_name, used_hole_strs, river_impact) or None.
+
+    ``provenance_str`` is the 5 cards tagged with ``(yours)`` / ``(board)``
+    in best-hand display order (made-hand cards first, then kickers, high
+    to low). ``used_hole_strs`` is the subset of hole cards that appear in
+    the best 5. ``river_impact`` is ``None`` when there's no river card to
+    reason about, otherwise a human-readable sentence stating whether the
+    river card changed the player's made hand.
+    """
+    if len(hole_strs) < 2 or len(community_strs) < 3:
+        return None
+    try:
+        hole_cards = [Card.from_short(c) for c in hole_strs]
+        community_cards = [Card.from_short(c) for c in community_strs]
+    except (KeyError, ValueError, IndexError) as e:
+        logger.debug(f"[HandContext] Card parsing failed for best-5: {e}")
+        return None
+
+    best5_cards, hand_name = _select_best_5(hole_cards + community_cards)
+    if not best5_cards:
+        return None
+
+    hole_set = {(c.value, c.suit) for c in hole_cards}
+    ordered = _order_for_display(best5_cards)
+    provenance_tokens = [
+        f"{str(c)}({hole_label})" if (c.value, c.suit) in hole_set else f"{str(c)}(board)"
+        for c in ordered
+    ]
+    used_hole_strs = [
+        str(c) for c in hole_cards if (c.value, c.suit) in {(b.value, b.suit) for b in best5_cards}
+    ]
+    # Map back to the original strings so unicode-suit display is preserved.
+    used_hole_input_strs = [
+        hole_strs[i] for i, c in enumerate(hole_cards)
+        if (c.value, c.suit) in {(b.value, b.suit) for b in best5_cards}
+    ]
+
+    river_impact = _compute_river_impact(hole_cards, community_cards, hand_name)
+
+    return " ".join(provenance_tokens), hand_name, used_hole_input_strs, river_impact
+
+
+def _select_best_5(seven_cards: List[Card]) -> Tuple[List[Card], str]:
+    """Brute-force the best 5-card combo out of 7 (or however many).
+
+    Returns the 5 Card objects forming the best hand plus the hand_name.
+    HandEvaluator's hand_rank is 1=Royal Flush, 10=High Card (lower better),
+    so we sort by (-hand_rank, hand_values, kicker_values) descending.
+    """
+    if len(seven_cards) < 5:
+        return [], ""
+
+    best_key = None
+    best_combo: List[Card] = []
+    best_name = ""
+    for combo in combinations(seven_cards, 5):
+        result = HandEvaluator(list(combo)).evaluate_hand()
+        key = (
+            -result.get("hand_rank", 10),
+            tuple(result.get("hand_values", []) or []),
+            tuple(result.get("kicker_values", []) or []),
+        )
+        if best_key is None or key > best_key:
+            best_key = key
+            best_combo = list(combo)
+            best_name = result.get("hand_name", "")
+    return best_combo, best_name
+
+
+def _order_for_display(cards: List[Card]) -> List[Card]:
+    """Sort the best-5 cards into a stable display order.
+
+    Repeated ranks (pair, trips, quads) cluster together. Within a rank,
+    sort by suit alphabetically so output is deterministic. Across ranks,
+    sort by frequency (more = more important) then by rank descending.
+    """
+    from collections import Counter
+    rank_counts = Counter(c.value for c in cards)
+    return sorted(
+        cards,
+        key=lambda c: (-rank_counts[c.value], -c.value, c.suit),
+    )
+
+
+def _compute_river_impact(
+    hole_cards: List[Card],
+    community_cards: List[Card],
+    river_hand_name: str,
+) -> Optional[str]:
+    """Did the river card change the player's best hand?
+
+    Returns ``None`` if there's no river card (fewer than 5 board cards).
+    Otherwise, returns a short sentence the LLM can quote so it doesn't
+    fabricate a "river save" when the river was a blank.
+    """
+    if len(community_cards) < 5:
+        return None
+
+    pre_river_board = community_cards[:4]
+    _, pre_river_name = _select_best_5(hole_cards + pre_river_board)
+    river_card = community_cards[4]
+
+    if not pre_river_name:
+        return f"River {river_card} completed your hand ({river_hand_name})."
+    if pre_river_name == river_hand_name:
+        return f"River {river_card} was a blank — your hand was already {river_hand_name} on the turn."
+    return (
+        f"River {river_card} changed your hand from {pre_river_name} to {river_hand_name}."
+    )
 
 
 def _build_player_hand_breakdown(

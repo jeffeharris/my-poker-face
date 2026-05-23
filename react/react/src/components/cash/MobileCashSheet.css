@@ -27,7 +27,11 @@
 
 .mobile-cash-sheet__sheet {
   width: 100%;
-  max-height: 60dvh;
+  /* Was 60dvh — too short when the loan-breakdown panel appears and
+     pushed the confirm button below the fold. 85dvh gives the body
+     room to grow; the inner __body is scrollable so anything past
+     that still reaches the user. */
+  max-height: 85dvh;
   display: flex;
   flex-direction: column;
   background: linear-gradient(
@@ -41,6 +45,10 @@
     0 -4px 40px rgba(0, 0, 0, 0.7),
     0 -1px 0 rgba(255, 255, 255, 0.04);
   animation: mcs-cash-sheet-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  /* `overflow: hidden` is what was clipping the leave-confirm button
+     when the loan-breakdown panel expanded the body past the sheet's
+     max-height. The body itself now owns the scroll (see below) so
+     long content stays reachable. */
   overflow: hidden;
 }
 
@@ -102,7 +110,16 @@
 }
 
 .mobile-cash-sheet__body {
+  /* Take all remaining vertical space inside the sheet and own the
+     scroll so the leave-confirm button stays reachable when the loan
+     breakdown panel inflates the body. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 16px;
+  /* Keep the last button above the iOS home indicator gesture area. */
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
@@ -132,6 +149,29 @@
 .mobile-cash-sheet__value--secondary {
   font-size: 0.875rem;
   opacity: 0.8;
+}
+
+.mobile-cash-sheet__net-worth {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mobile-cash-sheet__net-worth-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+  margin-bottom: 0.25rem;
+}
+
+.mobile-cash-sheet__net-worth-hint {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  opacity: 0.6;
 }
 
 .mobile-cash-sheet__topup {
@@ -210,4 +250,54 @@
   color: #fca5a5;
   border-radius: 6px;
   font-size: 0.8125rem;
+}
+
+.mobile-cash-sheet__breakdown {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+}
+
+.mobile-cash-sheet__breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-cash-sheet__breakdown-row.is-total {
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+
+.mobile-cash-sheet__breakdown-row.is-bankroll {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.mobile-cash-sheet__breakdown-row.is-sponsor {
+  color: #fca5a5;
+}
+
+.mobile-cash-sheet__breakdown-detail {
+  font-size: 0.75rem;
+  opacity: 0.65;
+  margin-left: 0.4rem;
+}
+
+.mobile-cash-sheet__breakdown-note {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-style: italic;
 }

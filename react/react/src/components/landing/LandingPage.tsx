@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Monitor, MessageCircle, Brain, Flame } from 'lucide-react';
 import { PageLayout } from '../shared';
-import menuBanner from '../../assets/menu-banner.png';
+import menuBanner from '../../assets/menu-banner.webp';
 import './LandingPage.css';
 
 export function LandingPage() {

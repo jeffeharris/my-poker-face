@@ -6,6 +6,7 @@ Generates end-of-hand commentary including reactions, reflections, and observati
 
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -223,31 +224,36 @@ class CommentaryGenerator:
 
         Higher threshold than reflection - only speak on interesting hands.
 
-        Priority (checked first, override pot size):
-        1. All-ins - always dramatic
-        2. Showdowns - cards revealed
-        3. Pressure situations - significant % of someone's stack
+        Drama signals (all-in, showdown, pressure) raise the probability of
+        speech but no longer guarantee it — every player at the table
+        unconditionally piling on after every showdown was the dominant
+        source of chat-volume excess. All branches now roll against the
+        player's chattiness so quiet personalities stay quiet.
 
         Args:
             hand: The completed hand record
             player_name: Name of the player considering commentary
             big_blind: Current big blind for dynamic thresholds (fallback to $200)
-            chattiness: Player's chattiness level (affects pressure situation decisions)
+            chattiness: Player's chattiness level (affects all speech rolls)
 
         Returns:
             bool: True if the hand is worth speaking about
         """
-        # === PRIORITY OVERRIDES (check first, bypass pot threshold) ===
+        # === DRAMA SIGNALS (chattiness-weighted, not unconditional) ===
 
-        # All-ins are always dramatic
+        # All-in anywhere in the hand: 35–80% across chattiness range
         if any(a.action == 'all_in' for a in hand.actions):
-            logger.debug("Should speak: all-in occurred")
-            return True
+            prob = 0.30 + chattiness * 0.50
+            if random.random() < prob:
+                logger.debug(f"Should speak: all-in (prob={prob:.2f})")
+                return True
 
-        # Showdowns are dramatic
+        # Showdown: 45–85% across chattiness range
         if hand.was_showdown:
-            logger.debug("Should speak: showdown occurred")
-            return True
+            prob = 0.40 + chattiness * 0.50
+            if random.random() < prob:
+                logger.debug(f"Should speak: showdown (prob={prob:.2f})")
+                return True
 
         # Pressure situations: pot is >30% of any player's starting stack
         for player_info in hand.players:
@@ -355,7 +361,8 @@ class CommentaryGenerator:
                            opponent_context_override: Optional[str] = None,
                            big_blind: Optional[int] = None,
                            is_eliminated: bool = False,
-                           spectator_context: Optional[str] = None) -> Optional[HandCommentary]:
+                           spectator_context: Optional[str] = None,
+                           should_speak_override: Optional[bool] = None) -> Optional[HandCommentary]:
         """Generate personalized commentary for a player about a hand.
 
         Args:
@@ -374,6 +381,8 @@ class CommentaryGenerator:
             big_blind: Current big blind for dynamic thresholds
             is_eliminated: Whether player is eliminated (spectator mode)
             spectator_context: Context for spectators (who eliminated them, position, etc.)
+            should_speak_override: Pre-computed should_speak decision from caller (used by
+                                   memory_manager to enforce per-hand speaker cap)
 
         Returns:
             HandCommentary or None if commentary generation is disabled/fails
@@ -386,8 +395,13 @@ class CommentaryGenerator:
             logger.debug(f"Skipping reflection for {player_name}: not involved enough")
             return None
 
-        # Determine if hand is dramatic enough to speak about (higher bar)
-        should_speak = self._should_speak(hand, player_name, big_blind, chattiness)
+        # Determine if hand is dramatic enough to speak about (higher bar).
+        # Caller (memory_manager) may have already rolled this and applied a
+        # per-hand cap on visible speakers — honor that decision when given.
+        if should_speak_override is not None:
+            should_speak = should_speak_override
+        else:
+            should_speak = self._should_speak(hand, player_name, big_blind, chattiness)
 
         try:
             # Build context for the prompt — render the recap in the

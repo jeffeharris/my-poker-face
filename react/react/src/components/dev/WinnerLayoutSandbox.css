@@ -1,0 +1,416 @@
+/* Winner Layout Sandbox — dev-only iteration page.
+   Direction: quiet editorial / type-specimen feel. Fraunces for the title,
+   JetBrains Mono for technical metadata, restrained dark palette with one
+   warm amber accent that nods to the winner-card gold. */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.ws {
+    --bg: #0c0c10;
+    --bg-grid: rgba(255, 255, 255, 0.02);
+    --surface: #14141a;
+    --surface-2: #1a1a22;
+    --border: #23232d;
+    --border-strong: #2d2d39;
+    --ink: #f4f4f6;
+    --ink-muted: #8e8e9a;
+    --ink-faint: #5a5a66;
+    --accent: #d4a574;
+    --accent-dim: rgba(212, 165, 116, 0.16);
+    --hairline: rgba(244, 244, 246, 0.06);
+
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    min-height: 100vh;
+    background: var(--bg);
+    background-image:
+        linear-gradient(var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--ink);
+    font-family: var(--font-body);
+    padding: 40px 48px 64px;
+    box-sizing: border-box;
+}
+
+/* Freeze animations inside the stage so layout iteration isn't a moving
+   target. The components rely on opacity transitions to fade in, so we
+   also flip them visible immediately via the .show class workaround
+   inside .ws-frame-stage rules below. */
+.ws-stage *,
+.ws-stage *::before,
+.ws-stage *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition: none !important;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────── */
+
+.ws-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 48px 56px;
+    align-items: end;
+    padding-bottom: 28px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 1100px) {
+    .ws-header {
+        grid-template-columns: 1fr;
+        align-items: start;
+    }
+}
+
+.ws-header-block {
+    min-width: 0;
+}
+
+.ws-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 14px;
+}
+
+.ws-eyebrow-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-dim);
+}
+
+.ws-title {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(36px, 4.4vw, 56px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+    color: var(--ink);
+    font-variation-settings: 'opsz' 96;
+}
+
+.ws-title-em {
+    font-style: italic;
+    color: var(--ink-muted);
+    font-weight: 400;
+}
+
+.ws-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    letter-spacing: 0.02em;
+}
+
+.ws-meta-sep {
+    color: var(--border-strong);
+}
+
+/* ─── Toolbar ────────────────────────────────────────────────────── */
+
+.ws-toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.ws-toolbar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.ws-toolbar-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+}
+
+.ws-segmented {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 1px;
+}
+
+.ws-segmented-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease !important;
+}
+
+.ws-segmented-item:hover {
+    color: var(--ink);
+}
+
+.ws-segmented-item.is-active {
+    background: var(--surface-2);
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.ws-segmented-item.is-active .ws-segmented-index {
+    color: var(--accent);
+}
+
+.ws-segmented-index {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--ink-faint);
+    letter-spacing: 0.05em;
+}
+
+.ws-segmented-label {
+    letter-spacing: -0.005em;
+}
+
+.ws-pills {
+    display: inline-flex;
+    gap: 6px;
+}
+
+.ws-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-muted);
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease !important;
+}
+
+.ws-pill input {
+    /* Hidden — pill state is driven by the .is-on class. */
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ws-pill::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    transition: background 120ms ease, box-shadow 120ms ease !important;
+}
+
+.ws-pill.is-on {
+    color: var(--ink);
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+}
+
+.ws-pill.is-on::before {
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* ─── Stage ──────────────────────────────────────────────────────── */
+
+.ws-stage {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 56px;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.ws-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+/* Spec strip — type-specimen card above each frame */
+.ws-spec {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 18px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    align-self: flex-start;
+}
+
+.ws-spec-row {
+    display: contents;
+}
+
+.ws-spec-key {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-faint);
+    align-self: center;
+}
+
+.ws-spec-val {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+    letter-spacing: 0.01em;
+}
+
+.ws-spec-sub {
+    color: var(--ink-muted);
+}
+
+/* ─── Frames ─────────────────────────────────────────────────────── */
+
+.ws-frame {
+    position: relative;
+    background: radial-gradient(ellipse at top, #1c1c25 0%, #0e0e14 90%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    contain: layout paint;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.03) inset,
+        0 30px 60px -30px rgba(0, 0, 0, 0.6);
+}
+
+.ws-frame--desktop {
+    width: 880px;
+    max-width: calc(100vw - 96px);
+}
+
+.ws-frame-chrome {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.ws-chrome-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--border-strong);
+}
+
+.ws-chrome-url {
+    margin-left: 16px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.02em;
+}
+
+.ws-frame--desktop .ws-frame-stage {
+    height: 720px;
+    overflow-y: auto;
+}
+
+.ws-frame--mobile {
+    width: 390px;
+    border-radius: 38px;
+    border: 1px solid var(--border-strong);
+    background: #000;
+    box-shadow:
+        0 0 0 6px #0e0e14,
+        0 0 0 7px var(--border),
+        0 30px 60px -20px rgba(0, 0, 0, 0.7);
+}
+
+.ws-frame--mobile .ws-frame-stage {
+    height: 780px;
+    border-radius: 32px;
+    overflow: hidden;
+}
+
+.ws-frame-notch {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 26px;
+    background: #000;
+    border-radius: 999px;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px #16161e;
+}
+
+.ws-frame-stage {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Scope the components' fixed-positioned overlays into the frame.
+   Mobile overlay is a flex column with its own internal scroll on the
+   content area, so we just convert position: fixed → absolute. */
+.ws-frame-stage :where(.winner-announcement) {
+    position: absolute;
+}
+
+.ws-frame-stage :where(.mobile-winner-overlay) {
+    position: absolute;
+}
+
+/* Desktop overlay still needs to be able to grow within the frame. */
+.ws-frame--desktop :where(.winner-content) {
+    max-width: 92%;
+    padding: 22px 30px;
+}
+
+/* The mock data uses is_final_hand: true to keep the modal from auto-
+   dismissing. Hide just the tournament-outcome banner (irrelevant for
+   layout iteration), but keep the post-round chat and dismiss/continue
+   buttons visible so the full preview is faithful. */
+.ws-stage .tournament-outcome-banner,
+.ws-stage .mobile-tournament-outcome-banner {
+    display: none !important;
+}
+
+/* Variants reserved for future layout iteration — the sticky action
+   bar that was prototyped here has now been folded into the real
+   MobileWinnerAnnouncement component (see .mobile-winner-footer). */

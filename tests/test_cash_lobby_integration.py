@@ -60,14 +60,12 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                 f'Lender {i}',
                 {
                     'bankroll_knobs': {
-                        'bankroll_cap': 1_000_000,
+                        'starting_bankroll': 1_000_000,
                         'bankroll_rate': 0,
                         'buy_in_multiplier': 1.0,
-                        'stop_loss_buy_ins': 3,
-                        'stop_win_buy_ins': 5,
                         'stake_comfort_zone': '$10',
                     },
-                    'lender_profile': {
+                    'staker_profile': {
                         'willing': True,
                         'max_loan_pct_of_bankroll': 0.20,
                         'floor_anchor': 1.10,
@@ -80,7 +78,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
             cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=100_000,
                 last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-            ))
+            ), sandbox_id="test-sandbox-1")
             cls.personality_ids.append(pid)
 
         def mock_init_persistence():
@@ -92,7 +90,8 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                 'capture_label_repo', 'replay_experiment_repo',
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo',
+                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'stake_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -172,7 +171,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
             stake_label="$50",
             seats=seats,
         )
-        self.cash_table_repo.save_table(custom_table)
+        self.cash_table_repo.save_table(custom_table, sandbox_id="test-sandbox-1")
 
         resp = self.client.get(
             "/api/cash/sponsor-offers?stake_label=$50&table_id=cash-table-50-001"
@@ -191,7 +190,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
         unwilling_pid = self.personality_repo.save_personality(
             'Unwilling',
             {
-                'lender_profile': {
+                'staker_profile': {
                     'willing': False,
                     'max_loan_pct_of_bankroll': 0.20,
                     'floor_anchor': 1.10,
@@ -204,7 +203,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=unwilling_pid, chips=100_000,
             last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ))
+        ), sandbox_id="test-sandbox-1")
         # Seat only the unwilling personality.
         seats = [ai_slot(unwilling_pid, 80)] + [open_slot()] * 5
         custom_table = CashTableState(
@@ -212,7 +211,7 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
             stake_label="$2",
             seats=seats,
         )
-        self.cash_table_repo.save_table(custom_table)
+        self.cash_table_repo.save_table(custom_table, sandbox_id="test-sandbox-1")
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id=PLAYER_OWNER_ID, chips=50, starting_bankroll=50,
         ))

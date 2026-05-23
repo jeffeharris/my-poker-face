@@ -28,6 +28,17 @@ from pathlib import Path
 os.environ['RATE_LIMIT_NEW_GAME'] = '10000 per minute'
 os.environ['RATE_LIMIT_GAME_ACTION'] = '10000 per minute'
 
+# Disable cash-mode movement-narrative LLM calls across the WHOLE suite.
+# The seated-table chat path (`flask_app/handlers/game_handler.py:
+# _emit_seated_movement_chat`) and any lobby route exercising the worker
+# queue would otherwise fire real FAST-tier calls during integration
+# tests — burning tokens without test signal. Lives in the top-level
+# conftest (not just `tests/test_cash_mode/conftest.py`) because many
+# cash-mode integration tests live OUTSIDE that subdirectory
+# (`tests/test_cash_lobby_route.py`, `tests/test_cash_sit_route.py`,
+# etc.) and don't see the per-package conftest.
+os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
+
 import pytest
 from unittest.mock import Mock, patch
 

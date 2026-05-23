@@ -202,6 +202,7 @@ class ExpressionGenerator:
         'recent_actions',
         'callouts',
         'recent_own_beats',
+        'recent_own_action_beats',
         'emotional_state',
         'drama',
         'mode_indicator',
@@ -248,6 +249,11 @@ class ExpressionGenerator:
         template = self.prompt_manager.get_template('decision_expression')
         drama_context = self.drama_contexts.get(ctx.drama_level, '')
         tone_modifier = self.tone_modifiers.get(ctx.drama_tone, '')
+
+        # Shared gesture/example block — sourced from prompt_manager so
+        # all dramatic_sequence prompts (full hybrid, tiered expression,
+        # bounded choice) stay in sync.
+        from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
 
         raise_clause = (
             f" (to {ctx.raise_to})"
@@ -299,11 +305,15 @@ class ExpressionGenerator:
             'recent_own_beats': "\n".join(
                 f'  - "{b}"' for b in ctx.recent_own_speech_beats
             ),
+            'recent_own_action_beats': "\n".join(
+                f'  - {b}' for b in ctx.recent_own_action_beats
+            ),
             'callouts': "\n".join(f'  - {c}' for c in ctx.callouts),
             'tier_paren': tier_paren,
             'situational_reads': situational_reads,
             'mode_label': self._MODE_LABELS[mode],
             'mode_hint': self._MODE_HINTS[mode],
+            'dramatic_sequence_guidance': DRAMATIC_SEQUENCE_GUIDANCE,
         }
 
         # Optional user-side sections — skipped when empty so the prompt
@@ -315,6 +325,8 @@ class ExpressionGenerator:
             skip.add('recent_actions')
         if not ctx.recent_own_speech_beats:
             skip.add('recent_own_beats')
+        if not ctx.recent_own_action_beats:
+            skip.add('recent_own_action_beats')
         if not ctx.callouts:
             skip.add('callouts')
         if not situational_reads:
@@ -350,6 +362,14 @@ class ExpressionGenerator:
         if obs_block:
             user_text = f"{user_text}\n\n{obs_block}"
 
+        # Append relationship-context block when present. Pre-formatted
+        # by the caller (see relationship_prompt.build_relationship_context)
+        # so the block reads identically here, in chaos's
+        # _build_decision_prompt, and in hybrid's _build_choice_prompt.
+        rel_block = self._render_relationship_context_block(ctx)
+        if rel_block:
+            user_text = f"{user_text}\n\n{rel_block}"
+
         return system_text, user_text
 
     def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:
@@ -372,6 +392,18 @@ class ExpressionGenerator:
                 f"{ctx.personality_name}: {e}"
             )
             return ''
+
+    def _render_relationship_context_block(self, ctx: ExpressionContext) -> str:
+        """Render the relationship-context block as a prompt suffix.
+
+        The block is pre-formatted upstream by
+        `poker.memory.relationship_prompt.build_relationship_context`,
+        so this method's only job is to surface it (or skip when
+        empty). Pre-existing callers that don't populate the field
+        produce identical prompts to before.
+        """
+        block = getattr(ctx, 'relationship_context', '') or ''
+        return block.strip()
 
     def _render_narration_facts_block(self, ctx: ExpressionContext) -> str:
         """Render the NarrationFacts block as a prompt suffix.

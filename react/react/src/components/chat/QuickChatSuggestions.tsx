@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, Users, type LucideIcon } from 'lucide-react';
+import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
-import { config } from '../../config';
+import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
 
 // Cooldown between suggestion fetches to prevent API spam
@@ -19,11 +19,28 @@ interface QuickChatSuggestionsProps {
     player: string;
     amount?: number;
   };
-  onSelectSuggestion: (text: string) => void;
+  /**
+   * Receives the suggestion text plus the explicit addressing list when a
+   * specific opponent (not "table") is targeted. Drives the backend's
+   * find_callouts detection for AI players.
+   *
+   * Also forwards the structured `tone` and `intensity` selected by the
+   * user — the backend uses these to map the message to a
+   * `RelationshipEvent` and update bilateral affinity axes. The fields
+   * are advisory: callers that don't care can ignore them.
+   */
+  onSelectSuggestion: (
+    text: string,
+    addressing?: string[],
+    tone?: ChatTone,
+    intensity?: ChatIntensity,
+  ) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
   onSuggestionsLoaded?: () => void;
   guestChatDisabled?: boolean;
+  /** Pre-select a player as the target on mount (e.g. opened from dossier). */
+  initialTarget?: string | null;
 }
 
 interface ToneOption {
@@ -50,9 +67,10 @@ export function QuickChatSuggestions({
   defaultExpanded = false,
   hideHeader = false,
   onSuggestionsLoaded,
-  guestChatDisabled = false
+  guestChatDisabled = false,
+  initialTarget = null,
 }: QuickChatSuggestionsProps) {
-  const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<string | null>(initialTarget);
   const [selectedTone, setSelectedTone] = useState<ChatTone | null>(null);
   const [suggestions, setSuggestions] = useState<TargetedSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,8 +106,11 @@ export function QuickChatSuggestions({
     localStorage.setItem('quickchat_intensity', intensity);
   }, [intensity]);
 
-  // Get AI players (non-human, not folded)
-  const aiPlayers = players.filter(p => !p.is_human && !p.is_folded);
+  // All AI players stay selectable as chat targets — including folded ones.
+  // Folded targets are still useful: the player can needle a busted opponent
+  // or reach out to a friend who just mucked. Folded state is reflected
+  // visually so the affordance is honest about who's still in the hand.
+  const aiPlayers = players.filter(p => !p.is_human);
   const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
     // Block fetching when guest chat is disabled
     if (guestChatDisabled) return;
@@ -174,7 +195,22 @@ export function QuickChatSuggestions({
   };
 
   const handleSuggestionClick = (text: string) => {
-    onSelectSuggestion(text);
+    // Only attach addressing when targeting a specific opponent. The
+    // "table" pseudo-target is broadcast chat and should leave the
+    // addressing list empty so AIs don't treat it as a direct callout.
+    const addressing = selectedTarget && selectedTarget !== 'table'
+      ? [selectedTarget]
+      : undefined;
+    // Forward the user's structured tone choice and intensity so the
+    // backend can map this message to a RelationshipEvent. Both are
+    // null-safe — selectedTone is guaranteed truthy at click time (the
+    // suggestion list only renders after a tone is picked).
+    onSelectSuggestion(
+      text,
+      addressing,
+      selectedTone ?? undefined,
+      intensity,
+    );
     // Reset state after selection
     setSelectedTarget(null);
     setSelectedTone(null);
@@ -228,40 +264,11 @@ export function QuickChatSuggestions({
       )}
 
       {/* Target selector */}
-      <div className="target-selector">
-        <div className="selector-label">Who?</div>
-        <div className="target-options">
-          <button
-            className={`target-btn target-btn-table ${selectedTarget === 'table' ? 'selected' : ''}`}
-            onClick={() => handleTargetSelect('table')}
-            title="Talk to the table"
-          >
-            <Users size={22} style={{ opacity: 0.85 }} />
-            <span className="target-name">Table</span>
-          </button>
-          {aiPlayers.map((player) => {
-            // Encode avatar URL path segments to handle spaces in player names
-            const rawPath = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
-              ? player.avatar_url
-              : `/api/avatar/${player.name}/confident/full`;
-            const encodedPath = rawPath.split('/').map(seg => encodeURIComponent(seg)).join('/');
-            const avatarUrl = `${config.API_URL}${encodedPath}`;
-            return (
-              <button
-                key={player.name}
-                className={`target-btn target-btn-player ${selectedTarget === player.name ? 'selected' : ''} has-bg-image`}
-                onClick={() => handleTargetSelect(player.name)}
-                title={`Talk to ${player.name}`}
-                style={{ backgroundImage: `url(${avatarUrl})` }}
-              >
-                <span className="target-name">
-                  {player.nickname || player.name}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <ChatTargetSelector
+        aiPlayers={aiPlayers}
+        selectedTarget={selectedTarget}
+        onTargetSelect={handleTargetSelect}
+      />
 
       {/* Tone selector */}
       <div className="tone-selector">

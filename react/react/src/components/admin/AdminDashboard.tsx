@@ -8,6 +8,7 @@ import { ExperimentDesigner, ExperimentChat, type AssistantPanelProps } from './
 import { PromptPresetManager } from './PromptPresetManager';
 import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
+import { ChipLedgerPanel } from './ChipLedgerPanel';
 import { HandReplayBrowser } from './HandReplay';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
@@ -16,7 +17,7 @@ import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import { SIDEBAR_ITEMS } from './adminSidebarItems';
 import './AdminDashboard.css';
-import '../menus/GameMenu.css';
+import '../menus/TournamentMenu.css';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -126,12 +127,15 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
       {activeTab === 'debug' && (
         <DebugTools embedded />
       )}
+      {activeTab === 'chip-ledger' && (
+        <ChipLedgerPanel embedded />
+      )}
     </>
   );
 
   // Mobile layout - show menu if no tab selected, otherwise show content
   if (isMobile) {
-    // No tab selected - show the menu using PageLayout (matches GameMenu style)
+    // No tab selected - show the menu using PageLayout (matches TournamentMenu style)
     if (!activeTab) {
       return (
         <>

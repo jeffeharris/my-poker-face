@@ -64,20 +64,25 @@ class RelationshipEvent(Enum):
     BAD_BEAT = "bad_beat"
     DOMINATED_SHOWDOWN = "dominated_showdown"
     STRONG_FOLD_SHOWN = "strong_fold_shown"
+    COOLER = "cooler"
 
-    # Chat events (categorizer output — Phase 5 in the design doc)
+    # Chat events. Emitted synchronously from the quick-chat dispatch
+    # path (`flask_app/handlers/chat_relationship.py`) when the UI sends
+    # a structured `(tone, target)` message — no LLM categorizer needed.
     TRASH_TALK = "chat_trash_talk"
     COMPLIMENT = "chat_compliment"
     TAUNT_POST_WIN = "chat_taunt_post_win"
     FRIENDLY_BANTER = "chat_friendly_banter"
-    TELL_READ = "chat_tell_read"
 
-    # Cash-mode sponsorship events (Path B). The "actor" is the AI
-    # lender (extending or being repaid/defaulted), the "target" is
-    # the player who took the loan.
-    SPONSORSHIP_OFFERED = "sponsorship_offered"
-    LOAN_REPAID = "loan_repaid"
-    LOAN_DEFAULTED = "loan_defaulted"
+    # Cash-mode staking events. The "actor" is the AI staker (extending
+    # the stake, being repaid, or being defaulted on), the "target" is
+    # the borrower (player in Phase 1; AIs join in Phase 4, humans
+    # become stakers in Phase 5).
+    STAKE_OFFERED = "stake_offered"
+    STAKE_REPAID = "stake_repaid"
+    STAKE_DEFAULTED = "stake_defaulted"
+    STAKE_FORGIVEN = "stake_forgiven"
+    STAKE_FORGIVENESS_REFUSED = "stake_forgiveness_refused"
 
     # Quarantine sentinel for unknown strings encountered on load.
     # Has zero entries in both dispatch tables — `record_event` with
@@ -129,27 +134,52 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.BAD_BEAT:           AxisShift(heat=+0.30, respect=-0.15, likability=-0.10),
     RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat= 0.00, respect=-0.15, likability= 0.00),
     RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect=+0.10, likability= 0.00),
+    # COOLER actor: the loser brought a strong hand and ran into a
+    # stronger one. Emotional signature differs from BAD_BEAT (no
+    # equity injustice) and from DOMINATED_SHOWDOWN (where the loser
+    # didn't have much to begin with) — "I had it, they had more."
+    # Heat ticks up (frustration of losing a real hand), respect up
+    # (winner had even more), likability down slightly (no malice).
+    # Starting calibration; tune from play data once distribution vs
+    # BAD_BEAT and DOMINATED_SHOWDOWN is visible.
+    RelationshipEvent.COOLER:             AxisShift(heat=+0.10, respect=+0.10, likability=-0.05),
 
     # Chat events
     RelationshipEvent.TRASH_TALK:         AxisShift(heat=+0.10, respect= 0.00, likability=-0.05),
     RelationshipEvent.COMPLIMENT:         AxisShift(heat= 0.00, respect=+0.03, likability=+0.05),
     RelationshipEvent.TAUNT_POST_WIN:     AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
     RelationshipEvent.FRIENDLY_BANTER:    AxisShift(heat= 0.00, respect= 0.00, likability=+0.03),
-    RelationshipEvent.TELL_READ:          AxisShift(heat= 0.00, respect=+0.05, likability= 0.00),
 
-    # Cash-mode sponsorship (Path B). Actor = AI lender; their view of
-    # the player moves on loan lifecycle events.
-    #   SPONSORSHIP_OFFERED: lender extends trust → small respect bump,
-    #     small likability bump (extending was a positive gesture).
-    #   LOAN_REPAID: borrower honored the floor → respect + likability up,
-    #     heat cools slightly (any prior friction abated by payment).
-    #   LOAN_DEFAULTED: borrower stiffed the lender → respect plummets,
+    # Cash-mode staking. Actor = AI staker; their view of the borrower
+    # moves on stake lifecycle events.
+    #   STAKE_OFFERED: staker extends trust → small respect bump, small
+    #     likability bump (offering a stake is a positive gesture).
+    #   STAKE_REPAID: borrower returned principal + cut → respect +
+    #     likability up, heat cools slightly (any prior friction
+    #     abated by payment).
+    #   STAKE_DEFAULTED: borrower stiffed the staker (explicit default
+    #     action — passive carries don't fire this) → respect plummets,
     #     heat surges, likability drops. The sharpest axis hit in the
-    #     starting calibration — defaulting is the worst thing a borrower
-    #     can do to a lender.
-    RelationshipEvent.SPONSORSHIP_OFFERED: AxisShift(heat= 0.00, respect=+0.05, likability=+0.03),
-    RelationshipEvent.LOAN_REPAID:        AxisShift(heat=-0.05, respect=+0.15, likability=+0.10),
-    RelationshipEvent.LOAN_DEFAULTED:     AxisShift(heat=+0.30, respect=-0.30, likability=-0.20),
+    #     starting calibration — defaulting is the worst thing a
+    #     borrower can do to a staker.
+    #   STAKE_FORGIVEN: staker wrote off a carry on request → small
+    #     heat drop, small respect/likability bump (forgiveness reads
+    #     as generous, not pushover, at this magnitude).
+    RelationshipEvent.STAKE_OFFERED:   AxisShift(heat= 0.00, respect=+0.05, likability=+0.03),
+    RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.15, likability=+0.10),
+    RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.30, respect=-0.30, likability=-0.20),
+    RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.05, likability=+0.05),
+    # STAKE_FORGIVENESS_REFUSED: borrower asked for forgiveness and the
+    # staker refused. Small actor-side hit — "you have some nerve
+    # asking" — without escalating to the full STAKE_DEFAULTED magnitude
+    # (defaulting is a much sharper transgression than asking). Actor
+    # is staker, target is borrower; the staker's view of the borrower
+    # drops slightly. Mirror (borrower's view of staker) shifts only
+    # mildly — the borrower wasn't expecting the ask to be granted, but
+    # being refused does cool their warmth toward the staker a touch.
+    RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
+        heat=+0.02, respect= 0.00, likability=-0.05,
+    ),
 
     # Quarantine — no axis impact
     RelationshipEvent.UNKNOWN:            AxisShift(),
@@ -183,6 +213,11 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.BAD_BEAT:           AxisShift(heat= 0.00, respect=+0.05, likability=-0.05),
     RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat=-0.02, respect= 0.00, likability=-0.02),
     RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect= 0.00, likability= 0.00),
+    # COOLER mirror: the winner had a monster too and ran over the
+    # loser's strong hand. Small respect bump (the loser put up a
+    # fight, not a passive loss); heat near zero (no animosity from
+    # the winner — they got there cleanly); likability roughly neutral.
+    RelationshipEvent.COOLER:             AxisShift(heat= 0.00, respect=+0.05, likability= 0.00),
 
     # Chat events. Mirror is the speaker's TARGET (who hears the
     # message). Trash-talk-toward-target moves target's heat against
@@ -191,16 +226,23 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.COMPLIMENT:         AxisShift(heat=-0.02, respect=+0.02, likability=+0.05),
     RelationshipEvent.TAUNT_POST_WIN:     AxisShift(heat=+0.15, respect= 0.00, likability=-0.10),
     RelationshipEvent.FRIENDLY_BANTER:    AxisShift(heat= 0.00, respect= 0.00, likability=+0.03),
-    RelationshipEvent.TELL_READ:          AxisShift(heat=+0.05, respect= 0.00, likability=-0.02),
 
-    # Cash-mode sponsorship (Path B). Mirror = borrower's view of the
-    # AI lender. Receiving a loan creates gratitude; repaying confirms
-    # that the lender was trustworthy; defaulting curdles into mutual
-    # animosity (borrower sees lender as a creditor breathing down
-    # their neck).
-    RelationshipEvent.SPONSORSHIP_OFFERED: AxisShift(heat= 0.00, respect=+0.05, likability=+0.05),
-    RelationshipEvent.LOAN_REPAID:        AxisShift(heat=-0.05, respect=+0.05, likability=+0.05),
-    RelationshipEvent.LOAN_DEFAULTED:     AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
+    # Cash-mode staking. Mirror = borrower's view of the AI staker.
+    # Receiving a stake creates gratitude; repaying confirms the
+    # staker was trustworthy; defaulting curdles into mutual animosity
+    # (borrower sees staker as a creditor breathing down their neck);
+    # forgiveness leaves the borrower with strong positive feeling
+    # toward someone who let them off the hook.
+    RelationshipEvent.STAKE_OFFERED:   AxisShift(heat= 0.00, respect=+0.05, likability=+0.05),
+    RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.05, likability=+0.05),
+    RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
+    RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.10, likability=+0.15),
+    # Mirror: borrower felt rejected. Small negative — being told "no"
+    # cools the borrower's warmth a touch, but not as much as the
+    # staker's annoyance moves their own axes.
+    RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
+        heat=+0.03, respect= 0.00, likability=-0.03,
+    ),
 
     # Quarantine — no axis impact, same as actor table.
     RelationshipEvent.UNKNOWN:            AxisShift(),

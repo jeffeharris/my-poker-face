@@ -11,6 +11,16 @@
   z-index: var(--z-interhand-hud);
 }
 
+/* Transparent layout shim: the swipe wrapper participates in the
+ * stack's flex/gap layout and owns the enter/exit + `layout`
+ * animations, while the inner `.floating-chat` carries the visual
+ * chrome and the drag transform. Keeping them in separate elements
+ * lets the drag's opacity MotionValue coexist with framer-motion's
+ * mount/unmount opacity animations without one clobbering the other. */
+.floating-chat-swipe-wrap {
+  width: 100%;
+}
+
 .floating-chat {
   position: relative;
   display: flex;
@@ -23,6 +33,17 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+  /* Let horizontal swipes feed framer-motion's drag handler rather
+   * than letting the browser pan/scroll the page. Vertical scroll
+   * still works since `touch-action: pan-y` permits it. */
+  touch-action: pan-y;
+  /* Cursor cue for desktop users — mobile users feel the gesture
+   * directly via touch. */
+  cursor: grab;
+}
+
+.floating-chat:active {
+  cursor: grabbing;
 }
 
 .floating-chat-avatar {
@@ -129,22 +150,3 @@
   51%, 100% { opacity: 0; }
 }
 
-.floating-chat-dismiss {
-  width: 24px;
-  height: 24px;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  opacity: 0.5;
-}
-
-.floating-chat-dismiss svg {
-  width: 16px;
-  height: 16px;
-}

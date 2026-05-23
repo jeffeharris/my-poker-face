@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
 import type { Player } from '../../types';
+import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import './HeadsUpOpponentPanel.css';
 
 interface HeadsUpOpponentPanelProps {
@@ -17,6 +18,7 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
   const observation = opponent.observation;
   const opponentStats = opponent.pressure_summary;
   const psych = opponent.psychology;
+  const displayNickname = useDisplayNickname();
 
   const getPlayStyleLabel = (style: string): { label: string; icon: LucideIcon } => {
     const labels: Record<string, { label: string; icon: LucideIcon }> = {
@@ -67,7 +69,7 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
     <div className="heads-up-opponent-panel" data-testid="heads-up-panel">
       {/* Reading Header */}
       <div className="panel-header">
-        Reading {opponent.nickname || opponent.name}...
+        Reading {displayNickname(opponent)}...
       </div>
 
       {/* Play Style - Primary observation (threshold synced with poker/config.py MIN_HANDS_FOR_SUMMARY) */}

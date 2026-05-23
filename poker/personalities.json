@@ -25,21 +25,22 @@
         "*nods slowly while considering options*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 350,
         "buy_in_multiplier": 1.1,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
       "id": "abraham_lincoln",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
         "rate_anchor": 0.15,
         "respect_floor": -0.7,
         "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
       }
     },
     "Winston Churchill": {
@@ -67,15 +68,13 @@
         "*taps fingers rhythmically on the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 45000,
+        "starting_bankroll": 45000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.5,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$200"
       },
       "id": "winston_churchill",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -109,15 +108,13 @@
         "*taps fingers rhythmically on the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 80000,
+        "starting_bankroll": 80000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.3,
-        "stop_loss_buy_ins": 8,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "napoleon",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -152,15 +149,13 @@
         "*adjusts an imaginary crown*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 150000,
+        "starting_bankroll": 150000,
         "bankroll_rate": 2000,
         "buy_in_multiplier": 2.4,
-        "stop_loss_buy_ins": 7,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
       "id": "louis_xiv",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -196,15 +191,13 @@
       ],
       "nickname": "Henry VIII",
       "bankroll_knobs": {
-        "bankroll_cap": 120000,
+        "starting_bankroll": 120000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.4,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
       "id": "king_henry_viii",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -238,15 +231,13 @@
         "*leans in close while speaking*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 18000,
+        "starting_bankroll": 18000,
         "bankroll_rate": 600,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
       "id": "shakespeare",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -280,15 +271,13 @@
         "*leaning back with a knowing smile*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 300,
         "buy_in_multiplier": 1.2,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$10"
       },
       "id": "socrates",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -322,15 +311,13 @@
         "*taps fingers thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 550,
         "buy_in_multiplier": 1.4,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
       "id": "sherlock_holmes",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -364,15 +351,13 @@
         "*leans back with a slight smirk*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 2.0,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "jay_gatsby",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -408,15 +393,13 @@
       ],
       "nickname": "Mime",
       "bankroll_knobs": {
-        "bankroll_cap": 4000,
+        "starting_bankroll": 4000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 1.4,
-        "stop_loss_buy_ins": 6,
-        "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$2"
       },
       "id": "a_mime",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -452,15 +435,13 @@
       ],
       "nickname": "Dad Jokes",
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 400,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$10"
       },
       "id": "a_guy_who_tells_too_many_dad_jokes",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -497,15 +478,13 @@
       ],
       "nickname": "Mean Guy",
       "bankroll_knobs": {
-        "bankroll_cap": 25000,
+        "starting_bankroll": 25000,
         "bankroll_rate": 2800,
         "buy_in_multiplier": 2.3,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
       "id": "someone_who_is_very_very_mean_to_people",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -539,21 +518,22 @@
         "*gazes thoughtfully at the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 6000,
+        "starting_bankroll": 6000,
         "bankroll_rate": 200,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 1,
-        "stop_win_buy_ins": 2,
         "stake_comfort_zone": "$2"
       },
       "id": "buddha",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
         "rate_anchor": 0.15,
         "respect_floor": -0.7,
         "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
       }
     },
     "Bob Ross": {
@@ -582,15 +562,13 @@
         "*paints in the air*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 7000,
+        "starting_bankroll": 7000,
         "bankroll_rate": 250,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
       "id": "bob_ross",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -625,15 +603,13 @@
       ],
       "nickname": "Dr. Seuss",
       "bankroll_knobs": {
-        "bankroll_cap": 22000,
+        "starting_bankroll": 22000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.6,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
       "id": "dr_seuss",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -667,15 +643,13 @@
         "*leans back thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 200,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$2"
       },
       "id": "jesus_christ",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -711,15 +685,13 @@
         "*glares across the table*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 60000,
+        "starting_bankroll": 60000,
         "bankroll_rate": 3000,
         "buy_in_multiplier": 2.5,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "blackbeard",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -755,15 +727,13 @@
         "*folds hands with deliberate calm*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 40000,
+        "starting_bankroll": 40000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.5,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
       "id": "sun_tzu",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -799,15 +769,13 @@
         "*rubs chin thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 600,
         "buy_in_multiplier": 1.4,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$50"
       },
       "id": "benjamin_franklin",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -843,15 +811,13 @@
         "*twirls mustache thoughtfully*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 20000,
+        "starting_bankroll": 20000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 4,
-        "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$50"
       },
       "id": "mark_twain",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -887,15 +853,13 @@
         "*twitches slightly when the math doesn't add up*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 15000,
+        "starting_bankroll": 15000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$50"
       },
       "id": "nikola_tesla",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -931,15 +895,13 @@
         "*grins with theatrical confidence*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 35000,
+        "starting_bankroll": 35000,
         "bankroll_rate": 1400,
         "buy_in_multiplier": 1.8,
-        "stop_loss_buy_ins": 6,
-        "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$200"
       },
       "id": "houdini",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -975,15 +937,13 @@
         "*languidly adjusts cravat*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 50000,
+        "starting_bankroll": 50000,
         "bankroll_rate": 1300,
         "buy_in_multiplier": 1.8,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$200"
       },
       "id": "oscar_wilde",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1019,15 +979,13 @@
         "*drums fingers in an ominous rhythm*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 6000,
+        "starting_bankroll": 6000,
         "bankroll_rate": 800,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$10"
       },
       "id": "edgar_allan_poe",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1063,15 +1021,13 @@
         "*watches opponents with cold precision*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 55000,
+        "starting_bankroll": 55000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.5,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$200"
       },
       "id": "machiavelli",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1107,15 +1063,13 @@
         "*lightning crackles in eyes*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 200000,
+        "starting_bankroll": 200000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
       "id": "zeus",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1151,15 +1105,13 @@
         "*waves hand dismissively at small bets*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 120000,
+        "starting_bankroll": 120000,
         "bankroll_rate": 1800,
         "buy_in_multiplier": 2.0,
-        "stop_loss_buy_ins": 4,
-        "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$1000"
       },
       "id": "cleopatra",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1195,15 +1147,13 @@
         "*gasps theatrically at a bad card*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 90000,
+        "starting_bankroll": 90000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.4,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
       "id": "marie_antoinette",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.12,
         "floor_anchor": 1.15,
@@ -1239,15 +1189,13 @@
         "*kicks boots up on chair*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.0,
-        "stop_loss_buy_ins": 8,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
       "id": "calamity_jane",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1283,15 +1231,13 @@
         "*adjusts imaginary ruff collar*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 900,
         "buy_in_multiplier": 1.6,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 6,
         "stake_comfort_zone": "$1000"
       },
       "id": "queen_elizabeth_i",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1327,15 +1273,13 @@
         "*stands dramatically before going all-in*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 15000,
+        "starting_bankroll": 15000,
         "bankroll_rate": 1800,
         "buy_in_multiplier": 2.2,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$50"
       },
       "id": "joan_of_arc",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1371,15 +1315,13 @@
         "*taps table rhythmically with painted nails*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 14000,
+        "starting_bankroll": 14000,
         "bankroll_rate": 1000,
         "buy_in_multiplier": 1.5,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
       "id": "frida_kahlo",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1418,15 +1360,13 @@
       ],
       "nickname": "Lucy",
       "bankroll_knobs": {
-        "bankroll_cap": 9000,
+        "starting_bankroll": 9000,
         "bankroll_rate": 1500,
         "buy_in_multiplier": 1.6,
-        "stop_loss_buy_ins": 7,
-        "stop_win_buy_ins": 12,
         "stake_comfort_zone": "$10"
       },
       "id": "lucille_ball",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1462,15 +1402,13 @@
         "*places chips with surgical precision*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 18000,
+        "starting_bankroll": 18000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
       "id": "annie_oakley",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1506,15 +1444,13 @@
         "*stirs tea thoughtfully between hands*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 22000,
+        "starting_bankroll": 22000,
         "bankroll_rate": 450,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 4,
         "stake_comfort_zone": "$50"
       },
       "id": "agatha_christie",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -1550,15 +1486,13 @@
         "*whispers conspiratorially*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 70000,
+        "starting_bankroll": 70000,
         "bankroll_rate": 2200,
         "buy_in_multiplier": 2.3,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "lady_macbeth",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1594,15 +1528,13 @@
         "*emerges from the shadows to place a bet*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 100000,
+        "starting_bankroll": 100000,
         "bankroll_rate": 1200,
         "buy_in_multiplier": 1.8,
-        "stop_loss_buy_ins": 4,
-        "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$1000"
       },
       "id": "dracula",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1638,15 +1570,13 @@
         "*counts and recounts chip stack obsessively*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 250000,
+        "starting_bankroll": 250000,
         "bankroll_rate": 100,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 1,
-        "stop_win_buy_ins": 2,
         "stake_comfort_zone": "$2"
       },
       "id": "ebenezer_scrooge",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1682,15 +1612,13 @@
         "*bows with a flourish after winning*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 12000,
+        "starting_bankroll": 12000,
         "bankroll_rate": 1600,
         "buy_in_multiplier": 1.7,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 8,
         "stake_comfort_zone": "$50"
       },
       "id": "robin_hood",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -1726,15 +1654,13 @@
         "*adjusts rusty imaginary helmet*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 2500,
         "buy_in_multiplier": 2.2,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$10"
       },
       "id": "don_quixote",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1771,15 +1697,13 @@
       ],
       "nickname": "Alice",
       "bankroll_knobs": {
-        "bankroll_cap": 5000,
+        "starting_bankroll": 5000,
         "bankroll_rate": 800,
         "buy_in_multiplier": 1.1,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$2"
       },
       "id": "alice",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -1816,15 +1740,13 @@
       ],
       "nickname": "Queen of Hearts",
       "bankroll_knobs": {
-        "bankroll_cap": 130000,
+        "starting_bankroll": 130000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$1000"
       },
       "id": "queen_of_hearts",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1861,15 +1783,13 @@
       ],
       "nickname": "Cheshire Cat",
       "bankroll_knobs": {
-        "bankroll_cap": 20000,
+        "starting_bankroll": 20000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.5,
-        "stop_loss_buy_ins": 5,
-        "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$50"
       },
       "id": "cheshire_cat",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -1906,15 +1826,13 @@
       ],
       "nickname": "Wicked Witch",
       "bankroll_knobs": {
-        "bankroll_cap": 40000,
+        "starting_bankroll": 40000,
         "bankroll_rate": 2400,
         "buy_in_multiplier": 2.2,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "wicked_witch",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1950,15 +1868,13 @@
         "*tilts head slowly, unblinking*"
       ],
       "bankroll_knobs": {
-        "bankroll_cap": 35000,
+        "starting_bankroll": 35000,
         "bankroll_rate": 1100,
         "buy_in_multiplier": 1.7,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 7,
         "stake_comfort_zone": "$200"
       },
       "id": "medusa",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.08,
         "floor_anchor": 1.4,
@@ -1995,15 +1911,13 @@
       ],
       "nickname": "Fortune Teller",
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 900,
         "buy_in_multiplier": 1.4,
-        "stop_loss_buy_ins": 6,
-        "stop_win_buy_ins": 10,
         "stake_comfort_zone": "$10"
       },
       "id": "the_fortune_teller",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -2040,15 +1954,13 @@
       ],
       "nickname": "Librarian",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 250,
         "buy_in_multiplier": 1.2,
-        "stop_loss_buy_ins": 2,
-        "stop_win_buy_ins": 3,
         "stake_comfort_zone": "$10"
       },
       "id": "the_librarian",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.05,
         "floor_anchor": 1.1,
@@ -2085,15 +1997,13 @@
       ],
       "nickname": "Honey Badger",
       "bankroll_knobs": {
-        "bankroll_cap": 30000,
+        "starting_bankroll": 30000,
         "bankroll_rate": 3500,
         "buy_in_multiplier": 2.5,
-        "stop_loss_buy_ins": null,
-        "stop_win_buy_ins": null,
         "stake_comfort_zone": "$200"
       },
       "id": "the_honey_badger",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.1,
         "floor_anchor": 1.2,
@@ -2130,15 +2040,13 @@
       ],
       "nickname": "Grandma",
       "bankroll_knobs": {
-        "bankroll_cap": 25000,
+        "starting_bankroll": 25000,
         "bankroll_rate": 400,
         "buy_in_multiplier": 1.3,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
       "id": "the_grandmother",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -2175,15 +2083,13 @@
       ],
       "nickname": "Teacher",
       "bankroll_knobs": {
-        "bankroll_cap": 8000,
+        "starting_bankroll": 8000,
         "bankroll_rate": 700,
         "buy_in_multiplier": 1.2,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
       "id": "the_kindergarten_teacher",
-      "lender_profile": {
+      "staker_profile": {
         "willing": true,
         "max_loan_pct_of_bankroll": 0.15,
         "floor_anchor": 1.0,
@@ -2211,15 +2117,13 @@
       "physical_tics": [],
       "nickname": "CaseBot",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
       "id": "casebot",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -2247,15 +2151,13 @@
       "physical_tics": [],
       "nickname": "GTO-Lite",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
       "id": "gto_lite",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,
@@ -2283,15 +2185,13 @@
       "physical_tics": [],
       "nickname": "Solver",
       "bankroll_knobs": {
-        "bankroll_cap": 10000,
+        "starting_bankroll": 10000,
         "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
-        "stop_loss_buy_ins": 3,
-        "stop_win_buy_ins": 5,
         "stake_comfort_zone": "$10"
       },
       "id": "baselinesolver",
-      "lender_profile": {
+      "staker_profile": {
         "willing": false,
         "max_loan_pct_of_bankroll": 0.0,
         "floor_anchor": 1.2,

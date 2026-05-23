@@ -1,0 +1,261 @@
+"""Staker profile dataclass — Path B AI-sponsorship knobs.
+
+Each personality has a `staker_profile` sub-dict inside `config_json`
+(sibling to `bankroll_knobs` and `anchors`) describing how they stake:
+
+  - `willing`: do they stake at all? Chaos personalities (Mime,
+    Cheshire Cat) refuse outright.
+  - `max_loan_pct_of_bankroll`: largest loan they'll extend, as a
+    fraction of their *projected* bankroll. Capacity = pct × bankroll,
+    further clamped to the table's `[min_buy_in, max_buy_in]` window.
+  - `floor_anchor`: default floor multiplier on the loan principal
+    (e.g., 1.10 = "repay 110% before any split"). Adjusted at offer
+    time by relationship-axis trims.
+  - `rate_anchor`: default sponsor's cut of post-floor remaining
+    chips. Adjusted at offer time by relationship-axis trims.
+  - `respect_floor`: refuse the loan if the staker's `respect`
+    toward the borrower is below this. Negative numbers tolerate
+    some prior friction; high numbers gate-keep harder.
+  - `heat_ceiling`: refuse the loan if the staker's `heat` toward
+    the borrower is above this. 1.0 = never refuses on heat alone;
+    0.0 = refuses on any heat at all.
+
+Defaults are **deliberately conservative** so a personality without
+an explicit `staker_profile` sub-dict still behaves predictably:
+small cap-fraction, modest floor/rate, easy-to-trip respect floor
+and heat ceiling. This mirrors the BankrollRepository's per-field
+fallback for `bankroll_knobs`.
+
+Spec: `docs/plans/CASH_MODE_PATH_B_HANDOFF.md` §B.1.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StakerProfile:
+    """Per-personality knobs that shape an AI's loan offers.
+
+    Frozen because staker profiles are read-only at offer time —
+    relationship-aware adjustments produce a fresh
+    `PersonalitySponsorOffer` rather than mutating the profile.
+    """
+
+    willing: bool
+    max_loan_pct_of_bankroll: float
+    floor_anchor: float
+    rate_anchor: float
+    respect_floor: float
+    heat_ceiling: float
+
+
+STAKER_PROFILE_DEFAULTS = StakerProfile(
+    willing=True,
+    max_loan_pct_of_bankroll=0.05,
+    floor_anchor=1.20,
+    rate_anchor=0.30,
+    respect_floor=-0.5,
+    heat_ceiling=0.7,
+)
+
+
+# --- Borrower profile (Phase 4 of the backing system) ---------------------
+
+
+@dataclass(frozen=True)
+class BorrowerProfile:
+    """Per-personality knobs that shape an AI's willingness to BE staked.
+
+    Phase 4 introduces AIs as stake borrowers (peer bailout when bust).
+    Phase 5 introduces humans as stakers (player offering a stake to
+    an AI of their choosing). The two paths share this profile.
+
+    Fields:
+      - `willing`: do they accept stakes at all? Stoic / principled
+        personalities (Lincoln, Buddha) refuse outright; most AIs
+        accept. The Phase 4 take_stake path checks this directly —
+        a busting AI takes whatever they can get from a willing
+        staker (no further gating on the offer's terms).
+      - `willingness_threshold`: Phase 5 — the minimum relationship-
+        axes score the AI requires from a HUMAN staker before
+        accepting a stake offer. Mirrors the human-side forgiveness
+        score (`L×0.5 + R×0.4 - H×0.3`). Below the threshold, the
+        offer is refused regardless of terms. AI-to-AI bailout
+        stakes ignore this field (different decision path). Default
+        0.30 — broadly accepting; a player with even mild goodwill
+        clears it. Stoic AIs can raise their threshold to ~0.50+ to
+        require meaningful goodwill before accepting.
+      - `aspiration_bias`: how strongly this personality seeks out
+        upward-mobility stakes — asking to be backed at a higher
+        tier without busting first. 0.0 = never asks; 1.0 = eager
+        climber. Read by the aspiration trigger inside
+        `refresh_table_roster`. Personalities with `willing=False`
+        always read 0 here regardless of stored value — refusing
+        stakes outright is incompatible with asking for one
+        (character consistency). Default 0.5. Spec:
+        `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md`.
+      - `payoff_eagerness`: how strongly this personality wants to
+        clear outstanding carry debts when they have the chips to
+        do so. 0.0 = gambler (would rather risk the chips on a
+        bigger climb than settle a debt); 1.0 = conscientious
+        (clears debts the moment they can afford it). Acts as the
+        weighting between `pay_pull` (carry age + staker heat) and
+        `hold_pull` (aspiration × wealth_gap) inside the
+        score-driven payoff trigger. Default 0.5 — read by
+        `cash_mode/ai_carry_resolution.py`.
+
+    Frozen because the profile is read-only at decision time —
+    relationship-aware adjustments happen on the staker side, not here.
+
+    Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 4
+    Commit 1 + Phase 5 Commit 1 +
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 1.
+    """
+
+    willing: bool
+    willingness_threshold: float = 0.30
+    aspiration_bias: float = 0.5
+    payoff_eagerness: float = 0.5
+
+
+# Default — most personalities accept stakes when busting. Stoic
+# personalities override `willing=False` in their config sub-dict.
+BORROWER_PROFILE_DEFAULTS = BorrowerProfile(
+    willing=True,
+    willingness_threshold=0.30,
+    aspiration_bias=0.5,
+    payoff_eagerness=0.5,
+)
+
+
+# Ego-derived willingness-threshold calibration. Personalities don't
+# all need hand-tuned willingness_thresholds; deriving from the
+# already-curated `ego` anchor gives every character a defensible
+# default that respects their identity.
+#
+# Slope and clamps tuned to match the relationship-axes range:
+#   - Max plausible score (likability=1, respect=1, heat=0) ≈ 0.90,
+#     so the upper clamp (0.50) leaves room for "friendship gets
+#     through" even at the proudest tier.
+#   - Lower clamp (0.15) keeps even the humblest AI from accepting
+#     literally anything (they still need a non-hostile vibe).
+WILLINGNESS_THRESHOLD_BASE = 0.30
+WILLINGNESS_THRESHOLD_SLOPE = 0.50
+WILLINGNESS_THRESHOLD_MIN = 0.15
+WILLINGNESS_THRESHOLD_MAX = 0.50
+
+
+def compute_default_willingness_threshold(ego: float) -> float:
+    """Derive a borrower's willingness_threshold from their `ego` anchor.
+
+    Higher ego → harder to convince (proud AIs don't take handouts
+    from strangers). Lower ego → easier (humble AIs more comfortable
+    accepting help). Clamped to a sensible band so the math always
+    leaves room for both "anyone clears this with effort" and "even
+    maxed-goodwill from a friend gets through."
+
+    The pattern: every personality already has a curated `ego` anchor
+    (0..1) in their `config.anchors` sub-dict. Threading that into
+    willingness here lets us populate the field for the whole roster
+    without per-personality JSON edits, while still allowing explicit
+    `borrower_profile.willingness_threshold` overrides to win when
+    present (handled at the loader layer).
+
+    Sample calibrations:
+      - ego 0.36 (Lincoln-style humble) → ~0.23
+      - ego 0.50 (baseline)             → 0.30
+      - ego 0.86 (Napoleon-style proud) → ~0.48
+    """
+    raw = (
+        WILLINGNESS_THRESHOLD_BASE
+        + WILLINGNESS_THRESHOLD_SLOPE * (float(ego) - 0.5)
+    )
+    return max(
+        WILLINGNESS_THRESHOLD_MIN,
+        min(WILLINGNESS_THRESHOLD_MAX, raw),
+    )
+
+
+# Anchor-derived aspiration_bias calibration. Same pattern as
+# willingness_threshold: every personality with curated anchors gets
+# a defensible default without per-personality JSON edits. The two
+# anchors we combine — `ego` and `risk_identity` — are present on
+# every personality that has the `anchors` sub-dict at all
+# (53/83 in current production data; the rest fall back to the
+# flat default 0.5).
+ASPIRATION_BIAS_DEFAULT = 0.5
+ASPIRATION_EGO_WEIGHT = 0.6
+ASPIRATION_RISK_WEIGHT = 0.4
+
+
+def compute_default_aspiration_bias(
+    ego: float, risk_identity: float,
+) -> float:
+    """Derive aspiration_bias from `ego` and `risk_identity` anchors.
+
+    Both inputs expected in [0, 1]. The composite captures the
+    "wants to play bigger" intuition:
+
+      - `ego` (proud personalities want the big stage)
+      - `risk_identity` (risk-tolerant personalities are more willing
+        to take leverage)
+
+    Result clamped to [0, 1]. Aggressive personalities still need
+    other trigger factors (winning_momentum, wealth_gap) to actually
+    fire an ask — this knob just sets their baseline propensity.
+
+    Sample calibrations against real anchor data:
+      - Lincoln (ego 0.36, risk 0.38) → ~0.37 (rarely aspires)
+      - Baseline (ego 0.50, risk 0.50) → 0.50
+      - Napoleon-class (ego 0.86, risk 0.90) → ~0.88
+    """
+    raw = (
+        ASPIRATION_EGO_WEIGHT * float(ego)
+        + ASPIRATION_RISK_WEIGHT * float(risk_identity)
+    )
+    return max(0.0, min(1.0, raw))
+
+
+# Anchor-derived payoff_eagerness calibration. Same pattern as
+# aspiration_bias. Two anchors compose the conscientiousness signal:
+#   - `risk_identity` (inverted) — gamblers don't care about debts;
+#     low-risk careful AIs clear them.
+#   - `poise` — composed AIs handle obligations cleanly; chaotic
+#     ones let things slide.
+# Weighted 0.6/0.4 toward risk because risk_identity directly
+# captures the "would I rather hoard chips to gamble" axis the
+# decision actually trades against (hold_pull in the score formula).
+PAYOFF_EAGERNESS_DEFAULT = 0.5
+PAYOFF_EAGERNESS_RISK_WEIGHT = 0.6
+PAYOFF_EAGERNESS_POISE_WEIGHT = 0.4
+
+
+def compute_default_payoff_eagerness(
+    risk_identity: float, poise: float,
+) -> float:
+    """Derive payoff_eagerness from `risk_identity` (inverse) + `poise`.
+
+    Both inputs expected in [0, 1]. The composite captures
+    conscientiousness about debts — the willingness to spend chips
+    settling a carry rather than hoarding them for the next climb.
+
+    `(1 − risk_identity)` is the gambler-vs-cautious axis. `poise`
+    adds the "I handle my obligations cleanly" component. Weighted
+    0.6 / 0.4 because risk_identity is the direct counter-pull
+    against `hold_pull` in the payoff score (gamblers hold, cautious
+    AIs pay).
+
+    Sample calibrations against real anchor data:
+      - Lincoln (risk 0.38, poise 0.84) → 0.6×0.62 + 0.4×0.84 = 0.71
+        (conscientious — clears debts readily)
+      - Baseline (risk 0.50, poise 0.50) → 0.6×0.50 + 0.4×0.50 = 0.50
+      - Napoleon-class (risk 0.90, poise 0.40) → 0.6×0.10 + 0.4×0.40
+        = 0.22 (gambler — would rather climb than settle)
+    """
+    raw = (
+        PAYOFF_EAGERNESS_RISK_WEIGHT * (1.0 - float(risk_identity))
+        + PAYOFF_EAGERNESS_POISE_WEIGHT * float(poise)
+    )
+    return max(0.0, min(1.0, raw))

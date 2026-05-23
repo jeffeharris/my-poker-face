@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Trophy, HeartCrack } from 'lucide-react';
 import { Card } from '../../cards';
+import { config } from '../../../config';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
+import type { Player } from '../../../types/player';
 import './WinnerAnnouncement.css';
 
 interface PlayerShowdownInfo {
@@ -49,9 +51,24 @@ interface WinnerAnnouncementProps {
   winnerInfo: WinnerInfo | null;
   commentary?: CommentaryItem[];
   onComplete: () => void;
+  /** Live players with current avatar_url/avatar_emotion. Used to render
+   *  emotion-aware avatar portraits in the showdown. */
+  players?: Player[];
 }
 
-export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncementProps) {
+export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAnnouncementProps) {
+  // Force the `/full` suffix so the winner card shows the full uncropped
+  // square portrait, not the circle-cropped headshot the table uses.
+  const avatarByName = useMemo(() => {
+    const map = new Map<string, { url?: string; emotion?: string }>();
+    for (const p of players ?? []) {
+      const url = p.avatar_url && !p.avatar_url.endsWith('/full')
+        ? `${p.avatar_url}/full`
+        : p.avatar_url;
+      map.set(p.name, { url, emotion: p.avatar_emotion });
+    }
+    return map;
+  }, [players]);
   const [show, setShow] = useState(false);
   const [revealCards, setRevealCards] = useState(false);
 
@@ -91,16 +108,19 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
   // Net profit = gross winnings - what winners contributed to the pot
   let grossWinnings = 0;
   let winnersContributions = 0;
+  const perPlayerWinnings: Record<string, number> = {};
 
   if (winnerInfo.pot_breakdown) {
     // Sum each winner's share from all pots
     for (const pot of winnerInfo.pot_breakdown) {
       for (const winner of pot.winners) {
         grossWinnings += winner.amount;
+        perPlayerWinnings[winner.name] = (perPlayerWinnings[winner.name] || 0) + winner.amount;
       }
     }
   } else if (winnerInfo.winnings) {
     grossWinnings = Object.values(winnerInfo.winnings).reduce((sum, val) => sum + val, 0);
+    Object.assign(perPlayerWinnings, winnerInfo.winnings);
   }
 
   // Subtract winners' contributions for net profit
@@ -120,6 +140,32 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
       <div className="winner-content">
         <div className="winner-header">
           <h1 className="winner-title"><Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} /></h1>
+          {winnerInfo.winners.length > 0 && (
+            <div className="winner-avatars-row" data-testid="winner-avatars-row">
+              {winnerInfo.winners.map((name) => {
+                const avatar = avatarByName.get(name);
+                return (
+                  <div
+                    key={name}
+                    className="winner-avatar-badge"
+                    data-emotion={avatar?.emotion || 'neutral'}
+                    aria-label={`${name} — ${avatar?.emotion || 'neutral'}`}
+                  >
+                    {avatar?.url ? (
+                      <img
+                        src={`${config.API_URL}${avatar.url}`}
+                        alt={`${name} - ${avatar.emotion || 'neutral'}`}
+                        className="winner-avatar-image"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <span className="winner-avatar-initial">{name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="winner-name">{winnersString}</div>
         </div>
 
@@ -161,18 +207,44 @@ export function WinnerAnnouncement({ winnerInfo, onComplete }: WinnerAnnouncemen
                   .map(([player, playerInfo]) => {
                     const isWinner = winnerInfo.winners.includes(player);
                     const hasKickers = playerInfo.kickers && playerInfo.kickers.length > 0;
+                    const avatar = avatarByName.get(player);
                     return (
                       <div key={player} className={`player-showdown ${isWinner ? 'winner' : ''}`}>
-                        <div className="player-info">
-                          <div className="player-name">{player}</div>
-                          {playerInfo.hand_name && (
-                            <div className="player-hand-name">
-                              {playerInfo.hand_name}
-                              {hasKickers && (
-                                <span className="player-kickers"> (kicker: {playerInfo.kickers!.join(', ')})</span>
-                              )}
-                            </div>
-                          )}
+                        <div className="player-showdown-header">
+                          <span className="player-name">{player}</span>
+                        </div>
+                        <div className="player-showdown-main">
+                          <div
+                            className="player-showdown-avatar"
+                            data-emotion={avatar?.emotion || 'neutral'}
+                            aria-label={`${player} — ${avatar?.emotion || 'neutral'}`}
+                          >
+                            {avatar?.url ? (
+                              <img
+                                src={`${config.API_URL}${avatar.url}`}
+                                alt={`${player} - ${avatar.emotion || 'neutral'}`}
+                                className="player-showdown-avatar-image"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <span className="player-showdown-avatar-initial">
+                                {player.charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="player-showdown-middle">
+                            {playerInfo.hand_name && (
+                              <div className="player-hand-name">
+                                {playerInfo.hand_name}
+                                {hasKickers && (
+                                  <span className="player-kickers"> (kicker: {playerInfo.kickers!.join(', ')})</span>
+                                )}
+                              </div>
+                            )}
+                            {perPlayerWinnings[player] > 0 && (
+                              <div className="player-winnings">+${perPlayerWinnings[player]}</div>
+                            )}
+                          </div>
                         </div>
                         <div className="player-cards">
                           {playerInfo.cards.map((card, i) => (

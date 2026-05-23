@@ -63,61 +63,35 @@ class PlayerBankrollState:
     per-row so future staking / character progression can alter it
     without a schema migration.
 
-    `active_loan_amount`, `active_loan_floor`, `active_loan_rate`
-    encode the session-scoped sponsor loan when one is active (v89).
-    Reset to 0/0.0/0.0 on `/api/cash/leave` after settlement.
-
-      - `active_loan_amount`: principal in chips (0 = no loan)
-      - `active_loan_floor`: repayment multiplier on the principal
-        (e.g., 1.30 = player must repay 130% of principal from
-        chips-at-table before any split kicks in)
-      - `active_loan_rate`: sponsor's cut of post-floor remaining
-        chips (e.g., 0.40 = 40% to sponsor, 60% to player)
-      - `active_loan_lender_id`: personality_id of the AI lender
-        (v90, Path B). NULL = anonymous house loan (v1 sponsorship);
-        non-NULL = named AI personality whose persistent bankroll
-        receives sponsor_total at leave-time. Reset to NULL on
-        `/api/cash/leave` alongside the other loan fields.
-
-    See `docs/plans/CASH_MODE_SPONSORSHIP_HANDOFF.md` for the
-    leave-time math and the sponsor archetype pool that produces
-    these triples, and `docs/plans/CASH_MODE_PATH_B_HANDOFF.md` for
-    the AI-lender extension.
+    Active stakes live in the `stakes` table (`StakeRepository`), not
+    on this dataclass — the legacy `active_loan_*` columns were
+    dropped in Cleanup B of the backing-system handoff after the
+    stakes-table cutover finished. See
+    `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` for the stake
+    model that replaced them.
     """
 
     player_id: str
     chips: int
     starting_bankroll: int
-    active_loan_amount: int = 0
-    active_loan_floor: float = 0.0
-    active_loan_rate: float = 0.0
-    active_loan_lender_id: Optional[str] = None
 
 
 @dataclass
 class BankrollKnobs:
     """Per-personality bankroll behavior knobs.
 
-    Stored in columns on `personalities` (schema v88). Read at table
-    sit-down to decide buy-in size, eligibility, and (in v2)
-    stop-loss / stop-win cutoffs.
-
-    `stop_loss_buy_ins` and `stop_win_buy_ins` are persisted in v1
-    but unused — v1 ships bust-only AI session behavior (Part 2
-    §"AI session behavior (v1)"). v2 reads these to add stop-loss /
-    stop-win gates.
+    Stored in `personalities.config_json.bankroll_knobs`. Read at
+    table sit-down to decide buy-in size and eligibility.
 
     `stake_comfort_zone` is the friendly stake label ("$10",
     "$50", ...) the AI prefers when multiple are affordable. v1 has
-    no selection problem (one table), so this is also persisted-but-
-    unused until v2's lobby lands.
+    no selection problem (one table), so it's persisted-but-unused
+    until the v2 multi-table lobby lands.
     """
 
-    bankroll_cap: int
+    starting_bankroll: int
     bankroll_rate: int
     buy_in_multiplier: float
-    stop_loss_buy_ins: int
-    stop_win_buy_ins: int
     stake_comfort_zone: str
 
 
@@ -125,45 +99,56 @@ class BankrollKnobs:
 # v1 ships uniform defaults; per-personality tuning is a follow-up
 # (just populate the columns from personalities.json).
 BANKROLL_KNOB_DEFAULTS = BankrollKnobs(
-    bankroll_cap=10_000,
+    starting_bankroll=10_000,
     bankroll_rate=500,
     buy_in_multiplier=1.0,
-    stop_loss_buy_ins=3,
-    stop_win_buy_ins=5,
     stake_comfort_zone="$10",
 )
 
 
 def project_bankroll(
     state: AIBankrollState,
-    cap: int,
+    starting_bankroll: int,
     rate: int,
     now: datetime,
 ) -> int:
     """Project bankroll chips through elapsed time.
 
     Pure function. Returns the value `chips` would currently have
-    given the time elapsed since the last mutation, clamped to `cap`.
-    Does not mutate `state`.
+    given the time elapsed since the last mutation. Does not mutate
+    `state`.
 
-      projected = stored_chips + int(rate * elapsed_days)
-      projected = min(cap, projected)
+    `starting_bankroll` is the regen *target*, not a cap:
+      - When chips are below it, passive regen accrues at `rate/day`,
+        not overshooting the target.
+      - When chips are at or above it (the AI has won their way past
+        their character's "natural wealth"), regen is dormant and
+        chips are returned verbatim. Winnings above starting_bankroll
+        are kept — there is no ceiling.
 
-    Same pattern as `project_heat`. Persistence writes only on real
-    events; reads always project. The fractional-day floor uses
-    `int(...)` so projection is monotonic per day boundary — a
-    half-second after `last_regen_tick` reads as the stored value,
-    not a no-op `+0`.
+    Same pattern as `project_heat` for the below-target case.
+    Persistence writes only on real events; reads always project.
+    The fractional-day floor uses `int(...)` so projection is
+    monotonic per day boundary — a half-second after `last_regen_tick`
+    reads as the stored value, not a no-op `+0`.
 
     `last_regen_tick == None` is the no-event-yet state for freshly
     seeded AI personalities; the function returns stored `chips`
     verbatim so the seed value isn't immediately inflated.
+
+    When `economy_flags.REGEN_ENABLED` is False, the passive faucet
+    is off — returns stored chips unchanged.
     """
+    from cash_mode import economy_flags
     if state.last_regen_tick is None:
+        return state.chips
+    if state.chips >= starting_bankroll:
+        return state.chips
+    if not economy_flags.REGEN_ENABLED:
         return state.chips
     elapsed_days = (now - state.last_regen_tick).total_seconds() / 86400.0
     projected = state.chips + int(rate * elapsed_days)
-    return min(cap, projected)
+    return min(starting_bankroll, projected)
 
 
 def credit_ai_cash_out(
@@ -171,55 +156,172 @@ def credit_ai_cash_out(
     personality_id: str,
     player_stack: int,
     *,
+    sandbox_id: Optional[str] = None,
     now: Optional[datetime] = None,
+    chip_ledger_repo=None,
+    ledger_context: Optional[dict] = None,
 ) -> Optional[AIBankrollState]:
     """Credit `player_stack` chips back to an AI's persistent bankroll.
 
-    Mirrors the leave-time accounting rule: project the stored
-    bankroll forward through elapsed time (passive regen), then add
-    the AI's current table stack, clamped to `bankroll_cap`. The cap
-    is a hard ceiling — winnings above the cap evaporate. This is
-    intentional: it prevents a single AI from accumulating a runaway
-    bankroll relative to the rest of the cast.
+    Leave-time accounting: project the stored bankroll forward through
+    elapsed time (passive regen toward `starting_bankroll` when chips
+    are below target, dormant when at or above), then add the AI's
+    current table stack as winnings. **No cap on the upside** —
+    `starting_bankroll` is the regen *target*, not a ceiling, so an
+    AI who wins above their character's natural wealth keeps the
+    winnings and can buy into higher stakes next session.
 
-    Skips (returns None) when:
-      - the AI has no row in `ai_bankroll_state` yet (shouldn't
-        happen for an AI that sat at a table — sit_down writes the
-        row — but the seam is defensive)
-      - `player_stack <= 0` (busted or near-zero stack; nothing to
-        credit, and we avoid pointless writes)
+    Always writes a fresh row when one doesn't exist (defensive seam:
+    if the seed/debit chain skipped the AI, the credit path creates
+    the row so the regen clock starts). A row with `chips=0,
+    last_regen_tick=now` is preferable to no row — the latter strands
+    the AI forever because every lookup returns None.
 
-    Writes a fresh `AIBankrollState` snapshot via `save_ai_bankroll`
-    with `last_regen_tick = now`. Returns the persisted state so
-    callers can log / inspect.
+    For an existing row, writes `chips=projected + max(0,
+    player_stack), last_regen_tick=now`. `player_stack <= 0`
+    no longer short-circuits: committing regen on a bust-out leave
+    advances the tick so passive regen starts accruing from `now`,
+    not from the prior sit-down. Without this, AIs that lose
+    everything sit at 0 forever.
 
     `bankroll_repo` is the live `BankrollRepository` instance — taken
     as a parameter (rather than the module-level singleton) so tests
     can pass a tempdb-backed instance without monkey-patching the
     flask_app.extensions module.
+
+    `chip_ledger_repo` (optional) opts the call into ledger
+    instrumentation. When provided, the regen portion of the write
+    fires an `ai_regen` entry. (The legacy `cap_clamp` destruction
+    path was removed when `starting_bankroll` semantics shifted from
+    ceiling to target — winnings are kept, not evaporated.)
     """
-    if player_stack <= 0:
-        return None
     if now is None:
         now = datetime.utcnow()
-    stored = bankroll_repo.load_ai_bankroll(personality_id)
-    if stored is None:
-        logger.warning(
-            "[CASH] AI cash-out skipped — no bankroll row for %r",
+    effective_stack = max(0, player_stack)
+    try:
+        stored = bankroll_repo.load_ai_bankroll(
             personality_id,
+            sandbox_id=sandbox_id,
         )
-        return None
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        stored = bankroll_repo.load_ai_bankroll(personality_id)
     knobs = bankroll_repo.load_personality_knobs(personality_id)
-    projected = project_bankroll(stored, knobs.bankroll_cap, knobs.bankroll_rate, now)
-    new_chips = min(knobs.bankroll_cap, projected + player_stack)
+    if stored is None:
+        # First-write seam — write a row so the regen clock can begin.
+        # `save_ai_bankroll`'s first-write hook emits an `ai_seed`
+        # ledger entry for the chips landing here, keeping the audit
+        # balanced. No cap on the first-write either; the AI gets
+        # exactly what they brought back from the seat.
+        new_state = AIBankrollState(
+            personality_id=personality_id,
+            chips=effective_stack,
+            last_regen_tick=now,
+        )
+        try:
+            bankroll_repo.save_ai_bankroll(
+                new_state, sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+            )
+        except TypeError as e:
+            if "sandbox_id" not in str(e):
+                raise
+            bankroll_repo.save_ai_bankroll(new_state)
+        logger.info(
+            "[CASH] AI cash-out (first-write) %r: +%d → %d",
+            personality_id, effective_stack, effective_stack,
+        )
+        return new_state
+    projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
+    new_chips = projected + effective_stack
     new_state = AIBankrollState(
         personality_id=personality_id,
         chips=new_chips,
         last_regen_tick=now,
     )
-    bankroll_repo.save_ai_bankroll(new_state)
+    try:
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        bankroll_repo.save_ai_bankroll(new_state)
+    if chip_ledger_repo is not None:
+        from core.economy import ledger as chip_ledger
+        ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
+        if ledger_context:
+            ctx.update(ledger_context)
+        chip_ledger.record_ai_regen(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            stored_chips=stored.chips,
+            projected_chips=projected,
+            context=ctx,
+            sandbox_id=sandbox_id,
+        )
     logger.info(
-        "[CASH] AI cash-out %r: +%d (projected=%d) → %d (cap %d)",
-        personality_id, player_stack, projected, new_chips, knobs.bankroll_cap,
+        "[CASH] AI cash-out %r: +%d (projected=%d) → %d",
+        personality_id, effective_stack, projected, new_chips,
     )
+    return new_state
+
+
+def debit_bankroll_for_seat(
+    bankroll_repo,
+    personality_id: str,
+    amount: int,
+    *,
+    sandbox_id: Optional[str] = None,
+) -> Optional[AIBankrollState]:
+    """Pure transfer: move chips from an AI's bankroll to a cash table seat.
+
+    No ledger entry — `ai_bankrolls_stored` decreases and
+    `cash_table_seats_ai` increases by the same amount, so the audit's
+    `actual_outstanding` is preserved. Symmetric pair to the
+    seat → bankroll credit path which goes through `credit_ai_cash_out`
+    (which DOES write ledger entries, because it commits regen and may
+    cap-clamp).
+
+    Preserves `last_regen_tick` — doesn't commit any pending regen at
+    debit time. Uncommitted regen catches up at the next credit-side
+    write or read.
+
+    Called when:
+      - Lobby seed fills a fresh AI seat at boot.
+      - `refresh_table_roster`'s live-fill step seats an AI from the
+        idle pool or eligible-never-seated pool.
+
+    Defensively clamps the new stored chip count at 0 — bankroll
+    eligibility checks (`bankroll_lookup` callbacks in
+    refresh_table_roster) should keep this from ever firing, but a
+    negative bankroll would silently break the audit invariant.
+    Returns the persisted state or None if no row exists.
+    """
+    try:
+        stored = bankroll_repo.load_ai_bankroll(
+            personality_id,
+            sandbox_id=sandbox_id,
+        )
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        stored = bankroll_repo.load_ai_bankroll(personality_id)
+    if stored is None:
+        logger.warning(
+            "[CASH] seat debit skipped — no bankroll row for %r",
+            personality_id,
+        )
+        return None
+    new_chips = max(0, stored.chips - amount)
+    new_state = AIBankrollState(
+        personality_id=personality_id,
+        chips=new_chips,
+        last_regen_tick=stored.last_regen_tick,
+    )
+    try:
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+    except TypeError as e:
+        if "sandbox_id" not in str(e):
+            raise
+        bankroll_repo.save_ai_bankroll(new_state)
     return new_state

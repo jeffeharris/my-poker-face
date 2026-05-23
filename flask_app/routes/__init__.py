@@ -14,6 +14,8 @@ from .replay_experiment_routes import replay_experiment_bp
 from .user_routes import user_bp
 from .coach_routes import coach_bp
 from .cash_routes import cash_bp
+from .chip_ledger_routes import chip_ledger_bp
+from .character_routes import character_bp
 
 __all__ = [
     'game_bp',
@@ -30,5 +32,7 @@ __all__ = [
     'user_bp',
     'coach_bp',
     'cash_bp',
+    'chip_ledger_bp',
+    'character_bp',
     'register_socket_events',
 ]

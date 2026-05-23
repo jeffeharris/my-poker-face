@@ -1,0 +1,526 @@
+/* NetWorthDrawer — pattern mirrors SponsorModal (centered fade+slide
+ * panel). Tier color tokens key off the four staking_tier states. */
+
+.net-worth-drawer__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: net-worth-drawer-fade-in 0.18s ease-out;
+}
+
+@keyframes net-worth-drawer-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.net-worth-drawer__sheet {
+  background: var(--surface-1, #1c1f25);
+  color: var(--text-primary, #f5f5f5);
+  border-radius: 16px;
+  max-width: 540px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  animation: net-worth-drawer-slide-up 0.24s ease-out;
+}
+
+@keyframes net-worth-drawer-slide-up {
+  from {
+    transform: translateY(24px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.net-worth-drawer__header {
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.net-worth-drawer__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.net-worth-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.net-worth-drawer__subtitle {
+  margin: 8px 0 0;
+  color: var(--text-secondary, #aaa);
+  font-size: 13px;
+}
+
+.net-worth-drawer__tier {
+  font-weight: 600;
+}
+
+.net-worth-drawer__tier--premium { color: #6ed68f; }
+.net-worth-drawer__tier--standard { color: #d6c46e; }
+.net-worth-drawer__tier--restricted { color: #d69a6e; }
+.net-worth-drawer__tier--house_only { color: #d66e6e; }
+
+.net-worth-drawer__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.net-worth-drawer__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #f5f5f5);
+}
+
+.net-worth-drawer__body {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.net-worth-drawer__loading,
+.net-worth-drawer__error {
+  font-size: 14px;
+  color: var(--text-secondary, #aaa);
+  padding: 12px;
+  text-align: center;
+}
+
+.net-worth-drawer__error {
+  background: rgba(220, 90, 90, 0.12);
+  color: #ff9d9d;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.net-worth-drawer__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.net-worth-drawer__summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.net-worth-drawer__summary-row--muted {
+  color: var(--text-secondary, #aaa);
+  font-size: 13px;
+}
+
+.net-worth-drawer__amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.net-worth-drawer__amount--negative {
+  color: #ff9d9d;
+}
+
+.net-worth-drawer__tier-explainer {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  line-height: 1.4;
+}
+
+.net-worth-drawer__column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.net-worth-drawer__column-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #aaa);
+}
+
+.net-worth-drawer__column-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #f5f5f5);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.net-worth-drawer__empty {
+  margin: 0;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #aaa);
+}
+
+.net-worth-drawer__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.net-worth-drawer__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.net-worth-drawer__row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.net-worth-drawer__row-name {
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Receivable status badge — "in play" for active stakes, "owed" for
+ * carries. Small color-coded chip beside the borrower name so the
+ * player can scan the list at a glance. */
+.net-worth-drawer__status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-style: normal;
+}
+.net-worth-drawer__status-badge--active {
+  background: rgba(185, 224, 245, 0.15);
+  color: #b9e0f5;
+}
+.net-worth-drawer__status-badge--carry {
+  background: rgba(220, 80, 80, 0.18);
+  color: #fca5a5;
+}
+.net-worth-drawer__status-badge--settled {
+  background: rgba(134, 239, 172, 0.15);
+  color: #86efac;
+}
+.net-worth-drawer__status-badge--defaulted {
+  background: rgba(180, 100, 100, 0.2);
+  color: #e88;
+}
+.net-worth-drawer__status-badge--alert {
+  background: rgba(250, 204, 21, 0.18);
+  color: #facc15;
+}
+
+/* v110 — Forgiveness Requests section. Highlighted so a player
+ * landing on the drawer sees the actionable section first; the
+ * row's amber border mirrors the wallet badge in the lobby header. */
+.net-worth-drawer__column--attention {
+  border: 1px solid rgba(250, 204, 21, 0.25);
+  background: rgba(250, 204, 21, 0.04);
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.net-worth-drawer__column-count--alert {
+  background: rgba(250, 204, 21, 0.25);
+  color: #facc15;
+}
+.net-worth-drawer__row--request {
+  border-color: rgba(250, 204, 21, 0.25);
+  background: rgba(250, 204, 21, 0.05);
+}
+
+/* History list reads as a quieter ledger trail — slightly dimmer
+ * surface, no border tinting except for the defaulted variant which
+ * keeps a faint red edge as the "this hurt" cue. */
+.net-worth-drawer__list--history .net-worth-drawer__row {
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.92;
+}
+.net-worth-drawer__row--defaulted {
+  border-color: rgba(180, 100, 100, 0.18);
+}
+.net-worth-drawer__row--settled {
+  border-color: rgba(134, 239, 172, 0.12);
+}
+
+/* Per-stake P&L pinned next to the status badge. Green for wins,
+ * red for losses, dim for break-even/zero. Tabular-nums so the
+ * column of amounts visually aligns when scanning history. */
+.net-worth-drawer__history-net {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #aaa);
+}
+.net-worth-drawer__history-net--win {
+  color: #86efac;
+}
+.net-worth-drawer__history-net--loss {
+  color: #fca5a5;
+}
+
+.net-worth-drawer__row-status-line--muted {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+/* Active-stake rows get a soft cool-blue border to read as "in
+ * motion" vs the neutral carry rows. */
+.net-worth-drawer__row--active {
+  border-color: rgba(185, 224, 245, 0.2);
+}
+
+/* Tertiary status line for active stakes — explains what happens
+ * next without taking up a full row. */
+.net-worth-drawer__row-status-line {
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  font-style: italic;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.net-worth-drawer__row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+
+.net-worth-drawer__row-meta span:first-child {
+  color: var(--text-primary, #f5f5f5);
+  font-variant-numeric: tabular-nums;
+}
+
+.net-worth-drawer__row-sep {
+  opacity: 0.5;
+}
+
+.net-worth-drawer__hint {
+  color: var(--text-secondary, #aaa);
+}
+
+.net-worth-drawer__row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.net-worth-drawer__action {
+  background: rgba(110, 180, 220, 0.18);
+  color: #b9e0f5;
+  border: 1px solid rgba(110, 180, 220, 0.3);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s ease-out;
+  white-space: nowrap;
+}
+
+.net-worth-drawer__action:hover:not(:disabled) {
+  background: rgba(110, 180, 220, 0.32);
+}
+
+.net-worth-drawer__action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.net-worth-drawer__action--secondary {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary, #aaa);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.net-worth-drawer__action--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #f5f5f5);
+}
+
+.net-worth-drawer__notice {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.net-worth-drawer__notice--granted {
+  background: rgba(110, 200, 130, 0.14);
+  color: #9be0b5;
+  border: 1px solid rgba(110, 200, 130, 0.28);
+}
+
+.net-worth-drawer__notice--refused {
+  background: rgba(220, 150, 90, 0.12);
+  color: #f0c598;
+  border: 1px solid rgba(220, 150, 90, 0.26);
+}
+
+.net-worth-drawer__notice--rate_limited {
+  background: rgba(150, 150, 150, 0.10);
+  color: var(--text-secondary, #aaa);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Lobby trigger button — wallet icon next to bankroll display. */
+
+.cash-entry__net-worth-trigger {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  margin-left: 12px;
+  vertical-align: middle;
+  position: relative;
+  transition: background 0.1s ease-out, color 0.1s ease-out;
+}
+
+.cash-entry__net-worth-trigger:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #f5f5f5);
+}
+
+/* v110 — pending forgiveness request badge. Amber dot in the top-
+ * right of the wallet button, mirroring the Forgiveness Requests
+ * section accent inside the drawer. Shows the count (capped at 9+)
+ * so the player knows how many decisions are waiting. */
+.cash-entry__net-worth-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #facc15;
+  color: #1f1300;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* TableCard carry-pin — corner badge on AI seat avatars when the
+ * player has an outstanding carry. Top-right corner so it doesn't
+ * collide with the dealer "D" button (top-left). */
+
+.lobby-table-card__carry-pin {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  background: rgba(220, 80, 80, 0.92);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phase 4: stake-glyph badge — small chip icon on AI seats currently
+ * in an active stake (either side). Sits at bottom-right so it
+ * doesn't collide with the carry-pin (top-right) or dealer "D"
+ * button (top-left). */
+.lobby-table-card__stake-glyph {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: rgba(110, 180, 220, 0.92);
+  color: #fff;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* The Phase 5 portrait-level "Stake this player" affordance was
+ * removed 2026-05-21 in favor of the IdleStakablePanel — seated AIs
+ * can't take new stakes, so surfacing the action on portraits was
+ * misleading. Player-as-staker entry now lives entirely in the
+ * dedicated panel below the table grid. */
+.lobby-table-card__offer-stake--removed {
+  /* placeholder selector preserves the unused-rules header above
+   * during code-folding; safe to delete in a future cleanup pass. */
+  display: none;
+}

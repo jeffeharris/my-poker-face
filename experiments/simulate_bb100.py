@@ -906,6 +906,7 @@ def run_6max_matchup(
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
+    disable_rules: Optional[frozenset] = None,
 ) -> List[float]:
     """Run n_hands of 6-max poker: 1 archetype + 5 opponents.
 
@@ -970,6 +971,7 @@ def run_6max_matchup(
             make_controller(
                 archetype_seat, config_arch, strategy_table, sm,
                 rng_seed=hand_seed,
+                disable_rules=disable_rules,  # hero only — ablation target
             )
         ]
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
@@ -1055,6 +1057,7 @@ def run_all_6max_vs_rules(
     verbose: bool = False,
     opponents: Optional[List[str]] = None,
     hero_adaptation_bias: Optional[float] = None,
+    disable_rules: Optional[frozenset] = None,
 ):
     """Run each tiered archetype vs a fixed mix of 5 rule_bots at 6-max.
 
@@ -1067,6 +1070,9 @@ def run_all_6max_vs_rules(
     print(f"\nBB/100 Simulation: 6-MAX vs RULE BOTS, {n_hands} hands per archetype, seed={seed}")
     print(f"Opponents: {', '.join(opponents)}")
     print(f"Stack: {starting_stack}, BB: {big_blind}")
+    if disable_rules:
+        rules_str = ', '.join(f'{l}.{r}' for (l, r) in sorted(disable_rules))
+        print(f"Disabled (hero only): {rules_str}")
     print("=" * 67)
 
     # Test all tiered archetypes (not the rule_bots themselves)
@@ -1085,6 +1091,7 @@ def run_all_6max_vs_rules(
             base_seed=seed, verbose=verbose,
             opponents=opponents,
             hero_adaptation_bias=hero_adaptation_bias,
+            disable_rules=disable_rules,
         )
         results[name] = compute_stats(deltas, big_blind)
 
@@ -1430,7 +1437,45 @@ def main():
              'poise + recovery_rate, e.g. Nit) drift very little; '
              'volatile ones (Maniac, LAG) drift visibly.',
     )
+    parser.add_argument(
+        '--clone-opponent', type=str, action='append', default=None,
+        metavar='PLAYER_NAME',
+        help='Derive a CloneProfile from opponent_models for the named '
+             'human/AI player and register it as an opponent archetype '
+             '"<PLAYER_NAME>_clone". Repeatable. Reference the clone via '
+             '--opponents (e.g. --clone-opponent Jeff --opponents '
+             '"Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot"). Requires the '
+             'player to have ≥20 hands_observed in opponent_models.',
+    )
     args = parser.parse_args()
+
+    # Register any clone opponents the user requested. Do this before
+    # ARCHETYPES is read by the matchup runners so the new entries are
+    # visible. Fails loud rather than silently swallowing — bad
+    # --clone-opponent name should stop the run, not produce a misleading
+    # "opponent not found" downstream.
+    if args.clone_opponent:
+        from poker.human_clone import derive_profile_from_db, register_clone_strategy
+        import os as _os
+        clone_db = args.db or (
+            '/app/data/poker_games.db'
+            if _os.path.exists('/app/data/poker_games.db')
+            else 'poker_games.db'
+        )
+        for player_name in args.clone_opponent:
+            profile = derive_profile_from_db(clone_db, player_name)
+            strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
+            register_clone_strategy(strategy_key, profile)
+            archetype_key = f"{player_name}_clone"
+            ARCHETYPES[archetype_key] = {
+                'kind': 'rule_bot',
+                'strategy': strategy_key,
+            }
+            print(
+                f"[CLONE] Registered {archetype_key!r} from {profile.hands_observed} "
+                f"observed hand(s) — vpip={profile.vpip:.2f} pfr={profile.pfr:.2f} "
+                f"af={profile.aggression_factor:.2f} ftc={profile.fold_to_cbet:.2f}"
+            )
 
     # Seed the global `random` module so any code path that calls
     # `random.random()` / `random.choice()` / `random.getrandbits()` etc.
@@ -1501,6 +1546,7 @@ def main():
             args.stack, args.seed, verbose=args.verbose,
             opponents=custom_opp,
             hero_adaptation_bias=args.adaptation_bias,
+            disable_rules=disable_rules,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(

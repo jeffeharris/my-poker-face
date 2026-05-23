@@ -82,6 +82,19 @@ export const gameAPI = {
     return response.json();
   },
 
+  fastForward: async (gameId: string, enabled = true) => {
+    const response = await fetch(`${config.API_URL}/api/game/${gameId}/fast-forward`, {
+      ...fetchOptions,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to toggle fast-forward');
+    }
+    return response.json();
+  },
+
   sendMessage: async (gameId: string, message: string, sender: string) => {
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/message`, {
       ...fetchOptions,

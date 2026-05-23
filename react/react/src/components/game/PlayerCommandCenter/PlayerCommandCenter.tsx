@@ -1,3 +1,4 @@
+import { FastForward } from 'lucide-react';
 import { Card } from '../../cards';
 import { ActionButtons } from '../ActionButtons';
 import type { Player } from '../../../types/player';
@@ -18,6 +19,13 @@ interface PlayerCommandCenterProps {
   isSmallBlind: boolean;
   isBigBlind: boolean;
   bettingContext?: BettingContext;
+  /** True when the backend is resolving the rest of the orbit via the
+   *  no-LLM tiered path. Auto-clears when action returns to the human. */
+  fastForward?: boolean;
+  /** Called when the user taps the FF button. Receives the *new* desired
+   *  state (toggle of `fastForward`). Parent POSTs to
+   *  /api/game/<id>/fast-forward with `{enabled}`. Omit to hide. */
+  onFastForward?: (enabled: boolean) => void;
 }
 
 export function PlayerCommandCenter({
@@ -34,6 +42,8 @@ export function PlayerCommandCenter({
   isSmallBlind,
   isBigBlind,
   bettingContext,
+  fastForward = false,
+  onFastForward,
 }: PlayerCommandCenterProps) {
   const costToCall = Math.max(0, highestBet - player.bet);
 
@@ -117,6 +127,28 @@ export function PlayerCommandCenter({
             inline={true}
             bettingContext={bettingContext}
           />
+        </div>
+      )}
+
+      {/* Fast-forward: visible whenever it's NOT our turn — including
+          while folded, since waiting out the orbit is exactly when FF
+          matters most. Tap to toggle; the auto-reset also fires when
+          action returns to the human on the next street/hand. */}
+      {!showActions && !isCurrentPlayer && onFastForward && (
+        <div className="command-center__ff">
+          <button
+            type="button"
+            className={`command-center__ff-button ${fastForward ? 'is-active' : ''}`}
+            onClick={() => onFastForward(!fastForward)}
+            title={
+              fastForward
+                ? 'Tap to return to normal speed'
+                : 'Skip AI deliberation — resolve to your next turn'
+            }
+          >
+            <FastForward size={14} strokeWidth={2.25} aria-hidden />
+            <span>{fastForward ? 'Fast-forwarding · tap to stop' : 'Fast-forward'}</span>
+          </button>
         </div>
       )}
     </div>

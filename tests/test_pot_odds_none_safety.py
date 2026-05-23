@@ -244,10 +244,19 @@ class TestHybridChoicePromptFreeCheck(unittest.TestCase):
     def test_build_choice_prompt_with_none_pot_odds(self):
         from poker.hybrid_ai_controller import HybridAIController
         from poker.bounded_options import BoundedOption
+        from poker.prompt_config import PromptConfig
+        from types import SimpleNamespace
 
         # Bypass __init__ — we only need to test _build_choice_prompt which
         # is a pure method that reads `context` and produces a string.
+        # The relationship-context branch reads self.state_machine and
+        # self.prompt_config; stub both so the no-op path (flag off) works.
         ctrl = HybridAIController.__new__(HybridAIController)
+        ctrl.prompt_config = PromptConfig()  # relationship_context defaults to False
+        ctrl.opponent_model_manager = None
+        ctrl.state_machine = SimpleNamespace(
+            game_state=SimpleNamespace(players=[], current_player=None),
+        )
 
         options = [
             BoundedOption(

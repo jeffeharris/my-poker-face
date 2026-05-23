@@ -1,14 +1,18 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { GameMenu, type QuickPlayConfig } from './components/menus/GameMenu'
+import { HomeMenu } from './components/menus/HomeMenu'
+import { TournamentMenu, type QuickPlayConfig } from './components/menus/TournamentMenu'
 import { LoginForm } from './components/auth/LoginForm'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { GamePage } from './components/game/GamePage'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useUsageStats } from './hooks/useUsageStats'
+import { useNicknameOverridesStore } from './stores/nicknameOverridesStore'
+import { fetchNicknameOverrides } from './components/character/api'
 import { ShuffleLoading, GuestLimitModal } from './components/shared'
+import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor'
 import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
@@ -28,6 +32,7 @@ const LandingPage = lazy(() => import('./components/landing').then(m => ({ defau
 const Lobby = lazy(() => import('./components/cash/Lobby').then(m => ({ default: m.Lobby })))
 const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
+const WinnerLayoutSandbox = lazy(() => import('./components/dev/WinnerLayoutSandbox').then(m => ({ default: m.WinnerLayoutSandbox })))
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -38,12 +43,13 @@ const ROUTE_TITLES: Record<string, string> = {
   '/login': 'Login - My Poker Face',
   '/name-entry': 'Choose Your Name - My Poker Face',
   '/menu': 'Game Menu - My Poker Face',
+  '/menu/tournament': 'Tournaments - My Poker Face',
   '/games': 'Select Game - My Poker Face',
   '/game': 'Playing - My Poker Face',
   '/game/new/custom': 'Custom Game - My Poker Face',
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
-  '/cash': 'Cash Game - My Poker Face',
+  '/cash': 'Career - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
@@ -65,6 +71,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
 
+  // Fresh quote each time game creation kicks off.
+  const creatingGameQuote = useMemo(() => {
+    if (!isCreatingGame) return undefined;
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [isCreatingGame])
+
   // Check if guest hand limit is already reached on load
   useEffect(() => {
     if (usageStats?.hands_limit_reached) {
@@ -78,6 +91,34 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       setPlayerName(user.name);
     }
   }, [user?.name]);
+
+  // Hydrate the per-viewer nickname-override map on auth so opponent
+  // labels everywhere (table, chat, heads-up panel, etc.) reflect
+  // private aliases the player set in the dossier. Re-runs when
+  // the user identity flips (login/logout) so the override set is
+  // never stale to who's looking.
+  //
+  // Reset runs unconditionally at the top: this prevents a stale
+  // prior-user map from leaking into a fresh identity's hydrate
+  // (hydrate merges, with local edits winning, so without this
+  // reset the prior user's edits would survive an identity swap).
+  const hydrateOverrides = useNicknameOverridesStore((s) => s.hydrate);
+  const resetOverrides = useNicknameOverridesStore((s) => s.reset);
+  useEffect(() => {
+    resetOverrides();
+    if (!isAuthenticated || !user?.id) return;
+    let cancelled = false;
+    fetchNicknameOverrides()
+      .then((map) => {
+        if (!cancelled) hydrateOverrides(map);
+      })
+      .catch((e) => {
+        // Soft-fail: leave the (empty) store alone so canonical
+        // nicknames keep showing — the existing behaviour pre-feature.
+        logger.warn('[nickname-overrides] fetch failed', e);
+      });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, user?.id, hydrateOverrides, resetOverrides]);
 
   // Update page title based on current route
   useEffect(() => {
@@ -94,9 +135,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
     }
   }, [location.pathname]);
 
-  // Fetch saved games count when authenticated or navigating to menu
+  // Fetch saved games count when authenticated or navigating to a menu page
   useEffect(() => {
-    if (isAuthenticated && location.pathname === '/menu') {
+    if (isAuthenticated && (location.pathname === '/menu' || location.pathname === '/menu/tournament')) {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, location.pathname]);
@@ -332,19 +373,31 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         } />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
 
         {/* Protected routes */}
         <Route path="/menu" element={
           <ProtectedRoute>
-            <GameMenu
+            <HomeMenu
+              playerName={playerName}
+              onCashMode={() => navigate('/cash')}
+              onTournament={() => navigate('/menu/tournament')}
+              onAdminDashboard={() => navigate('/admin')}
+            />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/menu/tournament" element={
+          <ProtectedRoute>
+            <TournamentMenu
               playerName={playerName}
               onQuickPlay={handleQuickPlay}
               onCustomGame={() => navigate('/game/new/custom')}
               onThemedGame={() => navigate('/game/new/themed')}
               onContinueGame={() => navigate('/games')}
-              onCashMode={() => navigate('/cash')}
               onViewStats={() => navigate('/stats')}
               onAdminDashboard={() => navigate('/admin')}
+              onBack={() => navigate('/menu')}
               savedGamesCount={savedGamesCount}
               isCreatingGame={isCreatingGame}
             />
@@ -355,7 +408,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <GameSelector
               onSelectGame={handleSelectGame}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               onGamesChanged={handleGamesChanged}
             />
           </ProtectedRoute>
@@ -365,7 +418,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <CustomGameConfig
               onStartGame={handleStartCustomGame}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
@@ -375,7 +428,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
           <ProtectedRoute>
             <ThemedGameSelector
               onSelectTheme={handleSelectTheme}
-              onBack={() => navigate('/menu')}
+              onBack={() => navigate('/menu/tournament')}
               isCreatingGame={isCreatingGame}
             />
           </ProtectedRoute>
@@ -391,7 +444,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
         <Route path="/stats" element={
           <ProtectedRoute>
-            <CareerStats onBack={() => navigate('/menu')} />
+            <CareerStats onBack={() => navigate('/menu/tournament')} />
           </ProtectedRoute>
         } />
 
@@ -426,6 +479,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         message="Setting up your game"
         submessage={loadingSubmessage}
         exitStyle="slide"
+        quote={creatingGameQuote}
       />
 
       {/* Max Games Error Modal */}

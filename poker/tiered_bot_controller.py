@@ -2926,6 +2926,34 @@ class TieredBotController(AIPlayerController):
                 game_state, player,
             )
 
+            # Relationship-context block — shared with chaos and
+            # standard via the same formatter, so narration here frames
+            # rival/friendly labels identically to how those bots see
+            # them in their decision prompts. Gated on the prompt_config
+            # flag and graceful when no opponent_model_manager is wired.
+            relationship_context = ''
+            if (
+                getattr(self.prompt_config, 'relationship_context', False)
+                and self.opponent_model_manager is not None
+            ):
+                try:
+                    from .memory.relationship_prompt import build_relationship_context
+                    active_opponent_names = [
+                        p.name for p in game_state.players
+                        if not p.is_folded and p.name != player.name
+                    ]
+                    relationship_context = build_relationship_context(
+                        observer_name=self.player_name,
+                        opponents=active_opponent_names,
+                        opponent_model_manager=self.opponent_model_manager,
+                    )
+                except Exception as e:  # noqa: BLE001 — narration is observability
+                    logger.warning(
+                        f"[TIERED_BOT] {self.player_name}: "
+                        f"relationship_context build failed: {e}"
+                    )
+                    relationship_context = ''
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -2957,6 +2985,7 @@ class TieredBotController(AIPlayerController):
                 pot_committed=extras['pot_committed'],
                 recent_actions=extras['recent_actions'],
                 recent_own_speech_beats=self.recent_own_speech_beats(),
+                recent_own_action_beats=self.recent_own_action_beats(),
                 callouts=self.find_callouts(
                     getattr(self, '_current_game_messages', None)
                 ),
@@ -2964,6 +2993,7 @@ class TieredBotController(AIPlayerController):
                 should_gesture=should_gesture,
                 narration_facts=narration_facts,
                 opponent_observations=opponent_observations,
+                relationship_context=relationship_context,
             )
 
             capture_id_holder = [None]

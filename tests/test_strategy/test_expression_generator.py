@@ -303,6 +303,54 @@ def test_optional_sections_render_when_fields_populated(prompt_manager):
     assert '2.5' in prompt         # cost_to_call_bb
 
 
+def test_relationship_context_block_appears_when_populated(context, prompt_manager):
+    """When `relationship_context` is set, the block lands in the user
+    prompt as a suffix. Symmetric with chaos/standard so all three
+    LLM-touching bot types see relationship history framed identically.
+    """
+    block = (
+        "RECENT HISTORY WITH OPPONENTS AT THIS TABLE:\n"
+        "- Joker: rival\n"
+        "    Joker bad-beat Batman on hand 47"
+    )
+    ctx_with_block = ExpressionContext(
+        action_taken='raise',
+        raise_to=600,
+        hand_cards=['As', 'Ah'],
+        community_cards=[],
+        phase='pre_flop',
+        pot_size=300,
+        opponent_count=2,
+        personality_name='Batman',
+        play_style='analytical',
+        default_attitude='thoughtful',
+        relationship_context=block,
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(ctx_with_block)
+
+    _, user = _capture_messages(mock_llm)
+    assert 'RECENT HISTORY' in user
+    assert 'Joker: rival' in user
+    assert 'bad-beat Batman' in user
+
+
+def test_relationship_context_block_absent_when_empty(context, prompt_manager):
+    """Default empty `relationship_context` field produces no block —
+    pre-existing callers / tests see identical prompts.
+    """
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)  # default ctx — no relationship_context
+
+    _, user = _capture_messages(mock_llm)
+    assert 'RECENT HISTORY' not in user
+
+
 def test_addressing_field_passes_through(context, prompt_manager):
     """LLM-declared addressing names are preserved through parse."""
     mock_llm = MagicMock()

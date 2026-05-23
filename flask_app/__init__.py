@@ -104,18 +104,11 @@ def create_app():
     # state lives in `cash_tables` (not in `games`), so wiping every
     # `cash-*` game row is safe.
     try:
-        from cash_mode.lobby import ensure_lobby_seeded, kill_all_cash_sessions
+        from cash_mode.lobby import kill_all_cash_sessions
         from .services import game_state_service
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
-            cash_table_repo=extensions.cash_table_repo,
-            bankroll_repo=extensions.bankroll_repo,
-        )
-        ensure_lobby_seeded(
-            cash_table_repo=extensions.cash_table_repo,
-            personality_repo=extensions.personality_repo,
-            bankroll_repo=extensions.bankroll_repo,
         )
     except Exception as e:
         logger.error(f"[CASH] lobby boot hook failed: {e}", exc_info=True)
@@ -163,7 +156,7 @@ def register_error_handlers(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
-    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp, prompt_preset_bp, capture_label_bp, replay_experiment_bp, user_bp, coach_bp, cash_bp
+    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp, prompt_preset_bp, capture_label_bp, replay_experiment_bp, user_bp, coach_bp, cash_bp, chip_ledger_bp, character_bp
 
     app.register_blueprint(game_bp)
     app.register_blueprint(debug_bp)
@@ -179,6 +172,8 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(user_bp)
     app.register_blueprint(coach_bp)
     app.register_blueprint(cash_bp)
+    app.register_blueprint(chip_ledger_bp)
+    app.register_blueprint(character_bp)
 
     # Test helper endpoints — only available when ENABLE_TEST_ROUTES=true
     if os.environ.get('ENABLE_TEST_ROUTES', 'false').lower() == 'true':

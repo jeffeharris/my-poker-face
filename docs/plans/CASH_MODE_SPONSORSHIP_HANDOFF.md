@@ -2,7 +2,7 @@
 purpose: Implementation handoff for cash-mode sponsorship — session-scoped loans, rebuy modal, varying terms, AI-opponent sponsors deferred to v2
 type: guide
 created: 2026-05-18
-last_updated: 2026-05-18
+last_updated: 2026-05-21
 ---
 
 # Cash Mode — Sponsorship + Rebuy Flow Handoff
@@ -206,7 +206,7 @@ two new fields (both default 0/0.0).
 
 - ~~**AI-opponent sponsorship.**~~ **Shipped 2026-05-18 as Path B** —
   see `CASH_MODE_PATH_B_HANDOFF.md`. Personalities have a
-  `lender_profile` (willing / max_loan_pct / floor_anchor /
+  `staker_profile` (willing / max_loan_pct / floor_anchor /
   rate_anchor / respect_floor / heat_ceiling), terms are trimmed at
   offer time by the relationship axes, and leave-time settlement
   credits the AI lender's persistent bankroll. Loan lifecycle fires
@@ -349,7 +349,7 @@ handoff.
 4. **AI personalities as sponsors (v2 design preview).**
    When this lands, each personality's `bankroll_knobs` in
    `personalities.json` should gain fields like
-   `lender_profile: {willing: true, max_loan: 1000,
+   `staker_profile: {willing: true, max_loan: 1000,
    rate_anchor: 0.40, ...}`. The bust modal pulls eligible AI
    sponsors from the personalities at the table (or the AI pool
    broadly). The loan creates a relationship event

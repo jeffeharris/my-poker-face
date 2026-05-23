@@ -5,7 +5,7 @@ import json
 import logging
 import secrets
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 from flask import Blueprint, jsonify, request, redirect, send_from_directory
 from flask_socketio import join_room, emit
@@ -38,6 +38,7 @@ from ..handlers.game_handler import (
 from ..handlers.message_handler import (
     send_message, format_action_message, record_action_in_memory, format_messages_for_api
 )
+from ..handlers.chat_relationship import dispatch_chat_relationship_event
 from ..handlers.avatar_handler import start_background_avatar_generation
 from .. import config
 from ..validation import validate_player_action
@@ -540,13 +541,38 @@ def api_game_state(game_id):
                         # from the game_id prefix + current_ante.)
                         is_cash_game = game_id.startswith("cash-")
 
+                        # v109: cash_pair_stats writes need a sandbox_id so the
+                        # admin Chip Economy panel can scope Won/Lost/Net. For
+                        # cold-loaded cash games the owner's default sandbox is
+                        # the right answer — owners are single-sandbox in v1,
+                        # and the same resolver feeds /api/cash/start.
+                        cold_load_sandbox_id: Optional[str] = None
+                        if is_cash_game and owner_id is not None:
+                            try:
+                                from flask_app.extensions import sandbox_repo as _sandbox_repo
+                                from flask_app.services.sandbox_resolver import (
+                                    resolve_default_sandbox_for,
+                                )
+                                cold_load_sandbox_id = resolve_default_sandbox_for(
+                                    owner_id, sandbox_repo=_sandbox_repo,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "[LOAD] sandbox resolve failed for cash "
+                                    "game %s owner %s: %s — cash_pair_stats "
+                                    "writes will be skipped this session",
+                                    game_id, owner_id, e,
+                                )
+
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
                         # Phase 3: relationship state populates from hand
                         # outcomes. Cash sessions write cash_pair_stats;
                         # tournament sessions skip it.
                         memory_manager.set_relationship_repo(
-                            relationship_repo, cash_mode=is_cash_game,
+                            relationship_repo,
+                            cash_mode=is_cash_game,
+                            sandbox_id=cold_load_sandbox_id,
                         )
 
                         # Restore hand count from database
@@ -578,8 +604,17 @@ def api_game_state(game_id):
                                 controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
                                 controller.memory_manager = memory_manager
                             elif player.is_human:
-                                # Initialize human player for opponent observation tracking
-                                memory_manager.initialize_human_observer(player.name, personality_id=pid)
+                                # Register with owner_id (the stable auth id) so
+                                # per-hand BIG_WIN/BIG_LOSS events land on
+                                # (owner_id, ai_pid) rows — the same key the
+                                # cash loan flow and the dossier read use.
+                                # Falls back to `pid` (almost always None for
+                                # humans) when owner_id isn't on this session,
+                                # preserving the legacy display-name fallback.
+                                memory_manager.initialize_human_observer(
+                                    player.name,
+                                    personality_id=owner_id or pid,
+                                )
 
                         memory_manager.on_hand_start(
                             state_machine.game_state,
@@ -663,6 +698,30 @@ def api_game_state(game_id):
                             current_game_data['cash_mode'] = True
                             current_game_data['cash_stake_label'] = stake_label
                             current_game_data['cash_personality_ids'] = cash_personality_ids
+                            # Restore the four buy-in / start-time / seat
+                            # fields the cold-load path used to leave at
+                            # None. Without this, a leave after a Flask
+                            # restart got buy_in=0, duration=0, and
+                            # cash_tables seat never freed (ghost seat).
+                            # The durable cash_sessions row (v108) is
+                            # the source of truth — populated at sit-
+                            # down by cash_routes._record_cash_session_start.
+                            try:
+                                from flask_app.extensions import cash_session_repo
+                                if cash_session_repo is not None:
+                                    cs = cash_session_repo.load(game_id)
+                                    if cs is not None:
+                                        current_game_data['cash_buy_in'] = cs.total_buy_in
+                                        current_game_data['cash_started_at'] = (
+                                            cs.started_at.isoformat() if cs.started_at else None
+                                        )
+                                        current_game_data['cash_table_id'] = cs.cash_table_id
+                                        current_game_data['cash_seat_index'] = cs.cash_seat_index
+                            except Exception as e:
+                                logger.warning(
+                                    "[LOAD] cash_sessions cold-load restore failed for %r: %s",
+                                    game_id, e,
+                                )
                         # Recover from games persisted mid-all-in-runout (server
                         # crash while run_it_out=True). Without this, the player
                         # sees a stuck state with no action buttons (the UI
@@ -1258,8 +1317,15 @@ def api_new_game():
             controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
             controller.memory_manager = memory_manager
         else:
-            # Initialize human player for opponent observation tracking
-            memory_manager.initialize_human_observer(player.name, personality_id=pid)
+            # Register with owner_id (the stable auth id) so per-hand
+            # BIG_WIN/BIG_LOSS events write to (owner_id, ai_pid) rows
+            # — the same key the dossier read uses. Falls back to `pid`
+            # (almost always None for humans) when owner_id isn't set
+            # on this session, preserving legacy display-name behavior.
+            memory_manager.initialize_human_observer(
+                player.name,
+                personality_id=owner_id or pid,
+            )
 
     # Advance state machine to deal cards and post blinds before recording hand start,
     # so that hole cards are available when on_hand_start records them.
@@ -1427,12 +1493,70 @@ def api_player_action(game_id):
         return jsonify({'error': 'Failed to process action'}), 500
 
 
+@game_bp.route('/api/game/<game_id>/fast-forward', methods=['POST'])
+def api_fast_forward(game_id):
+    """Enable fast-forward: subsequent AI decisions skip the LLM.
+
+    While `fast_forward` is set on game_data, `handle_ai_action` swaps each
+    AI's controller for a TieredBotController with `expression_enabled=False`
+    — sub-100ms decisions, zero token cost. The flag auto-clears when action
+    returns to the human (see `progress_game`'s human-turn branch), so this
+    is a one-orbit affordance: tap once, the rest of the cycle resolves
+    quickly, then normal personality-aware play resumes on your next turn.
+
+    Body: `{enabled: bool}` — optional, defaults to `true`. POST with
+    `enabled=false` to manually cancel before the orbit completes (e.g. you
+    changed your mind mid-cycle).
+
+    Returns `{success, fast_forward}` on success, 404 if the game is gone.
+    No 'authorized actor' check beyond the standard game-access guard — only
+    the seated human can meaningfully trigger FF (it's tied to *their* turn
+    cycle).
+    """
+    data = request.json or {}
+    enabled = data.get('enabled', True)
+    if not isinstance(enabled, bool):
+        return jsonify({'error': 'enabled must be a boolean'}), 400
+
+    current_game_data = game_state_service.get_game(game_id)
+    _, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
+    if auth_error:
+        return auth_error
+    if not current_game_data:
+        return jsonify({'error': 'Game not found'}), 404
+
+    current_game_data['fast_forward'] = enabled
+    game_state_service.set_game(game_id, current_game_data)
+    logger.info(f"[FF] game={game_id} fast_forward={enabled}")
+
+    # Kick the progression loop so any AI mid-orbit resolves quickly.
+    # progress_game's per-game lock short-circuits if already running, so
+    # this is safe even when the loop is already draining the orbit.
+    if enabled:
+        progress_game(game_id)
+
+    return jsonify({'success': True, 'fast_forward': enabled})
+
+
 @game_bp.route('/api/game/<game_id>/message', methods=['POST'])
 def api_send_message(game_id):
     """Send a chat message in the game."""
     data = request.json or {}
     message = data.get('message', '')
     sender = data.get('sender', 'Player')
+    # Optional list of player names this message is directly addressed to.
+    # Drives the AI's find_callouts detection so targeted chat reliably
+    # reaches the intended opponent regardless of message wording.
+    raw_addressing = data.get('addressing')
+    addressing = [str(n) for n in raw_addressing if isinstance(n, str)] if isinstance(raw_addressing, list) else None
+
+    # Quick-chat metadata: when the message originated from a structured
+    # tone selector (mid-hand `ChatTone` or post-round `PostRoundTone`),
+    # the UI passes the tone string here. Drives the bilateral
+    # relationship-axis update via `chat_intent.map_tone` — see the
+    # post-send dispatch below.
+    tone = data.get('tone')
+    intensity = data.get('intensity')
 
     current_game_data = game_state_service.get_game(game_id)
     current_user, _, _, auth_error = _authorize_game_access(game_id, current_game_data)
@@ -1454,7 +1578,10 @@ def api_send_message(game_id):
         game_state_service.set_game(game_id, current_game_data)
 
     if message.strip():
-        send_message(game_id, sender, message.strip(), 'player')
+        send_message(game_id, sender, message.strip(), 'player', addressing=addressing)
+        dispatch_chat_relationship_event(
+            current_game_data, sender, addressing, tone, intensity,
+        )
         return jsonify({'success': True})
 
     return jsonify({'success': False, 'error': 'Empty message'})
@@ -1757,6 +1884,11 @@ def register_socket_events(sio):
         content = data.get('message')
         sender = data.get('sender', 'Player')
         message_type = data.get('message_type', 'user')
+        raw_addressing = data.get('addressing')
+        addressing = (
+            [str(n) for n in raw_addressing if isinstance(n, str)]
+            if isinstance(raw_addressing, list) else None
+        )
 
         if not game_id:
             logger.debug("[SOCKET] send_message missing game_id")
@@ -1776,7 +1908,7 @@ def register_socket_events(sio):
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
-        send_message(game_id, sender, content, message_type)
+        send_message(game_id, sender, content, message_type, addressing=addressing)
 
     @sio.on('progress_game')
     @socket_rate_limit(max_calls=5, window_seconds=10)

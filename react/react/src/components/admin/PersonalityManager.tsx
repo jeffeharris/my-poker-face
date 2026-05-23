@@ -1266,8 +1266,6 @@ interface BankrollKnobs {
   bankroll_cap: number;
   bankroll_rate: number;
   buy_in_multiplier: number;
-  stop_loss_buy_ins: number;
-  stop_win_buy_ins: number;
   stake_comfort_zone: string;
 }
 
@@ -1332,8 +1330,6 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
     knobs.bankroll_cap !== original.bankroll_cap ||
     knobs.bankroll_rate !== original.bankroll_rate ||
     knobs.buy_in_multiplier !== original.buy_in_multiplier ||
-    knobs.stop_loss_buy_ins !== original.stop_loss_buy_ins ||
-    knobs.stop_win_buy_ins !== original.stop_win_buy_ins ||
     knobs.stake_comfort_zone !== original.stake_comfort_zone
   );
 
@@ -1465,33 +1461,6 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
         </div>
       </div>
 
-      <div className="admin-form-row">
-        <div className="admin-form-group">
-          <label className="admin-label" htmlFor="stop_loss_buy_ins">Stop loss (buy-ins)</label>
-          <input
-            id="stop_loss_buy_ins"
-            type="number"
-            className="admin-input"
-            min={0}
-            value={knobs.stop_loss_buy_ins}
-            onChange={(e) => updateField('stop_loss_buy_ins', Number(e.target.value))}
-          />
-          <p className="admin-help-text">v2 — unused in v1</p>
-        </div>
-        <div className="admin-form-group">
-          <label className="admin-label" htmlFor="stop_win_buy_ins">Stop win (buy-ins)</label>
-          <input
-            id="stop_win_buy_ins"
-            type="number"
-            className="admin-input"
-            min={0}
-            value={knobs.stop_win_buy_ins}
-            onChange={(e) => updateField('stop_win_buy_ins', Number(e.target.value))}
-          />
-          <p className="admin-help-text">v2 — unused in v1</p>
-        </div>
-      </div>
-
       <div style={{ marginTop: 'var(--space-3)' }}>
         <button
           type="button"
@@ -1500,6 +1469,504 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
           disabled={saving || !hasChanges}
         >
           {saving ? 'Saving…' : hasChanges ? 'Save Bankroll Knobs' : 'Saved'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================
+// StakingProfileSection (cash mode admin)
+// ============================================
+
+interface BorrowerProfileResponse {
+  success?: boolean;
+  name?: string;
+  personality_id?: string;
+  willing?: boolean;
+  /** Effective threshold the staking engine uses — explicit override
+   *  if set in config_json, else ego-derived. */
+  willingness_threshold?: number;
+  /** The explicit override from config_json, or null if none set
+   *  (i.e. ego derivation is in effect). */
+  willingness_threshold_explicit?: number | null;
+  /** What ego derivation would yield, regardless of override. Powers
+   *  the "Use ego-derived default" reset button. */
+  ego_derived_threshold?: number;
+  ego?: number;
+  defaults?: { willing: boolean; willingness_threshold: number };
+  error?: string;
+}
+
+interface StakingProfileSectionProps {
+  personalityName: string;
+  showAlert: (type: AlertState['type'], message: string) => void;
+}
+
+/** Render the per-personality borrower profile editor — the AI's
+ *  willingness to BE staked by a player, and the relationship-axes
+ *  trust threshold they require before accepting.
+ *
+ *  The threshold has two states the admin needs to think about:
+ *    - Explicit override: stored in config_json.borrower_profile.
+ *      Hand-tuned per-personality for special cases.
+ *    - Ego-derived: computed at load time from anchors.ego when no
+ *      override is set. Default for the bulk of the roster.
+ *
+ *  This section makes that distinction visible: show the effective
+ *  value, mark whether it's overridden, and offer a one-click reset
+ *  to clear the override and revert to ego-derived. */
+function StakingProfileSection({ personalityName, showAlert }: StakingProfileSectionProps) {
+  const [data, setData] = useState<BorrowerProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  /** Local edit buffer — separate from `data` so we can show
+   *  dirty/pristine state and reset cleanly on a discard. */
+  const [editing, setEditing] = useState<{
+    willing: boolean;
+    threshold: number;
+    /** null = clear override (use ego-derived); number = explicit override */
+    threshold_override: number | null;
+  } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await adminFetch(
+        `/api/personality/${encodeURIComponent(personalityName)}/borrower-profile`,
+      );
+      const body = (await response.json()) as BorrowerProfileResponse;
+      if (body.success && body.willing !== undefined && body.willingness_threshold !== undefined) {
+        setData(body);
+        setEditing({
+          willing: body.willing,
+          threshold: body.willingness_threshold,
+          threshold_override: body.willingness_threshold_explicit ?? null,
+        });
+      } else {
+        showAlert('error', body.error || 'Failed to load staking profile');
+      }
+    } catch (e) {
+      logger.error('Failed to load borrower profile', e);
+      showAlert('error', 'Error loading staking profile');
+    } finally {
+      setLoading(false);
+    }
+  }, [personalityName, showAlert]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleSave = useCallback(async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const response = await adminFetch(
+        `/api/personality/${encodeURIComponent(personalityName)}/borrower-profile`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            willing: editing.willing,
+            // Send null when the admin chose "ego-derived" — that
+            // clears the explicit override server-side.
+            willingness_threshold: editing.threshold_override,
+          }),
+        },
+      );
+      const body = (await response.json()) as BorrowerProfileResponse;
+      if (body.success && body.willing !== undefined && body.willingness_threshold !== undefined) {
+        setData(body);
+        setEditing({
+          willing: body.willing,
+          threshold: body.willingness_threshold,
+          threshold_override: body.willingness_threshold_explicit ?? null,
+        });
+        showAlert('success', 'Staking profile saved');
+      } else {
+        showAlert('error', body.error || 'Failed to save staking profile');
+      }
+    } catch (e) {
+      logger.error('Failed to save borrower profile', e);
+      showAlert('error', 'Error saving staking profile');
+    } finally {
+      setSaving(false);
+    }
+  }, [editing, personalityName, showAlert]);
+
+  if (loading) {
+    return <p className="admin-help-text">Loading staking profile…</p>;
+  }
+  if (!data || !editing) {
+    return <p className="admin-help-text">No staking profile data available.</p>;
+  }
+
+  const isOverride = editing.threshold_override !== null;
+  const egoDerived = data.ego_derived_threshold ?? 0.30;
+  const hasChanges =
+    editing.willing !== data.willing ||
+    editing.threshold_override !== (data.willingness_threshold_explicit ?? null);
+
+  // Effective threshold = override if set, else ego-derived. Keep the
+  // slider showing the OVERRIDE value while editing so the admin sees
+  // exactly what they're committing.
+  const effectiveValue = isOverride ? (editing.threshold_override as number) : egoDerived;
+
+  return (
+    <div className="pm-bankroll-knobs">
+      <p className="admin-help-text" style={{ marginTop: 0 }}>
+        Whether this personality accepts stakes from the player and how
+        much goodwill they need before saying yes.
+      </p>
+
+      <label className="admin-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          type="checkbox"
+          checked={editing.willing}
+          onChange={(e) =>
+            setEditing({ ...editing, willing: e.target.checked })
+          }
+          disabled={saving}
+        />
+        <span>Accepts stakes from players</span>
+      </label>
+      <p className="admin-help-text" style={{ marginTop: 4, marginBottom: 16 }}>
+        Stoic / principled personalities (Lincoln, Buddha) refuse outright.
+        Unchecking blocks stake offers regardless of the threshold below.
+      </p>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+        <label htmlFor="willingness-threshold-slider" style={{ fontWeight: 600 }}>
+          Willingness threshold
+        </label>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+          {effectiveValue.toFixed(2)}
+          {!isOverride && (
+            <span style={{ marginLeft: 6, fontSize: 11, color: '#aaa', fontWeight: 'normal' }}>
+              (derived from ego)
+            </span>
+          )}
+          {isOverride && (
+            <span style={{ marginLeft: 6, fontSize: 11, color: '#ffd87d', fontWeight: 'normal' }}>
+              (override)
+            </span>
+          )}
+        </span>
+      </div>
+      <input
+        id="willingness-threshold-slider"
+        type="range"
+        min={10}
+        max={60}
+        step={1}
+        value={Math.round(effectiveValue * 100)}
+        onChange={(e) => {
+          const v = Number(e.target.value) / 100;
+          setEditing({ ...editing, threshold_override: v, threshold: v });
+        }}
+        disabled={saving || !editing.willing}
+        style={{ width: '100%' }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa' }}>
+        <span>0.10 (easy)</span>
+        <span>0.60 (selective)</span>
+      </div>
+      <p className="admin-help-text" style={{ marginTop: 8, fontSize: 11.5 }}>
+        Score = likability × 0.5 + respect × 0.4 − heat × 0.3. The AI
+        accepts iff score &gt; threshold (plus a cut penalty when the
+        offer's cut is steep, minus a desperation relief when broke
+        and proud).
+      </p>
+
+      <div style={{ marginTop: 12, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 6, fontSize: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ color: '#aaa' }}>Ego anchor</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{(data.ego ?? 0.5).toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ color: '#aaa' }}>Ego-derived default</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{egoDerived.toFixed(2)}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="admin-btn admin-btn--secondary"
+          onClick={() => setEditing({ ...editing, threshold_override: null, threshold: egoDerived })}
+          disabled={saving || !isOverride}
+          title="Drop the explicit override; threshold will derive from ego."
+        >
+          Use ego-derived default
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--secondary"
+          onClick={() => {
+            // Revert local edits to last-saved state.
+            setEditing({
+              willing: data.willing ?? true,
+              threshold: data.willingness_threshold ?? 0.30,
+              threshold_override: data.willingness_threshold_explicit ?? null,
+            });
+          }}
+          disabled={saving || !hasChanges}
+        >
+          Discard changes
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--primary"
+          onClick={() => void handleSave()}
+          disabled={saving || !hasChanges}
+          style={{ marginLeft: 'auto' }}
+        >
+          {saving ? 'Saving…' : 'Save staking profile'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================
+// StakerSideProfileSection (cash mode admin)
+// ============================================
+
+interface StakerProfileShape {
+  willing: boolean;
+  max_loan_pct_of_bankroll: number;
+  floor_anchor: number;
+  rate_anchor: number;
+  respect_floor: number;
+  heat_ceiling: number;
+}
+
+interface StakerProfileResponse {
+  success?: boolean;
+  name?: string;
+  personality_id?: string;
+  /** Effective profile (per-field fallback to STAKER_PROFILE_DEFAULTS). */
+  profile?: StakerProfileShape;
+  /** Sub-dict actually stored in config_json — used to detect which
+   *  fields are hand-tuned vs defaulted. null when the personality
+   *  has no explicit staker_profile (everything is using the default). */
+  explicit?: Partial<StakerProfileShape> | null;
+  defaults?: StakerProfileShape;
+  error?: string;
+}
+
+interface StakerSideProfileSectionProps {
+  personalityName: string;
+  showAlert: (type: AlertState['type'], message: string) => void;
+}
+
+/** Render the per-personality STAKER profile editor — what this AI
+ *  offers when OTHER players ask them for a stake-up loan. Mirrors
+ *  the borrower side (`StakingProfileSection`) but with the six lender
+ *  knobs instead of the willingness threshold.
+ *
+ *  No ego-derivation here — every field is either explicitly set in
+ *  config_json or falls back to STAKER_PROFILE_DEFAULTS at load time.
+ *  The route does a full-replacement PUT, so saving writes all six
+ *  fields whether they were tuned or not. */
+function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProfileSectionProps) {
+  const [data, setData] = useState<StakerProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<StakerProfileShape | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await adminFetch(
+        `/api/personality/${encodeURIComponent(personalityName)}/staker-profile`,
+      );
+      const body = (await response.json()) as StakerProfileResponse;
+      if (body.success && body.profile) {
+        setData(body);
+        setEditing({ ...body.profile });
+      } else {
+        showAlert('error', body.error || 'Failed to load staker profile');
+      }
+    } catch (e) {
+      logger.error('Failed to load staker profile', e);
+      showAlert('error', 'Error loading staker profile');
+    } finally {
+      setLoading(false);
+    }
+  }, [personalityName, showAlert]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handleSave = useCallback(async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const response = await adminFetch(
+        `/api/personality/${encodeURIComponent(personalityName)}/staker-profile`,
+        { method: 'PUT', body: JSON.stringify(editing) },
+      );
+      const body = (await response.json()) as StakerProfileResponse;
+      if (body.success && body.profile) {
+        setData(body);
+        setEditing({ ...body.profile });
+        showAlert('success', 'Staker profile saved');
+      } else {
+        showAlert('error', body.error || 'Failed to save staker profile');
+      }
+    } catch (e) {
+      logger.error('Failed to save staker profile', e);
+      showAlert('error', 'Error saving staker profile');
+    } finally {
+      setSaving(false);
+    }
+  }, [editing, personalityName, showAlert]);
+
+  if (loading) {
+    return <p className="admin-help-text">Loading staker profile…</p>;
+  }
+  if (!data || !editing || !data.profile || !data.defaults) {
+    return <p className="admin-help-text">No staker profile data available.</p>;
+  }
+
+  const hasChanges =
+    editing.willing !== data.profile.willing ||
+    editing.max_loan_pct_of_bankroll !== data.profile.max_loan_pct_of_bankroll ||
+    editing.floor_anchor !== data.profile.floor_anchor ||
+    editing.rate_anchor !== data.profile.rate_anchor ||
+    editing.respect_floor !== data.profile.respect_floor ||
+    editing.heat_ceiling !== data.profile.heat_ceiling;
+
+  // Helper — is `field` explicitly tuned in config_json, or defaulted?
+  const isExplicit = (field: keyof StakerProfileShape): boolean => {
+    return !!(data.explicit && field in data.explicit);
+  };
+
+  // Reusable slider+number row. Centralized so all six knobs share
+  // the same layout/copy structure without 6x repetition.
+  const KnobRow = ({
+    label, field, min, max, step, hint,
+  }: {
+    label: string;
+    field: keyof Omit<StakerProfileShape, 'willing'>;
+    min: number;
+    max: number;
+    step: number;
+    hint: string;
+  }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+        <label style={{ fontWeight: 600 }}>{label}</label>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+          {(editing[field] as number).toFixed(2)}
+          {!isExplicit(field) && (
+            <span style={{ marginLeft: 6, fontSize: 11, color: '#aaa', fontWeight: 'normal' }}>
+              (default)
+            </span>
+          )}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min * 100}
+        max={max * 100}
+        step={step * 100}
+        value={Math.round((editing[field] as number) * 100)}
+        onChange={(e) => {
+          const v = Number(e.target.value) / 100;
+          setEditing({ ...editing, [field]: v });
+        }}
+        disabled={saving || !editing.willing}
+        style={{ width: '100%' }}
+      />
+      <p className="admin-help-text" style={{ marginTop: 2, marginBottom: 0, fontSize: 11.5 }}>
+        {hint}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="pm-bankroll-knobs">
+      <p className="admin-help-text" style={{ marginTop: 0 }}>
+        How this personality behaves when ANOTHER player (AI or human) asks
+        them for a stake-up loan. Six knobs that shape the offer terms and
+        the relationship gates that have to clear before they'll lend.
+      </p>
+
+      <label className="admin-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          type="checkbox"
+          checked={editing.willing}
+          onChange={(e) => setEditing({ ...editing, willing: e.target.checked })}
+          disabled={saving}
+        />
+        <span>Willing to stake other players</span>
+      </label>
+      <p className="admin-help-text" style={{ marginTop: 4, marginBottom: 16 }}>
+        Unchecking blocks all offers from this personality regardless of
+        the knobs below. Chaos / hostile personalities (Mime, Cheshire Cat)
+        refuse outright.
+      </p>
+
+      <KnobRow
+        label="Max loan (% of bankroll)"
+        field="max_loan_pct_of_bankroll"
+        min={0} max={0.30} step={0.01}
+        hint="Largest loan size as a fraction of their projected bankroll. Generous = 0.10–0.20, cautious = 0.03–0.07."
+      />
+      <KnobRow
+        label="Floor anchor (repayment multiple)"
+        field="floor_anchor"
+        min={1.0} max={2.0} step={0.05}
+        hint="Repayment floor multiple — 1.00 = par, 1.20 = +20%. Saintly = 1.00–1.10, sharks = 1.30–1.50."
+      />
+      <KnobRow
+        label="Rate anchor (cut after floor)"
+        field="rate_anchor"
+        min={0} max={0.60} step={0.01}
+        hint="Sponsor's cut of post-floor winnings. Gentle = 0.10–0.20, ruthless = 0.35–0.50."
+      />
+      <KnobRow
+        label="Respect floor"
+        field="respect_floor"
+        min={-1.0} max={1.0} step={0.05}
+        hint="Minimum relationship-respect needed before lending. More negative = lends to almost anyone."
+      />
+      <KnobRow
+        label="Heat ceiling"
+        field="heat_ceiling"
+        min={0} max={1.0} step={0.05}
+        hint="Maximum active conflict tolerated while lending. 1.00 = never refuses on heat alone; 0.00 = any heat blocks."
+      />
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="admin-btn admin-btn--secondary"
+          onClick={() => data.defaults && setEditing({ ...data.defaults })}
+          disabled={saving}
+          title="Reset all knobs to STAKER_PROFILE_DEFAULTS."
+        >
+          Reset to defaults
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--secondary"
+          onClick={() => data.profile && setEditing({ ...data.profile })}
+          disabled={saving || !hasChanges}
+        >
+          Discard changes
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn--primary"
+          onClick={() => void handleSave()}
+          disabled={saving || !hasChanges}
+          style={{ marginLeft: 'auto' }}
+        >
+          {saving ? 'Saving…' : 'Save staker profile'}
         </button>
       </div>
     </div>
@@ -1548,6 +2015,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     tics: false,
     avatar: false,
     bankroll: false,
+    staking: false,
+    stakerProfile: false,
   });
 
   // Load personalities on mount
@@ -2056,6 +2525,38 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             onToggle={() => toggleSection('bankroll')}
           >
             <BankrollKnobsSection
+              personalityName={selectedName}
+              showAlert={showAlert}
+            />
+          </CollapsibleSection>
+        )}
+
+        {/* Staking Profile — Borrower side (admin only): do they
+            accept stakes, and at what trust threshold. */}
+        {isAdmin && (
+          <CollapsibleSection
+            title="Staking Profile — Borrower"
+            icon={<Coins size={20} />}
+            isOpen={openSections.staking}
+            onToggle={() => toggleSection('staking')}
+          >
+            <StakingProfileSection
+              personalityName={selectedName}
+              showAlert={showAlert}
+            />
+          </CollapsibleSection>
+        )}
+
+        {/* Staking Profile — Staker side (admin only): what loan
+            terms they offer when OTHERS ask them for a stake-up. */}
+        {isAdmin && (
+          <CollapsibleSection
+            title="Staking Profile — Staker"
+            icon={<Coins size={20} />}
+            isOpen={openSections.stakerProfile}
+            onToggle={() => toggleSection('stakerProfile')}
+          >
+            <StakerSideProfileSection
               personalityName={selectedName}
               showAlert={showAlert}
             />

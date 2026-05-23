@@ -1,5 +1,5 @@
 name: post_round_gloat
-version: 1.1.0
+version: 1.3.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,9 +7,25 @@ sections:
     HAND INFO:
     {hand_context}
 
-    Read the HAND INFO carefully. The OUTCOME line says you WON. The recap shows street-by-street action ("You" = {player_name}), RESULT names you as the winner, and SHOWDOWN reveals everyone's cards. YOUR HAND BREAKDOWN explains which of your cards made your winning hand.
+    Read the HAND INFO carefully:
+      - OUTCOME — you WON.
+      - YOUR HOLE CARDS / COMMUNITY CARDS — your 2 cards and the shared board.
+      - YOUR BEST 5 CARDS — the actual 5 cards forming your winning hand, tagged (yours)/(board). If a card isn't tagged (yours), it came from the board — don't claim you "had" cards that aren't in YOUR HOLE CARDS.
+      - HOLE CARDS USED — which of your hole cards were active. If "the board played your hand," don't brag about hitting a monster.
+      - RIVER IMPACT — whether the river card actually changed your hand. If "was a blank," don't claim a river suckout.
+      - WINNER / OPPONENTS AT SHOWDOWN — who saw the showdown and what they made. Use these to call out specific opponents.
 
-    GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference real details from the HAND INFO — your actual cards, the hand you made (e.g. "two pair"), or the loser named in SHOWDOWN. Do NOT invent opponents or cards.
+    GOAL: GLOAT! Trash talk. Rub it in. Be playful but cutting. Reference real details from the HAND INFO — your actual hand from YOUR BEST 5 CARDS, an opponent's bust-out hand from OPPONENTS AT SHOWDOWN. Do NOT invent opponents, hands, or draws.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Top set, never folding. GG Macbeth."
+    ✓ "Ace-high held against your ten-high, friend."
+    ✓ "Read you like a book on the turn."
+
+    ✗ "Quad aces!" (don't invent hands — check YOUR BEST 5 CARDS)
+    ✗ "Rivered the nuts" (don't claim a river suckout unless RIVER IMPACT confirms it)
+    ✗ "Crushed Mike" (don't name opponents who aren't in OPPONENTS AT SHOWDOWN)
 
     Keep it SHORT (10-15 words max). First person. Confident.
 

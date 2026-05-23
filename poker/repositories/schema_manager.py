@@ -72,15 +72,92 @@ logger = logging.getLogger(__name__)
 #      mode v1 (Track B step 3). Pure additions — no changes to existing tables.
 # v88: Add bankroll persistence for cash mode v1. Creates ai_bankroll_state (per personality_id)
 #      and player_bankroll_state (per player_id) tables. Per-personality bankroll knobs
-#      (bankroll_cap, bankroll_rate, buy_in_multiplier, stop_loss_buy_ins, stop_win_buy_ins,
-#      stake_comfort_zone) live inside config_json as a `bankroll_knobs` sub-dict — same
-#      convention as `anchors`. The BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS
-#      per-field, so personalities without bankroll_knobs in their JSON land at sane defaults.
+#      (starting_bankroll, bankroll_rate, buy_in_multiplier, stake_comfort_zone) live inside
+#      config_json as a `bankroll_knobs` sub-dict — same convention as `anchors`. The
+#      BankrollRepository falls back to BANKROLL_KNOB_DEFAULTS per-field, so personalities
+#      without bankroll_knobs in their JSON land at sane defaults.
 # v90: Add active_loan_lender_id column to player_bankroll_state for cash-mode Path B
 #      (AI-personality sponsorship). NULL = anonymous house loan (v1 sponsorship);
 #      non-NULL = personality_id of the named AI lender. Used by leave-time settlement to
 #      credit sponsor_total back to the lender's persistent bankroll.
-SCHEMA_VERSION = 92
+# v93: Add chip_ledger_entries — observability for chip creation/destruction events.
+#      One row per central_bank ↔ X transfer (player_seed, ai_regen, cap_clamp,
+#      house_stake_issue, house_stake_settle, forgive_balance — reasons
+#      renamed from house_loan_* in Phase 1 of the backing-system handoff).
+#      Pure transfers between non-bank entities are NOT recorded. Append-only;
+#      no enforcement in v0. Spec: docs/plans/CASH_MODE_CHIP_LEDGER_HANDOFF.md.
+# v94: Seed chip_ledger_entries with `pre_ledger_universe` entries so the audit
+#      endpoint reports drift=0 at baseline. Without this, day-1 drift is the
+#      entire pre-existing chip universe and the "is the ledger consistent?"
+#      signal is unusable. Idempotent — skipped if any pre_ledger_universe
+#      entries already exist.
+# v95: Add `notes` TEXT column to relationship_states for player-authored
+#      opponent notes. Cross-session, cross-game — keyed on the same
+#      (observer_id, opponent_id) as the affinity axes. Stored as NULL
+#      when empty so existing rows don't need a backfill. Cash mode is
+#      the surface for now; tournaments use the per-game opponent_models
+#      notes column for their own purposes.
+# v98: Add `stakes` table for the backing-system stake model
+#      (one row per session deal). Replaces the `active_loan_*` columns
+#      on `player_bankroll_state` as the persistence surface for stakes
+#      and their post-bust carries. Also runs a one-shot UPDATE that
+#      renames legacy `house_loan_issue` / `house_loan_settle` ledger
+#      reason strings to `house_stake_issue` / `house_stake_settle`
+#      (paired with the Phase 1 code-side vocabulary rename so the
+#      audit's per-reason buckets don't split between old and new
+#      names). Spec: docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md
+#      Phase 1.
+# v99: Drop legacy `active_loan_*` columns from `player_bankroll_state`
+#      now that the stakes-table cutover (v98 + Cleanup A/B) is done.
+#      Stake state lives in `stakes` via `StakeRepository`; the bankroll
+#      row carries chips + starting_bankroll only.
+# v100: Add `sandboxes` table — first-class scoping unit for cash-mode
+#       runtime state. One row per save-file (1:1 per owner_id in v1;
+#       the model admits N:1 / shared / archived sandboxes without
+#       further migration). Phase 2.5 Commit 1 of the per-player-sandbox
+#       handoff. Subsequent commits add `sandbox_id` to the runtime-
+#       state tables; this commit only lands the new table + repo.
+#       Spec: docs/plans/CASH_MODE_PER_PLAYER_SANDBOX_HANDOFF.md.
+# v101: Add `nickname_override` column to `relationship_states` so a
+#       player can rename an opponent privately from the dossier — the
+#       override is keyed on the same (observer_id, opponent_id) pair as
+#       `notes`, so it's per-viewer by construction. Display falls back
+#       to the personality's canonical nickname when the override is NULL.
+# v102: Phase 2.5 Commit 2 — drop and recreate ai_bankroll_state,
+#       cash_tables, cash_idle_pool with `sandbox_id` in the primary
+#       key. Pre-launch destructive migration; existing rows in those
+#       three tables are nuked. The chip ledger survives. Repo
+#       signatures gain `sandbox_id` as a required kwarg.
+# v103: Phase 2.5 Commit 6 — add nullable `sandbox_id` column to
+#       `chip_ledger_entries` so the audit can scope per sandbox.
+#       Non-destructive ALTER; existing rows get `sandbox_id=NULL`
+#       (pre-v103 legacy bucket — the audit's `_pre_v103` aggregation
+#       lumps them together when running per-sandbox queries).
+# v104: Phase 3 Commit 3 — add nullable `forgiveness_last_asked`
+#       column to `stakes` so the forgiveness route can rate-limit
+#       requests to "one per stake per 24h" without an in-memory map
+#       (which wouldn't survive a backend restart).
+# v105: Rename bankroll knob `bankroll_cap` → `starting_bankroll` in
+#       every personality's `config_json.bankroll_knobs` sub-dict, and
+#       drop the vestigial all-NULL `personalities.bankroll_cap`
+#       column. The runtime treats the two names as aliases on read
+#       (back-compat) but writes the new key going forward; this
+#       migration normalises persisted data so the alias path becomes
+#       cold.
+# v106: Phase 5 refinement — add nullable `staker_payout` /
+#       `borrower_payout` columns to `stakes`. Populated by
+#       `settle_stake_on_leave` so the Net Worth history surface can
+#       compute per-stake P&L ("you got back $X" or "you lost $Y").
+#       NULL on legacy rows (settled pre-migration) means "unknown" —
+#       the route returns null and the UI hides the P&L line.
+# v109: Drop+recreate `cash_pair_stats` with `sandbox_id` as part of the
+#       primary key, so the admin Chip Economy panel can scope the
+#       Won/Lost/Net columns by sandbox. Matches the v102 destructive
+#       precedent for cash-mode tables: no production data to preserve,
+#       lifetime pair-PnL is rebuilt as sandboxes accumulate hands.
+#       Repo signatures gain `sandbox_id` as a required kwarg; the
+#       dossier endpoint still aggregates cross-sandbox by passing None.
+SCHEMA_VERSION = 111
 
 
 
@@ -377,60 +454,78 @@ class SchemaManager:
                     likability REAL NOT NULL DEFAULT 0.5,
                     last_seen TIMESTAMP,
                     last_decay_tick TIMESTAMP,
+                    notes TEXT,
+                    nickname_override TEXT,
                     PRIMARY KEY (observer_id, opponent_id)
                 )
             """)
 
-            # 10c. Cash pair stats (v87) — cumulative cash-mode PnL between two
-            #      personalities. Distinct from relationship_states because PnL
-            #      is cash-mode-specific (resets in tournaments). Observer-POV
-            #      cumulative_pnl; the mirror pair gets the negation in a single
-            #      write transaction so views can't drift.
+            # 10c. Cash pair stats (v87, v109) — cumulative cash-mode PnL
+            #      between two personalities. Distinct from relationship_states
+            #      because PnL is cash-mode-specific (resets in tournaments).
+            #      Observer-POV cumulative_pnl; the mirror pair gets the
+            #      negation in a single write transaction so views can't drift.
+            #      v109 added sandbox_id to the PK so the admin Chip Economy
+            #      panel can scope Won/Lost/Net by sandbox.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cash_pair_stats (
+                    sandbox_id TEXT NOT NULL,
                     observer_id TEXT NOT NULL,
                     opponent_id TEXT NOT NULL,
                     cumulative_pnl INTEGER NOT NULL DEFAULT 0,
                     hands_played_cash INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (observer_id, opponent_id)
+                    PRIMARY KEY (sandbox_id, observer_id, opponent_id)
                 )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
+                    ON cash_pair_stats(observer_id)
             """)
 
             # 10d. AI bankroll state (v88) — per-personality persistent bankroll.
-            #      Keyed on personalities.personality_id (stable v85 slug, not
-            #      display name). `chips` is the "as of last_regen_tick"
-            #      snapshot; live reads project through elapsed wall-clock
-            #      time via `cash_mode.project_bankroll`. Writes only happen
-            #      on real events (sit-down, win, loss).
+            #      Keyed on (personalities.personality_id, sandbox_id)
+            #      after the v102 per-sandbox scoping migration. `chips`
+            #      is the "as of last_regen_tick" snapshot; live reads
+            #      project through elapsed wall-clock time via
+            #      `cash_mode.project_bankroll`. Writes only happen on
+            #      real events (sit-down, win, loss).
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_bankroll_state (
-                    personality_id TEXT PRIMARY KEY,
+                    personality_id TEXT NOT NULL,
+                    sandbox_id TEXT NOT NULL,
                     chips INTEGER NOT NULL DEFAULT 0,
-                    last_regen_tick TIMESTAMP
+                    last_regen_tick TIMESTAMP,
+                    emotional_state_json TEXT,
+                    aspiration_cooldown_until TEXT,
+                    PRIMARY KEY (personality_id, sandbox_id)
                 )
             """)
+            # On legacy DBs (≤ v101) ai_bankroll_state exists from v88
+            # without `sandbox_id`; the IF NOT EXISTS table create above
+            # is a no-op there and this index would fail. Migration v102
+            # drops+recreates the table with sandbox_id and re-creates
+            # the index, so skip silently on pre-v102 schemas.
+            try:
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
+                        ON ai_bankroll_state(sandbox_id)
+                """)
+            except sqlite3.OperationalError as exc:
+                if 'no such column: sandbox_id' not in str(exc):
+                    raise
 
-            # 10e. Player bankroll state (v88, loan fields added v89,
-            #      lender_id added v90) — per-player persistent bankroll.
-            #      `starting_bankroll` is the seed grant on first entry.
-            #      The `active_loan_*` columns (v89) encode a session-
-            #      scoped sponsor loan; all reset to 0/0.0/0.0 on
-            #      `/api/cash/leave` after the leave-time math settles the
-            #      loan. `active_loan_lender_id` (v90) is the optional
-            #      personality_id of an AI lender — NULL means anonymous
-            #      house loan (v1 sponsorship), non-NULL means a named AI
-            #      lender whose persistent bankroll receives sponsor_total
-            #      at leave-time. Loans do NOT persist across sessions in
-            #      v1.
+            # 10e. Player bankroll state (v88) — per-player persistent
+            #      bankroll. `starting_bankroll` is the seed grant on
+            #      first entry. The legacy `active_loan_*` columns
+            #      (v89/v90) were dropped in v99 once the stakes-table
+            #      cutover (v98) completed; stake state now lives in
+            #      `stakes` via `StakeRepository`. Fresh-DB creation
+            #      lands on the post-v99 shape directly.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS player_bankroll_state (
                     player_id TEXT PRIMARY KEY,
                     chips INTEGER NOT NULL DEFAULT 0,
-                    starting_bankroll INTEGER NOT NULL DEFAULT 0,
-                    active_loan_amount INTEGER NOT NULL DEFAULT 0,
-                    active_loan_floor REAL NOT NULL DEFAULT 0.0,
-                    active_loan_rate REAL NOT NULL DEFAULT 0.0,
-                    active_loan_lender_id TEXT DEFAULT NULL
+                    starting_bankroll INTEGER NOT NULL DEFAULT 0
                 )
             """)
 
@@ -1225,6 +1320,25 @@ class SchemaManager:
             90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
             91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
             92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
+            93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
+            94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
+            95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
+            96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
+            97: (self._migrate_v97_add_emotional_state_to_ai_bankroll, "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)"),
+            98: (self._migrate_v98_add_stakes_table, "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*"),
+            99: (self._migrate_v99_drop_active_loan_columns, "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth"),
+            100: (self._migrate_v100_add_sandboxes_table, "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model"),
+            101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
+            102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
+            103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
+            104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
+            105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
+            106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
+            107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
+            108: (self._migrate_v108_add_cash_sessions, "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions"),
+            109: (self._migrate_v109_scope_cash_pair_stats_to_sandbox, "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)"),
+            110: (self._migrate_v110_add_pending_forgiveness_ask, "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)"),
+            111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
         }
 
         with self._get_connection() as conn:
@@ -4028,7 +4142,7 @@ class SchemaManager:
 
           - `table_id`: stable id, e.g., `cash-table-2-001`. Slug-safe
             (no dollar sign).
-          - `stake_label`: matches `cash_mode.stakes.STAKES_LADDER` keys.
+          - `stake_label`: matches `cash_mode.stakes_ladder.STAKES_LADDER` keys.
           - `seats_json`: JSON array of 6 slot dicts. Slot kinds are
             `open` (empty), `ai` (`{personality_id, chips}`), or
             `human` (set transiently while the player is seated).
@@ -4083,3 +4197,999 @@ class SchemaManager:
             )
         """)
         logger.info("v92: created cash_idle_pool for AIs between cash sessions")
+
+    def _migrate_v93_add_chip_ledger(self, conn: sqlite3.Connection) -> None:
+        """Migration v93: Add `chip_ledger_entries` for chip-economy observability.
+
+        Append-only ledger. One row per chip creation or destruction event
+        — i.e. any transfer where `central_bank` is on one side. Pure
+        transfers between non-bank entities (sit-down debits, pot
+        payouts, fake-sim shuffles, personality-loan principal flow) are
+        NOT recorded in v0; they don't change the size of the universe.
+
+        Endpoint shape (v0):
+          - source/sink — `'central_bank'` | `'player:<owner_id>'` | `'ai:<personality_id>'`.
+          - amount — non-negative integer.
+          - reason — free-form string drawn from a fixed vocabulary in
+            `core.economy.ledger.LEDGER_REASONS`; new reasons can be
+            added without a migration. Annotation rows (e.g.
+            `forgive_balance`) carry `amount = 0` and rely on
+            `context_json` to record the forgiven principal.
+          - context_json — optional JSON blob with game_id, loan_lender,
+            projected_chips, cap, etc.
+
+        Indexes match the audit query: `created_at DESC` for window
+        scans, `reason` for breakdowns.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT
+        EXISTS. Safe to re-run.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chip_ledger_entries (
+                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source TEXT NOT NULL,
+                sink TEXT NOT NULL,
+                amount INTEGER NOT NULL CHECK (amount >= 0),
+                reason TEXT NOT NULL,
+                context_json TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_created "
+            "ON chip_ledger_entries(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason "
+            "ON chip_ledger_entries(reason)"
+        )
+        logger.info("v93: created chip_ledger_entries for chip-economy observability")
+
+    def _migrate_v94_seed_pre_ledger_universe(self, conn: sqlite3.Connection) -> None:
+        """Migration v94: write `pre_ledger_universe` entries so day-1 drift is 0.
+
+        The v93 ledger starts empty. The audit endpoint sums the
+        actual chip-bearing surfaces (player bankrolls, AI bankrolls,
+        cash table seats, active loan principal) and reports `drift =
+        ledger.outstanding - actual.outstanding`. Without a baseline,
+        drift on first audit is the entire pre-existing chip
+        universe (~hundreds of thousands of chips), drowning out
+        the bypass signal the audit is designed to catch.
+
+        This migration inserts one entry per pre-existing chip
+        location, all under reason `pre_ledger_universe`. Future
+        events (player_seed, ai_regen, cap_clamp, etc.) appear
+        on top of the baseline. As long as instrumentation is
+        complete, drift stays at 0.
+
+        Idempotent: skipped if any `pre_ledger_universe` rows
+        already exist. Re-running won't double-seed.
+
+        Coverage:
+          - player_bankroll_state.chips → central_bank → player:<id>
+          - ai_bankroll_state.chips (stored, not projected) →
+            central_bank → ai:<pid>
+          - cash_tables.seats_json kind=ai chips → central_bank →
+            ai:<pid>
+          - player_bankroll_state.active_loan_amount (anonymous /
+            house loans only — personality loans are pure transfers
+            and don't need a central_bank seed) → central_bank →
+            player:<id>
+
+        Live-session AI table stacks aren't seeded — they're
+        transient and resolve to AI bankrolls at session end via
+        the credit_ai_cash_out ledger writes.
+        """
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM chip_ledger_entries "
+            "WHERE reason = 'pre_ledger_universe'"
+        ).fetchone()[0]
+        if existing > 0:
+            logger.info(
+                "v94: pre_ledger_universe entries already present (%d); skipping seed",
+                existing,
+            )
+            return
+
+        seeded = 0
+
+        # Player bankrolls.
+        try:
+            rows = conn.execute(
+                "SELECT player_id, chips FROM player_bankroll_state "
+                "WHERE chips > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []  # table doesn't exist yet on a very fresh DB
+        for row in rows:
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': 'player_bankroll'}),
+                ),
+            )
+            seeded += 1
+
+        # AI bankrolls — stored value, not projected. The audit also
+        # reads stored (after the v94 commit), so the two agree.
+        try:
+            rows = conn.execute(
+                "SELECT personality_id, chips FROM ai_bankroll_state "
+                "WHERE chips > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"ai:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': 'ai_bankroll'}),
+                ),
+            )
+            seeded += 1
+
+        # Cash table AI seats.
+        try:
+            rows = conn.execute(
+                "SELECT table_id, seats_json FROM cash_tables"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            try:
+                seats = json.loads(row[1])
+            except (TypeError, ValueError):
+                continue
+            for slot in seats:
+                if not isinstance(slot, dict) or slot.get('kind') != 'ai':
+                    continue
+                pid = slot.get('personality_id')
+                chips = int(slot.get('chips') or 0)
+                if not pid or chips <= 0:
+                    continue
+                conn.execute(
+                    "INSERT INTO chip_ledger_entries "
+                    "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        'central_bank', f"ai:{pid}", chips,
+                        'pre_ledger_universe',
+                        json.dumps({
+                            'kind': 'cash_table_seat',
+                            'table_id': row[0],
+                        }),
+                    ),
+                )
+                seeded += 1
+
+        # Outstanding loan principal — both anonymous (house) and
+        # named (personality). The audit sums every row with
+        # active_loan_amount > 0 into actual_outstanding, so we seed
+        # the same set to keep drift at 0 at baseline.
+        #
+        # For personality loans, *attributing* the chips to
+        # central_bank in the seed is fictional — historically those
+        # chips came from the AI lender's bankroll. But the lender's
+        # bankroll is also seeded (with its current, post-debit
+        # value), so seeding the loan here doesn't double-count: the
+        # universe total is the same either way, and the audit
+        # endpoint asks "is the ledger consistent with the actual
+        # chip locations?", not "where did each chip come from?".
+        try:
+            rows = conn.execute(
+                "SELECT player_id, active_loan_amount, active_loan_lender_id "
+                "FROM player_bankroll_state "
+                "WHERE active_loan_amount > 0"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for row in rows:
+            lender_id = row[2]
+            kind = (
+                'house_loan_principal'
+                if lender_id is None
+                else 'personality_loan_principal'
+            )
+            conn.execute(
+                "INSERT INTO chip_ledger_entries "
+                "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
+                (
+                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'pre_ledger_universe',
+                    json.dumps({'kind': kind, 'lender_id': lender_id}),
+                ),
+            )
+            seeded += 1
+
+        logger.info("v94: seeded %d pre_ledger_universe entries", seeded)
+
+    def _migrate_v95_add_relationship_notes(self, conn: sqlite3.Connection) -> None:
+        """Migration v95: Add `notes` TEXT to relationship_states.
+
+        Player-authored note about an opponent (e.g., "calls light on
+        the turn", "tilts after losing big"). Persistent across cash
+        sessions because it's keyed on the same (observer_id,
+        opponent_id) pair the affinity axes already use.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        Existing rows keep their other axes; `notes` defaults to NULL.
+        """
+        cursor = conn.execute("PRAGMA table_info(relationship_states)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'notes' not in existing_columns:
+            conn.execute("ALTER TABLE relationship_states ADD COLUMN notes TEXT")
+            logger.debug("Added notes column to relationship_states")
+
+        logger.info("Migration v95 complete: relationship_states.notes added")
+
+    def _migrate_v96_add_dealer_idx_to_cash_tables(self, conn: sqlite3.Connection) -> None:
+        """Migration v96: Add `dealer_idx` INTEGER to cash_tables.
+
+        The lobby's dealer-button indicator is load-bearing for seat-
+        choice UX (a player picking an open seat needs to know what
+        position — UTG / CO / BTN / blinds — that seat would be in
+        for the upcoming hand). Previously this lived in an in-memory
+        dict in `cash_mode/lobby.py`, which reset on every backend
+        restart. Persisting to the same row as `seats_json` makes the
+        rotation survive deploys.
+
+        Default 0 = seat index 0 holds the button — matches the
+        previous in-memory default for a freshly initialized table.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_tables)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'dealer_idx' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE cash_tables ADD COLUMN dealer_idx INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.debug("Added dealer_idx column to cash_tables")
+
+        logger.info("Migration v96 complete: cash_tables.dealer_idx added")
+
+    def _migrate_v97_add_emotional_state_to_ai_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v97: Add `emotional_state_json` TEXT NULL to ai_bankroll_state.
+
+        Sim hands at unseated tables mutate AI psychology — tilt after
+        a bad beat, confidence after a hot streak. Before this column
+        the state lived only on the in-memory TieredBotController
+        instance held by the cash_mode controller cache; LRU eviction
+        or a backend restart wiped the state and the AI re-entered as
+        "fresh confident" regardless of recent history.
+
+        Persisting here mirrors v83's `controller_state.psychology_json`
+        precedent (per-session psychology serialization), but keyed on
+        `personality_id` so the state survives sessions. The
+        controller-cache discipline (full-sim Commit 3) hydrates from
+        this column on miss and writes back on LRU eviction + a
+        periodic flush cadence.
+
+        NULL means "no persisted state yet" — the controller is built
+        from defaults, identical to pre-v97 behavior. Existing rows
+        backfill cleanly with NULL.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'emotional_state_json' not in existing_columns:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state ADD COLUMN emotional_state_json TEXT"
+            )
+            logger.debug("Added emotional_state_json column to ai_bankroll_state")
+
+        logger.info(
+            "Migration v97 complete: ai_bankroll_state.emotional_state_json added"
+        )
+
+    def _migrate_v98_add_stakes_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v98: Create the `stakes` table and rename legacy
+        ledger reason strings to the stake vocabulary.
+
+        Two coupled changes ship together because they're both halves
+        of the Phase 1 vocabulary shift (handoff doc Commit 2):
+
+          1. CREATE TABLE stakes — one row per session-scoped stake
+             deal, replacing the `active_loan_*` columns on
+             `player_bankroll_state` as the persistence surface for
+             stakes and their post-bust carries. Phase 1 Commit 3
+             migrates `active_loan_*` data into rows here; the columns
+             themselves stick around through Phase 1 as a safety net
+             and get dropped in Phase 2 once the new settlement path
+             is live.
+
+          2. UPDATE chip_ledger_entries SET reason = ... — renames any
+             existing `house_loan_issue` / `house_loan_settle` ledger
+             rows to `house_stake_issue` / `house_stake_settle`. The
+             code-side vocabulary rename (Phase 1 Commit 1) replaced
+             these strings everywhere new writes happen; without this
+             one-shot UPDATE the audit's per-reason buckets would
+             split between old and new names. Pre-launch system — we
+             purge old names entirely rather than carry a compat shim.
+
+        The audit's drift math (`chips_created - chips_destroyed -
+        actual_outstanding`) is unaffected by the reason rename — it
+        sums all entries regardless of bucket. Only `by_reason` and
+        `by_reason_window_24h` shift, and those become correct.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + INDEX IF NOT EXISTS;
+        the UPDATE is a no-op once the old strings are gone.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stakes (
+                stake_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                staker_id TEXT,
+                staker_kind TEXT NOT NULL,
+                borrower_id TEXT NOT NULL,
+                borrower_kind TEXT NOT NULL,
+                format TEXT NOT NULL,
+                principal INTEGER NOT NULL,
+                match_amount INTEGER NOT NULL DEFAULT 0,
+                origination_fee INTEGER NOT NULL DEFAULT 0,
+                cut REAL NOT NULL,
+                status TEXT NOT NULL,
+                carry_amount INTEGER NOT NULL DEFAULT 0,
+                stake_tier TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                settled_at TIMESTAMP,
+                -- forgiveness_last_asked must be UTC naive (written via
+                -- datetime.utcnow().isoformat()) so the rate-limit's
+                -- (now - last_asked) subtraction is timezone-consistent.
+                forgiveness_last_asked TIMESTAMP,
+                -- v106: settlement chip flows captured at settle time so
+                -- the Net Worth history can show per-stake P&L. NULL on
+                -- active rows and legacy settled-pre-v106 rows.
+                staker_payout INTEGER,
+                borrower_payout INTEGER
+            )
+        """)
+        # Partial indexes on status='carry' so the per-borrower /
+        # per-staker carry lookups (Net Worth view in Phase 3, the
+        # tier-resolution pass in Phase 2) stay cheap as the table
+        # grows. The session index covers the active-stake-by-session
+        # lookup used at settlement time (Commit 4).
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_borrower_carry
+                ON stakes(borrower_id, borrower_kind, status)
+                WHERE status = 'carry'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_staker_carry
+                ON stakes(staker_id, status)
+                WHERE status = 'carry'
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stakes_session
+                ON stakes(session_id)
+        """)
+
+        # Ledger reason rename — only needed for DBs that have legacy
+        # rows. Fresh installs (which never wrote the old names)
+        # no-op cleanly because zero rows match the WHERE clause.
+        try:
+            conn.execute(
+                "UPDATE chip_ledger_entries SET reason = 'house_stake_issue' "
+                "WHERE reason = 'house_loan_issue'"
+            )
+            conn.execute(
+                "UPDATE chip_ledger_entries SET reason = 'house_stake_settle' "
+                "WHERE reason = 'house_loan_settle'"
+            )
+        except sqlite3.OperationalError:
+            # chip_ledger_entries doesn't exist (pre-v93 install path
+            # that somehow skipped the table create). Defensive — the
+            # rename has nothing to operate on.
+            pass
+
+        logger.info(
+            "Migration v98 complete: stakes table created + indexes; "
+            "legacy house_loan_* ledger reasons renamed to house_stake_*"
+        )
+
+    def _migrate_v99_drop_active_loan_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v99: drop the legacy `active_loan_*` columns from
+        `player_bankroll_state`.
+
+        The stakes-table cutover (v98 + the backing-system handoff
+        Cleanup A/B) moved all readers and writers to `StakeRepository`.
+        v99 finishes the cleanup: the columns are dead weight on every
+        bankroll row and confuse anyone reading the schema.
+
+        SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`. Each DROP
+        is PRAGMA-guarded so re-running on a partially-migrated DB
+        (or a fresh DB that landed on the post-v99 shape via
+        `create_initial_schema`) is a no-op.
+
+        Order matters: `active_loan_lender_id` first because it's a
+        nullable text column (no constraints), then the numeric ones.
+        The whole batch is one statement-sequence; SQLite rewrites
+        the table per DROP under the hood, but that's fine for a
+        small table that gets touched on every cash-mode hit.
+        """
+        cursor = conn.execute("PRAGMA table_info(player_bankroll_state)")
+        cols = {row[1] for row in cursor}
+        for col in (
+            "active_loan_lender_id",
+            "active_loan_amount",
+            "active_loan_floor",
+            "active_loan_rate",
+        ):
+            if col in cols:
+                conn.execute(
+                    f"ALTER TABLE player_bankroll_state DROP COLUMN {col}"
+                )
+        logger.info(
+            "Migration v99 complete: active_loan_* columns dropped from "
+            "player_bankroll_state"
+        )
+
+    def _migrate_v100_add_sandboxes_table(self, conn: sqlite3.Connection) -> None:
+        """Migration v100: create the `sandboxes` table.
+
+        First commit of Phase 2.5 — introduces sandboxes as a first-
+        class scoping unit for cash-mode runtime state without yet
+        scoping any *existing* runtime-state tables. That comes in
+        v101+ (see the per-player-sandbox handoff Commit 2). Landing
+        the table by itself first means the repo + resolver can be
+        wired through routes before any existing surface changes
+        shape, keeping the diff per commit small.
+
+        Schema:
+          - `sandbox_id` (PK): opaque UUID4 generated by the repo.
+            Decoupled from `owner_id` so future multi-sandbox UI can
+            rename / fork / share without identity churn.
+          - `owner_id`: who created / owns the sandbox. v1 enforces
+            1:1 ownership; future ACL flows can add a join table
+            without disturbing this column.
+          - `name`: user-renamable; defaults to 'My Casino' for the
+            auto-created default sandbox.
+          - `created_at` / `archived_at`: created stamps on insert;
+            archived stamps on soft-delete. The partial index on
+            `WHERE archived_at IS NULL` keeps the hot-path
+            `list_for_owner` cheap.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + CREATE INDEX IF
+        NOT EXISTS. No seed row — first cash-mode access per owner
+        triggers `SandboxRepository.create` lazily.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sandboxes (
+                sandbox_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                archived_at TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sandboxes_owner
+                ON sandboxes(owner_id)
+                WHERE archived_at IS NULL
+        """)
+        logger.info("Migration v100 complete: sandboxes table created")
+
+    def _migrate_v101_add_relationship_nickname_override(self, conn: sqlite3.Connection) -> None:
+        """Migration v101: Add `nickname_override` TEXT to relationship_states.
+
+        Lets a player privately rename an opponent from the dossier
+        (e.g., re-label "Batman" as "the tight one on my left"). The
+        override is per-viewer because it sits on the same
+        (observer_id, opponent_id) row as `notes`; no other observer
+        sees it. When NULL the dossier falls back to the personality's
+        canonical nickname.
+
+        Idempotent: only adds the column if it doesn't already exist.
+        """
+        cursor = conn.execute("PRAGMA table_info(relationship_states)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        if 'nickname_override' not in existing_columns:
+            conn.execute("ALTER TABLE relationship_states ADD COLUMN nickname_override TEXT")
+            logger.debug("Added nickname_override column to relationship_states")
+
+        logger.info("Migration v101 complete: relationship_states.nickname_override added")
+
+    def _migrate_v102_scope_runtime_tables_to_sandbox(self, conn: sqlite3.Connection) -> None:
+        """Migration v102: drop+recreate cash-mode runtime-state tables
+        with `sandbox_id` as part of the primary key.
+
+        Pre-launch destructive migration; existing rows in
+        `ai_bankroll_state`, `cash_tables`, `cash_idle_pool` are
+        dropped. The chip ledger survives (its rows are append-only
+        audit history). Per-sandbox scoping is the load-bearing
+        change for Phase 2.5 — every repo method that touches these
+        three tables now requires `sandbox_id`.
+
+        SQLite doesn't support altering a primary key in-place, so
+        the migration drops + recreates. Per the design lock
+        (per-player-sandbox handoff + 2026-05-20 decision), single
+        environment, no real production data to preserve.
+        """
+        conn.execute("DROP TABLE IF EXISTS ai_bankroll_state")
+        conn.execute("""
+            CREATE TABLE ai_bankroll_state (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                chips INTEGER NOT NULL DEFAULT 0,
+                last_regen_tick TIMESTAMP,
+                emotional_state_json TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
+                ON ai_bankroll_state(sandbox_id)
+        """)
+
+        conn.execute("DROP TABLE IF EXISTS cash_tables")
+        conn.execute("""
+            CREATE TABLE cash_tables (
+                table_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                stake_label TEXT NOT NULL,
+                seats_json TEXT NOT NULL,
+                dealer_idx INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (table_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_tables_sandbox
+                ON cash_tables(sandbox_id)
+        """)
+
+        conn.execute("DROP TABLE IF EXISTS cash_idle_pool")
+        conn.execute("""
+            CREATE TABLE cash_idle_pool (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                left_at TIMESTAMP NOT NULL,
+                reason TEXT NOT NULL,
+                target_stake TEXT,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_idle_sandbox
+                ON cash_idle_pool(sandbox_id)
+        """)
+
+        logger.info(
+            "Migration v102 complete: ai_bankroll_state, cash_tables, "
+            "cash_idle_pool dropped+recreated with sandbox_id in PK"
+        )
+
+    def _migrate_v103_add_sandbox_id_to_chip_ledger(self, conn: sqlite3.Connection) -> None:
+        """Migration v103: add nullable `sandbox_id` to `chip_ledger_entries`.
+
+        Non-destructive ALTER: every existing row keeps `sandbox_id=NULL`
+        (the pre-v103 legacy bucket). New writes always stamp the
+        column so the audit's per-sandbox scoping kicks in for ledger
+        events too.
+
+        The audit treats NULL as the cross-sandbox "pre-v103" bucket
+        when running per-sandbox queries: scoped audits filter
+        `WHERE sandbox_id = ?`, which excludes NULL rows; admin /
+        cross-sandbox audits aggregate every row including NULLs. This
+        is the same shape the spec calls out — the legacy bucket is
+        carried as a single line item rather than redistributed.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN so re-running is a
+        no-op (matches the v89 / v95 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(chip_ledger_entries)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'sandbox_id' not in cols:
+            conn.execute(
+                "ALTER TABLE chip_ledger_entries ADD COLUMN sandbox_id TEXT"
+            )
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chip_ledger_sandbox
+                ON chip_ledger_entries(sandbox_id)
+                WHERE sandbox_id IS NOT NULL
+        """)
+        logger.info(
+            "Migration v103 complete: chip_ledger_entries.sandbox_id added"
+        )
+
+    def _migrate_v105_rename_bankroll_cap_to_starting_bankroll(self, conn: sqlite3.Connection) -> None:
+        """Migration v105: bankroll_cap → starting_bankroll rename.
+
+        Two parts:
+
+          1. For every row in `personalities`, parse `config_json`,
+             rewrite `bankroll_knobs.bankroll_cap` to
+             `bankroll_knobs.starting_bankroll`, and save. Idempotent:
+             rows already using the new key are skipped.
+
+          2. Drop the `personalities.bankroll_cap` column if present.
+             It was always NULL in production data — never wired to
+             any read or write — so the drop is non-destructive.
+             SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`;
+             the docker python image ships 3.37+.
+
+        The runtime accepts both keys on read (see
+        `BankrollRepository.load_personality_knobs`), so this
+        migration is purely a normalization — it doesn't change any
+        observable behavior, just collapses the two-name regime to
+        one name in persistence.
+        """
+        import json
+        rows = conn.execute(
+            "SELECT id, config_json FROM personalities WHERE config_json IS NOT NULL"
+        ).fetchall()
+        n_rewritten = 0
+        for row in rows:
+            try:
+                cfg = json.loads(row[1])
+            except (TypeError, ValueError):
+                continue
+            knobs = cfg.get("bankroll_knobs")
+            if not isinstance(knobs, dict):
+                continue
+            if "bankroll_cap" not in knobs:
+                continue
+            # Prefer the new key if both happen to exist; otherwise
+            # promote the old value.
+            if "starting_bankroll" not in knobs:
+                knobs["starting_bankroll"] = knobs["bankroll_cap"]
+            knobs.pop("bankroll_cap", None)
+            cfg["bankroll_knobs"] = knobs
+            conn.execute(
+                "UPDATE personalities SET config_json = ? WHERE id = ?",
+                (json.dumps(cfg), row[0]),
+            )
+            n_rewritten += 1
+        logger.info(
+            "Migration v105: rewrote bankroll_cap → starting_bankroll in %d "
+            "personality config_json rows", n_rewritten,
+        )
+
+        # Drop the vestigial column. Guard with PRAGMA so re-running
+        # is a no-op.
+        cursor = conn.execute("PRAGMA table_info(personalities)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'bankroll_cap' in cols:
+            conn.execute("ALTER TABLE personalities DROP COLUMN bankroll_cap")
+            logger.info("Migration v105: dropped personalities.bankroll_cap column")
+
+    def _migrate_v104_add_forgiveness_last_asked(self, conn: sqlite3.Connection) -> None:
+        """Migration v104: add nullable `forgiveness_last_asked` to `stakes`.
+
+        Phase 3 Commit 3 adds POST /api/cash/stakes/<id>/request-forgiveness
+        with a "one ask per stake per 24h" rate-limit. The route checks
+        the column against `datetime.utcnow() - 24h` before honoring
+        the request; refused asks stamp the column so spam clicks
+        don't accidentally cross the threshold.
+
+        Non-destructive ALTER. Existing rows get NULL (no prior ask),
+        which the route treats as "never asked — proceed."
+
+        Idempotent: PRAGMA-guarded ADD COLUMN — re-running is a no-op
+        (mirrors the v103 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'forgiveness_last_asked' not in cols:
+            conn.execute(
+                "ALTER TABLE stakes ADD COLUMN forgiveness_last_asked TIMESTAMP"
+            )
+        logger.info(
+            "Migration v104 complete: stakes.forgiveness_last_asked added"
+        )
+
+    def _migrate_v106_add_stake_payouts(self, conn: sqlite3.Connection) -> None:
+        """Migration v106: add `staker_payout` / `borrower_payout` to stakes.
+
+        Phase 5 refinement (2026-05-21). At settlement time,
+        `settle_stake_on_leave` computes how many chips flow to the
+        staker and to the borrower — but only the staker_id, borrower_id,
+        principal, match_amount, and post-settle `carry_amount` are
+        persisted. That makes the Net Worth history view structurally
+        unable to answer "did I make or lose money on this stake?".
+
+        These two columns capture the actual settlement chip flows so
+        the history surface can compute net P&L from the persisted
+        row alone:
+          - `staker_payout`: chips returned to the staker at settle time
+            (principal + cut × upside on clean; partial recovery on bust;
+            0 on full bust)
+          - `borrower_payout`: chips returned to the borrower at settle time
+            (match + (1-cut) × upside on clean; leftover after staker
+            recovery on partial bust; 0 on full bust)
+
+        NULL on existing rows (active or settled pre-migration) — the
+        route's history serializer returns null, and the UI hides the
+        P&L line for those rows. New settlements going forward populate
+        the values.
+
+        Idempotent: PRAGMA-guarded ADDs.
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'staker_payout' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN staker_payout INTEGER")
+        if 'borrower_payout' not in cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN borrower_payout INTEGER")
+        logger.info(
+            "Migration v106 complete: stakes.staker_payout and "
+            "stakes.borrower_payout added"
+        )
+
+    def _migrate_v107_add_aspiration_cooldown(self, conn: sqlite3.Connection) -> None:
+        """Migration v107: add `aspiration_cooldown_until` to ai_bankroll_state.
+
+        Aspiration-ask Commit 3. Per-AI cooldown after a triggered
+        aspiration_ask (success or fail) — prevents ladder-climb spam
+        from a single AI hammering the lobby every tick.
+
+        Column is a nullable ISO-8601 UTC timestamp. NULL means "no
+        cooldown active" (the common case). The trigger inside
+        `refresh_table_roster` reads this column and skips AIs whose
+        cooldown hasn't expired vs the current `now`. The cooldown
+        lives on `ai_bankroll_state` (not a separate table) because
+        the (sandbox_id, personality_id) row is already the canonical
+        per-AI runtime state row — no separate table buys anything.
+
+        NULL on existing rows — the column is purely additive.
+        Idempotent: PRAGMA-guarded ADD.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'aspiration_cooldown_until' not in cols:
+            conn.execute(
+                "ALTER TABLE ai_bankroll_state "
+                "ADD COLUMN aspiration_cooldown_until TEXT"
+            )
+        logger.info(
+            "Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added"
+        )
+
+    def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
+        """Migration v108: create the `cash_sessions` table.
+
+        Durable per-session record. Replaces the in-memory-only
+        `game_data["cash_buy_in"]` / `cash_started_at` / `cash_table_id`
+        / `cash_seat_index` fields as the source of truth for the
+        leave-table summary, the cold-load restore path, and the
+        eventual session-history surface.
+
+        Before this migration, the leave-table summary read those four
+        fields off `game_state_service.games[game_id]` — a dict with a
+        2h TTL that is also blown away by Flask restart. Symptoms:
+          - Restart mid-session → summary returns `null`.
+          - Cold-loaded session leaves → buy_in=0, duration_seconds=0.
+          - Top-ups / rebuys never adjusted buy_in → P&L over-reported.
+          - Staked sessions surfaced `cash_out - principal` as net P&L
+            even though the player's actual take-home was much smaller
+            after the sponsor's cut.
+
+        Schema rationale:
+          - `initial_buy_in`: chips the player put up at sit-down.
+            0 for staked sessions (sponsor funded the principal).
+          - `total_buy_in`: `initial_buy_in + Σ top-ups + Σ rebuys`.
+            This is the denominator for P&L; without it, mid-session
+            chip additions get silently counted as profit.
+          - `sponsor_principal`: chips the sponsor put up. 0 for
+            self-funded sessions. The split is explicit so the UI can
+            label staked sessions correctly ("Sponsor put up $X" vs
+            "Buy-in $X").
+          - `stake_id`: FK-style link to the `stakes` row when staked.
+            Nullable; not enforced as a FOREIGN KEY because SQLite's
+            FK enforcement is off in this DB and the relationship is
+            informational (leave-table re-loads via
+            `stake_repo.load_active_for_session` for the actual math).
+          - `started_at` / `ended_at`: the durable session timestamps.
+            `duration_seconds` could be derived but is materialized
+            so the history view doesn't need to subtract on read.
+          - `final_chips_at_table`, `sponsor_repaid`, `player_take_home`:
+            captured at leave-table so the row tells the complete P&L
+            story without joining against the stake or hand history.
+          - `hands_played` / `hands_won` / `biggest_pot_won`: derived
+            from `hand_history` at leave but materialized here so the
+            history view doesn't need to re-aggregate.
+          - `closed_status`: 'left' (normal leave), 'ghost_cleanup'
+            (memory-miss leave that hit the bankroll-loss fallback),
+            or NULL while active.
+
+        Indexes:
+          - `(owner_id, started_at DESC)` for the history view (most
+            recent sessions per player).
+          - `(session_id)` is the PK so no separate index.
+          - Filtered index on `ended_at IS NULL` for the (rare)
+            "find my active session" lookup, which is otherwise
+            served by `_find_active_cash_game_id` against the games
+            table.
+
+        Idempotent: CREATE TABLE IF NOT EXISTS + INDEXes IF NOT EXISTS.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_sessions (
+                session_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                sandbox_id TEXT,
+                stake_label TEXT NOT NULL,
+                is_staked INTEGER NOT NULL DEFAULT 0,
+                stake_id TEXT,
+                initial_buy_in INTEGER NOT NULL,
+                total_buy_in INTEGER NOT NULL,
+                sponsor_principal INTEGER NOT NULL DEFAULT 0,
+                cash_table_id TEXT,
+                cash_seat_index INTEGER,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP,
+                final_chips_at_table INTEGER,
+                sponsor_repaid INTEGER NOT NULL DEFAULT 0,
+                player_take_home INTEGER,
+                hands_played INTEGER,
+                hands_won INTEGER,
+                biggest_pot_won INTEGER,
+                duration_seconds INTEGER,
+                closed_status TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_owner_started
+                ON cash_sessions(owner_id, started_at DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_active
+                ON cash_sessions(owner_id)
+                WHERE ended_at IS NULL
+        """)
+        logger.info("Migration v108 complete: cash_sessions table created")
+
+    def _migrate_v109_scope_cash_pair_stats_to_sandbox(self, conn: sqlite3.Connection) -> None:
+        """Migration v109: drop+recreate `cash_pair_stats` with `sandbox_id`
+        as part of the primary key.
+
+        Pre-launch destructive migration; existing rows are dropped.
+        Same precedent as v102 (`ai_bankroll_state` / `cash_tables` /
+        `cash_idle_pool`): per-sandbox scoping is the load-bearing
+        change, and there is no production lifetime PnL to preserve.
+
+        After this migration, every (observer_id, opponent_id) pair
+        accumulates a separate row per sandbox, so the admin Chip
+        Economy panel can filter Won/Lost/Net by the sandbox dropdown.
+        The cross-sandbox dossier view (CharacterDetailCard "Track
+        Record") aggregates by passing `sandbox_id=None` to
+        `aggregate_cash_pnl_by_entity`.
+        """
+        conn.execute("DROP TABLE IF EXISTS cash_pair_stats")
+        conn.execute("""
+            CREATE TABLE cash_pair_stats (
+                sandbox_id TEXT NOT NULL,
+                observer_id TEXT NOT NULL,
+                opponent_id TEXT NOT NULL,
+                cumulative_pnl INTEGER NOT NULL DEFAULT 0,
+                hands_played_cash INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_pair_stats_observer
+                ON cash_pair_stats(observer_id)
+        """)
+        logger.info(
+            "Migration v109 complete: cash_pair_stats dropped+recreated "
+            "with sandbox_id in PK"
+        )
+
+    def _migrate_v110_add_pending_forgiveness_ask(self, conn: sqlite3.Connection) -> None:
+        """Migration v110: add nullable `pending_forgiveness_ask` to `stakes`.
+
+        Replaces the auto-grant path for human-staker carries: when an
+        AI borrower would have rolled `try_ai_forgiveness_ask` against
+        a human staker, instead of silently zeroing the carry it now
+        stamps this column with the ask timestamp and surfaces an
+        EVENT_AI_REQUESTS_FORGIVENESS lobby event. The player accepts
+        or refuses via POST /api/cash/stakes/<id>/staker-forgive — that
+        route clears the column on either branch.
+
+        Non-destructive ALTER. Existing rows get NULL (no pending ask).
+        AI-to-AI carries never use this column; the auto-grant path
+        remains in place for those.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN — re-running is a no-op
+        (mirrors the v104 pattern).
+        """
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'pending_forgiveness_ask' not in cols:
+            conn.execute(
+                "ALTER TABLE stakes ADD COLUMN pending_forgiveness_ask TIMESTAMP"
+            )
+        logger.info(
+            "Migration v110 complete: stakes.pending_forgiveness_ask added"
+        )
+
+    def _migrate_v111_add_multi_table_lobby_columns(self, conn: sqlite3.Connection) -> None:
+        """Migration v111: add name + table_type to cash_tables and
+        table_id to stakes for the multi-table-per-tier lobby.
+
+        Three non-destructive ALTERs:
+          - `cash_tables.name TEXT` — user-facing label ("The Lodge").
+            NULL on existing rows; frontend falls back to the stake
+            label. Backfill below sets the canonical -001 rows from
+            the lobby_config dict so existing tables get a name on
+            first boot after this migration runs.
+          - `cash_tables.table_type TEXT DEFAULT 'lobby'` — discriminator
+            for future private + casino table types. All current rows
+            and new lobby seeds use 'lobby'.
+          - `stakes.table_id TEXT` — captures which specific table
+            the stake was created against (for per-table analytics).
+            NULL on existing rows; sponsor_and_sit writes it on new
+            stakes. Settlement remains session-id-keyed, so NULL
+            doesn't break anything.
+
+        Idempotent: PRAGMA-guarded ADD COLUMN matches the v104/v107/v110
+        pattern.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_tables)")
+        cash_table_cols = {row[1] for row in cursor.fetchall()}
+        if 'name' not in cash_table_cols:
+            conn.execute("ALTER TABLE cash_tables ADD COLUMN name TEXT")
+        if 'table_type' not in cash_table_cols:
+            # SQLite ADD COLUMN can't take a non-constant default; use
+            # the literal 'lobby' so existing rows pick up the default
+            # via the schema, and new rows persist explicitly.
+            conn.execute(
+                "ALTER TABLE cash_tables ADD COLUMN table_type TEXT "
+                "NOT NULL DEFAULT 'lobby'"
+            )
+
+        cursor = conn.execute("PRAGMA table_info(stakes)")
+        stake_cols = {row[1] for row in cursor.fetchall()}
+        if 'table_id' not in stake_cols:
+            conn.execute("ALTER TABLE stakes ADD COLUMN table_id TEXT")
+
+        # Backfill canonical -001 table names from lobby_config so
+        # existing lobby tables get human-friendly labels without
+        # waiting for a re-seed (which is idempotent and never
+        # mutates existing rows). We import inside the function to
+        # avoid pulling cash_mode into the schema layer at import
+        # time; this also keeps the migration self-contained.
+        try:
+            from cash_mode.lobby_config import LOBBY_TABLES
+        except ImportError:
+            # cash_mode not on path (e.g., schema-only test) — skip
+            # the backfill. The columns are still added so subsequent
+            # boots can write names.
+            logger.info(
+                "Migration v111: cash_mode.lobby_config not importable; "
+                "skipping name backfill"
+            )
+            return
+
+        for stake_label, entries in LOBBY_TABLES.items():
+            for entry in entries:
+                suffix = entry['id_suffix']
+                name = entry['name']
+                if stake_label.startswith('$'):
+                    slug = stake_label[1:]
+                else:
+                    slug = stake_label
+                table_id = f"cash-table-{slug}-{suffix}"
+                # Only set name where it's currently NULL — preserves
+                # any future per-row overrides without clobber.
+                conn.execute(
+                    "UPDATE cash_tables SET name = ? "
+                    "WHERE table_id = ? AND name IS NULL",
+                    (name, table_id),
+                )
+
+        logger.info(
+            "Migration v111 complete: cash_tables.name + table_type added, "
+            "stakes.table_id added, lobby-config names backfilled"
+        )

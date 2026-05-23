@@ -1,0 +1,350 @@
+/**
+ * Relationship Matrix — admin debug viz
+ *
+ * Grid view of (observer × target) relationship pairs. Each cell shows
+ * the label as a background color band plus three thin axis bars
+ * (heat/respect/likability). Click a cell → detail panel on the side.
+ *
+ * Sizing target: 6×6 (the realistic max table). Cells fit comfortably
+ * at ~120px wide; smaller seats also render fine.
+ */
+
+.rmx-container {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 360px);
+  gap: var(--space-4);
+  width: 100%;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .rmx-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rmx-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted, #888);
+}
+
+/* ===========================================
+   Grid table
+   =========================================== */
+
+.rmx-grid {
+  border-collapse: separate;
+  border-spacing: 4px;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.rmx-corner {
+  position: relative;
+  width: 88px;
+  padding: var(--space-2);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted, #888);
+  text-align: left;
+  vertical-align: top;
+}
+
+.rmx-corner-col {
+  display: block;
+}
+
+.rmx-corner-row {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.rmx-header {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-text, #ddd);
+  padding: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rmx-header-col {
+  text-align: center;
+  max-width: 120px;
+}
+
+.rmx-header-row {
+  text-align: right;
+  width: 88px;
+  max-width: 88px;
+}
+
+/* ===========================================
+   Cells — labels via background
+   =========================================== */
+
+.rmx-cell {
+  position: relative;
+  padding: var(--space-2);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+  vertical-align: middle;
+  text-align: center;
+  min-width: 84px;
+  height: 64px;
+}
+
+.rmx-cell:hover {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) inset;
+}
+
+.rmx-cell-selected {
+  box-shadow: 0 0 0 2px var(--color-accent, #6ec1ff) inset;
+}
+
+.rmx-cell-rival {
+  background-color: rgba(255, 90, 90, 0.18);
+}
+
+.rmx-cell-friendly {
+  background-color: rgba(110, 220, 160, 0.18);
+}
+
+.rmx-cell-neutral {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.rmx-self {
+  background-color: transparent;
+  cursor: default;
+}
+
+.rmx-self:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.rmx-self-dash {
+  color: var(--color-text-muted, #555);
+  font-size: 14px;
+}
+
+.rmx-cell-empty {
+  color: var(--color-text-muted, #555);
+  font-size: 14px;
+}
+
+/* ===========================================
+   Axis bars inside cells
+   =========================================== */
+
+.rmx-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rmx-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rmx-bar-label {
+  font-size: 9px;
+  font-weight: 700;
+  width: 10px;
+  text-align: center;
+  color: var(--color-text-muted, #aaa);
+}
+
+.rmx-bar-track {
+  flex: 1;
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rmx-bar-fill {
+  height: 100%;
+  transition: width 200ms ease-out;
+}
+
+.rmx-bar-heat {
+  background-color: #ff6b6b;
+}
+
+.rmx-bar-respect {
+  background-color: #6ec1ff;
+}
+
+.rmx-bar-likability {
+  background-color: #7be09a;
+}
+
+/* ===========================================
+   Detail panel (selected pair)
+   =========================================== */
+
+.rmx-detail {
+  background-color: var(--color-surface, #1a1a1a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-4);
+  position: sticky;
+  top: var(--space-4);
+}
+
+.rmx-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-3);
+}
+
+.rmx-detail-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rmx-detail-observer {
+  color: var(--color-text, #ddd);
+}
+
+.rmx-detail-arrow {
+  color: var(--color-text-muted, #888);
+}
+
+.rmx-detail-target {
+  color: var(--color-text, #ddd);
+}
+
+.rmx-detail-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-text-muted, #888);
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rmx-detail-close:hover {
+  color: var(--color-text, #ddd);
+}
+
+.rmx-detail-label {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-3);
+}
+
+.rmx-detail-axes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3) 0;
+  padding: 0;
+}
+
+.rmx-detail-axes > div {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-2);
+}
+
+.rmx-detail-axes dt {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #888);
+  margin: 0;
+}
+
+.rmx-detail-axes dd {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0 0 0;
+  color: var(--color-text, #ddd);
+}
+
+.rmx-detail-meta {
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  margin-bottom: var(--space-3);
+}
+
+.rmx-detail-section {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #888);
+  margin: var(--space-3) 0 var(--space-2) 0;
+  font-weight: 500;
+}
+
+.rmx-detail-empty {
+  font-size: 12px;
+  color: var(--color-text-muted, #666);
+  font-style: italic;
+}
+
+.rmx-detail-hands {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rmx-detail-hands li {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-2);
+}
+
+.rmx-hand-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.rmx-hand-event {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent, #6ec1ff);
+}
+
+.rmx-hand-impact {
+  color: var(--color-text-muted, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.rmx-hand-narrative {
+  font-size: 12px;
+  color: var(--color-text, #ccc);
+  line-height: 1.4;
+}

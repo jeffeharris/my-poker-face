@@ -29,6 +29,9 @@ from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.schema_manager import SchemaManager
 
 
+SANDBOX_ID = "test-sandbox-1"
+
+
 @pytest.fixture
 def db_path(tmp_path):
     path = str(tmp_path / "cash_tables.db")
@@ -61,17 +64,19 @@ class TestSchemaMigrationV91:
         assert version >= 91
 
     def test_table_id_is_primary_key(self, db_path):
+        # v102: composite PK (table_id, sandbox_id) — each save-file
+        # holds its own copy of the lobby's tables.
         with sqlite3.connect(db_path) as conn:
             info = conn.execute("PRAGMA table_info(cash_tables)").fetchall()
         pk_cols = [row[1] for row in info if row[5]]  # row[5] = pk flag
-        assert pk_cols == ["table_id"]
+        assert set(pk_cols) == {"table_id", "sandbox_id"}
 
 
 class TestRoundtrip:
     def test_empty_table_roundtrip(self, repo):
         state = CashTableState(table_id="cash-table-10-001", stake_label="$10")
-        repo.save_table(state)
-        loaded = repo.load_table("cash-table-10-001")
+        repo.save_table(state, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_table("cash-table-10-001", sandbox_id=SANDBOX_ID)
         assert loaded is not None
         assert loaded.table_id == "cash-table-10-001"
         assert loaded.stake_label == "$10"
@@ -90,38 +95,38 @@ class TestRoundtrip:
         state = CashTableState(
             table_id="cash-table-50-001", stake_label="$50", seats=seats,
         )
-        repo.save_table(state)
-        loaded = repo.load_table("cash-table-50-001")
+        repo.save_table(state, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_table("cash-table-50-001", sandbox_id=SANDBOX_ID)
         assert loaded.seats == seats
 
     def test_load_missing_returns_none(self, repo):
-        assert repo.load_table("does-not-exist") is None
+        assert repo.load_table("does-not-exist", sandbox_id=SANDBOX_ID) is None
 
 
 class TestUpsert:
     def test_save_twice_updates(self, repo):
         state = CashTableState(table_id="t1", stake_label="$10")
-        repo.save_table(state)
+        repo.save_table(state, sandbox_id=SANDBOX_ID)
         # Change a seat and re-save.
         new_state = state.with_seat(0, ai_slot("napoleon", 1240))
-        repo.save_table(new_state)
-        loaded = repo.load_table("t1")
+        repo.save_table(new_state, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_table("t1", sandbox_id=SANDBOX_ID)
         assert loaded.seats[0]["kind"] == "ai"
         assert loaded.seats[0]["personality_id"] == "napoleon"
 
     def test_created_at_preserved_across_saves(self, repo):
         state = CashTableState(table_id="t1", stake_label="$10")
         first_time = datetime(2026, 5, 18, 12, 0, 0)
-        repo.save_table(state, now=first_time)
-        original = repo.load_table("t1")
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=first_time)
+        original = repo.load_table("t1", sandbox_id=SANDBOX_ID)
         assert original.created_at is not None
         first_created = original.created_at
 
         # Re-save with a later time.
         later = first_time + timedelta(hours=1)
         new_state = state.with_seat(0, ai_slot("napoleon", 1240))
-        repo.save_table(new_state, now=later)
-        updated = repo.load_table("t1")
+        repo.save_table(new_state, sandbox_id=SANDBOX_ID, now=later)
+        updated = repo.load_table("t1", sandbox_id=SANDBOX_ID)
         # created_at should not change.
         assert updated.created_at == first_created
         # last_activity_at should have bumped.
@@ -130,12 +135,12 @@ class TestUpsert:
     def test_last_activity_bumps_on_save(self, repo):
         state = CashTableState(table_id="t1", stake_label="$10")
         t1 = datetime(2026, 5, 18, 12, 0, 0)
-        repo.save_table(state, now=t1)
-        first = repo.load_table("t1")
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t1)
+        first = repo.load_table("t1", sandbox_id=SANDBOX_ID)
 
         t2 = t1 + timedelta(minutes=30)
-        repo.save_table(state, now=t2)
-        second = repo.load_table("t1")
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t2)
+        second = repo.load_table("t1", sandbox_id=SANDBOX_ID)
 
         assert second.last_activity_at >= first.last_activity_at
         assert (second.last_activity_at - first.last_activity_at).total_seconds() >= 60
@@ -143,22 +148,32 @@ class TestUpsert:
 
 class TestListAllTables:
     def test_empty_lobby_returns_empty(self, repo):
-        assert repo.list_all_tables() == []
+        assert repo.list_all_tables(sandbox_id=SANDBOX_ID) == []
 
     def test_ordered_by_table_id(self, repo):
         # Insert out of order so we can verify ORDER BY.
-        repo.save_table(CashTableState(table_id="b-table", stake_label="$10"))
-        repo.save_table(CashTableState(table_id="a-table", stake_label="$2"))
-        repo.save_table(CashTableState(table_id="c-table", stake_label="$50"))
-        all_tables = repo.list_all_tables()
+        repo.save_table(
+            CashTableState(table_id="b-table", stake_label="$10"),
+            sandbox_id=SANDBOX_ID,
+        )
+        repo.save_table(
+            CashTableState(table_id="a-table", stake_label="$2"),
+            sandbox_id=SANDBOX_ID,
+        )
+        repo.save_table(
+            CashTableState(table_id="c-table", stake_label="$50"),
+            sandbox_id=SANDBOX_ID,
+        )
+        all_tables = repo.list_all_tables(sandbox_id=SANDBOX_ID)
         assert [t.table_id for t in all_tables] == ["a-table", "b-table", "c-table"]
 
     def test_returns_all_seats(self, repo):
         seats = [ai_slot(f"p{i}", 100 * i) for i in range(4)] + [open_slot(), open_slot()]
-        repo.save_table(CashTableState(
-            table_id="t1", stake_label="$10", seats=seats,
-        ))
-        all_tables = repo.list_all_tables()
+        repo.save_table(
+            CashTableState(table_id="t1", stake_label="$10", seats=seats),
+            sandbox_id=SANDBOX_ID,
+        )
+        all_tables = repo.list_all_tables(sandbox_id=SANDBOX_ID)
         assert len(all_tables) == 1
         assert all_tables[0].seats == seats
 
@@ -183,10 +198,12 @@ class TestSchemaMigrationV92:
         assert version >= 92
 
     def test_personality_id_is_primary_key(self, db_path):
+        # v102: composite PK (personality_id, sandbox_id) — idle-pool
+        # is per-sandbox.
         with sqlite3.connect(db_path) as conn:
             info = conn.execute("PRAGMA table_info(cash_idle_pool)").fetchall()
         pk_cols = [row[1] for row in info if row[5]]
-        assert pk_cols == ["personality_id"]
+        assert set(pk_cols) == {"personality_id", "sandbox_id"}
 
 
 class TestIdlePoolRoundtrip:
@@ -197,8 +214,8 @@ class TestIdlePoolRoundtrip:
             left_at=now,
             reason="forced_leave",
         )
-        repo.save_idle(entry)
-        loaded = repo.load_idle("napoleon")
+        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_idle("napoleon", sandbox_id=SANDBOX_ID)
         assert loaded is not None
         assert loaded.personality_id == "napoleon"
         assert loaded.left_at == now
@@ -213,24 +230,30 @@ class TestIdlePoolRoundtrip:
             reason="stake_up_queued",
             target_stake="$50",
         )
-        repo.save_idle(entry)
-        loaded = repo.load_idle("zeus")
+        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_idle("zeus", sandbox_id=SANDBOX_ID)
         assert loaded.target_stake == "$50"
         assert loaded.reason == "stake_up_queued"
 
     def test_load_missing_returns_none(self, repo):
-        assert repo.load_idle("nobody") is None
+        assert repo.load_idle("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_upsert(self, repo):
         t1 = datetime(2026, 5, 18, 12, 0, 0)
         t2 = datetime(2026, 5, 18, 13, 0, 0)
-        repo.save_idle(IdlePoolEntry(
-            personality_id="napoleon", left_at=t1, reason="bored_move",
-        ))
-        repo.save_idle(IdlePoolEntry(
-            personality_id="napoleon", left_at=t2, reason="forced_leave",
-        ))
-        loaded = repo.load_idle("napoleon")
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="napoleon", left_at=t1, reason="bored_move",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="napoleon", left_at=t2, reason="forced_leave",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        loaded = repo.load_idle("napoleon", sandbox_id=SANDBOX_ID)
         # Last write wins.
         assert loaded.left_at == t2
         assert loaded.reason == "forced_leave"
@@ -238,38 +261,50 @@ class TestIdlePoolRoundtrip:
 
 class TestIdlePoolList:
     def test_empty_returns_empty(self, repo):
-        assert repo.list_idle() == []
+        assert repo.list_idle(sandbox_id=SANDBOX_ID) == []
 
     def test_ordered_by_left_at_asc(self, repo):
         # Insert out of order; should come back oldest-first.
-        repo.save_idle(IdlePoolEntry(
-            personality_id="newest", left_at=datetime(2026, 5, 18, 15, 0),
-            reason="bored_move",
-        ))
-        repo.save_idle(IdlePoolEntry(
-            personality_id="oldest", left_at=datetime(2026, 5, 18, 9, 0),
-            reason="forced_leave",
-        ))
-        repo.save_idle(IdlePoolEntry(
-            personality_id="middle", left_at=datetime(2026, 5, 18, 12, 0),
-            reason="take_break",
-        ))
-        ids = [e.personality_id for e in repo.list_idle()]
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="newest", left_at=datetime(2026, 5, 18, 15, 0),
+                reason="bored_move",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="oldest", left_at=datetime(2026, 5, 18, 9, 0),
+                reason="forced_leave",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="middle", left_at=datetime(2026, 5, 18, 12, 0),
+                reason="take_break",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        ids = [e.personality_id for e in repo.list_idle(sandbox_id=SANDBOX_ID)]
         assert ids == ["oldest", "middle", "newest"]
 
 
 class TestIdlePoolDelete:
     def test_delete_existing_returns_true(self, repo):
-        repo.save_idle(IdlePoolEntry(
-            personality_id="napoleon",
-            left_at=datetime(2026, 5, 18, 12, 0),
-            reason="bored_move",
-        ))
-        assert repo.delete_idle("napoleon") is True
-        assert repo.load_idle("napoleon") is None
+        repo.save_idle(
+            IdlePoolEntry(
+                personality_id="napoleon",
+                left_at=datetime(2026, 5, 18, 12, 0),
+                reason="bored_move",
+            ),
+            sandbox_id=SANDBOX_ID,
+        )
+        assert repo.delete_idle("napoleon", sandbox_id=SANDBOX_ID) is True
+        assert repo.load_idle("napoleon", sandbox_id=SANDBOX_ID) is None
 
     def test_delete_missing_returns_false(self, repo):
-        assert repo.delete_idle("ghost") is False
+        assert repo.delete_idle("ghost", sandbox_id=SANDBOX_ID) is False
 
 
 class TestIdleReasonEnum:
@@ -280,8 +315,8 @@ class TestIdleReasonEnum:
             left_at=datetime(2026, 5, 18, 12, 0),
             reason=reason,
         )
-        repo.save_idle(entry)
-        loaded = repo.load_idle(f"p-{reason}")
+        repo.save_idle(entry, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_idle(f"p-{reason}", sandbox_id=SANDBOX_ID)
         assert loaded.reason == reason
 
     def test_unknown_reason_rejected_in_dataclass(self):

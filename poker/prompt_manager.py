@@ -9,6 +9,7 @@ import logging
 import re
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Dict, Optional, Set
 from dataclasses import dataclass, field
@@ -56,6 +57,63 @@ TONE_MODIFIERS = {
     'desperate': " Show the pressure - this is do-or-die, make it feel that way.",
     'triumphant': " Savor the moment - you've got them right where you want them."
 }
+
+
+# Shared dramatic_sequence guidance — the gesture map, examples, and
+# do-not-do list referenced by every prompt that asks the LLM to
+# produce a dramatic_sequence (full hybrid decision.yaml, tiered
+# expression decision_expression.yaml, and hybrid bounded-options
+# choice prompt). Manage the wording here, not in YAML.
+#
+# This block intentionally avoids `{...}` literals so it is safe to
+# inject via either `str.replace` or `str.format` callers.
+DRAMATIC_SEQUENCE_GUIDANCE = """\
+ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
+SPEECH: plain text dialogue addressed to the table. Audible to all.
+Each beat is EITHER an action OR speech, never both.
+
+MATCH THE GESTURE TO YOUR ACTION. Physical beats should reflect what
+you are actually doing this turn — chips go with bets, cards go with
+folds. Don't repeat the action label as a beat ("*fold*", "*calls*")
+— that already shows in the activity feed. Add color, not the label.
+
+  FOLD → cards: muck, toss, push the cards away.
+    e.g. *mucks*, *tosses cards forward*, *slides the cards away*, *flicks the cards in*
+  CHECK → no commitment: rap, tap, wave it through.
+    e.g. *raps the felt*, *taps the table*, *waves it through*
+  CALL → matched chips: slide / set / cut out the call.
+    e.g. *slides in the chips*, *cuts out a call*, *sets the call forward*
+  RAISE / ALL-IN → committing more: push / shove / splash.
+    e.g. *pushes the stack forward*, *shoves it all in*, *splashes the pot*, *cuts out a raise*
+  TENSION COLOR (any action, use sparingly): shuffle, riffle, stare.
+    e.g. *shuffles chips*, *riffles a stack*, *stares at the board*, *fans the cards*
+
+GOOD examples — `addressing` pairs with the speech beats and gestures fit the action:
+  routine call, no one specific:
+    dramatic_sequence: ["*slides in the chips*", "Call."]
+    addressing: []
+  notable fold, addressing one player:
+    dramatic_sequence: ["Nice raise, Bob.", "*mucks*"]
+    addressing: ["Bob"]
+  climactic shove, addressing two players:
+    dramatic_sequence: ["*leans forward*", "You two are nuts.", "*pushes the stack forward*"]
+    addressing: ["Alice", "Carol"]
+  general muttering check, no target:
+    dramatic_sequence: ["*raps the felt*", "Anyone got anything?"]
+    addressing: []
+
+BAD — do NOT do this:
+  ["I lean back in my chair and call"]       ← first-person, mixed action+speech
+  ["*Leans Back*"]                            ← capitalized action
+  ["\\"leans back\\""]                          ← quote chars wrapping a gesture
+  ["*leans back* Call."]                      ← action + speech in one beat
+  ["Bob seems nervous about his hand"]        ← mind-reading opponent
+  ["Hmm, maybe I should have folded"]         ← inner thought as speech
+  ["Zeus: I'm all in."]                       ← NEVER prefix YOUR OWN name on speech; speech is already attributed to you
+  ["Alice: 'Your move.'"]                     ← don't prefix anyone's name on speech (yours or theirs)
+  ["*fold*"], ["*calls*"], ["*raises*"]       ← bare action label; add physical color instead
+  ["*pushes chips forward*"] on a fold        ← chips don't move on a fold; muck the cards
+  ["*tosses cards*"] on a raise               ← cards don't move on a raise; push chips"""
 
 
 def _validate_format_placeholders(text: str) -> Set[str]:
@@ -160,10 +218,26 @@ class PromptManager:
         enable_hot_reload: If True, watches for file changes and reloads templates.
                           Should only be True in development mode.
         prompts_dir: Optional custom directory for YAML files. Defaults to poker/prompts/.
+
+    Hot-reload sharing: many components (each AI controller, each
+    AIPokerPlayer, each commentary generator) instantiate their own
+    PromptManager. With per-instance inotify watchers, a process running
+    a 6-handed game opens 12+ watchers, and a tournament / sim run blows
+    past the OS inotify-instance cap (~128 by default) trivially. The
+    Observer is shared at the class level, keyed by `prompts_dir` —
+    one watcher per directory per process, fanning out to every
+    PromptManager registered against that directory.
     """
 
     # Debounce delay for hot-reload (seconds)
     RELOAD_DEBOUNCE_SECONDS = 0.5
+
+    # Class-level singleton state for the shared hot-reload observers.
+    # Keyed by the resolved prompts directory so PromptManagers watching
+    # different directories don't collide.
+    _shared_observers: Dict[Path, "object"] = {}
+    _shared_subscribers: Dict[Path, "weakref.WeakSet"] = {}
+    _shared_observer_lock = threading.Lock()
 
     def __init__(self, enable_hot_reload: bool = False, prompts_dir: Optional[Path] = None):
         self.templates: Dict[str, PromptTemplate] = {}
@@ -267,33 +341,78 @@ class PromptManager:
             return False
 
     def _setup_hot_reload(self) -> None:
-        """Set up file watching for hot-reload."""
+        """Subscribe this instance to the shared observer for its prompts_dir.
+
+        The first PromptManager that requests hot-reload for a given
+        directory spins up the inotify Observer for that directory; every
+        subsequent PromptManager pointing at the same directory joins the
+        existing subscriber set. This keeps the watcher count bounded to
+        one-per-directory-per-process even when dozens of controllers are
+        instantiated in dev mode, avoiding "inotify instance limit
+        reached" failures that previously appeared once ~24 controllers
+        were created.
+        """
+        key = self.prompts_dir.resolve()
+        with PromptManager._shared_observer_lock:
+            subscribers = PromptManager._shared_subscribers.get(key)
+            if subscribers is None:
+                subscribers = weakref.WeakSet()
+                PromptManager._shared_subscribers[key] = subscribers
+            subscribers.add(self)
+
+            if key not in PromptManager._shared_observers:
+                observer = self._spawn_shared_observer(key)
+                if observer is None:
+                    # Setup failed (watchdog missing, inotify cap hit on
+                    # the FIRST attempt, etc.) — leave the entry absent
+                    # so a later instance can retry rather than getting
+                    # stuck on a None sentinel.
+                    return
+                PromptManager._shared_observers[key] = observer
+
+        # Per-instance handle for stop_hot_reload's compatibility surface.
+        # We don't own the observer — we share it — so stop() unsubscribes
+        # rather than tearing the watcher down.
+        self._observer = PromptManager._shared_observers.get(key)
+
+    @classmethod
+    def _spawn_shared_observer(cls, key: Path):
+        """Spin up the class-level Observer for `key`. Returns the
+        Observer instance or None on failure (already logged)."""
         try:
             from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
 
-            manager = self
-
-            class PromptFileHandler(FileSystemEventHandler):
+            class _SharedPromptFileHandler(FileSystemEventHandler):
                 def on_modified(self, event):
-                    if event.is_directory:
+                    if event.is_directory or not event.src_path.endswith('.yaml'):
                         return
-                    if event.src_path.endswith('.yaml'):
-                        template_name = Path(event.src_path).stem
-                        manager._schedule_reload(template_name)
+                    template_name = Path(event.src_path).stem
+                    # Snapshot subscribers under the lock; dispatch outside
+                    # to avoid holding it across user-facing reload work.
+                    with PromptManager._shared_observer_lock:
+                        snapshot = list(
+                            PromptManager._shared_subscribers.get(key, ())
+                        )
+                    for manager in snapshot:
+                        try:
+                            manager._schedule_reload(template_name)
+                        except Exception as inner:  # noqa: BLE001
+                            logger.debug(
+                                f"[PromptManager] subscriber reload failed: {inner}"
+                            )
 
-            self._observer = Observer()
-            self._observer.schedule(
-                PromptFileHandler(),
-                str(self.prompts_dir),
-                recursive=False
-            )
-            self._observer.start()
-            logger.info(f"[PromptManager] Hot-reload enabled, watching {self.prompts_dir}")
+            observer = Observer()
+            observer.schedule(_SharedPromptFileHandler(), str(key), recursive=False)
+            observer.start()
+            logger.info(f"[PromptManager] Hot-reload enabled (shared), watching {key}")
+            return observer
         except ImportError:
             logger.warning("watchdog not installed, hot-reload disabled")
+            return None
         except Exception as e:
             logger.error(f"Failed to set up hot-reload: {e}")
+            return None
 
     def _schedule_reload(self, template_name: str) -> None:
         """Schedule a template reload with debouncing.
@@ -325,22 +444,58 @@ class PromptManager:
             self._reload_template(template_name)
 
     def stop_hot_reload(self) -> None:
-        """Stop the file watcher. Call this on shutdown."""
-        if self._observer:
-            try:
-                self._observer.stop()
-                # Only join if the observer thread was actually started
-                if self._observer.is_alive():
-                    self._observer.join(timeout=2.0)
-                logger.info("[PromptManager] Hot-reload stopped")
-            except Exception as e:
-                logger.debug(f"[PromptManager] Error stopping hot-reload: {e}")
-            finally:
-                self._observer = None
+        """Unsubscribe this instance from the shared observer.
+
+        The observer is shared across all PromptManager instances pointing
+        at the same prompts_dir; we only tear it down once the last
+        subscriber unsubscribes. Callers that want to stop the watcher
+        for the whole process should call `PromptManager.stop_all_hot_reload()`.
+        """
+        if self._observer is not None:
+            key = self.prompts_dir.resolve()
+            with PromptManager._shared_observer_lock:
+                subscribers = PromptManager._shared_subscribers.get(key)
+                if subscribers is not None:
+                    subscribers.discard(self)
+                # When no subscribers remain, shut the watcher down.
+                if subscribers is not None and not subscribers:
+                    obs = PromptManager._shared_observers.pop(key, None)
+                    PromptManager._shared_subscribers.pop(key, None)
+                    if obs is not None:
+                        try:
+                            obs.stop()
+                            if obs.is_alive():
+                                obs.join(timeout=2.0)
+                            logger.info(
+                                f"[PromptManager] Hot-reload stopped (shared, {key})"
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.debug(
+                                f"[PromptManager] Error stopping shared observer: {e}"
+                            )
+            self._observer = None
 
         if self._debounce_timer:
             self._debounce_timer.cancel()
             self._debounce_timer = None
+
+    @classmethod
+    def stop_all_hot_reload(cls) -> None:
+        """Stop every shared observer. Intended for process shutdown."""
+        with cls._shared_observer_lock:
+            observers = list(cls._shared_observers.items())
+            cls._shared_observers.clear()
+            cls._shared_subscribers.clear()
+        for key, obs in observers:
+            try:
+                obs.stop()
+                if obs.is_alive():
+                    obs.join(timeout=2.0)
+                logger.info(f"[PromptManager] Hot-reload stopped (shared, {key})")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    f"[PromptManager] Error stopping shared observer at {key}: {e}"
+                )
 
     def __del__(self):
         """Clean up file watcher on destruction."""
@@ -585,7 +740,13 @@ class PromptManager:
         if use_simple_response_format and 'response_format_simple' in template.sections:
             sections_to_render.append(template.sections['response_format_simple'])
         elif include_dramatic_sequence and 'dramatic_sequence' in template.sections:
-            sections_to_render.append(template.sections['dramatic_sequence'])
+            # Substitute the shared gesture/example block. Use `.replace`
+            # rather than `.format` to avoid disturbing the `{name}`
+            # placeholder, which is not bound by this renderer.
+            section = template.sections['dramatic_sequence'].replace(
+                '{dramatic_sequence_guidance}', DRAMATIC_SEQUENCE_GUIDANCE
+            )
+            sections_to_render.append(section)
 
         # Join all sections
         rendered = "\n\n".join(sections_to_render)

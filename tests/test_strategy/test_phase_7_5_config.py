@@ -26,13 +26,15 @@ def test_exploitation_clamps_v1_placeholders():
 def test_sample_thresholds_v1_placeholders():
     s = cfg.CONFIG.sample_thresholds
     assert s.medium_min_opportunities == 60
-    assert s.extreme_min_opportunities == 120
+    # 2026-05-23: dropped 120 → 40 (see config yaml comment)
+    assert s.extreme_min_opportunities == 40
 
 
 def test_signal_thresholds_v1_placeholders():
     s = cfg.CONFIG.signal_thresholds
     assert s.medium_af_postflop == 4.0
-    assert s.extreme_af_postflop == 6.0
+    # 2026-05-23: dropped 6.0 → 4.5 (see config yaml comment)
+    assert s.extreme_af_postflop == 4.5
     assert s.medium_all_in_per_facing_bet == 0.15
     assert s.extreme_all_in_per_facing_bet == 0.30
     assert s.medium_postflop_jam_open_rate == 0.10

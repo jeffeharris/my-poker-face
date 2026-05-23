@@ -731,11 +731,9 @@ def _resolve_personality_id_or_404(name):
 def _knobs_to_dict(knobs: BankrollKnobs) -> dict:
     """Serialize BankrollKnobs to the JSON shape consumed by the admin UI."""
     return {
-        'bankroll_cap': knobs.bankroll_cap,
+        'starting_bankroll': knobs.starting_bankroll,
         'bankroll_rate': knobs.bankroll_rate,
         'buy_in_multiplier': knobs.buy_in_multiplier,
-        'stop_loss_buy_ins': knobs.stop_loss_buy_ins,
-        'stop_win_buy_ins': knobs.stop_win_buy_ins,
         'stake_comfort_zone': knobs.stake_comfort_zone,
     }
 
@@ -768,7 +766,20 @@ def get_bankroll_knobs(name):
 
         from ..extensions import bankroll_repo
         knobs = bankroll_repo.load_personality_knobs(pid)
-        current_bankroll = bankroll_repo.load_ai_bankroll_current(pid)
+        # Admin route — sum stored chips across every sandbox this
+        # personality has a bankroll row in. `current_bankroll` here
+        # is the cross-sandbox view, not a single save-file's value.
+        # Per-sandbox bankroll inspection lives on the future
+        # per-sandbox admin surface (Phase 2.5+).
+        import sqlite3
+        from ..extensions import persistence_db_path
+        with sqlite3.connect(persistence_db_path) as _conn:
+            row = _conn.execute(
+                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state "
+                "WHERE personality_id = ?",
+                (pid,),
+            ).fetchone()
+            current_bankroll = int(row[0] or 0) if row else None
 
         return jsonify({
             'success': True,
@@ -788,11 +799,9 @@ def update_bankroll_knobs(name):
     """PUT a partial knob update; merges into config_json.bankroll_knobs.
 
     Request body: a JSON object containing any subset of:
-      - bankroll_cap (int)
+      - starting_bankroll (int)
       - bankroll_rate (int)
       - buy_in_multiplier (float)
-      - stop_loss_buy_ins (int)
-      - stop_win_buy_ins (int)
       - stake_comfort_zone (str)
 
     Missing keys fall back to the current stored knob value (which
@@ -827,11 +836,9 @@ def update_bankroll_knobs(name):
         # current stored value — partial updates are the norm.
         try:
             new_knobs = BankrollKnobs(
-                bankroll_cap=int(payload.get('bankroll_cap', current.bankroll_cap)),
+                starting_bankroll=int(payload.get('starting_bankroll', current.starting_bankroll)),
                 bankroll_rate=int(payload.get('bankroll_rate', current.bankroll_rate)),
                 buy_in_multiplier=float(payload.get('buy_in_multiplier', current.buy_in_multiplier)),
-                stop_loss_buy_ins=int(payload.get('stop_loss_buy_ins', current.stop_loss_buy_ins)),
-                stop_win_buy_ins=int(payload.get('stop_win_buy_ins', current.stop_win_buy_ins)),
                 stake_comfort_zone=str(payload.get('stake_comfort_zone', current.stake_comfort_zone)),
             )
         except (TypeError, ValueError) as e:
@@ -842,8 +849,8 @@ def update_bankroll_knobs(name):
 
         # Light range validation — keep the floor at 0 for caps/rates so
         # we don't produce negative-debit math, and require multipliers > 0.
-        if new_knobs.bankroll_cap < 0:
-            return jsonify({'success': False, 'error': 'bankroll_cap must be >= 0'}), 400
+        if new_knobs.starting_bankroll < 0:
+            return jsonify({'success': False, 'error': 'starting_bankroll must be >= 0'}), 400
         if new_knobs.bankroll_rate < 0:
             return jsonify({'success': False, 'error': 'bankroll_rate must be >= 0'}), 400
         if new_knobs.buy_in_multiplier <= 0:
@@ -864,4 +871,410 @@ def update_bankroll_knobs(name):
         })
     except Exception as e:
         logger.exception("Error updating bankroll knobs for %r", name)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# --- Borrower profile (staking system, Phase 5) ---
+
+
+def _read_personality_config(pid):
+    """Helper — load the raw config dict for a personality. Returns
+    {} on any error so callers can default-fill missing pieces."""
+    import sqlite3
+    from ..extensions import persistence_db_path
+    with sqlite3.connect(persistence_db_path) as conn:
+        row = conn.execute(
+            "SELECT config_json FROM personalities WHERE personality_id = ?",
+            (pid,),
+        ).fetchone()
+        if not row:
+            return {}
+        try:
+            return json.loads(row[0]) or {}
+        except (TypeError, ValueError):
+            return {}
+
+
+@personality_bp.route('/api/personality/<name>/borrower-profile', methods=['GET'])
+def get_borrower_profile(name):
+    """GET the per-personality borrower profile + ego-derivation context.
+
+    Returns:
+      - `willing`: does this personality accept stakes at all?
+      - `willingness_threshold`: the EFFECTIVE value the system uses
+        (either the explicit override or the ego-derived default).
+      - `willingness_threshold_explicit`: the override value if set in
+        config_json, else null. Lets the UI distinguish "this AI has
+        a hand-tuned threshold" from "this is auto-derived from ego."
+      - `ego_derived_threshold`: what the ego anchor would yield. Used
+        for the "Reset to ego-derived" UI affordance.
+      - `ego`: the anchor value — surfaced for context so admins can
+        see why the derived value lands where it does.
+      - `defaults`: the BORROWER_PROFILE_DEFAULTS shape for hard fallback.
+
+    Admin-only.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        from ..extensions import bankroll_repo
+        from cash_mode.staker_profile import (
+            BORROWER_PROFILE_DEFAULTS,
+            compute_default_willingness_threshold,
+        )
+
+        config = _read_personality_config(pid)
+        anchors = config.get('anchors') if isinstance(config, dict) else None
+        ego = 0.5
+        if isinstance(anchors, dict):
+            try:
+                ego = float(anchors.get('ego', 0.5))
+            except (TypeError, ValueError):
+                ego = 0.5
+
+        bp_sub = config.get('borrower_profile') if isinstance(config, dict) else None
+        explicit = None
+        if isinstance(bp_sub, dict) and 'willingness_threshold' in bp_sub:
+            try:
+                explicit = float(bp_sub['willingness_threshold'])
+            except (TypeError, ValueError):
+                explicit = None
+
+        # Effective value (mirrors load_borrower_profile's derivation
+        # logic) so the admin UI sees exactly what the staking engine
+        # would use at evaluation time.
+        profile = bankroll_repo.load_borrower_profile(pid)
+        ego_derived = compute_default_willingness_threshold(ego)
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'willing': profile.willing,
+            'willingness_threshold': profile.willingness_threshold,
+            'willingness_threshold_explicit': explicit,
+            'ego_derived_threshold': ego_derived,
+            'ego': ego,
+            'defaults': {
+                'willing': BORROWER_PROFILE_DEFAULTS.willing,
+                'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
+            },
+        })
+    except Exception as e:
+        logger.exception("Error loading borrower profile for %r", name)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@personality_bp.route('/api/personality/<name>/borrower-profile', methods=['PUT'])
+def update_borrower_profile(name):
+    """PUT the per-personality borrower profile.
+
+    Request body:
+      - `willing` (bool, required)
+      - `willingness_threshold` (float | null):
+          - omitted or null → clear the explicit override; loader
+            falls back to ego-derivation
+          - float in [0.0, 1.0] → store as explicit override
+
+    Returns the same shape as GET so the UI can swap state in place
+    without a re-fetch.
+
+    Admin-only.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({'success': False, 'error': 'Request body must be a JSON object'}), 400
+        if 'willing' not in payload:
+            return jsonify({'success': False, 'error': 'willing is required'}), 400
+        if not isinstance(payload['willing'], bool):
+            return jsonify({'success': False, 'error': 'willing must be a boolean'}), 400
+
+        # `willingness_threshold` is tri-state: missing key → keep
+        # current stored override; explicit null → clear; float → set.
+        if 'willingness_threshold' in payload:
+            wt = payload['willingness_threshold']
+            if wt is None:
+                threshold_override = None
+            else:
+                try:
+                    threshold_override = float(wt)
+                except (TypeError, ValueError):
+                    return jsonify({
+                        'success': False,
+                        'error': 'willingness_threshold must be a number or null',
+                    }), 400
+                if threshold_override < 0.0 or threshold_override > 1.0:
+                    return jsonify({
+                        'success': False,
+                        'error': 'willingness_threshold must lie in [0.0, 1.0]',
+                    }), 400
+        else:
+            # Read current explicit value so we don't accidentally
+            # clear it on a partial PUT that only set `willing`.
+            config = _read_personality_config(pid)
+            bp_sub = config.get('borrower_profile') if isinstance(config, dict) else None
+            if isinstance(bp_sub, dict) and 'willingness_threshold' in bp_sub:
+                try:
+                    threshold_override = float(bp_sub['willingness_threshold'])
+                except (TypeError, ValueError):
+                    threshold_override = None
+            else:
+                threshold_override = None
+
+        from ..extensions import bankroll_repo
+        saved = bankroll_repo.save_borrower_profile(
+            pid,
+            willing=bool(payload['willing']),
+            willingness_threshold=threshold_override,
+        )
+        if not saved:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found in database',
+            }), 404
+
+        # Echo the post-save state — same shape as GET.
+        from cash_mode.staker_profile import (
+            BORROWER_PROFILE_DEFAULTS,
+            compute_default_willingness_threshold,
+        )
+        config = _read_personality_config(pid)
+        anchors = config.get('anchors') if isinstance(config, dict) else None
+        ego = 0.5
+        if isinstance(anchors, dict):
+            try:
+                ego = float(anchors.get('ego', 0.5))
+            except (TypeError, ValueError):
+                ego = 0.5
+        profile = bankroll_repo.load_borrower_profile(pid)
+        ego_derived = compute_default_willingness_threshold(ego)
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'willing': profile.willing,
+            'willingness_threshold': profile.willingness_threshold,
+            'willingness_threshold_explicit': threshold_override,
+            'ego_derived_threshold': ego_derived,
+            'ego': ego,
+            'defaults': {
+                'willing': BORROWER_PROFILE_DEFAULTS.willing,
+                'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
+            },
+        })
+    except Exception as e:
+        logger.exception("Error updating borrower profile for %r", name)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@personality_bp.route('/api/personality/<name>/staker-profile', methods=['GET'])
+def get_staker_profile(name):
+    """GET the per-personality staker profile (the lender side of the
+    backing system — what this AI offers when OTHERS ask for a stake).
+
+    Returns the effective profile (per-field fallback to
+    STAKER_PROFILE_DEFAULTS), the explicit-override sub-dict from
+    config_json so the UI can distinguish "hand-tuned" from "defaulted",
+    and the defaults block for UI hint text.
+
+    Admin-only.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        from ..extensions import bankroll_repo
+        from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS
+
+        profile = bankroll_repo.load_staker_profile(pid)
+        config = _read_personality_config(pid)
+        # `explicit_sub`: the staker_profile sub-dict actually stored
+        # in config_json. Lets the UI render "(default)" badges next
+        # to fields the personality hasn't tuned yet.
+        explicit_sub = None
+        if isinstance(config, dict):
+            sp = config.get('staker_profile')
+            if isinstance(sp, dict):
+                explicit_sub = sp
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'profile': {
+                'willing': profile.willing,
+                'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
+                'floor_anchor': profile.floor_anchor,
+                'rate_anchor': profile.rate_anchor,
+                'respect_floor': profile.respect_floor,
+                'heat_ceiling': profile.heat_ceiling,
+            },
+            'explicit': explicit_sub,
+            'defaults': {
+                'willing': STAKER_PROFILE_DEFAULTS.willing,
+                'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
+                'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
+                'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
+                'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
+                'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
+            },
+        })
+    except Exception as e:
+        logger.exception("Error loading staker profile for %r", name)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@personality_bp.route('/api/personality/<name>/staker-profile', methods=['PUT'])
+def update_staker_profile(name):
+    """PUT the per-personality staker profile (full replacement).
+
+    Request body — all six fields required (no partial updates; the
+    UI sends the full effective profile back). Validates field ranges
+    so the admin surface can't push values the offer engine doesn't
+    expect:
+
+      - `willing` (bool)
+      - `max_loan_pct_of_bankroll` (float, [0.0, 1.0])
+      - `floor_anchor` (float, [0.5, 3.0])  — repayment multiple
+      - `rate_anchor` (float, [0.0, 1.0])  — sponsor's cut after floor
+      - `respect_floor` (float, [-1.0, 1.0])
+      - `heat_ceiling` (float, [0.0, 1.0])
+
+    Returns the same shape as GET so the UI can swap state in place.
+
+    Admin-only.
+    """
+    try:
+        current_user = auth_manager.get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
+        user_id = current_user.get('id')
+        auth_service = get_authorization_service()
+        is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+        pid, err = _resolve_personality_id_or_404(name)
+        if err is not None:
+            return jsonify(err[0]), err[1]
+
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({'success': False, 'error': 'Request body must be a JSON object'}), 400
+        if 'willing' not in payload or not isinstance(payload['willing'], bool):
+            return jsonify({'success': False, 'error': 'willing (bool) is required'}), 400
+
+        # Validation ranges intentionally a bit wider than the
+        # "typical" ranges in the generator prompt — admins should
+        # be able to push edge cases for testing without the route
+        # second-guessing intent.
+        validators = (
+            ('max_loan_pct_of_bankroll', 0.0, 1.0),
+            ('floor_anchor', 0.5, 3.0),
+            ('rate_anchor', 0.0, 1.0),
+            ('respect_floor', -1.0, 1.0),
+            ('heat_ceiling', 0.0, 1.0),
+        )
+        coerced = {}
+        for field, lo, hi in validators:
+            if field not in payload:
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+            try:
+                value = float(payload[field])
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'error': f'{field} must be a number'}), 400
+            if value < lo or value > hi:
+                return jsonify({
+                    'success': False,
+                    'error': f'{field} must lie in [{lo}, {hi}]',
+                }), 400
+            coerced[field] = value
+
+        from ..extensions import bankroll_repo
+        from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
+
+        new_profile = StakerProfile(
+            willing=bool(payload['willing']),
+            max_loan_pct_of_bankroll=coerced['max_loan_pct_of_bankroll'],
+            floor_anchor=coerced['floor_anchor'],
+            rate_anchor=coerced['rate_anchor'],
+            respect_floor=coerced['respect_floor'],
+            heat_ceiling=coerced['heat_ceiling'],
+        )
+        saved = bankroll_repo.save_staker_profile(pid, new_profile)
+        if not saved:
+            return jsonify({
+                'success': False,
+                'error': f'Personality {name} not found in database',
+            }), 404
+
+        # Echo post-save state — same shape as GET.
+        profile = bankroll_repo.load_staker_profile(pid)
+        config = _read_personality_config(pid)
+        explicit_sub = config.get('staker_profile') if isinstance(config, dict) else None
+
+        return jsonify({
+            'success': True,
+            'name': name,
+            'personality_id': pid,
+            'profile': {
+                'willing': profile.willing,
+                'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
+                'floor_anchor': profile.floor_anchor,
+                'rate_anchor': profile.rate_anchor,
+                'respect_floor': profile.respect_floor,
+                'heat_ceiling': profile.heat_ceiling,
+            },
+            'explicit': explicit_sub if isinstance(explicit_sub, dict) else None,
+            'defaults': {
+                'willing': STAKER_PROFILE_DEFAULTS.willing,
+                'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
+                'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
+                'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
+                'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
+                'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
+            },
+        })
+    except Exception as e:
+        logger.exception("Error updating staker profile for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500

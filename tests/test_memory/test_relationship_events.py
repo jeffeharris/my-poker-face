@@ -37,16 +37,18 @@ class TestEnumCoverage:
             "bad_beat",
             "dominated_showdown",
             "strong_fold_shown",
+            "cooler",
             # Chat events
             "chat_trash_talk",
             "chat_compliment",
             "chat_taunt_post_win",
             "chat_friendly_banter",
-            "chat_tell_read",
-            # Cash-mode sponsorship (Path B)
-            "sponsorship_offered",
-            "loan_repaid",
-            "loan_defaulted",
+            # Cash-mode staking
+            "stake_offered",
+            "stake_repaid",
+            "stake_defaulted",
+            "stake_forgiven",
+            "stake_forgiveness_refused",
             # Quarantine
             "_unknown",
         }
@@ -130,11 +132,11 @@ class TestActorTableValues:
             (RelationshipEvent.BAD_BEAT,           AxisShift(+0.30, -0.15, -0.10)),
             (RelationshipEvent.DOMINATED_SHOWDOWN, AxisShift( 0.00, -0.15,  0.00)),
             (RelationshipEvent.STRONG_FOLD_SHOWN,  AxisShift( 0.00, +0.10,  0.00)),
+            (RelationshipEvent.COOLER,             AxisShift(+0.10, +0.10, -0.05)),
             (RelationshipEvent.TRASH_TALK,         AxisShift(+0.10,  0.00, -0.05)),
             (RelationshipEvent.COMPLIMENT,         AxisShift( 0.00, +0.03, +0.05)),
             (RelationshipEvent.TAUNT_POST_WIN,     AxisShift(+0.20,  0.00, -0.10)),
             (RelationshipEvent.FRIENDLY_BANTER,    AxisShift( 0.00,  0.00, +0.03)),
-            (RelationshipEvent.TELL_READ,          AxisShift( 0.00, +0.05,  0.00)),
         ],
     )
     def test_actor_shift_matches_design(self, event, expected):
@@ -203,42 +205,42 @@ class TestMirrorTableShape:
         assert mirror_shift(RelationshipEvent.STRONG_FOLD_SHOWN) == AxisShift()
 
 
-class TestPathBSponsorshipShifts:
-    """Cash-mode sponsorship events — directional sanity checks.
+class TestStakingShifts:
+    """Cash-mode staking events — directional sanity checks.
 
     Lock in the SHAPE of the deltas (which axes move which direction)
     rather than exact magnitudes — the starting calibration is tunable.
     """
 
-    def test_sponsorship_offered_lender_extends_trust(self):
-        # Actor = AI lender. Lender's view of borrower: small respect +
+    def test_stake_offered_staker_extends_trust(self):
+        # Actor = AI staker. Staker's view of borrower: small respect +
         # likability bump for extending the trust.
-        a = actor_shift(RelationshipEvent.SPONSORSHIP_OFFERED)
+        a = actor_shift(RelationshipEvent.STAKE_OFFERED)
         assert a.respect > 0
         assert a.likability > 0
         assert a.heat == 0  # no aggression on offering
 
-    def test_sponsorship_offered_borrower_grateful(self):
-        # Mirror = borrower's view of lender. Receiving a loan creates
-        # a positive feeling toward the lender.
-        m = mirror_shift(RelationshipEvent.SPONSORSHIP_OFFERED)
+    def test_stake_offered_borrower_grateful(self):
+        # Mirror = borrower's view of staker. Receiving a stake creates
+        # a positive feeling toward the staker.
+        m = mirror_shift(RelationshipEvent.STAKE_OFFERED)
         assert m.respect > 0
         assert m.likability > 0
 
-    def test_loan_repaid_strengthens_relationship(self):
-        # Borrower honored the floor. Both sides move positive.
-        a = actor_shift(RelationshipEvent.LOAN_REPAID)
-        m = mirror_shift(RelationshipEvent.LOAN_REPAID)
+    def test_stake_repaid_strengthens_relationship(self):
+        # Borrower returned principal + cut. Both sides move positive.
+        a = actor_shift(RelationshipEvent.STAKE_REPAID)
+        m = mirror_shift(RelationshipEvent.STAKE_REPAID)
         assert a.respect > 0
         assert a.likability > 0
         assert a.heat <= 0  # any friction cools off
         assert m.respect > 0
         assert m.likability > 0
 
-    def test_loan_defaulted_sharpest_negative_event(self):
-        # Lender stiffed → respect drops hard, heat surges. The
+    def test_stake_defaulted_sharpest_negative_event(self):
+        # Staker stiffed → respect drops hard, heat surges. The
         # canonical "worst thing a borrower can do" event.
-        a = actor_shift(RelationshipEvent.LOAN_DEFAULTED)
+        a = actor_shift(RelationshipEvent.STAKE_DEFAULTED)
         assert a.respect < 0
         assert a.heat > 0
         assert a.likability < 0
@@ -247,12 +249,23 @@ class TestPathBSponsorshipShifts:
         bad_beat = actor_shift(RelationshipEvent.BAD_BEAT)
         assert a.respect < bad_beat.respect
 
-    def test_loan_defaulted_mirror_mutual_animosity(self):
-        # Borrower feels watched/judged by the lender → heat rises
+    def test_stake_defaulted_mirror_mutual_animosity(self):
+        # Borrower feels watched/judged by the staker → heat rises
         # in both directions; likability drops both ways.
-        m = mirror_shift(RelationshipEvent.LOAN_DEFAULTED)
+        m = mirror_shift(RelationshipEvent.STAKE_DEFAULTED)
         assert m.heat > 0
         assert m.likability < 0
+
+    def test_stake_forgiven_both_sides_positive(self):
+        # Staker wrote off a carry → small heat drop + likability bump
+        # on their side; borrower feels strong gratitude in mirror.
+        a = actor_shift(RelationshipEvent.STAKE_FORGIVEN)
+        m = mirror_shift(RelationshipEvent.STAKE_FORGIVEN)
+        assert a.heat < 0
+        assert a.likability > 0
+        assert m.heat < 0
+        assert m.likability > 0
+        assert m.respect > 0
 
 
 class TestAxisShiftDataclass:

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
-import { Check, X, MessageCircle, Bot } from 'lucide-react';
+import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 import type { Player } from '../../types/player';
 import { Card } from '../cards';
@@ -11,6 +11,7 @@ import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
 import { ShuffleLoading } from '../shared/ShuffleLoading';
+import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
 import { HeadsUpOpponentPanel } from './HeadsUpOpponentPanel';
@@ -21,14 +22,18 @@ import { CoachBubble } from './CoachBubble';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
+import { CharacterDetailCard } from '../character';
+import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useGameStore } from '../../stores/gameStore';
+import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
+import { gameAPI } from '../../utils/api';
 import { config } from '../../config';
 import '../../styles/action-badges.css';
 import './MobilePokerTable.css';
@@ -49,6 +54,11 @@ export function MobilePokerTable({
   onBack,
   onGameLoadFailed
 }: MobilePokerTableProps) {
+  // Resolves opponent labels through the viewer's private nickname
+  // overrides. Stable across renders so memoized children don't
+  // bust when the function reference would otherwise churn.
+  const displayNickname = useDisplayNickname();
+
   // Mobile-specific state
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [showCashSheet, setShowCashSheet] = useState(false);
@@ -76,9 +86,35 @@ export function MobilePokerTable({
   // LLM Debug modal state
   const [debugModalPlayer, setDebugModalPlayer] = useState<Player | null>(null);
 
+  // Character dossier state — opens on opponent avatar tap.
+  const [dossierPlayer, setDossierPlayer] = useState<Player | null>(null);
+  const [dossierOrigin, setDossierOrigin] = useState<{ x: number; y: number } | undefined>();
+  const closeDossier = useCallback(() => setDossierPlayer(null), []);
+  const openDossierForPlayer = useCallback(
+    (player: Player, target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      setDossierPlayer(player);
+    },
+    [],
+  );
+
+  // When the chat sheet is opened from the dossier ("Send chat" button),
+  // remember which player to pre-select as the target. Cleared when the
+  // sheet closes so a fresh open from the chat button starts at "table".
+  const [chatInitialTarget, setChatInitialTarget] = useState<string | null>(null);
+
   // Stable callbacks for child components to avoid re-renders
   const openChatSheet = useCallback(() => setShowChatSheet(true), []);
-  const closeChatSheet = useCallback(() => setShowChatSheet(false), []);
+  const closeChatSheet = useCallback(() => {
+    setShowChatSheet(false);
+    setChatInitialTarget(null);
+  }, []);
+  const openChatWithTarget = useCallback((targetName: string) => {
+    setChatInitialTarget(targetName);
+    setDossierPlayer(null);
+    setShowChatSheet(true);
+  }, []);
   const openCashSheet = useCallback(() => setShowCashSheet(true), []);
   const closeCashSheet = useCallback(() => setShowCashSheet(false), []);
   const openCoachPanel = useCallback(() => setShowCoachPanel(true), []);
@@ -105,6 +141,7 @@ export function MobilePokerTable({
   const awaitingAction = useGameStore(state => state.awaitingAction);
   const runItOut = useGameStore(state => state.runItOut);
   const cashMode = useGameStore(state => state.cashMode);
+  const fastForward = useGameStore(state => state.fastForward);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -170,6 +207,14 @@ export function MobilePokerTable({
   const humanPlayer = storePlayers?.find(p => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
   const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
+
+  // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
+  // it stays stable across re-renders during a single shuffle and changes
+  // each hand.
+  const interhandQuote = useMemo(() => {
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [handNumber]);
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -294,6 +339,7 @@ export function MobilePokerTable({
     const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
     setInterhandMessage(`${names} ${verb}`);
     setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+
     clearWinnerInfo();
   }, [winnerInfo, clearWinnerInfo]);
 
@@ -407,7 +453,12 @@ export function MobilePokerTable({
   return (
     <div className="mobile-poker-table" data-testid="mobile-poker-table" data-connected={isConnected ? 'true' : 'false'}>
       {/* Initial loading overlay - slides off screen when game data arrives */}
-      <ShuffleLoading isVisible={isInitialLoading} message="Setting up the table" exitStyle="slide" />
+      <ShuffleLoading
+        isVisible={isInitialLoading}
+        message="Setting up the table"
+        exitStyle="slide"
+        quote={interhandQuote}
+      />
 
       {/* Reconnecting overlay - shows when socket is disconnected but we have game state */}
       {showReconnecting && (
@@ -437,6 +488,19 @@ export function MobilePokerTable({
        *  can't dismiss it by tapping outside. */}
       <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
 
+      {/* Character dossier — opens when tapping an opponent avatar
+       *  (when LLM debug isn't enabled). Uses the live Player blob
+       *  for the basics; the personality block isn't loaded here so
+       *  trait sections drop silently. */}
+      <CharacterDetailCard
+        isOpen={dossierPlayer !== null}
+        onClose={closeDossier}
+        character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
+        origin={dossierOrigin}
+        identifier={dossierPlayer?.name}
+        onSendChat={openChatWithTarget}
+      />
+
       {/* Cash mode: slide-up sheet — opens from the button inside
        *  the hero panel. Renders nothing for tournament games. */}
       {cashMode && humanPlayer && (
@@ -463,12 +527,12 @@ export function MobilePokerTable({
               <div
                 key={player.name}
                 className="ghost-avatar"
-                title={player.nickname || player.name}
+                title={displayNickname(player)}
               >
                 {player.avatar_url ? (
                   <img
                     src={`${config.API_URL}${player.avatar_url}`}
-                    alt={player.nickname || player.name}
+                    alt={displayNickname(player)}
                   />
                 ) : (
                   <span className="ghost-initial">{player.name.charAt(0).toUpperCase()}</span>
@@ -536,11 +600,19 @@ export function MobilePokerTable({
               data-testid="mobile-opponent"
             >
               <div
-                className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : ''}`}
-                onClick={isDebugEnabled ? () => setDebugModalPlayer(opponent) : undefined}
-                role={isDebugEnabled ? 'button' : undefined}
-                tabIndex={isDebugEnabled ? 0 : undefined}
-                aria-label={isDebugEnabled ? `View ${opponent.name}'s AI model info` : undefined}
+                className={`opponent-avatar ${isDebugEnabled ? 'debug-enabled' : 'dossier-enabled'}`}
+                onClick={
+                  isDebugEnabled
+                    ? () => setDebugModalPlayer(opponent)
+                    : (e) => openDossierForPlayer(opponent, e.currentTarget as HTMLElement)
+                }
+                role="button"
+                tabIndex={0}
+                aria-label={
+                  isDebugEnabled
+                    ? `View ${opponent.name}'s AI model info`
+                    : `Open dossier for ${opponent.name}`
+                }
               >
                 {avatarUrl ? (
                   <img
@@ -588,7 +660,7 @@ export function MobilePokerTable({
                 )}
               </div>
               <div className="opponent-info">
-                <span className="opponent-name" data-testid="opponent-name">{opponent.nickname || opponent.name}</span>
+                <span className="opponent-name" data-testid="opponent-name">{displayNickname(opponent)}</span>
                 <span className="opponent-stack" data-testid="opponent-stack">${opponent.stack}</span>
               </div>
               {opponent.bet > 0 && (
@@ -800,6 +872,32 @@ export function MobilePokerTable({
             <span className="waiting-text" data-testid="waiting-text">
               {aiThinking && currentPlayer ? `${currentPlayer.name} is thinking...` : 'Waiting...'}
             </span>
+            {/* Fast-forward: any time someone else is acting — including
+                while the human is folded (waiting out the hand is exactly
+                when FF matters). The auto-reset fires when action returns
+                to the human on the next hand's preflop. */}
+            {gameId &&
+              humanPlayer &&
+              currentPlayer &&
+              !currentPlayer.is_human && (
+                <button
+                  className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
+                  data-testid="action-btn-ff"
+                  onClick={() => {
+                    gameAPI.fastForward(gameId, !fastForward).catch((e) => {
+                      logger.warn('[FF] toggle failed', e);
+                    });
+                  }}
+                  title={
+                    fastForward
+                      ? 'Tap to return to normal speed'
+                      : 'Skip AI deliberation — resolve to your next turn'
+                  }
+                >
+                  <span className="action-icon"><FastForward /></span>
+                  <span className="btn-label">{fastForward ? 'Stop' : 'FF'}</span>
+                </button>
+              )}
             <button
               className="action-btn chat-btn"
               data-testid="action-btn-chat"
@@ -821,6 +919,7 @@ export function MobilePokerTable({
           gameId={gameId || ''}
           playerName={playerName || ''}
           onSendMessage={wrappedSendMessage}
+          players={storePlayers || []}
         />
       )}
 
@@ -843,6 +942,7 @@ export function MobilePokerTable({
         message={interhandMessage || 'Shuffling'}
         submessage={interhandSubmessage}
         handNumber={handNumber}
+        quote={interhandQuote}
         variant="interhand"
       />
 
@@ -857,6 +957,7 @@ export function MobilePokerTable({
         players={storePlayers || []}
         guestChatDisabled={guestChatDisabled}
         isGuest={isGuest}
+        initialTarget={chatInitialTarget}
       />
 
       {/* LLM Debug Modal */}

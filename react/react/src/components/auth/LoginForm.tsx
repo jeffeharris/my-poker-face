@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PageLayout } from '../shared';
 import { config } from '../../config';
-import menuBanner from '../../assets/menu-banner.png';
+import menuBanner from '../../assets/menu-banner.webp';
 import './LoginForm.css';
 
 interface LoginFormProps {

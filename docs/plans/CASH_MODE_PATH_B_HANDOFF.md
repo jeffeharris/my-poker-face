@@ -2,14 +2,14 @@
 purpose: Implementation handoff for cash mode Path B — AI personalities as sponsors, replacing or augmenting the anonymous house sponsors with named characters whose loan offers depend on their bankroll, relationship to the player, and personality
 type: guide
 created: 2026-05-18
-last_updated: 2026-05-18
+last_updated: 2026-05-21
 ---
 
 # Cash Mode — Path B Handoff: AI-Opponent Sponsorship
 
 **Status: shipped (2026-05-18).** All seven commits in the breakdown
 below landed on branch `path-b-ai-sponsors` off `phase-1`. Schema v90
-applied; 53 personalities seeded with `lender_profile`; frontend
+applied; 53 personalities seeded with `staker_profile`; frontend
 modal renders personality cards alongside anonymous house fallbacks.
 
 This is **the high-leverage cash-mode feature**. v1 sponsorship
@@ -55,12 +55,12 @@ Path B extends all of these.
 
 ### B.1: Lender profile on personality
 
-Add `lender_profile` to each personality's `config_json` (alongside
+Add `staker_profile` to each personality's `config_json` (alongside
 `bankroll_knobs`):
 
 ```jsonc
 {
-  "lender_profile": {
+  "staker_profile": {
     "willing": true,                // does this personality lend at all?
     "max_loan_pct_of_bankroll": 0.10,  // largest loan as fraction of bankroll
     "floor_anchor": 1.10,           // their default floor multiplier
@@ -71,12 +71,12 @@ Add `lender_profile` to each personality's `config_json` (alongside
 }
 ```
 
-**Defaults** (when `lender_profile` absent): `willing=true`,
+**Defaults** (when `staker_profile` absent): `willing=true`,
 `max_loan_pct_of_bankroll=0.05`, `floor_anchor=1.20`, `rate_anchor=0.30`,
 `respect_floor=-0.5`, `heat_ceiling=0.7`. Conservative defaults so
 new personalities default to cautious lenders.
 
-**Reading**: extend `BankrollRepository` with `load_lender_profile(personality_id)`
+**Reading**: extend `BankrollRepository` with `load_staker_profile(personality_id)`
 mirroring `load_personality_knobs` — same `config_json` round-trip,
 same per-field fallback.
 
@@ -225,10 +225,10 @@ qualifies) plus fill with anonymous offers if fewer than 3 qualify.
 - Extend `PlayerBankrollState` + `BankrollRepository` round-trip.
 - Tests: schema shape, default NULL for legacy rows.
 
-**Commit 2: `lender_profile` config + repo**
-- `LenderProfile` dataclass in `cash_mode/lender_profile.py`.
-- `BankrollRepository.load_lender_profile` (with defaults).
-- Seed `lender_profile` entries in `personalities.json` for all 53
+**Commit 2: `staker_profile` config + repo**
+- `StakerProfile` dataclass in `cash_mode/staker_profile.py`.
+- `BankrollRepository.load_staker_profile` (with defaults).
+- Seed `staker_profile` entries in `personalities.json` for all 53
   personalities (use the archetype table above as starting tuning).
 
 **Commit 3: Personality offer generator**
@@ -313,7 +313,7 @@ add scope; deferred.
    `RelationshipEvent` lives) — new enum values land here.
 6. **`react/react/src/components/cash/SponsorModal.tsx`** — UI to
    extend with personality cards.
-7. **`poker/personalities.json`** — `lender_profile` seeds land
+7. **`poker/personalities.json`** — `staker_profile` seeds land
    here.
 
 ## Why ship B after A

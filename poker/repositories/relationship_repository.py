@@ -209,23 +209,34 @@ class RelationshipRepository(BaseRepository):
         observer_id: str,
         opponent_id: str,
         stats: CashPairStats,
+        *,
+        sandbox_id: str,
     ) -> None:
-        """Upsert the (observer_id, opponent_id) cumulative stats row.
+        """Upsert the (sandbox_id, observer_id, opponent_id) cumulative row.
 
         Callers writing pair updates at hand resolution must write
         BOTH the (winner, loser) row AND the mirror (loser, winner)
         row with negated PnL in a single transaction, so the two
         views can't drift. This method writes one row; transaction
         management is the caller's responsibility.
+
+        `sandbox_id` is the v109 scoping field — every row is keyed
+        per sandbox so the admin Chip Economy view can filter. There
+        is no NULL bucket; callers that genuinely lack a sandbox
+        context (legacy tests, tournament adapters) should pass a
+        sentinel like `''` and accept that the aggregate's
+        per-sandbox filter won't surface those rows.
         """
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
+                    sandbox_id,
                     observer_id,
                     opponent_id,
                     stats.cumulative_pnl,
@@ -239,6 +250,7 @@ class RelationshipRepository(BaseRepository):
         loser_id: str,
         chips: int,
         *,
+        sandbox_id: str,
         hand_delta: int = 1,
     ) -> None:
         """Bilateral cash_pair_stats update for one chip-flow tuple.
@@ -254,6 +266,10 @@ class RelationshipRepository(BaseRepository):
         called from the chip-flow allocator's `ChipFlow.chips`); the
         method handles sign-flipping for the mirror row internally.
 
+        `sandbox_id` (v109) scopes the row — pair PnL accumulates
+        independently per sandbox so the admin Chip Economy panel can
+        filter Won/Lost/Net by the sandbox dropdown.
+
         Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 1
         §"Cash pair stats" — "Write transactions update both rows so
         the views can't drift."
@@ -265,17 +281,17 @@ class RelationshipRepository(BaseRepository):
                 """
                 SELECT cumulative_pnl, hands_played_cash
                 FROM cash_pair_stats
-                WHERE observer_id = ? AND opponent_id = ?
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
                 """,
-                (winner_id, loser_id),
+                (sandbox_id, winner_id, loser_id),
             ).fetchone()
             loser_row = conn.execute(
                 """
                 SELECT cumulative_pnl, hands_played_cash
                 FROM cash_pair_stats
-                WHERE observer_id = ? AND opponent_id = ?
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
                 """,
-                (loser_id, winner_id),
+                (sandbox_id, loser_id, winner_id),
             ).fetchone()
 
             winner_pnl = (winner_row['cumulative_pnl'] if winner_row else 0) + chips
@@ -290,45 +306,252 @@ class RelationshipRepository(BaseRepository):
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (winner_id, loser_id, winner_pnl, winner_hands),
+                (sandbox_id, winner_id, loser_id, winner_pnl, winner_hands),
             )
             conn.execute(
                 """
                 INSERT OR REPLACE INTO cash_pair_stats
-                    (observer_id, opponent_id, cumulative_pnl, hands_played_cash)
-                VALUES (?, ?, ?, ?)
+                    (sandbox_id, observer_id, opponent_id,
+                     cumulative_pnl, hands_played_cash)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (loser_id, winner_id, loser_pnl, loser_hands),
+                (sandbox_id, loser_id, winner_id, loser_pnl, loser_hands),
             )
+
+    def aggregate_cash_pnl_by_entity(
+        self,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> dict:
+        """Per-entity cash PnL totals, summed across all opponents.
+
+        For each `observer_id` in `cash_pair_stats`, returns
+        `{chips_won, chips_lost, net_pnl, hands_played_cash}`:
+
+          * `chips_won` = sum of positive `cumulative_pnl` contributions
+            (chips taken from opponents the observer is up on).
+          * `chips_lost` = sum of `abs(cumulative_pnl)` for negative
+            contributions (chips given to opponents who are up on the
+            observer).
+          * `net_pnl` = chips_won − chips_lost.
+          * `hands_played_cash` = SUM of hand counts across all pairs.
+            **NOTE**: this overcounts — every hand involving N players
+            writes N×(N−1) pair rows, so a 6-handed hand contributes 5
+            to each seat's sum here. The number is useful for relative
+            comparison between entities but isn't a literal hand count.
+
+        `sandbox_id=None` (default) aggregates lifetime PnL across
+        every sandbox — the cross-sandbox view that drives the
+        CharacterDetailCard "Track Record" section. Passing an explicit
+        `sandbox_id` filters to one sandbox, which is what the admin
+        Chip Economy panel uses when scoped by its dropdown.
+        """
+        params: list = []
+        where = ""
+        if sandbox_id is not None:
+            where = "WHERE sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    observer_id,
+                    SUM(CASE WHEN cumulative_pnl > 0
+                        THEN cumulative_pnl ELSE 0 END) AS chips_won,
+                    SUM(CASE WHEN cumulative_pnl < 0
+                        THEN -cumulative_pnl ELSE 0 END) AS chips_lost,
+                    SUM(cumulative_pnl) AS net_pnl,
+                    SUM(hands_played_cash) AS hands_played_cash
+                FROM cash_pair_stats
+                {where}
+                GROUP BY observer_id
+                """,
+                params,
+            ).fetchall()
+        return {
+            row['observer_id']: {
+                'chips_won': int(row['chips_won'] or 0),
+                'chips_lost': int(row['chips_lost'] or 0),
+                'net_pnl': int(row['net_pnl'] or 0),
+                'hands_played_cash': int(row['hands_played_cash'] or 0),
+            }
+            for row in rows
+        }
 
     def load_cash_pair_stats(
         self,
         observer_id: str,
         opponent_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
     ) -> Optional[CashPairStats]:
         """Load the cumulative cash-mode stats for a pair.
 
         Returns None when no row exists (pair has never played in
         cash mode). Callers should treat None as "PnL = 0, hands = 0"
         — equivalent to a default-constructed CashPairStats.
+
+        `sandbox_id=None` (default) sums across every sandbox the pair
+        has played in — the cross-sandbox lifetime view used by the
+        CharacterDetailCard dossier. Passing an explicit `sandbox_id`
+        returns just that sandbox's row.
+        """
+        with self._get_connection() as conn:
+            if sandbox_id is None:
+                row = conn.execute(
+                    """
+                    SELECT
+                        SUM(cumulative_pnl) AS cumulative_pnl,
+                        SUM(hands_played_cash) AS hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE observer_id = ? AND opponent_id = ?
+                    """,
+                    (observer_id, opponent_id),
+                ).fetchone()
+                if not row or row['cumulative_pnl'] is None:
+                    return None
+            else:
+                row = conn.execute(
+                    """
+                    SELECT cumulative_pnl, hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE sandbox_id = ?
+                      AND observer_id = ? AND opponent_id = ?
+                    """,
+                    (sandbox_id, observer_id, opponent_id),
+                ).fetchone()
+                if not row:
+                    return None
+            return CashPairStats(
+                observer_id=observer_id,
+                opponent_id=opponent_id,
+                cumulative_pnl=int(row['cumulative_pnl']),
+                hands_played_cash=int(row['hands_played_cash'] or 0),
+            )
+
+    # --- notes (v95) ---
+
+    def load_note(self, observer_id: str, opponent_id: str) -> Optional[str]:
+        """Return the player-authored note for this pair, or None.
+
+        None covers both "no row yet" and "row exists but notes is NULL"
+        — the dossier treats those identically (no note to display, empty
+        textarea to edit).
         """
         with self._get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT cumulative_pnl, hands_played_cash
-                FROM cash_pair_stats
+                SELECT notes FROM relationship_states
                 WHERE observer_id = ? AND opponent_id = ?
                 """,
                 (observer_id, opponent_id),
             ).fetchone()
             if not row:
                 return None
-            return CashPairStats(
-                observer_id=observer_id,
-                opponent_id=opponent_id,
-                cumulative_pnl=row['cumulative_pnl'],
-                hands_played_cash=row['hands_played_cash'],
+            return row['notes']
+
+    def save_note(
+        self,
+        observer_id: str,
+        opponent_id: str,
+        note: Optional[str],
+    ) -> None:
+        """Upsert the note for this pair.
+
+        Empty / whitespace-only notes are stored as NULL so the
+        "has a note" predicate stays meaningful. Uses an UPSERT so
+        we don't have to touch the affinity axes — a freshly-noted
+        pair gets a row with default heat/respect/likability and the
+        note attached.
+        """
+        clean = (note or '').strip() or None
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO relationship_states
+                    (observer_id, opponent_id, notes)
+                VALUES (?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id)
+                DO UPDATE SET notes = excluded.notes
+                """,
+                (observer_id, opponent_id, clean),
+            )
+
+    # --- nickname_override (v101) ---
+
+    def load_nickname_override(
+        self, observer_id: str, opponent_id: str,
+    ) -> Optional[str]:
+        """Return the player-authored nickname override, or None.
+
+        None covers both "no row yet" and "row exists but
+        nickname_override is NULL" — the dossier treats those
+        identically (fall back to the personality's canonical
+        nickname).
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT nickname_override FROM relationship_states
+                WHERE observer_id = ? AND opponent_id = ?
+                """,
+                (observer_id, opponent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return row['nickname_override']
+
+    def load_all_nickname_overrides(
+        self, observer_id: str,
+    ) -> Dict[str, str]:
+        """Return every nickname override this observer has set.
+
+        Keyed on opponent personality_id. NULL / empty overrides are
+        excluded — callers want only the rows where the viewer
+        actually chose an alias, not the (default) "no override"
+        state. Used by the client to apply per-viewer aliases to
+        every opponent label without N round-trips.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT opponent_id, nickname_override
+                FROM relationship_states
+                WHERE observer_id = ?
+                  AND nickname_override IS NOT NULL
+                  AND nickname_override != ''
+                """,
+                (observer_id,),
+            ).fetchall()
+            return {row['opponent_id']: row['nickname_override'] for row in rows}
+
+    def save_nickname_override(
+        self,
+        observer_id: str,
+        opponent_id: str,
+        nickname: Optional[str],
+    ) -> None:
+        """Upsert the nickname override for this pair.
+
+        Empty / whitespace-only input is stored as NULL so "has an
+        override" stays a meaningful predicate — clearing the field
+        in the UI should fully revert to the canonical nickname.
+        Mirrors `save_note`: UPSERT keeps the affinity axes at their
+        defaults if no row exists yet.
+        """
+        clean = (nickname or '').strip() or None
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO relationship_states
+                    (observer_id, opponent_id, nickname_override)
+                VALUES (?, ?, ?)
+                ON CONFLICT(observer_id, opponent_id)
+                DO UPDATE SET nickname_override = excluded.nickname_override
+                """,
+                (observer_id, opponent_id, clean),
             )

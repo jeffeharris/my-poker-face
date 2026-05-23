@@ -196,6 +196,15 @@ react/progress.md
 react/react/output/
 react/react/test-results/
 *.json.tmp
+cookies.txt
+sandbox-*.png
+main-*.png
 
-# Claude harness local state
+# Claude Code runtime — ignore contents but allow whitelisted subdirs
+.claude/*
+
+# Claude harness local state stays ignored
 .claude/scheduled_tasks.lock
+
+# Project-shared skills under .claude/skills/ are version-controlled
+!.claude/skills/

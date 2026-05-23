@@ -17,7 +17,7 @@ import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
 import './AdminShared.css';
 
-const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug'];
+const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'hand-replay', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug', 'chip-ledger'];
 
 /**
  * Shared hook for capture selection with URL updates.
