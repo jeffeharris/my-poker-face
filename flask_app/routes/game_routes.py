@@ -708,6 +708,18 @@ def api_game_state(game_id):
                             current_game_data['cash_mode'] = True
                             current_game_data['cash_stake_label'] = stake_label
                             current_game_data['cash_personality_ids'] = cash_personality_ids
+                            # STACK_DOMINANCE depends on the table cap.
+                            # Wire it now that stake_label is resolved —
+                            # set_relationship_repo above ran before we
+                            # knew the cap. Skip silently for legacy
+                            # rows whose big_blind doesn't map to any
+                            # current STAKES_LADDER tier.
+                            if stake_label is not None:
+                                from cash_mode.stakes_ladder import (
+                                    table_buy_in_window,
+                                )
+                                _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
+                                memory_manager.set_table_max_buy_in(cold_load_max_buy_in)
                             # Restore the four buy-in / start-time / seat
                             # fields the cold-load path used to leave at
                             # None. Without this, a leave after a Flask

@@ -84,6 +84,14 @@ class RelationshipEvent(Enum):
     STAKE_FORGIVEN = "stake_forgiven"
     STAKE_FORGIVENESS_REFUSED = "stake_forgiveness_refused"
 
+    # Cash-mode table-dynamics event. Fires once per hand per
+    # (observer, deep_stack) pair when a seated peer has a stack
+    # significantly above the table max buy-in AND the observer has
+    # negative cumulative_pnl against them in this sandbox. Actor =
+    # observer (the one losing respect); target = deep stack. See
+    # `HandOutcomeDetector._detect_stack_dominance` for the gating.
+    STACK_DOMINANCE = "stack_dominance"
+
     # Quarantine sentinel for unknown strings encountered on load.
     # Has zero entries in both dispatch tables — `record_event` with
     # this value is a documented no-op.
@@ -181,6 +189,19 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
         heat=+0.02, respect= 0.00, likability=-0.05,
     ),
 
+    # STACK_DOMINANCE: observer (actor) resents a deep-stacked peer
+    # (target). Per-hand drip, scaled at dispatch time by the deep
+    # stack's excess above the 1.5× max-buy-in threshold via the
+    # `context_multiplier` arg on `record_event`. So at 2× cap the
+    # effective per-hand shift is half these values; at 3× cap, 1.5×.
+    # Heat stays at zero — envy is not hostility, and a non-zero heat
+    # would unintentionally trigger `RelationshipModifier`'s "rival"
+    # exploitation path. Small respect + likability drips compose into
+    # a meaningful pair-state shift only after sustained co-presence.
+    RelationshipEvent.STACK_DOMINANCE: AxisShift(
+        heat= 0.00, respect=-0.002, likability=-0.003,
+    ),
+
     # Quarantine — no axis impact
     RelationshipEvent.UNKNOWN:            AxisShift(),
 }
@@ -243,6 +264,13 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
         heat=+0.03, respect= 0.00, likability=-0.03,
     ),
+
+    # STACK_DOMINANCE mirror: the deep stack's view of the resenting
+    # peer is unchanged. The bully doesn't notice; the social cost is
+    # one-sided. Keeps the dynamic asymmetric — a player who runs hot
+    # at a table loses standing with peers without gaining any
+    # corresponding contempt or affinity in return.
+    RelationshipEvent.STACK_DOMINANCE: AxisShift(),
 
     # Quarantine — no axis impact, same as actor table.
     RelationshipEvent.UNKNOWN:            AxisShift(),

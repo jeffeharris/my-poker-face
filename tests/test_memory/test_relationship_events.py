@@ -49,6 +49,8 @@ class TestEnumCoverage:
             "stake_defaulted",
             "stake_forgiven",
             "stake_forgiveness_refused",
+            # Cash-mode table dynamics
+            "stack_dominance",
             # Quarantine
             "_unknown",
         }
@@ -255,6 +257,17 @@ class TestStakingShifts:
         m = mirror_shift(RelationshipEvent.STAKE_DEFAULTED)
         assert m.heat > 0
         assert m.likability < 0
+
+    def test_stack_dominance_observer_loses_respect_and_likability(self):
+        # Actor = observer. The deep stack costs them respect and
+        # likability but never heat (envy isn't hostility). The
+        # mirror is zero — the deep stack doesn't notice.
+        a = actor_shift(RelationshipEvent.STACK_DOMINANCE)
+        m = mirror_shift(RelationshipEvent.STACK_DOMINANCE)
+        assert a.heat == 0
+        assert a.respect < 0
+        assert a.likability < 0
+        assert m == AxisShift()
 
     def test_stake_forgiven_both_sides_positive(self):
         # Staker wrote off a carry → small heat drop + likability bump

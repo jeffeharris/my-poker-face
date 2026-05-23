@@ -791,7 +791,10 @@ def _build_cash_game(
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
     memory_manager.set_relationship_repo(
-        relationship_repo, cash_mode=True, sandbox_id=sandbox_id,
+        relationship_repo,
+        cash_mode=True,
+        sandbox_id=sandbox_id,
+        table_max_buy_in=max_buy_in,
     )
     for player in state_machine.game_state.players:
         try:

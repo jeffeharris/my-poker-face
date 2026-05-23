@@ -214,6 +214,211 @@ class TestDedupAtIntegration:
         assert second_heat == first_heat
 
 
+class TestStackDominanceWiring:
+    """End-to-end coverage of the STACK_DOMINANCE closure built in
+    `_process_relationship_events`. Each guard (`cash_mode`,
+    `table_max_buy_in`, `sandbox_id`, observer-has-negative-pnl) gates
+    a different branch — verify the seam works as intended."""
+
+    @staticmethod
+    def _hand_with_deep_stack(hand_number: int = 1) -> RecordedHand:
+        # Same heads-up structure as `_big_heads_up_hand` but with
+        # alice sitting on 3× max buy-in (= 15_000 chips at our test
+        # cap of 5_000). The hand itself doesn't matter beyond
+        # carrying the seat snapshot — STACK_DOMINANCE reads
+        # `starting_stack` and ignores the action history.
+        players = (
+            PlayerHandInfo(name="alice", starting_stack=15_000, position="BTN", is_human=False),
+            PlayerHandInfo(name="bob", starting_stack=2_000, position="BB", is_human=False),
+        )
+        return RecordedHand(
+            game_id="g1",
+            hand_number=hand_number,
+            timestamp=datetime(2026, 5, 23, 12, 0),
+            players=players,
+            hole_cards={"alice": ["Ah", "Ks"], "bob": ["7h", "2d"]},
+            community_cards=(),
+            actions=(),
+            winners=(),
+            pot_size=0,
+            was_showdown=False,
+        )
+
+    def test_no_max_buy_in_skips_dominance_event(self, repo):
+        # cash_mode=True, sandbox wired, but no table cap → detector
+        # skips STACK_DOMINANCE entirely.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(repo, cash_mode=True, sandbox_id="sb-1")
+        # bob already net-down vs alice — would qualify if cap were set.
+        repo.apply_cash_pair_pnl(
+            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+        )
+
+        mgr._process_relationship_events(self._hand_with_deep_stack())
+
+        # bob's view of alice: no STACK_DOMINANCE → likability stays
+        # at default (the big-pot path didn't fire either; small,
+        # zero-pot synthetic hand).
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        if bob_view is not None:
+            # Default likability is 0.5; any drop below that means
+            # STACK_DOMINANCE leaked through.
+            assert bob_view.likability == pytest.approx(0.5)
+
+    def test_missing_sandbox_skips_dominance(self, repo):
+        # cash_mode=True + cap set, but no sandbox_id. The PnL gate
+        # can't be built (cash_pair_stats is sandbox-scoped), so the
+        # detector must skip rather than emit ungated — otherwise
+        # every seated peer would resent every deep stack regardless
+        # of whether they've actually lost chips to them.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, table_max_buy_in=5_000,
+            # sandbox_id intentionally omitted
+        )
+
+        mgr._process_relationship_events(self._hand_with_deep_stack())
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        if bob_view is not None:
+            assert bob_view.likability == pytest.approx(0.5)
+
+    def test_tournament_mode_skips_dominance(self, repo):
+        # cash_mode=False → no PnL gating possible, detector silent.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(repo, cash_mode=False, table_max_buy_in=5_000)
+
+        mgr._process_relationship_events(self._hand_with_deep_stack())
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        if bob_view is not None:
+            assert bob_view.likability == pytest.approx(0.5)
+
+    def test_fires_when_observer_is_net_down_and_cap_wired(self, repo):
+        # Full happy path: cash_mode, sandbox, cap, AND observer has
+        # negative cumulative_pnl against the deep stack. Verifies the
+        # closure built in _process_relationship_events plumbs all
+        # four args into detect_events correctly.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+        )
+        # Pre-populate: alice has taken 500 chips from bob.
+        repo.apply_cash_pair_pnl(
+            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+        )
+
+        mgr._process_relationship_events(self._hand_with_deep_stack())
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        assert bob_view is not None
+        # bob's likability toward alice dropped below default — the
+        # only path that moves it on a zero-pot synthetic hand is
+        # STACK_DOMINANCE.
+        assert bob_view.likability < 0.5
+        assert bob_view.respect < 0.5
+        # Heat untouched: envy is not hostility.
+        assert bob_view.heat == 0.0
+
+    def test_multi_hand_accumulation_through_persistent_repo(self, repo):
+        # Drip behavior: each hand at 2× cap subtracts a small amount
+        # of likability. Over N hands the persistent repo should show
+        # the running total — confirms the projection-on-read +
+        # clamp + persist cycle composes correctly across multiple
+        # _process_relationship_events calls (not just the dedup
+        # path within a single hand_number).
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+        )
+        # bob has lost to alice → eligible to feel STACK_DOMINANCE.
+        repo.apply_cash_pair_pnl(
+            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+        )
+
+        # Process 5 distinct hand_numbers — dedup is keyed on
+        # hand_number so each fires independently.
+        for hand_number in range(1, 6):
+            mgr._process_relationship_events(
+                self._hand_with_deep_stack(hand_number=hand_number),
+            )
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        assert bob_view is not None
+        # At 3× cap, excess = 1.5; per-hand likability shift =
+        # −0.003 × 1.5 = −0.0045. Over 5 hands that's −0.0225.
+        # Default likability is 0.5, so expect ~0.4775.
+        expected = 0.5 - (0.003 * 1.5 * 5)
+        assert bob_view.likability == pytest.approx(expected, abs=1e-6)
+        # Respect shifts similarly at −0.002 × 1.5 per hand.
+        expected_respect = 0.5 - (0.002 * 1.5 * 5)
+        assert bob_view.respect == pytest.approx(expected_respect, abs=1e-6)
+
+    def test_set_table_max_buy_in_setter_enables_detection(self, repo):
+        # Cold-load production path: set_relationship_repo runs BEFORE
+        # the stake_label is resolved, then set_table_max_buy_in fills
+        # in the cap separately. Verify that path actually arms the
+        # detector — calling set_table_max_buy_in after the repo wire
+        # is what game_routes.py:722 does on restore.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        # First wire: no cap yet (mimics game_routes.py cold-load).
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-1",
+        )
+        # Pre-populate PnL so bob would qualify if cap were set.
+        repo.apply_cash_pair_pnl(
+            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+        )
+        # Sanity: without the cap, no STACK_DOMINANCE fires.
+        mgr._process_relationship_events(self._hand_with_deep_stack(hand_number=1))
+        baseline = repo.load_raw_relationship_state("bob", "alice")
+        baseline_lik = baseline.likability if baseline is not None else 0.5
+        assert baseline_lik == pytest.approx(0.5)
+
+        # Now fill in the cap via the separate setter — same flow
+        # as the cold-load path after stake_label resolves.
+        mgr.set_table_max_buy_in(5_000)
+        mgr._process_relationship_events(self._hand_with_deep_stack(hand_number=2))
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        assert bob_view is not None
+        # likability dropped — proves the setter armed the detector.
+        assert bob_view.likability < 0.5
+
+    def test_no_fire_when_observer_is_net_up(self, repo):
+        # Same setup but bob is the one who took chips from alice.
+        # bob shouldn't resent alice for being deep — bob has
+        # actually been winning. PnL gate filters this case out.
+        mgr = AIMemoryManager(game_id="g1", db_path=None)
+        mgr.initialize_for_player("alice")
+        mgr.initialize_for_player("bob")
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+        )
+        # bob took 500 from alice — bob's PnL vs alice is +500.
+        repo.apply_cash_pair_pnl(
+            winner_id="bob", loser_id="alice", chips=500, sandbox_id="sb-1",
+        )
+
+        mgr._process_relationship_events(self._hand_with_deep_stack())
+
+        bob_view = repo.load_raw_relationship_state("bob", "alice")
+        if bob_view is not None:
+            assert bob_view.likability == pytest.approx(0.5)
+
+
 class TestRegistryUpdatePropagates:
     def test_register_player_id_after_init_uses_new_id(self, repo):
         # The detector shares name_to_id by reference with the manager,
