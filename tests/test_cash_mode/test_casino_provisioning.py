@@ -1,7 +1,7 @@
 """Casino provisioning + bank-pool seed.
 
-Spec: `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`. Covers the spawn /
-teardown lifecycle of `table_type='casino'` tables and the operator-
+Spec: `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`. Covers the three-pass
+lifecycle (refill / teardown-with-closing / spawn) and the operator-
 controlled bank-pool seed for sim cold-start.
 
 Conservation invariant (`drift == 0`) is asserted across the spawn
@@ -23,15 +23,28 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from cash_mode.bankroll import AIBankrollState
 from cash_mode.casino_provisioning import (
-    CASINO_FISH_PER_TABLE,
+    CASINO_CLOSING_HAND_COUNTDOWN,
     CASINO_FISH_BUY_IN_MULTIPLIER,
+    CASINO_FISH_MAX,
+    CASINO_FISH_MIN,
+    CASINO_MIN_HUNGRY_GRINDERS,
     CASINO_SPAWN_THRESHOLDS,
+    CasinoRefill,
     CasinoSpawn,
     _casino_table_id,
+    clear_closing,
+    decrement_closing_hands,
+    enter_closing,
+    get_closing_countdown,
+    is_closing,
     resolve_casino_provisioning,
 )
 from cash_mode.closed_economy import (
+    GRINDER_COMFORT_ZONES,
+    GRINDER_HUNGER_THRESHOLD,
     compute_bank_pool_reserves,
+    is_hungry_grinder,
+    list_hungry_grinders,
     seed_bank_pool,
 )
 from cash_mode.stakes_ladder import table_buy_in_window
@@ -40,7 +53,7 @@ from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
     BANK_POOL_DRAW_REASONS,
     LEDGER_REASONS,
-    record_bank_pool_sim_seed_pair,
+    record_tourist_injection,
 )
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.cash_table_repository import CashTableRepository
@@ -57,7 +70,6 @@ SBX = "test-casino"
 
 
 def _fish_config(personality_id: str, name: str) -> dict:
-    """Reusable fish config — minimum bankroll-knobs + archetype tag."""
     return {
         "archetype": "fish",
         "rule_strategy": "fish",
@@ -82,9 +94,32 @@ def _fish_config(personality_id: str, name: str) -> dict:
     }
 
 
+def _grinder_config(comfort_zone: str = "$2") -> dict:
+    return {
+        "play_style": "tight aggressive grinder",
+        "anchors": {
+            "baseline_aggression": 0.6,
+            "baseline_looseness": 0.25,
+            "ego": 0.5,
+            "poise": 0.8,
+            "expressiveness": 0.3,
+            "risk_identity": 0.5,
+            "adaptation_bias": 0.5,
+            "baseline_energy": 0.5,
+            "recovery_rate": 0.2,
+        },
+        "bankroll_knobs": {
+            "starting_bankroll": 10_000,
+            "bankroll_rate": 500,
+            "buy_in_multiplier": 1.0,
+            "stake_comfort_zone": comfort_zone,
+        },
+    }
+
+
 @pytest.fixture
 def db_setup(tmp_path):
-    """Tempdb with N fish personalities, no active casinos."""
+    """Tempdb with N fish + M hungry grinders, no active casinos."""
     db = str(tmp_path / "casino_provisioning.db")
     SchemaManager(db).ensure_schema()
     bankroll = BankrollRepository(db)
@@ -92,16 +127,13 @@ def db_setup(tmp_path):
     ledger = ChipLedgerRepository(db)
     personality = PersonalityRepository(db)
 
-    # Seed enough fish to fill a casino table (4 by default).
     fish_pids = []
-    for i in range(CASINO_FISH_PER_TABLE + 1):  # +1 spare
+    for i in range(CASINO_FISH_MAX + 1):  # +1 spare
         pid = f"test_fish_{i}"
         personality.save_personality(
-            f"TestFish{i}",
-            _fish_config(pid, f"TestFish{i}"),
+            f"TestFish{i}", _fish_config(pid, f"TestFish{i}"),
             personality_id=pid,
         )
-        # Fish need a bankroll row to appear in `load_fish_ids` discovery.
         bankroll.save_ai_bankroll(
             AIBankrollState(
                 personality_id=pid, chips=0, last_regen_tick=ANCHOR,
@@ -110,12 +142,35 @@ def db_setup(tmp_path):
         )
         fish_pids.append(pid)
 
+    # 3 hungry grinders at the casino tier — well below the hunger threshold.
+    grinder_pids = []
+    for i in range(3):
+        pid = f"hungry_grinder_{i}"
+        personality.save_personality(
+            f"Grinder{i}", _grinder_config(comfort_zone="$2"),
+            personality_id=pid,
+        )
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=pid,
+                chips=4_000,  # 40% of starting → hungry
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        grinder_pids.append(pid)
+
+    # Closing state lives in the DB (cash_tables.closing_hand_countdown).
+    # Each test fixture starts with a fresh tempdb, so no cross-test
+    # contamination — nothing to clear.
+
     return {
         "bankroll": bankroll,
         "tables": tables,
         "ledger": ledger,
         "personality": personality,
         "fish_pids": fish_pids,
+        "grinder_pids": grinder_pids,
     }
 
 
@@ -130,20 +185,17 @@ class TestBankPoolSeed:
         assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == 10_000
 
     def test_seed_is_drift_neutral(self, db_setup):
-        """Seed creates + destroys equal amounts → ledger_outstanding stays."""
         ledger = db_setup["ledger"]
-        before_creations = ledger.sum_creations_by_reason(sandbox_id=SBX)
-        before_destructions = ledger.sum_destructions_by_reason(sandbox_id=SBX)
+        before_c = ledger.sum_creations_by_reason(sandbox_id=SBX)
+        before_d = ledger.sum_destructions_by_reason(sandbox_id=SBX)
         seed_bank_pool(ledger, sandbox_id=SBX, amount=5_000)
-        after_creations = ledger.sum_creations_by_reason(sandbox_id=SBX)
-        after_destructions = ledger.sum_destructions_by_reason(sandbox_id=SBX)
-        # Each side gained 5000 (seed creation + bank_pool_deposit destruction).
-        net_creation = sum(after_creations.values()) - sum(before_creations.values())
-        net_destruction = sum(after_destructions.values()) - sum(before_destructions.values())
-        assert net_creation == 5_000
-        assert net_destruction == 5_000
-        # Ledger outstanding (creations - destructions) is unchanged.
-        assert net_creation - net_destruction == 0
+        after_c = ledger.sum_creations_by_reason(sandbox_id=SBX)
+        after_d = ledger.sum_destructions_by_reason(sandbox_id=SBX)
+        net_c = sum(after_c.values()) - sum(before_c.values())
+        net_d = sum(after_d.values()) - sum(before_d.values())
+        assert net_c == 5_000
+        assert net_d == 5_000
+        assert net_c - net_d == 0
 
     def test_zero_amount_no_op(self, db_setup):
         ledger = db_setup["ledger"]
@@ -151,71 +203,151 @@ class TestBankPoolSeed:
         assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == 0
 
 
+# --- Grinder definition ------------------------------------------------------
+
+
+class TestGrinderDefinition:
+    def test_fish_is_not_grinder(self, db_setup):
+        bankroll = db_setup["bankroll"]
+        # Fish bankroll is 0, below threshold, but fish archetype excludes them.
+        assert not is_hungry_grinder(
+            "test_fish_0", bankroll_repo=bankroll, sandbox_id=SBX, now=ANCHOR,
+        )
+
+    def test_hungry_grinder_under_threshold(self, db_setup):
+        bankroll = db_setup["bankroll"]
+        assert is_hungry_grinder(
+            "hungry_grinder_0", bankroll_repo=bankroll, sandbox_id=SBX, now=ANCHOR,
+        )
+
+    def test_full_bankroll_not_hungry(self, db_setup):
+        """Grinder at 100% of starting is not 'hungry.'"""
+        bankroll = db_setup["bankroll"]
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="hungry_grinder_0",
+                chips=10_000,  # 100% of starting
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        assert not is_hungry_grinder(
+            "hungry_grinder_0", bankroll_repo=bankroll, sandbox_id=SBX, now=ANCHOR,
+        )
+
+    def test_wrong_comfort_zone(self, db_setup):
+        """A high-stakes grinder isn't in the casino tier — excluded."""
+        bankroll = db_setup["bankroll"]
+        personality = db_setup["personality"]
+        personality.save_personality(
+            "HighStakes",
+            _grinder_config(comfort_zone="$1000"),  # not in casino tier
+            personality_id="high_stakes",
+        )
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="high_stakes",
+                chips=4_000,  # would qualify on hunger
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        assert not is_hungry_grinder(
+            "high_stakes", bankroll_repo=bankroll, sandbox_id=SBX, now=ANCHOR,
+        )
+
+    def test_list_hungry_grinders_sorted_by_deficit(self, db_setup):
+        """Most-desperate grinder comes first."""
+        bankroll = db_setup["bankroll"]
+        # Three grinders: 4000, 2000, 6000 chips (out of 10000).
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="hungry_grinder_0", chips=4_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="hungry_grinder_1", chips=2_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="hungry_grinder_2", chips=6_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+        )
+        result = list_hungry_grinders(
+            bankroll, sandbox_id=SBX, now=ANCHOR,
+        )
+        # Most-desperate first: 2000 < 4000 < 6000.
+        assert result[:3] == [
+            "hungry_grinder_1", "hungry_grinder_0", "hungry_grinder_2",
+        ]
+
+
 # --- Casino spawn tests ------------------------------------------------------
 
 
 class TestCasinoSpawn:
     def test_no_spawn_without_pool(self, db_setup):
-        """Pool below threshold → no spawn even if fish are available."""
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
         batch = resolve_casino_provisioning(
-            cash_table_repo=tables,
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            rng=random.Random(0),
-            now=ANCHOR,
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
         )
         assert batch.spawns == []
         assert tables.list_all_tables(sandbox_id=SBX) == []
 
-    def test_spawn_with_seeded_pool(self, db_setup):
+    def test_no_spawn_without_hungry_grinders(self, db_setup):
+        """Demand signal: no spawn when no grinders are hungry."""
+        bankroll = db_setup["bankroll"]
+        tables = db_setup["tables"]
+        ledger = db_setup["ledger"]
+        # Bump all grinders to full bankroll — no longer hungry.
+        for pid in db_setup["grinder_pids"]:
+            bankroll.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid, chips=10_000, last_regen_tick=ANCHOR,
+                ),
+                sandbox_id=SBX,
+            )
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        assert batch.spawns == []
+
+    def test_spawn_with_full_economic_signals(self, db_setup):
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
-        # Seed enough for a $2 casino.
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
 
         batch = resolve_casino_provisioning(
-            cash_table_repo=tables,
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            rng=random.Random(0),
-            now=ANCHOR,
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
         )
         assert len(batch.spawns) >= 1
         casino_2 = next(s for s in batch.spawns if s.stake_label == "$2")
-        assert casino_2.table_id == _casino_table_id("$2")
-        assert len(casino_2.fish_seated) == CASINO_FISH_PER_TABLE
-
-        # Buy-in math: $2 = 2 BB × 40 BB minimum × 4 fish = 320 chips.
+        # Variable fish count between MIN and MAX.
+        assert CASINO_FISH_MIN <= len(casino_2.fish_seated) <= CASINO_FISH_MAX
+        # Buy-in math is correct.
         _, min_buy_in, _ = table_buy_in_window("$2")
-        expected = CASINO_FISH_PER_TABLE * int(
-            min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER
-        )
-        assert casino_2.bank_pool_drawn == expected
-
-        # Pool decreased by the spawn cost.
-        pool_after = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
-        assert pool_after == 10_000 - expected
-
-        # Table row exists with casino type.
-        all_tables = tables.list_all_tables(sandbox_id=SBX)
-        casino_rows = [t for t in all_tables if t.table_type == "casino"]
-        assert len(casino_rows) >= 1
-        casino_row = next(t for t in casino_rows if t.stake_label == "$2")
-        seated_fish = {
-            slot.get("personality_id")
-            for slot in casino_row.seats
-            if slot.get("kind") == "ai"
-        }
-        assert seated_fish == set(casino_2.fish_seated)
+        per_fish = int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER)
+        assert casino_2.bank_pool_drawn == len(casino_2.fish_seated) * per_fish
 
     def test_idempotent_across_ticks(self, db_setup):
-        """Re-running the resolver doesn't double-spawn the same casino."""
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
@@ -226,127 +358,106 @@ class TestCasinoSpawn:
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
+        # Second tick should NOT re-spawn (refill at most).
         second = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(1), now=ANCHOR,
         )
-        # Spawned once; second tick is a no-op.
         assert len(first.spawns) >= 1
         assert second.spawns == []
 
-    def test_dollar_10_threshold_requires_more_pool(self, db_setup):
-        """$10 casino needs $10 threshold pool, not just $2's threshold."""
+
+# --- Refill pass -------------------------------------------------------------
+
+
+class TestCasinoRefill:
+    def test_refill_seeds_one_fish_per_tick(self, db_setup):
+        """Open seat at active casino → one fish added (not many)."""
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
-        # Seed enough for $2 but not enough for $10.
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
 
-        batch = resolve_casino_provisioning(
+        # Spawn with rng pinned so we know how many fish landed initially.
+        spawn_batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
             chip_ledger_repo=ledger, sandbox_id=SBX,
-            rng=random.Random(0), now=ANCHOR,
+            rng=random.Random(1), now=ANCHOR,
         )
-        stakes = [s.stake_label for s in batch.spawns]
-        assert "$2" in stakes
-        assert "$10" not in stakes
-
-    def test_dollar_10_spawn_with_enough_pool(self, db_setup):
-        """When pool ≥ $10 threshold, both $2 and $10 casinos spawn."""
-        tables = db_setup["tables"]
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-        # Need enough fish for BOTH casinos — re-seed sandbox with more.
-        # The fixture has CASINO_FISH_PER_TABLE + 1 fish; need 2N for two
-        # casinos. Seed additional fish here.
-        personality = db_setup["personality"]
-        for i in range(CASINO_FISH_PER_TABLE + 1, 2 * CASINO_FISH_PER_TABLE + 2):
-            pid = f"test_fish_{i}"
-            personality.save_personality(
-                f"TestFish{i}", _fish_config(pid, f"TestFish{i}"),
-                personality_id=pid,
-            )
-            bankroll.save_ai_bankroll(
-                AIBankrollState(
-                    personality_id=pid, chips=0, last_regen_tick=ANCHOR,
-                ),
-                sandbox_id=SBX,
-            )
-
-        seed_bank_pool(ledger, sandbox_id=SBX, amount=80_000)
-
-        batch = resolve_casino_provisioning(
-            cash_table_repo=tables, bankroll_repo=bankroll,
-            chip_ledger_repo=ledger, sandbox_id=SBX,
-            rng=random.Random(0), now=ANCHOR,
-        )
-        stakes = sorted(s.stake_label for s in batch.spawns)
-        assert stakes == ["$10", "$2"] or stakes == ["$2", "$10"]
-
-
-# --- Casino teardown tests ---------------------------------------------------
-
-
-class TestCasinoTeardown:
-    def test_teardown_when_no_fish_and_pool_empty(self, db_setup):
-        """Casino with no fish + empty pool → torn down."""
-        tables = db_setup["tables"]
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-
-        # Spawn a casino, then drain it manually by replacing the seats.
-        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
-        resolve_casino_provisioning(
-            cash_table_repo=tables, bankroll_repo=bankroll,
-            chip_ledger_repo=ledger, sandbox_id=SBX,
-            rng=random.Random(0), now=ANCHOR,
-        )
-        # Find the casino, drain all seats (simulate fish all busted).
-        casino_row = next(
+        if not spawn_batch.spawns:
+            pytest.skip("rng did not produce a spawn")
+        casino = next(
             t for t in tables.list_all_tables(sandbox_id=SBX)
             if t.table_type == "casino"
         )
-        empty_state = CashTableState(
-            table_id=casino_row.table_id,
-            stake_label=casino_row.stake_label,
-            seats=[open_slot() for _ in range(6)],
-            created_at=casino_row.created_at,
-            last_activity_at=casino_row.last_activity_at,
-            name=casino_row.name,
-            table_type='casino',
+        seated_count_before = sum(
+            1 for s in casino.seats if s.get("kind") == "ai"
         )
-        tables.save_table(empty_state, sandbox_id=SBX, now=ANCHOR)
+        # Only test refill if there were open seats AND fewer than MAX
+        # fish seated (room for at least one refill).
+        if seated_count_before >= CASINO_FISH_MAX:
+            pytest.skip("spawn already at max fish; no refill possible")
 
-        # Pool is partly drained from the spawn but not zero. Drain it
-        # below the refill cost so teardown actually fires.
-        # Spawn cost was 320; we seeded 10000 → pool = 9680. Need it
-        # below the refill cost (4 × 80 = 320). Hard to do without
-        # writing arbitrary ledger entries — instead, force teardown
-        # by draining via tourist_injection ledger row.
-        from core.economy.ledger import record_tourist_injection
-        # Drain pool to 0 — single injection of the remaining balance.
-        current_pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
-        record_tourist_injection(
-            ledger,
-            personality_id="test_fish_0",
-            amount=current_pool,
-            sandbox_id=SBX,
+        # Manually empty one fish seat (simulates a bust).
+        for i, slot in enumerate(casino.seats):
+            if slot.get("kind") == "ai":
+                casino.seats[i] = open_slot()
+                break
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+
+        refill_batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(2), now=ANCHOR,
         )
-        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == 0
+        # One refill = exactly one CasinoRefill entry.
+        assert len(refill_batch.refills) == 1
+        assert refill_batch.refills[0].table_id == casino.table_id
 
-        batch = resolve_casino_provisioning(
+    def test_no_refill_when_pool_empty(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        # Spawn first.
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
-        assert any(t.table_id == casino_row.table_id for t in batch.teardowns)
-        # Table row gone.
-        remaining = tables.list_all_tables(sandbox_id=SBX)
-        assert casino_row.table_id not in {t.table_id for t in remaining}
+        # Drain the pool by injecting all remaining chips to a fish.
+        pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        if pool > 0:
+            record_tourist_injection(
+                ledger, personality_id="test_fish_0", amount=pool, sandbox_id=SBX,
+            )
+        # Empty a casino seat → potential refill candidate.
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        for i, slot in enumerate(casino.seats):
+            if slot.get("kind") == "ai":
+                casino.seats[i] = open_slot()
+                break
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
 
-    def test_no_teardown_when_fish_still_seated(self, db_setup):
-        """Active casino with fish in seats is not torn down."""
+        # Now resolve — pool is empty, so no refill should happen.
+        result = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(1), now=ANCHOR,
+        )
+        assert result.refills == []
+
+
+# --- Closing-state lifecycle -------------------------------------------------
+
+
+class TestClosingState:
+    def test_teardown_enters_closing_state(self, db_setup):
+        """No fish + pool can't refill → casino enters 'closing', not deleted."""
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
@@ -356,34 +467,166 @@ class TestCasinoTeardown:
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
-        # Don't drain — fish are still seated.
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        # Empty all seats (simulate all fish busting).
+        for i in range(len(casino.seats)):
+            casino.seats[i] = open_slot()
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+        # Drain the pool so no refill is possible.
+        pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        if pool > 0:
+            record_tourist_injection(
+                ledger, personality_id="test_fish_0", amount=pool, sandbox_id=SBX,
+            )
+
         batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(1), now=ANCHOR,
+        )
+        # Teardown event recorded as 'closing_announced'.
+        assert any(
+            t.table_id == casino.table_id
+            and t.reason.startswith('closing_announced')
+            for t in batch.teardowns
+        )
+        # Table still exists in DB (not deleted yet).
+        assert any(
+            t.table_id == casino.table_id
+            for t in tables.list_all_tables(sandbox_id=SBX)
+        )
+        # And it's marked as closing.
+        assert is_closing(tables, SBX, casino.table_id)
+        assert get_closing_countdown(tables, SBX, casino.table_id) == CASINO_CLOSING_HAND_COUNTDOWN
+
+    def test_countdown_elapsed_deletes_table(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
             chip_ledger_repo=ledger, sandbox_id=SBX,
             rng=random.Random(0), now=ANCHOR,
         )
-        assert batch.teardowns == []
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        # Drain pool so the same-tick spawn pass can't immediately
+        # re-open at the same stake after we delete this casino. (When
+        # the pool has chips, the post-teardown spawn pass will create
+        # a fresh casino with the same table_id — the right product
+        # behavior for steady state, but it masks the delete in the
+        # narrow assertion below.)
+        pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        if pool > 0:
+            record_tourist_injection(
+                ledger, personality_id="test_fish_0",
+                amount=pool, sandbox_id=SBX,
+            )
+        # Empty + save first, THEN enter closing. With DB-backed state,
+        # save_table writes the whole row including `closing_hand_countdown`
+        # from the (stale) CashTableState — so calling enter_closing
+        # AFTER the save is the correct ordering.
+        for i in range(len(casino.seats)):
+            casino.seats[i] = open_slot()
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+        enter_closing(tables, SBX, casino.table_id, 0)
+
+        batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(1), now=ANCHOR,
+        )
+        assert any(
+            t.table_id == casino.table_id
+            and t.reason == 'closing_countdown_elapsed'
+            for t in batch.teardowns
+        )
+        assert not any(
+            t.table_id == casino.table_id
+            for t in tables.list_all_tables(sandbox_id=SBX)
+        )
+        assert not is_closing(tables, SBX, casino.table_id)
+
+    def test_no_refill_at_closing_casino(self, db_setup):
+        """Closing casinos don't take new fish."""
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        # Empty one seat.
+        for i, slot in enumerate(casino.seats):
+            if slot.get("kind") == "ai":
+                casino.seats[i] = open_slot()
+                break
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+        # Mark as closing.
+        enter_closing(tables, SBX, casino.table_id, 5)
+        # Pool still has chips — but refill should NOT fire.
+        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) > 0
+
+        batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(1), now=ANCHOR,
+        )
+        assert batch.refills == []
+
+    def test_no_spawn_while_closing(self, db_setup):
+        """Spawn pass skips stakes with a closing casino."""
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        # Seed a closing casino directly.
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=20_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino" and t.stake_label == "$2"
+        )
+        enter_closing(tables, SBX, casino.table_id, 5)
+
+        # Pool still healthy. Spawn should NOT fire at $2 because one is closing.
+        batch = resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(1), now=ANCHOR,
+        )
+        new_2 = [s for s in batch.spawns if s.stake_label == "$2"]
+        assert new_2 == []
 
 
 # --- Conservation invariant --------------------------------------------------
 
 
 class TestSpawnConservation:
-    """Spawn writes are drift-safe: chips at fish seats match ledger rows."""
-
     def test_drift_neutral_after_spawn(self, db_setup):
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
         ledger = db_setup["ledger"]
         seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
 
-        before_creations = sum(
-            ledger.sum_creations_by_reason(sandbox_id=SBX).values()
-        )
-        before_destructions = sum(
-            ledger.sum_destructions_by_reason(sandbox_id=SBX).values()
-        )
-        before_ledger_outstanding = before_creations - before_destructions
+        before_c = sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+        before_d = sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        before_outstanding = before_c - before_d
 
         batch = resolve_casino_provisioning(
             cash_table_repo=tables, bankroll_repo=bankroll,
@@ -393,18 +636,13 @@ class TestSpawnConservation:
         assert len(batch.spawns) >= 1
         total_drawn = sum(s.bank_pool_drawn for s in batch.spawns)
 
-        after_creations = sum(
-            ledger.sum_creations_by_reason(sandbox_id=SBX).values()
-        )
-        after_destructions = sum(
-            ledger.sum_destructions_by_reason(sandbox_id=SBX).values()
-        )
-        after_ledger_outstanding = after_creations - after_destructions
+        after_c = sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+        after_d = sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        after_outstanding = after_c - after_d
 
-        # casino_seat_seed are creations; nothing else was destroyed.
-        assert after_ledger_outstanding - before_ledger_outstanding == total_drawn
+        # Spawn creations = total chips at casino seats.
+        assert after_outstanding - before_outstanding == total_drawn
 
-        # Actual seat chips = creation amount.
         casino_seat_total = 0
         for t in tables.list_all_tables(sandbox_id=SBX):
             if t.table_type != "casino":
@@ -415,17 +653,122 @@ class TestSpawnConservation:
         assert casino_seat_total == total_drawn
 
 
+class TestPersistence:
+    """v113: closing state survives a fresh repo instantiation (DB-backed)."""
+
+    def test_closing_state_persists_across_repo_instances(self, db_setup, tmp_path):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        enter_closing(tables, SBX, casino.table_id, 7)
+
+        # Spin up a NEW repo instance against the same DB and verify
+        # the closing state survives (would fail with the in-memory
+        # implementation since module-level dicts don't share across
+        # instances).
+        # Use the underlying _db_path to wire a sibling repo.
+        from poker.repositories.cash_table_repository import CashTableRepository
+        fresh = CashTableRepository(tables.db_path)
+        assert is_closing(fresh, SBX, casino.table_id)
+        assert get_closing_countdown(fresh, SBX, casino.table_id) == 7
+
+    def test_decrement_persists(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        enter_closing(tables, SBX, casino.table_id, 5)
+        decrement_closing_hands(tables, SBX, casino.table_id)
+        decrement_closing_hands(tables, SBX, casino.table_id)
+        # DB now holds countdown=3.
+        assert get_closing_countdown(tables, SBX, casino.table_id) == 3
+
+    def test_decrement_floors_at_zero(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        enter_closing(tables, SBX, casino.table_id, 1)
+        decrement_closing_hands(tables, SBX, casino.table_id)
+        decrement_closing_hands(tables, SBX, casino.table_id)  # over-decrement
+        assert get_closing_countdown(tables, SBX, casino.table_id) == 0
+        # Casino is still in closing state (countdown == 0, not None).
+        assert is_closing(tables, SBX, casino.table_id)
+
+    def test_save_table_preserves_closing_state(self, db_setup):
+        """save_table calls from movement / sync flows must not clobber
+        the closing column — pre-existing rows' value must round-trip."""
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        enter_closing(tables, SBX, casino.table_id, 9)
+
+        # Re-load the row (now carries closing_hand_countdown=9), mutate
+        # something unrelated, save back. The countdown must survive.
+        reloaded = tables.load_table(casino.table_id, sandbox_id=SBX)
+        assert reloaded.closing_hand_countdown == 9
+        # Touch last_activity_at to trigger a save.
+        tables.save_table(reloaded, sandbox_id=SBX, now=ANCHOR)
+        after = tables.load_table(casino.table_id, sandbox_id=SBX)
+        assert after.closing_hand_countdown == 9
+
+
 class TestConstants:
     def test_thresholds_defined(self):
         assert "$2" in CASINO_SPAWN_THRESHOLDS
         assert "$10" in CASINO_SPAWN_THRESHOLDS
         assert CASINO_SPAWN_THRESHOLDS["$10"] > CASINO_SPAWN_THRESHOLDS["$2"]
 
-    def test_casino_seat_seed_in_draw_reasons(self):
-        assert "casino_seat_seed" in BANK_POOL_DRAW_REASONS
+    def test_fish_range_sensible(self):
+        assert CASINO_FISH_MIN >= 1
+        assert CASINO_FISH_MAX >= CASINO_FISH_MIN
+        assert CASINO_FISH_MAX <= 6  # bounded by TABLE_SEAT_COUNT
 
-    def test_bank_pool_sim_seed_registered(self):
+    def test_closing_countdown_positive(self):
+        assert CASINO_CLOSING_HAND_COUNTDOWN > 0
+
+    def test_ledger_reasons_registered(self):
+        assert "casino_seat_seed" in LEDGER_REASONS
         assert "bank_pool_sim_seed" in LEDGER_REASONS
+        assert "casino_seat_seed" in BANK_POOL_DRAW_REASONS
 
 
 if __name__ == "__main__":

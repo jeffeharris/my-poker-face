@@ -99,6 +99,7 @@ class CashTableRepository(BaseRepository):
             scoped = _has_column(conn, "cash_tables", "sandbox_id")
             named = _has_column(conn, "cash_tables", "name")
             typed = _has_column(conn, "cash_tables", "table_type")
+            has_closing = _has_column(conn, "cash_tables", "closing_hand_countdown")
             if scoped and not sandbox_id:
                 raise ValueError("sandbox_id is required for cash_tables writes")
             # Preserve created_at on upsert if a row exists; otherwise use
@@ -132,6 +133,14 @@ class CashTableRepository(BaseRepository):
                 extra_set_vals.append(state.table_type)
                 extra_ins_cols.append("table_type")
                 extra_ins_vals.append(state.table_type)
+            if has_closing:
+                # Round-trip the closing countdown verbatim. NULL means
+                # "active" (lobby tables and active casinos); integer
+                # means "closing with N hands remaining."
+                extra_set_cols.append("closing_hand_countdown = ?")
+                extra_set_vals.append(state.closing_hand_countdown)
+                extra_ins_cols.append("closing_hand_countdown")
+                extra_ins_vals.append(state.closing_hand_countdown)
             extra_set_clause = (", " + ", ".join(extra_set_cols)) if extra_set_cols else ""
             extra_ins_col_clause = (", " + ", ".join(extra_ins_cols)) if extra_ins_cols else ""
             extra_ins_qmark_clause = (", " + ", ".join("?" * len(extra_ins_cols))) if extra_ins_cols else ""
@@ -261,6 +270,80 @@ class CashTableRepository(BaseRepository):
             if not row:
                 return None
             return _row_to_state(row)
+
+    def set_closing_countdown(
+        self,
+        table_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+        countdown: Optional[int],
+    ) -> bool:
+        """Set the `closing_hand_countdown` column for a casino table.
+
+        `countdown=None` resets to NULL (active). `countdown=int` puts
+        the table in 'closing' state with N hands remaining (smooth
+        shutdown from `casino_provisioning`).
+
+        Returns True if a row was updated. Returns False (and logs at
+        debug) if the column isn't present (pre-v113 schema) so legacy
+        fixtures don't error — the closing state just doesn't persist.
+        """
+        with self._get_connection() as conn:
+            if not _has_column(conn, "cash_tables", "closing_hand_countdown"):
+                logger.debug(
+                    "cash_tables has no closing_hand_countdown column "
+                    "(pre-v113 schema); set_closing_countdown is a no-op"
+                )
+                return False
+            scoped = _has_column(conn, "cash_tables", "sandbox_id")
+            if scoped:
+                if not sandbox_id:
+                    raise ValueError(
+                        "sandbox_id is required for cash_tables writes"
+                    )
+                cursor = conn.execute(
+                    "UPDATE cash_tables SET closing_hand_countdown = ? "
+                    "WHERE table_id = ? AND sandbox_id = ?",
+                    (countdown, table_id, sandbox_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE cash_tables SET closing_hand_countdown = ? "
+                    "WHERE table_id = ?",
+                    (countdown, table_id),
+                )
+            return cursor.rowcount > 0
+
+    def get_closing_countdown(
+        self,
+        table_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> Optional[int]:
+        """Read the `closing_hand_countdown` column. None when active,
+        when the row doesn't exist, or when the column isn't present."""
+        with self._get_connection() as conn:
+            if not _has_column(conn, "cash_tables", "closing_hand_countdown"):
+                return None
+            scoped = _has_column(conn, "cash_tables", "sandbox_id")
+            if scoped:
+                if not sandbox_id:
+                    return None
+                row = conn.execute(
+                    "SELECT closing_hand_countdown FROM cash_tables "
+                    "WHERE table_id = ? AND sandbox_id = ?",
+                    (table_id, sandbox_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT closing_hand_countdown FROM cash_tables "
+                    "WHERE table_id = ?",
+                    (table_id,),
+                ).fetchone()
+            if not row:
+                return None
+            raw = row["closing_hand_countdown"]
+            return int(raw) if raw is not None else None
 
     def delete_table(
         self,
@@ -501,6 +584,12 @@ def _row_to_state(row) -> CashTableState:
         table_type = row["table_type"] or 'lobby'
     except (KeyError, IndexError):
         table_type = 'lobby'
+    # v113 column. Same KeyError/IndexError treatment for older schemas.
+    try:
+        raw = row["closing_hand_countdown"]
+        closing_hand_countdown = int(raw) if raw is not None else None
+    except (KeyError, IndexError):
+        closing_hand_countdown = None
     return CashTableState(
         table_id=row["table_id"],
         stake_label=row["stake_label"],
@@ -510,6 +599,7 @@ def _row_to_state(row) -> CashTableState:
         dealer_idx=dealer_idx,
         name=name,
         table_type=table_type,
+        closing_hand_countdown=closing_hand_countdown,
     )
 
 

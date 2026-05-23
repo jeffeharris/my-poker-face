@@ -29,6 +29,8 @@ from typing import Dict, List, Optional, Set, Tuple
 from cash_mode.closed_economy import (
     CASINO_TIER_STAKE_LABELS,
     compute_bank_pool_reserves,
+    is_hungry_grinder,
+    list_hungry_grinders,
     load_fish_ids,
 )
 from cash_mode.stakes_ladder import (
@@ -58,10 +60,17 @@ CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
     '$10': 50_000,
 }
 
-# How many fish to seat per casino. Less than TABLE_SEAT_COUNT so
-# grinders have seats to fill. 3-4 fish + 2-3 grinder seats is the
-# canonical casino-table dynamic.
-CASINO_FISH_PER_TABLE = 4
+# Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
+# the refill pass keeps casinos topped up to MAX as long as the pool
+# can fund it. Less than TABLE_SEAT_COUNT (6) so grinders have seats
+# to fill. 2-4 fish + 2-4 grinder seats is the canonical mix.
+CASINO_FISH_MIN = 2
+CASINO_FISH_MAX = 4
+
+# Minimum hungry grinders required in the idle pool before a casino
+# opens. The demand signal — no point spawning a casino if nobody is
+# trying to farm fish.
+CASINO_MIN_HUNGRY_GRINDERS = 1
 
 # Fish buy-in as a multiple of table min_buy_in. 1.0 = standard short
 # buy-in (40 BB). Higher gives fish more chips to lose before busting;
@@ -72,16 +81,119 @@ CASINO_FISH_BUY_IN_MULTIPLIER = 1.0
 # the audit can pick them apart.
 CASINO_TABLE_ID_PREFIX = "cash-casino"
 
+# Smooth shutdown — when teardown conditions are met, the casino enters
+# a 'closing' state with this many hands remaining instead of being
+# deleted immediately. Each hand played at the casino decrements the
+# counter; on 0, the table is actually deleted. During closing:
+#   • No fish refills (we're winding down)
+#   • No new casinos can spawn at the same stake (one slot per stake)
+#   • The display name surfaces the countdown so the lobby UI can
+#     warn players
+CASINO_CLOSING_HAND_COUNTDOWN = 10
+
+
+# --- DB-backed closing-state API -------------------------------------
+#
+# Closing state lives in the `cash_tables.closing_hand_countdown`
+# column (v113). The helpers below are thin wrappers around the repo;
+# they exist so call sites (lobby refresh, hand-boundary hooks) don't
+# have to thread the repo through every layer of casino logic.
+#
+# Survives backend restart (the column is durable). Concurrent
+# decrement is repo-local (one process per backend, one DB connection
+# per call).
+
+
+def enter_closing(
+    cash_table_repo,
+    sandbox_id: str,
+    table_id: str,
+    countdown: int = CASINO_CLOSING_HAND_COUNTDOWN,
+) -> None:
+    """Mark a casino as closing with `countdown` hands remaining."""
+    if cash_table_repo is None:
+        return
+    cash_table_repo.set_closing_countdown(
+        table_id, sandbox_id=sandbox_id, countdown=countdown,
+    )
+
+
+def is_closing(cash_table_repo, sandbox_id: str, table_id: str) -> bool:
+    """True iff this casino is currently in closing state."""
+    if cash_table_repo is None:
+        return False
+    return cash_table_repo.get_closing_countdown(
+        table_id, sandbox_id=sandbox_id,
+    ) is not None
+
+
+def get_closing_countdown(
+    cash_table_repo, sandbox_id: str, table_id: str,
+) -> Optional[int]:
+    """Hands remaining for a closing casino, or None if not closing."""
+    if cash_table_repo is None:
+        return None
+    return cash_table_repo.get_closing_countdown(
+        table_id, sandbox_id=sandbox_id,
+    )
+
+
+def decrement_closing_hands(
+    cash_table_repo, sandbox_id: str, table_id: str, count: int = 1,
+) -> Optional[int]:
+    """Tick down the closing countdown. Returns the new count, or None
+    if the casino isn't in closing state.
+
+    Called from each hand-boundary path — the full-sim loop and the
+    human-play `leave_hand` hook — once per completed hand at the
+    table. On reaching 0, the next provisioning resolution actually
+    deletes the row.
+    """
+    if cash_table_repo is None:
+        return None
+    current = cash_table_repo.get_closing_countdown(
+        table_id, sandbox_id=sandbox_id,
+    )
+    if current is None:
+        return None
+    new_count = max(0, current - count)
+    cash_table_repo.set_closing_countdown(
+        table_id, sandbox_id=sandbox_id, countdown=new_count,
+    )
+    return new_count
+
+
+def clear_closing(
+    cash_table_repo, sandbox_id: str, table_id: str,
+) -> None:
+    """Reset the countdown to NULL ('active' state). Used when an
+    actual delete fires (defensive — the delete removes the row) or
+    if external logic ever wants to un-close a table."""
+    if cash_table_repo is None:
+        return
+    cash_table_repo.set_closing_countdown(
+        table_id, sandbox_id=sandbox_id, countdown=None,
+    )
+
 
 # --- Dataclasses ------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class CasinoSpawn:
-    """A casino spawn event."""
+    """A full casino spawn event (new table + initial fish lineup)."""
     table_id: str
     stake_label: str
     fish_seated: List[str]
+    bank_pool_drawn: int
+
+
+@dataclass(frozen=True)
+class CasinoRefill:
+    """An incremental refill at an active casino (one fish, one open seat)."""
+    table_id: str
+    stake_label: str
+    fish_id: str
     bank_pool_drawn: int
 
 
@@ -97,6 +209,7 @@ class CasinoTeardown:
 class CasinoProvisioningBatch:
     """Result of one provisioning tick."""
     spawns: List[CasinoSpawn] = field(default_factory=list)
+    refills: List[CasinoRefill] = field(default_factory=list)
     teardowns: List[CasinoTeardown] = field(default_factory=list)
 
 
@@ -151,6 +264,86 @@ def _pick_fish_for_spawn(
 # --- Resolver ---------------------------------------------------------
 
 
+def _count_seated_fish(table: CashTableState, fish_ids: Set[str]) -> int:
+    """Return the number of fish currently seated at this casino."""
+    return sum(
+        1 for slot in table.seats
+        if slot.get('kind') == 'ai' and slot.get('personality_id') in fish_ids
+    )
+
+
+def _open_seat_indices(table: CashTableState) -> List[int]:
+    """Return seat indices currently open (live-fillable)."""
+    return [i for i, slot in enumerate(table.seats) if slot.get('kind') == 'open']
+
+
+def _refill_one_fish(
+    table: CashTableState,
+    *,
+    stake_label: str,
+    fish_buy_in: int,
+    chip_ledger_repo,
+    cash_table_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+    fish_ids: Set[str],
+    already_seated: Set[str],
+) -> Optional[CasinoRefill]:
+    """Seed one fish into one open seat at a casino. Returns None when
+    no seat is open, no fish is available, or pool can't fund it."""
+    open_seats = _open_seat_indices(table)
+    if not open_seats:
+        return None
+    available = [pid for pid in fish_ids if pid not in already_seated]
+    if not available:
+        return None
+    pid = rng.choice(available)
+    seat_idx = rng.choice(open_seats)
+    new_seats = list(table.seats)
+    new_seats[seat_idx] = ai_slot(pid, fish_buy_in)
+    updated = CashTableState(
+        table_id=table.table_id,
+        stake_label=table.stake_label,
+        seats=new_seats,
+        created_at=table.created_at,
+        last_activity_at=now,
+        name=table.name,
+        table_type='casino',
+        dealer_idx=table.dealer_idx,
+        # Carry forward closing state (defensive — refill never fires
+        # on closing casinos, but we don't want the rebuild path to
+        # silently clobber the column if that invariant ever changes).
+        closing_hand_countdown=table.closing_hand_countdown,
+    )
+    try:
+        cash_table_repo.save_table(updated, sandbox_id=sandbox_id, now=now)
+    except Exception as exc:
+        logger.warning(
+            "[CASH][CASINO] refill save_table failed for %s: %s",
+            table.table_id, exc,
+        )
+        return None
+    record_casino_seat_seed(
+        chip_ledger_repo,
+        personality_id=pid,
+        amount=fish_buy_in,
+        context={
+            'site': 'casino_refill',
+            'stake_label': stake_label,
+            'table_id': table.table_id,
+        },
+        sandbox_id=sandbox_id,
+    )
+    already_seated.add(pid)
+    return CasinoRefill(
+        table_id=table.table_id,
+        stake_label=stake_label,
+        fish_id=pid,
+        bank_pool_drawn=fish_buy_in,
+    )
+
+
 def resolve_casino_provisioning(
     *,
     cash_table_repo,
@@ -160,21 +353,27 @@ def resolve_casino_provisioning(
     rng: random.Random,
     now: datetime,
 ) -> CasinoProvisioningBatch:
-    """Spawn / teardown casino tables based on bank pool depth.
+    """Three-pass provisioning: refill / teardown / spawn.
 
-    For each stake in `CASINO_SPAWN_THRESHOLDS`, in ascending order:
-      - If no active casino at this stake AND pool ≥ threshold AND
-        enough fish are available → spawn one.
-      - For each existing casino at this stake: if no fish are seated
-        AND the pool can't fund a refill → tear down.
+    Per refresh, for each stake in `CASINO_SPAWN_THRESHOLDS`:
 
-    Spawns draw from the pool atomically: N × buy_in chips per spawn,
-    one `casino_seat_seed` ledger row per fish. Bankrolls are NOT
-    touched (chips land at the seat directly).
+      1. **Refill pass** — for active (not-closing) casinos with fewer
+         than `CASINO_FISH_MAX` fish seated, seed exactly ONE additional
+         fish if the pool can fund it. Creates the "trickle in" feel
+         as fish bust and the casino slowly tops back up.
 
-    Returns the batch so callers can emit ticker events / capture
-    metrics. Best-effort failures inside per-stake loops are logged
-    and don't tank the whole resolve.
+      2. **Teardown pass** — for casinos with zero fish AND pool
+         can't refund a new fish: enter `closing` state with countdown
+         (smooth shutdown). For casinos already closing with countdown=0:
+         actually delete the row.
+
+      3. **Spawn pass** — for stakes with no active OR closing casino:
+         if pool ≥ threshold AND there are ≥ MIN_FISH free fish AND
+         ≥ MIN_HUNGRY_GRINDERS in the idle pool, spawn a new casino
+         with a random fish count in [MIN, MAX].
+
+    Spawns draw `N × buy_in` from the pool atomically; refills draw
+    one buy-in. Best-effort wrapping at each pass.
     """
     batch = CasinoProvisioningBatch()
     if cash_table_repo is None or chip_ledger_repo is None:
@@ -184,15 +383,10 @@ def resolve_casino_provisioning(
 
     fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     if not fish_ids:
-        # No fish exist in this sandbox — nothing to provision.
         return batch
 
-    # Existing casinos snapshot — used for both teardown decisions and
-    # to skip spawn when a casino at this stake already exists.
-    by_stake = _existing_casinos_by_stake(cash_table_repo, sandbox_id=sandbox_id)
-
-    # Globally-seated fish set so we don't try to put the same fish at
-    # multiple casinos in one tick.
+    # Globally-seated fish — avoid double-picking the same pid for
+    # multiple tables in one resolve.
     already_seated: Set[str] = set()
     for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
         for slot in table.seats:
@@ -201,69 +395,149 @@ def resolve_casino_provisioning(
                 if pid:
                     already_seated.add(pid)
 
-    # Process stakes in ascending ladder order — $2 first, then $10.
-    # The $2 spawn might consume some pool reserves, leaving the $10
-    # threshold unmet on this tick (which is fine — $10 spawns when
-    # vice deposits later push the pool above its higher threshold).
-    threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
+    by_stake = _existing_casinos_by_stake(cash_table_repo, sandbox_id=sandbox_id)
 
-    for stake_label in threshold_order:
-        threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
-        active = by_stake.get(stake_label, [])
-
-        # Teardown pass first — frees fish for potential re-spawn this
-        # tick at the same or a different stake.
-        for table in active:
-            if _casino_has_seated_fish(table, fish_ids):
+    # --- Pass 1: refill --------------------------------------------------
+    for stake_label, tables_here in by_stake.items():
+        _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+        fish_buy_in = min(
+            int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER),
+            max_buy_in,
+        )
+        for table in tables_here:
+            # Skip closing casinos — they're winding down, not topping up.
+            if is_closing(cash_table_repo, sandbox_id, table.table_id):
                 continue
-            # No fish seated. Tear down only if pool also can't refill —
-            # otherwise the spawn pass below will refill this casino.
+            seated_count = _count_seated_fish(table, fish_ids)
+            if seated_count >= CASINO_FISH_MAX:
+                continue
             current_pool = compute_bank_pool_reserves(
                 chip_ledger_repo, sandbox_id=sandbox_id,
             )
-            _, min_buy_in, _ = table_buy_in_window(stake_label)
-            refill_cost = CASINO_FISH_PER_TABLE * int(
-                min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER
-            )
-            if current_pool >= refill_cost:
-                # Pool can support a refill — skip teardown; the spawn
-                # pass below will reuse this table.
+            if current_pool < fish_buy_in:
                 continue
-            try:
-                cash_table_repo.delete_table(
-                    table.table_id, sandbox_id=sandbox_id,
-                )
-                batch.teardowns.append(CasinoTeardown(
-                    table_id=table.table_id,
-                    stake_label=stake_label,
-                    reason='fish_busted_pool_empty',
-                ))
+            refill = _refill_one_fish(
+                table,
+                stake_label=stake_label,
+                fish_buy_in=fish_buy_in,
+                chip_ledger_repo=chip_ledger_repo,
+                cash_table_repo=cash_table_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+                fish_ids=fish_ids,
+                already_seated=already_seated,
+            )
+            if refill is not None:
+                batch.refills.append(refill)
                 logger.info(
-                    "[CASH][CASINO] teardown %s: fish busted, pool empty",
-                    table.table_id,
-                )
-                # Remove from local cache for the spawn check below.
-                by_stake[stake_label] = [
-                    t for t in active if t.table_id != table.table_id
-                ]
-                active = by_stake[stake_label]
-            except Exception as exc:
-                logger.warning(
-                    "[CASH][CASINO] teardown failed for %s: %s",
-                    table.table_id, exc,
+                    "[CASH][CASINO] refill %s: +%s (%d chips)",
+                    table.table_id, refill.fish_id, refill.bank_pool_drawn,
                 )
 
-        # Spawn pass — gate on (a) no active casino at this stake,
-        # (b) pool ≥ threshold, (c) enough free fish.
-        if active:
-            # Either an active casino exists OR was preserved by the
-            # teardown guard. Skip spawning a second casino at this stake.
+    # Refresh by_stake after the refill pass — seats changed but the
+    # table list didn't. Re-fetch only if a refill happened.
+    if batch.refills:
+        by_stake = _existing_casinos_by_stake(
+            cash_table_repo, sandbox_id=sandbox_id,
+        )
+
+    # --- Pass 2: teardown (with smooth shutdown via closing state) -------
+    for stake_label, tables_here in list(by_stake.items()):
+        _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+        fish_buy_in = min(
+            int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER),
+            max_buy_in,
+        )
+        for table in tables_here:
+            seated_count = _count_seated_fish(table, fish_ids)
+            currently_closing = is_closing(cash_table_repo, sandbox_id, table.table_id)
+            countdown = get_closing_countdown(cash_table_repo, sandbox_id, table.table_id)
+
+            # Already closing? Check countdown.
+            if currently_closing:
+                if countdown is not None and countdown <= 0:
+                    # Countdown elapsed — actually delete.
+                    try:
+                        cash_table_repo.delete_table(
+                            table.table_id, sandbox_id=sandbox_id,
+                        )
+                        clear_closing(cash_table_repo, sandbox_id, table.table_id)
+                        batch.teardowns.append(CasinoTeardown(
+                            table_id=table.table_id,
+                            stake_label=stake_label,
+                            reason='closing_countdown_elapsed',
+                        ))
+                        by_stake[stake_label] = [
+                            t for t in tables_here
+                            if t.table_id != table.table_id
+                        ]
+                        logger.info(
+                            "[CASH][CASINO] teardown %s: closing countdown elapsed",
+                            table.table_id,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[CASH][CASINO] teardown failed for %s: %s",
+                            table.table_id, exc,
+                        )
+                continue
+
+            # Not yet closing. Check if we should enter closing state.
+            if seated_count > 0:
+                continue
+            current_pool = compute_bank_pool_reserves(
+                chip_ledger_repo, sandbox_id=sandbox_id,
+            )
+            if current_pool >= fish_buy_in:
+                # Pool can support a refill — skip the closing trigger;
+                # the next refill pass will repopulate.
+                continue
+            # No fish + pool can't refill → enter closing state.
+            enter_closing(
+                cash_table_repo, sandbox_id, table.table_id,
+                CASINO_CLOSING_HAND_COUNTDOWN,
+            )
+            batch.teardowns.append(CasinoTeardown(
+                table_id=table.table_id,
+                stake_label=stake_label,
+                reason=f'closing_announced_{CASINO_CLOSING_HAND_COUNTDOWN}_hands',
+            ))
+            logger.info(
+                "[CASH][CASINO] %s entering closing state (%d hands)",
+                table.table_id, CASINO_CLOSING_HAND_COUNTDOWN,
+            )
+
+    # --- Pass 3: spawn ----------------------------------------------------
+    # Re-fetch in case teardowns ran.
+    by_stake_after_teardown = _existing_casinos_by_stake(
+        cash_table_repo, sandbox_id=sandbox_id,
+    )
+    hungry_grinders = list_hungry_grinders(
+        bankroll_repo,
+        sandbox_id=sandbox_id,
+        now=now,
+        exclude=already_seated,
+    )
+    free_fish = [pid for pid in fish_ids if pid not in already_seated]
+
+    threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
+    for stake_label in threshold_order:
+        threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
+        # Don't spawn if any casino (active OR closing) exists at this
+        # stake — one slot per stake, closing tables hold the slot
+        # until their countdown elapses.
+        if by_stake_after_teardown.get(stake_label):
             continue
-
+        # Economic + supply + demand gates.
         current_pool = compute_bank_pool_reserves(
             chip_ledger_repo, sandbox_id=sandbox_id,
         )
         if current_pool < threshold:
+            continue
+        if len(free_fish) < CASINO_FISH_MIN:
+            continue
+        if len(hungry_grinders) < CASINO_MIN_HUNGRY_GRINDERS:
             continue
 
         _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
@@ -271,32 +545,26 @@ def resolve_casino_provisioning(
             int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER),
             max_buy_in,
         )
-        spawn_cost = CASINO_FISH_PER_TABLE * fish_buy_in
-        if current_pool < spawn_cost:
-            # Threshold met but per-fish cost arithmetic doesn't fit.
-            # Skip — next tick may have more chips in the pool.
+        # Variable spawn size — random [MIN, MAX]; capped by free fish + pool.
+        target_count = rng.randint(CASINO_FISH_MIN, CASINO_FISH_MAX)
+        target_count = min(target_count, len(free_fish))
+        target_count = min(target_count, current_pool // fish_buy_in)
+        if target_count < CASINO_FISH_MIN:
             continue
 
         picked_fish = _pick_fish_for_spawn(
-            fish_ids,
+            set(free_fish),
             already_seated=already_seated,
-            count=CASINO_FISH_PER_TABLE,
+            count=target_count,
             rng=rng,
         )
-        if len(picked_fish) < 1:
-            # No free fish — every fish already at another table.
+        if len(picked_fish) < CASINO_FISH_MIN:
             continue
 
-        # Allocate seat positions — fish get the first N positions,
-        # remaining are open for grinders to live-fill into.
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         fish_positions = sorted(rng.sample(
             range(TABLE_SEAT_COUNT), len(picked_fish),
         ))
-
-        # Write the ledger rows + place fish in seats. Each fish gets
-        # exactly `fish_buy_in` chips at their seat; their bankroll
-        # is NOT touched.
         seated: List[str] = []
         total_drawn = 0
         for pid, seat_idx in zip(picked_fish, fish_positions):
@@ -315,10 +583,10 @@ def resolve_casino_provisioning(
             seated.append(pid)
             total_drawn += fish_buy_in
             already_seated.add(pid)
+            # Don't reuse this fish at another spawn in the same tick.
+            free_fish = [p for p in free_fish if p != pid]
 
         table_id = _casino_table_id(stake_label)
-        # If a previous teardown freed up this ID earlier in the same
-        # tick, the spawn re-uses it cleanly (save_table is an upsert).
         new_state = CashTableState(
             table_id=table_id,
             stake_label=stake_label,
@@ -336,17 +604,20 @@ def resolve_casino_provisioning(
                 table_id, exc,
             )
             continue
+        # Make sure no leftover closing-state row haunts this table_id.
+        # (Defensive — the spawn upsert sets the column NULL anyway via
+        # the new CashTableState created above, but clear_closing makes
+        # the intent explicit.)
+        clear_closing(cash_table_repo, sandbox_id, table_id)
         batch.spawns.append(CasinoSpawn(
             table_id=table_id,
             stake_label=stake_label,
             fish_seated=seated,
             bank_pool_drawn=total_drawn,
         ))
-        # Update local cache so the next stake iteration sees this
-        # spawn (relevant when the same stake somehow appears twice).
-        by_stake.setdefault(stake_label, []).append(new_state)
+        by_stake_after_teardown.setdefault(stake_label, []).append(new_state)
         logger.info(
-            "[CASH][CASINO] spawn %s (%s): %d fish, %d chips drawn from pool",
+            "[CASH][CASINO] spawn %s (%s): %d fish, %d chips drawn",
             table_id, stake_label, len(seated), total_drawn,
         )
 

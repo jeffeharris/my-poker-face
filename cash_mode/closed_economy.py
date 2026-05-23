@@ -72,6 +72,17 @@ TOURIST_INJECTION_THRESHOLD = 0.4
 MAX_TOURIST_INJECTIONS_PER_REFRESH = 5
 MIN_TOURIST_INJECTION = 100
 
+# Grinder definition — the AIs that come to the casino to farm fish.
+# A "hungry grinder" satisfies all three:
+#   • archetype != 'fish' (fish farm nobody)
+#   • stake_comfort_zone in {'$2', '$10'} (casino is their natural tier)
+#   • current bankroll < starting × GRINDER_HUNGER_THRESHOLD
+# The hunger condition is the load-bearing one — a grinder at peak
+# wealth has no economic pressure to farm; a grinder at 40% of their
+# starting bankroll is desperate to recover.
+GRINDER_HUNGER_THRESHOLD = 0.8
+GRINDER_COMFORT_ZONES = frozenset({'$2', '$10'})
+
 
 # --- Dataclasses ------------------------------------------------------
 
@@ -206,6 +217,86 @@ def compute_bank_pool_reserves(
 
 
 # --- Fish discovery ---------------------------------------------------
+
+
+def is_hungry_grinder(
+    personality_id: str,
+    *,
+    bankroll_repo,
+    sandbox_id: str,
+    now: datetime,
+) -> bool:
+    """True iff this AI is a casino-tier grinder currently below hunger threshold.
+
+    Three filters AND'd:
+      1. archetype != 'fish' (fish are donors, not grinders)
+      2. stake_comfort_zone in `GRINDER_COMFORT_ZONES` ($2 or $10)
+      3. projected bankroll < `starting_bankroll × GRINDER_HUNGER_THRESHOLD`
+
+    Used by:
+      • Casino spawn demand signal (need ≥ MIN_HUNGRY_GRINDERS before
+        a casino opens — no point spawning if nobody wants to play).
+      • Grinder pull at casino tables (sort the idle pool by hunger
+        so the most desperate grinders get casino seats first).
+    """
+    if bankroll_repo is None:
+        return False
+    if bankroll_repo.load_archetype(personality_id) == 'fish':
+        return False
+    knobs = bankroll_repo.load_personality_knobs(personality_id)
+    if knobs.stake_comfort_zone not in GRINDER_COMFORT_ZONES:
+        return False
+    if knobs.starting_bankroll <= 0:
+        return False
+    state = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
+    if state is None:
+        # Never been seeded — treat as "not currently hungry" (will get
+        # picked up by other seating paths once they have a bankroll).
+        return False
+    projected = project_bankroll(
+        state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+    )
+    return projected < knobs.starting_bankroll * GRINDER_HUNGER_THRESHOLD
+
+
+def list_hungry_grinders(
+    bankroll_repo,
+    *,
+    sandbox_id: str,
+    now: datetime,
+    exclude: Optional[Set[str]] = None,
+) -> List[str]:
+    """Return personality_ids of hungry grinders, most-desperate first.
+
+    Sort order: ascending `projected / starting_bankroll` ratio — so
+    the AI with the deepest deficit comes first. Ties broken by
+    personality_id for determinism.
+
+    `exclude` is a set of pids to skip (e.g. AIs already seated). Pass
+    the global-seated set to avoid double-picking the same pid for
+    multiple tables.
+    """
+    if bankroll_repo is None:
+        return []
+    exclude = exclude or set()
+    pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
+    ratios: List[tuple] = []  # (ratio, pid)
+    for pid in pids:
+        if pid in exclude:
+            continue
+        if not is_hungry_grinder(
+            pid, bankroll_repo=bankroll_repo, sandbox_id=sandbox_id, now=now,
+        ):
+            continue
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        projected = project_bankroll(
+            state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        )
+        ratio = projected / knobs.starting_bankroll
+        ratios.append((ratio, pid))
+    ratios.sort(key=lambda r: (r[0], r[1]))
+    return [pid for _, pid in ratios]
 
 
 def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str]:

@@ -876,6 +876,20 @@ def refresh_unseated_tables(
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
 
+            # Closed-economy: if this casino is in 'closing' state,
+            # decrement its hand countdown. When the countdown hits 0
+            # the next casino-provisioning resolution will actually
+            # delete the row (smooth shutdown vs immediate teardown).
+            if table.table_type == 'casino' and r.delta > 0:
+                from cash_mode.casino_provisioning import (
+                    decrement_closing_hands,
+                    is_closing,
+                )
+                if is_closing(cash_table_repo, sandbox_id, table.table_id):
+                    decrement_closing_hands(
+                        cash_table_repo, sandbox_id, table.table_id,
+                    )
+
             # Advance detached counters for AI seats now that the hand
             # has resolved (their psychology reflects this hand's events).
             for slot in table.seats:
@@ -907,6 +921,38 @@ def refresh_unseated_tables(
                 ]
             else:
                 _table_idle_pool = idle_pool
+
+            # Casino-tier grinder pull: at casino tables, hungry
+            # grinders get priority and the live-fill probability is
+            # boosted so seats fill faster. Hungry grinders are AIs
+            # with bankroll < starting × 0.8 and comfort zone in the
+            # casino tier — they have economic pressure to farm fish.
+            _effective_live_fill_prob = live_fill_prob
+            if table.table_type == 'casino':
+                from cash_mode.closed_economy import list_hungry_grinders
+                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
+                _hungry_grinder_ids = list_hungry_grinders(
+                    bankroll_repo, sandbox_id=sandbox_id, now=now,
+                )
+                _hungry_set = set(_hungry_grinder_ids)
+                if _hungry_set:
+                    _hungry_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id in _hungry_set
+                    ]
+                    _other_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id not in _hungry_set
+                    ]
+                    # Sort hungry entries by the global hunger ranking
+                    # (most desperate first); ties broken by personality_id.
+                    _order_index = {
+                        pid: i for i, pid in enumerate(_hungry_grinder_ids)
+                    }
+                    _hungry_entries.sort(
+                        key=lambda e: _order_index.get(e.personality_id, 1_000_000)
+                    )
+                    _table_idle_pool = _hungry_entries + _other_entries
             per_hand = refresh_table_roster(
                 table,
                 idle_pool=_table_idle_pool,
@@ -920,7 +966,7 @@ def refresh_unseated_tables(
                 table_min_buy_in=table_min_buy_in,
                 table_max_buy_in=table_max_buy_in,
                 next_tier_min_buy_in=next_tier_min_buy_in,
-                live_fill_prob=live_fill_prob,
+                live_fill_prob=_effective_live_fill_prob,
                 defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
                 # Phase 4: intercept forced_leave with take_stake when

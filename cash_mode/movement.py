@@ -1080,6 +1080,11 @@ def refresh_table_roster(
         # private-table creator had set.
         name=table.name,
         table_type=table.table_type,
+        # v113: preserve the closing-state countdown across refreshes.
+        # Without this carry-forward, every refresh_table_roster save
+        # would NULL the column and undo the smooth-shutdown lifecycle
+        # the casino provisioner just wrote.
+        closing_hand_countdown=table.closing_hand_countdown,
     )
     return RosterRefreshResult(
         new_table=new_table,

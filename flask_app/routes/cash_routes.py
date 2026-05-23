@@ -3647,6 +3647,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 # doesn't blank the name/type.
                 name=table.name,
                 table_type=table.table_type,
+                # v113: preserve casino closing state across the leave-
+                # table write.
+                closing_hand_countdown=table.closing_hand_countdown,
             )
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
             logger.info(

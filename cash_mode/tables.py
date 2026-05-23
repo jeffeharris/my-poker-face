@@ -95,6 +95,12 @@ class CashTableState:
     # 'private' (user-owned tables) and 'casino' (themed house tables)
     # are schema slots only — no flow logic for them yet.
     table_type: str = 'lobby'
+    # v113: smooth-shutdown countdown for casino tables. NULL on lobby /
+    # active casinos; integer N when casino is winding down (closing
+    # state with N hands remaining). Decrements one-per-hand from both
+    # the full-sim and human-play hand-boundary hooks until N=0, at
+    # which point the next provisioning resolution deletes the row.
+    closing_hand_countdown: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not self.seats:
