@@ -407,6 +407,69 @@ class TestRefreshNoChanges:
         assert all(d == "stay" for d in result.decisions.values())
 
 
+class TestRefreshSkipsEphemeralTourists:
+    """Movement evaluation must skip seats with `ephemeral_personality`
+    set. Tourists have no bankroll row — `bankroll_lookup` returns 0,
+    which makes `low_bankroll_signal = 1.0` and skews decide_leave_or_rebuy
+    toward eviction. The eviction would write a phantom bankroll row
+    AND let live-fill replace the seat with a non-fish AI. Both break
+    the casino invariant. See CASH_MODE_EPHEMERAL_TOURISTS.md.
+    """
+
+    def test_short_stacked_tourist_stays_put(self):
+        """A tourist short-stacked enough to trigger eviction (no bankroll,
+        below buy-in) must still get `stay`."""
+        seats = [
+            # Tourist with seat dict carrying inline ephemeral_personality.
+            {
+                "kind": "ai",
+                "personality_id": "tourist-test123",
+                "chips": 100,  # below 400 min — would trigger short pressure
+                "display_name": "Marge (test)",
+                "ephemeral_personality": {
+                    "name": "Marge (test)",
+                    "archetype": "fish",
+                    "ephemeral": True,
+                    "rule_strategy": "fish",
+                    "fish_leak": "calls_down_top_pair",
+                },
+            },
+            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
+        ]
+        table = _make_table(seats)
+        # 5 open seats → up to 5 live-fill rolls; high values block fill.
+        rng = _force_rng([0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"tourist-test123"},
+            # Bankroll lookup returns 0 — would trigger eviction without
+            # the ephemeral skip.
+            bankroll_lookup=_bankroll_lookup_factory({}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+        )
+        assert result.decisions["tourist-test123"] == "stay"
+        # Seat preserved with ephemeral data intact.
+        assert result.new_table.seats[0]["kind"] == "ai"
+        assert result.new_table.seats[0]["personality_id"] == "tourist-test123"
+        assert result.new_table.seats[0].get("ephemeral_personality") is not None
+        # No bankroll change written for the tourist.
+        assert all(
+            c.personality_id != "tourist-test123"
+            for c in result.bankroll_changes
+        )
+        # No idle-pool add for the tourist.
+        adds = [c for c in result.idle_changes if c.kind == "add"]
+        assert not any(c.personality_id == "tourist-test123" for c in adds)
+
+
 class TestRefreshForcedLeave:
     def test_busted_ai_moves_to_idle_pool(self):
         seats = [

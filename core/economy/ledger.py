@@ -67,6 +67,12 @@ LEDGER_REASONS = frozenset({
                            # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
                            # this also feeds the bank pool — see
                            # BANK_POOL_DEPOSIT_REASONS below.
+    'casino_seat_return',  # ai → bank pool: residual seat chips returned
+                           # when a casino tears down (or a tourist leaves
+                           # mid-life). Mirror of `casino_seat_seed` —
+                           # ephemeral-tourist chips were never on a
+                           # bankroll, so the seat balance returns
+                           # straight to the pool to preserve drift==0.
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
@@ -83,6 +89,7 @@ LEDGER_REASONS = frozenset({
 BANK_POOL_DEPOSIT_REASONS = frozenset({
     'bank_pool_deposit',
     'vice_spending',
+    'casino_seat_return',
 })
 
 # Pool draws — creations that pull from the recyclable pool. Adding a
@@ -627,6 +634,41 @@ def record_casino_seat_seed(
         sink=ai(personality_id),
         amount=int(amount),
         reason='casino_seat_seed',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_casino_seat_return(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """ai → central_bank for residual seat chips returned to the pool.
+
+    Mirror of `record_casino_seat_seed`. Fires at casino teardown for any
+    seat with chips > 0, and at any other point where a tourist leaves
+    with residual chips on the seat. Ephemeral tourists have no bankroll,
+    so chips that were `casino_seat_seed`'d to the seat must return
+    directly to the bank pool — never to a bankroll — to keep the
+    conservation invariant (`drift == 0`).
+
+    `casino_seat_return` is a `BANK_POOL_DEPOSIT_REASON`, so audit math
+    correctly absorbs the chips back into pool depth.
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=ai(personality_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='casino_seat_return',
         context=context,
         sandbox_id=sandbox_id,
     )

@@ -24,12 +24,11 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple  # noqa: F401 — Tuple used in return type hint
 
 from cash_mode.closed_economy import (
     CASINO_TIER_STAKE_LABELS,
     compute_bank_pool_reserves,
-    load_fish_ids,
 )
 from cash_mode.stakes_ladder import (
     STAKES_LADDER,
@@ -40,9 +39,14 @@ from cash_mode.tables import (
     CashTableState,
     TABLE_SEAT_COUNT,
     ai_slot,
+    ai_slot_ephemeral,
     open_slot,
 )
-from core.economy.ledger import record_casino_seat_seed
+from cash_mode.tourist_factory import generate_tourist_batch
+from core.economy.ledger import (
+    record_casino_seat_return,
+    record_casino_seat_seed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,31 +125,87 @@ def _existing_casinos_by_stake(
     return by_stake
 
 
-def _casino_has_seated_fish(
-    table: CashTableState, fish_ids: Set[str],
-) -> bool:
-    """True iff any seat holds a fish-archetype personality."""
+def _casino_has_seated_tourists(table: CashTableState) -> bool:
+    """True iff any seat holds an ephemeral tourist.
+
+    Replaces the prior `_casino_has_seated_fish(table, fish_ids)` —
+    tourists are now identified by their inline `ephemeral_personality`
+    rather than membership in a global fish-id set. Seats without an
+    ephemeral marker (e.g., grinders who live-filled in) don't count.
+    """
     for slot in table.seats:
-        if slot.get('kind') == 'ai' and slot.get('personality_id') in fish_ids:
+        if slot.get('kind') == 'ai' and slot.get('ephemeral_personality') is not None:
             return True
     return False
 
 
-def _pick_fish_for_spawn(
-    fish_ids: Set[str],
+def _return_seat_residuals_to_pool(
+    table: CashTableState,
     *,
-    already_seated: Set[str],
-    count: int,
-    rng: random.Random,
-) -> List[str]:
-    """Pick up to `count` fish not currently seated elsewhere.
+    chip_ledger_repo,
+    sandbox_id: str,
+    reason_detail: str,
+) -> Tuple[int, int]:
+    """Write `casino_seat_return` ledger rows for any tourist seats with
+    chips remaining.
 
-    Returns shuffled order. Falls back to fewer fish if not enough
-    are available (caller decides whether to spawn anyway or skip).
+    Returns `(total_returned, total_stranded)`. `total_stranded` is chips
+    that *should* have been returned but the ledger write failed —
+    caller must NOT proceed with `delete_table` when this is non-zero,
+    otherwise conservation breaks (chips vanish from the universe).
+
+    Ephemeral tourists have no bankroll, so chips on their seat must
+    return directly to the bank pool when the table is torn down (or the
+    tourist otherwise leaves). Per-seat try/except ensures one failing
+    write doesn't strand the others — but the caller is on the hook
+    for handling any stranded amount.
     """
-    available = [pid for pid in fish_ids if pid not in already_seated]
-    rng.shuffle(available)
-    return available[:count]
+    total_returned = 0
+    total_stranded = 0
+    for slot in table.seats:
+        if slot.get('kind') != 'ai':
+            continue
+        if slot.get('ephemeral_personality') is None:
+            continue
+        chips = int(slot.get('chips', 0))
+        if chips <= 0:
+            continue
+        pid = slot.get('personality_id')
+        if not pid:
+            continue
+        try:
+            row_id = record_casino_seat_return(
+                chip_ledger_repo,
+                personality_id=pid,
+                amount=chips,
+                context={
+                    'site': 'casino_teardown',
+                    'table_id': table.table_id,
+                    'stake_label': table.stake_label,
+                    'reason': reason_detail,
+                },
+                sandbox_id=sandbox_id,
+            )
+            if row_id is None:
+                # Helper rejected the write (e.g., ledger validation
+                # failed). Same impact as an exception — chip move never
+                # committed, so don't claim it succeeded.
+                total_stranded += chips
+                logger.warning(
+                    "[CASH][CASINO] casino_seat_return rejected for %s/%s "
+                    "(%d chips stranded)",
+                    table.table_id, pid, chips,
+                )
+            else:
+                total_returned += chips
+        except Exception as exc:
+            total_stranded += chips
+            logger.warning(
+                "[CASH][CASINO] casino_seat_return write failed for "
+                "%s/%s (%d chips stranded): %s",
+                table.table_id, pid, chips, exc,
+            )
+    return total_returned, total_stranded
 
 
 # --- Resolver ---------------------------------------------------------
@@ -179,27 +239,13 @@ def resolve_casino_provisioning(
     batch = CasinoProvisioningBatch()
     if cash_table_repo is None or chip_ledger_repo is None:
         return batch
-    if bankroll_repo is None:
-        return batch
-
-    fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
-    if not fish_ids:
-        # No fish exist in this sandbox — nothing to provision.
-        return batch
+    # bankroll_repo no longer required — tourists are factory-generated
+    # without bankroll lookups. Kept in the signature for callers that
+    # still pass it (and for forward-compat with future demand-gating).
 
     # Existing casinos snapshot — used for both teardown decisions and
     # to skip spawn when a casino at this stake already exists.
     by_stake = _existing_casinos_by_stake(cash_table_repo, sandbox_id=sandbox_id)
-
-    # Globally-seated fish set so we don't try to put the same fish at
-    # multiple casinos in one tick.
-    already_seated: Set[str] = set()
-    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
-        for slot in table.seats:
-            if slot.get('kind') == 'ai':
-                pid = slot.get('personality_id')
-                if pid:
-                    already_seated.add(pid)
 
     # Process stakes in ascending ladder order — $2 first, then $10.
     # The $2 spawn might consume some pool reserves, leaving the $10
@@ -211,13 +257,14 @@ def resolve_casino_provisioning(
         threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
         active = by_stake.get(stake_label, [])
 
-        # Teardown pass first — frees fish for potential re-spawn this
-        # tick at the same or a different stake.
+        # Teardown pass first — clear out empty casinos before deciding
+        # whether to spawn this tick.
         for table in active:
-            if _casino_has_seated_fish(table, fish_ids):
+            if _casino_has_seated_tourists(table):
                 continue
-            # No fish seated. Tear down only if pool also can't refill —
-            # otherwise the spawn pass below will refill this casino.
+            # No tourists seated. Tear down only if pool also can't
+            # refund a fresh spawn — otherwise the spawn pass below
+            # will reuse this slot.
             current_pool = compute_bank_pool_reserves(
                 chip_ledger_repo, sandbox_id=sandbox_id,
             )
@@ -226,10 +273,31 @@ def resolve_casino_provisioning(
                 min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER
             )
             if current_pool >= refill_cost:
-                # Pool can support a refill — skip teardown; the spawn
-                # pass below will reuse this table.
+                # Pool can support a fresh spawn — skip teardown; the
+                # spawn pass below will reuse this table.
                 continue
             try:
+                # Return any residual chips on tourist seats to the pool
+                # BEFORE deleting (post-delete would lose the seat list).
+                # If any return write fails, ABORT the teardown — deleting
+                # the table with un-refunded chips would break the
+                # conservation invariant (chips vanish from the universe).
+                # Next tick will retry: _casino_has_seated_tourists will
+                # still return True (chips still on the seats).
+                returned, stranded = _return_seat_residuals_to_pool(
+                    table,
+                    chip_ledger_repo=chip_ledger_repo,
+                    sandbox_id=sandbox_id,
+                    reason_detail='fish_busted_pool_empty',
+                )
+                if stranded > 0:
+                    logger.warning(
+                        "[CASH][CASINO] teardown ABORTED for %s: %d chips "
+                        "stranded by failed return writes (returned %d). "
+                        "Will retry next tick.",
+                        table.table_id, stranded, returned,
+                    )
+                    continue
                 cash_table_repo.delete_table(
                     table.table_id, sandbox_id=sandbox_id,
                 )
@@ -239,8 +307,9 @@ def resolve_casino_provisioning(
                     reason='fish_busted_pool_empty',
                 ))
                 logger.info(
-                    "[CASH][CASINO] teardown %s: fish busted, pool empty",
-                    table.table_id,
+                    "[CASH][CASINO] teardown %s: tourists gone, pool empty"
+                    " (returned %d residual chips)",
+                    table.table_id, returned,
                 )
                 # Remove from local cache for the spawn check below.
                 by_stake[stake_label] = [
@@ -254,7 +323,7 @@ def resolve_casino_provisioning(
                 )
 
         # Spawn pass — gate on (a) no active casino at this stake,
-        # (b) pool ≥ threshold, (c) enough free fish.
+        # (b) pool ≥ threshold, (c) per-tourist cost fits.
         if active:
             # Either an active casino exists OR was preserved by the
             # teardown guard. Skip spawning a second casino at this stake.
@@ -273,48 +342,47 @@ def resolve_casino_provisioning(
         )
         spawn_cost = CASINO_FISH_PER_TABLE * fish_buy_in
         if current_pool < spawn_cost:
-            # Threshold met but per-fish cost arithmetic doesn't fit.
+            # Threshold met but per-tourist cost arithmetic doesn't fit.
             # Skip — next tick may have more chips in the pool.
             continue
 
-        picked_fish = _pick_fish_for_spawn(
-            fish_ids,
-            already_seated=already_seated,
-            count=CASINO_FISH_PER_TABLE,
-            rng=rng,
-        )
-        if len(picked_fish) < 1:
-            # No free fish — every fish already at another table.
+        # Generate ephemeral tourists on demand. No bankroll dependency,
+        # no chicken-and-egg cold-start. Synthetic pids are uuid-based,
+        # so collision with existing seats is statistically impossible.
+        tourists = generate_tourist_batch(rng, CASINO_FISH_PER_TABLE)
+        if not tourists:
             continue
 
-        # Allocate seat positions — fish get the first N positions,
+        # Allocate seat positions — tourists get random positions,
         # remaining are open for grinders to live-fill into.
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
-        fish_positions = sorted(rng.sample(
-            range(TABLE_SEAT_COUNT), len(picked_fish),
+        seat_positions = sorted(rng.sample(
+            range(TABLE_SEAT_COUNT), len(tourists),
         ))
 
-        # Write the ledger rows + place fish in seats. Each fish gets
-        # exactly `fish_buy_in` chips at their seat; their bankroll
-        # is NOT touched.
+        # Write the ledger rows + place tourists in seats. Each tourist
+        # gets exactly `fish_buy_in` chips at their seat; no bankroll
+        # is touched (tourists don't have one).
         seated: List[str] = []
         total_drawn = 0
-        for pid, seat_idx in zip(picked_fish, fish_positions):
-            seats[seat_idx] = ai_slot(pid, fish_buy_in)
+        for tourist, seat_idx in zip(tourists, seat_positions):
+            seats[seat_idx] = ai_slot_ephemeral(tourist, fish_buy_in)
             record_casino_seat_seed(
                 chip_ledger_repo,
-                personality_id=pid,
+                personality_id=tourist.personality_id,
                 amount=fish_buy_in,
                 context={
                     'site': 'casino_spawn',
                     'stake_label': stake_label,
-                    'fish_count': len(picked_fish),
+                    'fish_count': len(tourists),
+                    'template_key': tourist.template_key,
+                    'fish_leak': tourist.personality_dict.get('fish_leak'),
+                    'display_name': tourist.display_name,
                 },
                 sandbox_id=sandbox_id,
             )
-            seated.append(pid)
+            seated.append(tourist.personality_id)
             total_drawn += fish_buy_in
-            already_seated.add(pid)
 
         table_id = _casino_table_id(stake_label)
         # If a previous teardown freed up this ID earlier in the same
@@ -346,7 +414,7 @@ def resolve_casino_provisioning(
         # spawn (relevant when the same stake somehow appears twice).
         by_stake.setdefault(stake_label, []).append(new_state)
         logger.info(
-            "[CASH][CASINO] spawn %s (%s): %d fish, %d chips drawn from pool",
+            "[CASH][CASINO] spawn %s (%s): %d tourists, %d chips drawn from pool",
             table_id, stake_label, len(seated), total_drawn,
         )
 

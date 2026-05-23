@@ -73,6 +73,7 @@ from cash_mode.stakes_ladder import (
     table_buy_in_window,
 )
 from cash_mode.table import PLAYER_SEAT_ID
+from cash_mode.tables import personality_for_seat
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
 logger = logging.getLogger(__name__)
@@ -429,13 +430,24 @@ def _build_preselected_from_table(
         if slot["kind"] != "ai":
             continue
         pid = slot["personality_id"]
-        personality = None
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
-        name = (personality or {}).get("name") if personality else pid
-        preselected_ai.append({"personality_id": pid, "name": name})
+        # `personality_for_seat` catches DB/decode failures and logs them;
+        # programmer bugs propagate so they get fixed.
+        personality = personality_for_seat(slot, personality_repo)
+        # Tourists carry display_name on the seat; for regular AI seats
+        # use the personality's name; fall back to pid.
+        name = (
+            slot.get("display_name")
+            or (personality or {}).get("name")
+            or pid
+        )
+        entry: Dict[str, Any] = {"personality_id": pid, "name": name}
+        # Thread inline tourist personality through so the controller
+        # construction site (no seat dict in scope) can read it without
+        # a doomed personality_repo lookup.
+        inline = slot.get("ephemeral_personality")
+        if inline is not None:
+            entry["ephemeral_personality"] = inline
+        preselected_ai.append(entry)
         preselected_chips[pid] = int(slot.get("chips", 0))
         next_player_idx += 1
     return preselected_ai, preselected_chips, dealer_player_idx
@@ -580,6 +592,7 @@ def _build_cash_game(
     preselected_ai: Optional[list] = None,
     preselected_ai_chips: Optional[Dict[str, int]] = None,
     dealer_player_idx: int = 0,
+    table_type: str = 'lobby',
 ) -> tuple[Optional[str], Optional[tuple[dict, int]]]:
     """Create + register a cash game; return (game_id, None) or (None, (err, status)).
 
@@ -748,9 +761,46 @@ def _build_cash_game(
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         pid = ai_entry["personality_id"] if ai_entry else None
-        personality_config = (
-            personality_repo.load_personality_by_id(pid) if pid else None
+        # Inline ephemeral personality (tourists) wins over DB lookup.
+        # Synthetic tourist pids don't exist in the personalities table,
+        # so load_personality_by_id would return None and assign_bot
+        # would default — wrong bot type for a fish.
+        inline_personality = (ai_entry or {}).get("ephemeral_personality")
+        if inline_personality is not None:
+            personality_config = inline_personality
+        elif pid:
+            personality_config = personality_repo.load_personality_by_id(pid)
+        else:
+            personality_config = None
+        # Fish personalities (including ephemeral tourists) route to
+        # RuleBotController with `_strategy_fish`. assign_bot's poise-
+        # bucket would otherwise put fish into 'chaos' (LLM-driven),
+        # which both wastes tokens and ignores the personality's
+        # designated leak. Detect via the personality's `rule_strategy`
+        # field — set to 'fish' for both the JSON personalities and the
+        # ephemeral tourists.
+        rule_strategy_override = (
+            (personality_config or {}).get("rule_strategy")
+            if isinstance(personality_config, dict) else None
         )
+        if rule_strategy_override == "fish":
+            from poker.rule_bot_controller import RuleBotController
+            fish_leak = (personality_config or {}).get("fish_leak")
+            bot_types[player.name] = "fish"
+            player_llm_configs[player.name] = {}
+            controller = RuleBotController(
+                player_name=player.name,
+                state_machine=state_machine,
+                strategy="fish",
+                llm_config={},
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+                fish_leak=fish_leak,
+            )
+            ai_controllers[player.name] = controller
+            continue
         assignment = assign_bot(personality_config)
         bot_types[player.name] = assignment.bot_type
         player_llm_configs[player.name] = assignment.llm_config
@@ -797,12 +847,22 @@ def _build_cash_game(
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
-    memory_manager.set_relationship_repo(
-        relationship_repo,
-        cash_mode=True,
-        sandbox_id=sandbox_id,
-        table_max_buy_in=max_buy_in,
-    )
+    # Suppress all relationship writes at casino tables. Ephemeral
+    # tourists rotate names per spawn; recording per-hand events under
+    # the synthetic pid would either pollute the dossier with vanishing
+    # ids or, worse, attribute pooled-fish-archetype behavior to a
+    # named persona that won't appear again. Skipping the repo wire-up
+    # silent-no-ops `_process_relationship_events`, which also covers
+    # `cash_pair_pnl`, chat-intent, and stack-dominance writes (they all
+    # gate on the same `_relationship_repo is None` check). Staking
+    # writes are self-suppressing — tourists have staker/borrower=unwilling.
+    if table_type != 'casino':
+        memory_manager.set_relationship_repo(
+            relationship_repo,
+            cash_mode=True,
+            sandbox_id=sandbox_id,
+            table_max_buy_in=max_buy_in,
+        )
     for player in state_machine.game_state.players:
         try:
             pid = personality_repo.resolve_name_to_personality_id(player.name)
@@ -1177,6 +1237,7 @@ def sit_at_table():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type,
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -1726,6 +1787,7 @@ def sponsor_and_sit():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type if claimed_table is not None else 'lobby',
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -4071,11 +4133,9 @@ def get_lobby():
             entry = {"index": idx, "kind": slot["kind"]}
             if slot["kind"] == "ai":
                 pid = slot["personality_id"]
-                personality = None
-                try:
-                    personality = personality_repo.load_personality_by_id(pid)
-                except Exception:
-                    personality = None
+                # `personality_for_seat` catches DB/decode failures and logs
+                # them; programmer bugs propagate so they get fixed.
+                personality = personality_for_seat(slot, personality_repo)
                 # Orphan seat: the seat references a personality that no
                 # longer exists in the DB (manual cleanup, migration, or
                 # an old seat surviving a deletion). Render as `open` so
@@ -4092,7 +4152,13 @@ def get_lobby():
                     serialized_seats.append(entry)
                     continue
                 entry["personality_id"] = pid
-                ai_name = personality.get("name") or pid
+                # Tourists carry display_name on the seat; regular AIs
+                # fall through to personality.name.
+                ai_name = (
+                    slot.get("display_name")
+                    or personality.get("name")
+                    or pid
+                )
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
                 # Emotion resolution priority:

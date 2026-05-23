@@ -428,5 +428,189 @@ class TestConstants:
         assert "bank_pool_sim_seed" in LEDGER_REASONS
 
 
+# --- Ephemeral-tourist behavior (post-EPHEMERAL_TOURISTS spec) -------------
+
+
+class TestEphemeralTourists:
+    """Verify the new on-demand tourist behavior: seats carry inline
+    personality, ledger context records template_key + leak, and
+    teardown returns residual chips to the pool."""
+
+    def test_seats_carry_ephemeral_personality(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        ai_seats = [s for s in casino.seats if s.get("kind") == "ai"]
+        assert ai_seats, "expected at least one tourist seated"
+        for seat in ai_seats:
+            # Inline personality dict mirrors the fish JSON shape
+            inline = seat.get("ephemeral_personality")
+            assert inline is not None, "tourist seat missing inline personality"
+            assert inline["archetype"] == "fish"
+            assert inline["ephemeral"] is True
+            assert inline["rule_strategy"] == "fish"
+            assert inline.get("fish_leak"), "tourist missing designated leak"
+            # Synthetic pid format
+            assert seat["personality_id"].startswith("tourist-")
+            # display_name set on the seat for UI consumption
+            assert seat.get("display_name")
+
+    def test_ledger_context_records_template_and_leak(self, db_setup):
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        # Walk recent ledger entries for casino_seat_seed rows; assert
+        # template_key + fish_leak present in context.
+        entries = ledger.recent_entries(limit=50)
+        seeds = [e for e in entries if e["reason"] == "casino_seat_seed"]
+        assert len(seeds) == CASINO_FISH_PER_TABLE
+        for e in seeds:
+            ctx = e.get("context") or {}
+            assert ctx.get("template_key"), f"missing template_key: {e}"
+            assert ctx.get("fish_leak"), f"missing fish_leak: {e}"
+            assert ctx.get("display_name"), f"missing display_name: {e}"
+
+    def test_teardown_returns_residual_chips_to_pool(self, db_setup):
+        """Tourists with chips remaining when their casino tears down
+        must return those chips to the pool via casino_seat_return."""
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        # Measure pool depth before teardown; expect it to grow by the
+        # total residual chips on tourist seats.
+        residual_total = sum(
+            int(s.get("chips", 0)) for s in casino.seats
+            if s.get("kind") == "ai" and s.get("ephemeral_personality")
+        )
+        pool_before_teardown = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        # Force teardown by draining the pool below refill cost AND
+        # vacating all tourist seats (so _casino_has_seated_tourists
+        # returns False).
+        for i, slot in enumerate(casino.seats):
+            if slot.get("kind") == "ai":
+                # Leave the chips on the seat to verify they get returned.
+                # Just clear the ephemeral marker by replacing with an
+                # ai_slot that has chips but no ephemeral_personality —
+                # actually we want to preserve chips so the return fires.
+                pass
+        # Simpler: directly call _return_seat_residuals_to_pool and
+        # then delete the table to mimic the resolver's teardown branch.
+        from cash_mode.casino_provisioning import _return_seat_residuals_to_pool
+        returned, stranded = _return_seat_residuals_to_pool(
+            casino, chip_ledger_repo=ledger,
+            sandbox_id=SBX, reason_detail="test_forced_teardown",
+        )
+        assert stranded == 0
+        assert returned == residual_total
+
+        pool_after = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        assert pool_after - pool_before_teardown == residual_total
+
+        # Verify the ledger rows exist with the right reason
+        return_entries = [
+            e for e in ledger.recent_entries(limit=50)
+            if e["reason"] == "casino_seat_return"
+        ]
+        assert len(return_entries) == len([
+            s for s in casino.seats
+            if s.get("kind") == "ai" and s.get("ephemeral_personality")
+            and int(s.get("chips", 0)) > 0
+        ])
+
+    def test_partial_return_failure_strands_chips_not_silent(self, db_setup):
+        """If a single `record_casino_seat_return` write fails, the helper
+        reports the stranded amount via the second return value — the
+        caller MUST NOT delete_table in that case (would break drift)."""
+        from unittest.mock import patch
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        from cash_mode.casino_provisioning import _return_seat_residuals_to_pool
+
+        # Force every ledger write to raise — simulates DB lock / IO
+        # failure mid-teardown. Helper should report all chips stranded.
+        with patch(
+            'cash_mode.casino_provisioning.record_casino_seat_return',
+            side_effect=RuntimeError("simulated DB failure"),
+        ):
+            returned, stranded = _return_seat_residuals_to_pool(
+                casino, chip_ledger_repo=ledger,
+                sandbox_id=SBX, reason_detail="test_partial_fail",
+            )
+        assert returned == 0
+        assert stranded > 0, "expected stranded chips when writes fail"
+
+    def test_spawn_teardown_roundtrip_is_drift_neutral(self, db_setup):
+        """Full conservation property: seed pool → spawn casino → tear
+        down with all tourists still holding chips → pool returns to
+        ~original depth (minus only chips that have actually moved)."""
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        initial_pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=bankroll,
+            chip_ledger_repo=ledger, sandbox_id=SBX,
+            rng=random.Random(0), now=ANCHOR,
+        )
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        # Force teardown by returning all residual + deleting
+        from cash_mode.casino_provisioning import _return_seat_residuals_to_pool
+        _returned, stranded = _return_seat_residuals_to_pool(
+            casino, chip_ledger_repo=ledger,
+            sandbox_id=SBX, reason_detail="test_roundtrip",
+        )
+        assert stranded == 0
+        tables.delete_table(casino.table_id, sandbox_id=SBX)
+
+        # Pool should be back to ~initial. The seed cost out + return in
+        # should net to zero for tourist seats that never lost chips.
+        final_pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        assert final_pool == initial_pool, (
+            f"drift: initial {initial_pool}, final {final_pool}")
+
+
 if __name__ == "__main__":
     unittest.main()

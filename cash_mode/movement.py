@@ -765,6 +765,16 @@ def refresh_table_roster(
             continue
         pid = slot["personality_id"]
         ai_chips = int(slot.get("chips", 0))
+        # Ephemeral tourists (casino seats with inline `ephemeral_personality`)
+        # bypass movement evaluation entirely. They have no bankroll, so
+        # the pressure formulas — which read `projected_bankroll` and
+        # weight `low_bankroll_signal` — treat them as broke and try to
+        # evict them. Their only exit should be busting out (stack=0)
+        # via normal hand flow, which the casino teardown handles via
+        # `_return_seat_residuals_to_pool`. Treat as `stay`.
+        if slot.get("ephemeral_personality") is not None:
+            decisions[pid] = "stay"
+            continue
         # buy_in_lookup gives this AI's table-specific buy-in (honors
         # per-personality buy-in multipliers). table_min_buy_in /
         # table_max_buy_in are absolute and feed pressure thresholds.

@@ -182,3 +182,63 @@ class TestLedgerModule:
         entries = repo.recent_entries()
         assert entries[0]['amount'] == 0
         assert entries[0]['context'] == {'forgiven_principal': 500}
+
+
+class TestCasinoSeatReturn:
+    """`record_casino_seat_return` is the destruction-side mirror of
+    `record_casino_seat_seed`. It returns residual seat chips to the
+    bank pool when a casino tears down with chips still on a tourist's
+    seat. Without this helper, the conservation invariant would break
+    (chips would just vanish from the universe).
+    """
+
+    def test_writes_destruction_to_bank(self, repo):
+        eid = ledger_mod.record_casino_seat_return(
+            repo,
+            personality_id='tourist-abc12345',
+            amount=200,
+            context={'site': 'casino_teardown', 'stake_label': '$2'},
+            sandbox_id='sb-1',
+        )
+        assert eid is not None
+        entries = repo.recent_entries()
+        assert entries[0]['source'] == 'ai:tourist-abc12345'
+        assert entries[0]['sink'] == 'central_bank'
+        assert entries[0]['amount'] == 200
+        assert entries[0]['reason'] == 'casino_seat_return'
+
+    def test_counts_as_bank_pool_deposit(self, repo):
+        """Pool depth must absorb the returned chips — that's the whole
+        point of using a BANK_POOL_DEPOSIT_REASON."""
+        from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS
+        assert 'casino_seat_return' in BANK_POOL_DEPOSIT_REASONS
+
+    def test_noop_on_none_repo(self):
+        result = ledger_mod.record_casino_seat_return(
+            None, personality_id='tourist-x', amount=100,
+        )
+        assert result is None
+
+    def test_noop_on_zero_or_negative_amount(self, repo):
+        assert ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-x', amount=0,
+        ) is None
+        assert ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-x', amount=-1,
+        ) is None
+        assert repo.recent_entries() == []
+
+    def test_pairs_with_seat_seed_for_net_zero(self, repo):
+        """Seed 80 chips to a tourist seat, return 80 → net pool change
+        is zero. This is the conservation property we care about."""
+        ledger_mod.record_casino_seat_seed(
+            repo, personality_id='tourist-roundtrip', amount=80,
+            sandbox_id='sb-1',
+        )
+        ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-roundtrip', amount=80,
+            sandbox_id='sb-1',
+        )
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        # Seed+return cancel out: depth unchanged from initial 0.
+        assert compute_bank_pool_reserves(repo, sandbox_id='sb-1') == 0
