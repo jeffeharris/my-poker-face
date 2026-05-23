@@ -232,3 +232,259 @@ class TestRegistryUpdatePropagates:
         assert repo.load_raw_relationship_state("bob_v1", "alice_v1") is not None
         # No name-keyed rows should exist.
         assert repo.load_raw_relationship_state("alice", "bob") is None
+
+
+def _four_seat_big_pot_hand(hand_number: int = 1) -> RecordedHand:
+    """Mirrors the bug-report session: 1 human + 3 AIs, big pot, showdown.
+
+    Jeff (human) calls down two streets and loses 47K to Oscar Wilde's
+    set. Big enough to clear MomentAnalyzer.is_big_pot vs the 40-70K
+    starting stacks → BIG_WIN/BIG_LOSS should fire and write
+    relationship_states + cash_pair_stats + memorable_hands.
+    """
+    players = (
+        PlayerHandInfo(
+            name="Jeff", starting_stack=70000, position="BTN", is_human=True,
+        ),
+        PlayerHandInfo(
+            name="Oscar Wilde", starting_stack=40000, position="SB",
+            is_human=False,
+        ),
+        PlayerHandInfo(
+            name="Jay Gatsby", starting_stack=40000, position="BB",
+            is_human=False,
+        ),
+        PlayerHandInfo(
+            name="Cheshire Cat", starting_stack=40000, position="UTG",
+            is_human=False,
+        ),
+    )
+    actions = (
+        RecordedAction("Cheshire Cat", "fold", 0, "PRE_FLOP", 30),
+        RecordedAction("Jeff", "raise", 1000, "PRE_FLOP", 1010),
+        RecordedAction("Oscar Wilde", "raise", 4000, "PRE_FLOP", 4500),
+        RecordedAction("Jay Gatsby", "fold", 0, "PRE_FLOP", 4500),
+        RecordedAction("Jeff", "call", 3000, "PRE_FLOP", 8500),
+        RecordedAction("Jeff", "check", 0, "FLOP", 8500),
+        RecordedAction("Oscar Wilde", "bet", 8000, "FLOP", 16500),
+        RecordedAction("Jeff", "call", 8000, "FLOP", 24500),
+        RecordedAction("Jeff", "check", 0, "TURN", 24500),
+        RecordedAction("Oscar Wilde", "bet", 11540, "TURN", 36040),
+        RecordedAction("Jeff", "call", 11540, "TURN", 47580),
+    )
+    return RecordedHand(
+        game_id="cash-repro",
+        hand_number=hand_number,
+        timestamp=datetime(2026, 5, 23, 12, 30),
+        players=players,
+        hole_cards={
+            "Jeff": ["Ah", "Kd"],
+            "Oscar Wilde": ["Qs", "Qd"],
+        },
+        community_cards=("2c", "7d", "Qh", "9s", "3c"),
+        actions=actions,
+        winners=(
+            WinnerInfo(
+                name="Oscar Wilde", amount_won=47580,
+                hand_name="Set of Queens", hand_rank=7,
+            ),
+        ),
+        pot_size=47580,
+        was_showdown=True,
+    )
+
+
+def _wire_four_seat_manager(repo, *, sandbox_id="sb-cash"):
+    """Set up an AIMemoryManager the same way `/api/cash/start` does:
+    initialize 3 AI players + 1 human observer, then wire the
+    relationship repo with cash_mode=True. Pre-populate `self.models`
+    for each pair so the memorable-hand sidecar path can find the
+    actor's model.
+    """
+    mgr = AIMemoryManager(
+        game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+    )
+    mgr.initialize_for_player("Oscar Wilde", personality_id="oscar_wilde")
+    mgr.initialize_for_player("Jay Gatsby", personality_id="jay_gatsby")
+    mgr.initialize_for_player("Cheshire Cat", personality_id="cheshire_cat")
+    mgr.initialize_human_observer("Jeff", personality_id="guest_jeff")
+    mgr.set_relationship_repo(
+        repo, cash_mode=True, sandbox_id=sandbox_id,
+    )
+    # observe_action is what populates self.models in production; the
+    # memorable-hand sidecar in record_event reads it. Pre-touch every
+    # pair so the in-memory dict matches a session that has played at
+    # least one prior action.
+    for obs in ("Jeff", "Oscar Wilde", "Jay Gatsby", "Cheshire Cat"):
+        for opp in ("Jeff", "Oscar Wilde", "Jay Gatsby", "Cheshire Cat"):
+            if obs != opp:
+                mgr.opponent_model_manager.get_model(obs, opp)
+    return mgr
+
+
+class TestFourSeatCashHandReproduction:
+    """Mirrors the bug-report session structure: 4 seats, big pot,
+    cash mode. Verifies the full chain writes relationship_states,
+    cash_pair_stats, and in-memory memorable_hands.
+    """
+
+    def test_big_pot_writes_everything(self, repo):
+        mgr = _wire_four_seat_manager(repo)
+        hand = _four_seat_big_pot_hand()
+
+        mgr._process_relationship_events(hand)
+
+        # relationship_states: bilateral writes for the (winner, loser)
+        # pair using personality_ids (lower-case slugs).
+        assert repo.load_raw_relationship_state(
+            "oscar_wilde", "guest_jeff",
+        ) is not None
+        assert repo.load_raw_relationship_state(
+            "guest_jeff", "oscar_wilde",
+        ) is not None
+
+        # cash_pair_stats: PnL accumulates per (sandbox, observer, opponent).
+        oscar_stats = repo.load_cash_pair_stats(
+            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
+        )
+        jeff_stats = repo.load_cash_pair_stats(
+            "guest_jeff", "oscar_wilde", sandbox_id="sb-cash",
+        )
+        assert oscar_stats is not None and oscar_stats.cumulative_pnl > 0
+        assert jeff_stats is not None and jeff_stats.cumulative_pnl < 0
+        assert oscar_stats.cumulative_pnl == -jeff_stats.cumulative_pnl
+
+        # memorable_hands: actor's in-memory model has the sidecar entry
+        # for high-impact events (impact_score >= 0.7).
+        oscar_view = mgr.opponent_model_manager.models["Oscar Wilde"]["Jeff"]
+        jeff_view = mgr.opponent_model_manager.models["Jeff"]["Oscar Wilde"]
+        assert oscar_view.memorable_hands, (
+            "Oscar's model should have a memorable BIG_WIN entry"
+        )
+        assert jeff_view.memorable_hands, (
+            "Jeff's model should have a memorable BIG_LOSS / DOMINATED entry"
+        )
+
+
+class TestColdLoadRewiresRelationshipRepo:
+    """Cold-load path bug: replacing `opponent_model_manager` after
+    `set_relationship_repo` drops the wired repo, so subsequent
+    `record_event` calls raise RuntimeError silently swallowed by
+    `_process_relationship_events`. None of the surfaces — relationship
+    state, cash pair stats, memorable hands — get written.
+
+    This regression mirrors the production cold-load sequence in
+    `flask_app/routes/game_routes.py`:
+
+        memory_manager.set_relationship_repo(repo, cash_mode=True, ...)
+        memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved)
+    """
+
+    def _saved_opponent_models_payload(self):
+        """Minimal saved-OPM dict the cold-load path feeds to from_dict.
+        Includes the `__name_to_id__` sidecar so the restored OPM
+        carries the registry, matching `game_repo.load_opponent_models`.
+        """
+        return {
+            "Oscar Wilde": {
+                "Jeff": {
+                    "observer": "Oscar Wilde", "opponent": "Jeff",
+                    "observer_id": "oscar_wilde", "opponent_id": "guest_jeff",
+                    "tendencies": {},
+                    "memorable_hands": [],
+                    "narrative_observations": [],
+                },
+            },
+            "Jeff": {
+                "Oscar Wilde": {
+                    "observer": "Jeff", "opponent": "Oscar Wilde",
+                    "observer_id": "guest_jeff", "opponent_id": "oscar_wilde",
+                    "tendencies": {},
+                    "memorable_hands": [],
+                    "narrative_observations": [],
+                },
+            },
+            "__name_to_id__": {
+                "Oscar Wilde": "oscar_wilde",
+                "Jeff": "guest_jeff",
+            },
+        }
+
+    def test_set_relationship_repo_after_opm_swap_rewires_dispatch(self, repo):
+        """The production cold-load fix: wire `set_relationship_repo`
+        AFTER restoring the OPM from DB, so the wiring lands on the
+        OPM that record_event will mutate.
+        """
+        from poker.memory.opponent_model import OpponentModelManager
+
+        mgr = AIMemoryManager(
+            game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+        )
+        # OPM swap (cold-load step in game_routes.py).
+        mgr.opponent_model_manager = OpponentModelManager.from_dict(
+            self._saved_opponent_models_payload(),
+        )
+        # Wire AFTER the swap — this is the production fix order.
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-cash",
+        )
+
+        # Remaining cold-load steps: re-init each seat on the
+        # restored OPM, then dispatch.
+        mgr.initialize_for_player("Oscar Wilde", personality_id="oscar_wilde")
+        mgr.initialize_for_player("Jay Gatsby", personality_id="jay_gatsby")
+        mgr.initialize_for_player("Cheshire Cat", personality_id="cheshire_cat")
+        mgr.initialize_human_observer("Jeff", personality_id="guest_jeff")
+        for obs in ("Jeff", "Oscar Wilde", "Jay Gatsby", "Cheshire Cat"):
+            for opp in ("Jeff", "Oscar Wilde", "Jay Gatsby", "Cheshire Cat"):
+                if obs != opp:
+                    mgr.opponent_model_manager.get_model(obs, opp)
+
+        mgr._process_relationship_events(_four_seat_big_pot_hand())
+
+        # Personality-id-keyed rows confirm the detector's `_name_to_id`
+        # reference was re-synced to the restored OPM's registry —
+        # without that fix the detector would fall back to display
+        # names and produce 'Jeff'/'Oscar Wilde' rows instead.
+        assert repo.load_raw_relationship_state(
+            "oscar_wilde", "guest_jeff",
+        ) is not None
+        assert repo.load_cash_pair_stats(
+            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
+        ) is not None
+        # No name-keyed rows — registry resolution worked.
+        assert repo.load_raw_relationship_state("Oscar Wilde", "Jeff") is None
+
+    def test_set_relationship_repo_before_opm_swap_is_documented_break(self, repo):
+        """Defensive regression: pre-fix sequence (wire then swap)
+        silently drops the wiring on the new OPM. This test pins the
+        original failure mode so the cold-load fix in game_routes.py
+        can't accidentally revert.
+        """
+        from poker.memory.opponent_model import OpponentModelManager
+
+        mgr = AIMemoryManager(
+            game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+        )
+        mgr.set_relationship_repo(
+            repo, cash_mode=True, sandbox_id="sb-cash",
+        )
+        # Buggy order: swap AFTER wiring. The new OPM has no repo.
+        mgr.opponent_model_manager = OpponentModelManager.from_dict(
+            self._saved_opponent_models_payload(),
+        )
+        mgr.initialize_for_player("Oscar Wilde", personality_id="oscar_wilde")
+        mgr.initialize_human_observer("Jeff", personality_id="guest_jeff")
+        mgr.opponent_model_manager.get_model("Jeff", "Oscar Wilde")
+        mgr.opponent_model_manager.get_model("Oscar Wilde", "Jeff")
+
+        # Dispatch fails silently — the try/except in
+        # _process_relationship_events swallows the RuntimeError.
+        # Nothing should crash, but the surfaces stay empty.
+        mgr._process_relationship_events(_four_seat_big_pot_hand())
+        assert repo.load_raw_relationship_state(
+            "oscar_wilde", "guest_jeff",
+        ) is None
+        assert repo.load_cash_pair_stats(
+            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
+        ) is None

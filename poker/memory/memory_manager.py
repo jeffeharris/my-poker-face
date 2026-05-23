@@ -176,7 +176,16 @@ class AIMemoryManager:
                 sandbox_id=self._sandbox_id,
             )
         except Exception as e:
-            logger.warning(f"HandOutcomeDetector dispatch failed: {e}")
+            # Loud: a swallowed dispatch failure here means relationship
+            # state, cash_pair_stats, and memorable_hands all silently
+            # stop writing for the rest of the session. Log at ERROR
+            # with full traceback so the next regression surfaces in
+            # production logs instead of accumulating zero-row sessions.
+            logger.error(
+                "HandOutcomeDetector dispatch failed for hand %s: %s",
+                getattr(recorded_hand, "hand_number", "?"), e,
+                exc_info=True,
+            )
 
     def set_relationship_repo(
         self,
@@ -211,6 +220,15 @@ class AIMemoryManager:
         # Mutating directly is the documented contract — the repo is
         # an optional construction param and there's no setter yet.
         self.opponent_model_manager._relationship_repo = relationship_repo
+        # The detector holds `_name_to_id` by reference so the manager
+        # and detector see the same registry. If the OPM was swapped
+        # (cold-load restores from DB), the detector's reference still
+        # points at the old OPM's dict — re-point it now so newly
+        # registered ids resolve correctly. Idempotent when the OPM
+        # wasn't swapped: same dict identity, the assignment is a no-op.
+        self.hand_outcome_detector._name_to_id = (
+            self.opponent_model_manager._name_to_id
+        )
         self._cash_mode = cash_mode
         if cash_mode and sandbox_id is None:
             logger.warning(

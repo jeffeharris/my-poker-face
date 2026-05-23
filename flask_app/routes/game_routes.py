@@ -566,14 +566,6 @@ def api_game_state(game_id):
 
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
-                        # Phase 3: relationship state populates from hand
-                        # outcomes. Cash sessions write cash_pair_stats;
-                        # tournament sessions skip it.
-                        memory_manager.set_relationship_repo(
-                            relationship_repo,
-                            cash_mode=is_cash_game,
-                            sandbox_id=cold_load_sandbox_id,
-                        )
 
                         # Restore hand count from database
                         restored_hand_count = hand_history_repo.get_hand_count(game_id)
@@ -581,11 +573,29 @@ def api_game_state(game_id):
                             memory_manager.hand_count = restored_hand_count
                             logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
-                        # Restore opponent models from database
+                        # Restore opponent models from database. This
+                        # swaps `memory_manager.opponent_model_manager`
+                        # for a fresh instance, so any wiring on the
+                        # old OPM (relationship_repo, etc.) must be
+                        # reapplied AFTER this — see set_relationship_repo
+                        # below.
                         saved_opponent_models = game_repo.load_opponent_models(game_id)
                         if saved_opponent_models:
                             memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
                             logger.info(f"[LOAD] Restored opponent models for game {game_id}")
+
+                        # Phase 3: relationship state populates from hand
+                        # outcomes. Cash sessions write cash_pair_stats;
+                        # tournament sessions skip it. Wire AFTER the OPM
+                        # restore above so the wiring lands on the OPM
+                        # that record_event actually mutates — and so the
+                        # detector's name→id reference re-syncs to the
+                        # restored OPM's registry.
+                        memory_manager.set_relationship_repo(
+                            relationship_repo,
+                            cash_mode=is_cash_game,
+                            sandbox_id=cold_load_sandbox_id,
+                        )
 
                         for player in state_machine.game_state.players:
                             # Resolve each player's stable personality_id at
