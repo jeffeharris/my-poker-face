@@ -2911,8 +2911,21 @@ def offer_stake_to_ai():
     # so offers spread across the tier rather than always landing at
     # the canonical -001 table (which may be full). Also verifies the
     # AI isn't already seated elsewhere (global double-seat invariant).
+    #
+    # ensure_lobby_seeded backfills any tables added to LOBBY_TABLES
+    # since this sandbox's last lobby visit — without it, a player
+    # whose sandbox predates a multi-table expansion would hit a 503
+    # here even when sibling tables should exist.
     import random as _random
+    from cash_mode.lobby import ensure_lobby_seeded
     from cash_mode.tables import ai_slot
+    ensure_lobby_seeded(
+        cash_table_repo=cash_table_repo,
+        personality_repo=personality_repo,
+        bankroll_repo=bankroll_repo,
+        user_id=owner_id,
+        sandbox_id=sandbox_id,
+    )
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
     for t in all_tables:
