@@ -1,0 +1,1175 @@
+/*
+ * CharacterDetailCard — "Dossier 1972"
+ *
+ * Aged paper card on a smoky overlay. Bodoni Moda display, JetBrains
+ * Mono labels, Fraunces italic body. Nothing here is generic — the
+ * tally strips, leader dots, wax seal, and OBSERVED stamp are all
+ * pure CSS, no SVG assets.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,700;0,6..96,900;1,6..96,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+.dossier-overlay {
+  /* Scope local variables so the dossier is self-contained — drop
+     it anywhere in the app and it brings its own palette. */
+  --paper:           #ece1c8;
+  --paper-hi:        #f5ecd5;
+  --paper-lo:        #d8cbab;
+  --paper-shadow:    #a89878;
+  --ink:             #1a1410;
+  --ink-soft:        #4a3d31;
+  --ink-faint:       #7a6a55;
+  --gold-leaf:       #b08433;
+  --gold-bright:     #e2bf6f;
+  --emerald:         #1d4a3c;
+  --emerald-deep:    #0f2e25;
+  --crimson:         #8a1d22;
+  --crimson-wet:     #b22a2f;
+  --smoke:           rgba(8, 6, 4, 0.86);
+
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 48px);
+  background: radial-gradient(
+      ellipse at center,
+      rgba(20, 16, 12, 0.6) 0%,
+      rgba(6, 4, 2, 0.94) 70%
+    ),
+    linear-gradient(135deg, #0c0805 0%, #1a120a 100%);
+  font-family: 'Fraunces', Georgia, serif;
+  cursor: pointer;
+  isolation: isolate;
+}
+
+/* Film grain across the whole overlay so the card sits in atmosphere */
+.dossier-overlay__grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+
+.dossier-overlay__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(178, 130, 60, 0.06), transparent 45%),
+    radial-gradient(circle at 80% 80%, rgba(34, 14, 8, 0.55), transparent 55%);
+  mix-blend-mode: screen;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   The card itself
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier {
+  position: relative;
+  width: min(560px, 96vw);
+  max-height: min(92vh, 880px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: clamp(28px, 4vw, 44px) clamp(24px, 4vw, 40px) clamp(20px, 3vw, 32px);
+  cursor: default;
+
+  background:
+    /* faint horizontal ruled-paper hint */
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 23px,
+      rgba(120, 95, 60, 0.06) 24px
+    ),
+    /* paper warmth */
+    radial-gradient(
+      ellipse at 30% 0%,
+      var(--paper-hi) 0%,
+      var(--paper) 55%,
+      var(--paper-lo) 100%
+    );
+
+  color: var(--ink);
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255, 240, 200, 0.4) inset,
+    0 -1px 0 rgba(80, 60, 30, 0.18) inset,
+    0 24px 60px -12px rgba(0, 0, 0, 0.7),
+    0 60px 120px -30px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(80, 60, 30, 0.25);
+
+  /* Outline gold rule offset slightly from the paper edge */
+  outline: 1px solid var(--gold-leaf);
+  outline-offset: -10px;
+}
+
+/* Paper grain on the card itself, layered above the gradients */
+.dossier::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.34;
+  mix-blend-mode: multiply;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='1.7' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.27  0 0 0 0 0.17  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+  background-size: 220px 220px;
+  border-radius: inherit;
+}
+
+/* Coffee/water stain hint in one corner — adds a story */
+.dossier::after {
+  content: '';
+  position: absolute;
+  top: 14%;
+  right: -32px;
+  width: 160px;
+  height: 160px;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 30% 30%,
+    rgba(140, 90, 40, 0.18),
+    rgba(140, 90, 40, 0.08) 40%,
+    transparent 70%
+  );
+  border-radius: 50%;
+  filter: blur(2px);
+  z-index: 1;
+}
+
+/* Deco corner ornaments — arrowheads in the inner gold rule */
+.dossier__corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 2;
+}
+.dossier__corner::before,
+.dossier__corner::after {
+  content: '';
+  position: absolute;
+  background: var(--gold-leaf);
+}
+.dossier__corner::before {
+  width: 22px;
+  height: 1px;
+  top: 0;
+  left: 0;
+}
+.dossier__corner::after {
+  width: 1px;
+  height: 22px;
+  top: 0;
+  left: 0;
+}
+.dossier__corner--tl { top: 10px; left: 10px; }
+.dossier__corner--tr { top: 10px; right: 10px; transform: scaleX(-1); }
+.dossier__corner--bl { bottom: 10px; left: 10px; transform: scaleY(-1); }
+.dossier__corner--br { bottom: 10px; right: 10px; transform: scale(-1, -1); }
+
+/* The wet-ink OBSERVED stamp */
+.dossier__stamp {
+  position: absolute;
+  top: clamp(28px, 7vw, 64px);
+  right: clamp(-6px, 1vw, 22px);
+  z-index: 4;
+  padding: 8px 22px 6px;
+  border: 3px double var(--crimson);
+  color: var(--crimson);
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  pointer-events: none;
+  /* Wet-ink: subtle blot via filter + slight transparency irregularity */
+  background:
+    radial-gradient(
+      ellipse at 30% 50%,
+      rgba(178, 42, 47, 0.07),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse at 80% 70%,
+      rgba(178, 42, 47, 0.05),
+      transparent 50%
+    );
+  text-shadow:
+    0 0 1px rgba(138, 29, 34, 0.4),
+    0.5px 0 0 rgba(138, 29, 34, 0.35);
+  filter: contrast(1.05);
+}
+.dossier__stamp-inner {
+  display: block;
+  font-size: 22px;
+  line-height: 1;
+}
+.dossier__stamp-sub {
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+  letter-spacing: 0.3em;
+  opacity: 0.85;
+}
+
+/* Close button — circular ink dot with a thick × */
+.dossier__close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper-hi);
+  cursor: pointer;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 700;
+  padding: 0 0 4px;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(255, 246, 220, 0.5);
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
+}
+.dossier__close:hover {
+  background: var(--crimson-wet);
+  transform: rotate(90deg);
+}
+.dossier__close:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+
+/* "Send chat" — sits to the left of the close dot, paper-tab style. */
+.dossier__chat-btn {
+  position: absolute;
+  top: 12px;
+  right: 54px;
+  z-index: 5;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 16px;
+  background: var(--ink);
+  color: var(--paper-hi);
+  font-family: 'Fraunces', 'Bodoni Moda', serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(255, 246, 220, 0.5);
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
+}
+.dossier__chat-btn:hover {
+  background: var(--gold-bright, #c39034);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+.dossier__chat-btn:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+.dossier__chat-btn-label {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Header
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(60, 45, 25, 0.25);
+}
+
+.dossier__classification {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: var(--ink-soft);
+}
+
+.dossier__class-tag {
+  padding: 3px 8px;
+  background: var(--ink);
+  color: var(--paper-hi);
+  letter-spacing: 0.32em;
+}
+
+.dossier__class-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--gold-leaf);
+  transform: rotate(45deg);
+}
+
+.dossier__class-file {
+  color: var(--ink-soft);
+}
+
+.dossier__class-meta {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Subject (portrait + name)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__subject {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: clamp(16px, 3vw, 26px);
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.dossier__portrait-frame {
+  position: relative;
+  width: clamp(96px, 22vw, 132px);
+  height: clamp(96px, 22vw, 132px);
+}
+
+.dossier__portrait {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(135deg, #d6c8a4 0%, #b5a47b 100%);
+  border: 1px solid var(--ink);
+  outline: 3px solid var(--paper);
+  outline-offset: 0;
+  box-shadow:
+    0 0 0 4px var(--gold-leaf),
+    0 6px 14px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 900;
+  font-size: clamp(34px, 8vw, 48px);
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  /* Subtle sepia treatment over the photo */
+  filter: sepia(0.18) contrast(1.05);
+}
+
+.dossier__portrait-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+.dossier__portrait-monogram {
+  position: relative;
+  z-index: 0;
+}
+
+/* The wax seal — circle with the emotion stamped on it */
+.dossier__wax-seal {
+  position: absolute;
+  bottom: -10px;
+  right: -10px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 35% 30%, #c44249 0%, #8a1d22 55%, #5e1116 100%);
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.5),
+    inset 0 3px 4px rgba(255, 220, 200, 0.25),
+    0 3px 8px rgba(0, 0, 0, 0.45),
+    0 0 0 2px rgba(40, 8, 10, 0.6);
+  z-index: 3;
+  transform: rotate(-8deg);
+}
+.dossier__wax-seal::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(255, 220, 200, 0.4);
+  border-radius: 50%;
+}
+.dossier__wax-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe7d2;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  text-align: center;
+  line-height: 1.1;
+  max-width: 44px;
+  word-break: break-word;
+}
+
+.dossier__subject-text {
+  min-width: 0;
+}
+
+.dossier__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  color: var(--gold-leaf);
+  margin-bottom: 4px;
+}
+
+.dossier__name {
+  font-family: 'Bodoni Moda', 'Didot', serif;
+  font-weight: 900;
+  font-size: clamp(30px, 6vw, 44px);
+  line-height: 0.95;
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.dossier__nickname {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: clamp(15px, 3vw, 18px);
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* When the viewer has set a private override, hint at it with a
+   subtle dotted underline — keeps the noir styling intact but
+   makes "I named this myself" recognisable at a glance. */
+.dossier__nickname--overridden {
+  text-decoration: underline dotted var(--gold-leaf);
+  text-underline-offset: 4px;
+}
+
+/* Pencil button that flips the row into edit mode. Hides until
+   the row is hovered/focused so the dossier stays clean by default. */
+.dossier__nickname-edit {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.18s ease, color 0.18s ease;
+}
+
+.dossier__nickname:hover .dossier__nickname-edit,
+.dossier__nickname:focus-within .dossier__nickname-edit,
+.dossier__nickname-edit:focus-visible {
+  opacity: 1;
+}
+
+.dossier__nickname-edit:hover {
+  color: var(--gold-leaf);
+}
+
+/* Inline input shown in edit mode. Stays styled like the static
+   nickname (italic Fraunces) so the row doesn't visually jump
+   when you click the pencil. */
+.dossier__nickname-input {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: inherit;
+  color: var(--ink);
+  background: rgba(255, 248, 225, 0.7);
+  border: none;
+  border-bottom: 1px dashed var(--gold-leaf);
+  padding: 0 4px;
+  min-width: 8ch;
+  max-width: 24ch;
+  outline: none;
+}
+
+.dossier__nickname-input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+  opacity: 0.6;
+}
+
+.dossier__nickname-input:focus {
+  border-bottom-color: var(--gold-leaf);
+  background: rgba(255, 248, 225, 0.95);
+}
+
+.dossier__nickname-status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-style: normal;
+  margin-left: 2px;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.dossier__nickname-status--saving { color: var(--ink-faint); }
+.dossier__nickname-status--saved  { color: var(--emerald); }
+.dossier__nickname-status--error  { color: var(--crimson); }
+.dossier__nickname-status--idle   { opacity: 0; }
+
+/* "Add a nickname" affordance when the personality has no
+   canonical alias and the viewer hasn't set one yet. */
+.dossier__nickname-add {
+  background: none;
+  border: 1px dashed rgba(60, 45, 25, 0.35);
+  border-radius: 2px;
+  padding: 3px 8px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.dossier__nickname-add:hover {
+  color: var(--ink);
+  border-color: var(--gold-leaf);
+}
+
+.dossier__quote-marks {
+  color: var(--gold-leaf);
+  font-weight: 600;
+  font-size: 1.1em;
+  margin: 0 1px;
+}
+
+.dossier__archetype {
+  display: inline-block;
+  padding: 3px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  background: var(--emerald-deep);
+  color: var(--paper-hi);
+  box-shadow: 1px 1px 0 var(--gold-leaf);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Section rule (— PROFILE —)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__section-rule {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 12px;
+}
+
+.dossier__rule-line {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--gold-leaf) 30%,
+    var(--gold-leaf) 70%,
+    transparent 100%
+  );
+  position: relative;
+}
+.dossier__rule-line::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  background: var(--gold-leaf);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.dossier__rule-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  color: var(--ink-soft);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Data rows (Attitude .......... calm)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__data-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 15px;
+  position: relative;
+  z-index: 2;
+}
+
+.dossier__data-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Dotted leader line between label and value — magazine TOC trick */
+.dossier__data-leader {
+  border-bottom: 1px dotted var(--ink-faint);
+  position: relative;
+  top: -4px;
+  height: 0;
+  opacity: 0.55;
+}
+
+.dossier__data-value {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 500;
+  font-style: italic;
+  color: var(--ink);
+  text-align: right;
+  font-size: 15px;
+}
+
+.dossier__money {
+  font-family: 'Bodoni Moda', serif;
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--emerald-deep);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Tally strips — hand-tallied measurement
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__behavior {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+}
+
+.dossier__tally-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px;
+  align-items: center;
+  gap: 14px;
+}
+
+.dossier__tally-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.dossier__tally-strip {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  height: 22px;
+  padding: 2px;
+  border: 1px solid rgba(60, 45, 25, 0.35);
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(10% - 1px),
+      rgba(80, 60, 30, 0.08) calc(10% - 1px),
+      rgba(80, 60, 30, 0.08) 10%
+    ),
+    rgba(255, 248, 225, 0.4);
+}
+
+.dossier__tick {
+  background: transparent;
+  transform-origin: bottom center;
+  position: relative;
+}
+
+.dossier__tick.is-filled {
+  background: var(--ink);
+  /* Hand-inked irregularity: slight skew per tick using nth-child */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+/* Stagger tick skews so the row reads as hand-drawn, not printed */
+.dossier__tick:nth-child(3n+1).is-filled { transform: skewY(-2deg) scaleY(0.96); }
+.dossier__tick:nth-child(3n+2).is-filled { transform: skewY(1.2deg) scaleY(1); }
+.dossier__tick:nth-child(3n).is-filled   { transform: skewY(-0.6deg) scaleY(0.98); }
+
+/* Every 5th tick is the "five-bar gate" — a diagonal slash across the previous 4 */
+.dossier__tick:nth-child(5).is-filled,
+.dossier__tick:nth-child(10).is-filled {
+  background: var(--crimson);
+  box-shadow: inset 0 0 0 1px rgba(60, 0, 0, 0.5);
+}
+
+.dossier__tally-readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Affiliations — relationship tags
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__affiliation {
+  position: relative;
+  z-index: 2;
+}
+
+.dossier__rel-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.dossier__rel-tag {
+  position: relative;
+  padding: 5px 14px 5px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  background: var(--paper-hi);
+  border: 1px solid currentColor;
+  /* Manila-folder tab profile */
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px);
+}
+.dossier__rel-tag-pin {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 1px rgba(255, 240, 200, 0.5);
+}
+.dossier__rel-tag--crimson { color: var(--crimson); background: rgba(178, 42, 47, 0.08); }
+.dossier__rel-tag--gold    { color: var(--gold-leaf); background: rgba(176, 132, 51, 0.1); }
+.dossier__rel-tag--emerald { color: var(--emerald);   background: rgba(29, 74, 60, 0.08); }
+.dossier__rel-tag--ink     { color: var(--ink-soft);  background: rgba(74, 61, 49, 0.06); }
+
+.dossier__rel-note {
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Remark (italic quote)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__remark {
+  position: relative;
+  z-index: 2;
+  margin: 4px 0 14px;
+  padding: 14px 16px 14px 28px;
+  background: rgba(255, 248, 225, 0.45);
+  border-left: 3px double var(--gold-leaf);
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.dossier__remark-flourish {
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 22px;
+  color: var(--gold-leaf);
+  font-style: normal;
+  line-height: 1;
+}
+
+.dossier__remark-text {
+  display: block;
+}
+
+.dossier__remark-attrib {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Footer
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__footer {
+  position: relative;
+  z-index: 2;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(60, 45, 25, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.4em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+.dossier__footer-mark {
+  color: var(--gold-leaf);
+  font-size: 12px;
+  transform: translateY(-1px);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Scrollbar styling for the dossier itself (when content overflows)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier::-webkit-scrollbar {
+  width: 8px;
+}
+.dossier::-webkit-scrollbar-track {
+  background: rgba(80, 60, 30, 0.08);
+  border-radius: 0;
+}
+.dossier::-webkit-scrollbar-thumb {
+  background: var(--gold-leaf);
+  border: 1px solid var(--paper-lo);
+  border-radius: 0;
+}
+.dossier::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-bright);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Mobile
+   ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .dossier-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .dossier {
+    width: 100%;
+    max-height: 100vh;
+    min-height: 100vh;
+    border-radius: 0;
+    outline-offset: -8px;
+  }
+  .dossier__stamp {
+    top: 56px;
+    right: -8px;
+  }
+  .dossier__subject {
+    grid-template-columns: 1fr;
+    text-align: center;
+    justify-items: center;
+  }
+  .dossier__portrait-frame {
+    width: 110px;
+    height: 110px;
+  }
+  .dossier__tally-row {
+    grid-template-columns: 92px 1fr 44px;
+    gap: 10px;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   STANDING (relationship axes + hint)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__standing {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+}
+
+.dossier__standing-hint {
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: rgba(176, 132, 51, 0.08);
+  border-left: 2px solid var(--gold-leaf);
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dossier__standing-mark {
+  color: var(--gold-leaf);
+  font-weight: 700;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   TRACK RECORD (cash PnL + recent hands)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__track {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+}
+
+.dossier__money--pos { color: var(--emerald); }
+.dossier__money--neg { color: var(--crimson); }
+
+.dossier__hand-list {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  list-style: none;
+  background: rgba(255, 248, 225, 0.45);
+  border: 1px dashed rgba(80, 60, 30, 0.3);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.dossier__hand-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dossier__hand-bullet {
+  color: var(--gold-leaf);
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Memorable hands — one card per entry, narrative + summary */
+.dossier__memorable-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.dossier__memorable {
+  padding: 10px 12px;
+  background: rgba(255, 248, 225, 0.55);
+  border-left: 3px solid var(--gold-leaf);
+  border-top: 1px dotted rgba(80, 60, 30, 0.25);
+  border-right: 1px dotted rgba(80, 60, 30, 0.25);
+  border-bottom: 1px dotted rgba(80, 60, 30, 0.25);
+}
+
+.dossier__memorable-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.dossier__memorable-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--emerald-deep);
+  color: var(--paper-hi);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.dossier__memorable-impact {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--crimson);
+  background: rgba(178, 42, 47, 0.08);
+  padding: 2px 7px;
+  border: 1px solid var(--crimson);
+  border-radius: 1px;
+}
+
+.dossier__memorable-narrative {
+  margin: 0 0 4px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.dossier__memorable-summary {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+}
+.dossier__memorable-summary span {
+  color: var(--gold-leaf);
+  margin-right: 4px;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   FIELD NOTES (player-authored, autosaved)
+   ─────────────────────────────────────────────────────────────── */
+
+.dossier__notes {
+  position: relative;
+  z-index: 2;
+}
+
+.dossier__notes-input {
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 12px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 23px,
+      rgba(120, 95, 60, 0.18) 24px
+    ),
+    rgba(255, 248, 225, 0.65);
+  border: 1px solid rgba(60, 45, 25, 0.28);
+  border-radius: 2px;
+  resize: vertical;
+  box-shadow: inset 0 1px 0 rgba(255, 240, 200, 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dossier__notes-input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.dossier__notes-input:focus {
+  outline: none;
+  border-color: var(--gold-leaf);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 200, 0.4),
+    0 0 0 2px rgba(226, 191, 111, 0.35);
+}
+
+.dossier__notes-footer {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  min-height: 14px;
+}
+
+.dossier__notes-status {
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.dossier__notes-status--saving { color: var(--ink-faint); }
+.dossier__notes-status--saved  { color: var(--emerald); }
+.dossier__notes-status--error  { color: var(--crimson); }
+.dossier__notes-status--idle   { opacity: 0.55; }
+
+.dossier__notes-hint {
+  opacity: 0.55;
+  font-size: 9px;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Reduced motion — keep the staging but skip the springs
+   ─────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .dossier,
+  .dossier__stamp,
+  .dossier__close,
+  .dossier__tick {
+    transition: none !important;
+    animation: none !important;
+  }
+}

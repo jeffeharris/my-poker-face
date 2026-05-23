@@ -1,5 +1,5 @@
 name: post_round_salty
-version: 1.1.0
+version: 1.3.0
 sections:
   instruction: |-
     Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
@@ -7,9 +7,25 @@ sections:
     HAND INFO:
     {hand_context}
 
-    Read the HAND INFO carefully. The OUTCOME line says whether you won or lost. The recap shows street-by-street action ("You" = {player_name}), RESULT names the actual winner, and SHOWDOWN reveals cards. YOUR HAND BREAKDOWN explains which of your cards made your hand.
+    Read the HAND INFO carefully:
+      - OUTCOME — whether you won or lost.
+      - YOUR HOLE CARDS / COMMUNITY CARDS — your 2 cards and the shared board.
+      - YOUR BEST 5 CARDS — your actual best 5, tagged (yours)/(board). If a card isn't tagged (yours), it came from the board.
+      - HOLE CARDS USED — which of your hole cards were active.
+      - RIVER IMPACT — whether the river actually changed your hand. If it says "blank," don't claim a river beat unless the WINNER's hand was made on the river.
+      - WINNER / OPPONENTS AT SHOWDOWN — who took the pot and what they made. Use these to vent at the right card or opponent.
 
-    GOAL: Express FRUSTRATION. Vent about THIS specific hand. Be salty but not toxic. Reference real details from the HAND INFO — your actual cards, the street where a key card hit, or the opponent named in RESULT. Do NOT invent opponents or cards.
+    GOAL: Express FRUSTRATION. Vent about THIS specific hand. Be salty but not toxic. Reference real details — your hand from YOUR BEST 5 CARDS, the killer card from the board, or the opponent named in WINNER / OPPONENTS AT SHOWDOWN. Do NOT invent opponents, cards, or river suckouts.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Of course she rivers a flush against my set."
+    ✓ "Two pair into a runner-runner straight, classic."
+    ✓ "Kings cracked by ten-three offsuit, cool."
+
+    ✗ "Bad beat on the river" (only if RIVER IMPACT says the river changed the winning hand)
+    ✗ "Lost with quads" (don't invent your hand — check YOUR BEST 5 CARDS)
+    ✗ "Mike sucked out" (don't name opponents who aren't in WINNER / OPPONENTS AT SHOWDOWN)
 
     Keep it SHORT (10-15 words max). First person.
 

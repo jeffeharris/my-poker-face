@@ -28,8 +28,16 @@ sample_thresholds:
   #   - postflop_open_opportunities for postflop_jam_open_rate
   # Either reaching the tier's threshold satisfies the sample gate
   # for that axis.
+  # 2026-05-23: extreme dropped 120 → 40 to let the exploit fire in
+  # typical production game lengths. The original 120 came from a sim-
+  # validated "safety" but in practice meant bluff_catch_override
+  # essentially never fired against real Maniacs — they have AF clearly
+  # above threshold but sessions ended before 120 facing-bet opportunities
+  # accumulated. Production data (Jeff vs Maniac archetypes) showed huge
+  # human bb/100 wins from exactly the calls this override is supposed
+  # to make; the bot's code was right, the gate was too cautious.
   medium_min_opportunities:  60
-  extreme_min_opportunities: 120
+  extreme_min_opportunities: 40
 
 signal_thresholds:
   # All three axes are postflop-only. Preflop jammy behavior pollutes
@@ -40,8 +48,14 @@ signal_thresholds:
   # Postflop aggression factor (bet+raise+all-in / call) on
   # flop/turn/river only. Pre-cap raw-count fallback applied when
   # call_count_postflop is zero.
+  # 2026-05-23: extreme dropped 6.0 → 4.5. The 6.0 was too tight — most
+  # real Maniacs land 3.5-5.0 and never qualified EXTREME, so the
+  # bluff-catch override never engaged where it was meant to. 4.5 keeps
+  # a buffer above the medium tier (4.0) so the tier structure stays
+  # meaningful: AF in [4.0, 4.5) → MEDIUM (mild offsets), AF ≥ 4.5 →
+  # EXTREME (bluff_catch eligible).
   medium_af_postflop:     4.0
-  extreme_af_postflop:    6.0
+  extreme_af_postflop:    4.5
 
   # Response-aggression axis: all-ins per facing-bet opportunity
   # (NOT per hand, NOT per decision).

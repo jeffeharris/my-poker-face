@@ -11,11 +11,19 @@ const SHUFFLE_CARDS = Array.from({ length: 8 }, (_, i) => ({
 
 const EXIT_MS = { fade: 400, slide: 500 };
 
+export interface ShuffleQuote {
+  text: string;
+  attribution: string;
+}
+
 interface ShuffleLoadingProps {
   isVisible: boolean;
   message: string;
   submessage?: string;
   handNumber?: number;
+  /** Optional quote rendered above the shuffling deck. Parent owns selection
+   *  so the quote stays stable across re-renders. */
+  quote?: ShuffleQuote;
   /** 'overlay' (default): single full-screen layer at z-overlay.
    *  'interhand': two-layer split so avatars stay visible between layers. */
   variant?: 'overlay' | 'interhand';
@@ -37,6 +45,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   handNumber,
   variant = 'overlay',
   exitStyle = 'fade',
+  quote,
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
   // Keep component mounted during fade-out
@@ -77,6 +86,13 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   const content = (
     <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
+      {quote && (
+        <div className="shuffle-loading-quote">
+          <p className="shuffle-loading-quote-text">{quote.text}</p>
+          <p className="shuffle-loading-quote-attribution">{quote.attribution}</p>
+        </div>
+      )}
+
       <div className="shuffle-loading-deck">
         {SHUFFLE_CARDS.map((card) => (
           <div

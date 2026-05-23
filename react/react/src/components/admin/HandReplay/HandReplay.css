@@ -16,9 +16,56 @@
 
 .hand-replay-browser__controls {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.hand-replay-browser__picker {
+  display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+.hand-replay-browser__picker-label {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.hand-replay-browser__select {
+  flex: 1;
+  min-width: 280px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.hand-replay-browser__refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+}
+
+.hand-replay-browser__refresh-btn:hover:not(:disabled) {
+  color: var(--color-gold);
+  border-color: var(--color-gold);
+}
+
+.hand-replay-browser__refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .hand-replay-browser__search {

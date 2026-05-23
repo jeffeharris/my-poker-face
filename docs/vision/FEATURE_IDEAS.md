@@ -1,3 +1,10 @@
+---
+purpose: Brainstormed feature ideas and product vision — ranges from quick wins to long-horizon concepts. Implementation status tagged inline when known.
+type: vision
+created: 2025-12-01
+last_updated: 2026-05-23
+---
+
 # Feature Ideas & Brainstorming
 
 ## Tournament Narrative System
@@ -155,6 +162,48 @@ def mix_personalities(p1, p2):
 - **Bob Ross + Batman** = "The Peaceful Vigilante"
   - Calm but strategic
   - "Let's paint a happy little justice"
+
+---
+
+## Clone Yourself (Late-Game Unlock)
+
+### Overview
+Once a player has accumulated enough cash and play history, unlock the ability to **clone themselves** as an AI opponent and deploy them into the live system. The clone plays autonomously while the user is offline; **its winnings flow back to the user's bankroll** (minus a cut, or capped, or whatever balances the economy).
+
+A player's clone is built from their actual `hand_history` — VPIP, PFR, per-street AF, WtSD, 3-bet rate, sticky-call patterns. So the clone behaves *like them*, not like a generic AI. Sees Jeff at the table? You're watching yourself play.
+
+### The infrastructure already exists
+- `poker/human_clone.py:derive_profile_from_db()` builds a `CloneProfile` from any player's observed stats — fully deterministic, no LLM
+- `build_clone_strategy(profile)` produces the rule-based decision function
+- `simulate_bb100.py --clone-opponent NAME` already wires clones into the sim harness; same pattern would work for live games
+
+The hard part is the **economy mechanic**, not the cloning. Cloning is shipped.
+
+### Design questions
+- **Unlock gate**: cash threshold ($X bankroll)? Hands threshold (N hands played)? Both?
+- **Deployment limits**: 1 clone at a time? Multiple? Across multiple tables simultaneously?
+- **Earnings split**: clone keeps 100% → user (passive income), or 50/50 (clone "lives" its own life and you share), or upkeep cost (clone burns chips between sessions)?
+- **Loss handling**: clone can go broke too — does that hurt the user's bankroll, or does the clone just get sat-out?
+- **Naming**: clone shows as "Jeff_clone" / "Jeff (auto)" / clone picks own name? Other players see it as the user, an AI, or something in-between?
+- **Update frequency**: does the clone re-derive from latest hand history weekly? Or freeze at the moment of deployment? (Frozen = "your past self plays for you"; live-updating = "the clone evolves as you do")
+- **Anti-abuse**: if the clone is +EV vs the bot pool, runaway compounding. Cap winnings/day? Decay rate? Pit clones against each other so the bankroll-from-clones zero-sums across the player base?
+
+### Why it's interesting
+- **Identity mechanic**: a player's actual playing style becomes a unit of game content. You can "introduce" your clone to other players. Beat someone's clone, build a rivalry with the human behind it next session.
+- **Skill-cap escape valve**: once a player has plateaued, the clone keeps grinding so they can take a break without losing economic ground.
+- **Asymmetric multiplayer**: clones of friends populate the lobby. You sit at a table with three real friends' clones + two AI personalities. The clones still feel "like them" because they ARE derived from them.
+- **Educational mirror**: "your clone folded that hand 73% of the time when it should've called." Becomes a self-improvement loop.
+
+### Risks
+- **Privacy**: how you play poker reveals personality patterns. Deploying a clone makes that public. Opt-in only; private-clone-vs-public-clone toggle.
+- **Authenticity**: if the clone diverges from how the user plays now (because they improved), the clone becomes a stranger wearing their face. Mitigation: regular re-derivation + a "freshness" indicator.
+- **Economy balance**: clones playing 24/7 risk inflating the chip economy. Cap deployment hours, decay winnings, or require an upkeep fee.
+
+### Implementation cost (rough)
+- Clone derivation + strategy: **done** (shipped 2026-05-22/23, see `poker/human_clone.py`)
+- Live-game opponent registration (currently sim-only): ~1 day
+- Earnings-back-to-user accounting: ~1-2 days (cash mode infra exists)
+- Unlock UI + economy balancing: bulk of the work
 
 ---
 

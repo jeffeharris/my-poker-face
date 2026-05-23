@@ -1,10 +1,12 @@
-import { memo, useEffect, useState, useCallback } from "react";
+import { memo, useEffect, useState, useCallback, useMemo } from "react";
 import { PartyPopper, Smile, Angry, Handshake, ArrowLeft, Check, type LucideIcon } from "lucide-react";
 import { Card } from "../cards";
 import { gameAPI } from "../../utils/api";
 import { logger } from "../../utils/logger";
+import { config } from "../../config";
 import { getOrdinal, type BackendCard } from "../../types/tournament";
 import type { PostRoundTone, PostRoundSuggestion } from "../../types/chat";
+import type { Player } from "../../types/player";
 import "./MobileWinnerAnnouncement.css";
 
 interface PlayerShowdownInfo {
@@ -63,7 +65,15 @@ interface MobileWinnerAnnouncementProps {
     onComplete: () => void;
     gameId: string;
     playerName: string;
-    onSendMessage: (text: string) => void;
+    onSendMessage: (
+        text: string,
+        addressing?: string[],
+        tone?: string,
+        intensity?: string,
+    ) => void;
+    /** Live players with current avatar_url/avatar_emotion. Used to render
+     *  emotion-aware avatar chips next to each showdown name. */
+    players?: Player[];
 }
 
 // Tone options for winners
@@ -84,8 +94,24 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
     gameId,
     playerName,
     onSendMessage,
+    players,
 }: MobileWinnerAnnouncementProps) {
     const [showCards, setShowCards] = useState(false);
+
+    // Lookup avatar info by player name. avatar_url already encodes the
+    // current emotion (the server rewrites the URL when emotion changes).
+    // For the winner card we want the full uncropped square portrait,
+    // so force the `/full` suffix when the URL doesn't already have one.
+    const avatarByName = useMemo(() => {
+        const map = new Map<string, { url?: string; emotion?: string }>();
+        for (const p of players ?? []) {
+            const url = p.avatar_url && !p.avatar_url.endsWith('/full')
+                ? `${p.avatar_url}/full`
+                : p.avatar_url;
+            map.set(p.name, { url, emotion: p.avatar_emotion });
+        }
+        return map;
+    }, [players]);
 
     // Post-round chat state
     const [suggestions, setSuggestions] = useState<PostRoundSuggestion[]>([]);
@@ -143,8 +169,18 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         fetchSuggestions(tone);
     };
 
-    const handleSuggestionClick = (text: string) => {
-        onSendMessage(text);
+    const handleSuggestionClick = (text: string, tone: PostRoundTone) => {
+        // Post-round addressing: a loser's reaction is naturally
+        // directed at the hand's winner — derive addressing from
+        // winnerInfo so the backend can route the relationship event
+        // to the right pair. The winner's reaction (gloat/humble) is
+        // broadcast — no easy "primary loser" inference from the
+        // current props, so we leave addressing empty and the
+        // backend will skip the relationship dispatch.
+        const addressing = !playerWon && winnerInfo?.winners?.[0]
+            ? [winnerInfo.winners[0]]
+            : undefined;
+        onSendMessage(text, addressing, tone);
         setMessageSent(true);
         setSuggestions([]);
         setIsInteracting(false); // Resume auto-dismiss possibility
@@ -275,29 +311,50 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                                     .map(([showdownPlayerName, playerInfo]) => {
                                         const isWinner = winnerInfo.winners.includes(showdownPlayerName);
                                         const winAmount = playerWinnings[showdownPlayerName];
+                                        const avatar = avatarByName.get(showdownPlayerName);
                                         return (
                                             <div
                                                 key={showdownPlayerName}
                                                 className={`player-showdown ${isWinner ? 'winner' : ''}`}
                                             data-testid="player-showdown"
                                             >
-                                                <div className="showdown-player-info">
-                                                    <div className="showdown-player-header">
-                                                        <span className="showdown-player-name">
-                                                            {showdownPlayerName}
-                                                        </span>
-                                                        {winAmount > 0 && (
-                                                            <span className="showdown-player-winnings">+${winAmount}</span>
+                                                <div className="showdown-player-header">
+                                                    <span className="showdown-player-name">
+                                                        {showdownPlayerName}
+                                                    </span>
+                                                </div>
+                                                <div className="showdown-row-main">
+                                                    <div
+                                                        className="showdown-avatar"
+                                                        data-emotion={avatar?.emotion || 'neutral'}
+                                                        aria-label={`${showdownPlayerName} — ${avatar?.emotion || 'neutral'}`}
+                                                    >
+                                                        {avatar?.url ? (
+                                                            <img
+                                                                src={`${config.API_URL}${avatar.url}`}
+                                                                alt={`${showdownPlayerName} - ${avatar.emotion || 'neutral'}`}
+                                                                className="showdown-avatar-image"
+                                                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                            />
+                                                        ) : (
+                                                            <span className="showdown-avatar-initial">
+                                                                {showdownPlayerName.charAt(0).toUpperCase()}
+                                                            </span>
                                                         )}
                                                     </div>
-                                                    {playerInfo.hand_name && (
-                                                        <div className="showdown-hand-name">
-                                                            {playerInfo.hand_name}
-                                                            {playerInfo.kickers && playerInfo.kickers.length > 0 && (
-                                                                <span className="showdown-kickers"> (kicker: {playerInfo.kickers.join(', ')})</span>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                    <div className="showdown-middle">
+                                                        {playerInfo.hand_name && (
+                                                            <div className="showdown-hand-name">
+                                                                {playerInfo.hand_name}
+                                                                {playerInfo.kickers && playerInfo.kickers.length > 0 && (
+                                                                    <span className="showdown-kickers"> (kicker: {playerInfo.kickers.join(', ')})</span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        {winAmount > 0 && (
+                                                            <div className="showdown-player-winnings">+${winAmount}</div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <div className="showdown-cards-row">
                                                     {playerInfo.cards.map((card, i) => (
@@ -317,63 +374,98 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
                     </div>
                 )}
 
-                {!winnerInfo.showdown && (
-                    <div className="no-showdown-winner" data-testid="no-showdown-winner">
-                        <div className="no-showdown-name" data-testid="no-showdown-name">{winnerInfo.winners[0]}</div>
-                        <div className="no-showdown-amount" data-testid="no-showdown-amount">Wins ${totalWinnings}</div>
-                        <div className="no-showdown-text" data-testid="no-showdown-text">All opponents folded</div>
-                    </div>
-                )}
-
-                {/* Post-round quick chat section */}
-                {!messageSent && (
-                    <div className="post-round-chat">
-                        {loading ? (
-                            <div className="post-round-loading">
-                                <span className="loading-dots">Thinking</span>
+                {!winnerInfo.showdown && (() => {
+                    const winnerName = winnerInfo.winners[0];
+                    const winnerAvatar = avatarByName.get(winnerName);
+                    return (
+                        <div className="no-showdown-winner" data-testid="no-showdown-winner">
+                            <div
+                                className="no-showdown-avatar"
+                                data-emotion={winnerAvatar?.emotion || 'neutral'}
+                            >
+                                {winnerAvatar?.url ? (
+                                    <img
+                                        src={`${config.API_URL}${winnerAvatar.url}`}
+                                        alt={`${winnerName} - ${winnerAvatar.emotion || 'neutral'}`}
+                                        className="no-showdown-avatar-image"
+                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                ) : (
+                                    <span className="no-showdown-avatar-initial">
+                                        {winnerName.charAt(0).toUpperCase()}
+                                    </span>
+                                )}
                             </div>
-                        ) : suggestions.length > 0 ? (
-                            <div className="post-round-suggestions">
-                                {suggestions.map((suggestion, index) => (
-                                    <button
-                                        key={index}
-                                        className={`post-round-suggestion tone-${suggestion.tone}`}
-                                        onClick={() => handleSuggestionClick(suggestion.text)}
-                                    >
-                                        {suggestion.text}
-                                    </button>
-                                ))}
+                            <div className="no-showdown-name" data-testid="no-showdown-name">{winnerName}</div>
+                            <div className="no-showdown-amount" data-testid="no-showdown-amount">Wins ${totalWinnings}</div>
+                            <div className="no-showdown-text" data-testid="no-showdown-text">All opponents folded</div>
+                        </div>
+                    );
+                })()}
+            </div>
+
+            {/* Chat bar — sibling of the scrolling content, naturally
+                docked above the Continue button. Resizing this never
+                moves Continue. */}
+            {!messageSent && (
+                <div className="mobile-winner-chat-bar">
+                    {loading ? (
+                        <div className="post-round-loading">
+                            <span className="loading-dots">Thinking</span>
+                        </div>
+                    ) : suggestions.length > 0 ? (
+                        <div className="post-round-suggestions">
+                            <button
+                                className="post-round-back"
+                                onClick={handleBackToTones}
+                            >
+                                <ArrowLeft size={14} />
+                                <span>Change tone</span>
+                            </button>
+                            {suggestions.map((suggestion, index) => (
                                 <button
-                                    className="post-round-back"
-                                    onClick={handleBackToTones}
+                                    key={index}
+                                    className={`post-round-suggestion tone-${suggestion.tone}`}
+                                    onClick={() => handleSuggestionClick(suggestion.text, suggestion.tone)}
                                 >
-                                    <ArrowLeft size={14} /> Back
+                                    {suggestion.text}
                                 </button>
-                            </div>
-                        ) : (
-                            <div className="post-round-tones">
-                                {toneOptions.map((tone) => (
-                                    <button
-                                        key={tone.id}
-                                        className={`post-round-tone tone-${tone.id}`}
-                                        onClick={() => handleToneSelect(tone.id)}
-                                    >
-                                        <tone.icon className="tone-icon" size={18} />
-                                        <span className="tone-label">{tone.label}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="post-round-tones">
+                            {toneOptions.map((tone) => (
+                                <button
+                                    key={tone.id}
+                                    className={`post-round-tone tone-${tone.id}`}
+                                    onClick={() => handleToneSelect(tone.id)}
+                                >
+                                    <tone.icon className="tone-icon" size={18} />
+                                    <span className="tone-label">{tone.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
-                {messageSent && (
+            {messageSent && (
+                <div className="mobile-winner-chat-bar">
                     <div className="post-round-sent">
                         <Check size={14} /> Sent
                     </div>
-                )}
+                </div>
+            )}
 
-                <button className="dismiss-btn" data-testid="winner-dismiss" onClick={onComplete}>
+            {/* Continue — anchored to the bottom of the viewport. The
+                overlay is a flex column; this footer is a fixed-height
+                row that never moves. */}
+            <div className="mobile-winner-dismiss">
+                <button
+                    className="dismiss-btn"
+                    data-testid="winner-dismiss"
+                    onClick={onComplete}
+                >
                     {winnerInfo.is_final_hand ? 'Continue to Results' : 'Continue'}
                 </button>
             </div>

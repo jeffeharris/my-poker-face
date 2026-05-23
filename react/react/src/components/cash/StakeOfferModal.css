@@ -1,0 +1,385 @@
+/* StakeOfferModal — Phase 5 Commit 2.
+ *
+ * Centered modal pattern matching SponsorModal/NetWorthDrawer so the
+ * three cash surfaces share visual language. The player-as-staker
+ * flow is the inverse direction (player extends trust, AI evaluates)
+ * so the accent color shifts from gold (lender) to a cooler steel-
+ * blue (staker) — visible cue that this is the "wealthy player
+ * deploying capital" mode, not the "AI picking up your bar tab" mode.
+ */
+
+.stake-offer-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: stake-offer-modal-fade-in 0.18s ease-out;
+}
+
+@keyframes stake-offer-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.stake-offer-modal__sheet {
+  background: var(--surface-1, #1c1f25);
+  color: var(--text-primary, #f5f5f5);
+  border-radius: 16px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  animation: stake-offer-modal-slide-up 0.24s ease-out;
+}
+
+@keyframes stake-offer-modal-slide-up {
+  from {
+    transform: translateY(24px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.stake-offer-modal__header {
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stake-offer-modal__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stake-offer-modal__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #b9e0f5;
+}
+
+.stake-offer-modal__subtitle {
+  margin: 6px 0 0;
+  color: var(--text-secondary, #aaa);
+  font-size: 13px;
+}
+
+.stake-offer-modal__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.stake-offer-modal__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #f5f5f5);
+}
+
+.stake-offer-modal__body {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* --- Form fields --- */
+
+.stake-offer-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stake-offer-modal__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #aaa);
+}
+
+.stake-offer-modal__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stake-offer-modal__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #b9e0f5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Locked tier display — the tier is fixed by the candidate's
+ * comfort_zone+1; the player can't change it, so we render it as a
+ * read-only block rather than a selectable grid. */
+.stake-offer-modal__locked-tier {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface-2, #262a31);
+  border: 1px solid rgba(185, 224, 245, 0.3);
+  border-radius: 8px;
+}
+.stake-offer-modal__locked-tier-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: #b9e0f5;
+}
+.stake-offer-modal__locked-tier-meta {
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  font-variant-numeric: tabular-nums;
+}
+
+.stake-offer-modal__field-help {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary, #aaa);
+  line-height: 1.4;
+}
+
+.stake-offer-modal__hint-chip {
+  display: inline-block;
+  background: rgba(185, 224, 245, 0.12);
+  color: #b9e0f5;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-style: italic;
+}
+
+.stake-offer-modal__subtitle--muted {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #aaa);
+  font-style: italic;
+}
+
+/* Format toggle — pure vs match-share. Two equal-weight buttons. */
+.stake-offer-modal__format-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.stake-offer-modal__format {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--surface-2, #262a31);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  color: var(--text-primary, #f5f5f5);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.stake-offer-modal__format:hover:not(:disabled) {
+  background: rgba(185, 224, 245, 0.06);
+}
+.stake-offer-modal__format.is-selected {
+  background: rgba(185, 224, 245, 0.12);
+  border-color: #b9e0f5;
+}
+.stake-offer-modal__format:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.stake-offer-modal__format-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.stake-offer-modal__format-desc {
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+}
+
+/* Refusal score breakdown — two-column key/value grid. */
+.stake-offer-modal__score-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.stake-offer-modal__score-grid div:nth-child(odd) {
+  color: var(--text-secondary, #aaa);
+}
+
+/* Tier picker (legacy — kept for back-compat in case any callers
+ * still use it). Phase 5 refinement uses the locked-tier block above. */
+.stake-offer-modal__tier-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.stake-offer-modal__tier {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: var(--surface-2, #262a31);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-primary, #f5f5f5);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  font-size: 12px;
+}
+.stake-offer-modal__tier:hover:not(:disabled) {
+  background: rgba(185, 224, 245, 0.08);
+  border-color: rgba(185, 224, 245, 0.3);
+}
+.stake-offer-modal__tier.is-selected {
+  background: rgba(185, 224, 245, 0.15);
+  border-color: #b9e0f5;
+  color: #b9e0f5;
+}
+.stake-offer-modal__tier.is-locked,
+.stake-offer-modal__tier:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.stake-offer-modal__tier-label {
+  font-weight: 600;
+}
+.stake-offer-modal__tier-min {
+  color: var(--text-secondary, #aaa);
+  font-size: 10px;
+}
+
+/* Slider */
+.stake-offer-modal__slider {
+  width: 100%;
+  cursor: pointer;
+  accent-color: #b9e0f5;
+}
+.stake-offer-modal__slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.stake-offer-modal__range-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary, #aaa);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Terms summary */
+.stake-offer-modal__terms {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.stake-offer-modal__term {
+  display: flex;
+  justify-content: space-between;
+}
+
+.stake-offer-modal__term span:first-child {
+  color: var(--text-secondary, #aaa);
+}
+.stake-offer-modal__term span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary, #f5f5f5);
+}
+.stake-offer-modal__term--loss {
+  color: #fca5a5 !important;
+}
+
+/* Notice / outcome banners */
+.stake-offer-modal__notice {
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.stake-offer-modal__notice--info {
+  background: rgba(185, 224, 245, 0.12);
+  color: #b9e0f5;
+}
+.stake-offer-modal__notice--refused {
+  background: rgba(220, 90, 90, 0.12);
+  color: #ff9d9d;
+}
+.stake-offer-modal__notice--accepted {
+  background: rgba(74, 222, 128, 0.12);
+  color: #86efac;
+}
+.stake-offer-modal__notice--error {
+  background: rgba(220, 90, 90, 0.12);
+  color: #ff9d9d;
+}
+
+.stake-offer-modal__score-line {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Submit CTA */
+.stake-offer-modal__submit {
+  background: #b9e0f5;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s ease;
+  margin-top: 4px;
+}
+.stake-offer-modal__submit:hover:not(:disabled) {
+  background: #cdeaff;
+}
+.stake-offer-modal__submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.stake-offer-modal__submit.is-confirming {
+  background: #d3b95e;
+  color: #1a1a1a;
+}
+.stake-offer-modal__submit.is-confirming:hover:not(:disabled) {
+  background: #e2c870;
+}
+.stake-offer-modal__submit.is-done {
+  background: rgba(134, 239, 172, 0.85);
+  color: #1a3a1a;
+}

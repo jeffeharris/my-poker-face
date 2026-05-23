@@ -30,6 +30,17 @@ import './SponsorModal.css';
 interface SponsorModalProps {
   isOpen: boolean;
   stakeLabel: StakeLabel | null;
+  // When the sponsor flow originated from a specific seat tap on a
+  // lobby table card, pass the origin so the resulting game is built
+  // against that table's AI roster instead of a fresh sample. Omit
+  // (or pass null) when opened from a stake-level card with no seat
+  // context — the backend then runs the legacy path.
+  origin?: { tableId: string; seatIndex: number } | null;
+  // v111: user-facing name of the specific table the sponsor is
+  // targeting ("The Lodge"). Surfaced in the modal title so the
+  // player sees which table they're sponsoring at when multiple
+  // tables share a stake tier. NULL → fall back to the stake label.
+  tableName?: string | null;
   onClose: () => void;
 }
 
@@ -42,7 +53,7 @@ function offerKey(offer: SponsorOffer): string {
   return `house:${offer.archetype_id}`;
 }
 
-export function SponsorModal({ isOpen, stakeLabel, onClose }: SponsorModalProps) {
+export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }: SponsorModalProps) {
   const navigate = useNavigate();
   const [offers, setOffers] = useState<SponsorOffer[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -100,7 +111,10 @@ export function SponsorModal({ isOpen, stakeLabel, onClose }: SponsorModalProps)
           offer.kind === 'personality'
             ? { lender_id: offer.lender_id }
             : { archetype_id: offer.archetype_id };
-        const response = await sponsorAndSit(stakeLabel, acceptor);
+        const originPayload = origin
+          ? { table_id: origin.tableId, seat_index: origin.seatIndex }
+          : undefined;
+        const response = await sponsorAndSit(stakeLabel, acceptor, originPayload);
         navigate(`/game/${response.game_id}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -124,7 +138,9 @@ export function SponsorModal({ isOpen, stakeLabel, onClose }: SponsorModalProps)
         <div className="sponsor-modal__header">
           <div className="sponsor-modal__title-row">
             <h3 className="sponsor-modal__title">
-              Sponsor for the {stakeLabel} table
+              {tableName
+                ? `Sponsor for ${tableName} (${stakeLabel})`
+                : `Sponsor for the ${stakeLabel} table`}
             </h3>
             <button
               type="button"

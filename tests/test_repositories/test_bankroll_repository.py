@@ -28,9 +28,17 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     project_bankroll,
 )
-from cash_mode.lender_profile import LENDER_PROFILE_DEFAULTS, LenderProfile
+from cash_mode.staker_profile import (
+    BORROWER_PROFILE_DEFAULTS,
+    BorrowerProfile,
+    STAKER_PROFILE_DEFAULTS,
+    StakerProfile,
+)
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
+
+
+SANDBOX_ID = "test-sandbox-1"
 
 
 def _insert_personality(
@@ -39,14 +47,20 @@ def _insert_personality(
     *,
     name: str = None,
     bankroll_knobs: dict = None,
-    lender_profile: dict = None,
+    staker_profile: dict = None,
+    borrower_profile: dict = None,
+    anchors: dict = None,
 ) -> None:
-    """Helper: insert a personality row with optional bankroll_knobs / lender_profile in config_json."""
+    """Helper: insert a personality row with optional bankroll_knobs / staker_profile / borrower_profile / anchors in config_json."""
     config = {}
     if bankroll_knobs is not None:
         config["bankroll_knobs"] = bankroll_knobs
-    if lender_profile is not None:
-        config["lender_profile"] = lender_profile
+    if staker_profile is not None:
+        config["staker_profile"] = staker_profile
+    if borrower_profile is not None:
+        config["borrower_profile"] = borrower_profile
+    if anchors is not None:
+        config["anchors"] = anchors
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO personalities (name, config_json, personality_id) "
@@ -96,25 +110,38 @@ class TestSchemaMigrationV88:
         with sqlite3.connect(db_path) as conn:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
             for forbidden in (
-                "bankroll_cap", "bankroll_rate", "buy_in_multiplier",
-                "stop_loss_buy_ins", "stop_win_buy_ins", "stake_comfort_zone",
+                "starting_bankroll", "bankroll_rate", "buy_in_multiplier",
+                "stake_comfort_zone",
             ):
                 assert forbidden not in cols, (
                     f"v88 should not add {forbidden} column — knobs live in config_json"
                 )
 
     def test_ai_bankroll_pk_enforced(self, db_path):
+        # v102: composite PK (personality_id, sandbox_id); a second
+        # insert with the same pair raises IntegrityError. A second
+        # insert with a different sandbox_id is allowed (each sandbox
+        # has its own row for the same personality).
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO ai_bankroll_state (personality_id, chips) VALUES (?, ?)",
-                ("alice", 1000),
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                ("alice", "sb1", 1000),
             )
             conn.commit()
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO ai_bankroll_state (personality_id, chips) VALUES (?, ?)",
-                    ("alice", 2000),
+                    "INSERT INTO ai_bankroll_state "
+                    "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                    ("alice", "sb1", 2000),
                 )
+            # Different sandbox_id is fine — separate save-file.
+            conn.execute(
+                "INSERT INTO ai_bankroll_state "
+                "(personality_id, sandbox_id, chips) VALUES (?, ?, ?)",
+                ("alice", "sb2", 2000),
+            )
+            conn.commit()
 
     def test_idempotent_on_rerun(self, db_path):
         # Running v88 twice must be a no-op (CREATE TABLE IF NOT EXISTS
@@ -155,128 +182,13 @@ class TestSchemaMigrationV88:
             assert v88_row is not None
 
 
-class TestSchemaMigrationV89:
-    def test_player_bankroll_state_has_loan_columns(self, db_path):
-        with sqlite3.connect(db_path) as conn:
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
-            assert "active_loan_amount" in cols
-            assert "active_loan_floor" in cols
-            assert "active_loan_rate" in cols
-
-    def test_legacy_rows_default_to_no_loan(self, db_path):
-        # Insert a row using the pre-v89 column set; the new columns
-        # should default to 0/0.0/0.0 from the schema definition.
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO player_bankroll_state "
-                "(player_id, chips, starting_bankroll) VALUES (?, ?, ?)",
-                ("legacy_player", 1_500, 1_500),
-            )
-            conn.commit()
-            row = conn.execute(
-                "SELECT active_loan_amount, active_loan_floor, active_loan_rate "
-                "FROM player_bankroll_state WHERE player_id = ?",
-                ("legacy_player",),
-            ).fetchone()
-            assert row == (0, 0.0, 0.0)
-
-    def test_idempotent_on_rerun(self, db_path):
-        # Running v89 twice must be a no-op — the ALTERs are PRAGMA-guarded.
-        sm = SchemaManager.__new__(SchemaManager)
-        with sqlite3.connect(db_path) as conn:
-            sm._migrate_v89_add_loan_fields_to_player_bankroll(conn)
-            sm._migrate_v89_add_loan_fields_to_player_bankroll(conn)
-
-    def test_migrates_from_pre_v89_db(self, tmp_path):
-        """A DB at v88 should migrate up to v89 when ensure_schema runs."""
-        path = str(tmp_path / "v88.db")
-        SchemaManager(path).ensure_schema()
-        # Simulate pre-v89: drop the three loan columns by rebuilding the
-        # table with the v88 shape, then strip the v89 row.
-        with sqlite3.connect(path) as conn:
-            conn.execute("DROP TABLE player_bankroll_state")
-            conn.execute(
-                "CREATE TABLE player_bankroll_state ("
-                "player_id TEXT PRIMARY KEY, "
-                "chips INTEGER NOT NULL DEFAULT 0, "
-                "starting_bankroll INTEGER NOT NULL DEFAULT 0)"
-            )
-            conn.execute("DELETE FROM schema_version WHERE version >= 89")
-            conn.commit()
-        # Re-run ensure_schema → should re-apply v89.
-        SchemaManager(path).ensure_schema()
-        with sqlite3.connect(path) as conn:
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
-            assert "active_loan_amount" in cols
-            assert "active_loan_floor" in cols
-            assert "active_loan_rate" in cols
-            v89_row = conn.execute(
-                "SELECT description FROM schema_version WHERE version = 89"
-            ).fetchone()
-            assert v89_row is not None
-
-
-class TestSchemaMigrationV90:
-    """Path B: AI-personality sponsorship adds `active_loan_lender_id`."""
-
-    def test_player_bankroll_state_has_lender_id_column(self, db_path):
-        with sqlite3.connect(db_path) as conn:
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
-            assert "active_loan_lender_id" in cols
-
-    def test_legacy_rows_default_to_null_lender(self, db_path):
-        # Insert using the pre-v90 column set; the new column should
-        # default to NULL (= anonymous house loan, backward-compatible
-        # with v1 sponsorship semantics).
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO player_bankroll_state "
-                "(player_id, chips, starting_bankroll) VALUES (?, ?, ?)",
-                ("legacy_player", 1_500, 1_500),
-            )
-            conn.commit()
-            row = conn.execute(
-                "SELECT active_loan_lender_id "
-                "FROM player_bankroll_state WHERE player_id = ?",
-                ("legacy_player",),
-            ).fetchone()
-            assert row == (None,)
-
-    def test_idempotent_on_rerun(self, db_path):
-        # Running v90 twice must be a no-op — the ALTER is PRAGMA-guarded.
-        sm = SchemaManager.__new__(SchemaManager)
-        with sqlite3.connect(db_path) as conn:
-            sm._migrate_v90_add_lender_id_to_player_bankroll(conn)
-            sm._migrate_v90_add_lender_id_to_player_bankroll(conn)
-
-    def test_migrates_from_pre_v90_db(self, tmp_path):
-        """A DB at v89 should migrate up to v90 when ensure_schema runs."""
-        path = str(tmp_path / "v89.db")
-        SchemaManager(path).ensure_schema()
-        # Simulate pre-v90: drop the lender_id column by rebuilding the
-        # table with the v89 shape, then strip the v90 row.
-        with sqlite3.connect(path) as conn:
-            conn.execute("DROP TABLE player_bankroll_state")
-            conn.execute(
-                "CREATE TABLE player_bankroll_state ("
-                "player_id TEXT PRIMARY KEY, "
-                "chips INTEGER NOT NULL DEFAULT 0, "
-                "starting_bankroll INTEGER NOT NULL DEFAULT 0, "
-                "active_loan_amount INTEGER NOT NULL DEFAULT 0, "
-                "active_loan_floor REAL NOT NULL DEFAULT 0.0, "
-                "active_loan_rate REAL NOT NULL DEFAULT 0.0)"
-            )
-            conn.execute("DELETE FROM schema_version WHERE version >= 90")
-            conn.commit()
-        # Re-run ensure_schema → should re-apply v90.
-        SchemaManager(path).ensure_schema()
-        with sqlite3.connect(path) as conn:
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(player_bankroll_state)")}
-            assert "active_loan_lender_id" in cols
-            v90_row = conn.execute(
-                "SELECT description FROM schema_version WHERE version = 90"
-            ).fetchone()
-            assert v90_row is not None
+# NOTE: TestSchemaMigrationV89 / TestSchemaMigrationV90 (the legacy
+# active_loan_* and active_loan_lender_id column tests) were removed
+# in Cleanup B of the backing-system handoff. The columns themselves
+# get dropped in v99 (Cleanup C); the migration entries stay in the
+# schema_manager dispatch table so fresh DBs still produce them on the
+# way up, but the test surface is gone because active_loan_* is no
+# longer a public column anyone reads or writes.
 
 
 # --- AI bankroll round-trip ---
@@ -290,26 +202,29 @@ class TestAIBankrollRoundTrip:
             chips=4_200,
             last_regen_tick=tick,
         )
-        repo.save_ai_bankroll(state)
-        loaded = repo.load_ai_bankroll("napoleon")
+        repo.save_ai_bankroll(state, sandbox_id=SANDBOX_ID)
+        loaded = repo.load_ai_bankroll("napoleon", sandbox_id=SANDBOX_ID)
         assert loaded is not None
         assert loaded.personality_id == "napoleon"
         assert loaded.chips == 4_200
         assert loaded.last_regen_tick == tick
 
     def test_load_returns_none_for_unknown_personality(self, repo):
-        assert repo.load_ai_bankroll("nobody") is None
+        assert repo.load_ai_bankroll("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_save_is_upsert(self, repo):
-        repo.save_ai_bankroll(AIBankrollState("alice", 1_000))
-        repo.save_ai_bankroll(AIBankrollState("alice", 2_500))
-        loaded = repo.load_ai_bankroll("alice")
+        repo.save_ai_bankroll(AIBankrollState("alice", 1_000), sandbox_id=SANDBOX_ID)
+        repo.save_ai_bankroll(AIBankrollState("alice", 2_500), sandbox_id=SANDBOX_ID)
+        loaded = repo.load_ai_bankroll("alice", sandbox_id=SANDBOX_ID)
         assert loaded.chips == 2_500
 
     def test_null_tick_round_trips(self, repo):
         # No-event-yet state — last_regen_tick stays None
-        repo.save_ai_bankroll(AIBankrollState("seed", 5_000, last_regen_tick=None))
-        loaded = repo.load_ai_bankroll("seed")
+        repo.save_ai_bankroll(
+            AIBankrollState("seed", 5_000, last_regen_tick=None),
+            sandbox_id=SANDBOX_ID,
+        )
+        loaded = repo.load_ai_bankroll("seed", sandbox_id=SANDBOX_ID)
         assert loaded.last_regen_tick is None
         assert loaded.chips == 5_000
 
@@ -339,85 +254,10 @@ class TestPlayerBankrollRoundTrip:
         loaded = repo.load_player_bankroll("p1")
         assert loaded.chips == 500
 
-    def test_default_state_has_no_active_loan(self, repo):
-        # New PlayerBankrollState defaults the v89 loan fields to
-        # 0/0.0/0.0 — i.e., "no active loan."
-        repo.save_player_bankroll(PlayerBankrollState("p_default", 1_000, 1_000))
-        loaded = repo.load_player_bankroll("p_default")
-        assert loaded.active_loan_amount == 0
-        assert loaded.active_loan_floor == 0.0
-        assert loaded.active_loan_rate == 0.0
-
-    def test_round_trip_with_active_loan(self, repo):
-        # Loan-Shark archetype shape: $1000 loan, 1.30 floor, 40% cut.
-        state = PlayerBankrollState(
-            player_id="p_borrower",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=1_000,
-            active_loan_floor=1.30,
-            active_loan_rate=0.40,
-        )
-        repo.save_player_bankroll(state)
-        loaded = repo.load_player_bankroll("p_borrower")
-        assert loaded.active_loan_amount == 1_000
-        assert loaded.active_loan_floor == 1.30
-        assert loaded.active_loan_rate == 0.40
-
-    def test_save_clears_loan_on_settlement(self, repo):
-        # Take a loan, then settle it on leave — fields zero out.
-        repo.save_player_bankroll(PlayerBankrollState(
-            "p_settled", 0, 200, active_loan_amount=500,
-            active_loan_floor=1.10, active_loan_rate=0.25,
-        ))
-        # Simulate leave-time math clearing the loan.
-        repo.save_player_bankroll(PlayerBankrollState(
-            "p_settled", 300, 200,
-            active_loan_amount=0, active_loan_floor=0.0, active_loan_rate=0.0,
-        ))
-        loaded = repo.load_player_bankroll("p_settled")
-        assert loaded.chips == 300
-        assert loaded.active_loan_amount == 0
-        assert loaded.active_loan_floor == 0.0
-        assert loaded.active_loan_rate == 0.0
-
-    def test_default_state_has_null_lender_id(self, repo):
-        # New PlayerBankrollState defaults lender_id to None — i.e.,
-        # "if there's a loan at all, it's an anonymous house loan."
-        repo.save_player_bankroll(PlayerBankrollState("p_no_lender", 1_000, 1_000))
-        loaded = repo.load_player_bankroll("p_no_lender")
-        assert loaded.active_loan_lender_id is None
-
-    def test_round_trip_with_ai_lender(self, repo):
-        # Path B: a personality_id lands in active_loan_lender_id.
-        state = PlayerBankrollState(
-            player_id="p_napoleon_borrower",
-            chips=0,
-            starting_bankroll=200,
-            active_loan_amount=800,
-            active_loan_floor=1.20,
-            active_loan_rate=0.30,
-            active_loan_lender_id="napoleon",
-        )
-        repo.save_player_bankroll(state)
-        loaded = repo.load_player_bankroll("p_napoleon_borrower")
-        assert loaded.active_loan_lender_id == "napoleon"
-        assert loaded.active_loan_amount == 800
-
-    def test_save_clears_lender_id_on_settlement(self, repo):
-        # Path B: lender_id resets to NULL alongside the other loan fields.
-        repo.save_player_bankroll(PlayerBankrollState(
-            "p_path_b", 0, 200,
-            active_loan_amount=500, active_loan_floor=1.10,
-            active_loan_rate=0.25, active_loan_lender_id="zeus",
-        ))
-        repo.save_player_bankroll(PlayerBankrollState(
-            "p_path_b", 300, 200,
-            active_loan_amount=0, active_loan_floor=0.0,
-            active_loan_rate=0.0, active_loan_lender_id=None,
-        ))
-        loaded = repo.load_player_bankroll("p_path_b")
-        assert loaded.active_loan_lender_id is None
+    # Active-loan round-trip + clear-on-settlement tests deleted in
+    # Cleanup B — `PlayerBankrollState` no longer carries loan fields.
+    # Stake state lives in `tests/test_stake_repository.py` against the
+    # `StakeRepository` (v98 stakes table).
 
 
 # --- Personality knob loading ---
@@ -437,11 +277,9 @@ class TestPersonalityKnobs:
     def test_save_then_load_round_trip(self, db_path, repo):
         _insert_personality(db_path, "big_stack_bob", name="Big Stack Bob")
         custom = BankrollKnobs(
-            bankroll_cap=50_000,
+            starting_bankroll=50_000,
             bankroll_rate=1_000,
             buy_in_multiplier=1.5,
-            stop_loss_buy_ins=2,
-            stop_win_buy_ins=10,
             stake_comfort_zone="$200",
         )
         assert repo.save_personality_knobs("big_stack_bob", custom) is True
@@ -461,16 +299,14 @@ class TestPersonalityKnobs:
         _insert_personality(
             db_path,
             "partial_knobs",
-            bankroll_knobs={"bankroll_cap": 25_000, "stake_comfort_zone": "$50"},
+            bankroll_knobs={"starting_bankroll": 25_000, "stake_comfort_zone": "$50"},
         )
         knobs = repo.load_personality_knobs("partial_knobs")
-        assert knobs.bankroll_cap == 25_000
+        assert knobs.starting_bankroll == 25_000
         assert knobs.stake_comfort_zone == "$50"
         # Missing keys fall back to defaults
         assert knobs.bankroll_rate == BANKROLL_KNOB_DEFAULTS.bankroll_rate
         assert knobs.buy_in_multiplier == BANKROLL_KNOB_DEFAULTS.buy_in_multiplier
-        assert knobs.stop_loss_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_loss_buy_ins
-        assert knobs.stop_win_buy_ins == BANKROLL_KNOB_DEFAULTS.stop_win_buy_ins
 
     def test_save_preserves_other_config_keys(self, db_path, repo):
         # Inserting a personality with anchors etc. and then writing knobs
@@ -488,7 +324,7 @@ class TestPersonalityKnobs:
                 ("Preserved Pete", json.dumps(original_config), "preserved_pete"),
             )
             conn.commit()
-        custom = BankrollKnobs(50_000, 1_000, 1.5, 2, 10, "$200")
+        custom = BankrollKnobs(50_000, 1_000, 1.5, "$200")
         repo.save_personality_knobs("preserved_pete", custom)
         # Read raw config_json back; every original key must still be present.
         with sqlite3.connect(db_path) as conn:
@@ -500,7 +336,7 @@ class TestPersonalityKnobs:
         assert config["play_style"] == "tight aggressive"
         assert config["anchors"] == {"baseline_aggression": 0.7, "poise": 0.8}
         assert config["verbal_tics"] == ["'Show me the chips.'"]
-        assert config["bankroll_knobs"]["bankroll_cap"] == 50_000
+        assert config["bankroll_knobs"]["starting_bankroll"] == 50_000
 
     def test_load_handles_malformed_config_json(self, db_path, repo):
         # If config_json is unparseable, return defaults rather than crashing.
@@ -537,44 +373,45 @@ class TestProjectBankrollPure:
         state = AIBankrollState("seed", chips=3_000, last_regen_tick=None)
         # The "never had an event" state should project to the seed
         # value, not inflate by full elapsed time since epoch.
-        assert project_bankroll(state, cap=10_000, rate=500, now=datetime.utcnow()) == 3_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=datetime.utcnow()) == 3_000
 
     def test_within_same_day_no_regen(self):
         # Half-second elapsed → floor(rate * 5.78e-6 days) == 0 → no change.
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(seconds=1)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 1_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 1_000
 
     def test_full_day_adds_rate(self):
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=1)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 1_500
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 1_500
 
     def test_multiple_days_linear_growth(self):
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=4)
         state = AIBankrollState("a", chips=1_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 3_000
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 3_000
 
-    def test_clamps_to_cap(self):
+    def test_regen_stops_at_target(self):
+        # `starting_bankroll` is the regen target. Below it, regen
+        # accrues at `rate/day` but doesn't overshoot.
         tick = datetime(2026, 1, 1, 0, 0, 0)
         now = tick + timedelta(days=365)
         state = AIBankrollState("a", chips=8_000, last_regen_tick=tick)
-        # Without cap: 8_000 + 500 * 365 = 190_500. Cap at 10_000.
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 10_000
+        # Without target: 8_000 + 500 * 365 = 190_500. Target is 10_000.
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 10_000
 
-    def test_starting_above_cap_stays_at_value(self):
-        # An AI already above cap (e.g., from a big win) doesn't get
-        # clamped down on read; only the projection is capped. The
-        # min() means a stored value > cap reads as cap, which is the
-        # intended behavior — the cap is a hard ceiling on live
-        # eligibility, not a soft floor.
+    def test_above_target_reads_unchanged(self):
+        # `starting_bankroll` is a regen target, NOT a cap. An AI who
+        # has won past their natural-wealth tier reads back at their
+        # stored value — chips earned above the target are kept.
         tick = datetime(2026, 5, 17, 12, 0, 0)
         now = tick + timedelta(days=1)
         state = AIBankrollState("a", chips=15_000, last_regen_tick=tick)
-        assert project_bankroll(state, cap=10_000, rate=500, now=now) == 10_000
+        # Stored 15_000 > target 10_000 → no regen, no clamp.
+        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=now) == 15_000
 
 
 class TestAIBankrollCurrentReads:
@@ -584,51 +421,61 @@ class TestAIBankrollCurrentReads:
         _insert_personality(db_path, "hungry_hippo", name="Hungry Hippo")
         tick = datetime(2026, 5, 13, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)
-        repo.save_ai_bankroll(AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_current("hungry_hippo", now=now)
+        repo.save_ai_bankroll(
+            AIBankrollState("hungry_hippo", chips=1_000, last_regen_tick=tick),
+            sandbox_id=SANDBOX_ID,
+        )
+        projected = repo.load_ai_bankroll_current(
+            "hungry_hippo", sandbox_id=SANDBOX_ID, now=now,
+        )
         assert projected == 3_000
 
     def test_load_current_returns_none_for_unknown(self, repo):
-        assert repo.load_ai_bankroll_current("nobody") is None
+        assert repo.load_ai_bankroll_current("nobody", sandbox_id=SANDBOX_ID) is None
 
     def test_load_current_uses_personality_specific_cap(self, db_path, repo):
-        # Personality with bankroll_cap=2000 — should clamp tighter than default.
+        # Personality with starting_bankroll=2000 — should clamp tighter than default.
         _insert_personality(
             db_path,
             "capped_cat",
             name="Capped Cat",
-            bankroll_knobs={"bankroll_cap": 2_000, "bankroll_rate": 500},
+            bankroll_knobs={"starting_bankroll": 2_000, "bankroll_rate": 500},
         )
         tick = datetime(2026, 5, 10, 12, 0, 0)
         now = datetime(2026, 5, 17, 12, 0, 0)  # 7 days, would add 3500
-        repo.save_ai_bankroll(AIBankrollState("capped_cat", chips=500, last_regen_tick=tick))
-        projected = repo.load_ai_bankroll_current("capped_cat", now=now)
+        repo.save_ai_bankroll(
+            AIBankrollState("capped_cat", chips=500, last_regen_tick=tick),
+            sandbox_id=SANDBOX_ID,
+        )
+        projected = repo.load_ai_bankroll_current(
+            "capped_cat", sandbox_id=SANDBOX_ID, now=now,
+        )
         assert projected == 2_000
 
 
-# --- Lender profile loading (Path B) ---
+# --- Staker profile loading (Path B) ---
 
 
-class TestLenderProfile:
-    """`load_lender_profile` reads `config_json.lender_profile` with
-    per-field fallback to `LENDER_PROFILE_DEFAULTS`. Same shape as
+class TestStakerProfile:
+    """`load_staker_profile` reads `config_json.staker_profile` with
+    per-field fallback to `STAKER_PROFILE_DEFAULTS`. Same shape as
     `load_personality_knobs`."""
 
     def test_load_returns_defaults_when_row_missing(self, repo):
-        profile = repo.load_lender_profile("nonexistent_id")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("nonexistent_id")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
-    def test_load_returns_defaults_when_config_lacks_lender_profile(self, db_path, repo):
-        # Personality row exists but config_json has no lender_profile sub-dict.
+    def test_load_returns_defaults_when_config_lacks_staker_profile(self, db_path, repo):
+        # Personality row exists but config_json has no staker_profile sub-dict.
         _insert_personality(db_path, "no_profile_id")
-        profile = repo.load_lender_profile("no_profile_id")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("no_profile_id")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
     def test_load_returns_full_profile_when_present(self, db_path, repo):
         _insert_personality(
             db_path,
             "predatory_pete",
-            lender_profile={
+            staker_profile={
                 "willing": True,
                 "max_loan_pct_of_bankroll": 0.08,
                 "floor_anchor": 1.40,
@@ -637,7 +484,7 @@ class TestLenderProfile:
                 "heat_ceiling": 0.95,
             },
         )
-        profile = repo.load_lender_profile("predatory_pete")
+        profile = repo.load_staker_profile("predatory_pete")
         assert profile.willing is True
         assert profile.max_loan_pct_of_bankroll == 0.08
         assert profile.floor_anchor == 1.40
@@ -650,28 +497,28 @@ class TestLenderProfile:
         _insert_personality(
             db_path,
             "mime",
-            lender_profile={"willing": False},
+            staker_profile={"willing": False},
         )
-        profile = repo.load_lender_profile("mime")
+        profile = repo.load_staker_profile("mime")
         assert profile.willing is False
         # Missing fields fall back per-field.
-        assert profile.max_loan_pct_of_bankroll == LENDER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
+        assert profile.max_loan_pct_of_bankroll == STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
 
     def test_partial_profile_falls_back_per_field(self, db_path, repo):
         # Only floor_anchor and rate_anchor set; other fields default.
         _insert_personality(
             db_path,
             "partial",
-            lender_profile={"floor_anchor": 1.05, "rate_anchor": 0.10},
+            staker_profile={"floor_anchor": 1.05, "rate_anchor": 0.10},
         )
-        profile = repo.load_lender_profile("partial")
+        profile = repo.load_staker_profile("partial")
         assert profile.floor_anchor == 1.05
         assert profile.rate_anchor == 0.10
         # The rest pulled from defaults.
-        assert profile.willing == LENDER_PROFILE_DEFAULTS.willing
-        assert profile.max_loan_pct_of_bankroll == LENDER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
-        assert profile.respect_floor == LENDER_PROFILE_DEFAULTS.respect_floor
-        assert profile.heat_ceiling == LENDER_PROFILE_DEFAULTS.heat_ceiling
+        assert profile.willing == STAKER_PROFILE_DEFAULTS.willing
+        assert profile.max_loan_pct_of_bankroll == STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll
+        assert profile.respect_floor == STAKER_PROFILE_DEFAULTS.respect_floor
+        assert profile.heat_ceiling == STAKER_PROFILE_DEFAULTS.heat_ceiling
 
     def test_load_handles_malformed_json(self, db_path, repo):
         # Malformed config_json → defaults (logged warning).
@@ -682,17 +529,291 @@ class TestLenderProfile:
                 ("Bad JSON", "{not valid", "bad_json"),
             )
             conn.commit()
-        profile = repo.load_lender_profile("bad_json")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("bad_json")
+        assert profile == STAKER_PROFILE_DEFAULTS
 
-    def test_load_handles_non_dict_lender_profile(self, db_path, repo):
-        # lender_profile sub-key isn't a dict → defaults.
+    def test_load_handles_non_dict_staker_profile(self, db_path, repo):
+        # staker_profile sub-key isn't a dict → defaults.
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "INSERT INTO personalities (name, config_json, personality_id) "
                 "VALUES (?, ?, ?)",
-                ("Wrong Type", json.dumps({"lender_profile": "oops"}), "wrong_type_lp"),
+                ("Wrong Type", json.dumps({"staker_profile": "oops"}), "wrong_type_lp"),
             )
             conn.commit()
-        profile = repo.load_lender_profile("wrong_type_lp")
-        assert profile == LENDER_PROFILE_DEFAULTS
+        profile = repo.load_staker_profile("wrong_type_lp")
+        assert profile == STAKER_PROFILE_DEFAULTS
+
+
+# --- Borrower profile loading (Phase 4 of the backing system) ---
+
+
+class TestBorrowerProfile:
+    """`load_borrower_profile` reads `config_json.borrower_profile` with
+    per-field fallback to `BORROWER_PROFILE_DEFAULTS`. Mirror of
+    `load_staker_profile` for "does this AI accept stakes when bust?"."""
+
+    def test_load_returns_defaults_when_row_missing(self, repo):
+        profile = repo.load_borrower_profile("nonexistent_id")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+        # Defaults to willing — most AIs accept a stake to avoid bust.
+        assert profile.willing is True
+
+    def test_load_returns_defaults_when_config_lacks_borrower_profile(self, db_path, repo):
+        _insert_personality(db_path, "no_bp_id")
+        profile = repo.load_borrower_profile("no_bp_id")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_load_returns_stoic_unwilling_borrower(self, db_path, repo):
+        # Stoic personalities (Lincoln, Buddha) refuse stakes.
+        _insert_personality(
+            db_path, "buddha",
+            borrower_profile={"willing": False},
+        )
+        profile = repo.load_borrower_profile("buddha")
+        assert profile.willing is False
+
+    def test_load_explicit_willing_true_round_trips(self, db_path, repo):
+        # Most personalities default to willing=True; an explicit override
+        # is preserved through the read path.
+        _insert_personality(
+            db_path, "napoleon",
+            borrower_profile={"willing": True},
+        )
+        profile = repo.load_borrower_profile("napoleon")
+        assert profile.willing is True
+
+    def test_load_handles_malformed_json(self, db_path, repo):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Bad JSON", "{not valid", "bad_json_bp"),
+            )
+            conn.commit()
+        profile = repo.load_borrower_profile("bad_json_bp")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_load_handles_non_dict_borrower_profile(self, db_path, repo):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO personalities (name, config_json, personality_id) "
+                "VALUES (?, ?, ?)",
+                ("Wrong Type", json.dumps({"borrower_profile": "oops"}), "wrong_type_bp"),
+            )
+            conn.commit()
+        profile = repo.load_borrower_profile("wrong_type_bp")
+        assert profile == BORROWER_PROFILE_DEFAULTS
+
+    def test_lender_and_borrower_profiles_independent(self, db_path, repo):
+        # A personality can be a willing lender AND unwilling borrower
+        # (Lincoln-like: principled about giving help but not asking).
+        _insert_personality(
+            db_path, "principled_lincoln",
+            staker_profile={"willing": True, "max_loan_pct_of_bankroll": 0.15},
+            borrower_profile={"willing": False},
+        )
+        lender = repo.load_staker_profile("principled_lincoln")
+        borrower = repo.load_borrower_profile("principled_lincoln")
+        assert lender.willing is True
+        assert borrower.willing is False
+
+
+class TestAspirationCooldown:
+    """`load_aspiration_cooldown_until` / `save_aspiration_cooldown_until`
+    on the `ai_bankroll_state` v107 column. Per-AI rate limiting for
+    aspiration_ask triggers. Spec:
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 3.
+    """
+
+    def test_default_is_none(self, repo):
+        # No row → no cooldown.
+        assert repo.load_aspiration_cooldown_until(
+            "missing", sandbox_id="sb",
+        ) is None
+
+    def test_round_trips_timestamp(self, repo):
+        # Seed a bankroll row, stamp cooldown, read it back.
+        from cash_mode.bankroll import AIBankrollState
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="zeus",
+                chips=10_000,
+                last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+            ),
+            sandbox_id="sb1",
+        )
+        target = datetime(2026, 5, 22, 12, 30, 45)
+        ok = repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=target,
+        )
+        assert ok is True
+        loaded = repo.load_aspiration_cooldown_until("zeus", sandbox_id="sb1")
+        assert loaded == target
+
+    def test_save_none_clears_cooldown(self, repo):
+        from cash_mode.bankroll import AIBankrollState
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="zeus",
+                chips=10_000,
+                last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+            ),
+            sandbox_id="sb1",
+        )
+        repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=datetime(2026, 5, 22, 11, 0, 0),
+        )
+        ok = repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1", until=None,
+        )
+        assert ok is True
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb1",
+        ) is None
+
+    def test_save_returns_false_without_row(self, repo):
+        # No bankroll row → cannot stamp cooldown.
+        assert repo.save_aspiration_cooldown_until(
+            "ghost", sandbox_id="sb1", until=datetime(2026, 5, 22),
+        ) is False
+
+    def test_sandbox_scoped(self, repo):
+        # Same pid in two sandboxes has independent cooldowns.
+        from cash_mode.bankroll import AIBankrollState
+        for sandbox_id in ("sb_a", "sb_b"):
+            repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id="zeus",
+                    chips=10_000,
+                    last_regen_tick=datetime(2026, 5, 22, 10, 0, 0),
+                ),
+                sandbox_id=sandbox_id,
+            )
+        repo.save_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_a", until=datetime(2026, 5, 22, 12, 0, 0),
+        )
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_a",
+        ) == datetime(2026, 5, 22, 12, 0, 0)
+        assert repo.load_aspiration_cooldown_until(
+            "zeus", sandbox_id="sb_b",
+        ) is None
+
+
+class TestBorrowerProfileAspirationBias:
+    """`load_borrower_profile.aspiration_bias` — anchor-derived with
+    explicit-override and willing=False suppression. Spec:
+    `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 1.
+    """
+
+    def test_defaults_when_no_anchors_or_override(self, db_path, repo):
+        _insert_personality(db_path, "plain")
+        profile = repo.load_borrower_profile("plain")
+        assert profile.aspiration_bias == 0.5
+
+    def test_derived_from_ego_and_risk_identity(self, db_path, repo):
+        # 0.6 × 0.86 + 0.4 × 0.90 = 0.876 — Napoleon-class climber.
+        _insert_personality(
+            db_path, "napoleon",
+            anchors={"ego": 0.86, "risk_identity": 0.90},
+        )
+        profile = repo.load_borrower_profile("napoleon")
+        assert profile.aspiration_bias == pytest.approx(0.876)
+
+    def test_derived_low_for_humble_and_cautious(self, db_path, repo):
+        # 0.6 × 0.36 + 0.4 × 0.38 = 0.368 — Lincoln-class grinder.
+        _insert_personality(
+            db_path, "lincoln",
+            anchors={"ego": 0.36, "risk_identity": 0.38},
+        )
+        profile = repo.load_borrower_profile("lincoln")
+        assert profile.aspiration_bias == pytest.approx(0.368)
+
+    def test_explicit_override_wins(self, db_path, repo):
+        # Explicit JSON override beats the anchor-derived value.
+        _insert_personality(
+            db_path, "fixed_climber",
+            anchors={"ego": 0.20, "risk_identity": 0.20},  # would derive low
+            borrower_profile={"aspiration_bias": 0.95},
+        )
+        profile = repo.load_borrower_profile("fixed_climber")
+        assert profile.aspiration_bias == 0.95
+
+    def test_override_clamped_to_unit_interval(self, db_path, repo):
+        # Out-of-range overrides clamp rather than crash.
+        _insert_personality(
+            db_path, "loud_one",
+            borrower_profile={"aspiration_bias": 1.5},
+        )
+        assert repo.load_borrower_profile("loud_one").aspiration_bias == 1.0
+        _insert_personality(
+            db_path, "quiet_one",
+            borrower_profile={"aspiration_bias": -0.4},
+        )
+        assert repo.load_borrower_profile("quiet_one").aspiration_bias == 0.0
+
+    def test_willing_false_forces_zero(self, db_path, repo):
+        # Locked decision: refusing stakes ⟹ never aspires.
+        # The anchor values would otherwise derive a high bias.
+        _insert_personality(
+            db_path, "buddha",
+            anchors={"ego": 0.90, "risk_identity": 0.90},
+            borrower_profile={"willing": False, "aspiration_bias": 0.95},
+        )
+        profile = repo.load_borrower_profile("buddha")
+        assert profile.willing is False
+        assert profile.aspiration_bias == 0.0
+
+    def test_partial_anchors_fall_back_to_default(self, db_path, repo):
+        # Anchors dict present but missing risk_identity → default.
+        _insert_personality(
+            db_path, "ego_only",
+            anchors={"ego": 0.86},
+        )
+        profile = repo.load_borrower_profile("ego_only")
+        assert profile.aspiration_bias == 0.5
+
+    def test_non_numeric_override_falls_back_to_default(self, db_path, repo):
+        _insert_personality(
+            db_path, "bad_override",
+            borrower_profile={"aspiration_bias": "high"},
+        )
+        profile = repo.load_borrower_profile("bad_override")
+        assert profile.aspiration_bias == 0.5
+
+    def test_save_round_trips_explicit_value(self, db_path, repo):
+        _insert_personality(db_path, "saveme")
+        ok = repo.save_borrower_profile(
+            "saveme",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=0.77,
+        )
+        assert ok is True
+        assert repo.load_borrower_profile("saveme").aspiration_bias == 0.77
+
+    def test_save_none_clears_override(self, db_path, repo):
+        # Storing an explicit value then clearing it returns to default.
+        _insert_personality(
+            db_path, "togglable",
+            borrower_profile={"aspiration_bias": 0.9},
+        )
+        repo.save_borrower_profile(
+            "togglable",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=None,
+        )
+        # No anchors → falls through to default.
+        assert repo.load_borrower_profile("togglable").aspiration_bias == 0.5
+
+    def test_save_clamps_out_of_range(self, db_path, repo):
+        _insert_personality(db_path, "extreme")
+        repo.save_borrower_profile(
+            "extreme",
+            willing=True,
+            willingness_threshold=None,
+            aspiration_bias=2.0,
+        )
+        assert repo.load_borrower_profile("extreme").aspiration_bias == 1.0

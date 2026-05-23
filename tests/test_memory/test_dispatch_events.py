@@ -187,10 +187,11 @@ class TestDispatchUpdatesCashPairStats:
             events, manager,
             cash_pair_repo=repo,
             hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            sandbox_id="sb-1",
         )
         # alice's POV: +400 (her net win from bob).
-        alice_stats = repo.load_cash_pair_stats("alice", "bob")
-        bob_stats = repo.load_cash_pair_stats("bob", "alice")
+        alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
+        bob_stats = repo.load_cash_pair_stats("bob", "alice", sandbox_id="sb-1")
         assert alice_stats.cumulative_pnl == 400
         assert alice_stats.hands_played_cash == 1
         assert bob_stats.cumulative_pnl == -400
@@ -209,9 +210,10 @@ class TestDispatchUpdatesCashPairStats:
                 cash_pair_repo=repo,
                 hand_id=hand_num,
                 now=datetime(2026, 5, 18, 12, 0),
+                sandbox_id="sb-1",
             )
-        alice_stats = repo.load_cash_pair_stats("alice", "bob")
-        bob_stats = repo.load_cash_pair_stats("bob", "alice")
+        alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
+        bob_stats = repo.load_cash_pair_stats("bob", "alice", sandbox_id="sb-1")
         assert alice_stats.cumulative_pnl == 800   # 400 × 2
         assert alice_stats.hands_played_cash == 2
         assert bob_stats.cumulative_pnl == -800
@@ -231,8 +233,9 @@ class TestDispatchUpdatesCashPairStats:
             events, manager,
             cash_pair_repo=repo,
             hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            sandbox_id="sb-1",
         )
-        alice_stats = repo.load_cash_pair_stats("alice", "bob")
+        alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
         # If BIG_LOSS were processed too, alice's PnL would be
         # +400 - (-400) = +800 (or +400 + (-400) = 0, depending on
         # how the sign was handled). Either way, double-processing
@@ -260,15 +263,34 @@ class TestDispatchUpdatesCashPairStats:
             events, manager,
             cash_pair_repo=repo,
             hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            sandbox_id="sb-1",
         )
 
         # alice's PnL vs each loser: +300 each.
-        assert repo.load_cash_pair_stats("alice", "bob").cumulative_pnl == 300
-        assert repo.load_cash_pair_stats("alice", "carol").cumulative_pnl == 300
+        assert repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1").cumulative_pnl == 300
+        assert repo.load_cash_pair_stats("alice", "carol", sandbox_id="sb-1").cumulative_pnl == 300
         # Mirror rows: -300.
-        assert repo.load_cash_pair_stats("bob", "alice").cumulative_pnl == -300
-        assert repo.load_cash_pair_stats("carol", "alice").cumulative_pnl == -300
+        assert repo.load_cash_pair_stats("bob", "alice", sandbox_id="sb-1").cumulative_pnl == -300
+        assert repo.load_cash_pair_stats("carol", "alice", sandbox_id="sb-1").cumulative_pnl == -300
         # bob and carol have no row vs each other — they never won
         # or lost to each other directly.
-        assert repo.load_cash_pair_stats("bob", "carol") is None
-        assert repo.load_cash_pair_stats("carol", "bob") is None
+        assert repo.load_cash_pair_stats("bob", "carol", sandbox_id="sb-1") is None
+        assert repo.load_cash_pair_stats("carol", "bob", sandbox_id="sb-1") is None
+
+    def test_missing_sandbox_skips_cash_writes(self, manager, repo):
+        # Defensive: dispatch_events with cash_pair_repo wired but no
+        # sandbox_id is a misconfiguration. Refuse to write rather than
+        # silently lump rows into an empty-string bucket the admin
+        # filter can't surface.
+        events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
+        dispatch_events(
+            events, manager,
+            cash_pair_repo=repo,
+            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            # sandbox_id omitted
+        )
+        # Relationship axis writes still happen.
+        assert repo.load_raw_relationship_state("alice", "bob") is not None
+        # Cash pair stats stay empty.
+        assert repo.load_cash_pair_stats("alice", "bob") is None
+        assert repo.load_cash_pair_stats("bob", "alice") is None

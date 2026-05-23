@@ -307,7 +307,7 @@ class TestHandleSendMessageAuth:
             'message_type': 'user',
         })
 
-        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user')
+        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user', addressing=None)
 
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
@@ -325,7 +325,7 @@ class TestHandleSendMessageAuth:
                 'message_type': 'user',
             })
 
-        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user')
+        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user', addressing=None)
 
 
 class TestProgressGameSocketAuth:

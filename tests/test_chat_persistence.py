@@ -385,10 +385,11 @@ class TestChatEndpoints(unittest.TestCase):
     def test_archive_chat_session_endpoint(self):
         """Test archiving a chat session via API."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
-            # First save a session directly
+            # Owner must match the authenticated user (admin-user-1 in setUp)
+            # — the route gates archive on owner match (T1-27).
             self.experiment_repo.save_chat_session(
                 session_id='test_archive_session',
-                owner_id='anonymous',
+                owner_id='admin-user-1',
                 messages=[{'role': 'user', 'content': 'Test'}],
                 config_snapshot={'name': 'test'},
             )

@@ -216,7 +216,16 @@ class DecisionAnalyzer:
         # analysis.ev_lost = 0 if correct, else EV difference
     """
 
-    VERSION = "1.0"
+    VERSION = "2.0"
+
+    @staticmethod
+    def _effective_equity(analysis: 'DecisionAnalysis') -> Optional[float]:
+        # Range-based equity is more accurate; vs-random tends to overestimate
+        # hero's chances against typical AI ranges. Fall back when ranges
+        # weren't computed (e.g., no opponent_infos passed).
+        if analysis.equity_vs_ranges is not None:
+            return analysis.equity_vs_ranges
+        return analysis.equity
 
     def __init__(self, iterations: int = 2000):
         """
@@ -444,7 +453,8 @@ class DecisionAnalyzer:
         # Calculate required equity and EV
         if cost_to_call > 0 and pot_total > 0:
             analysis.required_equity = cost_to_call / (pot_total + cost_to_call)
-            if analysis.equity is not None:
+            eq_for_ev = self._effective_equity(analysis)
+            if eq_for_ev is not None:
                 # Use max_winnable for accurate short-stack EV calculation
                 # Falls back to pot_total when max_winnable isn't calculated
                 winnable_pot = analysis.max_winnable if analysis.max_winnable is not None else pot_total
@@ -453,8 +463,8 @@ class DecisionAnalyzer:
                 # EV(call) = (equity * winnable_pot) - ((1-equity) * call_cost)
                 # Note: cost_to_call is already capped at player_stack by caller
                 effective_call = min(cost_to_call, player_stack)
-                analysis.ev_call = (analysis.equity * winnable_pot) - (
-                    (1 - analysis.equity) * effective_call
+                analysis.ev_call = (eq_for_ev * winnable_pot) - (
+                    (1 - eq_for_ev) * effective_call
                 )
         else:
             # Free check - no cost to see more cards
@@ -682,14 +692,15 @@ class DecisionAnalyzer:
             analysis.optimal_action = "check"
             analysis.decision_quality = "mistake"
             analysis.quality_score = 0.0
-            if analysis.equity is not None and analysis.pot_total > 0:
+            eq = self._effective_equity(analysis)
+            if eq is not None and analysis.pot_total > 0:
                 # EV lost = your equity share of the pot you're abandoning
-                analysis.ev_lost = analysis.equity * analysis.pot_total
+                analysis.ev_lost = eq * analysis.pot_total
             else:
                 analysis.ev_lost = 0  # Can't calculate without equity
             return
 
-        equity = analysis.equity or 0
+        equity = self._effective_equity(analysis) or 0
         num_opponents = analysis.num_opponents or 1
         phase = analysis.phase
 

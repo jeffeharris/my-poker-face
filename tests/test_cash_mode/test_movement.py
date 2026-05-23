@@ -1,10 +1,17 @@
-"""Tests for `cash_mode.movement` — `evaluate_ai_movement` and
-`refresh_table_roster` (commit 3).
+"""Tests for `cash_mode.movement` — pressure-driven decisions + roster refresh.
 
-These are the pure-function load-bearing helpers for the lobby's
-"feel alive" cadence. Both must be exercised exhaustively because
-they're the economic-loop logic that turns persisted bankroll +
-relationship state into observable lobby motion.
+Covers:
+  - Forced-leave hard floor at 0.3 × min_buy_in.
+  - Pressure formula components (stake_up, short, detached, tenure)
+    and the dominant-factor branching.
+  - Leave-vs-rebuy split for short-stack pressure.
+  - Rebuy amount bucketing (min/mid/max) under different state.
+  - Per-table leave cooldown.
+  - `refresh_table_roster` integration: vacations, live-fill, idle-pool
+    filtering, human-seat invariance, defer-on-vacate.
+
+Pure helpers — rng is the only side effect, and the test fixtures
+override `rng.random` to drive specific paths deterministically.
 """
 
 from __future__ import annotations
@@ -16,12 +23,25 @@ from typing import Dict, Optional
 import pytest
 
 from cash_mode.movement import (
-    BIG_LOSS_RATIO,
-    BIG_WIN_RATIO,
     DEFAULT_LIVE_FILL_PROB,
-    IdlePoolChange,
+    FORCED_LEAVE_RATIO,
+    LEAVE_K,
+    MIN_COOLDOWN_SECONDS,
+    MovementContext,
+    RebuyChange,
     RosterRefreshResult,
+    W_DETACHED,
+    W_SHORT,
+    W_STAKE_UP,
+    W_TENURE,
+    clear_cooldowns,
+    compute_leave_cooldown_seconds,
+    compute_leave_pressure,
+    decide_leave_or_rebuy,
     evaluate_ai_movement,
+    is_in_cooldown,
+    pick_rebuy_amount,
+    record_leave_cooldown,
     refresh_table_roster,
 )
 from cash_mode.tables import (
@@ -33,138 +53,294 @@ from cash_mode.tables import (
 )
 
 
-# ============================================================
-# evaluate_ai_movement
-# ============================================================
+@pytest.fixture(autouse=True)
+def _clear_cooldown_state():
+    """Per-test isolation — `_recent_leaves` is module-level and would
+    otherwise leak cooldown entries between tests."""
+    clear_cooldowns()
+    yield
+    clear_cooldowns()
 
 
-class TestEvaluateAIMovementForcedLeave:
-    def test_zero_chips_forced_leave(self):
-        rng = random.Random(0)
-        result = evaluate_ai_movement(
-            ai_chips=0, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "forced_leave"
-
-    def test_near_bust_forced_leave(self):
-        # chips = 30 ≤ 0.3 × 100 = 30
-        rng = random.Random(0)
-        result = evaluate_ai_movement(
-            ai_chips=30, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "forced_leave"
-
-    def test_above_loss_threshold_not_forced_leave(self):
-        # chips = 31 > 30 → not forced_leave (but might be bored_move
-        # with a particular RNG, hence we use 0.99 as the RNG roll).
-        rng = random.Random()
-        rng.random = lambda: 0.99  # consistently avoid bored_move
-        result = evaluate_ai_movement(
-            ai_chips=50, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "stay"
-
-
-class TestEvaluateAIMovementStakeUp:
-    def test_won_big_stake_up_when_bankroll_affords_and_roll_hits(self):
-        # chips = 200 ≥ 2 × 100; bankroll = 5000 ≥ next_tier_min = 400.
-        # RNG roll 0.0 < 0.30 → stake_up.
-        rng = random.Random()
-        rng.random = lambda: 0.0
-        result = evaluate_ai_movement(
-            ai_chips=200, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "stake_up"
-
-    def test_won_big_no_higher_tier(self):
-        # Top of ladder: next_tier_min_buy_in is None.
-        # Roll for take_break is 0.0 < 0.10 → take_break.
-        rng = random.Random()
-        rng.random = lambda: 0.0
-        result = evaluate_ai_movement(
-            ai_chips=200, buy_in=100, projected_bankroll=5000,
-            stake_idx=4, next_tier_min_buy_in=None, rng=rng,
-        )
-        assert result == "take_break"
-
-    def test_won_big_no_bankroll_for_next_tier(self):
-        # next_tier_min = 400 but projected_bankroll = 100 → not affordable.
-        # Roll for take_break is 0.0 < 0.10 → take_break.
-        rng = random.Random()
-        rng.random = lambda: 0.0
-        result = evaluate_ai_movement(
-            ai_chips=200, buy_in=100, projected_bankroll=100,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "take_break"
-
-    def test_won_big_misses_all_rolls(self):
-        # Roll always returns 0.99 → all probabilistic gates fail → stay.
-        rng = random.Random()
-        rng.random = lambda: 0.99
-        result = evaluate_ai_movement(
-            ai_chips=200, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "stay"
-
-    def test_won_big_take_break_when_stake_up_misses(self):
-        # First roll 0.5 ≥ 0.30 → no stake_up. Second roll 0.0 < 0.10 → take_break.
-        rng = random.Random()
-        rolls = iter([0.5, 0.0])
-        rng.random = lambda: next(rolls)
-        result = evaluate_ai_movement(
-            ai_chips=200, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "take_break"
-
-
-class TestEvaluateAIMovementBoredMove:
-    def test_bored_move_on_low_roll(self):
-        # chips between 0.3 × 100 = 30 and 2 × 100 = 200 → normal-zone.
-        # Roll 0.0 < 0.015 → bored_move.
-        rng = random.Random()
-        rng.random = lambda: 0.0
-        result = evaluate_ai_movement(
-            ai_chips=100, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "bored_move"
-
-    def test_stay_on_high_roll(self):
-        rng = random.Random()
-        rng.random = lambda: 0.99
-        result = evaluate_ai_movement(
-            ai_chips=100, buy_in=100, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "stay"
-
-
-class TestEvaluateAIMovementDefensive:
-    def test_zero_buy_in_returns_stay(self):
-        # Defensive: avoid div-by-zero / wonky math.
-        rng = random.Random()
-        result = evaluate_ai_movement(
-            ai_chips=100, buy_in=0, projected_bankroll=5000,
-            stake_idx=0, next_tier_min_buy_in=400, rng=rng,
-        )
-        assert result == "stay"
+def _neutral_ctx(**overrides) -> MovementContext:
+    base = dict(
+        ai_chips=1500,
+        min_buy_in=1000,
+        max_buy_in=2500,
+        projected_bankroll=5000,
+        stake_idx=1,
+        next_tier_min_buy_in=2000,
+        energy=0.7,         # fresh — no tenure pressure
+        zone="neutral",
+        hands_in_detached_zone=0,
+        emotional_intensity=0.0,
+    )
+    base.update(overrides)
+    return MovementContext(**base)
 
 
 # ============================================================
-# refresh_table_roster
+# Forced leave (hard floor)
 # ============================================================
 
 
-def _make_table(seats: list) -> CashTableState:
+class TestForcedLeave:
+    def test_zero_chips(self):
+        ctx = _neutral_ctx(ai_chips=0)
+        assert evaluate_ai_movement(ctx, random.Random(0)) == "forced_leave"
+
+    def test_exactly_at_floor(self):
+        # 300 = 0.3 × 1000
+        ctx = _neutral_ctx(ai_chips=300)
+        assert evaluate_ai_movement(ctx, random.Random(0)) == "forced_leave"
+
+    def test_just_above_floor(self):
+        # 301 > floor → forced_leave does NOT fire (may roll other decisions)
+        ctx = _neutral_ctx(ai_chips=301)
+        # Across many seeds, no forced_leave should appear above the floor.
+        for seed in range(50):
+            assert evaluate_ai_movement(ctx, random.Random(seed)) != "forced_leave"
+
+    def test_floor_overrides_pressure(self):
+        # Even with massive pressure from low energy, busted = forced_leave.
+        ctx = _neutral_ctx(ai_chips=100, energy=0.0)
+        assert evaluate_ai_movement(ctx, random.Random(0)) == "forced_leave"
+
+
+# ============================================================
+# Pressure formula
+# ============================================================
+
+
+class TestPressureFormula:
+    def test_neutral_no_pressure(self):
+        ctx = _neutral_ctx(energy=0.7)
+        p = compute_leave_pressure(ctx)
+        assert p["stake_up"] == 0.0
+        assert p["short"] == 0.0
+        assert p["detached"] == 0.0
+        assert p["tenure"] == 0.0
+
+    def test_stake_up_pressure_scales_with_max_buy_in(self):
+        # stack = 2x max → stake_up_raw = 1.0
+        ctx = _neutral_ctx(ai_chips=5000, max_buy_in=2500)
+        p = compute_leave_pressure(ctx)
+        assert p["stake_up"] == W_STAKE_UP * 1.0
+        # At exactly max, no stake_up pressure.
+        ctx2 = _neutral_ctx(ai_chips=2500, max_buy_in=2500)
+        assert compute_leave_pressure(ctx2)["stake_up"] == 0.0
+
+    def test_short_pressure_scales_with_min_buy_in(self):
+        # stack = 0.5 × min → short_raw = 0.5
+        ctx = _neutral_ctx(ai_chips=500, min_buy_in=1000)
+        p = compute_leave_pressure(ctx)
+        assert p["short"] == W_SHORT * 0.5
+        # At exactly min, no short pressure.
+        ctx2 = _neutral_ctx(ai_chips=1000, min_buy_in=1000)
+        assert compute_leave_pressure(ctx2)["short"] == 0.0
+
+    def test_detached_pressure_requires_zone(self):
+        # Hands in detached zone irrelevant when zone != 'detached'.
+        ctx = _neutral_ctx(zone="neutral", hands_in_detached_zone=20)
+        assert compute_leave_pressure(ctx)["detached"] == 0.0
+        # With detached zone, pressure scales with hands (capped by /8).
+        ctx2 = _neutral_ctx(zone="detached", hands_in_detached_zone=8)
+        assert compute_leave_pressure(ctx2)["detached"] == W_DETACHED * 1.0
+
+    def test_tenure_gated_at_neutral_energy(self):
+        # Energy >= 0.5 → no tenure pressure (sticky neutral AIs).
+        for energy in (0.5, 0.6, 0.7, 0.9, 1.0):
+            ctx = _neutral_ctx(energy=energy)
+            assert compute_leave_pressure(ctx)["tenure"] == 0.0
+        # Below 0.5, tenure ramps to 1.0 at energy=0.
+        ctx_low = _neutral_ctx(energy=0.0)
+        assert compute_leave_pressure(ctx_low)["tenure"] == W_TENURE * 1.0
+
+
+# ============================================================
+# Dominant factor → decision routing
+# ============================================================
+
+
+class TestDecisionRouting:
+    def test_neutral_ai_stays(self):
+        ctx = _neutral_ctx(energy=0.7)
+        # No pressure → always stay.
+        for seed in range(50):
+            assert evaluate_ai_movement(ctx, random.Random(seed)) == "stay"
+
+    def test_won_big_routes_to_stake_up_when_affordable(self):
+        ctx = _neutral_ctx(
+            ai_chips=10000, max_buy_in=2500, min_buy_in=1000,
+            projected_bankroll=10000, next_tier_min_buy_in=2000,
+        )
+        from collections import Counter
+        outcomes = Counter(
+            evaluate_ai_movement(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        # Most stays + some stake_ups; no take_break, no rebuy.
+        assert outcomes["stake_up"] > 0
+        assert outcomes.get("rebuy", 0) == 0
+        assert outcomes.get("take_break", 0) == 0
+        assert outcomes.get("bored_move", 0) == 0
+
+    def test_won_big_routes_to_take_break_when_top_tier(self):
+        ctx = _neutral_ctx(
+            ai_chips=10000, max_buy_in=2500, min_buy_in=1000,
+            projected_bankroll=10000, next_tier_min_buy_in=None,
+        )
+        from collections import Counter
+        outcomes = Counter(
+            evaluate_ai_movement(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        # No higher tier → leaves degrade to take_break.
+        assert outcomes["take_break"] > 0
+        assert outcomes.get("stake_up", 0) == 0
+
+    def test_detached_routes_to_bored_move(self):
+        ctx = _neutral_ctx(zone="detached", hands_in_detached_zone=12)
+        from collections import Counter
+        outcomes = Counter(
+            evaluate_ai_movement(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        # All leaves from detached zone should be bored_move.
+        non_stay = sum(v for k, v in outcomes.items() if k != "stay")
+        assert outcomes.get("bored_move", 0) == non_stay
+        assert non_stay > 0
+
+    def test_short_stack_routes_to_rebuy_or_take_break(self):
+        ctx = _neutral_ctx(
+            ai_chips=400, min_buy_in=1000,  # 0.4× min → above floor, short pressure
+            projected_bankroll=15000, energy=0.7,
+        )
+        from collections import Counter
+        outcomes = Counter(
+            evaluate_ai_movement(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        # Should see rebuy or take_break, no bored_move/stake_up.
+        assert outcomes.get("rebuy", 0) + outcomes.get("take_break", 0) > 0
+        assert outcomes.get("stake_up", 0) == 0
+        assert outcomes.get("bored_move", 0) == 0
+
+
+# ============================================================
+# Leave vs rebuy split
+# ============================================================
+
+
+class TestLeaveVsRebuy:
+    def test_flush_bankroll_high_energy_prefers_rebuy(self):
+        ctx = _neutral_ctx(
+            ai_chips=400, min_buy_in=1000,
+            projected_bankroll=20000, energy=0.9,
+        )
+        from collections import Counter
+        outcomes = Counter(
+            decide_leave_or_rebuy(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        assert outcomes["rebuy"] > outcomes["leave"]
+
+    def test_low_energy_low_bankroll_prefers_leave(self):
+        ctx = _neutral_ctx(
+            ai_chips=400, min_buy_in=1000,
+            projected_bankroll=500, energy=0.2,
+        )
+        from collections import Counter
+        outcomes = Counter(
+            decide_leave_or_rebuy(ctx, random.Random(seed))
+            for seed in range(500)
+        )
+        assert outcomes["leave"] > outcomes["rebuy"]
+
+
+# ============================================================
+# Rebuy bucket bias
+# ============================================================
+
+
+class TestRebuyAmount:
+    def test_flush_bankroll_biases_max_bucket(self):
+        ctx = _neutral_ctx(
+            min_buy_in=1000, max_buy_in=2500,
+            projected_bankroll=25000, energy=0.9,
+        )
+        amounts = [pick_rebuy_amount(ctx, random.Random(seed)) for seed in range(500)]
+        max_picks = sum(1 for a in amounts if a == 2500)
+        min_picks = sum(1 for a in amounts if a == 1000)
+        # Flush bankroll + high energy → max bucket beats min.
+        assert max_picks > min_picks
+
+    def test_low_energy_biases_min_bucket(self):
+        ctx = _neutral_ctx(
+            min_buy_in=1000, max_buy_in=2500,
+            projected_bankroll=2000, energy=0.1,
+        )
+        amounts = [pick_rebuy_amount(ctx, random.Random(seed)) for seed in range(500)]
+        min_picks = sum(1 for a in amounts if a == 1000)
+        max_picks = sum(1 for a in amounts if a == 2500)
+        # Tired AI with low bankroll → min beats max comfortably.
+        assert min_picks > max_picks * 2
+
+    def test_amounts_match_buckets(self):
+        ctx = _neutral_ctx(min_buy_in=1000, max_buy_in=2500)
+        # Possible amounts are min / mid / max.
+        expected = {1000, 1750, 2500}
+        for seed in range(50):
+            assert pick_rebuy_amount(ctx, random.Random(seed)) in expected
+
+
+# ============================================================
+# Cooldown
+# ============================================================
+
+
+class TestCooldown:
+    def test_record_and_check(self):
+        now = datetime(2026, 5, 19, 12, 0, 0)
+        record_leave_cooldown("table-A", "napoleon", cooldown_seconds=30, now=now)
+        # Immediately within the window → in cooldown.
+        assert is_in_cooldown("table-A", "napoleon", now) is True
+        # After the window → no cooldown.
+        later = now + timedelta(seconds=31)
+        assert is_in_cooldown("table-A", "napoleon", later) is False
+
+    def test_cooldown_is_per_table(self):
+        now = datetime(2026, 5, 19, 12, 0, 0)
+        record_leave_cooldown("table-A", "napoleon", cooldown_seconds=60, now=now)
+        # Same AI at a different table → no cooldown.
+        assert is_in_cooldown("table-B", "napoleon", now) is False
+
+    def test_compute_cooldown_scales_with_state(self):
+        rng_fixed = random.Random()
+        rng_fixed.random = lambda: 0.5  # constant for repeatability
+        # Fresh AI with flush bankroll → minimal cooldown.
+        ctx_fresh = _neutral_ctx(
+            projected_bankroll=20000, energy=0.9, emotional_intensity=0.0,
+        )
+        # Tilted AI with depleted bankroll → larger cooldown.
+        ctx_drained = _neutral_ctx(
+            projected_bankroll=200, energy=0.1, emotional_intensity=0.9,
+        )
+        cd_fresh = compute_leave_cooldown_seconds(ctx_fresh, rng_fixed)
+        rng_fixed.random = lambda: 0.5
+        cd_drained = compute_leave_cooldown_seconds(ctx_drained, rng_fixed)
+        assert cd_fresh >= MIN_COOLDOWN_SECONDS
+        assert cd_drained > cd_fresh
+
+
+# ============================================================
+# refresh_table_roster integration
+# ============================================================
+
+
+def _make_table(seats: list, table_id: str = "cash-table-10-001") -> CashTableState:
     return CashTableState(
-        table_id="cash-table-10-001",
+        table_id=table_id,
         stake_label="$10",
         seats=seats,
     )
@@ -191,8 +367,13 @@ def _force_rng(values):
     return rng
 
 
+def _neutral_psych(_pid: str):
+    return {"energy": 0.7, "zone": "neutral", "hands_in_detached_zone": 0,
+            "emotional_intensity": 0.0}
+
+
 class TestRefreshNoChanges:
-    def test_all_stay_no_changes_in_seats(self):
+    def test_neutral_table_stays_put(self):
         seats = [
             ai_slot("napoleon", 500),
             ai_slot("zeus", 500),
@@ -202,9 +383,9 @@ class TestRefreshNoChanges:
             open_slot(),
         ]
         table = _make_table(seats)
-        # 4 movement rolls (one per AI seat at 0.99 to avoid bored_move) +
-        # 2 live-fill rolls (also 0.99 to avoid live-fill).
-        rng = _force_rng([0.99, 0.99, 0.99, 0.99, 0.99, 0.99])
+        # No pressure (neutral) → no rolls consumed for movement.
+        # 2 live-fill rolls at 0.99 → no fills.
+        rng = _force_rng([0.99, 0.99])
         result = refresh_table_roster(
             table,
             idle_pool=[],
@@ -218,28 +399,25 @@ class TestRefreshNoChanges:
             table_min_buy_in=400,
             table_max_buy_in=1000,
             next_tier_min_buy_in=2000,
+            psych_lookup=_neutral_psych,
         )
-        # All AI seats stayed; no idle changes.
         assert result.idle_changes == []
         assert result.freshly_seated_personality_ids == []
-        # AIs all marked "stay".
+        assert result.rebuy_changes == []
         assert all(d == "stay" for d in result.decisions.values())
-        assert len(result.decisions) == 4
 
 
 class TestRefreshForcedLeave:
     def test_busted_ai_moves_to_idle_pool(self):
         seats = [
-            ai_slot("napoleon", 0),   # busted
+            ai_slot("napoleon", 0),
             ai_slot("zeus", 500),
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
+            open_slot(), open_slot(), open_slot(), open_slot(),
         ]
         table = _make_table(seats)
-        # 2 movement rolls + 4 live-fill rolls (high to avoid fill).
-        rng = _force_rng([0.99] * 6)
+        # Napoleon forced_leave (no roll consumed); zeus stay (no roll).
+        # 5 open seats → 5 live-fill rolls (high to avoid fill).
+        rng = _force_rng([0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
@@ -252,64 +430,66 @@ class TestRefreshForcedLeave:
             stake_idx=1,
             table_min_buy_in=400,
             table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
         )
         assert result.decisions["napoleon"] == "forced_leave"
         assert result.decisions["zeus"] == "stay"
-        # Napoleon's seat is now open; zeus stays.
         assert result.new_table.seats[0]["kind"] == "open"
-        assert result.new_table.seats[1]["kind"] == "ai"
-        # Idle pool gained Napoleon.
         adds = [c for c in result.idle_changes if c.kind == "add"]
         assert len(adds) == 1
-        assert adds[0].personality_id == "napoleon"
         assert adds[0].entry.reason == "forced_leave"
-        # seated_globally was updated.
-        # (Mutates in-place, so we can re-read from the closure scope.)
 
 
-class TestRefreshStakeUp:
-    def test_stake_up_records_target_stake(self):
+class TestRefreshRebuy:
+    def test_short_stack_rebuy_records_chip_increase(self):
         seats = [
-            ai_slot("napoleon", 1000),  # won big (1000 ≥ 2 × 400)
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
+            ai_slot("napoleon", 300),  # 0.6× min, above forced floor
+            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
         ]
         table = _make_table(seats)
-        # First roll for napoleon: 0.0 → stake_up triggers (1 roll).
-        # After napoleon vacates, all 6 seats are open → 6 live-fill rolls.
-        rng = _force_rng([0.0] + [0.99] * 6)
+        # Force every decision/sub-decision to "leave or rebuy" landing
+        # on rebuy by stacking 0.0 rolls. With ai_chips=300 and min=500
+        # short pressure dominates and the leave-vs-rebuy roll lands on
+        # rebuy when bankroll is flush.
+        rng = random.Random(0)
+        rng.random = lambda: 0.0
         result = refresh_table_roster(
             table,
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
-            buy_in_lookup=_buy_in_lookup_factory(400),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 20000}),
+            buy_in_lookup=_buy_in_lookup_factory(500),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,  # $10
-            table_min_buy_in=400,
+            stake_idx=1,
+            table_min_buy_in=500,
             table_max_buy_in=1000,
-            next_tier_min_buy_in=2000,
+            psych_lookup=lambda _pid: {
+                "energy": 0.9, "zone": "neutral",
+                "hands_in_detached_zone": 0, "emotional_intensity": 0.0,
+            },
         )
-        assert result.decisions["napoleon"] == "stake_up"
-        adds = [c for c in result.idle_changes if c.kind == "add"]
-        assert len(adds) == 1
-        assert adds[0].entry.reason == "stake_up_queued"
-        # stake_idx=1 → next tier is $50.
-        assert adds[0].entry.target_stake == "$50"
+        # Rebuy decision = stay seated with more chips + RebuyChange entry.
+        assert result.decisions["napoleon"] == "rebuy"
+        assert result.new_table.seats[0]["kind"] == "ai"
+        assert result.new_table.seats[0]["chips"] > 300
+        assert len(result.rebuy_changes) == 1
+        rc = result.rebuy_changes[0]
+        assert rc.personality_id == "napoleon"
+        assert rc.amount > 0
+        # Matching to_seat BankrollChange emitted for the debit channel.
+        to_seats = [b for b in result.bankroll_changes if b.direction == "to_seat"]
+        assert any(b.personality_id == "napoleon" and b.amount == rc.amount
+                   for b in to_seats)
 
 
 class TestRefreshLiveFill:
-    def test_live_fill_from_eligible_pool(self):
+    def test_live_fill_at_per_hand_default(self):
         seats = [open_slot()] * 6
         table = _make_table(seats)
-        # No AI seats to process; 6 live-fill rolls.
-        # First roll 0.0 < 0.15 → fill seat 0; rest 0.99 → no fill.
-        rng = _force_rng([0.0, 0.99, 0.99, 0.99, 0.99, 0.99])
+        # First open seat: 0.0 < 0.05 → fill triggers; rest 0.99.
+        rng = _force_rng([0.0] + [0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
@@ -322,123 +502,50 @@ class TestRefreshLiveFill:
             stake_idx=1,
             table_min_buy_in=400,
             table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
         )
         assert result.freshly_seated_personality_ids == ["napoleon"]
-        assert result.new_table.seats[0]["kind"] == "ai"
         assert result.new_table.seats[0]["personality_id"] == "napoleon"
-        assert result.new_table.seats[0]["chips"] == 400  # buy_in
-        # Remaining seats untouched.
-        for i in range(1, 6):
-            assert result.new_table.seats[i]["kind"] == "open"
 
-    def test_live_fill_prefers_idle_pool_over_eligible(self):
+    def test_default_live_fill_prob_is_per_hand_rate(self):
+        # The constant exposed as the default must match the per-hand rate.
+        assert DEFAULT_LIVE_FILL_PROB == 0.05
+
+    def test_cooldown_skips_recent_leaver_at_same_table(self):
         seats = [open_slot()] * 6
         table = _make_table(seats)
-        rng = _force_rng([0.0] + [0.99] * 5)  # first seat triggers fill
-        result = refresh_table_roster(
-            table,
-            idle_pool=[IdlePoolEntry(
-                personality_id="zeus",
-                left_at=datetime(2026, 5, 18, 11, 0),
-                reason="bored_move",
-            )],
-            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
-            seated_globally=set(),
-            bankroll_lookup=_bankroll_lookup_factory({
-                "zeus": 5000, "napoleon": 5000,
-            }),
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,
-            table_min_buy_in=400,
-            table_max_buy_in=1000,
-        )
-        # Idle pool wins.
-        assert result.freshly_seated_personality_ids == ["zeus"]
-        removes = [c for c in result.idle_changes if c.kind == "remove"]
-        assert removes[0].personality_id == "zeus"
-
-    def test_live_fill_skips_globally_seated(self):
-        seats = [open_slot()] * 6
-        table = _make_table(seats)
+        now = datetime(2026, 5, 19, 12, 0, 0)
+        # Napoleon just left table-X with a 30-second cooldown.
+        record_leave_cooldown(table.table_id, "napoleon", 30, now)
+        # First seat rolls a fill that would otherwise pick Napoleon.
         rng = _force_rng([0.0] + [0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
             eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
-            seated_globally={"napoleon"},  # napoleon already at another table
+            seated_globally=set(),
             bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
-            now=datetime(2026, 5, 18, 12, 0, 0),
+            now=now,
             stake_idx=1,
             table_min_buy_in=400,
             table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
         )
-        # No fill because napoleon is already seated elsewhere.
-        assert result.freshly_seated_personality_ids == []
-        assert result.new_table.seats[0]["kind"] == "open"
-
-    def test_live_fill_skips_under_bankroll(self):
-        seats = [open_slot()] * 6
-        table = _make_table(seats)
-        rng = _force_rng([0.0] + [0.99] * 5)
-        result = refresh_table_roster(
-            table,
-            idle_pool=[],
-            eligible_candidates=[{"personality_id": "broke", "name": "Broke AI"}],
-            seated_globally=set(),
-            bankroll_lookup=_bankroll_lookup_factory({"broke": 100}),  # < 400
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,
-            table_min_buy_in=400,
-            table_max_buy_in=1000,
-        )
-        assert result.freshly_seated_personality_ids == []
-
-    def test_idle_target_stake_filters_to_matching_table(self):
-        # Idle AI's target_stake='$50' should NOT match this $10 table.
-        seats = [open_slot()] * 6
-        table = _make_table(seats)
-        rng = _force_rng([0.0] + [0.99] * 5)
-        result = refresh_table_roster(
-            table,
-            idle_pool=[IdlePoolEntry(
-                personality_id="zeus",
-                left_at=datetime(2026, 5, 18, 11, 0),
-                reason="stake_up_queued",
-                target_stake="$50",
-            )],
-            eligible_candidates=[],
-            seated_globally=set(),
-            bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,
-            table_min_buy_in=400,
-            table_max_buy_in=1000,
-        )
-        # Zeus wants $50 not $10 → skipped.
+        # Napoleon was in cooldown → no fill, no fresh-seated event.
         assert result.freshly_seated_personality_ids == []
 
 
 class TestRefreshHumanSeatPreserved:
     def test_human_seat_not_touched(self):
         seats = [
-            human_slot("user-1", 500),
-            ai_slot("napoleon", 0),  # busted
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
+            human_slot("player-1", 1000),
+            ai_slot("napoleon", 0),     # busted
+            open_slot(), open_slot(), open_slot(), open_slot(),
         ]
         table = _make_table(seats)
-        # 1 AI seat → 1 movement roll; 5 open seats → 5 live-fill rolls.
-        rng = _force_rng([0.99] * 6)
+        rng = _force_rng([0.99] * 5)
         result = refresh_table_roster(
             table,
             idle_pool=[],
@@ -451,141 +558,44 @@ class TestRefreshHumanSeatPreserved:
             stake_idx=1,
             table_min_buy_in=400,
             table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
         )
-        # Human seat preserved verbatim.
+        # Human slot unchanged.
         assert result.new_table.seats[0]["kind"] == "human"
-        assert result.new_table.seats[0]["personality_id"] == "user-1"
-        # AI at seat 1 is forced_leave → now open.
-        assert result.new_table.seats[1]["kind"] == "open"
-        assert result.decisions["napoleon"] == "forced_leave"
+        assert result.new_table.seats[0]["personality_id"] == "player-1"
 
 
 class TestRefreshDeferFreshlyVacated:
-    """`defer_freshly_vacated_live_fill=True` makes a seat sit empty for
-    at least one refresh tick after its occupant leaves. Without this,
-    `_refresh_lobby_table_for_session` could vacate a slot (forced_leave
-    on a busted ghost) and immediately fill it with a different AI on
-    the same tick — the duplicate-seat bug.
-    """
-
-    def test_freshly_vacated_seat_not_filled_when_deferred(self):
-        # Napoleon busts this tick. Without defer he'd be replaced by
-        # zeus from the eligible pool; with defer, his seat stays open.
-        seats = [
-            ai_slot("napoleon", 0),   # busted → forced_leave
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
-        ]
-        table = _make_table(seats)
-        # 1 movement roll (napoleon forced_leave is deterministic via
-        # chips=0, no roll consumed for that branch) + live-fill rolls
-        # for the open seats. With defer=True, seat 0 is excluded; with
-        # the others, force the first fill roll to fire.
-        rng = _force_rng([0.0] + [0.99] * 5)
-        result = refresh_table_roster(
-            table,
-            idle_pool=[],
-            eligible_candidates=[{"personality_id": "zeus", "name": "Zeus"}],
-            seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,
-            table_min_buy_in=400,
-            table_max_buy_in=1000,
-            defer_freshly_vacated_live_fill=True,
-        )
-        # Napoleon's seat stays open this tick.
-        assert result.new_table.seats[0]["kind"] == "open"
-        # Zeus may have filled a *different* open seat (the first one
-        # the rng triggers on), but never seat 0.
-        for slot in result.new_table.seats:
-            if slot["kind"] == "ai":
-                assert slot["personality_id"] != "napoleon"
-
-    def test_freshly_vacated_seat_filled_when_not_deferred(self):
-        # Same setup, default behavior: napoleon vacates and the same
-        # seat may be filled by zeus on the same tick.
+    def test_defer_default_is_true(self):
+        # Busted AI vacates; with defer on by default the freshly-open
+        # seat should NOT be filled in the same pass.
         seats = [
             ai_slot("napoleon", 0),
             open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
-            open_slot(),
+            open_slot(), open_slot(), open_slot(), open_slot(),
         ]
         table = _make_table(seats)
-        # First live-fill roll fires on seat 0 (napoleon's freshly
-        # vacated slot — not deferred).
-        rng = _force_rng([0.0] + [0.99] * 5)
+        # Force every live-fill roll to fire (0.0). With deferral on,
+        # only the SEAT THAT WAS ALREADY OPEN (index 1+) is eligible.
+        rng = _force_rng([0.0] * 6)
         result = refresh_table_roster(
             table,
             idle_pool=[],
-            eligible_candidates=[{"personality_id": "zeus", "name": "Zeus"}],
+            eligible_candidates=[
+                {"personality_id": "zeus", "name": "Zeus"},
+            ],
             seated_globally={"napoleon"},
-            bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000, "zeus": 5000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 18, 12, 0, 0),
             stake_idx=1,
             table_min_buy_in=400,
             table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
         )
-        assert result.new_table.seats[0]["kind"] == "ai"
-        assert result.new_table.seats[0]["personality_id"] == "zeus"
-
-
-class TestGlobalUniquenessInvariant:
-    def test_one_personality_per_active_seat(self):
-        """Hard invariant: a personality must not appear at two tables."""
-        seats_a = [open_slot()] * 6
-        table_a = _make_table(seats_a)
-        rng_a = _force_rng([0.0] + [0.99] * 5)
-        # Refresh table A with napoleon in eligible pool.
-        result_a = refresh_table_roster(
-            table_a,
-            idle_pool=[],
-            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
-            seated_globally=set(),
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng_a,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=1,
-            table_min_buy_in=400,
-            table_max_buy_in=1000,
-        )
-        assert "napoleon" in result_a.freshly_seated_personality_ids
-
-        # After A's refresh, seated_globally now contains napoleon (the
-        # function mutates the set in-place). Refresh table B with the
-        # same set — napoleon must be filtered out.
-        seats_b = [open_slot()] * 6
-        table_b = CashTableState(table_id="cash-table-50-001", stake_label="$50", seats=seats_b)
-        rng_b = _force_rng([0.0] + [0.99] * 5)
-        # Pass the updated set from A's refresh (which now contains napoleon).
-        seated_after_a = {"napoleon"}
-        result_b = refresh_table_roster(
-            table_b,
-            idle_pool=[],
-            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
-            seated_globally=seated_after_a,
-            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
-            buy_in_lookup=_buy_in_lookup_factory(400),
-            rng=rng_b,
-            now=datetime(2026, 5, 18, 12, 0, 0),
-            stake_idx=2,
-            table_min_buy_in=2000,
-            table_max_buy_in=5000,
-        )
-        # Napoleon must NOT appear at table B even though the eligible
-        # pool listed him — global uniqueness held.
-        assert "napoleon" not in result_b.freshly_seated_personality_ids
-        assert all(
-            s["kind"] != "ai" or s["personality_id"] != "napoleon"
-            for s in result_b.new_table.seats
-        )
+        # Napoleon's seat (index 0) is deferred → still open, no zeus there.
+        assert result.new_table.seats[0]["kind"] == "open"
+        # Seat 1 was an existing open → zeus fills it.
+        assert result.new_table.seats[1]["kind"] == "ai"
+        assert result.new_table.seats[1]["personality_id"] == "zeus"

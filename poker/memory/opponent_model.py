@@ -1518,6 +1518,39 @@ class OpponentModelManager:
         # ergonomics light.
         self._relationship_repo = relationship_repo
 
+    @property
+    def has_relationship_repo(self) -> bool:
+        """True when a `RelationshipRepository` is wired for this manager.
+
+        Public predicate for callers that want to skip a dispatch path
+        when persistence isn't available (in-memory tests, older
+        replay paths). The alternative is to call `record_event` and
+        catch the `RuntimeError` it raises — fine for genuine error
+        paths, but noisy when the no-repo case is the documented
+        soft-fail.
+        """
+        return self._relationship_repo is not None
+
+    def resolve_player_id(self, name: str) -> str:
+        """Resolve a display name to its registered personality_id.
+
+        Mirrors `HandOutcomeDetector._resolve_id`: returns the
+        registered id when one exists, falls back to the display name
+        when there's no entry or the entry is None (human guests,
+        pre-v85 personalities). Always returns a string — relationship
+        state is keyed on whatever this returns, so a name with no
+        registered id still gets per-pair state, just keyed on the
+        name rather than a stable cross-session id.
+
+        Public counterpart to the detector's private resolver. Use
+        when something outside the detector (e.g., chat-send routes)
+        needs to dispatch `record_event` with name-keyed input.
+        """
+        if name in self._name_to_id:
+            mapped = self._name_to_id[name]
+            return mapped if mapped is not None else name
+        return name
+
     def register_player_id(self, name: str, personality_id: Optional[str]) -> None:
         """Register the stable personality_id for a display name.
 

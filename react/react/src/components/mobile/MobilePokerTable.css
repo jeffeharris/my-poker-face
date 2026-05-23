@@ -455,6 +455,21 @@
     transform: scale(0.95);
 }
 
+/* Dossier mode — every opponent avatar is tappable to open the
+   character detail card. Subtle press feedback only, no badge,
+   so it doesn't pull focus from gameplay. */
+.opponent-avatar.dossier-enabled {
+    cursor: pointer;
+}
+.opponent-avatar.dossier-enabled:active {
+    transform: scale(0.96);
+}
+.opponent-avatar.dossier-enabled:focus-visible {
+    outline: 2px solid #e2bf6f;
+    outline-offset: 3px;
+    border-radius: 50%;
+}
+
 /* Debug badge indicator (phosphor green dot) */
 .debug-badge {
     position: absolute;

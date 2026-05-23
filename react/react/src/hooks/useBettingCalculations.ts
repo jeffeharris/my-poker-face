@@ -9,6 +9,7 @@
 
 import { useMemo } from 'react';
 import type { BettingContext } from '../types/game';
+import { useNicknameOverridesStore } from '../stores/nicknameOverridesStore';
 
 // Re-export BettingContext for consumers of this hook
 export type { BettingContext };
@@ -93,6 +94,9 @@ export function useBettingCalculations(
   context: BettingContext | null,
   bigBlind: number
 ): BettingCalculations {
+  // Subscribed directly (rather than via useDisplayNickname) so the
+  // memo below has a stable dependency to track.
+  const overrides = useNicknameOverridesStore((s) => s.overrides);
   return useMemo(() => {
     // Provide safe defaults if context is null
     const safeContext = context ?? {
@@ -227,7 +231,10 @@ export function useBettingCalculations(
       )
       .slice(0, 2)  // Show at most 2 cover buttons
       .map(opp => ({
-        label: opp.nickname ?? opp.name.split(' ')[0],
+        // Override > canonical nickname > first name. Falling back
+        // to the first name (rather than the full name) keeps the
+        // cover button label terse on narrow viewports.
+        label: overrides[opp.name] || opp.nickname || opp.name.split(' ')[0],
         amount: opp.cover_amount,
         id: `cover-${opp.name}`,
         isCover: true,
@@ -276,7 +283,7 @@ export function useBettingCalculations(
       getBreakdown,
       getDefaultRaise,
     };
-  }, [context, bigBlind]);
+  }, [context, bigBlind, overrides]);
 }
 
 /**

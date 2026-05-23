@@ -27,6 +27,7 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
+from cash_mode.tables import CashTableState, ai_slot, human_slot, open_slot
 from flask_app import create_app
 from poker.repositories import create_repos
 
@@ -62,6 +63,16 @@ class _CashSponsorRouteBase(unittest.TestCase):
         self.bankroll_repo = repos['bankroll_repo']
         self.personality_repo = repos['personality_repo']
         self.relationship_repo = repos['relationship_repo']
+        self.stake_repo = repos['stake_repo']
+
+        # Pin the cash-mode resolver so route + setUp seeds agree on
+        # sandbox_id. Direct-seed calls use "test-sandbox-1" via the
+        # repo; pinned cache makes the route's
+        # `resolve_default_sandbox_for(PLAYER_OWNER_ID)` return the
+        # same id.
+        from tests._sandbox_test_helper import pin_sandbox_for, TEST_SANDBOX_ID
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
+        self.test_sandbox_id = TEST_SANDBOX_ID
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -72,7 +83,8 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'capture_label_repo', 'replay_experiment_repo',
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo',
+                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'stake_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -101,19 +113,18 @@ class _CashSponsorRouteBase(unittest.TestCase):
         )
         self._auth_patcher.start()
 
-        # Seed lender personalities. lender_profile in config_json is the
-        # surface load_lender_profile reads.
+        # Seed lender personalities. staker_profile in config_json is the
+        # surface load_staker_profile reads.
         self.napoleon_id = self.personality_repo.save_personality(
             'Napoleon',
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
-                'lender_profile': {
+                'staker_profile': {
                     'willing': True,
                     'max_loan_pct_of_bankroll': 0.08,
                     'floor_anchor': 1.4,
@@ -129,12 +140,11 @@ class _CashSponsorRouteBase(unittest.TestCase):
             {
                 'play_style': 'tight',
                 'bankroll_knobs': {
-                    'bankroll_cap': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
-                'lender_profile': {
+                'staker_profile': {
                     'willing': True,
                     'max_loan_pct_of_bankroll': 0.15,
                     'floor_anchor': 1.0,
@@ -149,7 +159,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
             'A Mime',
             {
                 'play_style': 'silent',
-                'lender_profile': {'willing': False},
+                'staker_profile': {'willing': False},
             },
             source='test_seed',
         )
@@ -158,13 +168,13 @@ class _CashSponsorRouteBase(unittest.TestCase):
         now = datetime.utcnow()
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.napoleon_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.buddha_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
         self.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=self.mime_id, chips=20_000, last_regen_tick=now,
-        ))
+        ), sandbox_id="test-sandbox-1")
 
         # Seed player bankroll below the $10 tier min (= 400) so sponsor-
         # eligible at $10 stake (no prior tier — $2 — so eligibility logic
@@ -259,7 +269,7 @@ class TestSponsorOffersRoute(_CashSponsorRouteBase):
         for pid in (self.napoleon_id, self.buddha_id, self.mime_id):
             self.bankroll_repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=0, last_regen_tick=now,
-            ))
+            ), sandbox_id="test-sandbox-1")
         response = self.client.get('/api/cash/sponsor-offers?stake_label=$10')
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
@@ -302,11 +312,11 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         The route's load-bearing logic for Path B is:
           - resolve the offer (house archetype vs personality)
           - call `_build_cash_game` to make the table
-          - write `active_loan_lender_id` to the bankroll row
+          - create a `stakes` row with the lender / principal / cut
 
         The full game build pulls in the state machine, controllers,
         memory manager, AI selection, etc. — none of which we're
-        testing. Stubbing it lets the route's loan-write logic run in
+        testing. Stubbing it lets the route's stake-write logic run in
         isolation. The cash_personality_ids mapping the leave-time
         cash-out loop reads is verified separately in commit 5's tests.
         """
@@ -315,8 +325,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             return_value=("cash-test-stub-id", None),
         )
 
-    def test_house_path_writes_null_lender_id(self):
-        # House archetype path — should write active_loan_lender_id = NULL.
+    def test_house_path_writes_house_stake_row(self):
+        # House archetype path — creates a stake row with staker_id=NULL.
         with self._patch_build_cash_game():
             response = self.client.post(
                 '/api/cash/sponsor-and-sit',
@@ -332,11 +342,13 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(data['offer']['kind'], 'house')
         self.assertEqual(data['offer']['archetype_id'], 'friendly_boost')
 
-        bankroll = self.bankroll_repo.load_player_bankroll(PLAYER_OWNER_ID)
-        self.assertGreater(bankroll.active_loan_amount, 0)
-        self.assertIsNone(bankroll.active_loan_lender_id)
+        stake = self.stake_repo.load_active_for_session(data['game_id'])
+        self.assertIsNotNone(stake)
+        self.assertIsNone(stake.staker_id)
+        self.assertEqual(stake.staker_kind, 'house')
+        self.assertGreater(stake.principal, 0)
 
-    def test_personality_path_writes_lender_id(self):
+    def test_personality_path_writes_personality_stake_row(self):
         with self._patch_build_cash_game():
             response = self.client.post(
                 '/api/cash/sponsor-and-sit',
@@ -351,13 +363,15 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(data['offer']['kind'], 'personality')
         self.assertEqual(data['offer']['lender_id'], self.napoleon_id)
 
-        bankroll = self.bankroll_repo.load_player_bankroll(PLAYER_OWNER_ID)
-        self.assertEqual(bankroll.active_loan_lender_id, self.napoleon_id)
-        self.assertGreater(bankroll.active_loan_amount, 0)
+        stake = self.stake_repo.load_active_for_session(data['game_id'])
+        self.assertIsNotNone(stake)
+        self.assertEqual(stake.staker_id, self.napoleon_id)
+        self.assertEqual(stake.staker_kind, 'personality')
+        self.assertGreater(stake.principal, 0)
 
     def test_personality_path_emits_sponsorship_offered_event(self):
-        # The route fires SPONSORSHIP_OFFERED via the relationship_repo
-        # when an AI lender extends a loan. The repo's projection-on-read
+        # The route fires STAKE_OFFERED via the relationship_repo
+        # when an AI staker extends a loan. The repo's projection-on-read
         # surface (load_relationship_state) reveals the bilateral update.
         with self._patch_build_cash_game():
             response = self.client.post(
@@ -388,7 +402,7 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertGreater(state_player_pov.likability, 0.5)
 
     def test_house_path_does_not_emit_event(self):
-        # Anonymous house loans have no actor to fire SPONSORSHIP_OFFERED.
+        # House-archetype stakes have no actor to fire STAKE_OFFERED.
         # No relationship row should land.
         with self._patch_build_cash_game():
             response = self.client.post(
@@ -432,3 +446,145 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             },
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_table_aware_path_uses_persisted_roster(self):
+        """Regression: when the sponsor flow originates from a lobby
+        seat tap (table_id + seat_index sent), the resulting game must
+        be populated with the AIs the lobby card showed at that table
+        — not a freshly-sampled lineup.
+
+        Pre-fix, `sponsor_and_sit` ignored any table context and
+        called `_build_cash_game` with no `preselected_ai`, so the
+        legacy fresh-sample path picked random eligible personalities.
+        Users tapped a $200 table showing AIs X/Y/Z and got seated
+        with A/B/C/D/E.
+        """
+        # _CashSponsorRouteBase doesn't stash repos as self.repos;
+        # pull cash_table_repo via the extension binding instead.
+        from flask_app import extensions
+        cash_table_repo = extensions.cash_table_repo
+
+        # Build a $10 table with napoleon + buddha seated, open seats
+        # elsewhere. The roster is unambiguous — only two AIs and they
+        # are seeded in setUp with stake_comfort_zone='$10', so they
+        # are also legacy-sample candidates. We assert by personality_id
+        # which the legacy path would not deterministically hit.
+        seats = [
+            ai_slot(self.napoleon_id, 400),
+            open_slot(),
+            ai_slot(self.buddha_id, 400),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
+
+        # Stub `_build_cash_game` to capture its preselected args
+        # rather than running the full game build (heavy + irrelevant
+        # to this regression).
+        captured: dict = {}
+
+        def _spy(**kwargs):
+            captured.update(kwargs)
+            return 'cash-test-spy-id', None
+
+        with patch(
+            'flask_app.routes.cash_routes._build_cash_game', side_effect=_spy,
+        ):
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'table_id': 'cash-table-10-001',
+                    'seat_index': 1,
+                    'opponents': 2,
+                },
+            )
+
+        self.assertEqual(
+            response.status_code, 200, response.get_data(as_text=True),
+        )
+
+        preselected_ai = captured.get('preselected_ai')
+        self.assertIsNotNone(
+            preselected_ai,
+            'sponsor_and_sit did not pass preselected_ai — game would '
+            'fall through to the legacy fresh-sample path and the '
+            'in-game lineup would differ from the lobby card',
+        )
+        roster_pids = sorted(entry['personality_id'] for entry in preselected_ai)
+        self.assertEqual(
+            roster_pids,
+            sorted([self.napoleon_id, self.buddha_id]),
+            'game roster did not come from the persisted cash_tables '
+            'row — sponsor_and_sit ignored the table_id',
+        )
+
+        preselected_chips = captured.get('preselected_ai_chips') or {}
+        self.assertEqual(preselected_chips.get(self.napoleon_id), 400)
+        self.assertEqual(preselected_chips.get(self.buddha_id), 400)
+
+        # Human seat must now be claimed in cash_tables, otherwise
+        # the lobby will keep showing seat 1 as open and another
+        # player could double-book it.
+        after = cash_table_repo.load_table(
+            'cash-table-10-001', sandbox_id=self.test_sandbox_id,
+        )
+        self.assertEqual(after.seats[1]['kind'], 'human')
+        self.assertEqual(after.seats[1]['personality_id'], PLAYER_OWNER_ID)
+
+    def test_table_aware_rejects_taken_seat(self):
+        """Sponsor flow with table_id pointing at a non-open seat
+        must 409, not silently sample a different roster.
+        """
+        from flask_app import extensions
+        cash_table_repo = extensions.cash_table_repo
+        seats = [
+            ai_slot(self.napoleon_id, 400),
+            ai_slot(self.buddha_id, 400),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': '$10',
+                'archetype_id': 'friendly_boost',
+                'table_id': 'cash-table-10-001',
+                'seat_index': 0,  # napoleon's seat
+                'opponents': 2,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_table_aware_requires_both_table_id_and_seat_index(self):
+        """Sending one without the other is ambiguous — reject with 400."""
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': '$10',
+                'archetype_id': 'friendly_boost',
+                'table_id': 'cash-table-10-001',
+                # seat_index intentionally omitted
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('seat_index', response.get_json()['error'])

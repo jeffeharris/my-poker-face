@@ -322,6 +322,11 @@ class HybridAIController(AIPlayerController):
             'pot_total': pot_total,
             'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
             'cost_to_call': cost_to_call,
+            # Mirror under the key `_analyze_decision` reads (controllers.py:
+            # `context.get('call_amount', 0)`). Without this, the analyzer
+            # stored 0 for every hybrid decision, marking preflop folds
+            # facing a BB as "check would have been optimal" mistakes.
+            'call_amount': cost_to_call,
             'already_bet': player.bet,
             'highest_bet': game_state.highest_bet,
             'min_raise': min_raise_to,
@@ -347,6 +352,8 @@ class HybridAIController(AIPlayerController):
 
         Presents the bounded options and asks the LLM to pick one with narrative.
         """
+        from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
+
         equity = context.get('equity', 0.5)
         pot_odds = context.get('pot_odds', 0)
 
@@ -373,14 +380,21 @@ CRITICAL RULES:
 - You MUST pick one of the numbered options above
 - "choice" must be an integer from 1 to {num_options}
 - Keep dramatic_sequence to 1-3 beats for normal hands, more for dramatic moments
-- Each beat is EITHER an action (*in asterisks*) OR speech (plain text)
 - Stay in character with your personality
+
+{dramatic_sequence_guidance}
 """
 
-        return choice_template.format(
+        rendered = choice_template.format(
             base_message=base_message,
             options_text=options_text,
             num_options=len(options),
+            dramatic_sequence_guidance=DRAMATIC_SEQUENCE_GUIDANCE,
+        )
+        # Append relationship-history block (shared with chaos via the
+        # parent helper). Gated on prompt_config.relationship_context.
+        return self._append_relationship_context_if_enabled(
+            rendered, self.state_machine.game_state, self.state_machine.game_state.current_player,
         )
 
     def _validate_and_select(self, response: Optional[Dict], options: List[BoundedOption]) -> Dict:

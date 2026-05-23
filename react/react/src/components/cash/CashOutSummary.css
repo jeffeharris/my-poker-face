@@ -1,0 +1,298 @@
+/* Cash-out post-session summary — mirrors TournamentComplete's
+   layout idiom (overlay + centered card + scale-in animation) but
+   colors the headline P&L green/red based on net result. */
+
+.cashout-summary {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  /* Outer container owns the scroll. A taller-than-viewport card
+     can't scroll its own `overflow-y: auto` content reliably when
+     the card itself is `align-items: center`'d in a flex parent on
+     iOS Safari — the card's top edge ends up above the visible
+     area and is unreachable. Putting the scroll on the outer
+     container instead means the whole card scrolls top-to-bottom
+     when it's too tall. */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Center the card when it fits; allow normal flow scroll when
+     it doesn't. `padding` here keeps the card off the viewport
+     edges and below the iOS home indicator. */
+  padding: max(2dvh, env(safe-area-inset-top, 0px))
+           var(--space-4)
+           max(2dvh, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+  pointer-events: none;
+}
+
+.cashout-summary.show {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.cashout-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.cashout-content {
+  position: relative;
+  background: var(--gradient-card);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-6);
+  max-width: 540px;
+  width: 100%;
+  /* `margin: auto` cooperates with the parent's flex centering when
+     content fits; when it doesn't, the parent's `overflow-y: auto`
+     takes over and the user can scroll the whole card. */
+  margin: auto;
+  border: 1px solid var(--color-border-default);
+  box-shadow: var(--shadow-2xl);
+  transform: scale(0.92);
+  transition: transform 0.3s ease-in-out;
+}
+
+.cashout-summary.show .cashout-content {
+  transform: scale(1);
+}
+
+/* Header */
+.cashout-header {
+  text-align: center;
+  margin-bottom: var(--space-5);
+}
+
+.cashout-title {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-1) 0;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.cashout-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+}
+
+/* P&L card */
+.cashout-pnl {
+  text-align: center;
+  padding: var(--space-6);
+  margin-bottom: var(--space-5);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-default);
+}
+
+.cashout-pnl.is-win {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(34, 197, 94, 0.04));
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.18);
+}
+
+.cashout-pnl.is-loss {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(239, 68, 68, 0.04));
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.cashout-pnl.is-flat {
+  /* default surface — neither win nor loss */
+}
+
+.cashout-pnl__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  margin-bottom: var(--space-2);
+}
+
+.cashout-pnl__value {
+  font-family: var(--font-display);
+  font-size: var(--font-size-5xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  line-height: 1;
+}
+
+.cashout-pnl.is-win .cashout-pnl__value {
+  color: rgb(74, 222, 128);
+  text-shadow: 0 0 18px rgba(74, 222, 128, 0.35);
+}
+
+.cashout-pnl.is-loss .cashout-pnl__value {
+  color: rgb(248, 113, 113);
+}
+
+.cashout-pnl__breakdown {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.cashout-pnl__note {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Stats grid (2x2) */
+.cashout-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.cashout-stat {
+  text-align: center;
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+}
+
+.cashout-stat__value {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.cashout-stat__label {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+/* Play-style band */
+.cashout-style {
+  text-align: center;
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--color-sapphire-muted);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+}
+
+.cashout-style__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+}
+
+.cashout-style__value {
+  margin-top: var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-sapphire);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.cashout-style__metrics {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Bankroll footer */
+.cashout-bankroll {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+}
+
+.cashout-bankroll__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.cashout-bankroll__value {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+/* Continue button — gold primary (matches TournamentComplete) */
+.cashout-continue {
+  display: block;
+  width: 100%;
+  padding: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-bg-void);
+  background: var(--gradient-gold);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: var(--glow-gold), var(--shadow-md);
+  transition: var(--transition-all-slow);
+}
+
+.cashout-continue:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow-gold-strong), var(--shadow-lg);
+}
+
+.cashout-continue:active {
+  transform: translateY(0) scale(0.98);
+}
+
+@media (max-width: 640px) {
+  .cashout-content {
+    padding: var(--space-5);
+  }
+
+  .cashout-title {
+    font-size: var(--font-size-2xl);
+  }
+
+  .cashout-pnl__value {
+    font-size: var(--font-size-4xl);
+  }
+
+  .cashout-stats-grid {
+    gap: var(--space-2);
+  }
+
+  .cashout-stat__value {
+    font-size: var(--font-size-lg);
+  }
+}

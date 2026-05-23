@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useRef, forwardRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'framer-motion';
+import type { PanInfo } from 'framer-motion';
 import type { ChatMessage } from '../../types';
 import {
   TYPING_SPEED_MS,
@@ -12,6 +13,21 @@ import {
   MESSAGE_MAX_DURATION_MS,
 } from '../../config/timing';
 import './FloatingChat.css';
+
+// Swipe-to-dismiss thresholds. The opacity ramp is anchored to the
+// trailing edge's screen position (see useTransform below); these
+// raw-pixel checks only gate when the gesture commits.
+const SWIPE_DISMISS_DISTANCE = 110;
+const SWIPE_DISMISS_VELOCITY = 500;
+// Minimum opacity during the swipe — keeps the bubble visible while
+// it's sliding off so the user sees the message leaving rather than
+// a phantom translation of empty space.
+const SWIPE_OPACITY_FLOOR = 0.3;
+// Duration of the off-screen slide animation that runs after the
+// user commits the swipe (release past threshold). Short enough that
+// the bubble doesn't linger; long enough that the user perceives a
+// distinct "it slid away" rather than a teleport.
+const SWIPE_OFFSCREEN_DURATION = 0.22;
 
 interface MessageWithMeta extends ChatMessage {
   addedAt: number;
@@ -157,7 +173,9 @@ function DramaticMessage({ text }: { text: string }) {
   );
 }
 
-// Message component - only X button dismisses
+// Message component — swipe horizontally to dismiss, or wait for the
+// auto-dismiss timer. No X button (the swipe gesture + timer
+// together cover the dismiss surface).
 interface MessageItemProps {
   msg: MessageWithMeta;
   avatarUrl: string | null;
@@ -167,6 +185,77 @@ interface MessageItemProps {
 const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ msg, avatarUrl, onDismiss }, ref) {
   const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
   const isAI = msg.type === 'ai';
+
+  // Horizontal drag offset tracked as a MotionValue so the fade
+  // opacity below can derive from it without triggering React
+  // re-renders on every pointer move — the transform updates run
+  // on the compositor.
+  const x = useMotionValue(0);
+
+  // Snapshot the bubble's resting rect on mount so the fade can be
+  // anchored to the trailing edge's screen-X position rather than a
+  // fixed-pixel swipe distance. Drag is short-lived; we don't track
+  // resize during the gesture (worst case: one off-curve frame
+  // after a rotation before release).
+  const innerRef = useRef<HTMLDivElement>(null);
+  const restRectRef = useRef<{ left: number; right: number; viewportWidth: number } | null>(null);
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    restRectRef.current = {
+      left: rect.left,
+      right: rect.right,
+      viewportWidth: window.innerWidth,
+    };
+  }, []);
+
+  // Cubic ease-in fade anchored to the trailing edge's journey
+  // toward the matching screen edge — a left swipe fades as the
+  // right edge approaches the left screen edge, and vice versa.
+  // Clamped at SWIPE_OPACITY_FLOOR so the bubble stays visible
+  // while it's sliding off rather than becoming a phantom empty
+  // box translating across the screen.
+  const dragOpacity = useTransform(x, (latest) => {
+    const rect = restRectRef.current;
+    if (!rect || latest === 0) return 1;
+    let progress: number;
+    if (latest < 0) {
+      progress = -latest / rect.right;
+    } else {
+      progress = latest / Math.max(1, rect.viewportWidth - rect.left);
+    }
+    progress = Math.min(Math.max(progress, 0), 1);
+    return Math.max(SWIPE_OPACITY_FLOOR, 1 - progress * progress * progress);
+  });
+
+  const handleDragEnd = (
+    _e: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
+    const distance = Math.abs(info.offset.x);
+    const velocity = Math.abs(info.velocity.x);
+    if (distance > SWIPE_DISMISS_DISTANCE || velocity > SWIPE_DISMISS_VELOCITY) {
+      // Continue the slide all the way off-screen in the direction
+      // the user committed to, then unmount. Without this the bubble
+      // would freeze mid-swipe and AnimatePresence's center-fade
+      // exit would feel disconnected from the gesture.
+      const direction = (info.offset.x || info.velocity.x) < 0 ? -1 : 1;
+      // 100px buffer past the viewport edge so the bubble fully
+      // clears any rounded shadows / blurs before unmount.
+      const target = direction * (window.innerWidth + 100);
+      animate(x, target, {
+        type: 'tween',
+        duration: SWIPE_OFFSCREEN_DURATION,
+        ease: 'easeOut',
+        onComplete: () => onDismiss(msg.id),
+      });
+      return;
+    }
+    // Below threshold → snap back. Spring matches the stack's
+    // layout transitions so the bubble settles with the same feel.
+    animate(x, 0, { type: 'spring', stiffness: 500, damping: 35 });
+  };
 
   return (
     <motion.div
@@ -186,40 +275,41 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         scale: { duration: 0.25 },
         y: { type: "spring", stiffness: 500, damping: 35 }
       }}
-      className="floating-chat"
-      data-testid="floating-chat"
+      className="floating-chat-swipe-wrap"
     >
-      <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`} data-testid="floating-chat-avatar">
-        {avatarUrl ? (
-          <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
-        ) : (
-          senderInitial
-        )}
-        {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
-      </div>
-      <div className="floating-chat-content">
-        <div className="floating-chat-sender" data-testid="floating-chat-sender">
-          {msg.action || msg.sender}
-        </div>
-        {msg.message && (
-          <div className="floating-chat-message" data-testid="floating-chat-message">
-            <DramaticMessage text={msg.message} />
-          </div>
-        )}
-      </div>
-      <button
-        className="floating-chat-dismiss"
-        data-testid="floating-chat-dismiss"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss(msg.id);
-        }}
-        aria-label="Dismiss"
+      <motion.div
+        ref={innerRef}
+        drag="x"
+        // Drag handlers belong on the inner element so the outer
+        // can continue to own the enter/exit + `layout` transitions
+        // unimpeded. `dragMomentum=false` keeps a flick from
+        // coasting past the threshold visually before the dismiss
+        // commits via animate().
+        dragMomentum={false}
+        onDragEnd={handleDragEnd}
+        style={{ x, opacity: dragOpacity }}
+        className="floating-chat"
+        data-testid="floating-chat"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
+        <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`} data-testid="floating-chat-avatar">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
+          ) : (
+            senderInitial
+          )}
+          {isAI && !avatarUrl && <span className="ai-badge">AI</span>}
+        </div>
+        <div className="floating-chat-content">
+          <div className="floating-chat-sender" data-testid="floating-chat-sender">
+            {msg.action || msg.sender}
+          </div>
+          {msg.message && (
+            <div className="floating-chat-message" data-testid="floating-chat-message">
+              <DramaticMessage text={msg.message} />
+            </div>
+          )}
+        </div>
+      </motion.div>
     </motion.div>
   );
 });

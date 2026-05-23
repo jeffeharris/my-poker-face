@@ -124,6 +124,56 @@
 }
 
 /* ===========================================
+   QUOTE BLOCK
+   Optional flavor text rendered above the deck
+   =========================================== */
+
+.shuffle-loading-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: min(90vw, 420px);
+  text-align: center;
+  padding: 0 16px;
+  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.15s both;
+}
+
+.shuffle-loading-quote-text {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 4.2vw, 18px);
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--color-text-secondary, rgba(230, 230, 240, 0.9));
+  margin: 0;
+  letter-spacing: 0.2px;
+  text-wrap: balance;
+}
+
+.shuffle-loading-quote-text::before {
+  content: '\201C';
+  margin-right: 2px;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.6;
+}
+
+.shuffle-loading-quote-text::after {
+  content: '\201D';
+  margin-left: 2px;
+  color: var(--color-gold, #d4a574);
+  opacity: 0.6;
+}
+
+.shuffle-loading-quote-attribution {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  text-transform: uppercase;
+}
+
+/* ===========================================
    SHUFFLE DECK ANIMATION
    Card backs riffle and settle
    =========================================== */

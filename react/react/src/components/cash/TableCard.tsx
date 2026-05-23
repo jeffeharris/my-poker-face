@@ -14,8 +14,11 @@
  */
 
 import { useCallback } from 'react';
+import { HandCoins } from 'lucide-react';
 import { config } from '../../config';
 import type { LobbyTable } from './types';
+// type-only import keeps the Lobby ↔ TableCard cycle erased at runtime
+import type { AiSeatClick } from './Lobby';
 
 /** Avatar URLs from the lobby route are returned as relative paths
  *  ("/api/avatar/<name>/<emotion>/full"). In dev, the frontend runs
@@ -35,9 +38,16 @@ interface TableCardProps {
   table: LobbyTable;
   busy: boolean;
   onSeatTap: (seatIndex: number) => void;
+  /** Fires when the player clicks an AI portrait — parent opens dossier. */
+  onAiSeatClick?: (click: AiSeatClick) => void;
 }
 
-export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
+export function TableCard({
+  table,
+  busy,
+  onSeatTap,
+  onAiSeatClick,
+}: TableCardProps) {
   const locked = table.affordability === 'locked';
   const sponsorOnly = table.affordability === 'sponsor_eligible';
 
@@ -64,27 +74,90 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
       }
       aria-label={ariaLabel}
     >
-      <div className="cash-entry__stake-label">{table.stake_label} table</div>
+      <div className="cash-entry__stake-label">
+        {table.table_name ?? `${table.stake_label} table`}
+      </div>
+      <div className="cash-entry__stake-sublabel">
+        {table.stake_label}
+        {table.table_type && table.table_type !== 'lobby' && (
+          <span className={`cash-entry__stake-badge cash-entry__stake-badge--${table.table_type}`}>
+            {table.table_type}
+          </span>
+        )}
+      </div>
       <div className="cash-entry__stake-meta">
         BB ${table.big_blind} · min ${table.min_buy_in.toLocaleString()} · max ${table.max_buy_in.toLocaleString()}
       </div>
 
       <div className="lobby-table-card__roster">
         {table.seats.map((seat) => {
+          const isDealer =
+            table.dealer_index != null && seat.index === table.dealer_index;
           if (seat.kind === 'ai') {
             const title = seat.relationship_hint
-              ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion})`
-              : `${seat.name} (${seat.emotion})`;
+              ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion}). Click for dossier.`
+              : `${seat.name} (${seat.emotion}). Click for dossier.`;
+            const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+              if (!onAiSeatClick) return;
+              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              onAiSeatClick({
+                dossier: {
+                  name: seat.name,
+                  avatarUrl: absolutizeAvatarUrl(seat.avatar_url) ?? undefined,
+                  emotion: seat.emotion,
+                  chips: { atTable: seat.chips },
+                  affiliation: seat.relationship_hint
+                    ? {
+                        relationship: 'neutral',
+                        relationshipNote: seat.relationship_hint,
+                      }
+                    : undefined,
+                },
+                origin: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+                identifier: seat.personality_id,
+              });
+            };
             return (
-              <div
+              <button
                 key={seat.index}
+                type="button"
                 className={
                   'lobby-table-card__seat lobby-table-card__seat--ai' +
-                  ` lobby-table-card__seat--emotion-${seat.emotion}`
+                  ` lobby-table-card__seat--emotion-${seat.emotion}` +
+                  ' lobby-table-card__seat--clickable'
                 }
                 title={title}
                 data-emotion={seat.emotion}
+                onClick={handleClick}
+                aria-label={`Open dossier for ${seat.name}`}
               >
+                {isDealer && (
+                  <span
+                    className="lobby-table-card__dealer-button"
+                    title="Dealer button"
+                    aria-label="Dealer"
+                  >
+                    D
+                  </span>
+                )}
+                {seat.carry_amount !== undefined && (
+                  <span
+                    className="lobby-table-card__carry-pin"
+                    title={`You owe ${seat.name} $${seat.carry_amount.toLocaleString()}`}
+                    aria-label={`You owe ${seat.name} ${seat.carry_amount} chips`}
+                  >
+                    ${seat.carry_amount.toLocaleString()}
+                  </span>
+                )}
+                {seat.in_active_stake && (
+                  <span
+                    className="lobby-table-card__stake-glyph"
+                    title={`${seat.name} is currently in an active stake`}
+                    aria-label={`${seat.name} is currently in an active stake position`}
+                  >
+                    <HandCoins size={10} aria-hidden="true" />
+                  </span>
+                )}
                 <div className="lobby-table-card__seat-image">
                   {(() => {
                     const src = absolutizeAvatarUrl(seat.avatar_url);
@@ -111,7 +184,7 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
                     </div>
                   )}
                 </div>
-              </div>
+              </button>
             );
           }
           if (seat.kind === 'human') {
@@ -120,6 +193,15 @@ export function TableCard({ table, busy, onSeatTap }: TableCardProps) {
                 key={seat.index}
                 className="lobby-table-card__seat lobby-table-card__seat--human"
               >
+                {isDealer && (
+                  <span
+                    className="lobby-table-card__dealer-button"
+                    title="Dealer button"
+                    aria-label="Dealer"
+                  >
+                    D
+                  </span>
+                )}
                 <div className="lobby-table-card__seat-name">Seated</div>
                 <div className="lobby-table-card__seat-chips">
                   ${seat.chips.toLocaleString()}

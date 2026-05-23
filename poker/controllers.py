@@ -639,11 +639,14 @@ class AIPlayerController:
         self.chattiness_manager = ChattinessManager()
         self.response_validator = ResponseValidator()
 
-        # Anti-repetition memory — sliding window of the player's own
-        # SPEECH beats (no action gestures; those are signature tics and
-        # are expected to recur). Injected into the next turn's prompt so
-        # the LLM doesn't recycle the same lines.
+        # Anti-repetition memory — sliding windows of the player's own
+        # recent beats from prior turns, injected into the next prompt so
+        # the LLM doesn't recycle the same lines. Speech and action beats
+        # are tracked separately so each can be presented to the LLM as
+        # its own "vary these" block — action tics like *shrugs* recur
+        # just as often as speech lines when not gated.
         self._recent_own_speech_beats: deque = deque(maxlen=5)
+        self._recent_own_action_beats: deque = deque(maxlen=5)
 
         # Prompt configuration (controls which components are included)
         self.prompt_config = prompt_config or PromptConfig()
@@ -685,12 +688,14 @@ class AIPlayerController:
         return self.psychology.traits
 
     def remember_own_beats(self, beats) -> None:
-        """Record this turn's speech beats for next turn's anti-repetition prompt.
+        """Record this turn's beats for next turn's anti-repetition prompt.
 
-        Action beats (wrapped in *asterisks*) are skipped — those are
-        character tics and supposed to recur. Empty / short fillers are
-        also skipped to keep the buffer focused on the chat lines that
-        actually matter for variety.
+        Routes asterisk-wrapped action beats (`*shrugs*`, `*taps chips*`)
+        to a separate ring buffer from spoken lines. Both are surfaced to
+        the LLM next turn so it varies tics as well as phrasing — quiet
+        characters were looping the same gesture every turn. Very short
+        mechanical speech utterances ("Call.", "Fold.") are still
+        filtered since they aren't worth varying.
         """
         if not beats or not isinstance(beats, list):
             return
@@ -700,17 +705,22 @@ class AIPlayerController:
             text = b.strip()
             if not text:
                 continue
-            # Skip pure-action beats (in asterisks)
-            if text.startswith('*') and text.endswith('*'):
-                continue
-            # Skip very short standard utterances ("Call.", "Fold.")
-            if len(text.split()) <= 2:
-                continue
-            self._recent_own_speech_beats.append(text)
+            is_action = text.startswith('*') and text.endswith('*')
+            if is_action:
+                self._recent_own_action_beats.append(text)
+            else:
+                # Skip very short mechanical utterances ("Call.", "Fold.")
+                if len(text.split()) <= 2:
+                    continue
+                self._recent_own_speech_beats.append(text)
 
     def recent_own_speech_beats(self) -> List[str]:
         """Return a copy of the speech-beat ring buffer for prompt injection."""
         return list(self._recent_own_speech_beats)
+
+    def recent_own_action_beats(self) -> List[str]:
+        """Return a copy of the action-beat ring buffer for prompt injection."""
+        return list(self._recent_own_action_beats)
 
     def find_callouts(self, messages, max_results: int = 3) -> List[str]:
         """Find recent opponent chat that DIRECTLY addressed this player.
@@ -847,17 +857,18 @@ class AIPlayerController:
 
         # Gesture roll — psychology.energy × drama-level boost. Independent
         # of speech so a silent character can still slam chips when the
-        # pot blows up. Tuned so even reserved characters react frequently
-        # — players gesture on most hands at a real table; only the chatty
-        # roll is rare.
-        #   energy 0.0 → 40%  (reserved but still present)
-        #   energy 0.5 → 64%
-        #   energy 1.0 → 95%
+        # pot blows up. Floor lowered so reserved characters are actually
+        # reserved — the prior 40% floor meant a poker_face personality
+        # still gestured nearly every turn, which gated a separate LLM
+        # call on the tiered-bot path.
+        #   energy 0.0 → 15%
+        #   energy 0.5 → 33%
+        #   energy 1.0 → 65%
         # Plus +30% on climactic moments, +15% on high-stakes.
         try:
             psy = getattr(self, 'psychology', None)
             energy = float(getattr(psy, 'energy', 0.5)) if psy else 0.5
-            probability = 0.40 + (energy ** 1.2) * 0.55
+            probability = 0.15 + (energy ** 1.5) * 0.50
             if drama_level == 'climactic':
                 probability += 0.30
             elif drama_level == 'high_stakes':
@@ -1001,6 +1012,17 @@ class AIPlayerController:
             message = message + (
                 "\n\nYour recent SPEECH beats this session — vary your "
                 "phrasing, do not repeat these lines:\n" + quoted
+            )
+
+        # Same anti-repetition pass for action beats (`*shrugs*`,
+        # `*taps chips*`). Without this characters loop the same tic
+        # several times per hand.
+        recent_actions = self.recent_own_action_beats()
+        if recent_actions:
+            quoted = "\n".join(f'  - {b}' for b in recent_actions)
+            message = message + (
+                "\n\nYour recent ACTION beats this session — vary your "
+                "gestures, do not repeat these tics:\n" + quoted
             )
 
         # Direct callouts — opponent chat that mentioned this player by
@@ -1737,7 +1759,44 @@ class AIPlayerController:
             zone_guidance=zone_guidance,
         )
 
+        prompt = self._append_relationship_context_if_enabled(prompt, game_state, player)
         return (prompt, drama_context)
+
+    def _append_relationship_context_if_enabled(
+        self, prompt: str, game_state, player,
+    ) -> str:
+        """Append a relationship-context block to a decision prompt.
+
+        Shared by chaos (`_build_decision_prompt`) and standard
+        (`HybridAIController._build_choice_prompt`) so both LLM paths
+        get the same opponent-history framing. Tiered's narration
+        layer uses a different prompt assembly (`ExpressionContext`)
+        and is wired separately if/when that lands.
+
+        No-op when:
+          - `relationship_context` flag is off
+          - `opponent_model_manager` isn't wired (e.g., human-only
+            games, tests that skip memory bootstrap)
+          - the formatter returns "" (no opponent qualifies as
+            rival/friendly — the common case in early sessions)
+        """
+        if not self.prompt_config.relationship_context:
+            return prompt
+        if self.opponent_model_manager is None:
+            return prompt
+        from .memory.relationship_prompt import build_relationship_context
+        active_opponent_names = [
+            p.name for p in game_state.players
+            if not p.is_folded and p.name != player.name
+        ]
+        rel_block = build_relationship_context(
+            observer_name=self.player_name,
+            opponents=active_opponent_names,
+            opponent_model_manager=self.opponent_model_manager,
+        )
+        if not rel_block:
+            return prompt
+        return prompt + "\n\n" + rel_block
 
     def _normalize_response(self, response_dict: Dict) -> Dict:
         """Normalize response: lowercase action, keep raise_to as float (BB).

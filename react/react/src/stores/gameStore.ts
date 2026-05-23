@@ -27,6 +27,7 @@ interface GameStore {
   awaitingAction: boolean | undefined;
   runItOut: boolean | undefined;
   cashMode: CashModeInfo | null;
+  fastForward: boolean;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -55,6 +56,7 @@ const initialState = {
   awaitingAction: undefined as boolean | undefined,
   runItOut: undefined as boolean | undefined,
   cashMode: null as CashModeInfo | null,
+  fastForward: false,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -152,6 +154,7 @@ export const useGameStore = create<GameStore>((set) => ({
         awaitingAction: state.awaiting_action,
         runItOut: state.run_it_out,
         cashMode: state.cash_mode ?? null,
+        fastForward: state.fast_forward ?? false,
       };
     });
   },
@@ -198,5 +201,6 @@ export function selectGameState(state: GameStore): GameState | null {
     awaiting_action: state.awaitingAction,
     run_it_out: state.runItOut,
     cash_mode: state.cashMode ?? undefined,
+    fast_forward: state.fastForward,
   };
 }

@@ -5,6 +5,32 @@
  */
 
 /* ============================================
+   View toggle (matrix ↔ raw JSON, used by Relationships tab)
+   ============================================ */
+
+.dt-view-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+.dt-view-toggle-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-muted, #888);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 80ms ease-out, border-color 80ms ease-out;
+}
+
+.dt-view-toggle-btn:hover {
+  color: var(--color-text, #ddd);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ============================================
    Container
    ============================================ */
 

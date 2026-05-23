@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { HomeMenu } from './components/menus/HomeMenu'
@@ -9,7 +9,10 @@ import { GamePage } from './components/game/GamePage'
 import { useAuth } from './hooks/useAuth'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useUsageStats } from './hooks/useUsageStats'
+import { useNicknameOverridesStore } from './stores/nicknameOverridesStore'
+import { fetchNicknameOverrides } from './components/character/api'
 import { ShuffleLoading, GuestLimitModal } from './components/shared'
+import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor'
 import { logger } from './utils/logger'
 import { config } from './config'
 import { type Theme } from './types/theme'
@@ -29,6 +32,7 @@ const LandingPage = lazy(() => import('./components/landing').then(m => ({ defau
 const Lobby = lazy(() => import('./components/cash/Lobby').then(m => ({ default: m.Lobby })))
 const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
 const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
+const WinnerLayoutSandbox = lazy(() => import('./components/dev/WinnerLayoutSandbox').then(m => ({ default: m.WinnerLayoutSandbox })))
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -67,6 +71,13 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
 
+  // Fresh quote each time game creation kicks off.
+  const creatingGameQuote = useMemo(() => {
+    if (!isCreatingGame) return undefined;
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [isCreatingGame])
+
   // Check if guest hand limit is already reached on load
   useEffect(() => {
     if (usageStats?.hands_limit_reached) {
@@ -80,6 +91,34 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       setPlayerName(user.name);
     }
   }, [user?.name]);
+
+  // Hydrate the per-viewer nickname-override map on auth so opponent
+  // labels everywhere (table, chat, heads-up panel, etc.) reflect
+  // private aliases the player set in the dossier. Re-runs when
+  // the user identity flips (login/logout) so the override set is
+  // never stale to who's looking.
+  //
+  // Reset runs unconditionally at the top: this prevents a stale
+  // prior-user map from leaking into a fresh identity's hydrate
+  // (hydrate merges, with local edits winning, so without this
+  // reset the prior user's edits would survive an identity swap).
+  const hydrateOverrides = useNicknameOverridesStore((s) => s.hydrate);
+  const resetOverrides = useNicknameOverridesStore((s) => s.reset);
+  useEffect(() => {
+    resetOverrides();
+    if (!isAuthenticated || !user?.id) return;
+    let cancelled = false;
+    fetchNicknameOverrides()
+      .then((map) => {
+        if (!cancelled) hydrateOverrides(map);
+      })
+      .catch((e) => {
+        // Soft-fail: leave the (empty) store alone so canonical
+        // nicknames keep showing — the existing behaviour pre-feature.
+        logger.warn('[nickname-overrides] fetch failed', e);
+      });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, user?.id, hydrateOverrides, resetOverrides]);
 
   // Update page title based on current route
   useEffect(() => {
@@ -334,6 +373,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         } />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
 
         {/* Protected routes */}
         <Route path="/menu" element={
@@ -439,6 +479,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         message="Setting up your game"
         submessage={loadingSubmessage}
         exitStyle="slide"
+        quote={creatingGameQuote}
       />
 
       {/* Max Games Error Modal */}

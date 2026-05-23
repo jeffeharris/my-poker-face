@@ -52,6 +52,84 @@
   gap: 0.75rem;
 }
 
+/* v111: tier sections — one per stake label, each containing N tables.
+ * The header is a button so the section can collapse on mobile by
+ * default; desktop renders all expanded. */
+.cash-entry__tier {
+  margin-bottom: 1rem;
+}
+
+.cash-entry__tier-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.cash-entry__tier-header:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cash-entry__tier-label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.cash-entry__tier-count {
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+.cash-entry__tier-chevron {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.cash-entry__tier--collapsed .cash-entry__tier-chevron {
+  transform: rotate(-90deg);
+}
+
+/* v111: per-card subtitle line under the name — shows the stake label
+ * and (optionally) a table-type badge. Keeps the friendly name as the
+ * primary identifier without losing the tier context. */
+.cash-entry__stake-sublabel {
+  font-size: 0.8125rem;
+  opacity: 0.65;
+  margin-top: 0.125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cash-entry__stake-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
+
+.cash-entry__stake-badge--private {
+  background: rgba(125, 211, 252, 0.18);
+  color: #7dd3fc;
+}
+
+.cash-entry__stake-badge--casino {
+  background: rgba(252, 211, 77, 0.18);
+  color: #fcd34d;
+}
+
 .cash-entry__stake-button {
   padding: 1rem;
   background: rgba(255, 255, 255, 0.06);
@@ -367,7 +445,8 @@
 .lobby-table-card__seat {
   /* All seats are square portrait tiles. AI seats fill with an
      image; open/human seats use centered content. Aspect ratio
-     keeps the grid even across the 6 slots. */
+     keeps the grid even across the 6 slots. `position: relative`
+     so the dealer-button badge can absolute-position against it. */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -380,6 +459,32 @@
   aspect-ratio: 1 / 1;
   text-align: center;
   overflow: hidden;
+  position: relative;
+}
+
+/* Dealer-button badge — anchored to the seat's top-left. White disc
+   with a thin gold ring; the "D" sits centered. Sized so it reads at
+   the lobby card's small scale without crowding the avatar overlay. */
+.lobby-table-card__dealer-button {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #1f2937;
+  border: 1.5px solid #e2bf6f;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 /* AI seat = full-card portrait with text overlay at the bottom.
@@ -393,7 +498,22 @@
   border-color: rgba(255, 255, 255, 0.18);
   padding: 0;
   position: relative;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+  /* Reset button defaults when seat is rendered as <button> for dossier click. */
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.lobby-table-card__seat--ai.lobby-table-card__seat--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+  border-color: rgba(226, 191, 111, 0.55);
+}
+
+.lobby-table-card__seat--ai.lobby-table-card__seat--clickable:focus-visible {
+  outline: 2px solid #e2bf6f;
+  outline-offset: 2px;
 }
 
 .lobby-table-card__seat-image {
@@ -569,7 +689,7 @@
 
 .lobby-ticker__item {
   display: grid;
-  grid-template-columns: 8px 1fr auto;
+  grid-template-columns: 14px 1fr auto;
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.2rem 0;
@@ -582,7 +702,15 @@
   height: 6px;
   border-radius: 50%;
   align-self: center;
+  justify-self: center;
   background: rgba(255, 255, 255, 0.4);
+}
+
+.lobby-ticker__icon {
+  align-self: center;
+  justify-self: center;
+  color: #fcd34d;
+  filter: drop-shadow(0 0 4px rgba(252, 211, 77, 0.4));
 }
 
 /* Colour-code event types. The chip events (big_win/big_loss) get
@@ -602,6 +730,25 @@
 }
 .lobby-ticker__item--big_loss .lobby-ticker__dot {
   background: #f87171;
+}
+.lobby-ticker__item--ai_stake .lobby-ticker__icon {
+  color: #b9e0f5;
+}
+.lobby-ticker__item--ai_default .lobby-ticker__dot {
+  background: #d66e6e;
+}
+.lobby-ticker__item--ai_default .lobby-ticker__icon {
+  color: #d66e6e;
+}
+/* Phase 4.5 — AI-initiated carry resolution. Payoffs ride the same
+   gold as wins (positive economic act); forgiveness is a softer
+   green; explicit defaults use the red ai_default tint above
+   already. */
+.lobby-ticker__item--ai_payoff .lobby-ticker__icon {
+  color: #fcd34d;
+}
+.lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
+  color: #86efac;
 }
 
 .lobby-ticker__message {

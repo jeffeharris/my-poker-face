@@ -682,7 +682,8 @@ def initialize_game_state(
     player_names: List[str],
     human_name: str = "Player",
     starting_stack: int = STACK_SIZE,
-    big_blind: int = ANTE
+    big_blind: int = ANTE,
+    dealer_idx: int = 0,
 ) -> PokerGameState:
     """
     Generate a new game state and prepare the game for the initial round of betting.
@@ -694,6 +695,7 @@ def initialize_game_state(
     :param human_name: Name of the human player (default: "Player")
     :param starting_stack: Starting chip stack for each player (default: 10000)
     :param big_blind: Starting big blind amount (default: 50)
+    :param dealer_idx: Initial dealer player index (default: 0 — the human)
     """
     # Validate no duplicate names
     all_names = [human_name] + list(player_names)
@@ -704,11 +706,16 @@ def initialize_game_state(
     ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
     new_players = (Player(name=human_name, stack=starting_stack, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    if not 0 <= dealer_idx < len(new_players):
+        raise ValueError(
+            f"dealer_idx {dealer_idx} out of range for {len(new_players)} players"
+        )
     game_state = PokerGameState(
         players=new_players,
         deck=create_deck(shuffled=True),
         current_ante=big_blind,
-        last_raise_amount=big_blind
+        last_raise_amount=big_blind,
+        current_dealer_idx=dealer_idx,
     )
 
     return game_state

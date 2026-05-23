@@ -9,7 +9,11 @@ def make_strategy(probs):
 
 
 def test_short_stack_triggers_push():
-    """Stack < 3 BB with all_in legal should override to push."""
+    """Stack < 3 BB with all_in legal should override to push.
+
+    Emits the abstract action 'jam' (not engine-level 'all_in') so
+    downstream action_mapper.resolve_*_sizing handles it correctly.
+    """
     base = make_strategy({'fold': 0.8, 'call': 0.15, 'raise': 0.05})
     out, trace = apply_pot_odds_floor(
         strategy=base,
@@ -21,9 +25,11 @@ def test_short_stack_triggers_push():
         legal_actions=['fold', 'call', 'raise', 'all_in'],
     )
     assert trace.reason_code == 'short_stack'
-    assert out.action_probabilities['all_in'] == 1.0
+    assert out.action_probabilities['jam'] == 1.0
     # No fold mass in override
     assert out.action_probabilities.get('fold', 0) == 0
+    # Engine-level 'all_in' must not leak into the abstract distribution.
+    assert 'all_in' not in out.action_probabilities
 
 
 def test_short_stack_no_all_in_falls_back_to_call():
@@ -188,8 +194,9 @@ def test_floor_is_deterministic_on_target():
         big_blind=100,
         legal_actions=['fold', 'call', 'raise', 'all_in'],
     )
-    # Short stack with all_in legal -> target=all_in, no residual
-    assert out.action_probabilities == {'all_in': 1.0}
+    # Short stack with all_in legal -> target=jam (abstract action that
+    # resolves to engine-level all_in), no residual mass.
+    assert out.action_probabilities == {'jam': 1.0}
 
 
 def test_probabilities_sum_to_one():

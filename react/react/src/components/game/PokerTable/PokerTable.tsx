@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Bot } from 'lucide-react';
 import { CommunityCard, HoleCard, DebugHoleCard } from '../../cards';
+import { CharacterDetailCard } from '../../character';
+import { dossierFromPlayer } from '../../character/dossierFromPlayer';
 import { PlayerThinking } from '../PlayerThinking';
 import { WinnerAnnouncement } from '../WinnerAnnouncement';
 import { TournamentComplete } from '../TournamentComplete';
@@ -13,8 +15,10 @@ import { BustModal } from '../../cash/BustModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
+import { pickQuote } from '../WinnerAnnouncement/quote-flavor';
 import { useGuestChatLimit } from '../../../hooks/useGuestChatLimit';
 import { logger } from '../../../utils/logger';
+import { gameAPI } from '../../../utils/api';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { isBettingPhase } from '../../../constants/gamePhases';
@@ -41,6 +45,19 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   const lastKnownActions = useRef<Map<string, string>>(new Map());
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
+
+  // Character dossier — opens when an opponent avatar is clicked.
+  const [dossierPlayer, setDossierPlayer] = useState<Player | null>(null);
+  const [dossierOrigin, setDossierOrigin] = useState<{ x: number; y: number } | undefined>();
+  const openDossierForPlayer = useCallback(
+    (player: Player, target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      setDossierPlayer(player);
+    },
+    [],
+  );
+  const closeDossier = useCallback(() => setDossierPlayer(null), []);
 
   // Use the shared hook for all socket/state management
   const {
@@ -72,6 +89,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     gameState?.awaiting_action,
     handleSendMessage,
   );
+
+  // Pick a flavor quote for shuffle screens. Stable per hand so it doesn't
+  // flicker on re-renders during a single shuffle.
+  const handNumberForQuote = gameState?.hand_number;
+  const shuffleQuote = useMemo(() => {
+    const q = pickQuote('between_hands');
+    return q ? { text: q.text, attribution: q.attribution } : undefined;
+  }, [handNumberForQuote]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -201,7 +226,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   if (loading) {
     return (
       <div className="poker-table">
-        <ShuffleLoading isVisible={true} message="Setting up the table" submessage="Shuffling cards and gathering players" />
+        <ShuffleLoading
+          isVisible={true}
+          message="Setting up the table"
+          submessage="Shuffling cards and gathering players"
+          quote={shuffleQuote}
+        />
       </div>
     );
   }
@@ -234,6 +264,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
       <WinnerAnnouncement
         winnerInfo={winnerInfo}
         onComplete={clearWinnerInfo}
+        players={gameState.players}
       />
 
       {/* Tournament Complete */}
@@ -299,6 +330,16 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
               isSmallBlind={isHumanSmallBlind}
               isBigBlind={isHumanBigBlind}
               bettingContext={gameState.betting_context}
+              fastForward={gameState.fast_forward ?? false}
+              onFastForward={
+                gameId
+                  ? (enabled: boolean) => {
+                      gameAPI.fastForward(gameId, enabled).catch((e) => {
+                        logger.warn('[FF] toggle failed', e);
+                      });
+                    }
+                  : undefined
+              }
             />
           )
         }
@@ -365,7 +406,14 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                     </div>
 
                     <div className="player-info">
-                      <div className="player-avatar">
+                      <button
+                        type="button"
+                        className="player-avatar player-avatar--clickable"
+                        onClick={(e) =>
+                          openDossierForPlayer(player, e.currentTarget as HTMLElement)
+                        }
+                        aria-label={`Open dossier for ${player.name}`}
+                      >
                         {avatarUrl ? (
                           <img
                             src={`${config.API_URL}${avatarUrl}`}
@@ -380,7 +428,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                             <Bot size={14} aria-hidden />
                           </span>
                         )}
-                      </div>
+                      </button>
                       <div className="player-details">
                         <div className="player-name">{player.name}</div>
                         <div className="player-stack">${player.stack}</div>
@@ -419,6 +467,17 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
           </div>
         </div>
       </StadiumLayout>
+
+      {/* Character dossier — opens when an opponent avatar is clicked.
+       *  Uses the live Player blob for basics; the personality block
+       *  isn't loaded here so trait/playstyle sections drop silently. */}
+      <CharacterDetailCard
+        isOpen={dossierPlayer !== null}
+        onClose={closeDossier}
+        character={dossierPlayer ? dossierFromPlayer(dossierPlayer) : { name: '' }}
+        origin={dossierOrigin}
+        identifier={dossierPlayer?.name}
+      />
     </>
   );
 }

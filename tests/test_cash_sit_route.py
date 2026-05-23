@@ -22,6 +22,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from cash_mode.tables import CashTableState, ai_slot, open_slot
 from flask_app import create_app
+from poker.personality_generator import PersonalityGenerator
+from poker.poker_player import AIPokerPlayer
 from poker.repositories import create_repos
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
@@ -80,14 +82,16 @@ class _CashSitRouteBase(unittest.TestCase):
         cls.personality_repo = repos['personality_repo']
         cls.cash_table_repo = repos['cash_table_repo']
 
+        from tests._sandbox_test_helper import pin_sandbox_for
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
+
         cls.napoleon_id = cls.personality_repo.save_personality(
             'Napoleon',
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 5_000_000, 'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
-                    'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                     'stake_comfort_zone': '$10',
                 },
             },
@@ -95,15 +99,14 @@ class _CashSitRouteBase(unittest.TestCase):
         cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
             personality_id=cls.napoleon_id, chips=4_000_000,
             last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ))
+        ), sandbox_id="test-sandbox-1")
         for i in range(30):
             pid = cls.personality_repo.save_personality(
                 f'AI {i}',
                 {
                     'bankroll_knobs': {
-                        'bankroll_cap': 5_000_000, 'bankroll_rate': 0,
+                        'starting_bankroll': 5_000_000, 'bankroll_rate': 0,
                         'buy_in_multiplier': 1.0,
-                        'stop_loss_buy_ins': 3, 'stop_win_buy_ins': 5,
                         'stake_comfort_zone': '$10',
                     },
                 },
@@ -111,7 +114,7 @@ class _CashSitRouteBase(unittest.TestCase):
             cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
                 personality_id=pid, chips=4_000_000,
                 last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-            ))
+            ), sandbox_id="test-sandbox-1")
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -122,7 +125,8 @@ class _CashSitRouteBase(unittest.TestCase):
                 'capture_label_repo', 'replay_experiment_repo',
                 'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
                 'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo',
+                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'stake_repo', 'sandbox_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -151,14 +155,42 @@ class _CashSitRouteBase(unittest.TestCase):
             elif key == 'persistence_db_path':
                 setattr(_gr, key, repos['db_path'])
 
+        from cash_mode.lobby import ensure_lobby_seeded
+        ensure_lobby_seeded(
+            cash_table_repo=cls.cash_table_repo,
+            personality_repo=cls.personality_repo,
+            bankroll_repo=cls.bankroll_repo,
+            sandbox_id="test-sandbox-1",
+        )
+
     @classmethod
     def tearDownClass(cls):
+        # Restore the AIPokerPlayer class-level singleton so subsequent
+        # tests don't see our tempdb-pointed instance. See setUp for
+        # the rebind motivation.
+        AIPokerPlayer._personality_generator = cls._prior_personality_generator
         try:
             os.unlink(cls.test_db.name)
         except FileNotFoundError:
             pass
 
     def setUp(self):
+        # AIPokerPlayer._personality_generator is a class-level singleton
+        # that auto-initializes to /app/data/poker_games.db. Without
+        # explicit override, every controller built via _build_cash_game
+        # → AIPokerPlayer(name) → _load_personality_config() →
+        # get_personality(name) hits the **production** DB, and any
+        # name not already present there gets auto-generated via LLM
+        # and saved as a zombie row. Point the singleton at our tempdb
+        # for the duration of this test class so "AI N" lookups resolve
+        # against the test's own seeded personalities. Stored on the
+        # class so tearDownClass can restore it.
+        if not hasattr(type(self), '_prior_personality_generator'):
+            type(self)._prior_personality_generator = AIPokerPlayer._personality_generator
+        AIPokerPlayer._personality_generator = PersonalityGenerator(
+            personality_repo=self.personality_repo,
+        )
+
         user = {'id': PLAYER_OWNER_ID, 'name': 'Tester'}
         self._authz_patcher = patch(
             'poker.authorization.authorization_service',
@@ -200,6 +232,7 @@ class _CashSitRouteBase(unittest.TestCase):
             cash_table_repo=self.cash_table_repo,
             personality_repo=self.personality_repo,
             bankroll_repo=self.bankroll_repo,
+            sandbox_id="test-sandbox-1",
         )
         # Reset player bankroll.
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
@@ -227,14 +260,14 @@ class TestSitAll(_CashSitRouteBase):
 
     def test_occupied_seat_409(self):
         # Place napoleon at seat 0 and try to sit there.
-        table = self.cash_table_repo.load_table("cash-table-2-001")
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         new_seats = list(table.seats)
         new_seats[0] = ai_slot(self.napoleon_id, 80)
         self.cash_table_repo.save_table(CashTableState(
             table_id=table.table_id,
             stake_label=table.stake_label,
             seats=new_seats,
-        ))
+        ), sandbox_id="test-sandbox-1")
         resp = self.client.post("/api/cash/sit", json={
             "table_id": "cash-table-2-001", "seat_index": 0,
         })
@@ -253,7 +286,7 @@ class TestSitAll(_CashSitRouteBase):
         # Bankroll 0; sponsor-eligible at $2 (lowest tier).
         self._set_bankroll(0)
         # Find an open seat on $2 table.
-        table = self.cash_table_repo.load_table("cash-table-2-001")
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -269,7 +302,7 @@ class TestSitAll(_CashSitRouteBase):
     def test_unaffordable_at_high_tier_400(self):
         # Bankroll 0; $1000 table is locked (not sponsor-eligible).
         self._set_bankroll(0)
-        table = self.cash_table_repo.load_table("cash-table-1000-001")
+        table = self.cash_table_repo.load_table("cash-table-1000-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -288,7 +321,7 @@ class TestSitAll(_CashSitRouteBase):
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
             player_id=PLAYER_OWNER_ID, chips=10_000, starting_bankroll=10_000,
         ))
-        table = self.cash_table_repo.load_table("cash-table-10-001")
+        table = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         open_idx = next(
             i for i, s in enumerate(table.seats) if s["kind"] == "open"
         )
@@ -304,7 +337,7 @@ class TestSitAll(_CashSitRouteBase):
         assert data.get("game_id", "").startswith("cash-")
 
         # Persisted table: human seat at that index.
-        updated = self.cash_table_repo.load_table("cash-table-10-001")
+        updated = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
         assert updated.seats[open_idx]["kind"] == "human"
         assert updated.seats[open_idx]["personality_id"] == PLAYER_OWNER_ID
         assert updated.seats[open_idx]["chips"] == 400
@@ -314,7 +347,7 @@ class TestSitAll(_CashSitRouteBase):
         assert bankroll.chips == 9600
 
         # Phase 2: double-sit attempt → 409.
-        table2 = self.cash_table_repo.load_table("cash-table-50-001")
+        table2 = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
         open_idx2 = next(
             i for i, s in enumerate(table2.seats) if s["kind"] == "open"
         )
@@ -324,3 +357,131 @@ class TestSitAll(_CashSitRouteBase):
             "buy_in": 2000,
         })
         assert resp2.status_code == 409
+
+    def test_orphaned_seat_is_freed_on_subsequent_sit(self):
+        """Regression: a stale `human` slot on table A (game row gone but
+        seat never reverted) must NOT survive when the player sits at
+        table B. Reproduces the production case where a leave path
+        cleaned the game row but left the seat occupied, double-seating
+        the user across two tables.
+        """
+        from flask_app.extensions import game_repo
+
+        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=PLAYER_OWNER_ID, chips=10_000, starting_bankroll=10_000,
+        ))
+
+        # Phase 1: sit at $10 (happy path).
+        table_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        open_idx_a = next(i for i, s in enumerate(table_a.seats) if s["kind"] == "open")
+        resp_a = self.client.post("/api/cash/sit", json={
+            "table_id": "cash-table-10-001",
+            "seat_index": open_idx_a,
+            "buy_in": 400,
+        })
+        assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
+        sit_a_game_id = resp_a.get_json()["game_id"]
+
+        # Phase 2: orphan the seat by deleting the game row directly,
+        # leaving the human slot stranded on cash-table-10-001. Also
+        # remove the in-memory game so `_find_active_cash_game_id` can't
+        # find it and trip the 409 guard.
+        from flask_app.services import game_state_service
+        game_state_service.delete_game(sit_a_game_id)
+        game_repo.delete_game(sit_a_game_id)
+        stranded = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        assert stranded.seats[open_idx_a]["kind"] == "human", \
+            "Seat should still be human before the fix sweeps it"
+
+        # Phase 3: sit at $50 — this must succeed AND free the orphan.
+        table_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
+        open_idx_b = next(i for i, s in enumerate(table_b.seats) if s["kind"] == "open")
+        resp_b = self.client.post("/api/cash/sit", json={
+            "table_id": "cash-table-50-001",
+            "seat_index": open_idx_b,
+            "buy_in": 2000,
+        })
+        assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
+
+        # Phase 4: the $10 seat must now be open, $50 seat human.
+        after_a = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        after_b = self.cash_table_repo.load_table("cash-table-50-001", sandbox_id="test-sandbox-1")
+        assert after_a.seats[open_idx_a]["kind"] == "open", \
+            "Orphaned $10 seat was not freed"
+        assert after_b.seats[open_idx_b]["kind"] == "human"
+        assert after_b.seats[open_idx_b]["personality_id"] == PLAYER_OWNER_ID
+        # Sanity: owner has no other human slot anywhere.
+        humans_for_owner = [
+            (t.table_id, i)
+            for t in self.cash_table_repo.list_all_tables()
+            for i, s in enumerate(t.seats)
+            if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
+        ]
+        assert humans_for_owner == [("cash-table-50-001", open_idx_b)]
+
+    def test_orphaned_seat_on_same_table_is_freed_on_subsequent_sit(self):
+        """Regression: a stale `human` slot at index X on the SAME table
+        the player is sitting back down at (different index Y) must NOT
+        survive the new sit.
+
+        Pre-fix, `sit_at_table` loaded the table once before calling
+        `_free_ghost_human_seats`, then built `claimed_table` from that
+        stale snapshot — the save resurrected the just-cleared orphan.
+        This is the production scenario where the user resumed a
+        session, was placed at a fresh seat, and ended up double-
+        seated on the same table.
+        """
+        from flask_app.extensions import game_repo
+
+        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=PLAYER_OWNER_ID, chips=20_000, starting_bankroll=20_000,
+        ))
+
+        table_id = "cash-table-50-001"
+        table = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        # Pick two distinct open indices on the same table.
+        open_indices = [i for i, s in enumerate(table.seats) if s["kind"] == "open"]
+        assert len(open_indices) >= 2, "need ≥2 open seats for this case"
+        orphan_idx, new_idx = open_indices[0], open_indices[1]
+
+        # Phase 1: sit at orphan_idx (legit), then strand it by deleting
+        # the game row in both memory and DB. The cash_tables row keeps
+        # the human slot — the ghost.
+        resp_a = self.client.post("/api/cash/sit", json={
+            "table_id": table_id,
+            "seat_index": orphan_idx,
+            "buy_in": 2000,
+        })
+        assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
+        sit_a_game_id = resp_a.get_json()["game_id"]
+
+        from flask_app.services import game_state_service
+        game_state_service.delete_game(sit_a_game_id)
+        game_repo.delete_game(sit_a_game_id)
+        stranded = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        assert stranded.seats[orphan_idx]["kind"] == "human"
+
+        # Phase 2: sit at new_idx on the SAME table — must succeed and
+        # leave only the new seat human.
+        resp_b = self.client.post("/api/cash/sit", json={
+            "table_id": table_id,
+            "seat_index": new_idx,
+            "buy_in": 2000,
+        })
+        assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
+
+        after = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        assert after.seats[new_idx]["kind"] == "human"
+        assert after.seats[new_idx]["personality_id"] == PLAYER_OWNER_ID
+        assert after.seats[orphan_idx]["kind"] == "open", (
+            f"orphan at idx {orphan_idx} was resurrected by the stale-"
+            f"snapshot save in sit_at_table — got "
+            f"{after.seats[orphan_idx]!r}"
+        )
+        humans_for_owner = [
+            (t.table_id, i)
+            for t in self.cash_table_repo.list_all_tables()
+            for i, s in enumerate(t.seats)
+            if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
+        ]
+        assert humans_for_owner == [(table_id, new_idx)]

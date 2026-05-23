@@ -213,15 +213,12 @@ def cash_out_ai_seat(
 
     AI analogue of the human `leave_table` row. Returns the new
     table (seat cleared, stack entry removed) and the new
-    `AIBankrollState` with the credited chips clamped to
-    `knobs.bankroll_cap`.
+    `AIBankrollState` with the seat's stack added to bankroll.
 
-    Matches the leave-time accounting in `cash_routes.leave_table`:
-    project the stored bankroll forward through elapsed time
-    (passive regen), credit the seat's current table stack on top,
-    clamp to cap. The cap is a hard ceiling — extras evaporate so
-    one AI can't accumulate runaway wealth relative to the rest of
-    the cast.
+    `starting_bankroll` is the regen *target*, not a ceiling: regen
+    pulls chips up toward it when the AI is below, and is dormant
+    when chips are at or above. Winnings stack uncapped, so an AI
+    can climb past their character's natural-wealth baseline.
 
     Unused in v1: AI seats only leave the table on bust (handled by
     `bust_at_table`, no bankroll move because the chips were lost in
@@ -247,9 +244,9 @@ def cash_out_ai_seat(
 
     chips_at_table = table.stack_of(personality_id)
     projected = project_bankroll(
-        ai_bankroll, knobs.bankroll_cap, knobs.bankroll_rate, now,
+        ai_bankroll, knobs.starting_bankroll, knobs.bankroll_rate, now,
     )
-    new_chips = min(knobs.bankroll_cap, projected + chips_at_table)
+    new_chips = projected + chips_at_table
 
     new_table = table.with_seat(seat_index, None).without_stack(personality_id)
     new_bankroll = AIBankrollState(
@@ -365,28 +362,6 @@ def bust_at_table(table: CashTable, seat_id: str) -> CashTable:
     if seat_index is None:
         return table
     return table.with_seat(seat_index, None).without_stack(seat_id)
-
-
-# --- Row 5: Full bankroll bust ---
-
-
-def full_bankroll_bust(bankroll: PlayerBankrollState) -> PlayerBankrollState:
-    """Reset bankroll to `starting_bankroll` for a player with no
-    chips left anywhere.
-
-    Spec row 5: "Player is between sessions when this fires." The
-    session layer detects the condition (bankroll.chips == 0 AND
-    not seated at any table) and calls this; this function trusts
-    the caller's gate rather than re-validating.
-
-    Per spec §"Bust semantics", v1 has no cooldown — fresh grant is
-    immediate.
-    """
-    return PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=bankroll.starting_bankroll,
-        starting_bankroll=bankroll.starting_bankroll,
-    )
 
 
 # --- Row 6 / 7: Mid-hand quit + disconnect timeout ---

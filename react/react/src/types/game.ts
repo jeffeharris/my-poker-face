@@ -28,12 +28,26 @@ export interface BettingContext {
   opponent_covers?: OpponentCover[];
 }
 
+export interface CashActiveLoan {
+  /** Principal in chips. */
+  amount: number;
+  /** Repayment multiplier on principal (e.g., 1.30 = repay 130%). */
+  floor: number;
+  /** Sponsor's cut of the post-floor remainder (e.g., 0.40 = 40%). */
+  rate: number;
+  /** Personality id of the AI lender, or null for an anonymous house loan. */
+  lender_id: string | null;
+}
+
 export interface CashModeInfo {
   stake_label: string;
   bankroll: number;
   big_blind: number;
   min_buy_in: number;
   max_buy_in: number;
+  /** Present when the player has an outstanding sponsor loan; drives the
+   *  leave-table settlement preview. Null when no loan is active. */
+  active_loan?: CashActiveLoan | null;
 }
 
 export interface GameState {
@@ -59,6 +73,10 @@ export interface GameState {
   /** Present only for cash-mode games; surfaces bankroll + buy-in
    *  caps for the rebuy/topup UI. Tournament games omit this. */
   cash_mode?: CashModeInfo;
+  /** True while AI decisions are resolving via the no-LLM tiered path.
+   *  Set by POST /api/game/<id>/fast-forward, auto-cleared when action
+   *  returns to the human. */
+  fast_forward?: boolean;
 }
 
 /** Player's showdown hand information */

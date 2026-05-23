@@ -177,5 +177,7 @@ def format_messages_for_api(messages: list) -> list:
             entry['action'] = msg['action']
         if 'win_result' in msg:
             entry['win_result'] = msg['win_result']
+        if 'addressing' in msg:
+            entry['addressing'] = msg['addressing']
         formatted.append(entry)
     return formatted

@@ -26,9 +26,12 @@ Sequencing: `docs/plans/RELATIONSHIP_PHASE_3_HANDOFF.md`.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
@@ -47,6 +50,14 @@ if TYPE_CHECKING:
 # losing — the dispatch-table calibration (heat +0.30, the strongest
 # axis movement in the whole event vocabulary) assumes this.
 BAD_BEAT_EQUITY_MIN = 0.70
+
+# COOLER threshold: both hands must be three-of-a-kind or better to
+# qualify (HandEvaluator hand_rank <= 7 — lower is better; 7 = three of
+# a kind, 6 = straight, 5 = flush, …, 1 = royal flush). Two pair (8)
+# is decent but doesn't read as a "monster" — coolers are the "I had
+# it, they had MORE" emotional event, which needs both sides to have
+# brought real strength. DOMINATED_SHOWDOWN handles weaker matchups.
+COOLER_STRONG_HAND_RANK_MAX = 7
 
 
 @dataclass(frozen=True)
@@ -134,6 +145,9 @@ class HandOutcomeDetector:
         events.extend(self._detect_big_pot_events(recorded_hand))
         events.extend(self._detect_hero_calls(recorded_hand))
         events.extend(self._detect_bluffed_off(recorded_hand))
+        events.extend(self._detect_dominated_showdown(recorded_hand))
+        events.extend(self._detect_coolers(recorded_hand))
+        events.extend(self._detect_strong_fold_shown(recorded_hand))
         if equity_history is not None:
             events.extend(self._detect_bad_beats(recorded_hand, equity_history))
         # Apply dedup AFTER detection so detection logic stays a
@@ -160,17 +174,52 @@ class HandOutcomeDetector:
             surviving.append(event)
         return surviving
 
+    def compute_chip_flows(self, hand: RecordedHand) -> List[ChipFlow]:
+        """Pure allocation: return every (winner, loser, chips) flow for
+        this hand. No big-pot threshold — every pot, regardless of size.
+
+        Distinct from `_detect_big_pot_events`, which gates BIG_WIN/
+        BIG_LOSS *event* emission on the big-pot threshold (the axes
+        should only move on stack-threatening pots). This method
+        exists so `cash_pair_stats` can track full lifetime PnL across
+        every hand a pair shares, not just the dramatic ones. Both
+        callers funnel through the same `allocate_chip_flow` allocator
+        so the two views stay aligned.
+
+        This method is **pure** — it can be called multiple times per
+        hand without side effects. Dedup for cash_pair_stats writes
+        lives in the caller (`AIMemoryManager._process_relationship_events`)
+        so the same hand_number can be allocated by both
+        `_detect_big_pot_events` and the cash-PnL dispatch path on
+        a single pass without one starving the other.
+        """
+        if hand.pot_size <= 0 or not hand.winners:
+            return []
+        winner_amounts: Dict[str, int] = {}
+        for w in hand.winners:
+            winner_amounts[w.name] = (
+                winner_amounts.get(w.name, 0) + w.amount_won
+            )
+        if not winner_amounts:
+            return []
+        contributions = hand.get_player_contributions()
+        pot = PotShare(
+            amount=hand.pot_size,
+            winners=tuple(winner_amounts.keys()),
+            contributions=contributions,
+        )
+        return allocate_chip_flow([pot])
+
     def _detect_big_pot_events(
         self, hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit BIG_WIN / BIG_LOSS pairs for big-pot hands.
 
-        Uses the chip-flow allocation in `chip_flow.allocate_chip_flow`
-        to produce one BIG_WIN + one BIG_LOSS per (winner, loser) pair
-        — heads-up trivially, but also for multiway pots and split
-        pots. The allocation rule is the same one feeding
-        `cash_pair_stats` so the relationship layer and the cash
-        bookkeeping stay aligned.
+        Reuses `compute_chip_flows` for the allocation, then gates
+        event emission on `MomentAnalyzer.is_big_pot` — the same
+        threshold `PressureEventDetector` uses, so the relationship-
+        axis updates here align with the pressure layer's big_win/
+        big_loss signals.
 
         Side-pot caveat: `RecordedHand` doesn't currently carry
         explicit per-pot structure (it has a flat winners list with
@@ -183,7 +232,8 @@ class HandOutcomeDetector:
         method can build multiple `PotShare`s without touching the
         helper.
         """
-        if hand.pot_size <= 0 or not hand.winners:
+        flows = self.compute_chip_flows(hand)
+        if not flows:
             return []
 
         # Big-pot threshold: same `MomentAnalyzer.is_big_pot` calc as
@@ -200,28 +250,6 @@ class HandOutcomeDetector:
             if starting_stacks else 0
         )
         if not MomentAnalyzer.is_big_pot(hand.pot_size, 0, avg_stack):
-            return []
-
-        # Build a single PotShare from the recorded hand. Aggregate
-        # winner amounts in case the same name appears in multiple
-        # pot_breakdown rows (shouldn't happen given the dedup in
-        # `HandHistoryRecorder.complete_hand`, but defensive).
-        winner_amounts: Dict[str, int] = {}
-        for w in hand.winners:
-            winner_amounts[w.name] = (
-                winner_amounts.get(w.name, 0) + w.amount_won
-            )
-        if not winner_amounts:
-            return []
-
-        contributions = hand.get_player_contributions()
-        pot = PotShare(
-            amount=hand.pot_size,
-            winners=tuple(winner_amounts.keys()),
-            contributions=contributions,
-        )
-        flows = allocate_chip_flow([pot])
-        if not flows:
             return []
 
         summary = hand.get_summary()
@@ -540,6 +568,334 @@ class HandOutcomeDetector:
 
         return events
 
+    def _detect_dominated_showdown(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit DOMINATED_SHOWDOWN for committed losers who got outclassed.
+
+        Semantic: at showdown, a non-winner who was committed postflop
+        (called a bet/raise on FLOP/TURN/RIVER) reaches the river with
+        a hand whose category is strictly weaker than a winner's.
+        "Materially worse" = different hand category, not just kicker
+        domination — uses `HandEvaluator.hand_rank` (1=royal flush …
+        10=high card, lower=better) and requires `winner_rank <
+        loser_rank` strictly.
+
+        Why categorical, not kicker-level: kicker domination (AK vs AQ
+        on an A-high board) is a different emotional event than
+        set-over-set. The current calibration (actor: respect −0.15,
+        no heat) reads as "they outclassed me," which fits the
+        category-jump shape. A future split could add a separate
+        KICKER_DOMINATED event with smaller weights.
+
+        Commitment gate: only fires when the loser called at least one
+        postflop bet/raise/all_in. A passive check-down to showdown
+        doesn't qualify — the loser didn't invest enough chips to feel
+        outclassed.
+
+        Mutually exclusive with COOLER: when both sides held strong
+        hands (rank ≤ `COOLER_STRONG_HAND_RANK_MAX`), the matchup is a
+        cooler and `_detect_coolers` fires instead. This detector
+        excludes that case so the same outcome doesn't emit two
+        overlapping events with different emotional signatures.
+
+        Reuses the same revealed-ranks scan as `_detect_hero_calls`;
+        sharing the import path keeps the relationship module's
+        load-time footprint small.
+        """
+        if not hand.was_showdown:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return []
+
+        winner_names = {w.name for w in hand.winners}
+        # Postflop-committed losers only. "Committed" = called a
+        # bet/raise/all_in on FLOP, TURN, or RIVER. A river-only call
+        # qualifies; so does a flop call that mucks no further bets.
+        postflop_committed = {
+            a.player_name
+            for a in hand.actions
+            if a.action == 'call'
+            and a.phase in ('FLOP', 'TURN', 'RIVER')
+            and a.player_name not in winner_names
+        }
+        if not postflop_committed:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for loser in postflop_committed:
+            loser_rank = revealed_ranks.get(loser)
+            if loser_rank is None:
+                continue
+            for winner in winner_names:
+                winner_rank = revealed_ranks.get(winner)
+                if winner_rank is None:
+                    continue
+                # Strict category jump. Equal-rank kicker decisions
+                # don't qualify (they're a different emotional event;
+                # see method docstring).
+                if winner_rank >= loser_rank:
+                    continue
+
+                # Cooler exclusion: when both sides are strong, the
+                # emotional signature is "I had it, they had more,"
+                # not "they outclassed me." Let `_detect_coolers`
+                # handle that subset.
+                if (
+                    winner_rank <= COOLER_STRONG_HAND_RANK_MAX
+                    and loser_rank <= COOLER_STRONG_HAND_RANK_MAX
+                ):
+                    continue
+
+                winner_id = self._resolve_id(winner)
+                loser_id = self._resolve_id(loser)
+                if winner_id is None or loser_id is None:
+                    continue
+
+                events.append(DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.DOMINATED_SHOWDOWN,
+                    narrative=(
+                        f"{loser} called postflop and showed down "
+                        f"a weaker hand than {winner}"
+                    ),
+                    hand_summary=summary,
+                ))
+
+        return events
+
+    def _detect_coolers(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit COOLER when both showdown hands are strong and the
+        category gap is real.
+
+        Semantic: postflop-committed loser shows down a strong hand
+        (rank ≤ `COOLER_STRONG_HAND_RANK_MAX`, i.e., three-of-a-kind
+        or better) and gets beat by a winner with a strictly stronger
+        category (also strong, also ≤ threshold). The "I had it, they
+        had more" event — distinct from DOMINATED_SHOWDOWN ("they
+        outclassed me, I had nothing") and from BAD_BEAT ("I was
+        favorite, they got there").
+
+        Does NOT depend on `equity_history` — the rank delta at
+        showdown is the only signal. BAD_BEAT needs equity history
+        because its semantic is "you were ahead, you ran bad"; COOLER
+        doesn't care who was ahead, just that both showed up with
+        real hands and one outflopped/outdrew the other.
+
+        Mutually exclusive with DOMINATED_SHOWDOWN by construction:
+        DOMINATED skips the both-strong case and lets this fire.
+        """
+        if not hand.was_showdown:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+
+        revealed_ranks: Dict[str, int] = {}
+        for name, hole in hand.hole_cards.items():
+            try:
+                cards = [Card.from_short(c) for c in hole] + community
+                result = HandEvaluator(cards).evaluate_hand()
+                revealed_ranks[name] = result['hand_rank']
+            except Exception:
+                continue
+        if len(revealed_ranks) < 2:
+            return []
+
+        winner_names = {w.name for w in hand.winners}
+        postflop_committed = {
+            a.player_name
+            for a in hand.actions
+            if a.action == 'call'
+            and a.phase in ('FLOP', 'TURN', 'RIVER')
+            and a.player_name not in winner_names
+        }
+        if not postflop_committed:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for loser in postflop_committed:
+            loser_rank = revealed_ranks.get(loser)
+            if loser_rank is None or loser_rank > COOLER_STRONG_HAND_RANK_MAX:
+                # Loser didn't have a strong hand — not a cooler.
+                # If there's a category gap, DOMINATED_SHOWDOWN handles it.
+                continue
+            for winner in winner_names:
+                winner_rank = revealed_ranks.get(winner)
+                if winner_rank is None or winner_rank > COOLER_STRONG_HAND_RANK_MAX:
+                    continue
+                # Strict category jump within the strong-hand band.
+                if winner_rank >= loser_rank:
+                    continue
+
+                winner_id = self._resolve_id(winner)
+                loser_id = self._resolve_id(loser)
+                if winner_id is None or loser_id is None:
+                    continue
+
+                events.append(DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.COOLER,
+                    narrative=(
+                        f"{loser} had a strong hand but ran into {winner}'s "
+                        f"stronger one"
+                    ),
+                    hand_summary=summary,
+                ))
+
+        return events
+
+    def _detect_strong_fold_shown(
+        self, hand: RecordedHand,
+    ) -> List[DetectedEvent]:
+        """Emit STRONG_FOLD_SHOWN for postflop folds that were correct.
+
+        Mirror of `_detect_bluffed_off`: same scan, opposite outcome.
+        Fires when the folder's would-have-been hand at the final
+        board was strictly *worse* than the bettor's revealed
+        showdown hand. The folder made a disciplined laydown — they
+        gain respect for the bettor for having it.
+
+        Detection mirrors `_detect_bluffed_off`'s data requirements
+        exactly: showdown reached, folder's `hole_cards` preserved
+        through `complete_hand`, the bettor reached showdown with
+        revealed cards, postflop street (`FLOP`/`TURN`/`RIVER`), and
+        both sides' hand_ranks computable. Equal ranks don't qualify
+        (the would-have-been outcome is ambiguous).
+
+        Dispatch-table asymmetry: the actor (folder) gains respect
+        (+0.10) for the bettor. The mirror (bettor) is all zeros
+        because the bettor doesn't see the fold reveal in normal
+        play — they don't know the folder made a good fold. If a
+        future `show_cards_on_fold` feature lands, the mirror values
+        can be revisited.
+
+        Data-dependency note: same as `_detect_bluffed_off`. The
+        tournament experiment path strips folded players' cards
+        before `complete_hand`, so STRONG_FOLD_SHOWN will rarely fire
+        in experiment paths until that change lands. Flask game paths
+        preserve cards and detection works.
+        """
+        if not hand.was_showdown:
+            return []
+
+        fold_actors = {
+            a.player_name for a in hand.actions if a.action == 'fold'
+        }
+        showdown_with_cards = {
+            name for name in hand.hole_cards
+            if name not in fold_actors
+        }
+        if not showdown_with_cards:
+            return []
+
+        postflop_folds = [
+            a for a in hand.actions
+            if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
+        ]
+        if not postflop_folds:
+            return []
+
+        from core.card import Card
+        from poker.hand_evaluator import HandEvaluator
+
+        try:
+            community = [Card.from_short(c) for c in hand.community_cards]
+        except Exception:
+            return []
+        if len(community) < 5:
+            return []
+
+        summary = hand.get_summary()
+        events: List[DetectedEvent] = []
+
+        for fold_action in postflop_folds:
+            folder = fold_action.player_name
+            if folder not in hand.hole_cards:
+                continue
+
+            prior_bettor: Optional[str] = None
+            for a in hand.actions:
+                if a is fold_action:
+                    break
+                if a.phase != fold_action.phase:
+                    continue
+                if a.player_name == folder:
+                    continue
+                if a.action in ('bet', 'raise', 'all_in'):
+                    prior_bettor = a.player_name
+
+            if prior_bettor is None:
+                continue
+            if prior_bettor not in showdown_with_cards:
+                continue
+
+            try:
+                folder_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[folder]
+                ] + community
+                bettor_cards = [
+                    Card.from_short(c) for c in hand.hole_cards[prior_bettor]
+                ] + community
+                folder_rank = HandEvaluator(folder_cards).evaluate_hand()['hand_rank']
+                bettor_rank = HandEvaluator(bettor_cards).evaluate_hand()['hand_rank']
+            except Exception:
+                continue
+
+            # Folder was behind (strictly) — higher rank is worse.
+            # Equal ranks don't qualify; the would-have-been outcome
+            # is ambiguous at the rank-only level.
+            if folder_rank <= bettor_rank:
+                continue
+
+            folder_id = self._resolve_id(folder)
+            bettor_id = self._resolve_id(prior_bettor)
+            if folder_id is None or bettor_id is None:
+                continue
+
+            events.append(DetectedEvent(
+                actor_id=folder_id,
+                target_id=bettor_id,
+                event=RelationshipEvent.STRONG_FOLD_SHOWN,
+                narrative=(
+                    f"{folder} folded to {prior_bettor}'s "
+                    f"{fold_action.phase.lower()} bet and would have lost"
+                ),
+                hand_summary=summary,
+            ))
+
+        return events
+
     def _detect_bad_beats(
         self,
         hand: RecordedHand,
@@ -652,39 +1008,45 @@ def dispatch_events(
     manager: "OpponentModelManager",
     *,
     cash_pair_repo: Optional["RelationshipRepository"] = None,
+    chip_flows: Optional[List[ChipFlow]] = None,
+    id_resolver: Optional[Callable[[str], Optional[str]]] = None,
     hand_id: Optional[int] = None,
     now: Optional[datetime] = None,
+    sandbox_id: Optional[str] = None,
 ) -> None:
-    """Apply a list of detected events to the relationship + cash layers.
+    """Apply detected events to the relationship + cash layers.
 
-    For each event:
-      1. Call `manager.record_event` — bilateral relationship axis
-         update through the only legal mutation entry point.
-      2. If `cash_pair_repo` is provided (cash-mode hands), also
-         apply the bilateral `cash_pair_stats` update via
-         `apply_cash_pair_pnl`. cumulative_pnl moves by the event's
-         `chips_won`; `hands_played_cash` increments by 1.
+    Two independent surfaces fan out from here:
 
-    Only `BIG_WIN` events drive the cash_pair_stats update — their
-    paired `BIG_LOSS` events refer to the same chip flow with the
-    opposite sign, and processing both would double-count. Other
-    event types (`HERO_CALL`, `BAD_BEAT`, etc.) don't carry a
-    chip-flow magnitude and are skipped for cash_pair_stats.
+      1. **Relationship axes** — every event in `events` goes
+         through `manager.record_event` (bilateral axis update).
+         BIG_WIN/BIG_LOSS, HERO_CALL, BAD_BEAT, etc. all drive
+         this. Gating (big-pot threshold, etc.) is the detector's
+         job before the events get here.
+
+      2. **Cash pair PnL** — when `cash_pair_repo` is provided AND
+         `chip_flows` is provided, *every* flow gets written via
+         `apply_cash_pair_pnl`. No big-pot threshold — small pots
+         count too, so cumulative PnL between any two players is
+         a true lifetime total. `id_resolver` maps each flow's
+         display name → stable id (mirrors `_resolve_id` on the
+         detector); when not supplied, names are used verbatim.
+
+    Backward-compat shim: callers that don't yet pass `chip_flows`
+    fall through to the legacy path — `BIG_WIN` events drive
+    `apply_cash_pair_pnl`. New callers should pass `chip_flows`;
+    the old path is kept so out-of-tree integrations don't break.
 
     `now` defaults to `datetime.utcnow()` for `record_event`'s
     decay anchor. `hand_id` is forwarded to `record_event` for the
     `MemorableHand` sidecar.
-
-    Dedup is the detector's responsibility (`detect_events` already
-    filters duplicates); this function processes every event it
-    receives.
     """
-    if not events:
+    if not events and not chip_flows:
         return
     if now is None:
         now = datetime.utcnow()
 
-    for event in events:
+    for event in events or []:
         manager.record_event(
             actor_id=event.actor_id,
             target_id=event.target_id,
@@ -699,18 +1061,48 @@ def dispatch_events(
     if cash_pair_repo is None:
         return
 
-    for event in events:
-        # Only positive-chips events drive cash_pair_stats — see
-        # docstring. BIG_LOSS is the mirror view of the same flow.
+    # v109 invariant: every cash_pair_stats write needs a sandbox_id
+    # so the admin Chip Economy panel can scope Won/Lost/Net by the
+    # sandbox dropdown. Callers that wire `cash_pair_repo` must also
+    # supply the sandbox they're playing in; refuse to write rather
+    # than fall back to an empty-string bucket that would silently
+    # mix sandboxes back together.
+    if sandbox_id is None:
+        logger.warning(
+            "dispatch_events: cash_pair_repo wired without sandbox_id; "
+            "skipping cash_pair_stats writes (PnL won't accumulate this hand)"
+        )
+        return
+
+    if chip_flows is not None:
+        # New path: every chip flow tallies into cash_pair_stats,
+        # regardless of pot size. This is the canonical surface for
+        # lifetime PnL between two players.
+        resolve = id_resolver or (lambda name: name)
+        for flow in chip_flows:
+            if flow.chips <= 0:
+                continue
+            winner_id = resolve(flow.winner)
+            loser_id = resolve(flow.loser)
+            if not winner_id or not loser_id:
+                continue
+            cash_pair_repo.apply_cash_pair_pnl(
+                winner_id=winner_id,
+                loser_id=loser_id,
+                chips=flow.chips,
+                sandbox_id=sandbox_id,
+            )
+        return
+
+    # Legacy path: derive cash PnL from BIG_WIN events only.
+    for event in events or []:
         if event.event is not RelationshipEvent.BIG_WIN:
             continue
         if event.chips_won <= 0:
-            # Defensive: a BIG_WIN with zero/negative chips would
-            # mean the allocator emitted a flow that doesn't move
-            # money — skip rather than write a no-op row.
             continue
         cash_pair_repo.apply_cash_pair_pnl(
             winner_id=event.actor_id,
             loser_id=event.target_id,
             chips=event.chips_won,
+            sandbox_id=sandbox_id,
         )

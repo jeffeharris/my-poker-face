@@ -1,16 +1,32 @@
 ---
-purpose: Implementation handoff for full background simulation — replace fake-sim chip drift with actual AI-only poker hands at unseated tables, surface hand-level drama to the lobby. Captures design rationale from the lobby v1.5 + fake-sim lite work.
+purpose: Historical handoff for full background simulation — captures the design rationale and commit-by-commit plan that led to shipping. For "how the sim works now," read CASH_MODE_FULL_SIM.md.
 type: guide
 created: 2026-05-19
 last_updated: 2026-05-19
 ---
 
-# Cash Mode — Full Sim Handoff
+# Cash Mode — Full Sim Handoff (SHIPPED)
+
+> **Status: SHIPPED 2026-05-19.** All commits 1-7 landed; the doc
+> sweep (commit 8) is this update. For the current technical
+> reference — architecture, invariants, performance, limitations,
+> follow-on opportunities — read
+> [CASH_MODE_FULL_SIM.md](../technical/CASH_MODE_FULL_SIM.md).
+> This handoff stays as the historical record of design choices
+> and the iterative path the implementation took.
 
 This doc supersedes `CASH_MODE_PATH_C_DESIGN.md` (which was
 written before any of the lobby/sim work shipped and is now
-historical). Read this for the current implementation plan, the
-older doc for the original conception.
+historical). Read this for the design journey and per-commit
+plan; read the technical doc above for the system as built.
+
+> **Related:** the [chip ledger](CASH_MODE_CHIP_LEDGER_HANDOFF.md)
+> instruments every chip creation / destruction in cash mode. Once
+> full sim is running unattended sessions at scale, the audit
+> endpoint is the canary for whether AI regen rates are inflating
+> the economy faster than `cap_clamp` and `house_loan_settle` are
+> pulling chips back. Check the audit panel after the first full
+> day of background sim runs.
 
 ## What's shipped (the foundation)
 
@@ -32,6 +48,47 @@ The full sim follows the same pattern — it replaces the random
 chip delta inside `roll_fake_hand` with actual hand outcomes,
 without touching the event surface, ratification model, or chip
 conservation invariants.
+
+## Phase 0 spike — DONE (2026-05-19)
+
+Spike script (`scripts/full_sim_spike.py`, gitignored per Phase 0
+spec) ran 6 personalities with BB=100 and 100 BB starting stacks
+inside the backend container. Three scenarios:
+
+| Scenario | Hands/sec | ms/hand |
+|---|---|---|
+| Warm table (1000 hands, controllers reused) | 227 | 4.4 |
+| Lobby burst (4 tables × 25 hands, cached) | 253 | 4.0 |
+| Cold per hand (rebuild controllers each hand) | 2.1 | 477 |
+
+- **Setup cost** is the dominant variable: ~460 ms per table,
+  ~77 ms per `TieredBotController` (an `Assistant` gets
+  constructed even though no LLM is used).
+- **Strategy table** loads as a one-shot 30 ms.
+- **Memory**: ~135 MB after imports, +25 MB across 1000 warm
+  hands, finishes ~222 MB. Most growth is state-machine snapshot
+  accumulation — `advance_state_pure` appends to a tuple that
+  never gets pruned.
+
+### What this locks for the design
+
+1. **Burst-on-read is fine.** Doc's prior threshold was
+   ≥50 hands/sec; warm path is ~227/sec. Bursting 25 hands × 4
+   tables ≈ 400 ms total — comfortably under the 500 ms lobby-
+   response budget. Per-table burst is ~100 ms.
+2. **Controller cache is load-bearing, not optional.** Was Phase
+   6 ("pure optimization"); is now Phase 2's prerequisite. Cold
+   per-hand setup is 100× slower than warm; even one uncached
+   refresh of 4 tables blows the budget. **Cache from day one.**
+3. **No background daemon needed.** Read-driven cadence math
+   holds. The world advances when someone is watching it.
+4. **Memory pruning is a new phase.** The state-machine snapshot
+   leak isn't a problem for player-visible sessions (one hand at
+   a time, snapshot lives until leave) but IS a problem for
+   long-running sim ticks. Either prune snapshots inside
+   `play_one_hand` after the hand completes, or have the sim
+   harness copy only the final state and drop the rest. New
+   commit slotted as Phase 2.5 below.
 
 ## What "full sim" means after fake-sim lite
 
@@ -145,101 +202,203 @@ keep working unchanged. Full sim adds:
 Apply the same threshold gate from fake-sim: small pots tick chips
 quietly without ticker spam.
 
-### Psychology at unseated tables
+### Psychology at unseated tables — IN SCOPE (decided 2026-05-19)
 
-This is the new question full sim introduces. AIs running real
-hands have emotional state — tilted after a bad beat, confident
-after a win. Currently, AI psychology lives on the controller
-object created at game start; the controller is destroyed when
-the player leaves.
+AIs running real hands at unseated tables develop emotional state
+— tilted after a bad beat, confident after a hot run. Discarding
+that state at the end of each sim tick would mean:
 
-Two choices:
+- The lobby's `emotion` field on unseated AI seats would stay
+  forever "confident" (the default planted when avatars shipped).
+  Emotion-tinted card borders would never light up from sim
+  activity.
+- AI behavior at unseated tables would be psychology-less — they
+  play tighter when tilted IRL, but sim AIs would always play
+  baseline. Real chip movements without the emotional dynamics
+  that drive interesting outcomes.
+- The relationship layer's player↔AI persistence (heat / respect
+  / likability) wouldn't extend symmetrically to AI↔AI when
+  Backing Phase 4 (AI borrowers) ships.
 
-- **A: Stateless sim.** Each tick, spin up fresh controllers,
-  run one hand, throw them away. AIs have no emotional memory
-  between sim ticks at unseated tables. Cheap and simple.
+**The decision: persist emotional state across sim ticks.**
+Folded into the main scope (was Phase 6 optional). Concrete
+implementation:
 
-- **B: Persistent psychology per table.** Cash table state grows
-  to include AI emotional state. The emotional state survives
-  across sim ticks; an AI on a 3-bad-beat streak at $50 is
-  visibly tilted when the player walks up.
+**Persistence layer.** New column on `ai_bankroll_state` (schema
+v95 or whatever's next): `emotional_state_json TEXT NULL`. Mirrors
+the existing `controller_state.psychology_json` precedent
+(schema v83 — unified PlayerPsychology serialization). NULL means
+"no state — treat as fresh confident."
 
-**Recommendation: A for full sim v1.** Persistent psychology
-adds a lot of state to track and serialize. Get the cardplay
-working first; layer in emotional persistence later if it feels
-needed. The lobby's `emotion` field can default to "confident"
-for AIs at unseated tables (today's behavior).
+**Cache + persist discipline.** The controller cache (Phase 1)
+holds live controller instances; emotional state lives on the
+controller object. Discipline:
 
-## Phase / commit breakdown (~8 commits)
+- **Cache hit**: use the in-memory controller's state directly.
+- **Cache miss**: hydrate controller from `ai_bankroll_state.emotional_state_json`
+  (or fresh if NULL). Add to cache.
+- **Cache eviction (LRU)**: serialize state back to
+  `emotional_state_json` before evicting.
+- **After every N sim hands per AI** (say N=10): periodic flush
+  to avoid losing state on restart between eviction events.
 
-**Phase 0: Spike (no commit, ~half a day)**
-- 50-line script that runs 1000 AI-only hands of cash poker
-  between 6 personalities using `TieredBotController` directly,
-  no SocketIO, no DB writes. Measure: hands/sec, memory growth,
-  controller setup cost.
-- Locks the cadence + per-tick hand count decisions before
-  committing to a design.
-- Likely answers: "burst 20 hands per table per tick is fine,"
-  "controller setup is the slow part — cache controllers per
-  personality if we tick hands at the same table multiple times."
+This keeps the in-memory path fast (no DB writes on hot path)
+while surviving backend restarts and cache evictions.
 
-**Commit 1: `cash_mode/full_sim.py` skeleton**
+**Lobby route.** `/api/cash/lobby` already returns `emotion` per
+AI seat. Today the resolver falls back to "confident" for AIs at
+unseated tables. After this work: resolver reads
+`emotional_state_json` (deserialize, project, return current
+state's display name). Cache the result inside the request to
+avoid N DB queries per render.
+
+**Open sub-question (still unresolved):** does psychology decay
+over wall-clock time at unseated tables, or only during sim hands?
+Tilt from a bad beat at midnight shouldn't still be in effect at
+noon. The existing `project_heat` pattern from the relationship
+layer is the obvious template; apply similar projection-on-read
+to emotional state so stale tilt fades naturally. Defer to
+implementation — agent picks a starting decay constant from
+existing psychology code.
+
+## Phase / commit breakdown (~8 commits, post-spike + scope adds)
+
+Updated order: controller cache moved earlier (load-bearing per
+spike), snapshot pruning added as Phase 2.5, emotional state
+persistence folded into main scope (was optional Phase 6), and
+dealer rotation tracking added to Commit 2 + lobby UI in Commit 5
+per 2026-05-19 design discussion. Phase 0 spike is DONE — see
+"Phase 0 spike — DONE" section above.
+
+Estimated effort: ~6-7 days total (was 5 pre-scope-add).
+
+**Commit 1: `cash_mode/full_sim.py` skeleton + controller cache** — SHIPPED (`9bcd0beb`)
 - `HandSimResult` dataclass (mirroring `FakeHandResult` shape +
   extras).
 - `play_one_hand(seats, big_blind, rng)` — initial implementation
   that just delegates to `roll_fake_hand`. Lets us swap the call
   site once and iterate the implementation.
-- Tests: parity with `roll_fake_hand` outputs.
+- **Controller cache lands here, not later.** New module
+  `cash_mode/controller_cache.py` with an LRU keyed by
+  `personality_id` (bound ~50 entries). Even though Phase 1
+  doesn't use real controllers yet, putting the cache in first
+  means Phase 2's hand-engine integration plugs into a working
+  cache from its first commit — no risk of forgetting it and
+  blowing the latency budget on the first burst.
+- Tests: parity with `roll_fake_hand` outputs; cache eviction
+  works; cache hit returns the same controller instance.
 
-**Commit 2: Real hand engine integration**
+**Commit 2: Real hand engine integration + dealer rotation** — SHIPPED (`9bcd0beb` engine, `8b63e3c1` dealer sync, `a33a137d` schema v96)
 - `play_one_hand` now constructs a minimal `GameState`, seats
   the AIs at it with their persisted chip counts, runs the hand
   engine until showdown, captures the result.
-- AIs use `TieredBotController` instances. Cache by personality_id
-  if the spike says it matters.
-- Returns the actual pot size, winner/loser, mutated seats.
+- AIs come from the controller cache (Commit 1). New
+  controllers cost ~77 ms each per the spike; cache hits are
+  effectively free.
+- Returns the actual pot size, winner/loser, mutated seats,
+  plus the **updated dealer_idx** (rotated to the next occupied
+  seat clockwise per standard poker convention).
+- **Schema**: add `dealer_idx INTEGER NOT NULL DEFAULT 0` to
+  `cash_tables`. Required because `play_one_hand` needs the
+  dealer position to assign SB/BB and determine betting order;
+  the value persists between sim ticks so the rotation reads
+  honestly across reads.
+- `refresh_unseated_tables` writes the rotated `dealer_idx`
+  back via `cash_table_repo.save_table` along with the seats.
 - **No SocketIO emits**, **no DB writes** beyond the
-  caller-driven `cash_table_repo.save_table`. The sim is pure-ish.
-- Tests: end-to-end hand runs; chip conservation; no leaked side
-  effects.
+  caller-driven `cash_table_repo.save_table`. The sim is
+  pure-ish.
+- Tests: end-to-end hand runs; chip conservation; no leaked
+  side effects; dealer rotates correctly across N hands
+  including skips when a seat is open.
 
-**Commit 3: Swap fake-sim for full sim at the call site**
+**Commit 2.5: Snapshot pruning in `play_one_hand`** — SHIPPED via different mechanism (`baf7f0e6` adds `record_snapshots=False` flag to `ImmutableStateMachine`; `play_one_hand` uses it; `d2df222c` adds the tracemalloc test pinning < 5 MB heap growth over 1000 hands)
+- Spike found `advance_state_pure` appends to a snapshots tuple
+  that never gets pruned (~25 MB / 1000 hands). For player-
+  visible sessions this never hits a wall — one hand at a time,
+  snapshot dropped on leave. For background sim ticking
+  indefinitely, it leaks.
+- Two paths: (a) prune snapshots inside `play_one_hand` after
+  the hand resolves (snapshot only used during the hand, not
+  needed for the sim's output) or (b) have the sim harness
+  construct a fresh `GameState` per hand and never accumulate.
+- (a) is preferred — fewer allocations per hand.
+- Tests: memory profile across 1000 hands stays flat (use
+  `tracemalloc` snapshot diff; tolerance ±5 MB).
+
+**Commit 3: Schema for emotional state persistence + cache discipline** — SHIPPED (`dabae3f0` schema v97, `5fc1a10a` cache hydrate/flush). On-evict flush deliberately deferred — see CASH_MODE_FULL_SIM.md "Opportunities."
+- New migration: add `emotional_state_json TEXT NULL` to
+  `ai_bankroll_state`. Mirrors v83's `controller_state.psychology_json`
+  precedent.
+- Controller cache (Commit 1) gains hydrate-on-miss / serialize-
+  on-evict: cache miss reads `emotional_state_json` and
+  reconstructs the controller's state from it; LRU eviction
+  writes the current state back before dropping the controller.
+- Periodic flush helper: every N=10 sim hands per AI, flush state
+  back to DB even without eviction (guards against restart loss
+  between LRU events).
+- Tests: hydrate → mutate → evict → re-hydrate round trip
+  preserves state; flush cadence works; NULL column treats AI
+  as fresh-confident.
+
+**Commit 4: Swap fake-sim for full sim at the call site** — SHIPPED (`9bcd0beb`). Kwarg renamed `fake_hand_prob` → `hand_sim_prob`; `_emit_fake_sim_events` → `_emit_sim_events`.
 - `cash_mode/lobby.py:refresh_unseated_tables` imports
   `play_one_hand` instead of `roll_fake_hand`. The function
   signatures match by construction.
 - Same probability gate (`fake_hand_prob` → rename to
   `hand_sim_prob`?), same per-table flow.
 - Existing big_win / big_loss event emission keeps working.
-- Tests: lobby refresh end-to-end now runs real hands.
+- With Commit 3 in place, sim hands now mutate persisted
+  emotional state — tilted AIs stay tilted across ticks.
+- Tests: lobby refresh end-to-end now runs real hands; an AI
+  taking a bad beat ends the refresh with non-confident state
+  persisted.
 
-**Commit 4: Hand-level events**
+**Commit 5: Lobby emotion + dealer indicators** — SHIPPED (`d2df222c` emotion resolver, `8b63e3c1` dealer sync, `ddeafaec` frontend UI badge). Wall-clock decay-on-read deliberately deferred — see CASH_MODE_FULL_SIM.md "Opportunities."
+- `/api/cash/lobby` response:
+  - Emotion resolver: for AIs at unseated tables, read
+    `emotional_state_json` instead of defaulting to "confident".
+    Apply projection-on-read decay (project_heat-style — pick a
+    starting decay constant from existing psychology code, say
+    "tilt half-life of 30 minutes").
+  - Add `dealer_idx` to the table-level payload so the
+    frontend knows which seat to mark.
+- Cache resolution inside the request to avoid N DB queries
+  per render.
+- Frontend `<TableCard>`:
+  - Emotion-tinted ring CSS already handles all emotion strings
+    — no work needed on that surface.
+  - **Add small dealer indicator** on the seat at `dealer_idx`
+    ("D" badge, ~14px circle in a corner of the seat tile).
+    Bonus: SB/BB indicators on the next two occupied seats
+    clockwise. Keep it subtle on the lobby card; the in-game
+    table already has its own dealer button treatment.
+- Tests: lobby response reflects persisted emotional state per
+  AI; decay applies between two reads N minutes apart; dealer
+  index round-trips correctly; UI dealer badge renders on the
+  expected seat.
+
+**Commit 6: Hand-level events** — SHIPPED (`9bcd0beb`). BUST + ALL_IN detected; SUCKOUT deferred (needs per-street equity tracking — see CASH_MODE_FULL_SIM.md "Opportunities").
 - After `play_one_hand` returns, inspect `hand_events` and emit
   corresponding `LobbyEvent`s.
 - New event types in `cash_mode/activity.py`: `all_in`,
   `suckout`, `bust`, etc.
-- Threshold-gated to avoid spam.
+- Per locked Q6 decision: per-burst per-table cap (≤1 of each
+  notable event type per table per burst) + optional
+  `burst_summary` event for compressed activity.
 - Frontend handles the new event types with appropriate styling.
 
-**Commit 5: Catch-up burst on long-gap reads**
+**Commit 7: Catch-up burst on long-gap reads** — SHIPPED (`9bcd0beb`). `hand_burst_count` reads `last_activity_at` directly; no new schema needed.
 - Track `last_refresh_at` per table in `cash_tables`.
 - If a refresh happens > N seconds after last refresh, burst-tick
   multiple hands (capped at 30 per table) instead of just one.
-- Generates the "world advanced while you were away" effect.
-- Tests: gap > threshold triggers burst; cap respected.
+- Per spike: 25 hands × 4 tables ≈ 400 ms — fits 500 ms budget.
+- Tests: gap > threshold triggers burst; cap respected; emotional
+  state persists across burst boundaries.
 
-**Commit 6: Controller cache**
-- If the spike showed controller setup is hot, add a
-  `TieredBotController` cache keyed by personality_id with bounded
-  size (LRU, max ~50 entries).
-- Pure optimization — no behavior change.
-
-**Commit 7: AI psychology at unseated tables (optional, v2 of full sim)**
-- Persist emotional state per AI per table (or per AI globally?).
-- Surface in the lobby's `emotion` field per seat.
-- This is where the table's emotion-tinted borders start lighting
-  up from ambient world activity, not just live games.
-
-**Commit 8: Docs sweep**
+**Commit 8: Docs sweep** — SHIPPED (this commit). New
+[CASH_MODE_FULL_SIM.md](../technical/CASH_MODE_FULL_SIM.md) is
+the canonical technical reference going forward.
 - Mark this handoff shipped.
 - Update `CASH_MODE_AND_RELATIONSHIPS.md` Part 2 §"AI table
   selection" to reflect the actual cadence.
@@ -254,20 +413,20 @@ for AIs at unseated tables (today's behavior).
    a background worker after all (or settle for statistical
    advance on long gaps).
 
-2. **Where does the sim run?** In the Flask request thread (today's
-   pattern, blocks the lobby response for a few hundred ms during
-   burst) or in a background thread (responds fast, sim catches
-   up async)? Lean toward request-thread for v1 simplicity. If a
-   burst takes >500ms in playtest, move to background.
+2. **Where does the sim run?** ~~In the Flask request thread~~
+   **Answered by spike.** Request thread. 4-table × 25-hand
+   burst = ~400 ms, fits the 500 ms budget. Background worker
+   only becomes necessary if we ship Phase 6 (psychology at
+   unseated tables) with per-hand emotional state updates that
+   drive the per-hand cost up materially.
 
-3. **Does the player see live sim while at a table?** Today, the
-   player's own table doesn't run sim ticks (the hand-boundary
-   refresh hook handles it). The other tables tick during their
-   browsing. Should the lobby show "Napoleon won big at $200"
-   notifications while the player is at the $10 table? Probably
-   yes — same socket events the in-table modal uses, fired from
-   the sim. Adds a `LobbyEvent` socket emit on top of the read-
-   surface mechanism.
+3. ~~**Does the player see live sim while at a table?**~~
+   **Decided 2026-05-19: lobby only.** No SocketIO emit to the
+   in-game client for off-table sim events. The in-game
+   experience stays focused on the current hand; off-table
+   activity is something you check by going back to the lobby.
+   Keeps the implementation simpler (no in-game toast UI) and
+   the in-table UX clean.
 
 4. **Hand history persistence at unseated tables.** Real hands
    produce hand-history events that today persist to
@@ -285,17 +444,34 @@ for AIs at unseated tables (today's behavior).
    is more lobotomized than the player-vs-AI one. Recommend yes
    for memory updates but skip the heavy snapshot persistence.
 
-6. **Headline event selection.** When the lobby ticker shows 5
-   events, which 5? If sim generates 30 events per tick during a
-   burst, the buffer fills with the burst's events and pushes
-   out older join/leave events. May want type-weighted retention
-   (keep at least 1 join, 1 leave, 1 big_win in the visible set).
+6. ~~**Headline event selection.**~~ **Decided 2026-05-19:
+   select-or-summarize, specifics open.** A burst that fires
+   25 hands per table × 4 tables can emit 100+ events; the
+   ticker shows 5. Some compression is needed; the exact shape
+   is left to the implementer. Two viable approaches:
+
+   - **Per-burst per-table cap** (simpler): emit at most 1
+     `big_win` + 1 `big_loss` + 1 `bust` + 1 `all_in` per table
+     per burst, even if 25 hands fire. Plus 1 optional summary
+     event ("...and 4 more hands at $50") if anything was
+     compressed. ~3 lines of logic in `_emit_fake_sim_events`'s
+     successor.
+   - **Type-weighted slot retention** (more complex): cap the
+     visible ticker to N slots, but reserve at least 1 slot
+     per event type so a burst can't bury all join/leave/etc.
+     Implemented at ring-buffer read time, not write time.
+
+   Recommended: per-burst per-table cap. Cheap, predictable,
+   does not require ticker-side awareness of burst events.
+   Land a summary event format like:
+   `{type: 'burst_summary', table_id, message: '4 more hands
+   at $50 — Napoleon +$220 net'}`.
 
 ## Risks to flag before starting
 
-- **Performance unknown.** Hand engine + controller setup × many
-  hands per tick × 4 unseated tables = the lobby response time
-  budget is real. The Phase 0 spike is non-negotiable.
+- ~~**Performance unknown.**~~ **Resolved by spike.** 227
+  hands/sec warm; 400 ms per 4-table burst; comfortably under
+  budget.
 
 - **Test combinatorics.** Real hands have many possible outcomes
   (showdown winners, suckouts, all-ins). Pure-function tests
@@ -317,51 +493,55 @@ for AIs at unseated tables (today's behavior).
   surface it without disrupting the live hand — maybe as a small
   toast / activity bubble rather than a full modal.
 
-## Why ship this after backing system Phase 1+3
+- **Memory leak in `advance_state_pure`.** Spike caught this.
+  Phase 2.5 (snapshot pruning) addresses it. Without that
+  commit, sim ticks would leak ~25 MB per 1000 hands — survivable
+  in a dev session, problematic in long-running deployments.
 
-Sequencing matters:
-
-- Full sim makes AI-vs-AI hands real → which makes AI bankrolls
-  shift independently of player sessions → which makes the
-  backing system's "Napoleon needs a loan because he's been losing"
-  story *true*.
-- Backing system Phase 1 establishes the persistent loan
-  substrate that AI-vs-AI hands feed.
-- Phase 3 (tab UI) gives the player a window into the economy
-  that sim makes dynamic.
-
-If full sim ships *before* backing Phase 1, you get richer chip
-movement but it doesn't compound with debt/reputation. If it
-ships *after*, you get a genuinely living economy where AIs play,
-borrow, lose, default, refuse — all visible, all consistent.
-
-## Suggested ship order across the three v2+ tracks
+## Suggested ship order across the three v2+ tracks (revised post-spike)
 
 ```
 Lobby v1.5      ✓ shipped
 Activity ticker ✓ shipped
 Fake-sim lite   ✓ shipped
+Chip ledger v0  ✓ shipped
+Full Sim Phase 0 spike  ✓ done (this doc)
 ---
-Backing Phase 1 → persistent loans foundation
-Backing Phase 3 → tab UI
-Full sim phases 0–6 → real cardplay at unseated tables
-Backing Phase 2 → reputation enforcement
-Backing Phase 4 → AI as borrowers (now hooks into real hands)
-Full sim phase 7 → AI psychology at unseated tables
+Full Sim Commits 1-8     → real cardplay at unseated tables
+                           with persistent psychology + dealer
+                           rotation + lobby visual updates
+                           (~6-7 days)
+Backing Phase 1          → persistent loans foundation     (~2 days)
+Backing Phase 3          → tab UI                          (~1 day)
+Backing Phase 2          → reputation enforcement
+Backing Phase 4          → AI as borrowers (hooks into real hands)
 ```
 
-That sequence keeps each step coherent. Backing Phase 1+3 first
-because tab visibility before consequences. Full sim before
-Backing Phase 4 because AI borrowers depend on AIs running real
-hands (their "I need a loan" trigger comes from actual losses,
-not fake-sim drift). Backing Phase 4 then enables AI psychology
-at unseated tables to read meaningfully (Phase 7).
+**Why Full Sim moved ahead of Backing 1+3:** the spike de-risked
+the biggest unknown — hand simulation is 227 hands/sec warm,
+well above the 50/sec threshold the doc had set as the
+"go vs background-worker" line. The ratification model from
+fake-sim carries forward unchanged; the ledger (just shipped)
+will track real hand outcomes from day one, giving more useful
+tuning data than fake-sim drift. The user specifically called
+out wanting "events from other tables while I'm in the lobby" —
+full sim delivers that with real cardplay.
 
-Alternative: full sim phases 0–3 (the spike + cardplay) before
-Backing Phase 1, so the backing system gets built on real chip
-dynamics from day one. Defensible — Backing Phase 1 isn't *broken*
-on fake-sim data, just less interesting. Pick based on which
-feels more important to playtest first.
+Backing Phase 4 (AI borrowers) still lands after Full Sim
+because the loan-take trigger genuinely needs AIs losing at
+unseated tables to be meaningful. With fake-sim drift, AI
+losses are uniform random; with real hands, they correlate
+with bankroll, psychology, and opponent — which is the texture
+that makes "Napoleon needs a loan" feel like a real economic
+event.
+
+Alternative: ship Backing Phase 1+3 first if persistent-debt
+playtest value feels higher-leverage than world-feels-alive. The
+two tracks are independent at the data layer (loans ride on the
+existing `player_bankroll_state.active_loan_*` fields until
+Backing Phase 1 replaces them with a `loans` table; full sim
+operates on `cash_tables.seats_json` chips). Either order
+works; the spike just made Full Sim cheaper to commit to.
 
 ## Files to read first
 

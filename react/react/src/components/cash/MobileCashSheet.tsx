@@ -14,7 +14,28 @@ import { X, LogOut } from 'lucide-react';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
+import { computeLeaveBreakdown } from './loanSettlement';
+import { CashOutSummary, type SessionSummary } from './CashOutSummary';
+import { getNetWorth } from './api';
+import type { NetWorthResponse, TierStatus } from './types';
 import './MobileCashSheet.css';
+
+const TIER_LABELS: Record<TierStatus, string> = {
+  premium: 'Premium',
+  standard: 'Standard',
+  restricted: 'Restricted',
+  house_only: 'House only',
+};
+
+interface LeaveResponse {
+  session_ended: boolean;
+  chips_at_table: number;
+  had_active_loan: boolean;
+  sponsor_repaid: number;
+  returned_chips: number;
+  bankroll: number;
+  session_summary: SessionSummary | null;
+}
 
 interface MobileCashSheetProps {
   isOpen: boolean;
@@ -23,6 +44,54 @@ interface MobileCashSheetProps {
   playerStack: number;
   handInProgress: boolean;
   playerFolded: boolean;
+}
+
+interface LeaveBreakdownPanelProps {
+  stack: number;
+  loan: NonNullable<CashModeInfo['active_loan']>;
+}
+
+function LeaveBreakdownPanel({ stack, loan }: LeaveBreakdownPanelProps) {
+  const b = computeLeaveBreakdown(stack, loan);
+  const floorPct = Math.round(loan.floor * 100);
+  const ratePct = Math.round(loan.rate * 100);
+  return (
+    <div className="mobile-cash-sheet__breakdown">
+      <div className="mobile-cash-sheet__breakdown-row">
+        <span>Stack at table</span>
+        <span>${b.stack.toLocaleString()}</span>
+      </div>
+      <div className="mobile-cash-sheet__breakdown-row is-sponsor">
+        <span>
+          Loan floor
+          <span className="mobile-cash-sheet__breakdown-detail">
+            ${loan.amount.toLocaleString()} × {floorPct}%
+          </span>
+        </span>
+        <span>−${b.floorPayment.toLocaleString()}</span>
+      </div>
+      {b.sponsorCut > 0 && (
+        <div className="mobile-cash-sheet__breakdown-row is-sponsor">
+          <span>
+            Sponsor cut
+            <span className="mobile-cash-sheet__breakdown-detail">
+              {ratePct}% of ${b.remainder.toLocaleString()}
+            </span>
+          </span>
+          <span>−${b.sponsorCut.toLocaleString()}</span>
+        </div>
+      )}
+      {b.forgiven > 0 && (
+        <div className="mobile-cash-sheet__breakdown-note">
+          Floor short by ${b.forgiven.toLocaleString()} — forgiven.
+        </div>
+      )}
+      <div className="mobile-cash-sheet__breakdown-row is-total is-bankroll">
+        <span>To your bankroll</span>
+        <span>${b.toBankroll.toLocaleString()}</span>
+      </div>
+    </div>
+  );
 }
 
 export function MobileCashSheet({
@@ -38,16 +107,35 @@ export function MobileCashSheet({
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
+  const [netWorth, setNetWorth] = useState<NetWorthResponse | null>(null);
 
   // Reset error + confirmation state when sheet opens (a stale
   // message or partial-confirm from a previous open shouldn't
-  // carry over).
+  // carry over). Fetch net-worth on open so the in-game sheet
+  // surfaces carry visibility — manage actions still live on /cash.
   useEffect(() => {
-    if (isOpen) {
-      setError(null);
-      setClosing(false);
-      setConfirmLeave(false);
+    if (!isOpen) {
+      setNetWorth(null);
+      return;
     }
+    setError(null);
+    setClosing(false);
+    setConfirmLeave(false);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await getNetWorth();
+        if (cancelled) return;
+        setNetWorth(data);
+      } catch (e) {
+        // Net worth is auxiliary; failure shouldn't break the sheet.
+        logger.warn('Net worth fetch failed:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const handleClose = useCallback(() => {
@@ -79,6 +167,10 @@ export function MobileCashSheet({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 404 && data.error === 'No active cash session') {
+          navigate('/cash');
+          return;
+        }
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       handleClose();
@@ -111,7 +203,12 @@ export function MobileCashSheet({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      navigate('/menu');
+      const data: LeaveResponse = await res.json();
+      if (data.session_summary) {
+        setLeaveResult(data);
+      } else {
+        navigate('/cash');
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Leave failed:', msg);
@@ -170,6 +267,34 @@ export function MobileCashSheet({
             </span>
           </div>
 
+          {netWorth && (netWorth.payables.length > 0 || netWorth.tier_status !== 'premium') && (
+            <div className="mobile-cash-sheet__net-worth">
+              <div className="mobile-cash-sheet__net-worth-title">Net worth</div>
+              <div className="mobile-cash-sheet__row">
+                <span className="mobile-cash-sheet__label">Tier</span>
+                <span className="mobile-cash-sheet__value">
+                  {TIER_LABELS[netWorth.tier_status]}
+                </span>
+              </div>
+              {netWorth.payables.length > 0 && (
+                <div className="mobile-cash-sheet__row">
+                  <span className="mobile-cash-sheet__label">
+                    {netWorth.payables.length === 1 ? 'Carry' : 'Carries'}
+                  </span>
+                  <span className="mobile-cash-sheet__value">
+                    ${netWorth.payables
+                      .reduce((s, p) => s + p.carry_amount, 0)
+                      .toLocaleString()}{' '}
+                    owed
+                  </span>
+                </div>
+              )}
+              <div className="mobile-cash-sheet__net-worth-hint">
+                Manage from the cash lobby.
+              </div>
+            </div>
+          )}
+
           {headroom > 0 ? (
             <button
               type="button"
@@ -191,6 +316,12 @@ export function MobileCashSheet({
             </div>
           )}
 
+          {confirmLeave && cashMode.active_loan && (
+            <LeaveBreakdownPanel
+              stack={playerStack}
+              loan={cashMode.active_loan}
+            />
+          )}
           <button
             type="button"
             onClick={handleLeave}
@@ -201,7 +332,9 @@ export function MobileCashSheet({
             {busy && confirmLeave
               ? 'Leaving…'
               : confirmLeave
-                ? `Confirm leave — return $${playerStack.toLocaleString()} to bankroll`
+                ? cashMode.active_loan
+                  ? `Confirm — $${computeLeaveBreakdown(playerStack, cashMode.active_loan).toBankroll.toLocaleString()} to bankroll`
+                  : `Confirm leave — return $${playerStack.toLocaleString()} to bankroll`
                 : 'Leave table'}
           </button>
 
@@ -212,6 +345,15 @@ export function MobileCashSheet({
           )}
         </div>
       </div>
+      {leaveResult && leaveResult.session_summary && (
+        <CashOutSummary
+          summary={leaveResult.session_summary}
+          stakeLabel={cashMode.stake_label}
+          finalBankroll={leaveResult.bankroll}
+          sponsorRepaid={leaveResult.sponsor_repaid}
+          onContinue={() => navigate('/cash')}
+        />
+      )}
     </div>
   );
 }

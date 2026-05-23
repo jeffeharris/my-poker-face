@@ -96,11 +96,13 @@ class ExpressionContext:
     should_speak: bool = True
     should_gesture: bool = True
 
-    # Anti-repetition memory — the player's own recent SPEECH beats from
-    # prior turns. Action gestures are intentionally NOT here; those are
-    # character tics that should recur. Injected into the prompt so the
-    # LLM doesn't recycle the same chat lines.
+    # Anti-repetition memory — the player's own recent beats from prior
+    # turns. Speech and action gestures are tracked in separate ring
+    # buffers and surfaced to the LLM as distinct "vary these" blocks.
+    # Without action history the same tic (*shrugs*, *taps chips*) loops
+    # several times per hand for reserved characters.
     recent_own_speech_beats: List[str] = field(default_factory=list)
+    recent_own_action_beats: List[str] = field(default_factory=list)
 
     # Direct callouts — opponent chat that mentioned this player by name.
     # Formatted as `Sender said: "content"`. Surfaced as a [CALLED OUT]
@@ -128,3 +130,12 @@ class ExpressionContext:
     # Optional and defaults to empty list — pre-existing callers /
     # tests render identical prompts when no observations exist.
     opponent_observations: List[Tuple[str, str]] = field(default_factory=list)
+
+    # Pre-formatted relationship-context block (rival/friendly labels +
+    # most-recent memorable hands per qualifying opponent). Built by
+    # `poker/memory/relationship_prompt.py:build_relationship_context`
+    # so the chaos/standard/sharp paths frame the same situation the
+    # same way. Empty default preserves baseline prompt for pre-existing
+    # callers; gating lives at the controller (prompt_config.relationship_context),
+    # not here.
+    relationship_context: str = ''
