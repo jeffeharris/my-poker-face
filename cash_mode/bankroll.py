@@ -296,6 +296,17 @@ def debit_bankroll_for_seat(
     refresh_table_roster) should keep this from ever firing, but a
     negative bankroll would silently break the audit invariant.
     Returns the persisted state or None if no row exists.
+
+    KNOWN LEAK (audit drift): when `stored.chips < amount`, the
+    clamp creates `amount - stored.chips` phantom chips at the seat
+    without debiting them from any bankroll — a primary source of
+    audit drift. Logs a WARNING so the leak is observable. Proper
+    fix is one of:
+      (a) Commit pending regen before debit (threads chip_ledger_repo
+          through every caller — drives projected to stored), or
+      (b) Refuse the debit AND have callers unwind the pre-placed
+          seat on None.
+    Tracked as a follow-up; the warning is the diagnostic seam.
     """
     try:
         stored = bankroll_repo.load_ai_bankroll(
@@ -312,6 +323,19 @@ def debit_bankroll_for_seat(
             personality_id,
         )
         return None
+    # Diagnostic seam: when stored < amount, the clamp below creates
+    # `amount - stored.chips` phantom chips at the seat (caller has
+    # already placed the seat with `amount` chips before calling).
+    # Logging here makes the leak observable in run logs. Upstream
+    # eligibility checks should make this branch unreachable.
+    if stored.chips < amount:
+        logger.warning(
+            "[CASH][AUDIT] debit clamp leak: pid=%s sandbox=%s "
+            "stored=%d amount=%d leak=+%d — bankroll_lookup let "
+            "this through; investigate",
+            personality_id, sandbox_id, stored.chips, amount,
+            amount - stored.chips,
+        )
     new_chips = max(0, stored.chips - amount)
     new_state = AIBankrollState(
         personality_id=personality_id,
