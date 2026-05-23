@@ -2631,7 +2631,9 @@ def offer_stake_to_ai():
 
     Validates (all gates also enforced in `list_stakeable_ai`):
       - Player bankroll ≥ 1.5 × min_buy_in @ stake_label.
-      - `principal` in `[min_buy_in, max_buy_in]`.
+      - Seat total in `[min_buy_in, max_buy_in]`: that's `principal`
+        on pure stakes, or `principal + match_amount` on match_share
+        (both halves land on the seat together).
       - For match_share: bankroll covers (principal); AI's match
         contribution comes from their seat funding.
       - Target AI cash-eligible, willing, met-before, relationship
@@ -2724,25 +2726,25 @@ def offer_stake_to_ai():
     )
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-    if principal < min_buy_in or principal > max_buy_in:
+    # Match-share's combined principal+match lands on the seat together,
+    # so the buy-in window check must compare against the combined sum;
+    # pure stakes fund the seat entirely from `principal`. AI's match
+    # capacity is checked further down once the AI is loaded.
+    seat_total = principal + (
+        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
+    )
+    if seat_total < min_buy_in or seat_total > max_buy_in:
+        amount_label = (
+            "principal+match_amount"
+            if stake_format == STAKE_FORMAT_MATCH_SHARE
+            else "principal"
+        )
         return jsonify({
             "error": (
-                f"principal {principal} out of range for {stake_label} table "
+                f"{amount_label} {seat_total} out of range for {stake_label} table "
                 f"(min={min_buy_in}, max={max_buy_in})"
             ),
         }), 400
-    if stake_format == STAKE_FORMAT_MATCH_SHARE:
-        # Match-share's combined principal+match must fit the buy-in
-        # window — both contributions land on the seat together. AI's
-        # share comes from their bankroll, so we need to check their
-        # capacity too (further down once we have the AI loaded).
-        if principal + match_amount > max_buy_in:
-            return jsonify({
-                "error": (
-                    f"principal+match_amount {principal + match_amount} exceeds "
-                    f"max buy-in {max_buy_in} for {stake_label}"
-                ),
-            }), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     bankroll_floor = int(PLAYER_STAKER_BANKROLL_FLOOR_MULT * min_buy_in)
