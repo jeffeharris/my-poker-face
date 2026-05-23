@@ -500,10 +500,19 @@ class SchemaManager:
                     PRIMARY KEY (personality_id, sandbox_id)
                 )
             """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
-                    ON ai_bankroll_state(sandbox_id)
-            """)
+            # On legacy DBs (≤ v101) ai_bankroll_state exists from v88
+            # without `sandbox_id`; the IF NOT EXISTS table create above
+            # is a no-op there and this index would fail. Migration v102
+            # drops+recreates the table with sandbox_id and re-creates
+            # the index, so skip silently on pre-v102 schemas.
+            try:
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_ai_bankroll_sandbox
+                        ON ai_bankroll_state(sandbox_id)
+                """)
+            except sqlite3.OperationalError as exc:
+                if 'no such column: sandbox_id' not in str(exc):
+                    raise
 
             # 10e. Player bankroll state (v88) — per-player persistent
             #      bankroll. `starting_bankroll` is the seed grant on
