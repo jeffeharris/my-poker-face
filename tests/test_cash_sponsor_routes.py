@@ -27,6 +27,7 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
+from cash_mode.tables import CashTableState, ai_slot, human_slot, open_slot
 from flask_app import create_app
 from poker.repositories import create_repos
 
@@ -445,3 +446,145 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             },
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_table_aware_path_uses_persisted_roster(self):
+        """Regression: when the sponsor flow originates from a lobby
+        seat tap (table_id + seat_index sent), the resulting game must
+        be populated with the AIs the lobby card showed at that table
+        — not a freshly-sampled lineup.
+
+        Pre-fix, `sponsor_and_sit` ignored any table context and
+        called `_build_cash_game` with no `preselected_ai`, so the
+        legacy fresh-sample path picked random eligible personalities.
+        Users tapped a $200 table showing AIs X/Y/Z and got seated
+        with A/B/C/D/E.
+        """
+        # _CashSponsorRouteBase doesn't stash repos as self.repos;
+        # pull cash_table_repo via the extension binding instead.
+        from flask_app import extensions
+        cash_table_repo = extensions.cash_table_repo
+
+        # Build a $10 table with napoleon + buddha seated, open seats
+        # elsewhere. The roster is unambiguous — only two AIs and they
+        # are seeded in setUp with stake_comfort_zone='$10', so they
+        # are also legacy-sample candidates. We assert by personality_id
+        # which the legacy path would not deterministically hit.
+        seats = [
+            ai_slot(self.napoleon_id, 400),
+            open_slot(),
+            ai_slot(self.buddha_id, 400),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
+
+        # Stub `_build_cash_game` to capture its preselected args
+        # rather than running the full game build (heavy + irrelevant
+        # to this regression).
+        captured: dict = {}
+
+        def _spy(**kwargs):
+            captured.update(kwargs)
+            return 'cash-test-spy-id', None
+
+        with patch(
+            'flask_app.routes.cash_routes._build_cash_game', side_effect=_spy,
+        ):
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'table_id': 'cash-table-10-001',
+                    'seat_index': 1,
+                    'opponents': 2,
+                },
+            )
+
+        self.assertEqual(
+            response.status_code, 200, response.get_data(as_text=True),
+        )
+
+        preselected_ai = captured.get('preselected_ai')
+        self.assertIsNotNone(
+            preselected_ai,
+            'sponsor_and_sit did not pass preselected_ai — game would '
+            'fall through to the legacy fresh-sample path and the '
+            'in-game lineup would differ from the lobby card',
+        )
+        roster_pids = sorted(entry['personality_id'] for entry in preselected_ai)
+        self.assertEqual(
+            roster_pids,
+            sorted([self.napoleon_id, self.buddha_id]),
+            'game roster did not come from the persisted cash_tables '
+            'row — sponsor_and_sit ignored the table_id',
+        )
+
+        preselected_chips = captured.get('preselected_ai_chips') or {}
+        self.assertEqual(preselected_chips.get(self.napoleon_id), 400)
+        self.assertEqual(preselected_chips.get(self.buddha_id), 400)
+
+        # Human seat must now be claimed in cash_tables, otherwise
+        # the lobby will keep showing seat 1 as open and another
+        # player could double-book it.
+        after = cash_table_repo.load_table(
+            'cash-table-10-001', sandbox_id=self.test_sandbox_id,
+        )
+        self.assertEqual(after.seats[1]['kind'], 'human')
+        self.assertEqual(after.seats[1]['personality_id'], PLAYER_OWNER_ID)
+
+    def test_table_aware_rejects_taken_seat(self):
+        """Sponsor flow with table_id pointing at a non-open seat
+        must 409, not silently sample a different roster.
+        """
+        from flask_app import extensions
+        cash_table_repo = extensions.cash_table_repo
+        seats = [
+            ai_slot(self.napoleon_id, 400),
+            ai_slot(self.buddha_id, 400),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': '$10',
+                'archetype_id': 'friendly_boost',
+                'table_id': 'cash-table-10-001',
+                'seat_index': 0,  # napoleon's seat
+                'opponents': 2,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_table_aware_requires_both_table_id_and_seat_index(self):
+        """Sending one without the other is ambiguous — reject with 400."""
+        response = self.client.post(
+            '/api/cash/sponsor-and-sit',
+            json={
+                'stake_label': '$10',
+                'archetype_id': 'friendly_boost',
+                'table_id': 'cash-table-10-001',
+                # seat_index intentionally omitted
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('seat_index', response.get_json()['error'])

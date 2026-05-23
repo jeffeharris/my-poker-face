@@ -418,3 +418,70 @@ class TestSitAll(_CashSitRouteBase):
             if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
         ]
         assert humans_for_owner == [("cash-table-50-001", open_idx_b)]
+
+    def test_orphaned_seat_on_same_table_is_freed_on_subsequent_sit(self):
+        """Regression: a stale `human` slot at index X on the SAME table
+        the player is sitting back down at (different index Y) must NOT
+        survive the new sit.
+
+        Pre-fix, `sit_at_table` loaded the table once before calling
+        `_free_ghost_human_seats`, then built `claimed_table` from that
+        stale snapshot — the save resurrected the just-cleared orphan.
+        This is the production scenario where the user resumed a
+        session, was placed at a fresh seat, and ended up double-
+        seated on the same table.
+        """
+        from flask_app.extensions import game_repo
+
+        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
+            player_id=PLAYER_OWNER_ID, chips=20_000, starting_bankroll=20_000,
+        ))
+
+        table_id = "cash-table-50-001"
+        table = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        # Pick two distinct open indices on the same table.
+        open_indices = [i for i, s in enumerate(table.seats) if s["kind"] == "open"]
+        assert len(open_indices) >= 2, "need ≥2 open seats for this case"
+        orphan_idx, new_idx = open_indices[0], open_indices[1]
+
+        # Phase 1: sit at orphan_idx (legit), then strand it by deleting
+        # the game row in both memory and DB. The cash_tables row keeps
+        # the human slot — the ghost.
+        resp_a = self.client.post("/api/cash/sit", json={
+            "table_id": table_id,
+            "seat_index": orphan_idx,
+            "buy_in": 2000,
+        })
+        assert resp_a.status_code == 200, resp_a.get_data(as_text=True)
+        sit_a_game_id = resp_a.get_json()["game_id"]
+
+        from flask_app.services import game_state_service
+        game_state_service.delete_game(sit_a_game_id)
+        game_repo.delete_game(sit_a_game_id)
+        stranded = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        assert stranded.seats[orphan_idx]["kind"] == "human"
+
+        # Phase 2: sit at new_idx on the SAME table — must succeed and
+        # leave only the new seat human.
+        resp_b = self.client.post("/api/cash/sit", json={
+            "table_id": table_id,
+            "seat_index": new_idx,
+            "buy_in": 2000,
+        })
+        assert resp_b.status_code == 200, resp_b.get_data(as_text=True)
+
+        after = self.cash_table_repo.load_table(table_id, sandbox_id="test-sandbox-1")
+        assert after.seats[new_idx]["kind"] == "human"
+        assert after.seats[new_idx]["personality_id"] == PLAYER_OWNER_ID
+        assert after.seats[orphan_idx]["kind"] == "open", (
+            f"orphan at idx {orphan_idx} was resurrected by the stale-"
+            f"snapshot save in sit_at_table — got "
+            f"{after.seats[orphan_idx]!r}"
+        )
+        humans_for_owner = [
+            (t.table_id, i)
+            for t in self.cash_table_repo.list_all_tables()
+            for i, s in enumerate(t.seats)
+            if s.get("kind") == "human" and s.get("personality_id") == PLAYER_OWNER_ID
+        ]
+        assert humans_for_owner == [(table_id, new_idx)]
