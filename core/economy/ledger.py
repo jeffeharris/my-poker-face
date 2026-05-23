@@ -38,6 +38,16 @@ LEDGER_REASONS = frozenset({
     'ai_regen',            # AI bankroll write where projected > stored
     'house_stake_issue',   # house-archetype stake principal issued to borrower
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
+    'tourist_injection',   # bank pool → fish bankroll (closed-economy refill)
+    'casino_seat_seed',    # bank pool → fish seat chips at casino spawn
+                           # (atomic seed event — chips land at the seat,
+                           # not the bankroll; same pool draw semantics
+                           # as tourist_injection just routed differently)
+    'bank_pool_sim_seed',  # sim-only: central_bank → synthetic donor as
+                           # the creation half of a paired (creation +
+                           # bank_pool_deposit) seed flow. Paired form
+                           # keeps drift at 0 while inflating the pool
+                           # at sandbox start.
 
     # Destructions: X → central_bank
     'cap_clamp',           # DEPRECATED — historical entries only. Was emitted
@@ -48,9 +58,29 @@ LEDGER_REASONS = frozenset({
                            # audit can still query historical entries.
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
     'table_rake',          # per-hand pot rake destroyed at award time
+    'bank_pool_deposit',   # rich AI/player → bank pool (fake-vice + future
+                           # real vice; recyclable subset of central_bank chips
+                           # that fund `tourist_injection`)
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
+})
+
+# Pool of reasons that fund tourist injections — chips destroyed under
+# any of these reasons are considered "recyclable" and may be drawn
+# down by `tourist_injection` / `casino_seat_seed`. Closed-economy
+# bank-pool depth is `Σ(deposit_reasons) − Σ(draw_reasons)`. When real
+# vice ships, add its reason(s) to BANK_POOL_DEPOSIT_REASONS.
+BANK_POOL_DEPOSIT_REASONS = frozenset({
+    'bank_pool_deposit',
+})
+
+# Pool draws — creations that pull from the recyclable pool. Adding a
+# new draw reason (e.g. a per-hand fish subsidy) just appends to this
+# set; depth math automatically subtracts it.
+BANK_POOL_DRAW_REASONS = frozenset({
+    'tourist_injection',
+    'casino_seat_seed',
 })
 
 
@@ -409,5 +439,148 @@ def record_forgive_balance(
         amount=0,
         reason='forgive_balance',
         context=ctx,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_bank_pool_deposit(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """source → central_bank for chips deposited into the closed-economy pool.
+
+    `source` is the canonical entity string the chips came from —
+    `ai(personality_id)` for fake-vice (or future real AI vice) and
+    `player(owner_id)` for future player vice. The deposit lands in
+    the recyclable subset of central_bank reserves that funds
+    `tourist_injection`. Bank pool depth (per sandbox) is
+    `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(tourist_injection)`.
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=source,
+        sink=bank(),
+        amount=int(amount),
+        reason='bank_pool_deposit',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_tourist_injection(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """central_bank → ai for a fish bankroll refill from the bank pool.
+
+    Caller is responsible for verifying that the bank pool has enough
+    reserves before drawing — `record_tourist_injection` itself just
+    writes the ledger row (the pool is virtual; depth is computed,
+    not gated by a row count).
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=ai(personality_id),
+        amount=int(amount),
+        reason='tourist_injection',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_bank_pool_sim_seed_pair(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """Sim-only: inflate the bank pool by `amount` without touching real holders.
+
+    Writes a paired creation + destruction so the audit's `drift == 0`
+    invariant survives. Both rows reference a synthetic donor entity
+    (`ai:bank_pool_sim_donor`) that has no bankroll row, so neither
+    `actual_outstanding` changes.
+
+    Result: bank pool depth gains `amount` chips. ledger_outstanding
+    unchanged (creation cancels destruction). drift unchanged.
+
+    Returns the entry id of the deposit (the second row), or None on
+    skip. Intended for `SimConfig.initial_bank_pool_seed` and tests
+    that want a pre-loaded pool.
+    """
+    if repo is None or amount <= 0:
+        return None
+    donor = ai('bank_pool_sim_donor')
+    # Creation: central_bank → synthetic donor
+    record(
+        repo,
+        source=bank(),
+        sink=donor,
+        amount=int(amount),
+        reason='bank_pool_sim_seed',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+    # Destruction: synthetic donor → bank pool
+    return record(
+        repo,
+        source=donor,
+        sink=bank(),
+        amount=int(amount),
+        reason='bank_pool_deposit',
+        context=dict(context or {}, site='bank_pool_sim_seed'),
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_casino_seat_seed(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """central_bank → ai for a fish seat buy-in at casino spawn.
+
+    The casino-provisioning resolver pays out the buy-in for each fish
+    seat directly from the bank pool. The chips land in the AI entity's
+    accounting (`ai:<personality_id>`); the caller is responsible for
+    physically placing them in the seat (vs the bankroll) — this row
+    only ledgers the chip creation.
+
+    Same pool-draw semantics as `tourist_injection`; separate reason
+    so the audit / trajectory can distinguish 'casino spawned' from
+    'fish bankroll topped up.'
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=ai(personality_id),
+        amount=int(amount),
+        reason='casino_seat_seed',
+        context=context,
         sandbox_id=sandbox_id,
     )

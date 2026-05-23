@@ -262,6 +262,39 @@ class CashTableRepository(BaseRepository):
                 return None
             return _row_to_state(row)
 
+    def delete_table(
+        self,
+        table_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> bool:
+        """Delete a cash table row. Returns True if a row was removed.
+
+        Used by ephemeral table types (currently `casino` — see
+        `cash_mode/casino_provisioning.py`) that spawn and tear down
+        based on bank-pool depth. Lobby tables (`table_type='lobby'`)
+        aren't deleted in normal flows — they're seeded once and
+        persist.
+
+        No-op (returns False) when the row doesn't exist. Callers
+        treat that as success in idempotent flows.
+        """
+        with self._get_connection() as conn:
+            scoped = _has_column(conn, "cash_tables", "sandbox_id")
+            if scoped:
+                if not sandbox_id:
+                    raise ValueError("sandbox_id is required for cash_tables deletes")
+                cursor = conn.execute(
+                    "DELETE FROM cash_tables WHERE table_id = ? AND sandbox_id = ?",
+                    (table_id, sandbox_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "DELETE FROM cash_tables WHERE table_id = ?",
+                    (table_id,),
+                )
+            return cursor.rowcount > 0
+
     def list_all_tables(
         self,
         *,

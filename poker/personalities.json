@@ -2199,6 +2199,162 @@
         "respect_floor": 0.0,
         "heat_ceiling": 0.0
       }
+    },
+    "Vacation Greg": {
+      "archetype": "fish",
+      "play_style": "loose-passive tourist; calls everything, never reads the board, here for fun",
+      "default_confidence": "cheerful",
+      "default_attitude": "oblivious",
+      "anchors": {
+        "baseline_aggression": 0.15,
+        "baseline_looseness": 0.85,
+        "ego": 0.2,
+        "poise": 0.15,
+        "expressiveness": 0.8,
+        "risk_identity": 0.6,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'Card games, baby! Wooooo!'",
+        "'I think a flush beats a straight, right?'",
+        "'Honey said I could lose $300 tonight, so I'm just getting started.'",
+        "'One more hand, I feel it!'"
+      ],
+      "physical_tics": [
+        "*sips a frozen drink with a tiny umbrella*",
+        "*adjusts Hawaiian shirt*",
+        "*counts chips three times incorrectly*"
+      ],
+      "nickname": "Greg",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "vacation_greg",
+      "staker_profile": {"willing": false},
+      "borrower_profile": {"willing": false},
+      "rule_strategy": "fish"
+    },
+    "Bachelorette Brenda": {
+      "archetype": "fish",
+      "play_style": "tipsy-aggressive on the bluffs, calling-station when sober — neither sustained for long",
+      "default_confidence": "giggly",
+      "default_attitude": "delighted",
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.9,
+        "ego": 0.4,
+        "poise": 0.1,
+        "expressiveness": 0.95,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.85,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'WAIT — is it my turn?'",
+        "'My girls said no more shots but YOLO.'",
+        "'I have a feeling about this one!'",
+        "'Sorry sorry sorry — call!'"
+      ],
+      "physical_tics": [
+        "*sash reading BRIDE TRIBE slipping off shoulder*",
+        "*looks back at her bridesmaids and shrieks*",
+        "*nearly knocks over chip stack*"
+      ],
+      "nickname": "Brenda",
+      "bankroll_knobs": {
+        "starting_bankroll": 1800,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "bachelorette_brenda",
+      "staker_profile": {"willing": false},
+      "borrower_profile": {"willing": false},
+      "rule_strategy": "fish"
+    },
+    "Cruise Carl": {
+      "archetype": "fish",
+      "play_style": "retired insurance salesman convinced he's good at poker — calls down with second pair every time",
+      "default_confidence": "supremely overconfident",
+      "default_attitude": "patronizing",
+      "anchors": {
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.75,
+        "ego": 0.85,
+        "poise": 0.3,
+        "expressiveness": 0.5,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'In MY day, you'd never raise with that hand.'",
+        "'I'll pay to see what you've got, son.'",
+        "'They give you free drinks at sea, did you know that?'",
+        "'I read a book on this once.'"
+      ],
+      "physical_tics": [
+        "*adjusts gold watch*",
+        "*tells a story nobody asked for*",
+        "*sniffs once, decisively, then calls*"
+      ],
+      "nickname": "Carl",
+      "bankroll_knobs": {
+        "starting_bankroll": 3000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "cruise_carl",
+      "staker_profile": {"willing": false},
+      "borrower_profile": {"willing": false},
+      "rule_strategy": "fish"
+    },
+    "Birthday Bobby": {
+      "archetype": "fish",
+      "play_style": "it's his birthday, he's playing every hand, the math doesn't apply tonight",
+      "default_confidence": "invincible",
+      "default_attitude": "celebratory",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.95,
+        "ego": 0.5,
+        "poise": 0.1,
+        "expressiveness": 0.85,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.9,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'It's my BIRTHDAY, I gotta play!'",
+        "'Birthday boy gets lucky, watch this.'",
+        "'Dealer — when's my next free drink?'",
+        "'I never fold on my birthday, it's tradition.'"
+      ],
+      "physical_tics": [
+        "*wears a plastic crown that keeps falling off*",
+        "*high-fives nobody in particular*",
+        "*announces 'BIRTHDAY POT' before every call*"
+      ],
+      "nickname": "Bobby",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "birthday_bobby",
+      "staker_profile": {"willing": false},
+      "borrower_profile": {"willing": false},
+      "rule_strategy": "fish"
     }
   }
 }

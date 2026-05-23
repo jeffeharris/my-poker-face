@@ -306,16 +306,41 @@ def _copy_seats(seats: List[dict]) -> List[dict]:
 
 
 def _build_controller(
-    *, personality_id: str, display_name: str, state_machine: PokerStateMachine,
+    *,
+    personality_id: str,
+    display_name: str,
+    state_machine: PokerStateMachine,
+    archetype: Optional[str] = None,
+    rule_strategy: Optional[str] = None,
 ):
-    """Construct a `TieredBotController` for one AI seat.
+    """Construct a controller for one AI seat.
 
-    Imported lazily because `TieredBotController.__init__` chains into
-    `AIPokerPlayer.__init__` which builds an `Assistant` (LLM client
-    setup) even though full sim never calls the LLM. Spike measured
-    77 ms per controller; the cache keeps this off the hot path after
-    warm-up.
+    Default path: `TieredBotController` — solver tables + personality
+    distortion, no LLM. Imported lazily because `TieredBotController.
+    __init__` chains into `AIPokerPlayer.__init__` which builds an
+    `Assistant` (LLM client setup) even though full sim never calls
+    the LLM. Spike measured 77 ms per controller; the cache keeps
+    this off the hot path after warm-up.
+
+    Fish path: when `archetype == 'fish'` (or `rule_strategy` names a
+    built-in strategy), dispatches to `RuleBotController` with the
+    named strategy. Fish are the casino tier's chip donors; they
+    play a deterministic loose-passive script and don't need the
+    solver/personality stack.
     """
+    if archetype == 'fish' or rule_strategy:
+        from poker.rule_bot_controller import RuleBotController
+
+        strategy = rule_strategy or ('fish' if archetype == 'fish' else 'case_based')
+        controller = RuleBotController(
+            player_name=display_name,
+            state_machine=state_machine,
+            strategy=strategy,
+            llm_config={},
+        )
+        controller.skip_equity_in_analysis = True
+        return controller
+
     from poker.tiered_bot_controller import TieredBotController
 
     strategy_table, hu_table = _get_strategy_tables()
@@ -692,12 +717,25 @@ def _play_one_hand_inner(
     cache_misses: List[Tuple[str, object]] = []
     for player in players:
         pid = seat_pid_by_name[player.name]
+        # Look up archetype + rule strategy once per cache miss. Both
+        # are static per personality — the cache holds the right
+        # controller class permanently once built, so this is a
+        # warm-path no-op after the first hand.
+        archetype = (
+            bankroll_repo.load_archetype(pid) if bankroll_repo is not None else None
+        )
+        rule_strategy = (
+            bankroll_repo.load_rule_strategy(pid) if bankroll_repo is not None else None
+        )
         ctrl, was_miss = controller_cache.get_or_create_tracked(
             pid,
-            lambda pid_local=pid, name_local=player.name: _build_controller(
+            lambda pid_local=pid, name_local=player.name,
+                   arch_local=archetype, rs_local=rule_strategy: _build_controller(
                 personality_id=pid_local,
                 display_name=name_local,
                 state_machine=sm,
+                archetype=arch_local,
+                rule_strategy=rs_local,
             ),
         )
         if was_miss:

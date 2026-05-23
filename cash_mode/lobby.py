@@ -450,6 +450,15 @@ def refresh_unseated_tables(
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
+    # Closed-economy: fish-archetype personalities only seat at the
+    # casino tier ($2). Build the set once per refresh; the per-table
+    # loop filters them out of the idle pool when above-casino.
+    from cash_mode.closed_economy import (
+        CASINO_TIER_STAKE_LABELS,
+        load_fish_ids,
+    )
+    _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
             pid, sandbox_id=sandbox_id, now=now,
@@ -842,9 +851,18 @@ def refresh_unseated_tables(
             # Per-hand movement + fill. Each iteration sees the latest
             # seat state (chips updated by play_one_hand) and rolls
             # against the same pressure model used at seated tables.
+            # Closed-economy: fish-archetype personalities only seat at
+            # the casino tier — filter them out of the idle pool above
+            # that. See `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
+            if _fish_ids and table.stake_label not in CASINO_TIER_STAKE_LABELS:
+                _table_idle_pool = [
+                    e for e in idle_pool if e.personality_id not in _fish_ids
+                ]
+            else:
+                _table_idle_pool = idle_pool
             per_hand = refresh_table_roster(
                 table,
-                idle_pool=idle_pool,
+                idle_pool=_table_idle_pool,
                 eligible_candidates=eligible,
                 seated_globally=seated_globally,
                 bankroll_lookup=_bankroll_lookup,
@@ -1412,6 +1430,49 @@ def refresh_unseated_tables(
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] AI carry resolution failed: %s", exc,
+            )
+
+    # Closed-economy testbed: fake-vice deposits + tourist injections.
+    # Gated on `chip_ledger_repo` because both flows write ledger
+    # entries — without the repo, there's no pool to compute against
+    # and no way to record the chip moves audit-correctly. Best-effort:
+    # a failure in either resolver doesn't tank the lobby refresh.
+    # Spec: `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
+    if chip_ledger_repo is not None:
+        try:
+            from cash_mode.closed_economy import resolve_closed_economy
+
+            resolve_closed_economy(
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] closed-economy resolution failed: %s", exc,
+            )
+
+        # Casino provisioning: spawn `table_type='casino'` tables when
+        # the bank pool is fat enough, tear them down when fish are
+        # busted + pool empty. Runs after closed-economy so fresh
+        # vice deposits / tourist injections show up in the depth
+        # check on the same tick.
+        try:
+            from cash_mode.casino_provisioning import resolve_casino_provisioning
+
+            resolve_casino_provisioning(
+                cash_table_repo=cash_table_repo,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] casino provisioning failed: %s", exc,
             )
 
     return out
