@@ -594,5 +594,140 @@ class TestTickViceExpirations:
         assert db_setup["vice"].load("no_psych", sandbox_id=SBX) is None
 
 
+class TestEmitViceSpendingEvents:
+    """Vice start / end events emit to the lobby ticker correctly."""
+
+    def _setup_personality_repo(self, db_setup, pid: str, display_name: str):
+        """Insert a minimal personality row so name lookups work."""
+        import sqlite3
+        with sqlite3.connect(db_setup["db"]) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO personalities
+                    (name, config_json, personality_id)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    display_name,
+                    json.dumps({"name": display_name, "id": pid}),
+                    pid,
+                ),
+            )
+
+    def test_start_emits_ticker_event(self, db_setup):
+        from cash_mode import activity
+        from cash_mode.lobby import _emit_vice_spending_events
+
+        # Reset the ring buffer so prior tests don't pollute
+        with activity._events_lock:
+            activity._events.clear()
+
+        self._setup_personality_repo(db_setup, "napoleon_id", "Napoleon")
+
+        start = ViceStartResult(
+            personality_id="napoleon_id",
+            amount=2500,
+            duration_bucket='long',
+            started_at=ANCHOR,
+            ends_at=ANCHOR + timedelta(hours=2),
+            narration="Napoleon commissioned an oversized bronze bust",
+            excess_ratio=3.8,
+            pressure=0.4,
+        )
+        _emit_vice_spending_events(
+            starts=[start],
+            ends=[],
+            personality_repo=db_setup["personality"],
+            now=ANCHOR,
+            sandbox_id=SBX,
+        )
+        events = activity.recent_events(limit=10, sandbox_id=SBX)
+        vice_events = [e for e in events if e.type == "vice_start"]
+        assert len(vice_events) == 1
+        assert vice_events[0].name == "Napoleon"
+        assert "bronze bust" in vice_events[0].message
+        assert vice_events[0].reason == 'long'
+
+    def test_end_emits_ticker_event(self, db_setup):
+        from cash_mode import activity
+        from cash_mode.lobby import _emit_vice_spending_events
+
+        with activity._events_lock:
+            activity._events.clear()
+
+        self._setup_personality_repo(db_setup, "buddha_id", "Buddha")
+
+        end = ViceEndResult(
+            personality_id="buddha_id",
+            started_at=ANCHOR - timedelta(hours=2),
+            ends_at=ANCHOR,
+            amount=1500,
+            duration_bucket='long',
+            narration="Buddha donated to the silent retreat fund",
+            recovery_applied=True,
+        )
+        _emit_vice_spending_events(
+            starts=[],
+            ends=[end],
+            personality_repo=db_setup["personality"],
+            now=ANCHOR,
+            sandbox_id=SBX,
+        )
+        events = activity.recent_events(limit=10, sandbox_id=SBX)
+        vice_events = [e for e in events if e.type == "vice_end"]
+        assert len(vice_events) == 1
+        assert "Buddha is back" in vice_events[0].message
+
+    def test_no_events_when_starts_and_ends_empty(self, db_setup):
+        from cash_mode import activity
+        from cash_mode.lobby import _emit_vice_spending_events
+
+        with activity._events_lock:
+            activity._events.clear()
+
+        _emit_vice_spending_events(
+            starts=[],
+            ends=[],
+            personality_repo=db_setup["personality"],
+            now=ANCHOR,
+            sandbox_id=SBX,
+        )
+        events = activity.recent_events(limit=10, sandbox_id=SBX)
+        assert events == []
+
+    def test_sandbox_filter_on_ticker(self, db_setup):
+        """Events emitted under sandbox A don't surface under sandbox B."""
+        from cash_mode import activity
+        from cash_mode.lobby import _emit_vice_spending_events
+
+        with activity._events_lock:
+            activity._events.clear()
+
+        self._setup_personality_repo(db_setup, "p_id", "X")
+        start = ViceStartResult(
+            personality_id="p_id",
+            amount=500,
+            duration_bucket='medium',
+            started_at=ANCHOR,
+            ends_at=ANCHOR + timedelta(hours=1),
+            narration="X did something",
+            excess_ratio=1.0,
+            pressure=0.4,
+        )
+        _emit_vice_spending_events(
+            starts=[start],
+            ends=[],
+            personality_repo=db_setup["personality"],
+            now=ANCHOR,
+            sandbox_id="sbx-A",
+        )
+        # Other sandbox sees nothing
+        events_b = activity.recent_events(limit=10, sandbox_id="sbx-B")
+        assert events_b == []
+        # Origin sandbox sees the event
+        events_a = activity.recent_events(limit=10, sandbox_id="sbx-A")
+        assert any(e.type == "vice_start" for e in events_a)
+
+
 if __name__ == "__main__":
     unittest.main()

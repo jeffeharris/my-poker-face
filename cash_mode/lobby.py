@@ -1466,7 +1466,6 @@ def refresh_unseated_tables(
     # off-grid. Candidate set is idle-pool AIs minus already-vicing
     # AIs (the filter above already removed them from idle_pool).
     # Each fire is a sync narration call + ledger entry + state row.
-    # Commit 2 wires ticker emission; Commit 1 keeps it silent.
     vice_starts: list = []
     if vice_repo is not None and sandbox_id is not None and chip_ledger_repo is not None:
         try:
@@ -1494,6 +1493,23 @@ def refresh_unseated_tables(
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] AI vice spending failed: %s", exc,
+            )
+
+    # Emit vice ticker events for both starts (this refresh) and ends
+    # (from the expiry pass at the top). Best-effort — already wrapped
+    # in try/except inside the helper.
+    if vice_starts or vice_ends:
+        try:
+            _emit_vice_spending_events(
+                starts=vice_starts,
+                ends=vice_ends,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice event emission failed: %s", exc,
             )
 
     return out
@@ -2022,6 +2038,93 @@ def _emit_carry_resolution_events(
             logger.warning(
                 "[CASH][LOBBY] carry resolution event emit failed (%s): %s",
                 result.kind, exc,
+            )
+
+
+def _emit_vice_spending_events(
+    *,
+    starts,
+    ends,
+    personality_repo,
+    now: datetime,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Translate vice-start / vice-end results into LobbyEvents.
+
+    Vice events don't pivot on a table — vice is a between-tables
+    activity — so `table_id` and `stake_label` are empty. The
+    narration is the message for `vice_start`; `vice_end` uses a
+    short return phrase. `reason` carries the duration bucket
+    ('short' / 'medium' / 'long') so the frontend can render
+    bucket-specific accents if it wants.
+
+    Per the design's `VICE_STARTS_PER_REFRESH` cap, `starts` is
+    already bounded at the dispatcher layer — we emit every entry
+    in it. Ends are unbounded but cheap (no LLM); we emit them all.
+
+    Best-effort: ring-buffer failures don't propagate.
+    """
+    if not starts and not ends:
+        return
+
+    from cash_mode.activity import (
+        EVENT_VICE_END,
+        EVENT_VICE_START,
+        LobbyEvent,
+        format_vice_end_message,
+        format_vice_start_message,
+        record_event,
+    )
+
+    def _name_for(pid: str) -> str:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        if personality and personality.get("name"):
+            return personality["name"]
+        return pid
+
+    ts = now.isoformat()
+
+    for s in starts:
+        name = _name_for(s.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_VICE_START,
+                table_id="",
+                stake_label="",
+                personality_id=s.personality_id,
+                name=name,
+                reason=s.duration_bucket,
+                message=format_vice_start_message(s.narration),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice start event emit failed pid=%r: %s",
+                s.personality_id, exc,
+            )
+
+    for e in ends:
+        name = _name_for(e.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_VICE_END,
+                table_id="",
+                stake_label="",
+                personality_id=e.personality_id,
+                name=name,
+                reason=e.duration_bucket,
+                message=format_vice_end_message(name),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] vice end event emit failed pid=%r: %s",
+                e.personality_id, exc,
             )
 
 
