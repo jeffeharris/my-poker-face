@@ -4,7 +4,7 @@ Manages the personalities and avatar_images tables.
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 
 from poker.repositories.base_repository import BaseRepository
 from poker.personality_id import (
@@ -410,6 +410,24 @@ class PersonalityRepository(BaseRepository):
                 {"personality_id": row["personality_id"], "name": row["name"]}
                 for row in cursor
             ]
+
+    def list_all_personality_ids(self) -> Set[str]:
+        """Return the set of every non-NULL `personality_id` in the table.
+
+        A fast membership check for "does this seated AI still resolve to
+        a real personality?" — used by the casino resolver's zombie-seat
+        reclaim to spot AI seats whose persona no longer exists (e.g.
+        old-model `tourist-<uuid>` seats from before the fish-as-personas
+        migration). One query, no per-seat lookups.
+        """
+        with self._get_connection() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            if 'personality_id' not in columns:
+                return set()
+            cursor = conn.execute(
+                "SELECT personality_id FROM personalities WHERE personality_id IS NOT NULL"
+            )
+            return {row["personality_id"] for row in cursor}
 
     def delete_personality(self, name: str) -> bool:
         """Delete a personality from the database."""

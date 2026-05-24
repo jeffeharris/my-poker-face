@@ -227,6 +227,105 @@ def _casino_table_id(stake_label: str, suffix: str = "001") -> str:
     return f"{CASINO_TABLE_ID_PREFIX}-{slug}-{suffix}"
 
 
+def _reclaim_zombie_casino_seats(
+    cash_table_repo,
+    chip_ledger_repo,
+    *,
+    sandbox_id: str,
+    valid_pids: Set[str],
+    now: datetime,
+) -> int:
+    """Open any casino AI seat whose `personality_id` no longer resolves.
+
+    Such "zombie" seats — old-model `tourist-<uuid>` seats left over from
+    before the fish-as-personas migration, or any persona deleted while
+    seated — permanently consume a seat the human or a live-filling
+    grinder could take, because nothing else ever clears them (refill
+    only adds fish; teardown only sweeps `archetype='fish'`). This is the
+    same ghost-seat failure class the cash code has hit before, so guard
+    it structurally rather than one-off.
+
+    Casino seats are pool-funded, so a zombie's residual chips return to
+    the bank pool (`casino_seat_return`) before the seat is opened — the
+    pool is the conservation-safe sink for orphaned chips. A seat is only
+    opened once its chips are safely returned (or it had none); a failed
+    return leaves the seat untouched to retry next resolve, so chips
+    never vanish from the universe.
+
+    Returns the number of seats reclaimed.
+    """
+    reclaimed = 0
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'casino':
+            continue
+        new_seats = list(table.seats)
+        changed = False
+        for idx, slot in enumerate(table.seats):
+            if slot.get('kind') != 'ai':
+                continue
+            pid = slot.get('personality_id')
+            if pid in valid_pids:
+                continue
+            # Zombie seat — return residual chips to the pool first.
+            chips = int(slot.get('chips') or 0)
+            if chips > 0 and pid:
+                try:
+                    row_id = record_casino_seat_return(
+                        chip_ledger_repo,
+                        personality_id=pid,
+                        amount=chips,
+                        context={
+                            'site': 'casino_zombie_reclaim',
+                            'table_id': table.table_id,
+                            'stake_label': table.stake_label,
+                            'reason': 'unresolved_personality',
+                        },
+                        sandbox_id=sandbox_id,
+                    )
+                except Exception as exc:
+                    row_id = None
+                    logger.warning(
+                        "[CASH][CASINO] zombie seat-return raised for %s/%s "
+                        "(%d chips): %s", table.table_id, pid, chips, exc,
+                    )
+                if row_id is None:
+                    # Return failed — leave the seat to retry next resolve
+                    # rather than vanish the chips.
+                    logger.warning(
+                        "[CASH][CASINO] zombie reclaim deferred for %s/%s "
+                        "(%d chips, seat-return failed)",
+                        table.table_id, pid, chips,
+                    )
+                    continue
+            new_seats[idx] = open_slot()
+            changed = True
+            reclaimed += 1
+            logger.info(
+                "[CASH][CASINO] reclaimed zombie seat %s/%s (%d chips -> pool)",
+                table.table_id, pid, chips,
+            )
+        if changed:
+            updated = CashTableState(
+                table_id=table.table_id,
+                stake_label=table.stake_label,
+                seats=new_seats,
+                created_at=table.created_at,
+                last_activity_at=table.last_activity_at,
+                name=table.name,
+                table_type='casino',
+                dealer_idx=table.dealer_idx,
+                closing_hand_countdown=table.closing_hand_countdown,
+            )
+            try:
+                cash_table_repo.save_table(updated, sandbox_id=sandbox_id, now=now)
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][CASINO] zombie reclaim save_table failed for %s: %s",
+                    table.table_id, exc,
+                )
+    return reclaimed
+
+
 def _existing_casinos_by_stake(
     cash_table_repo, *, sandbox_id: str,
 ) -> Dict[str, List[CashTableState]]:
@@ -636,6 +735,30 @@ def resolve_casino_provisioning(
     }
     if not fish_ids:
         return batch
+
+    # Self-heal: reclaim zombie AI seats whose persona no longer resolves
+    # (old-model tourist-<uuid> seats from before the fish-as-personas
+    # migration, or any persona deleted while seated). They permanently
+    # consume seats the human / live-filling grinders could take. Runs
+    # before the passes so freed seats are refillable this same resolve;
+    # the later `already_seated`/`by_stake` reads re-fetch and see the
+    # cleaned tables. Best-effort — a reclaim hiccup must not tank the
+    # whole provisioning resolve.
+    try:
+        reclaimed = _reclaim_zombie_casino_seats(
+            cash_table_repo,
+            chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            valid_pids=personality_repo.list_all_personality_ids(),
+            now=now,
+        )
+        if reclaimed:
+            logger.info(
+                "[CASH][CASINO] reclaimed %d zombie seat(s) in sandbox %s",
+                reclaimed, sandbox_id,
+            )
+    except Exception as exc:
+        logger.warning("[CASH][CASINO] zombie-seat reclaim failed: %s", exc)
 
     # Globally-seated pids — never seat the same fish at two tables in one
     # resolve (each persona is one identity; the player map is name-keyed
