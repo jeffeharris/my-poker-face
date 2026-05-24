@@ -4175,9 +4175,25 @@ def get_lobby():
                 else:
                     emotion = "confident"
                 entry["emotion"] = emotion
-                entry["avatar_url"] = get_avatar_url_with_fallback(
-                    None, ai_name, emotion,
+                # Ephemeral tourists must NOT go through the avatar
+                # fallback — `get_avatar_url_with_fallback(name, ...)`
+                # triggers `generate_character_images(name, ...)`, which
+                # calls `personality_generator.get_personality(name)`,
+                # which auto-creates a DB personality with the display
+                # name. Those zombies then become live-fill candidates
+                # at every stake. The fix is to skip avatar generation
+                # for tourists; the frontend renders the initial letter
+                # as the fallback (same as any null avatar_url seat).
+                is_ephemeral_tourist = (
+                    slot.get("ephemeral_personality") is not None
+                    or pid.startswith("tourist-")
                 )
+                if is_ephemeral_tourist:
+                    entry["avatar_url"] = None
+                else:
+                    entry["avatar_url"] = get_avatar_url_with_fallback(
+                        None, ai_name, emotion,
+                    )
                 # Relationship hint: lender's POV of the player.
                 hint = ""
                 try:

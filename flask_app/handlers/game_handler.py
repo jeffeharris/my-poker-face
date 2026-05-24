@@ -470,7 +470,20 @@ def update_and_emit_game_state(game_id: str) -> None:
                 display_emotion = controller.psychology.get_display_emotion()
             else:
                 display_emotion = 'confident'  # Default for RuleBots
-            avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
+            # Ephemeral tourists: skip avatar generation. The fallback
+            # path would call `generate_character_images(player_name)`
+            # which calls `personality_generator.get_personality(name)`
+            # which auto-creates a DB personality with the tourist's
+            # display name — zombies that then leak into the eligible
+            # pool at every stake. UI renders the initial letter when
+            # avatar_url is None. Detect by the controller's fish_leak
+            # attribute (only RuleBotController has it; only tourists
+            # have it set).
+            is_ephemeral_tourist = bool(getattr(controller, 'fish_leak', None))
+            if is_ephemeral_tourist:
+                avatar_url = None
+            else:
+                avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
