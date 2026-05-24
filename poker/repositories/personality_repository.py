@@ -318,6 +318,11 @@ class PersonalityRepository(BaseRepository):
           - Rule-bot stand-ins in :data:`CASH_INELIGIBLE_PERSONALITY_IDS`
             are excluded — they exist in the table for tournament-mode
             picker symmetry but aren't real cash opponents.
+          - `archetype='fish'` personalities are excluded — fish are a
+            casino-only player class (template + ephemeral instances).
+            They live at `table_type='casino'` venues exclusively and
+            never join the regular lobby pool. See
+            `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
 
         Distinct from `list_personalities`: that method returns
         display-name-keyed metadata for management UI; this method
@@ -339,6 +344,14 @@ class PersonalityRepository(BaseRepository):
                 placeholders = ",".join("?" * len(CASH_INELIGIBLE_PERSONALITY_IDS))
                 conditions.append(f"personality_id NOT IN ({placeholders})")
                 params.extend(sorted(CASH_INELIGIBLE_PERSONALITY_IDS))
+
+            # Fish are casino-only; exclude templates AND ephemeral
+            # instances from the regular pool. `json_extract` reads
+            # the `archetype` field directly from `config_json`.
+            conditions.append(
+                "(json_extract(config_json, '$.archetype') IS NULL "
+                "OR json_extract(config_json, '$.archetype') != 'fish')"
+            )
 
             if has_ownership:
                 visibility_clauses = ["visibility = 'public'"]
@@ -364,6 +377,40 @@ class PersonalityRepository(BaseRepository):
                 for row in cursor
             ]
 
+    def list_fish_for_cash_mode(self) -> List[Dict[str, Any]]:
+        """List the fish personas a casino can seat.
+
+        The exact inverse of `list_eligible_for_cash_mode`'s archetype
+        clause: returns `[{personality_id, name}]` for every persona
+        with `archetype='fish'`, ordered by personality_id for
+        determinism. These are real, curated DB personalities (e.g.
+        Vacation Greg) — casino spawn/refill picks from this pool,
+        seating each with pool-funded chips. They're excluded from the
+        regular lobby pool, so this is the only place they surface.
+
+        Rows with NULL `personality_id` are excluded — a fish needs a
+        stable id for seat/ledger keying.
+        """
+        with self._get_connection() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            if 'personality_id' not in columns:
+                # Pre-v85 schema — no stable IDs to surface.
+                return []
+
+            cursor = conn.execute(
+                """
+                SELECT personality_id, name
+                FROM personalities
+                WHERE personality_id IS NOT NULL
+                  AND json_extract(config_json, '$.archetype') = 'fish'
+                ORDER BY personality_id
+                """,
+            )
+            return [
+                {"personality_id": row["personality_id"], "name": row["name"]}
+                for row in cursor
+            ]
+
     def delete_personality(self, name: str) -> bool:
         """Delete a personality from the database."""
         try:
@@ -375,6 +422,24 @@ class PersonalityRepository(BaseRepository):
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error deleting personality {name}: {e}")
+            return False
+
+    def delete_personality_by_id(self, personality_id: str) -> bool:
+        """Delete a personality row by stable id.
+
+        Preferred over `delete_personality(name)` for ephemeral
+        instances (e.g. fish) whose display names aren't unique or
+        stable across spawns. Returns True if a row was removed.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM personalities WHERE personality_id = ?",
+                    (personality_id,),
+                )
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error deleting personality_id {personality_id}: {e}")
             return False
 
     def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:

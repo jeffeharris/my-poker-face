@@ -2235,9 +2235,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "vacation_greg",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_down_top_pair"
     },
     "Bachelorette Brenda": {
       "archetype": "fish",
@@ -2274,9 +2279,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "bachelorette_brenda",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "chases_any_draw"
     },
     "Cruise Carl": {
       "archetype": "fish",
@@ -2313,9 +2323,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "cruise_carl",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "limps_every_hand"
     },
     "Birthday Bobby": {
       "archetype": "fish",
@@ -2352,9 +2367,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "birthday_bobby",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "pot_committed_early"
     },
     "After Hours Trent": {
       "archetype": "fish",
@@ -2362,8 +2382,8 @@
       "default_confidence": "performatively analytical",
       "default_attitude": "condescending-but-friendly",
       "anchors": {
-        "baseline_aggression": 0.40,
-        "baseline_looseness": 0.70,
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.7,
         "ego": 0.7,
         "poise": 0.25,
         "expressiveness": 0.7,
@@ -2391,9 +2411,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "after_hours_trent",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "spite_raises_when_losing"
     },
     "Lucky Mona": {
       "archetype": "fish",
@@ -2401,8 +2426,8 @@
       "default_confidence": "serene",
       "default_attitude": "grandmotherly",
       "anchors": {
-        "baseline_aggression": 0.20,
-        "baseline_looseness": 0.80,
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.8,
         "ego": 0.3,
         "poise": 0.4,
         "expressiveness": 0.6,
@@ -2430,9 +2455,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "lucky_mona",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "overvalues_face_cards"
     },
     "Slots Linda": {
       "archetype": "fish",
@@ -2441,7 +2471,7 @@
       "default_attitude": "agreeable",
       "anchors": {
         "baseline_aggression": 0.18,
-        "baseline_looseness": 0.90,
+        "baseline_looseness": 0.9,
         "ego": 0.2,
         "poise": 0.2,
         "expressiveness": 0.4,
@@ -2469,9 +2499,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "slots_linda",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_river_light"
     },
     "Golf Trip Brad": {
       "archetype": "fish",
@@ -2508,9 +2543,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "golf_trip_brad",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "doesnt_believe_big_bets"
     },
     "Freddie Fratboy": {
       "archetype": "fish",
@@ -2523,9 +2563,9 @@
         "ego": 0.75,
         "poise": 0.15,
         "expressiveness": 0.95,
-        "risk_identity": 0.80,
+        "risk_identity": 0.8,
         "adaptation_bias": 0.0,
-        "baseline_energy": 0.90,
+        "baseline_energy": 0.9,
         "recovery_rate": 0.0
       },
       "verbal_tics": [
@@ -2547,9 +2587,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "freddie_fratboy",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "chases_any_draw"
     }
   }
 }

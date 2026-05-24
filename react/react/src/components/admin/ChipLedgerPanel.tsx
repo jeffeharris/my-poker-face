@@ -19,10 +19,22 @@ interface ActualTotals {
   actual_outstanding: number;
 }
 
+interface BankPool {
+  reserves: number;
+  deposits_total: number;
+  draws_total: number;
+  deposits_24h: number;
+  draws_24h: number;
+  net_flow_24h: number;
+  deposit_reasons: string[];
+  draw_reasons: string[];
+}
+
 interface AuditResponse {
   ledger_totals: LedgerTotals;
   actual_totals: ActualTotals;
   drift: number;
+  bank_pool?: BankPool;
   by_reason: Record<string, number>;
   by_reason_window_24h: Record<string, number>;
   errors?: Record<string, string>;
@@ -304,6 +316,31 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
             <dt className="muted">Uncommitted regen</dt><dd className="muted">{fmt(actualTotals.uncommitted_ai_regen)}</dd>
           </dl>
         </section>
+
+        {audit.bank_pool && (
+          <section className="chip-ledger-card">
+            <h3>Bank pool</h3>
+            <dl>
+              <dt><strong>Reserves</strong></dt>
+              <dd><strong>{fmt(audit.bank_pool.reserves)}</strong></dd>
+              <dt>Deposits</dt><dd>{fmt(audit.bank_pool.deposits_total)}</dd>
+              <dt>Draws</dt><dd>{fmt(audit.bank_pool.draws_total)}</dd>
+              <dt className="muted">Net flow (24h)</dt>
+              <dd className="muted">{signed(audit.bank_pool.net_flow_24h)}</dd>
+              <dt className="muted">Deposits (24h)</dt>
+              <dd className="muted">{fmt(audit.bank_pool.deposits_24h)}</dd>
+              <dt className="muted">Draws (24h)</dt>
+              <dd className="muted">{fmt(audit.bank_pool.draws_24h)}</dd>
+            </dl>
+            <p className="chip-ledger-bank-pool-caveat">
+              Closed-economy recyclable reserve. Deposits come from{' '}
+              <code>{audit.bank_pool.deposit_reasons.join(', ')}</code>;
+              draws from <code>{audit.bank_pool.draw_reasons.join(', ')}</code>.
+              Positive net flow → pool growing (vice outpacing tourists);
+              negative → tourists draining the pool.
+            </p>
+          </section>
+        )}
 
         <section className="chip-ledger-card">
           <h3>By reason (all-time)</h3>

@@ -163,7 +163,7 @@ logger = logging.getLogger(__name__)
 #       `(personality_id, sandbox_id)`. Expired rows are deleted by the
 #       lobby refresh's expiry pass. See
 #       `docs/plans/CASH_MODE_AI_VICE_SPENDING.md`.
-SCHEMA_VERSION = 112
+SCHEMA_VERSION = 113
 
 
 
@@ -1366,6 +1366,7 @@ class SchemaManager:
             110: (self._migrate_v110_add_pending_forgiveness_ask, "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)"),
             111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
             112: (self._migrate_v112_create_ai_vice_state, "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)"),
+            113: (self._migrate_v113_add_casino_closing_countdown, "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)"),
         }
 
         with self._get_connection() as conn:
@@ -5219,6 +5220,29 @@ class SchemaManager:
         logger.info(
             "Migration v111 complete: cash_tables.name + table_type added, "
             "stakes.table_id added, lobby-config names backfilled"
+        )
+
+    def _migrate_v113_add_casino_closing_countdown(self, conn: sqlite3.Connection) -> None:
+        """Migration v113: add `closing_hand_countdown` to cash_tables.
+
+        Backs the casino smooth-shutdown lifecycle. Three states:
+          - NULL: table is active (lobby tables OR active casino) — the
+            common case for every row.
+          - INTEGER >= 0: casino is in 'closing' state with N hands
+            remaining. Decremented by hand-completion hooks (sim and
+            human play paths) until 0, at which point the next
+            provisioning resolution deletes the row.
+
+        Non-destructive ADD COLUMN. Idempotent via PRAGMA guard.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_tables)")
+        cash_table_cols = {row[1] for row in cursor.fetchall()}
+        if 'closing_hand_countdown' not in cash_table_cols:
+            conn.execute(
+                "ALTER TABLE cash_tables ADD COLUMN closing_hand_countdown INTEGER"
+            )
+        logger.info(
+            "Migration v113 complete: cash_tables.closing_hand_countdown added"
         )
 
     def _migrate_v112_create_ai_vice_state(self, conn: sqlite3.Connection) -> None:

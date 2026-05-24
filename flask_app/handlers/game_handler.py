@@ -935,6 +935,20 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         logger.warning("[CASH][LOBBY] table %r not found for hand-boundary refresh", table_id)
         return
 
+    # Closed-economy: human-played hand at a closing casino decrements
+    # the smooth-shutdown countdown. Mirrors the sim-loop decrement in
+    # `cash_mode/lobby.py:refresh_unseated_tables` so the casino's
+    # 10-hand wind-down advances regardless of who's seated.
+    if table.table_type == 'casino':
+        from cash_mode.casino_provisioning import (
+            decrement_closing_hands,
+            is_closing,
+        )
+        if is_closing(cash_table_repo, sandbox_id, table.table_id):
+            decrement_closing_hands(
+                cash_table_repo, sandbox_id, table.table_id,
+            )
+
     cash_pids = game_data.get('cash_personality_ids', {})
     current_ai_pids = set(cash_pids.values())
     name_to_pid = dict(cash_pids)
@@ -1004,6 +1018,9 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
         # so the subsequent save_table doesn't blank these fields.
         name=table.name,
         table_type=table.table_type,
+        # v113: preserve casino closing state through the live-sync
+        # rewrite.
+        closing_hand_countdown=table.closing_hand_countdown,
     )
 
     # Pids in the persisted table after reconciliation, used below to

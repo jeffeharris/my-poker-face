@@ -1146,6 +1146,7 @@ def dispatch_events(
     hand_id: Optional[int] = None,
     now: Optional[datetime] = None,
     sandbox_id: Optional[str] = None,
+    suppress_ids: Optional[set] = None,
 ) -> None:
     """Apply detected events to the relationship + cash layers.
 
@@ -1179,7 +1180,15 @@ def dispatch_events(
     if now is None:
         now = datetime.utcnow()
 
+    # Per-pair suppression: skip any event/flow touching a suppressed pid
+    # (casino fish). Both directions — observer OR opponent — so a fish
+    # neither learns nor is learned about, while grinder/human pairs at
+    # the same table still accrue history normally.
+    _suppress = suppress_ids or frozenset()
+
     for event in events or []:
+        if _suppress and (event.actor_id in _suppress or event.target_id in _suppress):
+            continue
         manager.record_event(
             actor_id=event.actor_id,
             target_id=event.target_id,
@@ -1220,6 +1229,8 @@ def dispatch_events(
             loser_id = resolve(flow.loser)
             if not winner_id or not loser_id:
                 continue
+            if winner_id in _suppress or loser_id in _suppress:
+                continue
             cash_pair_repo.apply_cash_pair_pnl(
                 winner_id=winner_id,
                 loser_id=loser_id,
@@ -1233,6 +1244,8 @@ def dispatch_events(
         if event.event is not RelationshipEvent.BIG_WIN:
             continue
         if event.chips_won <= 0:
+            continue
+        if _suppress and (event.actor_id in _suppress or event.target_id in _suppress):
             continue
         cash_pair_repo.apply_cash_pair_pnl(
             winner_id=event.actor_id,

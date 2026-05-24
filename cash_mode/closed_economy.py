@@ -65,6 +65,16 @@ FAKE_VICE_FLOOR_PROTECTION = 0.5
 MIN_VICE_AMOUNT = 50
 FAKE_VICE_DEPOSITS_PER_REFRESH = 3
 
+# Grinder definition — the AIs that come to the casino to farm fish.
+# A "hungry grinder" satisfies all three:
+#   • archetype != 'fish' (fish farm nobody)
+#   • stake_comfort_zone in {'$2', '$10'} (casino is their natural tier)
+#   • current bankroll < starting × GRINDER_HUNGER_THRESHOLD
+# The hunger condition is the load-bearing one — a grinder at peak
+# wealth has no economic pressure to farm; a grinder at 40% of their
+# starting bankroll is desperate to recover.
+GRINDER_HUNGER_THRESHOLD = 0.8
+GRINDER_COMFORT_ZONES = frozenset({'$2', '$10'})
 
 # --- Dataclasses ------------------------------------------------------
 
@@ -199,6 +209,86 @@ def compute_bank_pool_reserves(
 # --- Fish discovery ---------------------------------------------------
 
 
+def is_hungry_grinder(
+    personality_id: str,
+    *,
+    bankroll_repo,
+    sandbox_id: str,
+    now: datetime,
+) -> bool:
+    """True iff this AI is a casino-tier grinder currently below hunger threshold.
+
+    Three filters AND'd:
+      1. archetype != 'fish' (fish are donors, not grinders)
+      2. stake_comfort_zone in `GRINDER_COMFORT_ZONES` ($2 or $10)
+      3. projected bankroll < `starting_bankroll × GRINDER_HUNGER_THRESHOLD`
+
+    Used by:
+      • Casino spawn demand signal (need ≥ MIN_HUNGRY_GRINDERS before
+        a casino opens — no point spawning if nobody wants to play).
+      • Grinder pull at casino tables (sort the idle pool by hunger
+        so the most desperate grinders get casino seats first).
+    """
+    if bankroll_repo is None:
+        return False
+    if bankroll_repo.load_archetype(personality_id) == 'fish':
+        return False
+    knobs = bankroll_repo.load_personality_knobs(personality_id)
+    if knobs.stake_comfort_zone not in GRINDER_COMFORT_ZONES:
+        return False
+    if knobs.starting_bankroll <= 0:
+        return False
+    state = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
+    if state is None:
+        # Never been seeded — treat as "not currently hungry" (will get
+        # picked up by other seating paths once they have a bankroll).
+        return False
+    projected = project_bankroll(
+        state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+    )
+    return projected < knobs.starting_bankroll * GRINDER_HUNGER_THRESHOLD
+
+
+def list_hungry_grinders(
+    bankroll_repo,
+    *,
+    sandbox_id: str,
+    now: datetime,
+    exclude: Optional[Set[str]] = None,
+) -> List[str]:
+    """Return personality_ids of hungry grinders, most-desperate first.
+
+    Sort order: ascending `projected / starting_bankroll` ratio — so
+    the AI with the deepest deficit comes first. Ties broken by
+    personality_id for determinism.
+
+    `exclude` is a set of pids to skip (e.g. AIs already seated). Pass
+    the global-seated set to avoid double-picking the same pid for
+    multiple tables.
+    """
+    if bankroll_repo is None:
+        return []
+    exclude = exclude or set()
+    pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
+    ratios: List[tuple] = []  # (ratio, pid)
+    for pid in pids:
+        if pid in exclude:
+            continue
+        if not is_hungry_grinder(
+            pid, bankroll_repo=bankroll_repo, sandbox_id=sandbox_id, now=now,
+        ):
+            continue
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        projected = project_bankroll(
+            state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        )
+        ratio = projected / knobs.starting_bankroll
+        ratios.append((ratio, pid))
+    ratios.sort(key=lambda r: (r[0], r[1]))
+    return [pid for _, pid in ratios]
+
+
 def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str]:
     """Personality_ids tagged `archetype: "fish"` in `config_json`.
 
@@ -206,12 +296,183 @@ def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str
     `load_archetype` on each, filters to fish. Fish not yet seeded
     into this sandbox's `ai_bankroll_state` won't appear — they only
     enter the eligibility loop once they've been seated at least once.
-    Once seeded, they're permanent fixtures of the recycle loop.
+
+    Returns both template fish (`vacation_greg`, etc.) and ephemeral
+    instances (`vacation_greg__eph_*`). Use `load_is_ephemeral_fish`
+    to distinguish if needed.
     """
     if bankroll_repo is None:
         return set()
     pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
     return {pid for pid in pids if bankroll_repo.load_archetype(pid) == 'fish'}
+
+
+# --- Ephemeral fish spawning ------------------------------------------
+#
+# Fish are a casino-only player class with no long-term lifecycle. The
+# 4 base entries in `personalities.json` (Vacation Greg, Bachelorette
+# Brenda, Cruise Carl, Birthday Bobby) are **templates** — they're
+# never seated directly. Casino spawn / refill clones a template into
+# an ephemeral instance with an alliterative first-name variant. When
+# the casino tears down, those instances get deleted.
+#
+# The pid pattern `<template>__eph_<6char>` doubles as the
+# template→instance link and the cleanup filter.
+
+
+# Per-template alliterative name pools. Each entry replaces the
+# template's first name (e.g. Vacation **Greg** → Vacation **Glenn**)
+# so casino dossiers feel like a rotating cast rather than the same
+# four NPCs over and over.
+EPHEMERAL_FISH_NAME_POOLS: dict = {
+    'vacation_greg': [
+        'Gary', 'Glenn', 'Gus', 'Greta', 'Gabe', 'Gordon', 'Gertie',
+        'Gwen', 'Geoff', 'Gail', 'Gunther', 'Gloria',
+    ],
+    'bachelorette_brenda': [
+        'Bea', 'Becca', 'Bridget', 'Belinda', 'Bonnie', 'Betsy',
+        'Brittany', 'Babs', 'Blair', 'Britt', 'Bianca', 'Beth',
+    ],
+    'cruise_carl': [
+        'Cal', 'Casey', 'Chuck', 'Curtis', 'Cliff', 'Cooper',
+        'Cody', 'Connor', 'Cyrus', 'Clement', 'Conrad', 'Clark',
+    ],
+    'birthday_bobby': [
+        'Brett', 'Boyd', 'Brad', 'Bruno', 'Bart', 'Burt', 'Buddy',
+        'Bo', 'Beau', 'Buster', 'Buck', 'Barry',
+    ],
+}
+
+# All templates supported by the spawn logic. Keeping this explicit
+# (vs. discovered at runtime) so a new template fails loudly when
+# its name pool is missing.
+EPHEMERAL_FISH_TEMPLATES = tuple(EPHEMERAL_FISH_NAME_POOLS.keys())
+
+
+def _ephemeral_pid(template_pid: str, rng: random.Random) -> str:
+    """Generate `<template>__eph_<6char>` from a 32-char hex pool."""
+    hex_chars = '0123456789abcdef'
+    suffix = ''.join(rng.choices(hex_chars, k=6))
+    return f"{template_pid}__eph_{suffix}"
+
+
+def is_ephemeral_fish_pid(pid: str) -> bool:
+    """True iff `pid` matches the ephemeral-fish naming convention."""
+    return '__eph_' in pid
+
+
+def spawn_ephemeral_fish(
+    *,
+    template_pid: str,
+    personality_repo,
+    bankroll_repo,
+    rng: random.Random,
+    sandbox_id: str,
+    now: datetime,
+    chip_ledger_repo=None,
+) -> Optional[tuple]:
+    """Clone a template fish into a new ephemeral instance.
+
+    Picks an alliterative first-name variant from the template's pool,
+    generates a unique pid, writes a personality row (with
+    `is_ephemeral: True` in config_json), and creates a zero-chip
+    bankroll state row in the sandbox. The casino spawner credits
+    actual chips at seat time via `record_casino_seat_seed`.
+
+    Returns `(personality_id, display_name)` on success, or None when
+    the template is unknown / repo writes fail.
+
+    Caller is responsible for seating the new pid and recording the
+    seat-seed ledger entry — this function does NOT touch the bank
+    pool. (Decoupled so the same generator can be reused for refills
+    where chips and personality come from separate code paths.)
+    """
+    if template_pid not in EPHEMERAL_FISH_NAME_POOLS:
+        logger.warning(
+            "[CASH][FISH] unknown ephemeral fish template %r — "
+            "no name pool registered; skipping",
+            template_pid,
+        )
+        return None
+
+    name_pool = EPHEMERAL_FISH_NAME_POOLS[template_pid]
+    variant_name = rng.choice(name_pool)
+
+    # Pull the template config so the new instance inherits anchors,
+    # tics, knobs, etc. `load_personality_by_id` returns the config
+    # dict directly with `name` + `id` populated.
+    template_config = personality_repo.load_personality_by_id(template_pid)
+    if not template_config:
+        logger.warning(
+            "[CASH][FISH] template %r not in DB; cannot spawn ephemeral",
+            template_pid,
+        )
+        return None
+
+    # Build the variant display name by swapping the template's first
+    # word (e.g. "Vacation Greg" → "Vacation Glenn"). Falls back to
+    # `template_name + variant_name` when the template name is
+    # single-word (shouldn't happen with current templates).
+    template_name = template_config.get('name', '') or ''
+    parts = template_name.split(' ', 1)
+    if len(parts) >= 2:
+        display_name = f"{parts[0]} {variant_name}"
+    else:
+        display_name = f"{template_name} {variant_name}".strip()
+
+    # Compose the ephemeral config: inherit everything, mark as
+    # ephemeral + record the template lineage for cleanup / debug.
+    ephemeral_config = dict(template_config)
+    ephemeral_config['is_ephemeral'] = True
+    ephemeral_config['template_personality_id'] = template_pid
+    ephemeral_config.pop('id', None)  # let save_personality assign
+    ephemeral_config.pop('name', None)  # name is the row name; not in config_json
+    # Drop the template's pre-baked bankroll knobs that don't apply to
+    # an instance (e.g. fixed starting_bankroll) — the casino seat
+    # seeds chips directly; the bankroll row stays at 0.
+
+    new_pid = _ephemeral_pid(template_pid, rng)
+    try:
+        personality_repo.save_personality(
+            display_name,
+            ephemeral_config,
+            source='ephemeral_fish',
+            personality_id=new_pid,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[CASH][FISH] save_personality failed for %s: %s",
+            new_pid, exc,
+        )
+        return None
+
+    # Bankroll row starts at 0 — fish chips live at the seat, not in
+    # a bankroll account. The seat seed (`casino_seat_seed`) handles
+    # the actual chip creation from the bank pool.
+    try:
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=new_pid,
+                chips=0,
+                last_regen_tick=now,
+            ),
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[CASH][FISH] save_ai_bankroll failed for %s: %s",
+            new_pid, exc,
+        )
+        # Personality row exists but bankroll doesn't — caller will
+        # see this as a failure via the None return and skip seating.
+        return None
+
+    logger.info(
+        "[CASH][FISH] spawned ephemeral fish %s (%s) from template %s",
+        new_pid, display_name, template_pid,
+    )
+    return (new_pid, display_name)
 
 
 # --- Resolvers --------------------------------------------------------

@@ -497,13 +497,12 @@ def refresh_unseated_tables(
             if cand.get("personality_id") not in on_vice
         ]
 
-    # Closed-economy: fish-archetype personalities only seat at the
-    # casino tier ($2). Build the set once per refresh; the per-table
-    # loop filters them out of the idle pool when above-casino.
-    from cash_mode.closed_economy import (
-        CASINO_TIER_STAKE_LABELS,
-        load_fish_ids,
-    )
+    # Closed-economy: fish are a casino-only player class. The lobby
+    # never live-fills a fish; this set is the defense-in-depth filter
+    # for fish that may have entered `list_idle` after leaving a
+    # casino seat. Boot-time seed seeding is already fish-free via
+    # `list_eligible_for_cash_mode` (excludes archetype='fish').
+    from cash_mode.closed_economy import load_fish_ids
     _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
@@ -876,6 +875,20 @@ def refresh_unseated_tables(
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
 
+            # Closed-economy: if this casino is in 'closing' state,
+            # decrement its hand countdown. When the countdown hits 0
+            # the next casino-provisioning resolution will actually
+            # delete the row (smooth shutdown vs immediate teardown).
+            if table.table_type == 'casino' and r.delta > 0:
+                from cash_mode.casino_provisioning import (
+                    decrement_closing_hands,
+                    is_closing,
+                )
+                if is_closing(cash_table_repo, sandbox_id, table.table_id):
+                    decrement_closing_hands(
+                        cash_table_repo, sandbox_id, table.table_id,
+                    )
+
             # Advance detached counters for AI seats now that the hand
             # has resolved (their psychology reflects this hand's events).
             for slot in table.seats:
@@ -898,15 +911,49 @@ def refresh_unseated_tables(
             # Per-hand movement + fill. Each iteration sees the latest
             # seat state (chips updated by play_one_hand) and rolls
             # against the same pressure model used at seated tables.
-            # Closed-economy: fish-archetype personalities only seat at
-            # the casino tier — filter them out of the idle pool above
-            # that. See `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
-            if _fish_ids and table.stake_label not in CASINO_TIER_STAKE_LABELS:
+            # Closed-economy: fish are a casino-only player class —
+            # ALWAYS filter them out of the lobby's idle pool, even at
+            # casino-tier stakes. Casino spawn pulls fish via its own
+            # path (`spawn_ephemeral_fish`), never via live-fill. See
+            # `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
+            if _fish_ids:
                 _table_idle_pool = [
                     e for e in idle_pool if e.personality_id not in _fish_ids
                 ]
             else:
                 _table_idle_pool = idle_pool
+
+            # Casino-tier grinder pull: at casino tables, hungry
+            # grinders get priority and the live-fill probability is
+            # boosted so seats fill faster. Hungry grinders are AIs
+            # with bankroll < starting × 0.8 and comfort zone in the
+            # casino tier — they have economic pressure to farm fish.
+            _effective_live_fill_prob = live_fill_prob
+            if table.table_type == 'casino':
+                from cash_mode.closed_economy import list_hungry_grinders
+                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
+                _hungry_grinder_ids = list_hungry_grinders(
+                    bankroll_repo, sandbox_id=sandbox_id, now=now,
+                )
+                _hungry_set = set(_hungry_grinder_ids)
+                if _hungry_set:
+                    _hungry_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id in _hungry_set
+                    ]
+                    _other_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id not in _hungry_set
+                    ]
+                    # Sort hungry entries by the global hunger ranking
+                    # (most desperate first); ties broken by personality_id.
+                    _order_index = {
+                        pid: i for i, pid in enumerate(_hungry_grinder_ids)
+                    }
+                    _hungry_entries.sort(
+                        key=lambda e: _order_index.get(e.personality_id, 1_000_000)
+                    )
+                    _table_idle_pool = _hungry_entries + _other_entries
             per_hand = refresh_table_roster(
                 table,
                 idle_pool=_table_idle_pool,
@@ -920,7 +967,7 @@ def refresh_unseated_tables(
                 table_min_buy_in=table_min_buy_in,
                 table_max_buy_in=table_max_buy_in,
                 next_tier_min_buy_in=next_tier_min_buy_in,
-                live_fill_prob=live_fill_prob,
+                live_fill_prob=_effective_live_fill_prob,
                 defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
                 # Phase 4: intercept forced_leave with take_stake when
@@ -1579,6 +1626,7 @@ def refresh_unseated_tables(
             resolve_casino_provisioning(
                 cash_table_repo=cash_table_repo,
                 bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
                 chip_ledger_repo=chip_ledger_repo,
                 sandbox_id=sandbox_id,
                 rng=rng,

@@ -441,12 +441,6 @@ def _build_preselected_from_table(
             or pid
         )
         entry: Dict[str, Any] = {"personality_id": pid, "name": name}
-        # Thread inline tourist personality through so the controller
-        # construction site (no seat dict in scope) can read it without
-        # a doomed personality_repo lookup.
-        inline = slot.get("ephemeral_personality")
-        if inline is not None:
-            entry["ephemeral_personality"] = inline
         preselected_ai.append(entry)
         preselected_chips[pid] = int(slot.get("chips", 0))
         next_player_idx += 1
@@ -761,18 +755,13 @@ def _build_cash_game(
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         pid = ai_entry["personality_id"] if ai_entry else None
-        # Inline ephemeral personality (tourists) wins over DB lookup.
-        # Synthetic tourist pids don't exist in the personalities table,
-        # so load_personality_by_id would return None and assign_bot
-        # would default — wrong bot type for a fish.
-        inline_personality = (ai_entry or {}).get("ephemeral_personality")
-        if inline_personality is not None:
-            personality_config = inline_personality
-        elif pid:
+        # Fish are real curated personas now, so a plain DB lookup resolves
+        # them (and their `rule_strategy: 'fish'` / `fish_leak`).
+        if pid:
             personality_config = personality_repo.load_personality_by_id(pid)
         else:
             personality_config = None
-        # Fish personalities (including ephemeral tourists) route to
+        # Fish personalities route to
         # RuleBotController with `_strategy_fish`. assign_bot's poise-
         # bucket would otherwise put fish into 'chaos' (LLM-driven),
         # which both wastes tokens and ignores the personality's
@@ -847,22 +836,24 @@ def _build_cash_game(
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
-    # Suppress all relationship writes at casino tables. Ephemeral
-    # tourists rotate names per spawn; recording per-hand events under
-    # the synthetic pid would either pollute the dossier with vanishing
-    # ids or, worse, attribute pooled-fish-archetype behavior to a
-    # named persona that won't appear again. Skipping the repo wire-up
-    # silent-no-ops `_process_relationship_events`, which also covers
-    # `cash_pair_pnl`, chat-intent, and stack-dominance writes (they all
-    # gate on the same `_relationship_repo is None` check). Staking
-    # writes are self-suppressing — tourists have staker/borrower=unwilling.
-    if table_type != 'casino':
-        memory_manager.set_relationship_repo(
-            relationship_repo,
-            cash_mode=True,
-            sandbox_id=sandbox_id,
-            table_max_buy_in=max_buy_in,
-        )
+    # Always wire the relationship repo — grinders and the human build
+    # history with each other everywhere, including casino tables. Fish
+    # are suppressed PER-PAIR via set_fish_ids (below): they're real but
+    # transient chip-donors nobody should learn about (and they don't read
+    # the dossier themselves), so any event/flow touching a fish is skipped
+    # in the detector dispatch. Grinder↔grinder / grinder↔human pairs at
+    # the same casino table still accrue normally.
+    memory_manager.set_relationship_repo(
+        relationship_repo,
+        cash_mode=True,
+        sandbox_id=sandbox_id,
+        table_max_buy_in=max_buy_in,
+    )
+    memory_manager.set_fish_ids({
+        p['personality_id']
+        for p in personality_repo.list_fish_for_cash_mode()
+        if p.get('personality_id')
+    })
     for player in state_machine.game_state.players:
         try:
             pid = personality_repo.resolve_name_to_personality_id(player.name)
@@ -2610,6 +2601,7 @@ from cash_mode.player_staking import (
 
 
 @cash_bp.route("/api/cash/stakable-ai", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def stakable_ai():
     """GET /api/cash/stakable-ai — curated per-tier list of AIs the
     player can offer a stake to right now.
@@ -3721,6 +3713,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 # doesn't blank the name/type.
                 name=table.name,
                 table_type=table.table_type,
+                # v113: preserve casino closing state across the leave-
+                # table write.
+                closing_hand_countdown=table.closing_hand_countdown,
             )
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
             logger.info(
@@ -4175,46 +4170,13 @@ def get_lobby():
                 else:
                     emotion = "confident"
                 entry["emotion"] = emotion
-                # Ephemeral tourists must NOT go through the avatar
-                # fallback with their OWN display name — that name
-                # doesn't exist in `personalities`, so
-                # `personality_generator.get_personality(name)` would
-                # auto-create a zombie that then live-fills into other
-                # stakes. Instead, resolve via `tourist_avatars` to an
-                # EXISTING personality (one of the JSON fish anchors,
-                # or whatever batch-gen has registered). When that
-                # returns None, set avatar_url=None and the frontend
-                # falls back to the initial-letter circle.
-                is_ephemeral_tourist = (
-                    slot.get("ephemeral_personality") is not None
-                    or pid.startswith("tourist-")
+                # Fish are real curated personas with their own avatar
+                # rows, so the normal name-keyed fallback resolves them
+                # (no synthetic-pid zombie risk that the old tourist path
+                # had to guard against).
+                entry["avatar_url"] = get_avatar_url_with_fallback(
+                    None, ai_name, emotion,
                 )
-                if is_ephemeral_tourist:
-                    from cash_mode.tourist_avatars import (
-                        resolve_tourist_avatar_personality_id,
-                    )
-                    inline = slot.get("ephemeral_personality") or {}
-                    template_key = inline.get("template_key", "")
-                    first_name = inline.get("nickname") or ai_name.split(" (")[0]
-                    avatar_pid = resolve_tourist_avatar_personality_id(
-                        template_key, first_name,
-                    )
-                    if avatar_pid:
-                        avatar_pers = personality_repo.load_personality_by_id(avatar_pid)
-                        if avatar_pers and avatar_pers.get("name"):
-                            # Safe: this name DOES exist in personalities,
-                            # so the fallback won't create a zombie.
-                            entry["avatar_url"] = get_avatar_url_with_fallback(
-                                None, avatar_pers["name"], emotion,
-                            )
-                        else:
-                            entry["avatar_url"] = None
-                    else:
-                        entry["avatar_url"] = None
-                else:
-                    entry["avatar_url"] = get_avatar_url_with_fallback(
-                        None, ai_name, emotion,
-                    )
                 # Relationship hint: lender's POV of the player.
                 hint = ""
                 try:

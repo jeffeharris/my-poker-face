@@ -140,6 +140,41 @@ def compute_audit(
     by_reason = _merge_reasons(creations, destructions)
     by_reason_window_24h = _merge_reasons(creations_24h, destructions_24h)
 
+    # Bank pool view (closed-economy recyclable reserve). The pool is
+    # virtual — depth = Σ(deposit reasons) − Σ(draw reasons), both
+    # already in the per-reason sums above. Surfacing it gives a
+    # one-glance answer to "is vice keeping up with tourists?"
+    # — the central knob of the closed-loop thesis in
+    # docs/plans/CASH_MODE_CLOSED_ECONOMY.md.
+    from core.economy.ledger import (
+        BANK_POOL_DEPOSIT_REASONS,
+        BANK_POOL_DRAW_REASONS,
+    )
+    deposits_total = sum(
+        destructions.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS
+    )
+    draws_total = sum(
+        creations.get(r, 0) for r in BANK_POOL_DRAW_REASONS
+    )
+    deposits_total_24h = sum(
+        destructions_24h.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS
+    )
+    draws_total_24h = sum(
+        creations_24h.get(r, 0) for r in BANK_POOL_DRAW_REASONS
+    )
+    bank_pool = {
+        'reserves': deposits_total - draws_total,
+        'deposits_total': deposits_total,
+        'draws_total': draws_total,
+        'deposits_24h': deposits_total_24h,
+        'draws_24h': draws_total_24h,
+        'net_flow_24h': deposits_total_24h - draws_total_24h,
+        # Enumerate the reason sets so the UI can attribute pool
+        # movement to specific flows without hard-coding the list.
+        'deposit_reasons': sorted(BANK_POOL_DEPOSIT_REASONS),
+        'draw_reasons': sorted(BANK_POOL_DRAW_REASONS),
+    }
+
     # Per-source error bookkeeping. live_session_ai_stacks is the
     # only term whose failure can't be expressed as 0 without
     # making drift look spuriously positive — surface it so callers
@@ -165,6 +200,7 @@ def compute_audit(
             'actual_outstanding': actual_outstanding,
         },
         'drift': ledger_outstanding - actual_outstanding,
+        'bank_pool': bank_pool,
         'by_reason': by_reason,
         'by_reason_window_24h': by_reason_window_24h,
         'errors': errors,

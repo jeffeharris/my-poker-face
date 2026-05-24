@@ -64,6 +64,12 @@ class AIMemoryManager:
         )
         self._relationship_repo = None
         self._cash_mode: bool = False
+        # Pids whose relationship/cash-pair writes are suppressed in BOTH
+        # directions (observer OR opponent). Set via `set_fish_ids` for
+        # casino fish: they're transient chip-donors nobody should learn
+        # about, and they don't read the dossier themselves. Grinders and
+        # the human still build history with each other at the casino.
+        self._fish_ids: set = set()
         # v109: sandbox_id is required for every cash_pair_stats write so
         # the admin Chip Economy panel can scope Won/Lost/Net per sandbox.
         # `set_relationship_repo(cash_mode=True, sandbox_id=...)` populates
@@ -210,6 +216,7 @@ class AIMemoryManager:
                 id_resolver=self.hand_outcome_detector._resolve_id,
                 hand_id=recorded_hand.hand_number,
                 sandbox_id=self._sandbox_id,
+                suppress_ids=self._fish_ids,
             )
         except Exception as e:
             # Loud: a swallowed dispatch failure here means relationship
@@ -279,6 +286,18 @@ class AIMemoryManager:
             )
         self._sandbox_id = sandbox_id
         self._table_max_buy_in = table_max_buy_in
+
+    def set_fish_ids(self, fish_ids) -> None:
+        """Suppress relationship + cash-pair writes for these pids.
+
+        Casino fish are transient chip-donors: nobody should accumulate a
+        dossier *about* them, and they don't read one themselves. The
+        suppression is per-pair (skips any event/flow where either side is
+        a fish), so grinder↔grinder and grinder↔human history at the same
+        casino table still accrues normally. Idempotent; pass an empty set
+        to clear.
+        """
+        self._fish_ids = set(fish_ids or ())
 
     def set_table_max_buy_in(self, max_buy_in: Optional[int]) -> None:
         """Set the table cap used by STACK_DOMINANCE detection.

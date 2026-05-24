@@ -141,6 +141,19 @@ class TickMetrics:
     fish_bankroll_total: int = 0
     fish_count: int = 0
 
+    # Casino lifecycle state.
+    # `casino_count`: number of `table_type='casino'` rows.
+    # `casino_seated_fish_count`: fish in casino seats (across all casinos).
+    # `casino_seated_total_chips`: total chips at casino seats.
+    # `casino_closing_count`: casinos in 'closing' state (smooth shutdown).
+    # `hungry_grinder_count`: AIs that match the grinder hunger criteria
+    #   right now (demand signal for the casino loop).
+    casino_count: int = 0
+    casino_seated_fish_count: int = 0
+    casino_seated_total_chips: int = 0
+    casino_closing_count: int = 0
+    hungry_grinder_count: int = 0
+
     # Audit drift — only populated on audit ticks; None otherwise so
     # downstream tooling can distinguish "drift was zero" from "we
     # didn't check this tick".
@@ -351,12 +364,46 @@ def _capture_tick_metrics(
     # Pool depth is virtual (computed from ledger sums), so reading
     # it every tick is one indexed GROUP BY query (already paid for
     # by `sum_*_by_reason` above — same query shape).
-    from cash_mode.closed_economy import compute_bank_pool_reserves, load_fish_ids
+    from cash_mode.closed_economy import (
+        compute_bank_pool_reserves,
+        list_hungry_grinders,
+        load_fish_ids,
+    )
+    from cash_mode.casino_provisioning import is_closing
     bank_pool_chips = compute_bank_pool_reserves(
         chip_ledger_repo, sandbox_id=sandbox_id,
     )
     fish_ids_set = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     fish_bankroll_total = sum(per_pid_chips.get(pid, 0) for pid in fish_ids_set)
+
+    # Casino lifecycle snapshot — walk active casino tables in the
+    # sandbox once and count seats, closing state, and chip totals.
+    from poker.repositories.cash_table_repository import CashTableRepository
+    casino_count = 0
+    casino_seated_fish_count = 0
+    casino_seated_total_chips = 0
+    casino_closing_count = 0
+    # Reuse the run-level db_path (already in scope as a kwarg) for a
+    # short-lived CashTableRepository — the per-tick walk is read-only.
+    cash_table_repo = CashTableRepository(db_path)
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'casino':
+            continue
+        casino_count += 1
+        if is_closing(cash_table_repo, sandbox_id, table.table_id):
+            casino_closing_count += 1
+        for slot in table.seats:
+            if slot.get('kind') != 'ai':
+                continue
+            pid = slot.get('personality_id')
+            chips = int(slot.get('chips', 0))
+            casino_seated_total_chips += chips
+            if pid in fish_ids_set:
+                casino_seated_fish_count += 1
+
+    hungry_grinder_count = len(list_hungry_grinders(
+        bankroll_repo, sandbox_id=sandbox_id, now=now,
+    ))
 
     metrics = TickMetrics(
         tick=tick,
@@ -383,6 +430,11 @@ def _capture_tick_metrics(
         bank_pool_chips=bank_pool_chips,
         fish_bankroll_total=fish_bankroll_total,
         fish_count=len(fish_ids_set),
+        casino_count=casino_count,
+        casino_seated_fish_count=casino_seated_fish_count,
+        casino_seated_total_chips=casino_seated_total_chips,
+        casino_closing_count=casino_closing_count,
+        hungry_grinder_count=hungry_grinder_count,
         audit_drift=None,
     )
     return metrics, new_creations, new_destructions
@@ -631,6 +683,11 @@ def flatten_for_csv(metrics: List[TickMetrics]) -> List[Dict[str, object]]:
             'bank_pool_chips': m.bank_pool_chips,
             'fish_bankroll_total': m.fish_bankroll_total,
             'fish_count': m.fish_count,
+            'casino_count': m.casino_count,
+            'casino_seated_fish_count': m.casino_seated_fish_count,
+            'casino_seated_total_chips': m.casino_seated_total_chips,
+            'casino_closing_count': m.casino_closing_count,
+            'hungry_grinder_count': m.hungry_grinder_count,
             'audit_drift': m.audit_drift if m.audit_drift is not None else '',
         }
         for key in sorted(reason_keys):
