@@ -53,30 +53,109 @@ logger = logging.getLogger(__name__)
 # --- Registry --------------------------------------------------------
 
 # (template_key, first_name) → personality_id whose avatar to serve.
-# Pre-populated with the 4 anchor matches: tourists whose first name
-# matches an existing JSON fish personality's first name get their
-# avatar verbatim. Extend by appending — runtime lookup is O(1).
+# Populated by `scripts/generate_tourist_avatars.py` which created a
+# purpose-built `_tourist_<template>_<name>` personality per entry,
+# each with its own LLM-generated portrait (priority emotions:
+# confident + poker_face). Extend by re-running the script for new
+# (template, name) combos — runtime lookup is O(1).
 NAME_LEVEL: Dict[Tuple[str, str], str] = {
-    ("vacation_dad",          "Greg"):   "vacation_greg",
-    ("bachelorette",          "Brenda"): "bachelorette_brenda",
-    ("retired_know_it_all",   "Carl"):   "cruise_carl",
-    ("birthday_kid",          "Bobby"):  "birthday_bobby",
-    # --- batch-gen avatars register here over time ---
+    # bachelorette
+    ("bachelorette",          "Brenda"):    "_tourist_bachelorette_brenda",
+    ("bachelorette",          "Tiffany"):   "_tourist_bachelorette_tiffany",
+    ("bachelorette",          "Ashley"):    "_tourist_bachelorette_ashley",
+    ("bachelorette",          "Brittany"):  "_tourist_bachelorette_brittany",
+    ("bachelorette",          "Megan"):     "_tourist_bachelorette_megan",
+    ("bachelorette",          "Courtney"):  "_tourist_bachelorette_courtney",
+    ("bachelorette",          "Lauren"):    "_tourist_bachelorette_lauren",
+    ("bachelorette",          "Stacy"):     "_tourist_bachelorette_stacy",
+    ("bachelorette",          "Jenna"):     "_tourist_bachelorette_jenna",
+    ("bachelorette",          "Caitlin"):   "_tourist_bachelorette_caitlin",
+    # birthday_kid
+    ("birthday_kid",          "Bobby"):     "_tourist_birthday_kid_bobby",
+    ("birthday_kid",          "Tommy"):     "_tourist_birthday_kid_tommy",
+    ("birthday_kid",          "Joey"):      "_tourist_birthday_kid_joey",
+    ("birthday_kid",          "Kenny"):     "_tourist_birthday_kid_kenny",
+    ("birthday_kid",          "Danny"):     "_tourist_birthday_kid_danny",
+    ("birthday_kid",          "Ricky"):     "_tourist_birthday_kid_ricky",
+    ("birthday_kid",          "Jimmy"):     "_tourist_birthday_kid_jimmy",
+    ("birthday_kid",          "Mikey"):     "_tourist_birthday_kid_mikey",
+    ("birthday_kid",          "Sammy"):     "_tourist_birthday_kid_sammy",
+    # finance_bro
+    ("finance_bro",           "Chad"):      "_tourist_finance_bro_chad",
+    ("finance_bro",           "Trent"):     "_tourist_finance_bro_trent",
+    ("finance_bro",           "Brett"):     "_tourist_finance_bro_brett",
+    ("finance_bro",           "Connor"):    "_tourist_finance_bro_connor",
+    ("finance_bro",           "Tyler"):     "_tourist_finance_bro_tyler",
+    ("finance_bro",           "Hunter"):    "_tourist_finance_bro_hunter",
+    ("finance_bro",           "Garrett"):   "_tourist_finance_bro_garrett",
+    ("finance_bro",           "Brody"):     "_tourist_finance_bro_brody",
+    # golf_trip_dude
+    ("golf_trip_dude",        "Brad"):      "_tourist_golf_trip_dude_brad",
+    ("golf_trip_dude",        "Doug"):      "_tourist_golf_trip_dude_doug",
+    ("golf_trip_dude",        "Kevin"):     "_tourist_golf_trip_dude_kevin",
+    ("golf_trip_dude",        "Scott"):     "_tourist_golf_trip_dude_scott",
+    ("golf_trip_dude",        "Todd"):      "_tourist_golf_trip_dude_todd",
+    ("golf_trip_dude",        "Greg"):      "_tourist_golf_trip_dude_greg",
+    ("golf_trip_dude",        "Curt"):      "_tourist_golf_trip_dude_curt",
+    ("golf_trip_dude",        "Jay"):       "_tourist_golf_trip_dude_jay",
+    # retired_know_it_all
+    ("retired_know_it_all",   "Carl"):      "_tourist_retired_know_it_all_carl",
+    ("retired_know_it_all",   "Frank"):     "_tourist_retired_know_it_all_frank",
+    ("retired_know_it_all",   "Stan"):      "_tourist_retired_know_it_all_stan",
+    ("retired_know_it_all",   "Vince"):     "_tourist_retired_know_it_all_vince",
+    ("retired_know_it_all",   "Norm"):      "_tourist_retired_know_it_all_norm",
+    ("retired_know_it_all",   "Harold"):    "_tourist_retired_know_it_all_harold",
+    ("retired_know_it_all",   "Ernie"):     "_tourist_retired_know_it_all_ernie",
+    ("retired_know_it_all",   "Walt"):      "_tourist_retired_know_it_all_walt",
+    ("retired_know_it_all",   "Lloyd"):     "_tourist_retired_know_it_all_lloyd",
+    ("retired_know_it_all",   "Hank"):      "_tourist_retired_know_it_all_hank",
+    # slot_refugee
+    ("slot_refugee",          "Linda"):     "_tourist_slot_refugee_linda",
+    ("slot_refugee",          "Karen"):     "_tourist_slot_refugee_karen",
+    ("slot_refugee",          "Donna"):     "_tourist_slot_refugee_donna",
+    ("slot_refugee",          "Cheryl"):    "_tourist_slot_refugee_cheryl",
+    ("slot_refugee",          "Patty"):     "_tourist_slot_refugee_patty",
+    ("slot_refugee",          "Sharon"):    "_tourist_slot_refugee_sharon",
+    ("slot_refugee",          "Joyce"):     "_tourist_slot_refugee_joyce",
+    ("slot_refugee",          "Marlene"):   "_tourist_slot_refugee_marlene",
+    # superstitious_grandma
+    ("superstitious_grandma", "Mona"):      "_tourist_superstitious_grandma_mona",
+    ("superstitious_grandma", "Doris"):     "_tourist_superstitious_grandma_doris",
+    ("superstitious_grandma", "Ethel"):     "_tourist_superstitious_grandma_ethel",
+    ("superstitious_grandma", "Mildred"):   "_tourist_superstitious_grandma_mildred",
+    ("superstitious_grandma", "Phyllis"):   "_tourist_superstitious_grandma_phyllis",
+    ("superstitious_grandma", "Bernice"):   "_tourist_superstitious_grandma_bernice",
+    ("superstitious_grandma", "Edna"):      "_tourist_superstitious_grandma_edna",
+    ("superstitious_grandma", "Gertrude"):  "_tourist_superstitious_grandma_gertrude",
+    # vacation_dad
+    ("vacation_dad",          "Greg"):      "_tourist_vacation_dad_greg",
+    ("vacation_dad",          "Dave"):      "_tourist_vacation_dad_dave",
+    ("vacation_dad",          "Doug"):      "_tourist_vacation_dad_doug",
+    ("vacation_dad",          "Rick"):      "_tourist_vacation_dad_rick",
+    ("vacation_dad",          "Steve"):     "_tourist_vacation_dad_steve",
+    ("vacation_dad",          "Mike"):      "_tourist_vacation_dad_mike",
+    ("vacation_dad",          "Jeff"):      "_tourist_vacation_dad_jeff",
+    ("vacation_dad",          "Brad"):      "_tourist_vacation_dad_brad",
+    ("vacation_dad",          "Chad"):      "_tourist_vacation_dad_chad",
+    ("vacation_dad",          "Wayne"):     "_tourist_vacation_dad_wayne",
+    ("vacation_dad",          "Randy"):     "_tourist_vacation_dad_randy",
+    ("vacation_dad",          "Kurt"):      "_tourist_vacation_dad_kurt",
 }
 
-# Per-template fallback: when no NAME_LEVEL match exists, share the
-# template's anchor avatar with every tourist of that template. None
-# means "no template anchor" — falls through to letter circle.
+# Per-template fallback: when no NAME_LEVEL match exists (e.g., a future
+# name added to a template's pool before batch-gen catches up), share
+# one of the template's existing portraits. None means "no fallback,
+# render the letter circle." After batch-gen, every template has at
+# least one portrait, so we always have a fallback to point at.
 TEMPLATE_FALLBACK: Dict[str, Optional[str]] = {
-    "vacation_dad":          "vacation_greg",
-    "bachelorette":          "bachelorette_brenda",
-    "retired_know_it_all":   "cruise_carl",
-    "birthday_kid":          "birthday_bobby",
-    # No JSON counterpart yet — letter fallback until batch-gen lands.
-    "finance_bro":           None,
-    "superstitious_grandma": None,
-    "slot_refugee":          None,
-    "golf_trip_dude":        None,
+    "vacation_dad":          "_tourist_vacation_dad_greg",
+    "bachelorette":          "_tourist_bachelorette_brenda",
+    "retired_know_it_all":   "_tourist_retired_know_it_all_carl",
+    "birthday_kid":          "_tourist_birthday_kid_bobby",
+    "finance_bro":           "_tourist_finance_bro_trent",
+    "superstitious_grandma": "_tourist_superstitious_grandma_mona",
+    "slot_refugee":          "_tourist_slot_refugee_linda",
+    "golf_trip_dude":        "_tourist_golf_trip_dude_brad",
 }
 
 
