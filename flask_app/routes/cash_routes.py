@@ -4176,20 +4176,41 @@ def get_lobby():
                     emotion = "confident"
                 entry["emotion"] = emotion
                 # Ephemeral tourists must NOT go through the avatar
-                # fallback — `get_avatar_url_with_fallback(name, ...)`
-                # triggers `generate_character_images(name, ...)`, which
-                # calls `personality_generator.get_personality(name)`,
-                # which auto-creates a DB personality with the display
-                # name. Those zombies then become live-fill candidates
-                # at every stake. The fix is to skip avatar generation
-                # for tourists; the frontend renders the initial letter
-                # as the fallback (same as any null avatar_url seat).
+                # fallback with their OWN display name — that name
+                # doesn't exist in `personalities`, so
+                # `personality_generator.get_personality(name)` would
+                # auto-create a zombie that then live-fills into other
+                # stakes. Instead, resolve via `tourist_avatars` to an
+                # EXISTING personality (one of the JSON fish anchors,
+                # or whatever batch-gen has registered). When that
+                # returns None, set avatar_url=None and the frontend
+                # falls back to the initial-letter circle.
                 is_ephemeral_tourist = (
                     slot.get("ephemeral_personality") is not None
                     or pid.startswith("tourist-")
                 )
                 if is_ephemeral_tourist:
-                    entry["avatar_url"] = None
+                    from cash_mode.tourist_avatars import (
+                        resolve_tourist_avatar_personality_id,
+                    )
+                    inline = slot.get("ephemeral_personality") or {}
+                    template_key = inline.get("template_key", "")
+                    first_name = inline.get("nickname") or ai_name.split(" (")[0]
+                    avatar_pid = resolve_tourist_avatar_personality_id(
+                        template_key, first_name,
+                    )
+                    if avatar_pid:
+                        avatar_pers = personality_repo.load_personality_by_id(avatar_pid)
+                        if avatar_pers and avatar_pers.get("name"):
+                            # Safe: this name DOES exist in personalities,
+                            # so the fallback won't create a zombie.
+                            entry["avatar_url"] = get_avatar_url_with_fallback(
+                                None, avatar_pers["name"], emotion,
+                            )
+                        else:
+                            entry["avatar_url"] = None
+                    else:
+                        entry["avatar_url"] = None
                 else:
                     entry["avatar_url"] = get_avatar_url_with_fallback(
                         None, ai_name, emotion,
