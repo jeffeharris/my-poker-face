@@ -172,6 +172,20 @@
   color: #56d364;
 }
 
+.chip-ledger-bank-pool-caveat {
+  margin: 0.75rem 0 0 0;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, #777);
+  line-height: 1.4;
+}
+
+.chip-ledger-bank-pool-caveat code {
+  background: var(--surface-1, #111);
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
 .chip-ledger-card td.amount.neg {
   color: #f85149;
 }
