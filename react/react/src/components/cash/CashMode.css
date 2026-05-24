@@ -535,8 +535,14 @@
 .lobby-table-card__seat-initial {
   font-size: 2.5rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.45);
+  /* Used to be 45% white (placeholder-while-image-loads). Bumped to
+     near-opaque so the letter reads as primary identity — necessary
+     for ephemeral tourists, whose seats never get a generated image
+     (avatar generation auto-creates zombie personalities; see
+     `cash_routes.py` skip + `CASH_MODE_EPHEMERAL_TOURISTS.md`). */
+  color: rgba(255, 255, 255, 0.88);
   font-family: Georgia, serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 /* Overlay band at the bottom — gradient so text is readable over
