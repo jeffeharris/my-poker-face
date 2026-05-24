@@ -571,6 +571,18 @@ def _refill_one_fish(
             "[CASH][CASINO] refill save_table failed for %s: %s",
             table.table_id, exc,
         )
+        # Unwind: prefund drew chips from the pool into the fish bankroll,
+        # and debit_bankroll_for_seat moved part of that to the in-memory
+        # seat — but the seat write never persisted. Without this drain,
+        # the fish's bankroll holds the (prefund − buy_in) remainder and
+        # the buy_in chips are stranded with no chip-bearing surface
+        # backing them (positive audit drift = +fish_buy_in). Returning
+        # the full bankroll to the pool restores conservation.
+        _drain_fish_bankroll_to_pool(
+            bankroll_repo, chip_ledger_repo,
+            personality_id=pid, sandbox_id=sandbox_id,
+            now=now, reason_detail='refill_save_failed',
+        )
         return None
     already_seated.add(pid)
     return CasinoRefill(
