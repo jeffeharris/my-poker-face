@@ -152,8 +152,12 @@ def resolve_postflop_sizing(
     # See preflop comment: re-raise increment must >= prior raise size.
     min_raise = highest_bet + game_state.min_raise_amount
 
-    # Total money in play: committed pot + current round bets
-    pot_total = game_state.pot.get('total', 0) + sum(p.bet for p in game_state.players)
+    # True pot size. NOTE: this engine never resets `player.bet` between
+    # streets — it is the player's *cumulative* commitment for the whole hand,
+    # and `pot['total']` is kept in lockstep (empirically `pot['total'] ==
+    # sum(p.bet)` at every postflop decision). So the pot is `pot['total']`
+    # alone; adding `sum(p.bet)` double-counts it (2x the real pot).
+    pot_total = game_state.pot.get('total', 0)
 
     if action.startswith('bet_'):
         # Bet actions: pot-relative sizing (first to act / betting into uncalled pot)
@@ -162,7 +166,10 @@ def resolve_postflop_sizing(
         if rng is not None and sizing_jitter > 0.0:
             target = rng.uniform(target * (1.0 - sizing_jitter),
                                  target * (1.0 + sizing_jitter))
-        raise_to = int(target)
+        # `player.bet` is the hero's cumulative commitment this hand; a bet of
+        # `pct` of pot must be ADDED on top of it (mirrors the raise branch's
+        # `highest_bet + ...`). Omitting it under-bet by the prior commitment.
+        raise_to = player.bet + int(target)
     elif action.startswith('raise_'):
         # Raise actions: pot-relative sizing (facing a bet)
         pct = int(action.replace('raise_', '')) / 100.0
