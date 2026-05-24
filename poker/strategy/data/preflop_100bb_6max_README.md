@@ -2,7 +2,7 @@
 purpose: Provenance and design spec for the 6-max preflop strategy chart (preflop_100bb_6max.json)
 type: spec
 created: 2026-05-17
-last_updated: 2026-05-17
+last_updated: 2026-05-24
 ---
 
 > **Retrospective README** — this file documents the existing
@@ -214,3 +214,32 @@ the replacement workflow is:
 4. Re-run aggregate-band tests to confirm macro shape preserved
 5. Re-run sim-validation harness to confirm bb/100 vs reference bots
    doesn't degrade
+
+## Calibration log
+
+### 2026-05-24 — Tighten OOP `vs_open` flat-calls (`fold_more`)
+
+**Change:** For `vs_open` sub-scenarios where the **defender** is `SB`, `HJ`,
+or `CO` (out-of-position to later seats), moved **60% of each hand's `call`
+mass to `fold`** (1183 entries). Aggregate flat-call rate for those defenders
+dropped 0.233 → 0.093; `raise_3x` (3-bet) frequencies left unchanged. `BTN`
+(in position) and `BB` (closing/price) defenders left untouched.
+
+**Why:** The no-personality `BaselineSolverBot` was entering too many marginal
+multiway/OOP pots as a flat-caller, then playing them near-purely passively
+postflop (observed postflop AF ≈ 0.03 — the multiway layer correctly
+suppresses betting one pair into 3+ players). Folding those OOP flat-calls
+avoids the −EV spot entirely rather than bleeding it.
+
+**Validation:** Baseline hero, 6-max vs the standard rule mix, equity-MC
+disabled (Baseline ignores opponent models):
+- MIX bb/100: **−128.0 → −110.9** (+17.1; 3 seeds 42/142/242, 2000 hands each)
+- No per-bot regression (seed 42, 2500h): CaseBot +4.6, Maniac +5.2, ABC +3.0,
+  GTO-Lite −1.3 (noise), CallStation +69.2 unchanged.
+- `tests/test_strategy/test_strategy_table.py` green (per-row sums preserved).
+
+**Caveats / open:** the 60% fraction was not swept for an optimum; all numbers
+were measured under a since-identified postflop sizing double-count bug
+(`action_mapper.py` `pot_total`), so re-confirm on corrected sizing. Tested
+only vs static rule bots — validate vs a human clone before trusting
+generalization (over-folding is exploitable by an adapting opponent).
