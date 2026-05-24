@@ -913,9 +913,9 @@ def refresh_unseated_tables(
             # against the same pressure model used at seated tables.
             # Closed-economy: fish are a casino-only player class —
             # ALWAYS filter them out of the lobby's idle pool, even at
-            # casino-tier stakes. Casino spawn pulls fish via its own
-            # path (`spawn_ephemeral_fish`), never via live-fill. See
-            # `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
+            # casino-tier stakes. Casinos seat fish via the provisioning
+            # resolver (prefund-from-pool), never via lobby live-fill.
+            # See `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
             if _fish_ids:
                 _table_idle_pool = [
                     e for e in idle_pool if e.personality_id not in _fish_ids
