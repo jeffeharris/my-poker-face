@@ -127,12 +127,14 @@ def db_setup(tmp_path):
     ledger = ChipLedgerRepository(db)
     personality = PersonalityRepository(db)
 
-    # Fish are now generated ephemerally from the four named templates
-    # at casino spawn / refill time. Seed the templates so
-    # `spawn_ephemeral_fish` can clone them. No bankroll rows — the
-    # templates themselves never seat; their clones do.
-    from cash_mode.closed_economy import EPHEMERAL_FISH_TEMPLATES
-    fish_pids = list(EPHEMERAL_FISH_TEMPLATES)
+    # Fish are real, curated `archetype='fish'` personas. Casino spawn
+    # selects them via `list_fish_for_cash_mode` and pool-funds their
+    # bankroll on seating — no pre-seeded bankroll rows required.
+    fish_pids = [
+        'vacation_greg', 'bachelorette_brenda', 'cruise_carl', 'birthday_bobby',
+        'after_hours_trent', 'lucky_mona', 'slots_linda', 'golf_trip_brad',
+        'freddie_fratboy',
+    ]
     for pid in fish_pids:
         # Display name e.g. "Vacation Greg" for `vacation_greg`.
         display = ' '.join(word.capitalize() for word in pid.split('_'))
@@ -344,10 +346,12 @@ class TestCasinoSpawn:
         casino_2 = next(s for s in batch.spawns if s.stake_label == "$2")
         # Variable fish count between MIN and MAX.
         assert CASINO_FISH_MIN <= len(casino_2.fish_seated) <= CASINO_FISH_MAX
-        # Buy-in math is correct.
+        # Each fish is pool-funded with a prefunded bankroll (~3x buy-in,
+        # jittered, capped by pool depth) — so the draw covers at least one
+        # buy-in per fish.
         _, min_buy_in, _ = table_buy_in_window("$2")
         per_fish = int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER)
-        assert casino_2.bank_pool_drawn == len(casino_2.fish_seated) * per_fish
+        assert casino_2.bank_pool_drawn >= len(casino_2.fish_seated) * per_fish
 
     def test_idempotent_across_ticks(self, db_setup):
         tables = db_setup["tables"]
@@ -439,6 +443,15 @@ class TestCasinoRefill:
             record_tourist_injection(
                 ledger, personality_id="test_fish_0", amount=pool, sandbox_id=SBX,
             )
+        # Also zero every fish bankroll. Otherwise the resolver's
+        # drain-on-exit sweep returns a departed fish's pool-funded
+        # bankroll to the pool and that funds a refill — only with no
+        # recoverable liquidity anywhere does the pool gate block refill.
+        for pid in db_setup["fish_pids"]:
+            bankroll.save_ai_bankroll(
+                AIBankrollState(personality_id=pid, chips=0, last_regen_tick=ANCHOR),
+                sandbox_id=SBX,
+            )
         # Empty a casino seat → potential refill candidate.
         casino = next(
             t for t in tables.list_all_tables(sandbox_id=SBX)
@@ -484,11 +497,18 @@ class TestClosingState:
         for i in range(len(casino.seats)):
             casino.seats[i] = open_slot()
         tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
-        # Drain the pool so no refill is possible.
+        # Drain the pool AND zero fish bankrolls so no refill is possible
+        # (the drain-on-exit sweep would otherwise refund a departed fish's
+        # pool-funded bankroll and fund a refill instead of closing).
         pool = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
         if pool > 0:
             record_tourist_injection(
                 ledger, personality_id="test_fish_0", amount=pool, sandbox_id=SBX,
+            )
+        for pid in db_setup["fish_pids"]:
+            bankroll.save_ai_bankroll(
+                AIBankrollState(personality_id=pid, chips=0, last_regen_tick=ANCHOR),
+                sandbox_id=SBX,
             )
 
         batch = resolve_casino_provisioning(
@@ -667,7 +687,15 @@ class TestSpawnConservation:
             for slot in t.seats:
                 if slot.get("kind") == "ai":
                     casino_seat_total += int(slot.get("chips", 0))
-        assert casino_seat_total == total_drawn
+        # Prefund lands in fish bankrolls; only the buy-in sits on the seat.
+        # Conservation: seat chips + fish bankrolls == total drawn from pool.
+        fish_bankroll_total = 0
+        for spawn in batch.spawns:
+            for pid in spawn.fish_seated:
+                st = bankroll.load_ai_bankroll(pid, sandbox_id=SBX)
+                if st is not None:
+                    fish_bankroll_total += int(st.chips)
+        assert casino_seat_total + fish_bankroll_total == total_drawn
 
 
 class TestPersistence:
@@ -792,5 +820,48 @@ class TestConstants:
         assert "casino_seat_seed" in BANK_POOL_DRAW_REASONS
 
 
-if __name__ == "__main__":
-    unittest.main()
+# --- Fish seat shape (permanent-persona model) -----------------------------
+
+
+class TestFishSeats:
+    """Casino fish are real curated personas, pool-funded, archetype-stamped."""
+
+    def _spawn(self, db_setup):
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=60_000)
+        return resolve_casino_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(0), now=ANCHOR,
+        )
+
+    def test_fish_seats_are_real_personas_archetype_stamped(self, db_setup):
+        batch = self._spawn(db_setup)
+        assert batch.spawns, "expected a casino spawn"
+        fish_set = set(db_setup["fish_pids"])
+        seen = 0
+        for t in db_setup["tables"].list_all_tables(sandbox_id=SBX):
+            if t.table_type != "casino":
+                continue
+            for s in t.seats:
+                if s.get("kind") == "ai" and s.get("archetype") == "fish":
+                    seen += 1
+                    assert s["personality_id"] in fish_set
+                    assert "ephemeral_personality" not in s
+                    assert s["chips"] > 0
+        assert seen >= CASINO_FISH_MIN
+
+    def test_fish_get_pool_funded_bankroll(self, db_setup):
+        batch = self._spawn(db_setup)
+        bankroll = db_setup["bankroll"]
+        for spawn in batch.spawns:
+            for pid in spawn.fish_seated:
+                state = bankroll.load_ai_bankroll(pid, sandbox_id=SBX)
+                assert state is not None  # prefunded from the pool
+                assert state.chips >= 0   # bankroll = prefund - buy_in
+
+    def test_no_synthetic_tourist_pids(self, db_setup):
+        batch = self._spawn(db_setup)
+        for spawn in batch.spawns:
+            for pid in spawn.fish_seated:
+                assert not pid.startswith("tourist-")
+                assert not pid.startswith("_tourist_")

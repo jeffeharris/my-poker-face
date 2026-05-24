@@ -399,12 +399,24 @@ def _collect_player_rows(
             "SELECT player_id, chips, starting_bankroll FROM player_bankroll_state"
         ).fetchall()
 
+    # Guests have no `users` row, so `users.name` lookups miss. The
+    # relationship detector historically wrote `observer_id` as the seat
+    # display name (e.g. "Jeff") rather than the owner_id, so we also
+    # fall back to the player's most-recent `games.owner_name` to bridge
+    # that gap. Bulk-fetched once to avoid an N+1 per player row.
+    player_ids = [row['player_id'] for row in rows]
+    owner_names = _fetch_recent_owner_names(db_path, player_ids)
+
     out: List[Dict[str, Any]] = []
     for row in rows:
         player_id = row['player_id']
         chips = int(row['chips'] or 0)
-        name = _resolve_player_name(user_repo, player_id) or player_id
-        pnl = _lookup_cash_pnl(cash_pnl_by_observer, player_id, name)
+        user_name = _resolve_player_name(user_repo, player_id)
+        owner_name = owner_names.get(player_id)
+        name = user_name or owner_name or player_id
+        pnl = _lookup_cash_pnl(
+            cash_pnl_by_observer, player_id, user_name, owner_name,
+        )
         out.append({
             'entity_id': f'player:{player_id}',
             'kind': 'player',
@@ -420,6 +432,46 @@ def _collect_player_rows(
             'net_pnl': pnl['net_pnl'],
         })
     return out
+
+
+def _fetch_recent_owner_names(
+    db_path: str, player_ids: List[str],
+) -> Dict[str, str]:
+    """Return `{owner_id: most_recent_owner_name}` for each id in scope.
+
+    Bulk-fetches the most recent non-empty `games.owner_name` per
+    `owner_id` in a single query. Players with no game rows (or only
+    NULL/empty `owner_name`s) are simply absent from the result map —
+    the caller treats that as "no fallback key available."
+    """
+    if not player_ids:
+        return {}
+    placeholders = ','.join('?' for _ in player_ids)
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"""
+                SELECT owner_id, owner_name
+                FROM games
+                WHERE owner_id IN ({placeholders})
+                  AND owner_name IS NOT NULL
+                  AND owner_name != ''
+                  AND (owner_id, created_at) IN (
+                      SELECT owner_id, MAX(created_at)
+                      FROM games
+                      WHERE owner_id IN ({placeholders})
+                        AND owner_name IS NOT NULL
+                        AND owner_name != ''
+                      GROUP BY owner_id
+                  )
+                """,
+                list(player_ids) + list(player_ids),
+            ).fetchall()
+    except sqlite3.Error as e:
+        logger.warning("holdings: owner_name bulk lookup failed: %s", e)
+        return {}
+    return {row['owner_id']: row['owner_name'] for row in rows}
 
 
 def _resolve_personality_name(personality_repo, personality_id: str) -> str:

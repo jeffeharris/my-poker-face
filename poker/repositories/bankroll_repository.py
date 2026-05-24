@@ -566,6 +566,28 @@ class BankrollRepository(BaseRepository):
         archetype = config.get("archetype")
         return archetype if isinstance(archetype, str) else None
 
+    def load_fish_leak(self, personality_id: str) -> Optional[str]:
+        """Read the top-level `fish_leak` field from `config_json`.
+
+        Names a value in `poker.rule_strategies.FishLeak` (e.g.
+        "calls_down_top_pair"). The `_strategy_fish` rule path applies
+        the leak as a deterministic deviation. Returns None when absent —
+        the fish then plays the generic loose-passive script.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            return None
+        leak = config.get("fish_leak")
+        return leak if isinstance(leak, str) else None
+
     def load_rule_strategy(self, personality_id: str) -> Optional[str]:
         """Read the top-level `rule_strategy` field from `config_json`.
 

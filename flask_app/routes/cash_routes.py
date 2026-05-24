@@ -27,6 +27,13 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+from flask_app import config
+# `limiter` is set by init_limiter() during init_extensions(), which runs
+# before blueprints are imported, and is never reassigned afterward — so a
+# top-level import captures the real instance (unlike the repo globals, which
+# are reassigned by init_persistence() and must be imported lazily).
+from flask_app.extensions import limiter
+
 from cash_mode.bankroll import (
     AIBankrollState,
     PlayerBankrollState,
@@ -66,6 +73,7 @@ from cash_mode.stakes_ladder import (
     table_buy_in_window,
 )
 from cash_mode.table import PLAYER_SEAT_ID
+from cash_mode.tables import personality_for_seat
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
 logger = logging.getLogger(__name__)
@@ -422,13 +430,18 @@ def _build_preselected_from_table(
         if slot["kind"] != "ai":
             continue
         pid = slot["personality_id"]
-        personality = None
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
-        name = (personality or {}).get("name") if personality else pid
-        preselected_ai.append({"personality_id": pid, "name": name})
+        # `personality_for_seat` catches DB/decode failures and logs them;
+        # programmer bugs propagate so they get fixed.
+        personality = personality_for_seat(slot, personality_repo)
+        # Tourists carry display_name on the seat; for regular AI seats
+        # use the personality's name; fall back to pid.
+        name = (
+            slot.get("display_name")
+            or (personality or {}).get("name")
+            or pid
+        )
+        entry: Dict[str, Any] = {"personality_id": pid, "name": name}
+        preselected_ai.append(entry)
         preselected_chips[pid] = int(slot.get("chips", 0))
         next_player_idx += 1
     return preselected_ai, preselected_chips, dealer_player_idx
@@ -573,6 +586,7 @@ def _build_cash_game(
     preselected_ai: Optional[list] = None,
     preselected_ai_chips: Optional[Dict[str, int]] = None,
     dealer_player_idx: int = 0,
+    table_type: str = 'lobby',
 ) -> tuple[Optional[str], Optional[tuple[dict, int]]]:
     """Create + register a cash game; return (game_id, None) or (None, (err, status)).
 
@@ -741,9 +755,41 @@ def _build_cash_game(
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         pid = ai_entry["personality_id"] if ai_entry else None
-        personality_config = (
-            personality_repo.load_personality_by_id(pid) if pid else None
+        # Fish are real curated personas now, so a plain DB lookup resolves
+        # them (and their `rule_strategy: 'fish'` / `fish_leak`).
+        if pid:
+            personality_config = personality_repo.load_personality_by_id(pid)
+        else:
+            personality_config = None
+        # Fish personalities route to
+        # RuleBotController with `_strategy_fish`. assign_bot's poise-
+        # bucket would otherwise put fish into 'chaos' (LLM-driven),
+        # which both wastes tokens and ignores the personality's
+        # designated leak. Detect via the personality's `rule_strategy`
+        # field — set to 'fish' for both the JSON personalities and the
+        # ephemeral tourists.
+        rule_strategy_override = (
+            (personality_config or {}).get("rule_strategy")
+            if isinstance(personality_config, dict) else None
         )
+        if rule_strategy_override == "fish":
+            from poker.rule_bot_controller import RuleBotController
+            fish_leak = (personality_config or {}).get("fish_leak")
+            bot_types[player.name] = "fish"
+            player_llm_configs[player.name] = {}
+            controller = RuleBotController(
+                player_name=player.name,
+                state_machine=state_machine,
+                strategy="fish",
+                llm_config={},
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+                fish_leak=fish_leak,
+            )
+            ai_controllers[player.name] = controller
+            continue
         assignment = assign_bot(personality_config)
         bot_types[player.name] = assignment.bot_type
         player_llm_configs[player.name] = assignment.llm_config
@@ -790,9 +836,24 @@ def _build_cash_game(
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
+    # Always wire the relationship repo — grinders and the human build
+    # history with each other everywhere, including casino tables. Fish
+    # are suppressed PER-PAIR via set_fish_ids (below): they're real but
+    # transient chip-donors nobody should learn about (and they don't read
+    # the dossier themselves), so any event/flow touching a fish is skipped
+    # in the detector dispatch. Grinder↔grinder / grinder↔human pairs at
+    # the same casino table still accrue normally.
     memory_manager.set_relationship_repo(
-        relationship_repo, cash_mode=True, sandbox_id=sandbox_id,
+        relationship_repo,
+        cash_mode=True,
+        sandbox_id=sandbox_id,
+        table_max_buy_in=max_buy_in,
     )
+    memory_manager.set_fish_ids({
+        p['personality_id']
+        for p in personality_repo.list_fish_for_cash_mode()
+        if p.get('personality_id')
+    })
     for player in state_machine.game_state.players:
         try:
             pid = personality_repo.resolve_name_to_personality_id(player.name)
@@ -1167,6 +1228,7 @@ def sit_at_table():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type,
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -1716,6 +1778,7 @@ def sponsor_and_sit():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type if claimed_table is not None else 'lobby',
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -2538,6 +2601,7 @@ from cash_mode.player_staking import (
 
 
 @cash_bp.route("/api/cash/stakable-ai", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def stakable_ai():
     """GET /api/cash/stakable-ai — curated per-tier list of AIs the
     player can offer a stake to right now.
@@ -2621,7 +2685,9 @@ def offer_stake_to_ai():
 
     Validates (all gates also enforced in `list_stakeable_ai`):
       - Player bankroll ≥ 1.5 × min_buy_in @ stake_label.
-      - `principal` in `[min_buy_in, max_buy_in]`.
+      - Seat total in `[min_buy_in, max_buy_in]`: that's `principal`
+        on pure stakes, or `principal + match_amount` on match_share
+        (both halves land on the seat together).
       - For match_share: bankroll covers (principal); AI's match
         contribution comes from their seat funding.
       - Target AI cash-eligible, willing, met-before, relationship
@@ -2714,25 +2780,25 @@ def offer_stake_to_ai():
     )
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-    if principal < min_buy_in or principal > max_buy_in:
+    # Match-share's combined principal+match lands on the seat together,
+    # so the buy-in window check must compare against the combined sum;
+    # pure stakes fund the seat entirely from `principal`. AI's match
+    # capacity is checked further down once the AI is loaded.
+    seat_total = principal + (
+        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
+    )
+    if seat_total < min_buy_in or seat_total > max_buy_in:
+        amount_label = (
+            "principal+match_amount"
+            if stake_format == STAKE_FORMAT_MATCH_SHARE
+            else "principal"
+        )
         return jsonify({
             "error": (
-                f"principal {principal} out of range for {stake_label} table "
+                f"{amount_label} {seat_total} out of range for {stake_label} table "
                 f"(min={min_buy_in}, max={max_buy_in})"
             ),
         }), 400
-    if stake_format == STAKE_FORMAT_MATCH_SHARE:
-        # Match-share's combined principal+match must fit the buy-in
-        # window — both contributions land on the seat together. AI's
-        # share comes from their bankroll, so we need to check their
-        # capacity too (further down once we have the AI loaded).
-        if principal + match_amount > max_buy_in:
-            return jsonify({
-                "error": (
-                    f"principal+match_amount {principal + match_amount} exceeds "
-                    f"max buy-in {max_buy_in} for {stake_label}"
-                ),
-            }), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     bankroll_floor = int(PLAYER_STAKER_BANKROLL_FLOOR_MULT * min_buy_in)
@@ -3831,6 +3897,7 @@ def top_up():
 
 
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_lobby():
     """GET /api/cash/lobby — multi-table lobby snapshot.
 
@@ -4061,11 +4128,9 @@ def get_lobby():
             entry = {"index": idx, "kind": slot["kind"]}
             if slot["kind"] == "ai":
                 pid = slot["personality_id"]
-                personality = None
-                try:
-                    personality = personality_repo.load_personality_by_id(pid)
-                except Exception:
-                    personality = None
+                # `personality_for_seat` catches DB/decode failures and logs
+                # them; programmer bugs propagate so they get fixed.
+                personality = personality_for_seat(slot, personality_repo)
                 # Orphan seat: the seat references a personality that no
                 # longer exists in the DB (manual cleanup, migration, or
                 # an old seat surviving a deletion). Render as `open` so
@@ -4082,7 +4147,13 @@ def get_lobby():
                     serialized_seats.append(entry)
                     continue
                 entry["personality_id"] = pid
-                ai_name = personality.get("name") or pid
+                # Tourists carry display_name on the seat; regular AIs
+                # fall through to personality.name.
+                ai_name = (
+                    slot.get("display_name")
+                    or personality.get("name")
+                    or pid
+                )
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
                 # Emotion resolution priority:
@@ -4099,6 +4170,10 @@ def get_lobby():
                 else:
                     emotion = "confident"
                 entry["emotion"] = emotion
+                # Fish are real curated personas with their own avatar
+                # rows, so the normal name-keyed fallback resolves them
+                # (no synthetic-pid zombie risk that the old tourist path
+                # had to guard against).
                 entry["avatar_url"] = get_avatar_url_with_fallback(
                     None, ai_name, emotion,
                 )
@@ -4590,6 +4665,7 @@ def get_net_worth():
 
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_state():
     """GET /api/cash/state — entry-screen snapshot.
 

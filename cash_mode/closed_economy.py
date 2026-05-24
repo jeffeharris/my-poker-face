@@ -1,22 +1,21 @@
-"""Closed-economy testbed: fake-vice deposits + tourist injection.
+"""Closed-economy testbed: fake-vice deposits feed the bank pool.
 
 This is the SIM testbed for the closed-loop economy thesis in
-`docs/plans/CASH_MODE_CLOSED_ECONOMY.md`. Two resolution passes
-that ship together:
+`docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
 
-  1. `resolve_fake_vice_deposits` — stub for real AI vice. Drains
-     chips from rich AIs into the central bank's recyclable pool.
-     Same probability/amount shape as `CASH_MODE_AI_VICE_SPENDING.md`
-     but without the psych-pressure modifier (testbed doesn't depend
-     on cached controller state). Real vice replaces this drop-in.
+  `resolve_fake_vice_deposits` — stub for real AI vice. Drains
+  chips from rich AIs into the central bank's recyclable pool.
+  Same probability/amount shape as `CASH_MODE_AI_VICE_SPENDING.md`
+  but without the psych-pressure modifier (testbed doesn't depend
+  on cached controller state). Real vice replaces this drop-in.
 
-  2. `resolve_tourist_injection` — draws from the bank pool to refill
-     fish-archetype bankrolls. Fish are the casino tier's chip donors;
-     when their bankroll dips below `TOURIST_INJECTION_THRESHOLD` of
-     `starting_bankroll`, they get topped back up so they can re-enter
-     the seating pool.
+The companion to vice deposits — refilling fish bankrolls via
+`tourist_injection` — was removed when ephemeral tourists replaced
+persistent fish (see `docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md`).
+The bank pool now funds on-demand casino spawns instead of refilling
+named fish, so injection became unnecessary.
 
-Bank pool depth is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(tourist_injection)`,
+Bank pool depth is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(BANK_POOL_DRAW_REASONS)`,
 computed on demand from `chip_ledger_entries`. No new state table; the
 pool is virtual.
 
@@ -40,7 +39,6 @@ from core.economy.ledger import (
     ai,
     record_bank_pool_deposit,
     record_bank_pool_sim_seed_pair,
-    record_tourist_injection,
 )
 from cash_mode.bankroll import AIBankrollState, project_bankroll
 
@@ -67,11 +65,6 @@ FAKE_VICE_FLOOR_PROTECTION = 0.5
 MIN_VICE_AMOUNT = 50
 FAKE_VICE_DEPOSITS_PER_REFRESH = 3
 
-# Tourist injection
-TOURIST_INJECTION_THRESHOLD = 0.4
-MAX_TOURIST_INJECTIONS_PER_REFRESH = 5
-MIN_TOURIST_INJECTION = 100
-
 # Grinder definition — the AIs that come to the casino to farm fish.
 # A "hungry grinder" satisfies all three:
 #   • archetype != 'fish' (fish farm nobody)
@@ -82,7 +75,6 @@ MIN_TOURIST_INJECTION = 100
 # starting bankroll is desperate to recover.
 GRINDER_HUNGER_THRESHOLD = 0.8
 GRINDER_COMFORT_ZONES = frozenset({'$2', '$10'})
-
 
 # --- Dataclasses ------------------------------------------------------
 
@@ -98,19 +90,17 @@ class FakeViceDeposit:
 
 
 @dataclass(frozen=True)
-class TouristInjection:
-    """One refill event: chips drawn from the bank pool to a fish bankroll."""
-
-    personality_id: str
-    amount: int
-
-
-@dataclass(frozen=True)
 class ClosedEconomyBatch:
-    """Result of one closed-economy resolution tick."""
+    """Result of one closed-economy resolution tick.
+
+    Post-EPHEMERAL_TOURISTS: the `injections` field was removed (tourist
+    injection no longer fires — ephemeral tourists have no bankrolls to
+    refill). Callers that historically read `batch.injections` should
+    treat the field as gone; pool depth is derived from `bank_pool_before`
+    vs `bank_pool_after` instead.
+    """
 
     deposits: List[FakeViceDeposit] = field(default_factory=list)
-    injections: List[TouristInjection] = field(default_factory=list)
     bank_pool_before: int = 0
     bank_pool_after: int = 0
 
@@ -589,78 +579,6 @@ def resolve_fake_vice_deposits(
     return deposits
 
 
-def resolve_tourist_injection(
-    *,
-    bankroll_repo,
-    chip_ledger_repo,
-    sandbox_id: str,
-    now: datetime,
-    fish_ids: Set[str],
-) -> List[TouristInjection]:
-    """Refill low-bankroll fish from the bank pool.
-
-    For each fish in the sandbox, check current chips. Eligible
-    targets have `chips < starting × TOURIST_INJECTION_THRESHOLD`.
-    Refill targets `starting_bankroll`, bounded by remaining pool
-    reserves and the per-refresh cap.
-
-    Idempotent in the trivial case (empty pool → no injections).
-    Pool is decremented logically as we go so multiple injections in
-    one refresh don't oversubscribe the available reserves.
-    """
-    if bankroll_repo is None or chip_ledger_repo is None or not fish_ids:
-        return []
-
-    pool = compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
-    if pool <= 0:
-        return []
-
-    candidates: List[tuple] = []  # (pid, current_chips, starting, deficit)
-    for pid in fish_ids:
-        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-        knobs = bankroll_repo.load_personality_knobs(pid)
-        starting = knobs.starting_bankroll
-        if starting <= 0:
-            continue
-        current = state.chips if state else 0
-        if current >= starting * TOURIST_INJECTION_THRESHOLD:
-            continue
-        deficit = max(0, starting - current)
-        if deficit < MIN_TOURIST_INJECTION:
-            continue
-        candidates.append((pid, current, starting, deficit))
-
-    candidates.sort(key=lambda c: c[3], reverse=True)
-    candidates = candidates[:MAX_TOURIST_INJECTIONS_PER_REFRESH]
-
-    injections: List[TouristInjection] = []
-    for pid, current, starting, deficit in candidates:
-        if pool <= 0:
-            break
-        amount = min(deficit, pool)
-        if amount < MIN_TOURIST_INJECTION:
-            continue
-        new_chips = current + amount
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=pid,
-                chips=new_chips,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
-        )
-        record_tourist_injection(
-            chip_ledger_repo,
-            personality_id=pid,
-            amount=amount,
-            context={'site': 'tourist_injection', 'fish_starting': starting},
-            sandbox_id=sandbox_id,
-        )
-        injections.append(TouristInjection(personality_id=pid, amount=amount))
-        pool -= amount
-    return injections
-
-
 def resolve_closed_economy(
     *,
     bankroll_repo,
@@ -671,17 +589,17 @@ def resolve_closed_economy(
 ) -> ClosedEconomyBatch:
     """One closed-economy resolution tick.
 
-    Runs fake-vice deposits then tourist injections, captures the
-    bank pool delta. Each phase wrapped in try/except so a failure
-    in one doesn't tank the other — mirrors the carry-resolution
-    best-effort pattern (`cash_mode/lobby.py:1412`).
+    Runs fake-vice deposits and captures the bank pool delta. Post-
+    EPHEMERAL_TOURISTS, tourist injection was removed — pool reserves
+    now fund on-demand casino spawns instead of refilling named fish
+    bankrolls. Wrapped in try/except so a vice failure doesn't tank
+    the resolve (mirrors the carry-resolution best-effort pattern).
     """
     pool_before = compute_bank_pool_reserves(
         chip_ledger_repo, sandbox_id=sandbox_id,
     )
     fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     deposits: List[FakeViceDeposit] = []
-    injections: List[TouristInjection] = []
     try:
         deposits = resolve_fake_vice_deposits(
             bankroll_repo=bankroll_repo,
@@ -696,25 +614,11 @@ def resolve_closed_economy(
             "[CLOSED_ECONOMY] fake-vice deposit failed for sandbox %s: %s",
             sandbox_id, exc,
         )
-    try:
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll_repo,
-            chip_ledger_repo=chip_ledger_repo,
-            sandbox_id=sandbox_id,
-            now=now,
-            fish_ids=fish_ids,
-        )
-    except Exception as exc:  # noqa: BLE001 — best-effort resolution
-        logger.warning(
-            "[CLOSED_ECONOMY] tourist injection failed for sandbox %s: %s",
-            sandbox_id, exc,
-        )
     pool_after = compute_bank_pool_reserves(
         chip_ledger_repo, sandbox_id=sandbox_id,
     )
     return ClosedEconomyBatch(
         deposits=deposits,
-        injections=injections,
         bank_pool_before=pool_before,
         bank_pool_after=pool_after,
     )

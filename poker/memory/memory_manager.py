@@ -64,12 +64,25 @@ class AIMemoryManager:
         )
         self._relationship_repo = None
         self._cash_mode: bool = False
+        # Pids whose relationship/cash-pair writes are suppressed in BOTH
+        # directions (observer OR opponent). Set via `set_fish_ids` for
+        # casino fish: they're transient chip-donors nobody should learn
+        # about, and they don't read the dossier themselves. Grinders and
+        # the human still build history with each other at the casino.
+        self._fish_ids: set = set()
         # v109: sandbox_id is required for every cash_pair_stats write so
         # the admin Chip Economy panel can scope Won/Lost/Net per sandbox.
         # `set_relationship_repo(cash_mode=True, sandbox_id=...)` populates
         # this; tournaments leave it None (cash_mode=False bypasses the
         # cash-PnL path entirely).
         self._sandbox_id: Optional[str] = None
+        # Table max buy-in in chips. Required for STACK_DOMINANCE
+        # detection — the detector compares each seat's starting_stack
+        # against `STACK_DOMINANCE_THRESHOLD * max_buy_in`. Only set
+        # for cash-mode games where `cash_stake_label` is known at
+        # game-creation time; tournaments leave it None and the
+        # detector silently skips.
+        self._table_max_buy_in: Optional[int] = None
         # Dedup for cash_pair_stats writes — a replay of the same
         # hand_number through `_process_relationship_events` (e.g.,
         # tests, recovery flows) must not double-apply PnL. Event-axis
@@ -140,8 +153,37 @@ class AIMemoryManager:
         if self._relationship_repo is None:
             return
         try:
+            # STACK_DOMINANCE wiring: requires cash mode, a known
+            # table cap, AND a sandbox id (PnL is sandbox-scoped via
+            # cash_pair_stats). Missing any of the three skips the
+            # detector entirely — without the PnL gate, every seated
+            # peer would resent every deep stack, which is "winning
+            # tax" behavior the design explicitly avoids. The lookup
+            # closure captures repo + sandbox by local-variable
+            # rebind so a later set_relationship_repo with a
+            # different sandbox doesn't poison this hand's reads.
+            stack_dom_max: Optional[int] = None
+            stack_dom_lookup: Optional[Callable[[str, str], int]] = None
+            if (
+                self._cash_mode
+                and self._table_max_buy_in
+                and self._sandbox_id is not None
+            ):
+                stack_dom_max = self._table_max_buy_in
+                relationship_repo = self._relationship_repo
+                sandbox_id = self._sandbox_id
+
+                def stack_dom_lookup(observer_id: str, deep_id: str) -> int:
+                    stats = relationship_repo.load_cash_pair_stats(
+                        observer_id, deep_id, sandbox_id=sandbox_id,
+                    )
+                    return stats.cumulative_pnl if stats is not None else 0
+
             events = self.hand_outcome_detector.detect_events(
-                recorded_hand, equity_history=equity_history,
+                recorded_hand,
+                equity_history=equity_history,
+                max_buy_in=stack_dom_max,
+                cash_pnl_lookup=stack_dom_lookup,
             )
             # Cash pair PnL feeds from every chip flow (no big-pot
             # gate), independent of whether relationship-axis events
@@ -174,9 +216,19 @@ class AIMemoryManager:
                 id_resolver=self.hand_outcome_detector._resolve_id,
                 hand_id=recorded_hand.hand_number,
                 sandbox_id=self._sandbox_id,
+                suppress_ids=self._fish_ids,
             )
         except Exception as e:
-            logger.warning(f"HandOutcomeDetector dispatch failed: {e}")
+            # Loud: a swallowed dispatch failure here means relationship
+            # state, cash_pair_stats, and memorable_hands all silently
+            # stop writing for the rest of the session. Log at ERROR
+            # with full traceback so the next regression surfaces in
+            # production logs instead of accumulating zero-row sessions.
+            logger.error(
+                "HandOutcomeDetector dispatch failed for hand %s: %s",
+                getattr(recorded_hand, "hand_number", "?"), e,
+                exc_info=True,
+            )
 
     def set_relationship_repo(
         self,
@@ -184,6 +236,7 @@ class AIMemoryManager:
         *,
         cash_mode: bool = False,
         sandbox_id: Optional[str] = None,
+        table_max_buy_in: Optional[int] = None,
     ) -> None:
         """Wire the relationship repository into the manager + detector.
 
@@ -205,12 +258,25 @@ class AIMemoryManager:
                 `cash_mode=True` so each pair's PnL accumulates per
                 sandbox (the admin Chip Economy panel filters on it).
                 Tournament callers leave it None.
+            table_max_buy_in: Table cap in chips, used by
+                `_detect_stack_dominance` to identify deep stacks.
+                Only meaningful when `cash_mode=True`; tournament
+                callers leave it None and STACK_DOMINANCE never fires.
         """
         self._relationship_repo = relationship_repo
         # OpponentModelManager.record_event requires this attribute.
         # Mutating directly is the documented contract — the repo is
         # an optional construction param and there's no setter yet.
         self.opponent_model_manager._relationship_repo = relationship_repo
+        # The detector holds `_name_to_id` by reference so the manager
+        # and detector see the same registry. If the OPM was swapped
+        # (cold-load restores from DB), the detector's reference still
+        # points at the old OPM's dict — re-point it now so newly
+        # registered ids resolve correctly. Idempotent when the OPM
+        # wasn't swapped: same dict identity, the assignment is a no-op.
+        self.hand_outcome_detector._name_to_id = (
+            self.opponent_model_manager._name_to_id
+        )
         self._cash_mode = cash_mode
         if cash_mode and sandbox_id is None:
             logger.warning(
@@ -219,6 +285,30 @@ class AIMemoryManager:
                 "this session"
             )
         self._sandbox_id = sandbox_id
+        self._table_max_buy_in = table_max_buy_in
+
+    def set_fish_ids(self, fish_ids) -> None:
+        """Suppress relationship + cash-pair writes for these pids.
+
+        Casino fish are transient chip-donors: nobody should accumulate a
+        dossier *about* them, and they don't read one themselves. The
+        suppression is per-pair (skips any event/flow where either side is
+        a fish), so grinder↔grinder and grinder↔human history at the same
+        casino table still accrues normally. Idempotent; pass an empty set
+        to clear.
+        """
+        self._fish_ids = set(fish_ids or ())
+
+    def set_table_max_buy_in(self, max_buy_in: Optional[int]) -> None:
+        """Set the table cap used by STACK_DOMINANCE detection.
+
+        Separate from `set_relationship_repo` because the cold-load
+        path resolves the stake_label from the persisted big_blind
+        AFTER it wires the relationship repo. Callers that know the
+        cap at repo-wiring time can pass `table_max_buy_in` to
+        `set_relationship_repo` instead and skip this entirely.
+        """
+        self._table_max_buy_in = max_buy_in
 
     @property
     def last_preflop_aggressor(self) -> Optional[str]:

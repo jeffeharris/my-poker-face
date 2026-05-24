@@ -407,6 +407,54 @@ class TestRefreshNoChanges:
         assert all(d == "stay" for d in result.decisions.values())
 
 
+class TestRefreshFishAreCasinoBound:
+    """Fish are real `archetype='fish'` personas with pool-funded
+    bankrolls. They run normal movement (so they can re-buy or go home)
+    but are casino-bound — never spuriously evicted for being "broke"
+    (they have a bankroll) and never tier-drift. See
+    CASH_MODE_FISH_AS_PERSONAS.md.
+    """
+
+    def test_fish_with_bankroll_is_not_evicted(self):
+        """A fish carries a real (pool-funded) bankroll, so the pressure
+        formulas don't treat it as broke. With a comfortable stack it
+        stays put, identified by the `archetype` stamp (the inline
+        `ephemeral_personality` blob is gone)."""
+        seats = [
+            {
+                "kind": "ai",
+                "personality_id": "vacation_greg",
+                "chips": 600,  # between min 400 and max 1000 — no short pressure
+                "archetype": "fish",
+            },
+            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
+        ]
+        table = _make_table(seats)
+        # 5 open seats → up to 5 live-fill rolls; high values block fill.
+        rng = _force_rng([0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"vacation_greg"},
+            # Healthy pool-funded bankroll — not broke, not evict-eligible.
+            bankroll_lookup=_bankroll_lookup_factory({"vacation_greg": 1800}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+        )
+        assert result.decisions["vacation_greg"] == "stay"
+        # Seat preserved with the archetype stamp intact.
+        seat0 = result.new_table.seats[0]
+        assert seat0["kind"] == "ai"
+        assert seat0["personality_id"] == "vacation_greg"
+        assert seat0.get("archetype") == "fish"
+
+
 class TestRefreshForcedLeave:
     def test_busted_ai_moves_to_idle_pool(self):
         seats = [

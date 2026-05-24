@@ -312,6 +312,7 @@ def _build_controller(
     state_machine: PokerStateMachine,
     archetype: Optional[str] = None,
     rule_strategy: Optional[str] = None,
+    fish_leak: Optional[str] = None,
 ):
     """Construct a controller for one AI seat.
 
@@ -337,6 +338,7 @@ def _build_controller(
             state_machine=state_machine,
             strategy=strategy,
             llm_config={},
+            fish_leak=fish_leak,
         )
         controller.skip_equity_in_analysis = True
         return controller
@@ -727,15 +729,20 @@ def _play_one_hand_inner(
         rule_strategy = (
             bankroll_repo.load_rule_strategy(pid) if bankroll_repo is not None else None
         )
+        fish_leak = (
+            bankroll_repo.load_fish_leak(pid) if bankroll_repo is not None else None
+        )
         ctrl, was_miss = controller_cache.get_or_create_tracked(
             pid,
             lambda pid_local=pid, name_local=player.name,
-                   arch_local=archetype, rs_local=rule_strategy: _build_controller(
+                   arch_local=archetype, rs_local=rule_strategy,
+                   fl_local=fish_leak: _build_controller(
                 personality_id=pid_local,
                 display_name=name_local,
                 state_machine=sm,
                 archetype=arch_local,
                 rule_strategy=rs_local,
+                fish_leak=fl_local,
             ),
         )
         if was_miss:

@@ -59,6 +59,24 @@ BAD_BEAT_EQUITY_MIN = 0.70
 # brought real strength. DOMINATED_SHOWDOWN handles weaker matchups.
 COOLER_STRONG_HAND_RANK_MAX = 7
 
+# STACK_DOMINANCE threshold: a player is "deep" once their stack at
+# hand start crosses this multiple of the table max buy-in. Picked at
+# 1.5× so normal winning sessions (typically 1.0-1.4× transiently)
+# don't trigger; sustained presence above is what bites. Pairs with
+# `movement.W_STAKE_UP` which nudges AIs to leave/stake-up starting
+# at exactly 1.0× — by 1.5× the system has already "asked" the deep
+# stack to consider moving, so further accumulation reads as refusal.
+STACK_DOMINANCE_THRESHOLD = 1.5
+
+# STACK_DOMINANCE saturation cap. The per-hand axis drip scales with
+# `excess = stack/max_buy_in - 1.5`, but we cap excess at this value
+# so a single session against a long-stay whale can't tank a pair's
+# axis state into the floor. At cap (3.5× max buy-in), `excess=2.0`
+# yields a per-hand likability shift of −0.006 (−0.003 base × 2.0);
+# over 30 hands, −0.18 likability — meaningful, recoverable, not
+# catastrophic. Stacks above 3.5× cap saturate at this signal level.
+STACK_DOMINANCE_EXCESS_CAP = 2.0
+
 
 @dataclass(frozen=True)
 class DetectedEvent:
@@ -84,6 +102,12 @@ class DetectedEvent:
     narrative: str = ""
     hand_summary: str = ""
     chips_won: int = 0
+    # Scales the AxisShift at dispatch time via `record_event(...,
+    # context_multiplier=...)`. Defaults to 1.0 so existing detectors
+    # keep their full magnitude; `_detect_stack_dominance` uses it to
+    # scale the per-hand drip by the deep stack's excess over the
+    # threshold. Keep numeric — dispatch multiplies raw shifts.
+    context_multiplier: float = 1.0
 
 
 class HandOutcomeDetector:
@@ -124,6 +148,8 @@ class HandOutcomeDetector:
         recorded_hand: RecordedHand,
         *,
         equity_history: "Optional[HandEquityHistory]" = None,
+        max_buy_in: Optional[int] = None,
+        cash_pnl_lookup: Optional[Callable[[str, str], int]] = None,
     ) -> List[DetectedEvent]:
         """Inspect a completed hand and return the events it triggered.
 
@@ -140,6 +166,14 @@ class HandOutcomeDetector:
         runner + Flask game handler) and forwarded through
         `on_hand_complete`. See `_detect_bad_beats` for the
         per-path data-dependency details.
+
+        `max_buy_in` enables STACK_DOMINANCE detection: when supplied
+        (cash-mode games only — tournaments leave it None), peers
+        with `starting_stack >= STACK_DOMINANCE_THRESHOLD * max_buy_in`
+        trigger the per-hand drip event. `cash_pnl_lookup`, when
+        provided, gates emission to observers with negative
+        cumulative_pnl against the deep stack — strangers don't envy
+        chips, only victims do. See `_detect_stack_dominance`.
         """
         events: List[DetectedEvent] = []
         events.extend(self._detect_big_pot_events(recorded_hand))
@@ -150,6 +184,10 @@ class HandOutcomeDetector:
         events.extend(self._detect_strong_fold_shown(recorded_hand))
         if equity_history is not None:
             events.extend(self._detect_bad_beats(recorded_hand, equity_history))
+        if max_buy_in is not None and max_buy_in > 0:
+            events.extend(self._detect_stack_dominance(
+                recorded_hand, max_buy_in, cash_pnl_lookup,
+            ))
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -987,6 +1025,101 @@ class HandOutcomeDetector:
 
         return events
 
+    def _detect_stack_dominance(
+        self,
+        hand: RecordedHand,
+        max_buy_in: int,
+        cash_pnl_lookup: Optional[Callable[[str, str], int]],
+    ) -> List[DetectedEvent]:
+        """Emit STACK_DOMINANCE for peers seated with a deep stack.
+
+        Per-hand drip: for every player whose `starting_stack` at the
+        beginning of this hand is at least `STACK_DOMINANCE_THRESHOLD ×
+        max_buy_in`, emit one event from each other seated player who
+        is net-down against them in cash_pair_stats. The actor is the
+        observer (the one whose respect/likability will dip); the
+        target is the deep stack.
+
+        `context_multiplier` carries the deep stack's excess above the
+        threshold — `starting_stack / max_buy_in − STACK_DOMINANCE_THRESHOLD`
+        — so dispatch scales the small base AxisShift up as the stack
+        gets deeper. A player at exactly 1.5× the cap produces a
+        multiplier of 0 and therefore no axis movement (filtered out
+        below); 2× cap → 0.5; 3× cap → 1.5.
+
+        `cash_pnl_lookup(observer_id, deep_stack_id) -> chips` returns
+        the observer's cumulative_pnl against the deep stack within
+        the active sandbox (positive = observer is up; negative =
+        observer is down). When the lookup is None, the gate is
+        skipped and every seated peer emits — useful for tests and as
+        a safe fallback during early sandbox life when nobody has
+        registered a chip flow yet.
+
+        Cash-mode only. Tournament callers pass `max_buy_in=None` to
+        `detect_events()`, which skips this detector entirely.
+        """
+        if len(hand.players) < 2:
+            return []
+        threshold_chips = STACK_DOMINANCE_THRESHOLD * max_buy_in
+        # Snapshot the seat list so the inner loop iterates over the
+        # same set the deep-stack scan saw — protects against any
+        # caller passing a mutable view.
+        seated = list(hand.players)
+        events: List[DetectedEvent] = []
+        for deep in seated:
+            if deep.starting_stack < threshold_chips:
+                continue
+            excess = (deep.starting_stack / max_buy_in) - STACK_DOMINANCE_THRESHOLD
+            if excess <= 0:
+                # Defensive: float comparison may permit equality at
+                # exactly the threshold. Skip rather than emit a zero-
+                # multiplier event that would round to no-op anyway.
+                continue
+            # Saturate so extreme whales can't drive a pair's axes to
+            # the floor in one session. See STACK_DOMINANCE_EXCESS_CAP
+            # docstring for the math.
+            excess = min(excess, STACK_DOMINANCE_EXCESS_CAP)
+            deep_id = self._resolve_id(deep.name)
+            if deep_id is None:
+                continue
+            for observer in seated:
+                if observer.name == deep.name:
+                    continue
+                observer_id = self._resolve_id(observer.name)
+                if observer_id is None:
+                    continue
+                if cash_pnl_lookup is not None:
+                    try:
+                        pnl = cash_pnl_lookup(observer_id, deep_id)
+                    except Exception as exc:
+                        # Treat lookup failure as "no data" — skip the
+                        # pair rather than emitting an ungated event.
+                        # A persistent lookup failure surfaces only as
+                        # absent resentment, not as wrong resentment.
+                        logger.debug(
+                            "stack_dominance pnl lookup failed "
+                            "(observer=%s deep=%s): %s",
+                            observer_id, deep_id, exc,
+                        )
+                        continue
+                    if pnl >= 0:
+                        # Observer hasn't lost to this deep stack —
+                        # no resentment. Strangers and net winners
+                        # against the deep stack stay neutral.
+                        continue
+                events.append(DetectedEvent(
+                    actor_id=observer_id,
+                    target_id=deep_id,
+                    event=RelationshipEvent.STACK_DOMINANCE,
+                    context_multiplier=excess,
+                    narrative=(
+                        f"{observer.name} watched {deep.name} sit deep "
+                        f"({deep.starting_stack} chips, "
+                        f"{deep.starting_stack / max_buy_in:.1f}× cap)"
+                    ),
+                ))
+        return events
+
     def _resolve_id(self, name: str) -> Optional[str]:
         """Resolve a display name to its registered personality_id.
 
@@ -1013,6 +1146,7 @@ def dispatch_events(
     hand_id: Optional[int] = None,
     now: Optional[datetime] = None,
     sandbox_id: Optional[str] = None,
+    suppress_ids: Optional[set] = None,
 ) -> None:
     """Apply detected events to the relationship + cash layers.
 
@@ -1046,12 +1180,21 @@ def dispatch_events(
     if now is None:
         now = datetime.utcnow()
 
+    # Per-pair suppression: skip any event/flow touching a suppressed pid
+    # (casino fish). Both directions — observer OR opponent — so a fish
+    # neither learns nor is learned about, while grinder/human pairs at
+    # the same table still accrue history normally.
+    _suppress = suppress_ids or frozenset()
+
     for event in events or []:
+        if _suppress and (event.actor_id in _suppress or event.target_id in _suppress):
+            continue
         manager.record_event(
             actor_id=event.actor_id,
             target_id=event.target_id,
             event=event.event,
             impact_score=event.impact_score,
+            context_multiplier=event.context_multiplier,
             narrative=event.narrative,
             hand_summary=event.hand_summary,
             hand_id=hand_id,
@@ -1086,6 +1229,8 @@ def dispatch_events(
             loser_id = resolve(flow.loser)
             if not winner_id or not loser_id:
                 continue
+            if winner_id in _suppress or loser_id in _suppress:
+                continue
             cash_pair_repo.apply_cash_pair_pnl(
                 winner_id=winner_id,
                 loser_id=loser_id,
@@ -1099,6 +1244,8 @@ def dispatch_events(
         if event.event is not RelationshipEvent.BIG_WIN:
             continue
         if event.chips_won <= 0:
+            continue
+        if _suppress and (event.actor_id in _suppress or event.target_id in _suppress):
             continue
         cash_pair_repo.apply_cash_pair_pnl(
             winner_id=event.actor_id,

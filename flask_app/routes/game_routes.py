@@ -472,6 +472,7 @@ def list_games():
 
 
 @game_bp.route('/api/game-state/<game_id>')
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def api_game_state(game_id):
     """API endpoint to get current game state for React app."""
     current_game_data = game_state_service.get_game(game_id)
@@ -566,14 +567,6 @@ def api_game_state(game_id):
 
                         memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
                         memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
-                        # Phase 3: relationship state populates from hand
-                        # outcomes. Cash sessions write cash_pair_stats;
-                        # tournament sessions skip it.
-                        memory_manager.set_relationship_repo(
-                            relationship_repo,
-                            cash_mode=is_cash_game,
-                            sandbox_id=cold_load_sandbox_id,
-                        )
 
                         # Restore hand count from database
                         restored_hand_count = hand_history_repo.get_hand_count(game_id)
@@ -581,11 +574,87 @@ def api_game_state(game_id):
                             memory_manager.hand_count = restored_hand_count
                             logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
 
-                        # Restore opponent models from database
+                        # Restore opponent models from database. This
+                        # swaps `memory_manager.opponent_model_manager`
+                        # for a fresh instance, so any wiring on the
+                        # old OPM (relationship_repo, etc.) must be
+                        # reapplied AFTER this — see set_relationship_repo
+                        # below.
                         saved_opponent_models = game_repo.load_opponent_models(game_id)
                         if saved_opponent_models:
                             memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
                             logger.info(f"[LOAD] Restored opponent models for game {game_id}")
+
+                        # Phase 3: relationship state populates from hand
+                        # outcomes. Cash sessions write cash_pair_stats;
+                        # tournament sessions skip it. Wire AFTER the OPM
+                        # restore above so the wiring lands on the OPM
+                        # that record_event actually mutates — and so the
+                        # detector's name→id reference re-syncs to the
+                        # restored OPM's registry.
+                        #
+                        # Suppress at casino tables — ephemeral tourists
+                        # should never accumulate relationship history.
+                        # Detect by loading the cash table and checking
+                        # table_type.
+                        #
+                        # Fail-safe direction: if we CAN'T confirm this
+                        # is a lobby table, suppress writes. A false
+                        # positive (skipping relationship for a real
+                        # lobby table on a transient load failure) loses
+                        # a few events for one cold-load. A false
+                        # negative (writing tourist pids into dossiers)
+                        # permanently corrupts relationship state.
+                        suppress_for_casino = False
+                        if is_cash_game:
+                            cash_table_id = (
+                                game_data.get('cash_table_id')
+                                if isinstance(game_data, dict) else None
+                            )
+                            if cash_table_id:
+                                try:
+                                    from flask_app.extensions import cash_table_repo as _cash_table_repo
+                                    if _cash_table_repo is None:
+                                        suppress_for_casino = True
+                                        logger.warning(
+                                            "[LOAD] cash_table_repo unavailable "
+                                            "during cold-load of cash game %s; "
+                                            "suppressing relationship writes "
+                                            "(fail-safe).",
+                                            game_id,
+                                        )
+                                    else:
+                                        _ct = _cash_table_repo.load_table(
+                                            cash_table_id,
+                                            sandbox_id=cold_load_sandbox_id,
+                                        )
+                                        if _ct is None:
+                                            suppress_for_casino = True
+                                            logger.warning(
+                                                "[LOAD] cash table %s not "
+                                                "found for cold-load of game "
+                                                "%s; suppressing relationship "
+                                                "writes (fail-safe).",
+                                                cash_table_id, game_id,
+                                            )
+                                        else:
+                                            suppress_for_casino = (
+                                                _ct.table_type == 'casino'
+                                            )
+                                except Exception as exc:
+                                    suppress_for_casino = True
+                                    logger.warning(
+                                        "[LOAD] cash table load failed for "
+                                        "%s (game %s): %s — suppressing "
+                                        "relationship writes (fail-safe).",
+                                        cash_table_id, game_id, exc,
+                                    )
+                        if not suppress_for_casino:
+                            memory_manager.set_relationship_repo(
+                                relationship_repo,
+                                cash_mode=is_cash_game,
+                                sandbox_id=cold_load_sandbox_id,
+                            )
 
                         for player in state_machine.game_state.players:
                             # Resolve each player's stable personality_id at
@@ -698,6 +767,18 @@ def api_game_state(game_id):
                             current_game_data['cash_mode'] = True
                             current_game_data['cash_stake_label'] = stake_label
                             current_game_data['cash_personality_ids'] = cash_personality_ids
+                            # STACK_DOMINANCE depends on the table cap.
+                            # Wire it now that stake_label is resolved —
+                            # set_relationship_repo above ran before we
+                            # knew the cap. Skip silently for legacy
+                            # rows whose big_blind doesn't map to any
+                            # current STAKES_LADDER tier.
+                            if stake_label is not None:
+                                from cash_mode.stakes_ladder import (
+                                    table_buy_in_window,
+                                )
+                                _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
+                                memory_manager.set_table_max_buy_in(cold_load_max_buy_in)
                             # Restore the four buy-in / start-time / seat
                             # fields the cold-load path used to leave at
                             # None. Without this, a leave after a Flask

@@ -2235,9 +2235,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "vacation_greg",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_down_top_pair"
     },
     "Bachelorette Brenda": {
       "archetype": "fish",
@@ -2274,9 +2279,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "bachelorette_brenda",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "chases_any_draw"
     },
     "Cruise Carl": {
       "archetype": "fish",
@@ -2313,9 +2323,14 @@
         "stake_comfort_zone": "$2"
       },
       "id": "cruise_carl",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "limps_every_hand"
     },
     "Birthday Bobby": {
       "archetype": "fish",
@@ -2352,9 +2367,234 @@
         "stake_comfort_zone": "$2"
       },
       "id": "birthday_bobby",
-      "staker_profile": {"willing": false},
-      "borrower_profile": {"willing": false},
-      "rule_strategy": "fish"
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "pot_committed_early"
+    },
+    "After Hours Trent": {
+      "archetype": "fish",
+      "play_style": "four whiskeys deep, posturing about pot odds, makes bizarre folds and hero calls in equal measure",
+      "default_confidence": "performatively analytical",
+      "default_attitude": "condescending-but-friendly",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.7,
+        "ego": 0.7,
+        "poise": 0.25,
+        "expressiveness": 0.7,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.75,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'I'm getting like 3-to-1 here, gotta call.'",
+        "'Bro, I'm pot-committed, you know how it is.'",
+        "'I literally read Sklansky on the flight out.'",
+        "'Variance, my dude. Variance.'"
+      ],
+      "physical_tics": [
+        "*adjusts Patagonia vest with the bank's logo*",
+        "*stares at his stack doing visible mental math*",
+        "*splashes the pot, knocks over his Old Fashioned*"
+      ],
+      "nickname": "Trent",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "after_hours_trent",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "spite_raises_when_losing"
+    },
+    "Lucky Mona": {
+      "archetype": "fish",
+      "play_style": "has a 'system' built from signs — dealer's hat color, ice left in her drink, the date — plays the system, not the cards",
+      "default_confidence": "serene",
+      "default_attitude": "grandmotherly",
+      "anchors": {
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.8,
+        "ego": 0.3,
+        "poise": 0.4,
+        "expressiveness": 0.6,
+        "risk_identity": 0.55,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.55,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'The cards are warm tonight, dear.'",
+        "'I always call with red queens — it's my late husband's birthday.'",
+        "'I'm overdue. The math knows.'",
+        "'The dealer has nice eyes. I'll stay in.'"
+      ],
+      "physical_tics": [
+        "*kisses her cards before looking at them*",
+        "*rearranges chips into neat stacks of seven*",
+        "*offers a butterscotch to the player on her left*"
+      ],
+      "nickname": "Mona",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "lucky_mona",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "overvalues_face_cards"
+    },
+    "Slots Linda": {
+      "archetype": "fish",
+      "play_style": "wandered over from the penny slots, treats every hand like a pull — no concept of relative position, no concept of opponents",
+      "default_confidence": "zoned-out",
+      "default_attitude": "agreeable",
+      "anchors": {
+        "baseline_aggression": 0.18,
+        "baseline_looseness": 0.9,
+        "ego": 0.2,
+        "poise": 0.2,
+        "expressiveness": 0.4,
+        "risk_identity": 0.55,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'Do I have to bet every time?'",
+        "'How do you know if you won?'",
+        "'I'll just put in whatever this stack is.'",
+        "'Is there a free spin in this one?'"
+      ],
+      "physical_tics": [
+        "*pulls an imaginary lever before each call*",
+        "*stares blankly at the community cards*",
+        "*sips a watery cocktail without expression*"
+      ],
+      "nickname": "Linda",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "slots_linda",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_river_light"
+    },
+    "Golf Trip Brad": {
+      "archetype": "fish",
+      "play_style": "took a break from the round, treats poker like blackjack, only sees his own cards and never the board",
+      "default_confidence": "loose and casual",
+      "default_attitude": "upbeat",
+      "anchors": {
+        "baseline_aggression": 0.28,
+        "baseline_looseness": 0.78,
+        "ego": 0.45,
+        "poise": 0.25,
+        "expressiveness": 0.65,
+        "risk_identity": 0.6,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'Shot the front nine in 42, by the way.'",
+        "'I always play position — that's golf talk, but it applies.'",
+        "'Beer me a call, dealer.'",
+        "'The guys are gonna hear about this hand for YEARS.'"
+      ],
+      "physical_tics": [
+        "*still wearing the visor*",
+        "*air-swings a 7-iron between hands*",
+        "*checks his phone — photo of him at hole 14*"
+      ],
+      "nickname": "Brad",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "golf_trip_brad",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "doesnt_believe_big_bets"
+    },
+    "Freddie Fratboy": {
+      "archetype": "fish",
+      "play_style": "spring-break loud, plays every hand because folding would be 'no balls', escalates with anyone who calls his bluff",
+      "default_confidence": "brash",
+      "default_attitude": "showboat",
+      "anchors": {
+        "baseline_aggression": 0.45,
+        "baseline_looseness": 0.88,
+        "ego": 0.75,
+        "poise": 0.15,
+        "expressiveness": 0.95,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.9,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [
+        "'No balls, dude. NO BALLS.'",
+        "'YOOO, send it!'",
+        "'Bro, I am NOT folding right now.'",
+        "'Pledge had to drink for this hand.'"
+      ],
+      "physical_tics": [
+        "*slams Coors Light, slaps the table*",
+        "*stands up halfway out of his chair to size up the pot*",
+        "*tries to fist-bump the dealer between hands*"
+      ],
+      "nickname": "Freddie",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "freddie_fratboy",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "chases_any_draw"
     }
   }
 }

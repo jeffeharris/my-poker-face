@@ -4,6 +4,7 @@ This module contains the core game loop logic, broken down into
 manageable functions for maintainability.
 """
 
+import json
 import logging
 import sqlite3
 import threading
@@ -469,7 +470,20 @@ def update_and_emit_game_state(game_id: str) -> None:
                 display_emotion = controller.psychology.get_display_emotion()
             else:
                 display_emotion = 'confident'  # Default for RuleBots
-            avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
+            # Ephemeral tourists: skip avatar generation. The fallback
+            # path would call `generate_character_images(player_name)`
+            # which calls `personality_generator.get_personality(name)`
+            # which auto-creates a DB personality with the tourist's
+            # display name — zombies that then leak into the eligible
+            # pool at every stake. UI renders the initial letter when
+            # avatar_url is None. Detect by the controller's fish_leak
+            # attribute (only RuleBotController has it; only tourists
+            # have it set).
+            is_ephemeral_tourist = bool(getattr(controller, 'fish_leak', None))
+            if is_ephemeral_tourist:
+                avatar_url = None
+            else:
+                avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
@@ -1310,8 +1324,23 @@ def _emit_seated_movement_chat(
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
     from flask_app.extensions import personality_repo
 
+    from cash_mode.tables import personality_for_seat
+
     pre_seats = {
         i: dict(s) for i, s in enumerate(table_pre_refresh.seats)
+    }
+    # Index pre-refresh seats by pid for leave-path personality lookups
+    # — ephemeral tourists carry their personality inline on the seat,
+    # so DB lookup by pid alone would miss them.
+    pre_seats_by_pid: Dict[str, Dict[str, Any]] = {
+        s.get("personality_id"): s
+        for s in pre_seats.values()
+        if s.get("kind") == "ai" and s.get("personality_id")
+    }
+    post_seats_by_pid: Dict[str, Dict[str, Any]] = {
+        s.get("personality_id"): s
+        for s in result.new_table.seats
+        if s.get("kind") == "ai" and s.get("personality_id")
     }
 
     stake_label = table_pre_refresh.stake_label
@@ -1322,10 +1351,29 @@ def _emit_seated_movement_chat(
 
     leave_signals = getattr(result, "leave_signals", {}) or {}
 
-    def _personality_for(pid: str):
+    def _personality_for(pid: str, *, seat: Optional[Dict[str, Any]] = None):
+        """Resolve a seat's personality dict.
+
+        If `seat` is provided OR a seat with this pid is in the pre/post
+        snapshots, the inline `ephemeral_personality` (tourists) wins
+        over a DB lookup. Falls through to `PersonalityRepository` for
+        regular AI seats.
+        """
+        resolved_seat = seat or post_seats_by_pid.get(pid) or pre_seats_by_pid.get(pid)
+        if resolved_seat is not None:
+            # personality_for_seat already catches DB/decode failures and
+            # logs them — programmer bugs (AttributeError/TypeError)
+            # propagate so they get fixed instead of silently masking.
+            return personality_for_seat(resolved_seat, personality_repo)
+        # Bare-pid lookup (no seat in scope) — same exception philosophy:
+        # catch DB/decode failures, let programmer bugs propagate.
         try:
             return personality_repo.load_personality_by_id(pid)
-        except Exception:
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            logger.warning(
+                "[CASH][LOBBY] personality lookup failed for pid=%r: %s",
+                pid, exc,
+            )
             return None
 
     def _ai_chat_callback(game_id: str, sender: str):
@@ -1384,11 +1432,16 @@ def _emit_seated_movement_chat(
                 LeaveNarrativeContext,
                 queue_leave_comment,
             )
-            personality = _personality_for(pid)
+            # Pull seat from pre-refresh snapshot — tourists' personality
+            # is inline on the seat dict, not in the DB.
+            leaver_seat = pre_seats_by_pid.get(pid)
+            personality = _personality_for(pid, seat=leaver_seat)
             if personality is None:
                 continue
+            # Tourist display_name lives on the seat; use it for chat.
+            name_for_chat = (leaver_seat or {}).get("display_name") or name
             ctx = LeaveNarrativeContext(
-                personality_name=name,
+                personality_name=name_for_chat,
                 play_style=str(personality.get("play_style") or ""),
                 default_attitude=str(personality.get("default_attitude") or ""),
                 verbal_tics=tuple(personality.get("verbal_tics") or ()),
@@ -1431,11 +1484,18 @@ def _emit_seated_movement_chat(
         if s["kind"] == "ai"
     }
     for pid in result.freshly_seated_personality_ids:
-        personality = _personality_for(pid)
+        # Tourists carry display_name on the seat; resolve through
+        # `_personality_for` (which consults post_seats_by_pid first).
+        joined_seat = post_seats_by_pid.get(pid)
+        personality = _personality_for(pid, seat=joined_seat)
         # Fallback to pid keeps the message visible even if the repo
         # lookup fails — but the LLM call is skipped (no traits to
         # work with).
-        display_name = (personality or {}).get("name") or pid
+        display_name = (
+            (joined_seat or {}).get("display_name")
+            or (personality or {}).get("name")
+            or pid
+        )
         chips = pid_to_chips_post.get(pid, 0)
         send_message(
             game_id=game_id,
@@ -1548,6 +1608,7 @@ def _seat_freshly_filled_ais(
     """
     from poker.hybrid_ai_controller import HybridAIController
     from poker.poker_game import Player
+    from cash_mode.tables import personality_for_seat
     from flask_app.extensions import (
         capture_label_repo, decision_analysis_repo, personality_repo,
     )
@@ -1559,19 +1620,29 @@ def _seat_freshly_filled_ais(
     memory_manager = game_data.get('memory_manager')
     owner_id = game_data.get('owner_id')
 
-    # Find the AI chips on the new table for these personalities.
-    pid_to_chips = {
-        slot["personality_id"]: int(slot["chips"])
+    # Find the AI chips + seat on the new table for these personalities.
+    # Tourists carry their personality inline on the seat; regular AIs
+    # fall through to the personality_repo lookup via personality_for_seat.
+    seats_by_pid = {
+        slot["personality_id"]: slot
         for slot in new_table.seats
         if slot["kind"] == "ai" and slot["personality_id"] in freshly_seated_pids
     }
+    pid_to_chips = {pid: int(slot["chips"]) for pid, slot in seats_by_pid.items()}
 
     for pid in freshly_seated_pids:
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
-        name = (personality or {}).get("name") if personality else pid
+        seat = seats_by_pid.get(pid)
+        # `personality_for_seat` catches expected repo failures internally
+        # and logs them; programmer bugs propagate so they get fixed.
+        personality = personality_for_seat(seat, personality_repo) if seat else None
+        # Prefer the seat's display_name (set for tourists by
+        # `ai_slot_ephemeral`); fall back to the personality's name; fall
+        # back to the raw pid.
+        name = (
+            (seat or {}).get("display_name")
+            or (personality or {}).get("name")
+            or pid
+        )
         if not name or name in occupied_names:
             continue
         chips = pid_to_chips.get(pid, 0)
@@ -1584,16 +1655,40 @@ def _seat_freshly_filled_ais(
         state_machine.game_state = game_state
         occupied_names.add(name)
 
-        controller = HybridAIController(
-            name,
-            state_machine,
-            llm_config=game_data.get('llm_config', {}),
-            prompt_config=None,
-            game_id=game_id,
-            owner_id=owner_id,
-            capture_label_repo=capture_label_repo,
-            decision_analysis_repo=decision_analysis_repo,
+        # Route fish-archetype personalities (including ephemeral
+        # tourists) to RuleBotController with strategy='fish'. Without
+        # this, mid-session live fills would build a HybridAIController
+        # for a tourist — wasting LLM calls and ignoring the designated
+        # `fish_leak`. Mirrors the sit-route's `rule_strategy_override`
+        # branch in cash_routes.py.
+        rule_strategy_override = (
+            (personality or {}).get("rule_strategy")
+            if isinstance(personality, dict) else None
         )
+        if rule_strategy_override == "fish":
+            fish_leak = (personality or {}).get("fish_leak")
+            controller = RuleBotController(
+                player_name=name,
+                state_machine=state_machine,
+                strategy="fish",
+                llm_config={},
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+                fish_leak=fish_leak,
+            )
+        else:
+            controller = HybridAIController(
+                name,
+                state_machine,
+                llm_config=game_data.get('llm_config', {}),
+                prompt_config=None,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+            )
         ai_controllers[name] = controller
 
         if memory_manager is not None:

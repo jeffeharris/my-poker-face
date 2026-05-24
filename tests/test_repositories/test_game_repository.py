@@ -141,6 +141,39 @@ def test_delete_game(repo):
     assert repo.load_ai_player_states("game1") == {}
 
 
+def test_delete_game_preserves_pressure_events(repo, db_path):
+    """pressure_events is historical analytics — survives cash leave / cleanup.
+
+    Regression: cash sessions used to lose every pressure_events row when
+    /api/cash/leave called game_repo.delete_game (35-hand sessions ending
+    with zero rows). Asymmetric vs hand_history/relationship_states/
+    cash_pair_stats (all of which already survive), and contradicts the
+    delete_game docstring's "historical data preserved" promise.
+    """
+    from poker.repositories.sqlite_repositories import PressureEventRepository
+
+    sm = _make_state_machine()
+    repo.save_game("game1", sm)
+
+    event_repo = PressureEventRepository(db_path)
+    event_repo.save_event(
+        game_id="game1", player_name="Alice",
+        event_type="big_win", hand_number=1,
+        details={"pot_size": 41564},
+    )
+    event_repo.save_event(
+        game_id="game1", player_name="Bob",
+        event_type="big_loss", hand_number=1,
+        details={"pot_size": 41564},
+    )
+
+    repo.delete_game("game1")
+
+    surviving = event_repo.get_events_for_game("game1")
+    assert len(surviving) == 2
+    assert {e["event_type"] for e in surviving} == {"big_win", "big_loss"}
+
+
 def test_coach_mode(repo):
     sm = _make_state_machine()
     repo.save_game("game1", sm)

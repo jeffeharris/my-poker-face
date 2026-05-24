@@ -27,6 +27,11 @@ from .rule_strategies import (
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+from .strategy.hand_classification import (
+    RANK_VALUES,
+    _classify_straight_draw,
+    classify_hand_full,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,7 @@ class RuleBotController(AIPlayerController):
         capture_label_repo=None,
         decision_analysis_repo=None,
         prompt_config=None,
+        fish_leak: Optional[str] = None,
     ):
         """Initialize RuleBotController.
 
@@ -66,6 +72,10 @@ class RuleBotController(AIPlayerController):
             capture_label_repo: Optional capture label repository
             decision_analysis_repo: Optional decision analysis repository
             prompt_config: Optional prompt configuration
+            fish_leak: Optional designated leak for the fish strategy (e.g.
+                'calls_down_top_pair'). Threaded into the rule context so
+                `_strategy_fish` can apply the leak's deviation. Ignored by
+                non-fish strategies.
         """
         # Call parent constructor to get full psychology infrastructure
         super().__init__(
@@ -84,10 +94,17 @@ class RuleBotController(AIPlayerController):
         # Rule-based strategy configuration
         self.strategy = strategy
         self.rule_config = RuleConfig(strategy=strategy, name=player_name)
+        self.fish_leak = fish_leak
 
         # Track decision history for analysis
         self.decision_history: List[Dict] = []
         self._last_decision_context: Optional[Dict] = None
+
+        # Per-hand starting stacks for fish-leak context fields
+        # (`committed_fraction_of_stack`, `is_losing_at_table`). Reset on
+        # hand-number transition; lazy-captured on each decision.
+        self._this_hand_starts: Dict[str, int] = {}
+        self._last_hand_number: int = -1
 
         logger.info(f"[RULE_BOT] Created RuleBotController for {player_name} with strategy '{strategy}'")
 
@@ -191,6 +208,88 @@ class RuleBotController(AIPlayerController):
         # Get opponent stats if available (for adaptive strategies)
         opp_stats = self._get_opponent_stats(opponents, player.name)
 
+        # Hand-start stack tracking for fish-leak context fields. Reset
+        # the dict on hand-number transition; lazy-capture on first
+        # decision of each hand (or mid-hand fallback when this controller
+        # was instantiated after the hand began).
+        hand_number = self.state_machine.stats.hand_count if self.state_machine else 0
+        if hand_number != self._last_hand_number:
+            self._this_hand_starts = {}
+            self._last_hand_number = hand_number
+        if player.name not in self._this_hand_starts:
+            if phase == 'PRE_FLOP':
+                self._this_hand_starts[player.name] = player.stack
+            else:
+                # Mid-hand fallback: approximate by adding the current
+                # round's bet back (we miss prior-round chips, but this
+                # only fires when the controller was created post-pre-flop)
+                self._this_hand_starts[player.name] = player.stack + player.bet
+
+        hand_start_stack = self._this_hand_starts.get(player.name, player.stack)
+        if hand_start_stack > 0:
+            committed_fraction = max(
+                0.0, (hand_start_stack - player.stack) / hand_start_stack,
+            )
+        else:
+            committed_fraction = 0.0
+        is_losing_at_table = player.stack < hand_start_stack
+
+        # Hole-card derivations for fish leaks. All cheap; safe to compute
+        # on every decision. Card strings are 2 chars (e.g. 'Ah', 'Td')
+        # per `card_to_string`.
+        has_face_card = any(c[0] in 'JQKA' for c in hole_cards)
+
+        # Postflop-only: made hand strength + draw structure. Skip the
+        # eval call preflop where community_cards is empty (those leaks
+        # don't apply preflop anyway).
+        has_top_pair_or_better = False
+        has_flush_draw = False
+        has_oesd = False
+        if community_cards:
+            try:
+                classification = classify_hand_full(hole_cards, community_cards)
+                has_top_pair_or_better = classification.made_tier in (
+                    'nuts', 'strong_made', 'medium_made',
+                )
+            except Exception:
+                # Classifier shouldn't fail on valid game cards, but if it
+                # does (malformed card string, edge case), we don't want
+                # to take down a decision call. Defaults are safe-for-fish.
+                pass
+            # Flush draw: same suit on >= 1 hole card AND that suit appears
+            # 4+ times across hole+community. Matches the
+            # `check_board_connection` definition (suited hole + 2 board
+            # cards of suit). Doesn't match board-only flushes.
+            suit_counts: Dict[str, int] = {}
+            for c in hole_cards + community_cards:
+                if len(c) >= 2:
+                    suit_counts[c[1]] = suit_counts.get(c[1], 0) + 1
+            hole_suits = {c[1] for c in hole_cards if len(c) >= 2}
+            has_flush_draw = any(
+                cnt >= 4 and s in hole_suits for s, cnt in suit_counts.items()
+            )
+            # OESD: use the existing helper. Convert cards to int ranks.
+            try:
+                all_ranks = sorted(
+                    {RANK_VALUES[c[0]] for c in hole_cards + community_cards}
+                )
+                has_oesd = _classify_straight_draw(all_ranks) == 'oesd'
+            except (KeyError, ValueError):
+                pass
+
+        # Map PRE_FLOP/FLOP/TURN/RIVER → preflop/flop/turn/river for the
+        # fish strategy's street-aware leaks.
+        street = phase.lower().replace('_', '')
+
+        # is_pair / is_suited derive from the canonical hand string
+        # ('AA', 'AKs', 'AKo'). These were missing from the original
+        # context — the fish strategy currently sees them as False, which
+        # means it under-calls medium bets. Adding them gives the base
+        # behavior the smoke-test baseline already assumes.
+        canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
+        is_pair = bool(canonical_hand) and len(canonical_hand) == 2 and canonical_hand[0] == canonical_hand[1]
+        is_suited = canonical_hand.endswith('s')
+
         return {
             'player_name': player.name,
             'player_stack': player.stack,
@@ -203,16 +302,29 @@ class RuleBotController(AIPlayerController):
             'max_raise': max_raise_to,
             'big_blind': big_blind,
             'equity': equity,
-            'canonical_hand': _get_canonical_hand(hole_cards) if hole_cards else '',
+            'canonical_hand': canonical_hand,
             'hole_cards': hole_cards,
             'community_cards': community_cards,
             'phase': phase,
+            'street': street,
             'position': position,
             'num_opponents': num_opponents,
             'effective_stack': effective_stack,
             'effective_stack_bb': effective_stack_bb_val,
             'spr': spr,
             'valid_actions': context.get('valid_actions', []),
+            # Hand-shape derivations
+            'is_pair': is_pair,
+            'is_suited': is_suited,
+            'has_face_card': has_face_card,
+            'has_flush_draw': has_flush_draw,
+            'has_oesd': has_oesd,
+            'has_top_pair_or_better': has_top_pair_or_better,
+            # Hand-investment derivations (fish-leak triggers)
+            'committed_fraction_of_stack': committed_fraction,
+            'is_losing_at_table': is_losing_at_table,
+            # Fish leak (None for non-fish strategies)
+            'fish_leak': self.fish_leak,
             # Opponent modeling stats (for adaptive strategies)
             'opp_vpip': opp_stats.get('vpip', 0.5),
             'opp_aggression': opp_stats.get('aggression', 1.0),

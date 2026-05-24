@@ -24,9 +24,13 @@ Spec: `docs/plans/CASH_MODE_LOBBY_HANDOFF.md` §"Persistent table state".
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 TABLE_SEAT_COUNT = 6
@@ -48,6 +52,53 @@ def open_slot() -> Dict[str, Any]:
 def ai_slot(personality_id: str, chips: int) -> Dict[str, Any]:
     """Return an AI slot dict."""
     return {"kind": "ai", "personality_id": personality_id, "chips": int(chips)}
+
+
+def ai_slot_fish(personality_id: str, chips: int) -> Dict[str, Any]:
+    """Return an AI slot dict for a pool-funded fish at a casino.
+
+    Identical to `ai_slot` plus an `archetype='fish'` stamp. Fish are
+    real, curated personalities (e.g. `vacation_greg`) seated at
+    `table_type='casino'` venues with chips drawn from the bank pool,
+    not their bankroll. The stamp lets the movement and teardown paths
+    identify fish seats by reading the seat dict alone — no per-tick
+    `PersonalityRepository` lookup. It is the single source of truth
+    for "this seat is a fish" during a hand. See
+    `cash_mode/casino_provisioning.py`.
+    """
+    return {
+        "kind": "ai",
+        "personality_id": personality_id,
+        "chips": int(chips),
+        "archetype": "fish",
+    }
+
+
+def personality_for_seat(seat: Dict[str, Any], personality_repo) -> Optional[Dict[str, Any]]:
+    """Resolve a seat to its personality config dict via the DB.
+
+    Looks up `PersonalityRepository.load_personality_by_id` for AI seats
+    — fish included, since they're real curated personas now (no inline
+    blob). Returns None for open/human seats or when the lookup fails.
+
+    Catches only **expected** repo failures (DB IO, corrupted JSON) and
+    logs them, returning None. Programmer bugs (AttributeError, TypeError,
+    schema-drift KeyError) propagate — those are caller-level mistakes
+    that should crash loudly so they get fixed.
+    """
+    if not isinstance(seat, dict):
+        return None
+    pid = seat.get("personality_id")
+    if not pid or personality_repo is None:
+        return None
+    try:
+        return personality_repo.load_personality_by_id(pid)
+    except (sqlite3.Error, json.JSONDecodeError) as exc:
+        logger.warning(
+            "[CASH] personality_for_seat lookup failed for pid=%r: %s",
+            pid, exc,
+        )
+        return None
 
 
 def human_slot(owner_id: str, chips: int) -> Dict[str, Any]:

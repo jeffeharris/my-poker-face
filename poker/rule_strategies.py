@@ -18,11 +18,42 @@ import json
 import logging
 import random
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Dict
 
-from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_45_HANDS
 
 logger = logging.getLogger(__name__)
+
+
+class FishLeak(str, Enum):
+    """Designated, exploitable leak for a fish-archetype tourist.
+
+    The base `_strategy_fish` already plays bad poker — calling station,
+    raises nothing, folds to large bets only with marginal hands. A leak
+    layers one specific, identifiable deviation on top so the same
+    tourist makes the same mistake hand after hand: a grinder can learn
+    to recognize and exploit it.
+
+    Each value modifies exactly one branch of `_strategy_fish`. When no
+    leak is set, fish play the calling-station baseline unchanged.
+
+    Spec: docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md
+    """
+    CALLS_DOWN_TOP_PAIR      = "calls_down_top_pair"      # large bets: top pair or better → call
+    CHASES_ANY_DRAW          = "chases_any_draw"          # medium bets: FD/OESD → call
+    DOESNT_BELIEVE_BIG_BETS  = "doesnt_believe_big_bets"  # large bets: weakened threshold
+    LIMPS_EVERY_HAND         = "limps_every_hand"         # preflop: never folds
+    POT_COMMITTED_EARLY      = "pot_committed_early"      # once ≥30% in, can't fold
+    OVERVALUES_FACE_CARDS    = "overvalues_face_cards"    # medium bets: any face card → call
+    CALLS_RIVER_LIGHT        = "calls_river_light"        # river specifically: weak call threshold
+    SPITE_RAISES_WHEN_LOSING = "spite_raises_when_losing" # losing at table: random min-raise bluffs
+
+
+# Tunables for leak triggers. Held as module-level so unit tests can
+# patch them without monkey-patching the strategy function itself.
+POT_COMMITTED_THRESHOLD = 0.30          # fraction-of-starting-stack invested this hand
+SPITE_RAISE_PROBABILITY = 0.08          # per-decision chance to spite-raise when losing
 
 
 @dataclass(frozen=True)
@@ -572,7 +603,7 @@ def _strategy_case_based(context: Dict) -> Dict:
 def _strategy_fish(context: Dict) -> Dict:
     """Classic loose-passive 'calling station' — the casino tourist.
 
-    The fish is here to lose chips, not to make decisions. Behavior:
+    The fish is here to lose chips, not to make decisions. Base behavior:
       - Free to act → check. (Almost never raises blind.)
       - Facing a small bet (≤ 3 BB) → always calls. Tourist doesn't
         understand pot odds; sees a bet, pays the bet.
@@ -587,6 +618,11 @@ def _strategy_fish(context: Dict) -> Dict:
     near-zero fold_to_cbet (calls flop wide), high WTSD. The classic
     chip donor pattern that grinders feast on.
 
+    **Designated leaks** (`context['fish_leak']` matches a `FishLeak`
+    value) layer one specific deviation on top of the baseline. Each
+    leak fires only when its trigger holds; otherwise base behavior
+    runs unchanged. See `FishLeak` enum for the catalogue.
+
     No psychology, no position adjustments, no opponent modeling. The
     tourist is too drunk / distracted / inexperienced for any of that.
     """
@@ -595,8 +631,42 @@ def _strategy_fish(context: Dict) -> Dict:
     cost_to_call = context['cost_to_call']
     big_blind = context.get('big_blind', 2)
     cost_in_bb = cost_to_call / big_blind if big_blind > 0 else cost_to_call
+    leak = context.get('fish_leak')
+    street = context.get('street', '')
+
+    # --- POT_COMMITTED_EARLY: once enough in the pot, can't fold ------
+    # Fires across every branch — overrides fold decisions but never
+    # turns a check into a call. Cheap to evaluate first so it short-
+    # circuits the cost-tier checks below.
+    if (
+        leak == FishLeak.POT_COMMITTED_EARLY
+        and cost_to_call > 0
+        and context.get('committed_fraction_of_stack', 0.0) >= POT_COMMITTED_THRESHOLD
+        and 'call' in context['valid_actions']
+    ):
+        return {'action': 'call', 'raise_to': 0}
+
+    # --- SPITE_RAISES_WHEN_LOSING: down at table → occasional bluff ---
+    # Probabilistic. Uses context['_rng'] if provided (lets tests pin
+    # the roll); falls back to module random so prod is non-deterministic.
+    if (
+        leak == FishLeak.SPITE_RAISES_WHEN_LOSING
+        and context.get('is_losing_at_table', False)
+        and 'raise' in context['valid_actions']
+    ):
+        rng = context.get('_rng') or random
+        if rng.random() < SPITE_RAISE_PROBABILITY:
+            return {'action': 'raise', 'raise_to': context['min_raise']}
 
     if cost_to_call == 0:
+        # --- LIMPS_EVERY_HAND: preflop, never folds OR raises — just limps ---
+        # We're already free-to-act; base behavior is check (which IS
+        # limp preflop). The leak's deviation is at the facing-bet
+        # branch below — but here it suppresses the monster raise so the
+        # tourist truly is passive on every preflop hand.
+        if leak == FishLeak.LIMPS_EVERY_HAND and street == 'preflop':
+            return {'action': 'check', 'raise_to': 0}
+
         if (
             canonical in TOP_10_HANDS
             and equity >= 0.70
@@ -604,6 +674,15 @@ def _strategy_fish(context: Dict) -> Dict:
         ):
             return {'action': 'raise', 'raise_to': context['min_raise']}
         return {'action': 'check', 'raise_to': 0}
+
+    # --- LIMPS_EVERY_HAND: preflop facing-bet, always calls ----------
+    # Tourist who limps every hand can't lay one down preflop either.
+    if (
+        leak == FishLeak.LIMPS_EVERY_HAND
+        and street == 'preflop'
+        and 'call' in context['valid_actions']
+    ):
+        return {'action': 'call', 'raise_to': 0}
 
     if cost_in_bb <= 3:
         if 'call' in context['valid_actions']:
@@ -616,10 +695,54 @@ def _strategy_fish(context: Dict) -> Dict:
             canonical in TOP_35_HANDS
             or context.get('is_suited', False)
         )
+
+        # --- CHASES_ANY_DRAW: any FD / OESD → call ----------------------
+        if leak == FishLeak.CHASES_ANY_DRAW and (
+            context.get('has_flush_draw', False)
+            or context.get('has_oesd', False)
+        ):
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+
+        # --- OVERVALUES_FACE_CARDS: any J/Q/K/A in hole → call --------
+        if (
+            leak == FishLeak.OVERVALUES_FACE_CARDS
+            and context.get('has_face_card', False)
+        ):
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+
         if is_pair or is_suited_or_broadway or equity >= 0.40:
             if 'call' in context['valid_actions']:
                 return {'action': 'call', 'raise_to': 0}
         return {'action': 'fold', 'raise_to': 0}
+
+    # Large bet (> 8 BB)
+    # --- CALLS_DOWN_TOP_PAIR: any top pair or better → call ----------
+    if (
+        leak == FishLeak.CALLS_DOWN_TOP_PAIR
+        and context.get('has_top_pair_or_better', False)
+    ):
+        if 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+
+    # --- DOESNT_BELIEVE_BIG_BETS: weakens the threshold significantly -
+    # Hero-calls with TOP_45 or any pair or equity >= 0.40. Tourist
+    # "can't be bluffed" — they pay off legitimate value bets too.
+    if leak == FishLeak.DOESNT_BELIEVE_BIG_BETS:
+        if (
+            canonical in TOP_45_HANDS
+            or context.get('is_pair', False)
+            or equity >= 0.40
+        ):
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
+
+    # --- CALLS_RIVER_LIGHT: river only, weakened threshold -----------
+    if leak == FishLeak.CALLS_RIVER_LIGHT and street == 'river':
+        if canonical in TOP_45_HANDS or equity >= 0.40:
+            if 'call' in context['valid_actions']:
+                return {'action': 'call', 'raise_to': 0}
 
     if canonical in TOP_20_HANDS or equity >= 0.55:
         if 'call' in context['valid_actions']:
