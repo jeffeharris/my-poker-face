@@ -1,10 +1,11 @@
-"""HU push/fold lookup for short-stack play.
+"""Push/fold lookup for short-stack play (HU + multi-way).
 
-When effective stack falls below ~15 BB, the deep-stack strategy table
-in `preflop_100bb_hu.json` becomes mis-calibrated — its raise sizes
-commit too much of the stack for non-jam plays to be coherent. This
-module routes short-stack preflop decisions to a separate Nash-style
-push/fold chart loaded from `data/push_fold_hu.json`.
+When effective stack falls below ~15 BB, the deep-stack strategy tables
+become mis-calibrated — their raise sizes commit too much of the stack
+for non-jam plays to be coherent. This module routes short-stack preflop
+decisions to separate Nash-style push/fold charts loaded from
+`data/push_fold_hu.json` (heads-up) and `data/push_fold_6max.json`
+(multi-way).
 
 Lookup contract:
   - `lookup_push_fold_action(hand, position, effective_stack_bb, num_opponents)`
