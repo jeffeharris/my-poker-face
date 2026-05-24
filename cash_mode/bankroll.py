@@ -272,42 +272,45 @@ def debit_bankroll_for_seat(
     amount: int,
     *,
     sandbox_id: Optional[str] = None,
+    chip_ledger_repo=None,
+    now: Optional[datetime] = None,
 ) -> Optional[AIBankrollState]:
-    """Pure transfer: move chips from an AI's bankroll to a cash table seat.
+    """Atomic regen+debit: project bankroll forward, commit regen, debit `amount`.
 
-    No ledger entry — `ai_bankrolls_stored` decreases and
-    `cash_table_seats_ai` increases by the same amount, so the audit's
-    `actual_outstanding` is preserved. Symmetric pair to the
-    seat → bankroll credit path which goes through `credit_ai_cash_out`
-    (which DOES write ledger entries, because it commits regen and may
-    cap-clamp).
-
-    Preserves `last_regen_tick` — doesn't commit any pending regen at
-    debit time. Uncommitted regen catches up at the next credit-side
-    write or read.
+    Pure transfer of `amount` chips from an AI's bankroll to a cash
+    table seat. `cash_table_seats_ai` increases by `amount`;
+    `ai_bankrolls_stored` decreases by `amount` minus any pending
+    regen that gets committed here. The audit's `actual_outstanding`
+    is preserved; the regen creation is the only ledger row.
 
     Called when:
       - Lobby seed fills a fresh AI seat at boot.
       - `refresh_table_roster`'s live-fill step seats an AI from the
         idle pool or eligible-never-seated pool.
+      - `casino_provisioning` seats a fish after pool-funding its bankroll.
+      - Player route sit-down.
 
-    Defensively clamps the new stored chip count at 0 — bankroll
-    eligibility checks (`bankroll_lookup` callbacks in
-    refresh_table_roster) should keep this from ever firing, but a
-    negative bankroll would silently break the audit invariant.
-    Returns the persisted state or None if no row exists.
+    Three outcomes:
+      - **Row missing**: return None (no bankroll to debit).
+      - **Projected (stored + uncommitted regen) < amount**: refuse
+        with None. Caller MUST unwind any pre-placed seat. This is
+        the audit-safe replacement for the old clamp-to-zero that
+        silently created `amount - stored.chips` phantom chips.
+      - **Projected ≥ amount**: commit any pending regen via an
+        `ai_regen` ledger entry (when `chip_ledger_repo` is provided),
+        then write `chips = projected - amount, last_regen_tick = now`.
+        `ai_regen` is the only ledger row; the debit itself is an
+        internal transfer (bankroll → seat).
 
-    KNOWN LEAK (audit drift): when `stored.chips < amount`, the
-    clamp creates `amount - stored.chips` phantom chips at the seat
-    without debiting them from any bankroll — a primary source of
-    audit drift. Logs a WARNING so the leak is observable. Proper
-    fix is one of:
-      (a) Commit pending regen before debit (threads chip_ledger_repo
-          through every caller — drives projected to stored), or
-      (b) Refuse the debit AND have callers unwind the pre-placed
-          seat on None.
-    Tracked as a follow-up; the warning is the diagnostic seam.
+    When `chip_ledger_repo` is None the caller has opted out of regen
+    instrumentation; the function falls back to comparing `stored`
+    (not projected) against `amount` and skips the ledger row. This
+    keeps tests and admin paths that don't have a ledger handle
+    working without forcing them to construct one. Regen-eligible
+    callers MUST pass the ledger repo so the audit balances.
     """
+    if now is None:
+        now = datetime.utcnow()
     try:
         stored = bankroll_repo.load_ai_bankroll(
             personality_id,
@@ -323,24 +326,53 @@ def debit_bankroll_for_seat(
             personality_id,
         )
         return None
-    # Diagnostic seam: when stored < amount, the clamp below creates
-    # `amount - stored.chips` phantom chips at the seat (caller has
-    # already placed the seat with `amount` chips before calling).
-    # Logging here makes the leak observable in run logs. Upstream
-    # eligibility checks should make this branch unreachable.
-    if stored.chips < amount:
-        logger.warning(
-            "[CASH][AUDIT] debit clamp leak: pid=%s sandbox=%s "
-            "stored=%d amount=%d leak=+%d — bankroll_lookup let "
-            "this through; investigate",
-            personality_id, sandbox_id, stored.chips, amount,
-            amount - stored.chips,
+
+    # Two paths depending on whether the caller opted into regen
+    # commit. Both refuse on insufficiency rather than clamping.
+    if chip_ledger_repo is not None:
+        knobs = bankroll_repo.load_personality_knobs(personality_id)
+        projected = project_bankroll(
+            stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
         )
-    new_chips = max(0, stored.chips - amount)
+        if projected < amount:
+            logger.warning(
+                "[CASH] seat debit refused: pid=%s sandbox=%s "
+                "stored=%d projected=%d amount=%d (shortfall=%d) — "
+                "caller must unwind pre-placed seat",
+                personality_id, sandbox_id, stored.chips, projected,
+                amount, amount - projected,
+            )
+            return None
+        # Commit pending regen as a ledger row so `ai_bankrolls_stored`
+        # is allowed to grow from `stored.chips` to `projected` without
+        # breaking conservation. No-op when projected == stored.
+        from core.economy.ledger import record_ai_regen
+        record_ai_regen(
+            chip_ledger_repo,
+            personality_id=personality_id,
+            stored_chips=stored.chips,
+            projected_chips=projected,
+            context={'site': 'debit_bankroll_for_seat', 'sandbox_id': sandbox_id},
+            sandbox_id=sandbox_id,
+        )
+        new_chips = projected - amount
+    else:
+        if stored.chips < amount:
+            logger.warning(
+                "[CASH] seat debit refused (no ledger): pid=%s "
+                "sandbox=%s stored=%d amount=%d (shortfall=%d) — "
+                "caller must unwind pre-placed seat OR pass "
+                "chip_ledger_repo so pending regen can be committed",
+                personality_id, sandbox_id, stored.chips, amount,
+                amount - stored.chips,
+            )
+            return None
+        new_chips = stored.chips - amount
+
     new_state = AIBankrollState(
         personality_id=personality_id,
         chips=new_chips,
-        last_regen_tick=stored.last_regen_tick,
+        last_regen_tick=now,
     )
     try:
         bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
