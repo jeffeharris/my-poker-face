@@ -162,9 +162,25 @@ ranges in `docs/plans/PUSH_FOLD_6MAX_SCOPE.md` via
 `generate_push_fold_6max.py`. `meta.calibration_status =
 "v1_from_published_nash"`.
 
+**Shape-list + target-% calibration (important design note):** the scope
+doc gives, per cell, *both* a readable hand list *and* a cross-validated
+`~%`. On audit, most unopened hand lists transcribe materially **looser**
+than their stated `~%` (e.g. UTG/HJ 8 BB list expands to ~19% combo-weighted
+but the published anchor is 9%; the lists over-use "any-ace"/"any-king"
+shorthand). The `~%` values are the cross-validated [H] anchors (Sources),
+so the generator treats the **hand list as the eligible candidate pool /
+shape** and **trims it down to the published target combo-%** by dropping the
+weakest combos (by the HU strength proxy, `_hand_strength_rank`). It never
+*adds* hands the doc didn't list. Result: every cell lands within ~2% of its
+published target while keeping the doc's range shape. This is a v1 decision
+made because the doc's two signals disagreed; the scope doc names aggregate
+jam/call% as the primary validation gate, so the percentages win.
+
 Known approximations:
-- Hand-list expansion lands on whole combos, so aggregate frequencies sit a
-  few percent off the published target (well inside the test bands).
+- Frequencies are combo-weighted (offsuit=12, suited=4, pair=6 of 1326),
+  matching how published Nash percentages are stated. A few cells land ~2-5%
+  under target where the doc's own list under-expands (SB 6 BB → ~56% vs
+  60%; bb_vs_sb 15 BB → ~11% vs 13%) — still inside the test bands.
 - Stack-depth granularity is buckets, not continuous; the lookup snaps to the
   nearest bucket (no interpolation).
 - `bb_vs_late` is the same regardless of whether the late jammer is CO or
