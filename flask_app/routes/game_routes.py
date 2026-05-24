@@ -607,10 +607,27 @@ def api_game_state(game_id):
                         # permanently corrupts relationship state.
                         suppress_for_casino = False
                         if is_cash_game:
-                            cash_table_id = (
-                                game_data.get('cash_table_id')
-                                if isinstance(game_data, dict) else None
-                            )
+                            # cash_table_id isn't in the saved game JSON, and
+                            # current_game_data is still None on this cold-load
+                            # path (it's built further down) — so read it from
+                            # the durable cash_sessions row (v108), the same
+                            # source the buy-in/seat restore below uses. A
+                            # lookup failure trips the fail-safe: suppress.
+                            cash_table_id = None
+                            try:
+                                from flask_app.extensions import cash_session_repo
+                                if cash_session_repo is not None:
+                                    _cs = cash_session_repo.load(game_id)
+                                    if _cs is not None:
+                                        cash_table_id = _cs.cash_table_id
+                            except Exception as exc:
+                                suppress_for_casino = True
+                                logger.warning(
+                                    "[LOAD] cash_sessions lookup failed for %s "
+                                    "during casino-suppression check: %s — "
+                                    "suppressing relationship writes (fail-safe).",
+                                    game_id, exc,
+                                )
                             if cash_table_id:
                                 try:
                                     from flask_app.extensions import cash_table_repo as _cash_table_repo
