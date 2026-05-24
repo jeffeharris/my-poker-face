@@ -26,7 +26,11 @@ from .strategy.postflop_classifier import build_postflop_node
 from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
 from .strategy.deviation_profiles import select_deviation_profile, DeviationProfile
 from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
-from .strategy.push_fold import lookup_push_fold_action, PUSH_FOLD_THRESHOLD_BB
+from .strategy.push_fold import (
+    lookup_push_fold_action,
+    lookup_push_fold_action_6max,
+    PUSH_FOLD_THRESHOLD_BB,
+)
 from .strategy.strategy_profile import StrategyProfile
 from .strategy.hand_classification import simplify_hand_class
 from .strategy.multiway import apply_multiway_adjustment
@@ -2673,25 +2677,23 @@ class TieredBotController(AIPlayerController):
 
         Returns the abstract action ('jam', 'fold', or 'call') when the
         situation is in scope for push/fold; None when the deep-stack
-        table should handle it (deep stacks, multi-way, not HU, etc.).
+        table should handle it (deep stacks, not short, out-of-scope spot).
 
-        v1 scope: HU only (num_seated == 2), stack <= 15 BB effective.
-        Multi-way short-stack falls through to the existing short_stack.py
-        heuristic which suppresses medium raises rather than enforcing
-        a strict push/fold.
+        Scope: stack <= 15 BB effective.
+          - HU (num_seated == 2)  -> HU chart (SB open / BB call-vs-jam).
+          - Multi-way (num_seated > 2) -> 6max chart (per-position
+            unopened jams + bb_vs_sb / bb_vs_late caller tables).
+        Spots not covered (e.g. a non-blind hero facing a jam multi-way,
+        a BB walk) fall through to the deep-stack / short_stack.py path.
         """
-        # HU-only for v1
-        if num_seated != 2:
-            return None
-
-        # Compute effective stack in big blinds
+        # Compute effective stack in big blinds (shared by both paths)
         try:
             big_blind = game_state.current_ante or 0
             if big_blind <= 0:
                 return None
             player = game_state.players[player_idx]
             hero_stack = player.stack + player.bet
-            # Effective stack: smaller of hero and the single opponent
+            # Effective stack: smaller of hero and the largest active opp.
             opp_stacks = [
                 p.stack + p.bet
                 for i, p in enumerate(game_state.players)
@@ -2707,7 +2709,25 @@ class TieredBotController(AIPlayerController):
         if effective_stack_bb > PUSH_FOLD_THRESHOLD_BB:
             return None
 
-        # Determine hero position (SB or BB only for HU)
+        if num_seated == 2:
+            return self._try_push_fold_hu(
+                canonical_hand, game_state, player_idx,
+                big_blind, effective_stack_bb,
+            )
+        return self._try_push_fold_6max(
+            canonical_hand, game_state, player_idx, num_seated,
+            big_blind, effective_stack_bb,
+        )
+
+    def _try_push_fold_hu(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        big_blind: float,
+        effective_stack_bb: float,
+    ) -> Optional[str]:
+        """HU short-stack push/fold (SB open / BB call-vs-SB-jam)."""
         try:
             if player_idx == game_state.small_blind_idx:
                 position = 'SB'
@@ -2718,18 +2738,14 @@ class TieredBotController(AIPlayerController):
         except AttributeError:
             return None
 
-        # Is hero facing a jam? BB facing an SB all-in is the only
-        # situation where the push/fold chart's bb_vs_jam scenario fires.
         facing_jam = False
         if position == 'BB':
-            # Check if SB has gone all-in on this street
             sb_idx = game_state.small_blind_idx
             sb_player = game_state.players[sb_idx]
             sb_stack_remaining = getattr(sb_player, 'stack', 1)
             if sb_stack_remaining == 0 and getattr(sb_player, 'bet', 0) > big_blind:
                 facing_jam = True
             else:
-                # BB with no jam to face → no push/fold decision yet
                 return None
 
         return lookup_push_fold_action(
@@ -2738,6 +2754,67 @@ class TieredBotController(AIPlayerController):
             effective_stack_bb=effective_stack_bb,
             num_opponents=1,
             facing_jam=facing_jam,
+        )
+
+    def _try_push_fold_6max(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        num_seated: int,
+        big_blind: float,
+        effective_stack_bb: float,
+    ) -> Optional[str]:
+        """Multi-way short-stack push/fold via the 6max chart.
+
+        Two in-scope spots:
+          1. Unopened (no raise yet): hero (UTG/HJ/CO/BTN/SB) jams or folds
+             from the `unopened` chart. BB unopened (a walk) is not in the
+             chart and returns None.
+          2. Facing an all-in: hero calls or folds from the caller tables.
+             Routes to bb_vs_sb when the jammer is the SB, else bb_vs_late.
+
+        Returns None for any other multi-way short-stack spot (limped pots,
+        a raise that isn't all-in, etc.) so the deep-stack / short_stack.py
+        path keeps handling them.
+        """
+        position = get_6max_position(game_state, player_idx)
+
+        # Identify an all-in opponent on this street (a "jam" to face).
+        # A jam = an active opponent with 0 stack remaining whose committed
+        # bet exceeds the big blind.
+        jammer_idx = None
+        for i, p in enumerate(game_state.players):
+            if i == player_idx or getattr(p, 'is_folded', False):
+                continue
+            if getattr(p, 'stack', 1) == 0 and getattr(p, 'bet', 0) > big_blind:
+                jammer_idx = i  # last jammer in seat order is the one to face
+        facing_jam = jammer_idx is not None
+
+        if facing_jam:
+            opener_position = get_6max_position(game_state, jammer_idx)
+            return lookup_push_fold_action_6max(
+                hand=canonical_hand,
+                position=position,
+                effective_stack_bb=effective_stack_bb,
+                num_players=num_seated,
+                facing_jam=True,
+                opener_position=opener_position,
+            )
+
+        # Unopened jam: only fire when the pot hasn't been raised yet.
+        # `raises_this_round == 0` means hero is first-in (blinds posted but
+        # no raise/jam). A non-all-in raise we're facing is out of v1 scope
+        # (that's the deferred reshove table) → None → deep-stack path.
+        if getattr(game_state, 'raises_this_round', 0) != 0:
+            return None
+
+        return lookup_push_fold_action_6max(
+            hand=canonical_hand,
+            position=position,
+            effective_stack_bb=effective_stack_bb,
+            num_players=num_seated,
+            facing_jam=False,
         )
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
