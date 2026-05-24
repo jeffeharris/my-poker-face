@@ -16,6 +16,7 @@ Custom rules can be expressed via _strategy_custom + RuleConfig.rules.
 
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Dict
 
@@ -281,6 +282,50 @@ def _strategy_maniac(context: Dict) -> Dict:
         return {'action': 'check', 'raise_to': 0}
 
     return {'action': 'fold', 'raise_to': 0}
+
+
+_TRAP_BAIT_FLOP_CHECK_PROB = 0.70
+
+# Module-level RNG for the trap-bait flop check. Avoids per-call
+# `random.Random()` instantiation (which would seed from system
+# entropy on every action). Module-level state keeps draws consistent
+# within a process while not being globally reproducible against
+# experiment seeds — but since trap-bait's aggregate behavior is what
+# matters (the stat converges), the lack of seed reproducibility is
+# acceptable for the smoke target.
+_TRAP_BAIT_RNG = random.Random()
+
+
+def _strategy_trap_bait(context: Dict) -> Dict:
+    """Phase B Item 4: OOP check-then-barrel trap-bait pattern.
+
+    When OOP first-to-act on the flop, checks ~70% to set the trap; on
+    turn/river (and any other postflop street decision) barrels like a
+    maniac. Designed as a known-target opponent for the open-spot IP
+    induce branch: a TieredBot that exploits the pattern should see its
+    `flop_check_then_barrel_rate` stat on this bot converge above the
+    induce gate threshold within ~50 hands.
+
+    OOP detection here is the HU realization — BB seat acts first
+    postflop in HU. Multi-table extension is out of scope for Item 4.
+    """
+    phase = context.get('phase', 'PRE_FLOP')
+    position = (context.get('position') or '').lower()
+    cost = context.get('cost_to_call', 0)
+    valid = context.get('valid_actions', [])
+
+    is_oop_blind = position == 'big_blind_player'
+
+    if (
+        phase == 'FLOP'
+        and is_oop_blind
+        and cost == 0
+        and 'check' in valid
+    ):
+        if _TRAP_BAIT_RNG.random() < _TRAP_BAIT_FLOP_CHECK_PROB:
+            return {'action': 'check', 'raise_to': 0}
+
+    return _strategy_maniac(context)
 
 
 def _strategy_bluffbot(context: Dict) -> Dict:
@@ -592,6 +637,7 @@ BUILT_IN_STRATEGIES = {
     'position_aware': _strategy_position_aware,
     'pot_odds_robot': _strategy_pot_odds_robot,
     'maniac': _strategy_maniac,
+    'trap_bait': _strategy_trap_bait,
     'bluffbot': _strategy_bluffbot,
     'case_based': _strategy_case_based,
     'fish': _strategy_fish,
@@ -729,6 +775,7 @@ CHAOS_BOTS = {
     'position_aware': RuleConfig(strategy='position_aware', name='PositionBot'),
     'pot_odds_robot': RuleConfig(strategy='pot_odds_robot', name='GTO-Lite'),
     'maniac': RuleConfig(strategy='maniac', name='ManiacBot'),
+    'trap_bait': RuleConfig(strategy='trap_bait', name='TrapBaitBot'),
     'bluffbot': RuleConfig(strategy='bluffbot', name='BluffBot'),
     'case_based': RuleConfig(strategy='case_based', name='CaseBot'),
 }
