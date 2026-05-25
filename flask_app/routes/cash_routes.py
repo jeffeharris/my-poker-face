@@ -4310,9 +4310,13 @@ def get_lobby():
     except Exception:
         world_pace = "lively"
 
+    # Send a deeper slice than the ~5 shown at once so a fresh load lands
+    # with real scroll-back history; the client merges these into its
+    # rolling feed (it accumulates further over the session). Bounded by
+    # the activity ring buffer's own cap.
     events_payload = [
         serialize_event(e)
-        for e in recent_events(limit=5, sandbox_id=sandbox_id)
+        for e in recent_events(limit=30, sandbox_id=sandbox_id)
     ]
 
     # The player's own last-stand line — bankroll is $0 and they have a

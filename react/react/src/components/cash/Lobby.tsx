@@ -95,6 +95,36 @@ function groupTablesByStake(tables: LobbyTable[]): Map<StakeLabel, LobbyTable[]>
   return grouped;
 }
 
+/** Cap on the rolling activity feed. The server snapshot is short (so the
+ *  payload stays small); the client accumulates beyond it so the user can
+ *  scroll back through more history than any single poll returns. */
+const MAX_FEED_EVENTS = 60;
+
+/** Stable identity for de-duping the feed. The player's own last-stand
+ *  line is re-synthesized with a fresh timestamp on every poll, so all of
+ *  its copies collapse onto one key — otherwise a standing self-warning
+ *  would pile up one row per poll. */
+function feedEventKey(e: LobbyEvent): string {
+  if (e.type === 'last_stand' && e.reason === 'self') return 'self:last_stand';
+  return `${e.created_at}|${e.type}|${e.personality_id}`;
+}
+
+/** Merge incoming events into the rolling feed: keep the newest copy of
+ *  each key, sort newest-first, cap the buffer. Accumulating (rather than
+ *  replacing with the server's short snapshot) is what lets the user
+ *  scroll back; the cap keeps the buffer from growing without bound. */
+function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent[] {
+  const byKey = new Map<string, LobbyEvent>();
+  for (const e of [...incoming, ...existing]) {
+    const k = feedEventKey(e);
+    const cur = byKey.get(k);
+    if (!cur || e.created_at > cur.created_at) byKey.set(k, e);
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, MAX_FEED_EVENTS);
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
@@ -175,7 +205,16 @@ export function Lobby() {
         if (cancelled) return;
         setBankroll(lobby.bankroll);
         setTables(lobby.tables);
-        setEvents(lobby.events ?? []);
+        // Merge into the rolling feed rather than replace, so history the
+        // server snapshot no longer carries stays scrollable. Drop any
+        // prior self last-stand line first so the poll snapshot stays
+        // authoritative for it (it clears when the condition lifts).
+        setEvents((prev) =>
+          mergeEvents(
+            prev.filter((e) => !(e.type === 'last_stand' && e.reason === 'self')),
+            lobby.events ?? [],
+          ),
+        );
         setPendingForgivenessCount(lobby.pending_forgiveness_count ?? 0);
         // Adopt the server pace only on first load; once set, the local
         // (optimistic) value wins so a refetch can't clobber a pace the
@@ -235,16 +274,10 @@ export function Lobby() {
       }, LOBBY_TICK_DEBOUNCE_MS);
     };
     const onWorldEvent = (event: WorldEvent) => {
-      // Prepend for immediate motion; the debounced refetch reconciles
-      // to server truth (which caps the feed). De-dupe on the natural
-      // key so a tick-refetch landing right after doesn't double-show.
-      setEvents((prev) => {
-        const key = `${event.created_at}|${event.type}|${event.personality_id}`;
-        if (prev.some((e) => `${e.created_at}|${e.type}|${e.personality_id}` === key)) {
-          return prev;
-        }
-        return [event, ...prev].slice(0, 50);
-      });
+      // Merge for immediate motion; the debounced refetch reconciles to
+      // server truth. Shared merge de-dupes on the natural key so a
+      // tick-refetch landing right after doesn't double-show.
+      setEvents((prev) => mergeEvents(prev, [event]));
       // Future: curated "signal" toasts (whale arrived / on a heater /
       // on tilt) hang off this same channel — see CASH_MODE_REALTIME_TICKER.md.
     };
