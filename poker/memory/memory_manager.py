@@ -602,6 +602,18 @@ class AIMemoryManager:
                 if observer != pfr_name:
                     model = self.opponent_model_manager.get_model(observer, pfr_name)
                     model.tendencies.update_third_barrel_attempt(attempted)
+        # Phase B Item 4: drain flop-check-then-barrel events. Mirrors
+        # the barrel-attempt drain above but for the OOP-check-then-
+        # barrel pattern (no preflop-aggressor gating).
+        for checker_name, attempted in self._cbet_detector.consume_flop_check_barrel_attempt_events():
+            logger.debug(
+                f"{checker_name} {'fired' if attempted else 'declined'} "
+                "flop-check-then-barrel"
+            )
+            for observer in self.initialized_players:
+                if observer != checker_name:
+                    model = self.opponent_model_manager.get_model(observer, checker_name)
+                    model.tendencies.update_flop_check_barrel_attempt(attempted)
 
         # Update opponent models for all observers (including self-observation
         # for coaching stats like VPIP/PFR)

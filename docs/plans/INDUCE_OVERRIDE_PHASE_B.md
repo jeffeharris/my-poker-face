@@ -2,10 +2,25 @@
 purpose: Phase B — extend the induce_override rule with proper street-resolved barrel tracking, confidence-scaled mixing, broader hand classes, and OOP support
 type: design
 created: 2026-05-15
-last_updated: 2026-05-15
+last_updated: 2026-05-23
+status: Items 1–5 shipped on hybrid-ai; Item 6 deferred (empirically un-tunable at current fire rate). See "Shipped status" below and INDUCE_OVERRIDE_HANDOFF.md + INDUCE_OVERRIDE_OOP_CHECK_RAISE.md for details.
 ---
 
 # Induce Override — Phase B
+
+## Shipped status (2026-05-22)
+
+| Item | Commit | Empirical verdict |
+|---|---|---|
+| 1 — `barrel_frequency` stat | `a4f19bb4` | Converges to 0.94 vs ManiacBot in ~500 hands. Plumbing-correct. |
+| 2 — barrel gate + scaled mixing | `cce12ca8` | Selectivity perfect (0 fires vs non-barrelers). Threshold tuned 10→5 to make sample_confidence ramp produce meaningful variation. Followup-barrel rate 80% on high-confidence fires; 25% on low-confidence — exactly the scaled-mix behavior the design intended. |
+| 3 — `strong_made` inclusion | `056e3160` | Gate correct per tests. Empirical fire rate ~0 added at 1000-hand scale — strong_made + actual_nuts/near_nuts + dry board is rare. |
+| 4 — open-spot IP induce | this session | Three pieces shipped together: `TrapBaitBot` rule strategy + `flop_check_then_barrel_rate` stat plumbing + open-spot branch dispatch in `apply_induce_override`. **Full ablation matrix (exp 75, 8 tournaments × 1000 hands × 5 villains × 2 arms = 88 tournaments):** vs TrapBaitBot lift +1.43 bb/100 (+0.32σ) — H1 (≥ +5 bb/100) MISS, well below noise floor. Leak floors: maniac −1.88 (within), casebot +5.53 (lift!), gtolite −4.64, abcbot −5.65 — H2 (≤ −2 leak) MISS on gtolite/abcbot but both within noise (σ < 2). **Open-spot branch fired 0× across all 88 tournaments** — H3 MISS. Facing-bet branch fired 9× vs TrapBaitBot, 14× vs Maniac (8000 hands each). Verdict: correctness widening only. The IP-free-to-act-strong-hand spot is genuinely too rare for natural HU play, even at 8000-hand scale. |
+| 5 — OOP induce (trap-check + check-raise) | shipped 2026-05-23 (exp 77) | Two OOP branches (trap-check + check-raise) + 2×2 dispatcher (action-set × position). 50 fires per 8K hands vs Maniac (6-10× the rate of Items 2/4) — sample-size problem solved. H1 MISS with negative direction: lift = −2.39 bb/100 (σ=−0.37, within noise but first negative direction). Selectivity correct (0 fires vs GTO-Lite/ABCBot). Possible mechanism: maniacs don't fold to raises so smooth-call may have higher EV than check-raise. Design doc: INDUCE_OVERRIDE_OOP_CHECK_RAISE.md. |
+| 6 — personality-aware intensity | **deferred (2026-05-23)** | Now potentially feasible after Item 5's 50-fires-per-arm baseline. Original concern (un-tunable at low fire rate) is partially resolved — Item 5's check_raise + trap_check fires give per-archetype sample large enough that a 2-3× matrix sample (n=16-24 tournaments) might detect archetype differentials. Still deferred for prioritization, but revisit conditions are looser now. |
+
+See [INDUCE_OVERRIDE_HANDOFF.md](INDUCE_OVERRIDE_HANDOFF.md) for the
+pickup state and validation infrastructure.
 
 ## Context
 
@@ -47,6 +62,14 @@ Each item has its own testable hypothesis. They are sequenced so
 earlier items reduce risk for later ones; do not parallel-ship.
 
 ## Item 1 — `barrel_frequency` stat
+
+**Shipped** (`a4f19bb4`). Validation: barrel_frequency converges to
+0.94 vs ManiacBot in ~500 hands (target was ≥0.80 with
+barrel_opportunities ≥30; observed: 0.94 with 34 opportunities).
+Third barrels also tracked cleanly (0.91, n=22). Plumbing complete:
+`CbetDetector` emits, `OpponentTendencies` accumulates,
+`AggregatedOpponentStats` surfaces, all 5 aggregator construction
+sites updated.
 
 ### Problem
 
@@ -113,6 +136,29 @@ counter-wiring update in the phase transition detector. Pattern is
 fully established by `cbet_attempt_rate` (Phase 8.1a).
 
 ## Item 2 — Confidence-scaled mixing
+
+**Shipped** (`cce12ca8`). Validation outcome:
+
+| | Phase A baseline | Phase B Item 2 (tuned) |
+|---|---|---|
+| Fires vs Maniac (8K hands) | 9 | 10 |
+| Selectivity vs non-barrelers | 0 fires | 0 fires |
+| Call probability | fixed 1.00 (validation override) | 0.78 → 0.90 range, mean 0.86 |
+| Followup-barrel @ high conf (≥0.85) | — | **4/5 = 80%** |
+| Followup-barrel @ low conf (<0.85) | — | 1/4 = 25% |
+
+The low-confidence followup-barrel rate (25%) looks worse than Phase
+A's 78% but reflects the scaled-mix design correctly: low call_prob =
+partial trap exposure, not full commitment. Real-world EV is the
+product of (call_prob × followup-barrel), which preserves Phase A
+quality on high-conf spots and adds gracefully-degrading exposure on
+low-conf spots.
+
+**Tuning note (in the shipped code):** `MIN_BARREL_OPPORTUNITIES`
+dropped from 10 → 5 after the initial run had only 5 fires per arm
+with both ramps saturated. Lowering to 5 cuts warmup roughly in
+half, and the sample-confidence ramp produces meaningful variation
+in call_prob (the design intent).
 
 ### Problem
 
@@ -195,6 +241,26 @@ mix.
 
 ## Item 3 — `strong_made` inclusion
 
+**Shipped** (`056e3160`). Outcome:
+
+- Gate refactored from two-constant pattern (`ELIGIBLE_HAND_STRENGTH`
+  + `ELIGIBLE_NUT_STATUS`) to a per-class lookup table
+  (`HAND_CLASS_GATES`). Each class has its own `(nut_status_allowlist,
+  max_danger_flags)` tuple.
+- `nuts`: unchanged from Item 2 — `actual_nuts` only, danger ≤ 1.
+- `strong_made`: added — `actual_nuts` or `near_nuts`, danger == 0
+  (stricter texture to compensate for non-nut turn-card risk).
+- 38 tests passing (was 31). 7 new tests in `TestItem3StrongMade` plus
+  a `HAND_CLASS_GATES` table-shape invariant.
+
+**Empirical reality:** smoke (1 tournament × 1000 hands vs ManiacBot,
+seed=42) added 0 fires on the new `strong_made` path. The
+intersection of (strong_made hand) × (actual_nuts/near_nuts) ×
+(0 danger flags) × (IP) × (facing bet) × (flop/turn) × (≥40 BB) is
+rare in natural play. **Item 3 is correctness widening, not measurable
+EV widening at this sample size.** Listed as "low risk, low reward"
+in the per-finding ledger.
+
 ### Problem
 
 Phase A is `nuts`-only. This excludes legitimate trap candidates like
@@ -232,6 +298,83 @@ risk on non-nut hands.
 | (H2) breach on any matchup | Texture gate is too permissive. Tighten to `danger_flags == 0 AND nut_status == 'second_nuts_or_better'` and re-run. |
 
 ## Item 4 — Open-spot IP induce
+
+**Shipped** (this session). Three pieces landed together:
+
+1. **TrapBaitBot** (`poker/rule_strategies.py`): new `_strategy_trap_bait`
+   that, when OOP first-to-act on the flop (BB seat in HU, `cost=0`),
+   checks ~70% to set the trap; otherwise delegates to
+   `_strategy_maniac`. Registered in `BUILT_IN_STRATEGIES` (`'trap_bait'`)
+   and `CHAOS_BOTS` (`TrapBaitBot`). Empirical smoke verified: 62% check
+   OOP first-to-act, 67% turn barrel after check-through (target ~70/80;
+   slight shortfall from maniac fallback checking the lowest-equity
+   turn hands).
+2. **`flop_check_then_barrel_rate` stat plumbing**: mirrored
+   `barrel_frequency`'s pattern across `cbet_detector.py` (new event for
+   the first voluntary flop checker bet/check on turn after check-through
+   flop), `opponent_model.py` (field, counters, `update_flop_check_barrel_attempt`,
+   recalc, aggregator passthrough), `exploitation.py`
+   (`AggregatedOpponentStats` field, `aggregate_from_spots` weighted
+   avg, `_copy_stats` propagation), and `memory_manager.py` (consumer
+   wiring on the cbet-event drain).
+3. **Open-spot branch in `apply_induce_override`**: dispatch at the top
+   of the function based on `has_check and not has_fold`. Parallel
+   helper `should_apply_open_spot_induce` mirrors the facing-bet gate
+   structure but reads `flop_check_then_barrel_rate` (≥ 0.55) and
+   `flop_check_barrel_opportunities` (≥ 5). Redistribution is **flat**
+   per spec — `check = 0.70`, `raise = 0.30` split evenly — not
+   confidence-scaled (the open-spot exploit is more about spot
+   identification than trap intensity). Trace uses
+   `effect='check_back'` and `reason_code='induced_{street}_open_spot'`.
+
+**Empirical reality (full ablation matrix, experiment 75):**
+
+| Villain | OFF bb/100 | ON bb/100 | Lift | σ | Verdict |
+|---|---|---|---|---|---|
+| TrapBaitBot | +3.41 ± 2.98 | +4.84 ± 3.36 | +1.43 | +0.32 | H1 MISS (< noise) |
+| ManiacBot | +0.41 ± 4.34 | −1.47 ± 3.25 | −1.88 | −0.35 | H2 within |
+| CaseBot | −12.15 ± 2.33 | −6.61 ± 3.05 | **+5.53** | +1.44 | H2 — *lift* not leak |
+| GTO-Lite | +4.23 ± 3.97 | −0.41 ± 4.12 | −4.64 | −0.81 | H2 MISS (within noise) |
+| ABCBot | +7.45 ± 2.50 | +1.81 ± 3.75 | −5.65 | −1.25 | H2 MISS (within noise) |
+
+| Arm | Facing-bet fires | Open-spot fires |
+|---|---|---|
+| trapbait ON (8000 hands) | 9 | 0 |
+| maniac ON (8000 hands) | 14 | 0 |
+| casebot/gtolite/abcbot ON | 0 | 0 |
+
+**Open-spot branch fired 0× across all 88 tournaments / 88,000 hands.**
+Top no-op reason is `oop_not_supported_open_spot` (2100-7200 per arm)
+— the branch is correctly evaluating but hero is OOP in HU more often
+than expected, AND when hero is IP free-to-act the hand-class gate is
+the next bottleneck.
+
+The `actual_nuts/strong_made + dry board + IP free-to-act` spot is
+genuinely too rare for natural HU play. **Correctness widening only**
+— matches Item 3's empirical pattern.
+
+**Surprising finding:** rule-ON gives +5.53 bb/100 lift vs CaseBot.
+Not statistically significant (σ=1.44), but the direction is
+unexpected — the rule is supposed to do nothing against non-barreler
+villains and instead it appears to help against the GTO-Lite-style
+case bot. Possible explanation: the rule's facing-bet branch fires 0×
+vs CaseBot (CaseBot's barrel_frequency stays below threshold), so the
+lift must come from second-order effects (hero's calibration to
+opponent state, or the alternative-strategy nudge from
+adaptation/exploitation layers). Worth a follow-up dig if it
+replicates on a second matrix run.
+
+**Configs:**
+- `experiments/configs/induce_override_phase_b_item4_smoke.json` (1 tournament × 500 hands smoke)
+- `experiments/configs/induce_override_phase_b_item4_full.json` (8 tournaments × 1000 hands × 5 villains × 2 arms)
+- Analysis: `scripts/analyze_item4_matrix.py <experiment_id>`
+
+**Tunables:** `MIN_FLOP_CHECK_BARREL_FREQUENCY = 0.55`,
+`MIN_FLOP_CHECK_BARREL_OPPORTUNITIES = 5`, `OPEN_SPOT_CHECK_PROBABILITY = 0.70`.
+The 0.55 frequency threshold is lower than the facing-bet branch's 0.60
+because TrapBaitBot-class opponents barrel 65-80% after check-through;
+the lower threshold widens the firing surface without admitting
+non-trappy opponents (whose stat sits near 0.5 neutral prior).
 
 ### Problem
 

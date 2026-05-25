@@ -64,6 +64,17 @@ class CbetDetector:
         self._river_bet_made: bool = False
         self._pending_barrel_attempts: List[Tuple[str, bool]] = []
         self._pending_third_barrel_attempts: List[Tuple[str, bool]] = []
+        # Phase B Item 4: flop-check-then-barrel tracking. Signal for
+        # the open-spot IP induce branch — measures how often a villain
+        # (typically OOP) checks flop AND then bets turn after a
+        # check-through flop. The "barrel" attribution goes to the
+        # FIRST player who voluntarily checked the flop (no prior flop
+        # bet); in HU this is the BB seat (OOP first-to-act on flop)
+        # whenever no one bet the flop.
+        self._first_flop_checker: Optional[str] = None
+        self._flop_checked_through: bool = False
+        self._flop_check_barrel_attempt_recorded: bool = False
+        self._pending_flop_check_barrel_attempts: List[Tuple[str, bool]] = []
 
     # ── Read-only views ────────────────────────────────────────────────
 
@@ -101,6 +112,10 @@ class CbetDetector:
         self._river_bet_made = False
         self._pending_barrel_attempts = []
         self._pending_third_barrel_attempts = []
+        self._first_flop_checker = None
+        self._flop_checked_through = False
+        self._flop_check_barrel_attempt_recorded = False
+        self._pending_flop_check_barrel_attempts = []
 
     def record_preflop_aggression(self, player_name: str) -> None:
         """Manually set the preflop aggressor.
@@ -189,6 +204,19 @@ class CbetDetector:
                     p for p in active_players if p != player_name
                 }
 
+        # 2c. Phase B Item 4 — record the first voluntary flop checker
+        #    (the player whose first flop action is a check with no
+        #    prior flop bet). By poker order-of-action this is always
+        #    the player furthest OOP. In HU it's the BB seat. Used
+        #    later to attribute a turn barrel-after-check-through.
+        if (
+            phase == 'FLOP'
+            and action == 'check'
+            and not self._flop_bet_made
+            and self._first_flop_checker is None
+        ):
+            self._first_flop_checker = player_name
+
         # 4. Track facing-player responses. Phase-agnostic by design —
         #    the facing set is drained as players respond, so non-flop
         #    responses only fire if a player stayed in the set across
@@ -227,6 +255,36 @@ class CbetDetector:
             elif action == 'check':
                 self._pending_barrel_attempts.append((player_name, False))
                 self._barrel_attempt_recorded = True
+
+        # 5b-ii. Phase B Item 4 — flop-check-then-barrel attempt. Fires
+        #    when the first voluntary flop checker is the first to act
+        #    on the turn after a check-through flop (no flop bet). The
+        #    flop-through is the trap-bait pattern; the turn action is
+        #    the barrel attempt.
+        #
+        #    Mutually exclusive with step 5 (regular barrel): that
+        #    requires `_cbet_made == True`; this requires
+        #    `_flop_bet_made == False`. Must run BEFORE step 5b's
+        #    `_turn_bet_made = True` update so the player's own bet
+        #    doesn't pre-trip the guard.
+        if (
+            phase == 'TURN'
+            and self._first_flop_checker is not None
+            and not self._flop_bet_made
+            and player_name == self._first_flop_checker
+            and not self._flop_check_barrel_attempt_recorded
+            and not self._turn_bet_made
+        ):
+            if action in ('bet', 'raise', 'all_in'):
+                self._pending_flop_check_barrel_attempts.append(
+                    (player_name, True)
+                )
+                self._flop_check_barrel_attempt_recorded = True
+            elif action == 'check':
+                self._pending_flop_check_barrel_attempts.append(
+                    (player_name, False)
+                )
+                self._flop_check_barrel_attempt_recorded = True
 
         # 5b. Track turn bets so the PFR's response to a donk doesn't
         #     count as a barrel attempt (mirrors _flop_bet_made).
@@ -297,4 +355,20 @@ class CbetDetector:
         """
         events = self._pending_third_barrel_attempts
         self._pending_third_barrel_attempts = []
+        return events
+
+    def consume_flop_check_barrel_attempt_events(
+        self,
+    ) -> List[Tuple[str, bool]]:
+        """Drain Phase B Item 4 flop-check-then-barrel events.
+
+        Returns `(name, attempted: bool)` tuples for the first
+        voluntary flop checker's first turn action after a check-through
+        flop. Caller applies via
+        `OpponentTendencies.update_flop_check_barrel_attempt(attempted)`.
+        Used by the open-spot IP induce branch to detect villains who
+        check OOP on the flop and then barrel the turn.
+        """
+        events = self._pending_flop_check_barrel_attempts
+        self._pending_flop_check_barrel_attempts = []
         return events

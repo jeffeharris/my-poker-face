@@ -1,27 +1,35 @@
-"""Closed-economy testbed: fake-vice deposits feed the bank pool.
+"""Closed-economy: bank-pool plumbing + fake-vice testbed + grinder demand.
 
-This is the SIM testbed for the closed-loop economy thesis in
-`docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
+Shipping pieces of the closed-loop economy thesis in
+`docs/plans/CASH_MODE_CLOSED_ECONOMY.md` + the fish-as-personas pivot in
+`docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
 
-  `resolve_fake_vice_deposits` — stub for real AI vice. Drains
-  chips from rich AIs into the central bank's recyclable pool.
-  Same probability/amount shape as `CASH_MODE_AI_VICE_SPENDING.md`
-  but without the psych-pressure modifier (testbed doesn't depend
-  on cached controller state). Real vice replaces this drop-in.
+What lives here:
 
-The companion to vice deposits — refilling fish bankrolls via
-`tourist_injection` — was removed when ephemeral tourists replaced
-persistent fish (see `docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md`).
-The bank pool now funds on-demand casino spawns instead of refilling
-named fish, so injection became unnecessary.
+  - **Bank-pool query** (`compute_bank_pool_reserves`, `seed_bank_pool`):
+    virtual depth = Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(BANK_POOL_DRAW_REASONS),
+    computed on demand from `chip_ledger_entries`. No state table.
+    `seed_bank_pool` writes a drift-safe paired entry for sim cold-start.
 
-Bank pool depth is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(BANK_POOL_DRAW_REASONS)`,
-computed on demand from `chip_ledger_entries`. No new state table; the
-pool is virtual.
+  - **Grinder demand signal** (`is_hungry_grinder`, `list_hungry_grinders`):
+    identifies AIs whose bankroll has dropped below
+    `GRINDER_HUNGER_THRESHOLD × starting_bankroll` and whose comfort zone
+    is the casino tier. Casino spawn gates on this.
 
-The conservation invariant from `CASH_MODE_ECONOMY.md` holds:
-every chip movement here writes a ledger row, so `drift == 0` stays
-correct as long as the bankroll writes pair with their ledger entries.
+  - **`resolve_fake_vice_deposits`** — stub for real AI vice. Drains chips
+    from rich AIs into the recyclable bank pool. Same probability / amount
+    shape as `CASH_MODE_AI_VICE_SPENDING.md` but without the psych-pressure
+    modifier (testbed doesn't depend on cached controller state). Real vice
+    drops in over it.
+
+Casino bankroll funding is **not** here — it lives in
+`cash_mode/casino_provisioning.py` (`_prefund_fish_from_pool`,
+`_drain_fish_bankroll_to_pool`) so the spawn/refill/teardown lifecycle
+keeps the chip-flow code adjacent to the table-lifecycle code.
+
+The conservation invariant from `CASH_MODE_ECONOMY.md` holds: every chip
+movement writes a ledger row, so `drift == 0` stays correct as long as
+bankroll writes pair with their ledger entries.
 """
 
 from __future__ import annotations
@@ -296,10 +304,14 @@ def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str
     `load_archetype` on each, filters to fish. Fish not yet seeded
     into this sandbox's `ai_bankroll_state` won't appear — they only
     enter the eligibility loop once they've been seated at least once.
-
     Returns the curated, permanent fish personas (`vacation_greg`,
-    etc.). Fish are real personalities now — there are no synthetic
-    instances to distinguish (see CASH_MODE_FISH_AS_PERSONAS.md).
+    etc.) that have been seeded into this sandbox. Fish are real
+    personalities now — there are no synthetic instances to
+    distinguish (see CASH_MODE_FISH_AS_PERSONAS.md).
+
+    For the seat-eligible pool (every curated fish persona regardless
+    of sandbox state), use `personality_repo.list_fish_for_cash_mode`
+    instead.
     """
     if bankroll_repo is None:
         return set()

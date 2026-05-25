@@ -214,6 +214,7 @@ def ensure_lobby_seeded(
     now: Optional[datetime] = None,
     user_id: Optional[str] = None,
     sandbox_id: Optional[str] = None,
+    chip_ledger_repo=None,
 ) -> List[CashTableState]:
     """Idempotent boot-time lobby seed.
 
@@ -372,6 +373,8 @@ def ensure_lobby_seeded(
                     pid,
                     ai_buy_in,
                     sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
                 )
                 logger.info(
                     "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
@@ -913,9 +916,10 @@ def refresh_unseated_tables(
             # against the same pressure model used at seated tables.
             # Closed-economy: fish are a casino-only player class —
             # ALWAYS filter them out of the lobby's idle pool, even at
-            # casino-tier stakes. Casinos seat fish via the provisioning
-            # resolver (prefund-from-pool), never via lobby live-fill.
-            # See `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
+            # casino-tier stakes. Casino spawn pulls fish via its own
+            # path (`PersonalityRepository.list_fish_for_cash_mode` →
+            # `_refill_one_fish`), never via lobby live-fill. See
+            # `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
             if _fish_ids:
                 _table_idle_pool = [
                     e for e in idle_pool if e.personality_id not in _fish_ids
@@ -1290,6 +1294,8 @@ def refresh_unseated_tables(
                 debit_bankroll_for_seat(
                     bankroll_repo, bc.personality_id, bc.amount,
                     sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
                 )
             elif bc.direction == "from_seat":
                 # Skip ONLY the specific from_seat entry the
@@ -1345,6 +1351,8 @@ def refresh_unseated_tables(
                 debit_bankroll_for_seat(
                     bankroll_repo, sc.staker_id, sc.principal,
                     sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    now=now,
                 )
                 stake = Stake(
                     stake_id=f"ai_stake_{uuid.uuid4().hex[:12]}",
@@ -2691,6 +2699,7 @@ def _process_aspiration_asks(
             from cash_mode.bankroll import debit_bankroll_for_seat
             debit_bankroll_for_seat(
                 bankroll_repo, staker_id, principal, sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo, now=now,
             )
         except Exception as exc:
             logger.warning(

@@ -47,8 +47,8 @@ class TestCallType:
     def test_call_type_count(self):
         """Test we have the expected number of call types."""
         # This ensures we don't accidentally remove types.
-        # 18 includes COACHING added by the coach-engine feature.
-        assert len(CallType) == 18
+        # 19 includes VICE_NARRATION added by the vice-spending feature.
+        assert len(CallType) == 19
 
 
 class TestUsageTracker:

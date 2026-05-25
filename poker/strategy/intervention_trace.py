@@ -65,6 +65,7 @@ class InterventionOperation(str, Enum):
 _LAYER_NAMES = frozenset({
     'personality',
     'exploitation',
+    'induce_override',        # Phase A / Phase B (Items 2-5)
     'strong_hand_override',
     'bluff_catch_override',
     'defense_floor',         # Plan §2
@@ -81,6 +82,7 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
         'hyper_aggressive', 'hyper_passive', 'tight_nit',
         'high_fold_to_cbet', 'multiway_cbet',
     }),
+    'induce_override':        frozenset({'default'}),
     'strong_hand_override':   frozenset({'default'}),
     'bluff_catch_override':   frozenset({'default'}),
     'defense_floor':          frozenset({'default'}),

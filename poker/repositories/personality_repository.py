@@ -442,24 +442,6 @@ class PersonalityRepository(BaseRepository):
             logger.error(f"Error deleting personality {name}: {e}")
             return False
 
-    def delete_personality_by_id(self, personality_id: str) -> bool:
-        """Delete a personality row by stable id.
-
-        Preferred over `delete_personality(name)` for ephemeral
-        instances (e.g. fish) whose display names aren't unique or
-        stable across spawns. Returns True if a row was removed.
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM personalities WHERE personality_id = ?",
-                    (personality_id,),
-                )
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Error deleting personality_id {personality_id}: {e}")
-            return False
-
     def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:
         """Update only the config for an existing personality, preserving ownership fields.
 

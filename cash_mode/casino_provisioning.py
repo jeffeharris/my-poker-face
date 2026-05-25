@@ -634,10 +634,13 @@ def _refill_one_fish(
     if drawn <= 0:
         return None
 
-    # Buy in from the now-funded bankroll — internal bankroll → seat
-    # transfer (no ledger row; audit `outstanding` is preserved).
+    # Buy in from the now-funded bankroll. Pass chip_ledger_repo + now
+    # so any pending regen commits via `ai_regen` (no clamp leak). For
+    # fish this is a no-op — `bankroll_rate=0` means projected == stored —
+    # but keeping the call shape uniform with other call sites.
     if debit_bankroll_for_seat(
         bankroll_repo, pid, fish_buy_in, sandbox_id=sandbox_id,
+        chip_ledger_repo=chip_ledger_repo, now=now,
     ) is None:
         # Shouldn't happen post-prefund; unwind the prefund to the pool.
         _drain_fish_bankroll_to_pool(
@@ -669,6 +672,18 @@ def _refill_one_fish(
         logger.warning(
             "[CASH][CASINO] refill save_table failed for %s: %s",
             table.table_id, exc,
+        )
+        # Unwind: prefund drew chips from the pool into the fish bankroll,
+        # and debit_bankroll_for_seat moved part of that to the in-memory
+        # seat — but the seat write never persisted. Without this drain,
+        # the fish's bankroll holds the (prefund − buy_in) remainder and
+        # the buy_in chips are stranded with no chip-bearing surface
+        # backing them (positive audit drift = +fish_buy_in). Returning
+        # the full bankroll to the pool restores conservation.
+        _drain_fish_bankroll_to_pool(
+            bankroll_repo, chip_ledger_repo,
+            personality_id=pid, sandbox_id=sandbox_id,
+            now=now, reason_detail='refill_save_failed',
         )
         return None
     already_seated.add(pid)
@@ -986,7 +1001,10 @@ def resolve_casino_provisioning(
         # Seats are persisted with their buy-in chips; debit each fish's
         # buy-in from its (prefunded) bankroll so bankroll + seat == prefund.
         for pid in seeded:
-            debit_bankroll_for_seat(bankroll_repo, pid, fish_buy_in, sandbox_id=sandbox_id)
+            debit_bankroll_for_seat(
+                bankroll_repo, pid, fish_buy_in, sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo, now=now,
+            )
             already_seated.add(pid)
 
         clear_closing(cash_table_repo, sandbox_id, table_id)
