@@ -493,12 +493,12 @@ def refresh_unseated_tables(
     # When None, the side hustle is disabled. Optional for the same
     # back-compat reason as vice_repo. See CASH_MODE_SIDE_HUSTLE.md.
     side_hustle_repo=None,
-    # Fake ("stub") vice — the LLM-free, psych-free pool-deposit stand-in
-    # for real vice, used ONLY by the sim (which can't afford an LLM call
-    # per tick). Off by default so no live path runs it: in production the
-    # real, LLM-narrated `vice_spending` is the sole vice. The sim opts in
-    # via sim_runner. See `resolve_fake_vice_deposits` / CASH_MODE_SIDE_HUSTLE.md.
-    enable_fake_vice: bool = False,
+    # Vice mode — which vice mechanism (if any) feeds the bank pool this
+    # refresh: one of `economy_flags.VICE_MODES` ('real' | 'fake' | 'off'),
+    # mutually exclusive by construction. None → use the live default
+    # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
+    # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
+    vice_mode: Optional[str] = None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -518,6 +518,12 @@ def refresh_unseated_tables(
         rng = random.Random()
     if now is None:
         now = datetime.utcnow()
+    # Resolve the mutually-exclusive vice mode (per-call override → live
+    # default). 'real' / 'fake' / 'off'; anything else falls through both
+    # gates below (no vice), which is the safe default for a bad value.
+    if vice_mode is None:
+        from cash_mode import economy_flags as _economy_flags
+        vice_mode = _economy_flags.VICE_MODE
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
@@ -1678,7 +1684,12 @@ def refresh_unseated_tables(
     # injection / casino seeding (vice_spending is in
     # BANK_POOL_DEPOSIT_REASONS).
     vice_starts: list = []
-    if vice_repo is not None and sandbox_id is not None and chip_ledger_repo is not None:
+    if (
+        vice_mode == 'real'
+        and vice_repo is not None
+        and sandbox_id is not None
+        and chip_ledger_repo is not None
+    ):
         try:
             from cash_mode.ai_vice_spending import resolve_ai_vice_spending
             from cash_mode.vice_narration import narrate_vice
@@ -1813,14 +1824,13 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] side-hustle event emission failed: %s", exc,
             )
 
-    # Closed-economy testbed: fake-vice deposits. Gated on `chip_ledger_repo`
-    # (needs the pool ledger) AND `enable_fake_vice` — the stub vice is
-    # sim-only. In a live game the real, LLM-narrated `vice_spending` pass
-    # above is the sole vice contributor to the pool; running fake vice
-    # here too would double-drain rich AIs (the `bank_pool_deposit` overlap
+    # Closed-economy testbed: fake-vice deposits. Runs only when
+    # `vice_mode == 'fake'` (and the pool ledger is present) — the stub
+    # vice is sim-only and mutually exclusive with the real vice above, so
+    # they can never both drain rich AIs (the `bank_pool_deposit` overlap
     # we removed). Best-effort: a failure doesn't tank the lobby refresh.
     # Spec: `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
-    if chip_ledger_repo is not None and enable_fake_vice:
+    if chip_ledger_repo is not None and vice_mode == 'fake':
         try:
             from cash_mode.closed_economy import resolve_closed_economy
 

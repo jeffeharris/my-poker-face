@@ -254,10 +254,10 @@ def run_sim(
             stake_repo=stake_repo,
             side_hustle_repo=side_hustle_repo,
             # The sim has no LLM, so real vice (which narrates per fire)
-            # isn't wired here; fake vice is the pool-deposit stand-in.
-            # This is the only caller that turns it on — live paths leave
-            # it off so production vice is the real, narrated mechanic.
-            enable_fake_vice=True,
+            # can't run here — force the fake-vice stub as the pool-deposit
+            # source. Mutually exclusive with real vice; live paths default
+            # to economy_flags.VICE_MODE ('real').
+            vice_mode='fake',
         )
 
         # 2. Metrics capture (every N ticks). The very first and very

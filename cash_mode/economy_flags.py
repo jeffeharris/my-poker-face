@@ -54,6 +54,30 @@ REGEN_ENABLED: bool = False
 SIDE_HUSTLE_ENABLED: bool = True
 
 
+# --- Vice mode (mutually-exclusive 3-state toggle) ------------------------
+
+# Which vice mechanism (if any) drains rich AIs into the bank pool.
+# Exactly one of `VICE_MODES` — a single value, so the two mechanisms can
+# never both run (the double-drain bug) or silently both be off:
+#
+#   'real' — the live, LLM-narrated vice (`vice_spending`). Rich AIs go
+#            off-grid with character narration + one-shot psych recovery.
+#            Needs a vice_repo + an LLM call per fire → the production
+#            setting. See `cash_mode/ai_vice_spending.py`.
+#   'fake' — the LLM-free / psych-free stub (`bank_pool_deposit`) for
+#            sims + testbeds that can't afford an LLM call per tick. Same
+#            chip drain, no narration / off-grid / recovery. See
+#            `resolve_fake_vice_deposits` in `cash_mode/closed_economy.py`.
+#   'off'  — no vice; the pool is fed only by table rake (+ casino returns).
+#
+# `refresh_unseated_tables` reads this (overridable per-call via its
+# `vice_mode` kwarg); the sim forces 'fake' since real vice can't run
+# without an LLM. The real-vice *expiry* pass always runs regardless of
+# mode, so existing off-grid AIs still return when the mode is switched.
+VICE_MODE: str = 'real'
+VICE_MODES = ('real', 'fake', 'off')
+
+
 # --- Sink (table rake) ----------------------------------------------------
 
 RAKE_ENABLED: bool = True
