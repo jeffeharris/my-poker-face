@@ -67,15 +67,21 @@ interface HoldingsRow {
   sandbox_id: string | null;
   stored_chips: number;
   projected_chips: number;
+  // Total chips controlled = projected bankroll + chips in play on a
+  // cash-table seat. `seat_chips` is the in-play portion (scoped only).
+  chips: number;
+  seat_chips?: number;
   uncommitted_regen: number;
   last_regen_tick: string | null;
   // Net-worth block — present only in the scoped (single-sandbox) view.
-  // net_worth = projected chips + receivable − outstanding.
+  // net_worth = chips (incl. in-play) + receivable − outstanding.
   net_worth?: number;
   receivable?: number;
   outstanding?: number;
+  staking_pnl?: number;       // realized P&L from backing others (signed)
   vice_spent?: number;
   side_hustle_earned?: number;
+  rake_paid?: number;         // total rake contributed to the house
 }
 
 interface HoldingsSnapshotResponse {
@@ -415,11 +421,15 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         />
 
         <p className="chip-ledger-holdings-caveat">
-          <em>Net worth</em> = projected chips + stakes receivable −
-          {' '}stakes outstanding. <em>Vice</em> and <em>Side hustle</em> are
-          per-entity totals from the chip ledger. These require a selected
-          sandbox: stakes are global per entity while chips are per-sandbox,
-          so the "All sandboxes" view shows chips only.
+          <em>Net worth</em> = chips + stakes receivable − stakes outstanding,
+          {' '}where <em>Chips</em> is off-table bankroll <em>plus</em> chips
+          in play on a cash-table seat (hover Chips for the split).
+          {' '}<em>Staking</em> is realized P&L from backing others (settled +
+          defaulted stakes; open carries still show under Recv).
+          {' '}<em>Vice</em>, <em>Side hustle</em>, and <em>Rake</em> are
+          per-entity chip-ledger totals (rake = chips paid to the house).
+          These require a selected sandbox: stakes are global per entity while
+          chips are per-sandbox, so the "All sandboxes" view shows chips only.
           <br />
           The chart plots net worth <em>over time</em> from periodic
           snapshots the world ticker records (~every 10&nbsp;min). History
@@ -472,14 +482,15 @@ interface HoldingsTableProps {
 }
 
 type SortKey =
-  | 'name' | 'kind' | 'projected_chips' | 'sandbox_id'
-  | 'net_worth' | 'receivable' | 'outstanding'
-  | 'vice_spent' | 'side_hustle_earned';
+  | 'name' | 'kind' | 'chips' | 'sandbox_id'
+  | 'net_worth' | 'receivable' | 'outstanding' | 'staking_pnl'
+  | 'vice_spent' | 'side_hustle_earned' | 'rake_paid';
 type SortDir = 'asc' | 'desc';
 
-// Net-worth-only columns: meaningless (absent) in the All-sandboxes view.
+// Scoped-only columns: meaningless (absent) in the All-sandboxes view.
 const NET_WORTH_KEYS: ReadonlySet<SortKey> = new Set<SortKey>([
-  'net_worth', 'receivable', 'outstanding', 'vice_spent', 'side_hustle_earned',
+  'net_worth', 'receivable', 'outstanding', 'staking_pnl',
+  'vice_spent', 'side_hustle_earned', 'rake_paid',
 ]);
 const STRING_KEYS: ReadonlySet<SortKey> = new Set<SortKey>([
   'name', 'kind', 'sandbox_id',
@@ -549,7 +560,7 @@ function HoldingsTable({ rows, scoped, highlightedEntity, onSelectEntity }: Hold
   // In the unscoped view the net-worth columns are absent, so fall back to
   // chips for the active sort if a net-worth column was selected.
   const effectiveSortKey: SortKey =
-    !scoped && NET_WORTH_KEYS.has(sortKey) ? 'projected_chips' : sortKey;
+    !scoped && NET_WORTH_KEYS.has(sortKey) ? 'chips' : sortKey;
   const sortedRows = [...rows].sort((a, b) => compareRows(a, b, effectiveSortKey, sortDir));
 
   return (
@@ -568,12 +579,14 @@ function HoldingsTable({ rows, scoped, highlightedEntity, onSelectEntity }: Hold
             {scoped && (
               <SortableHeader label="Net worth" sortKey="net_worth" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
             )}
-            <SortableHeader label="Chips" sortKey="projected_chips" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
+            <SortableHeader label="Chips" sortKey="chips" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
             {scoped && <>
               <SortableHeader label="Recv" sortKey="receivable" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
               <SortableHeader label="Owed" sortKey="outstanding" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
+              <SortableHeader label="Staking" sortKey="staking_pnl" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
               <SortableHeader label="Vice" sortKey="vice_spent" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
               <SortableHeader label="Side hustle" sortKey="side_hustle_earned" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
+              <SortableHeader label="Rake" sortKey="rake_paid" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
             </>}
             <SortableHeader label="Sandbox" sortKey="sandbox_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           </tr>
@@ -595,7 +608,7 @@ function HoldingsTable({ rows, scoped, highlightedEntity, onSelectEntity }: Hold
                     {fmt(netWorth)}
                   </td>
                 )}
-                <td className="amount">{fmt(row.projected_chips)}</td>
+                <td className="amount" title={row.seat_chips ? `${fmt(row.projected_chips)} bankroll + ${fmt(row.seat_chips)} in play` : undefined}>{fmt(row.chips)}</td>
                 {scoped && <>
                   <td className="amount pos">
                     {row.receivable ? fmt(row.receivable) : '—'}
@@ -603,11 +616,17 @@ function HoldingsTable({ rows, scoped, highlightedEntity, onSelectEntity }: Hold
                   <td className="amount neg">
                     {row.outstanding ? fmt(row.outstanding) : '—'}
                   </td>
+                  <td className={`amount ${(row.staking_pnl ?? 0) > 0 ? 'pos' : (row.staking_pnl ?? 0) < 0 ? 'neg' : ''}`}>
+                    {row.staking_pnl ? signed(row.staking_pnl) : '—'}
+                  </td>
                   <td className="amount neg">
                     {row.vice_spent ? fmt(row.vice_spent) : '—'}
                   </td>
                   <td className="amount pos">
                     {row.side_hustle_earned ? fmt(row.side_hustle_earned) : '—'}
+                  </td>
+                  <td className="amount neg">
+                    {row.rake_paid ? fmt(row.rake_paid) : '—'}
                   </td>
                 </>}
                 <td className="sandbox-cell">

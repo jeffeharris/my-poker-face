@@ -492,6 +492,35 @@ class StakeRepository(BaseRepository):
             ).fetchall()
         return {row['borrower_id']: int(row['outstanding'] or 0) for row in rows}
 
+    def aggregate_staking_pnl_by_staker(self) -> Dict[str, int]:
+        """Per-staker realized P&L from backing others (signed).
+
+        `pnl = SUM(staker_payout - principal + origination_fee)` over the
+        staker's CLOSED stakes — `settled` and `defaulted` only. Drives the
+        admin net-worth view's "Staking" column.
+
+        Open `carry` stakes are excluded: their outcome is still pending
+        and their not-yet-recovered value is already a receivable (Recv /
+        net worth), so scoring them as a loss would double-count. Legacy
+        rows without a recorded `staker_payout` (pre-v106) can't be scored
+        and are skipped via the `IS NOT NULL` guard. House stakes
+        (`staker_id IS NULL`) are excluded — they have no entity to credit.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT staker_id,
+                       SUM(staker_payout - principal + origination_fee) AS pnl
+                FROM stakes
+                WHERE staker_id IS NOT NULL
+                  AND staker_payout IS NOT NULL
+                  AND status IN (?, ?)
+                GROUP BY staker_id
+                """,
+                (STAKE_STATUS_SETTLED, STAKE_STATUS_DEFAULTED),
+            ).fetchall()
+        return {row['staker_id']: int(row['pnl'] or 0) for row in rows}
+
     def update_carry_amount(self, stake_id: str, carry_amount: int) -> bool:
         """Set `carry_amount` on a stake. Returns True if updated.
 
