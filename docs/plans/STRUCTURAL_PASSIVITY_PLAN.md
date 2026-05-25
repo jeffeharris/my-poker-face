@@ -415,4 +415,169 @@ don't fold** — not because of anything in the postflop or entry strategy.
    become live the moment the eval has folding opponents, and are directly
    useful in genuinely short-handed/HU SNG stages.
 
+## 11. Track 2 — Jeff_clone eval (2026-05-25, the unlock)
+
+Stood up `Jeff_clone` as a precision-rewarding *folding* eval, using the
+merged portable-clone infra (`experiments/clone_profiles/jeff.json`, loaded
+via `measure_passivity --opponents jeff`, no DB needed). Jeff = a real human
+model from 4669 observed hands: VPIP 0.39 / PFR 0.16 / **fold_to_cbet 0.45** /
+AF 1.22 / WtSD 0.59 — i.e. it *folds* preflop and to c-bets, unlike the rule
+bots. 3000 × seeds 42/142/242.
+
+### The eval was THE binding constraint — confirmed
+
+| | vs GTO-Lite | vs MIX | **vs Jeff_clone** |
+|---|---|---|---|
+| HU% @ postflop | 2% | ~2% | **41%** |
+| field size | ~78% 6-way | mostly multiway | **HU/3-way (6-way≈0)** |
+| Postflop AggFactor | 0.045 | 0.019 | **0.208** |
+| unopened bet/raise% | ~5% | ~3% | **18%** (nuts 41 / strong 37 / med 24) |
+| raise% facing bet | ~1% | 0% | **5–8%** |
+| barrel-continuation | 3% | 0% | **22%** |
+| pay-off rate | 98% | 91% | **45%** |
+| **bb/100 (OFF)** | **−78.9** | **−106.2** | **−9.6** (−12.3/−12.9/−3.5) |
+
+Against a realistic human the bot is **near break-even (−9.6 bb/100)** and
+plays *actively* — it bets for value with initiative, raises facing bets, and
+continues barrels. **Its catastrophic −80 to −106 vs the rule bots was an
+artifact of being always-multiway against non-folders, not an intrinsic leak.**
+The chart was never the problem; the eval was.
+
+### Layer / isolation re-tests on the good eval
+
+| Arm (vs Jeff_clone) | barrel-cont | facing-dbl-barrel fold | layer fires | bb/100 |
+|---|---|---|---|---|
+| OFF (baseline) | 22% (58/259) | 54% | — | −9.6 |
+| **layer ON (H1+H2)** | **35% (100/283)** | **68%** | barrel **307** (chg 154) / fold_barrel 11 | −9.1 |
+| isolate entry (OFF) | 22% | — | — | −10.3 (HU% still 41%) |
+
+- **H1 (barrel) is no longer inert** — with real HU spots it fires **307×**
+  (vs 5 vs rule bots) and lifts barrel-continuation **22%→35%**. The eval
+  unblocked it exactly as predicted. But **bb/100 is flat (−9.6→−9.1, within
+  noise across all seeds)**: H1 is *active and directionally correct* but **not
+  yet clearly +EV** — barreling more isn't winning more. Converting the +13pp
+  continuation into EV needs barrel selection/sizing/board-awareness iteration
+  (the next sub-project), or H1-only attribution to confirm sign.
+- **H2 (fold double-barrels) still helps** — folds 54%→68%; consistent with the
+  rule-bot result. Shippable.
+- **Preflop isolation is NOT a lever** — inert vs *both* eval types. vs rule
+  bots: can't isolate non-folders (always multiway). vs Jeff: his own folding
+  already produces 41% HU, so the hero forcing 3-bets doesn't move field-size
+  (41%→41%) and is bb/100-neutral (slightly worse). The entry isn't the
+  bottleneck once opponents fold.
+
+### Track 2 decision
+1. **Adopt Jeff_clone as the primary eval for all future tiered-bot work.** It
+   is sensitive (reveals −9.6 vs a human, not −106 vs stations), realistic, and
+   DB-free/portable. The rule-bot roster is a degenerate always-multiway regime
+   that masks true bot quality — keep only as a guardrail.
+2. **Ship H2** (unchanged from §9).
+3. **H1 is now a live, measurable opportunity** (no longer dead): iterate barrel
+   logic on the Jeff eval. First step: H1-only attribution arm to confirm sign,
+   then tune which classes/boards barrel.
+4. **Retire preflop isolation as a lever** (keep code; it's not the fix).
+
+## 12. H1/H2 attribution + per-signature leak finder (2026-05-25)
+
+**Attribution (vs Jeff_clone, 3000×3, paired):** H1-only **−8.7** (Δ +0.9, all
+seeds +); H2-only **−10.0** (Δ −0.4, all seeds −); H1+H2 −9.1. So H1 (barrel)
+is +EV vs the folding human; **H2 is opponent-dependent** — +4–7 vs value-heavy
+rule bots but −0.4 vs Jeff (he bluffs, so folding marginal hands to his
+double-barrels folds out winners). H2's correct home is opponent-gated, not
+blanket-on. **H1 tuning:** value-only (drop `air_strong_draw`) is *worse*
+(−9.5 vs −8.7) — semi-bluff barrels with strong draws are +EV even vs a station
+(fold equity + draw equity). Keep H1 = all four classes.
+
+**Per-signature leak finder** (`measure_passivity --leak-report`): buckets the
+bot's postflop decisions by line-signature (street, action_context, hand_class,
+prev-aggressor, double-barrel) and ranks by the gap between realized aggression
+and the chart's own intent (`base_strategy_probs`). Run vs Jeff (9000 hands):
+
+```
+street ctx       class         agg?   n   chk  AGG | chart  gap
+TURN   unopened  nuts          -      73   42   58 |  45    +12
+TURN   unopened  strong_made   -     291   62   38 |  36    +3
+RIVER  unopened  strong_made   -     355   61   39 |  36    +3
+FLOP   unopened  strong_made   Y     131   70   30 |  36    -6
+```
+
+**Findings:**
+1. **The pipeline is not the leak on this eval** — every gap is ±3–7%
+   (realized ≈ chart). The multiway/override "stripping" was a rule-bot
+   artifact; on the (mostly-HU) Jeff eval the bot faithfully executes the chart.
+2. **The leak is the CHART itself: it under-bets value.** In absolute terms it
+   checks the **nuts 42% on the turn**, **strong made 60–62% turn/river**, and
+   **70% as the flop c-bettor** — leaving value uncollected vs a call-happy
+   human (Jeff WtSD 0.59).
+3. **Multi-street line-bits barely move behavior** (prev-aggressor Y vs − differ
+   ~2% for the same hand_class). The dominant axis is `hand_class × street ×
+   context`. **So the biggest leak is low-dimensional — not a 2^K signature
+   table or a solver; the chart's unopened value-betting frequencies.**
+
+**Architecture takeaway (re: "one idea to replace the disparate layers"):** the
+disparate layers split into *situation policy* ⊕ *opponent-exploit deviation*,
+and they cannot merge (H2 sign-flips by opponent). But the leak finder shows the
+situation-policy leak is low-dimensional and chart-local — fixable with a
+targeted **value-bet floor** (mirror of `defense_floor`, for betting), not a
+big unify. That floor would also catch the population **H1 misses** (strong
+hands get checked 60%+ even when hero is *not* the prior-street aggressor).
+
+**Next lever:** value-bet floor — hand-class-gated bet floor for unopened
+{nuts, strong_made} (and thin medium on the river vs stations), tested on Jeff.
+
+## 13. Value-bet floor — the win (2026-05-25, commit `0a81f1a8`)
+
+`poker/strategy/value_bet_floor.py` (betting mirror of defense_floor): unopened
++ hand_class ∈ {nuts, strong_made} → pump bet mass to a floor (0.85 / 0.70),
+reusing `_pump_bet`. Flag `enable_value_bet_floor` (default OFF); harness modes
+`vbf` / `vbfon`. Hand-class gated, so it catches the broad population H1's
+prev-aggressor gate misses.
+
+**Result (3000 × seeds 42/142/242, paired) — improves on EVERY eval, all seeds +:**
+
+| Eval | baseline OFF | value-bet floor | Δ bb/100 | per-seed |
+|---|---|---|---|---|
+| **Jeff_clone** | −9.6 | **−2.6** | **+7.0** | +7.9 / +11.9 / +1.2 |
+| **MIX** | −106.2 | **−93.6** | **+12.6** | +13.2 / +12.9 / +11.6 |
+| **GTO-Lite** | −78.9 | **−52.1** | **+26.8** | +40.3 / +23.9 / +16.4 |
+
+unopened nuts 41→56% / strong_made 37→57%; AggFactor (Jeff) 0.208→0.288. For
+contrast: H1 +0.9, H2 −0.4. **The dominant leak was the chart under-betting
+made value, not multi-street planning.** No multiway-over-aggression regression
+— the floor pumps only *value* classes; value-betting into a field is fine
+(only *bluffing* into fields failed earlier).
+
+**Decision: SHIP.** Per the floor→measure→bake plan, the measured EV is
+decisive and robust. Note: realized nuts only reached 56% (target 0.85) because
+`_pump_bet` only lifts nodes that already have a bet key; pure-check chart
+entries stay check (bet-key injection deferred).
+
+## 14. The bake — root cause was MULTIWAY, not the chart (2026-05-25)
+
+Inspecting the chart before baking overturned the §13 framing: the chart's raw
+unopened value-betting is **fine** — nuts bet 0.75 (turn) / 0.85 (river),
+strong_made 0.66 / 0.74. The leak finder's "chart" reference was *post-multiway*
+and ~half the Jeff pots are 3–4 way, so the low realized aggression was
+**`multiway.py` suppressing value hands**, not a passive chart. Confirmed
+directly: a turn-nuts node bets 0.75 HU but multiway scales it to **0.32 in a
+6-way pot (checks the nuts 68%)**. And the value-bet floor's biggest gains were
+vs the *most-multiway* rosters (GTO 78% 6-way → +26.8), i.e. its win came from
+overriding multiway's value-suppression.
+
+**So the faithful bake target is `multiway.py`, not the chart** — and a
+pre-multiway chart edit wouldn't even work (multiway would re-suppress it). Fix:
+a **value-class exemption** in `apply_multiway_adjustment` — `nuts`/`strong_made`
+(`VALUE_CLASSES`) skip suppression entirely; bluffs/marginal still get
+suppressed (that part was always correct). The controller passes
+`hand_class=_classify_postflop_hand_strength(node)` to the multiway call.
+Backward-compatible (`hand_class=None` = legacy); unit-tested
+(`test_multiway.py::TestValueExemption`).
+
+This is the principled root fix: value-betting knowledge lives in the multiway
+layer (the situation policy), composes correctly with field size, and makes the
+`value_bet_floor` override redundant. **Status: EV validation in flight**
+(mode-off-with-fix vs jeff/gto/mix, comparing to the floor's −2.6/−52.1/−93.6);
+**if it reproduces, `value_bet_floor` retires.** Until then the override stays
+in place but flag-default-OFF (dormant; no double-apply).
+
 
