@@ -200,7 +200,7 @@ class TestGetPositionContext(unittest.TestCase):
         """Small blind should warn about worst position."""
         from flask_app.services.coach_engine import _get_position_context
 
-        result = _get_position_context("Small Blind Player", "PRE_FLOP")
+        result = _get_position_context("Small Blind", "PRE_FLOP")
 
         self.assertIn("worst", result.lower())
 
@@ -208,7 +208,7 @@ class TestGetPositionContext(unittest.TestCase):
         """Big blind should suggest defending wider."""
         from flask_app.services.coach_engine import _get_position_context
 
-        result = _get_position_context("Big Blind Player", "PRE_FLOP")
+        result = _get_position_context("Big Blind", "PRE_FLOP")
 
         self.assertIn("defend", result.lower())
 
@@ -232,7 +232,7 @@ class TestGetPositionContext(unittest.TestCase):
         """Blinds post-flop should warn about being out of position."""
         from flask_app.services.coach_engine import _get_position_context
 
-        result = _get_position_context("Small Blind Player", "FLOP")
+        result = _get_position_context("Small Blind", "FLOP")
 
         self.assertIn("out of position", result.lower())
 
@@ -254,6 +254,60 @@ class TestGetPositionContext(unittest.TestCase):
 
         self.assertEqual(result1, result2)
         self.assertEqual(result2, result3)
+
+
+class TestPositionLabelRoundTrip(unittest.TestCase):
+    """Lock the _get_position_label -> _position_label_to_key round-trip.
+
+    Regression: blind keys carry a '_player' suffix, so _get_position_label
+    used to emit 'Big Blind Player'/'Small Blind Player' which the mapping
+    didn't recognize, silently defaulting the blinds to the 'button' range
+    (and logging "Unknown position label").
+    """
+
+    # Every key table_positions can produce (see PokerGameState.table_positions).
+    POSITION_KEYS = [
+        'button', 'small_blind_player', 'big_blind_player', 'under_the_gun',
+        'cutoff', 'middle_position_1', 'middle_position_2', 'middle_position_3',
+    ]
+
+    def _label_for(self, position_key: str) -> str:
+        from flask_app.services.coach_engine import _get_position_label
+
+        game_state = MagicMock()
+        game_state.table_positions = {position_key: 'Hero'}
+        player = MagicMock()
+        player.name = 'Hero'
+        game_state.players = [player]
+        return _get_position_label(game_state, 0)
+
+    def test_every_position_round_trips_to_its_own_key(self):
+        from flask_app.services.coach_engine import _position_label_to_key
+
+        for key in self.POSITION_KEYS:
+            with self.subTest(position=key):
+                label = self._label_for(key)
+                self.assertEqual(_position_label_to_key(label), key)
+
+    def test_blinds_do_not_default_to_button(self):
+        """The specific regression: blinds must not collapse to 'button'."""
+        from flask_app.services.coach_engine import _position_label_to_key
+
+        self.assertEqual(self._label_for('big_blind_player'), 'Big Blind')
+        self.assertEqual(self._label_for('small_blind_player'), 'Small Blind')
+        self.assertEqual(
+            _position_label_to_key(self._label_for('big_blind_player')),
+            'big_blind_player',
+        )
+        self.assertEqual(
+            _position_label_to_key(self._label_for('small_blind_player')),
+            'small_blind_player',
+        )
+
+    def test_genuinely_unknown_label_still_defaults_to_button(self):
+        from flask_app.services.coach_engine import _position_label_to_key
+
+        self.assertEqual(_position_label_to_key("Dealer Of The Year"), 'button')
 
 
 class TestGetOpponentStats(unittest.TestCase):
