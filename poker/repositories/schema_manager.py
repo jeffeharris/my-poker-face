@@ -174,7 +174,13 @@ logger = logging.getLogger(__name__)
 #       background ticker's hand-sim rate. One row per user; a
 #       `preferences_json` blob is reserved for future scalar prefs. See
 #       `docs/plans/CASH_MODE_REALTIME_TICKER.md`.
-SCHEMA_VERSION = 115
+# v116: Create `holdings_snapshots` — per-entity net-worth points captured
+#       by the background ticker (~10 min/sandbox), so the admin Chip
+#       Economy "Player Holdings" chart can plot real net worth over time
+#       instead of the ledger-derived bank-flow curve. net_worth = chips +
+#       receivable - outstanding; components stored alongside. See
+#       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
+SCHEMA_VERSION = 116
 
 
 
@@ -1402,6 +1408,7 @@ class SchemaManager:
             113: (self._migrate_v113_add_casino_closing_countdown, "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)"),
             114: (self._migrate_v114_create_ai_side_hustle_state, "Create ai_side_hustle_state table for the side-hustle mechanic (per-sandbox off-grid earning status; mirror of ai_vice_state)"),
             115: (self._migrate_v115_create_user_preferences, "Create user_preferences table for per-user settings (first: world_pace for the realtime background ticker)"),
+            116: (self._migrate_v116_create_holdings_snapshots, "Create holdings_snapshots table — per-entity net-worth points captured by the background ticker so the admin Player Holdings chart plots real net worth over time"),
         }
 
         with self._get_connection() as conn:
@@ -5361,3 +5368,45 @@ class SchemaManager:
             )
         """)
         logger.info("Migration v115 complete: user_preferences table created")
+
+    def _migrate_v116_create_holdings_snapshots(self, conn: sqlite3.Connection) -> None:
+        """Migration v116: create `holdings_snapshots` for net-worth-over-time.
+
+        One row per (entity, sandbox) per capture. The background world
+        ticker writes a point roughly every 10 minutes per active sandbox
+        so the admin Chip Economy "Player Holdings" chart can plot real
+        net worth over time — the ledger can't reconstruct it because
+        seat-to-seat chip flows never hit the ledger.
+
+        `net_worth = chips + receivable - outstanding`; the components are
+        stored alongside so the curve is explainable and future metric
+        toggles are cheap. `captured_at` is written by the recorder as an
+        explicit ISO-8601 UTC string (not the CURRENT_TIMESTAMP default)
+        so the history read's lexical `captured_at >= since` comparison is
+        format-consistent.
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS). See
+        `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS holdings_snapshots (
+                snapshot_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at  TIMESTAMP NOT NULL,
+                sandbox_id   TEXT NOT NULL,
+                entity_id    TEXT NOT NULL,
+                kind         TEXT NOT NULL,
+                net_worth    INTEGER NOT NULL,
+                chips        INTEGER NOT NULL,
+                receivable   INTEGER NOT NULL DEFAULT 0,
+                outstanding  INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_holdings_snap_scope
+                ON holdings_snapshots(sandbox_id, captured_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_holdings_snap_entity
+                ON holdings_snapshots(sandbox_id, entity_id, captured_at)
+        """)
+        logger.info("Migration v116 complete: holdings_snapshots table created")

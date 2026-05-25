@@ -1,9 +1,9 @@
-"""Unit tests for `flask_app.services.holdings_view._collect_player_rows`.
+"""Unit tests for `flask_app.services.holdings_view` — net-worth view.
 
-Specifically covers the guest-player PnL lookup path: when a human seat
-has no `users` row, the row builder must still resolve cash PnL by
-falling back to the player's most-recent `games.owner_name` (the seat
-display name historically written to `cash_pair_stats.observer_id`).
+Covers the per-entity net-worth snapshot (chips + stakes receivable −
+stakes outstanding, plus vice / side-hustle), the scoped-vs-unscoped
+gating, the per-entity ledger aggregation, and the snapshot-backed
+history (grouping, ranking, window auto-fit, requires-sandbox).
 """
 
 from __future__ import annotations
@@ -13,250 +13,269 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from cash_mode.bankroll import PlayerBankrollState
+from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from flask_app.services.holdings_view import (
-    _collect_player_rows,
-    _fetch_recent_owner_names,
+    _aggregate_ledger_by_entity,
+    _net_worth_for,
+    compute_holdings_history,
+    compute_holdings_snapshot,
+    record_holdings_snapshot,
 )
 from poker.repositories import create_repos
 
+SANDBOX = 'sb-test-0001'
+OTHER_SANDBOX = 'sb-other-0002'
 
-def _insert_game(
-    db_path: str,
-    *,
-    game_id: str,
-    owner_id: str,
-    owner_name,
-    created_at: str,
-) -> None:
-    """Insert a minimal `games` row for owner_name lookup tests."""
+
+def _insert_ledger(db_path, *, source, sink, amount, reason, sandbox_id,
+                   created_at='2026-05-25 12:00:00'):
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO games (
-                game_id, created_at, updated_at, phase, num_players,
-                pot_size, game_state_json, owner_id, owner_name
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chip_ledger_entries
+                (created_at, source, sink, amount, reason, sandbox_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (created_at, source, sink, amount, reason, sandbox_id),
+        )
+
+
+def _insert_stake(db_path, *, stake_id, staker_id, borrower_id, status,
+                  principal=0, match_amount=0, carry_amount=0,
+                  staker_kind='personality', borrower_kind='personality'):
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO stakes (
+                stake_id, session_id, staker_id, staker_kind,
+                borrower_id, borrower_kind, format, principal, match_amount,
+                origination_fee, cut, status, carry_amount, stake_tier,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pure', ?, ?, 0, 0.5, ?, ?, '$10', ?)
             """,
             (
-                game_id, created_at, created_at, 'PRE_FLOP', 2, 0.0,
-                '{}', owner_id, owner_name,
+                stake_id, f'sess_{stake_id}', staker_id, staker_kind,
+                borrower_id, borrower_kind, principal, match_amount,
+                status, carry_amount, '2026-05-25 10:00:00',
             ),
         )
 
 
-class _HoldingsViewBase(unittest.TestCase):
+class _Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.tmp.close()
-        self.repos = create_repos(self.tmp.name)
         self.db_path = self.tmp.name
-        self.user_repo = self.repos['user_repo']
+        self.repos = create_repos(self.db_path)
         self.bankroll_repo = self.repos['bankroll_repo']
-        self.relationship_repo = self.repos['relationship_repo']
+        self.personality_repo = self.repos['personality_repo']
+        self.user_repo = self.repos['user_repo']
+        self.stake_repo = self.repos['stake_repo']
+        self.snaps = self.repos['holdings_snapshots_repo']
 
     def tearDown(self):
         try:
-            os.unlink(self.tmp.name)
+            os.unlink(self.db_path)
         except FileNotFoundError:
             pass
 
-    def _seed_bankroll(self, player_id: str, chips: int = 5_000) -> None:
+    def _seed_ai(self, pid, chips, sandbox_id=SANDBOX):
+        # last_regen_tick=None → projection returns stored chips verbatim,
+        # so net-worth math is deterministic (no regen drift in the test).
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id=pid, chips=chips, last_regen_tick=None),
+            sandbox_id=sandbox_id,
+        )
+
+
+class TestNetWorthFor(unittest.TestCase):
+    """The pure column-block builder — dual-key lookup + arithmetic."""
+
+    def test_composes_net_worth_and_dual_keys(self):
+        out = _net_worth_for(
+            'ai:x', 'x', 1000,
+            receivables={'x': 200},       # keyed by bare id
+            outstanding={'x': 50},        # keyed by bare id
+            vice={'ai:x': 30},            # keyed by ledger entity_id
+            side_hustle={'ai:x': 10},
+        )
+        self.assertEqual(out['receivable'], 200)
+        self.assertEqual(out['outstanding'], 50)
+        self.assertEqual(out['net_worth'], 1000 + 200 - 50)
+        self.assertEqual(out['vice_spent'], 30)
+        self.assertEqual(out['side_hustle_earned'], 10)
+
+    def test_missing_keys_default_zero(self):
+        out = _net_worth_for(
+            'player:p', 'p', 500,
+            receivables={}, outstanding={}, vice={}, side_hustle={},
+        )
+        self.assertEqual(out['net_worth'], 500)
+        self.assertEqual(out['receivable'], 0)
+        self.assertEqual(out['vice_spent'], 0)
+
+
+class TestAggregateLedgerByEntity(_Base):
+    def test_groups_by_side_and_scopes_to_sandbox(self):
+        # Vice: entity is the source (paid the bank).
+        _insert_ledger(self.db_path, source='ai:scrooge', sink='central_bank',
+                       amount=300, reason='vice_spending', sandbox_id=SANDBOX)
+        _insert_ledger(self.db_path, source='ai:scrooge', sink='central_bank',
+                       amount=200, reason='vice_spending', sandbox_id=SANDBOX)
+        # Different sandbox — must be excluded.
+        _insert_ledger(self.db_path, source='ai:scrooge', sink='central_bank',
+                       amount=999, reason='vice_spending', sandbox_id=OTHER_SANDBOX)
+        # Side hustle: entity is the sink (received from the bank).
+        _insert_ledger(self.db_path, source='central_bank', sink='ai:bob',
+                       amount=120, reason='side_hustle_earning', sandbox_id=SANDBOX)
+
+        vice = _aggregate_ledger_by_entity(self.db_path, 'vice_spending', 'source', SANDBOX)
+        self.assertEqual(vice, {'ai:scrooge': 500})
+
+        hustle = _aggregate_ledger_by_entity(self.db_path, 'side_hustle_earning', 'sink', SANDBOX)
+        self.assertEqual(hustle, {'ai:bob': 120})
+
+
+class TestStakeAggregates(_Base):
+    def test_receivable_sums_active_and_carry_excludes_house(self):
+        # A stakes B: active principal+match, plus a carry receivable.
+        _insert_stake(self.db_path, stake_id='s1', staker_id='A', borrower_id='B',
+                      status='active', principal=100, match_amount=20)
+        _insert_stake(self.db_path, stake_id='s2', staker_id='A', borrower_id='B',
+                      status='carry', carry_amount=50)
+        # House stake (staker_id NULL) — must not surface as a receivable.
+        _insert_stake(self.db_path, stake_id='s3', staker_id=None, borrower_id='C',
+                      status='active', principal=999, staker_kind='house')
+
+        recv = self.stake_repo.aggregate_receivables_by_staker()
+        self.assertEqual(recv.get('A'), 170)
+        self.assertNotIn(None, recv)
+
+        owed = self.stake_repo.aggregate_outstanding_by_borrower()
+        self.assertEqual(owed.get('B'), 50)   # only carry rows are debt
+        self.assertNotIn('C', owed)            # active is the staker's claim
+
+
+class TestComputeHoldingsSnapshot(_Base):
+    def test_scoped_has_net_worth_block(self):
+        self._seed_ai('don_quixote', 1000)
+        _insert_stake(self.db_path, stake_id='s1', staker_id='don_quixote',
+                      borrower_id='someone', status='active', principal=200)
+        _insert_stake(self.db_path, stake_id='s2', staker_id='lender',
+                      borrower_id='don_quixote', status='carry', carry_amount=80)
+        _insert_ledger(self.db_path, source='ai:don_quixote', sink='central_bank',
+                       amount=40, reason='vice_spending', sandbox_id=SANDBOX)
+
+        snap = compute_holdings_snapshot(
+            bankroll_repo=self.bankroll_repo, personality_repo=self.personality_repo,
+            user_repo=self.user_repo, stake_repo=self.stake_repo,
+            db_path=self.db_path, sandbox_id=SANDBOX,
+        )
+        self.assertTrue(snap['net_worth_scoped'])
+        row = next(r for r in snap['rows'] if r['id'] == 'don_quixote')
+        self.assertEqual(row['projected_chips'], 1000)
+        self.assertEqual(row['receivable'], 200)
+        self.assertEqual(row['outstanding'], 80)
+        self.assertEqual(row['net_worth'], 1000 + 200 - 80)
+        self.assertEqual(row['vice_spent'], 40)
+
+    def test_unscoped_is_chips_only(self):
+        self._seed_ai('don_quixote', 1000)
+        snap = compute_holdings_snapshot(
+            bankroll_repo=self.bankroll_repo, personality_repo=self.personality_repo,
+            user_repo=self.user_repo, stake_repo=self.stake_repo,
+            db_path=self.db_path, sandbox_id=None,
+        )
+        self.assertFalse(snap['net_worth_scoped'])
+        row = snap['rows'][0]
+        self.assertNotIn('net_worth', row)
+        self.assertIn('projected_chips', row)
+
+    def test_player_row_gets_net_worth_when_scoped(self):
         self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=player_id,
-            chips=chips,
-            starting_bankroll=chips,
+            player_id='guest_jeff', chips=890, starting_bankroll=200,
         ))
-
-
-class TestCollectPlayerRowsResolution(_HoldingsViewBase):
-    def test_user_row_present_uses_user_name(self):
-        # When `users.name` is set, the user_name key is what we hit on —
-        # owner_name fallback is irrelevant.
-        self.user_repo.create_google_user(
-            google_sub='abc', email='alice@example.com', name='Alice',
+        _insert_stake(self.db_path, stake_id='s1', staker_id='guest_jeff',
+                      borrower_id='ai_friend', status='carry', carry_amount=300,
+                      staker_kind='human')
+        snap = compute_holdings_snapshot(
+            bankroll_repo=self.bankroll_repo, personality_repo=self.personality_repo,
+            user_repo=self.user_repo, stake_repo=self.stake_repo,
+            db_path=self.db_path, sandbox_id=SANDBOX,
         )
-        player_id = 'google_abc'
-        self._seed_bankroll(player_id)
+        row = next(r for r in snap['rows'] if r['id'] == 'guest_jeff')
+        self.assertEqual(row['kind'], 'player')
+        self.assertEqual(row['net_worth'], 890 + 300)
 
-        cash_pnl = {
-            'Alice': {
-                'chips_won': 1_200, 'chips_lost': 400,
-                'net_pnl': 800, 'hands_played_cash': 50,
-            },
-        }
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer=cash_pnl,
-            db_path=self.db_path,
+
+class _StubSnaps:
+    """Minimal snapshots_repo stand-in for history-shaping tests."""
+    def __init__(self, points):
+        self._points = points
+
+    def series_since(self, since_iso, *, sandbox_id):
+        return [p for p in self._points if p['captured_at'] >= since_iso]
+
+
+class TestComputeHoldingsHistory(unittest.TestCase):
+    def test_requires_sandbox_when_none(self):
+        out = compute_holdings_history(
+            snapshots_repo=_StubSnaps([]), personality_repo=None,
+            user_repo=None, days=30, sandbox_id=None,
         )
+        self.assertTrue(out['requires_sandbox'])
+        self.assertEqual(out['series'], [])
 
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row['name'], 'Alice')
-        self.assertEqual(row['net_pnl'], 800)
-        self.assertEqual(row['chips_won'], 1_200)
-        self.assertEqual(row['chips_lost'], 400)
-
-    def test_guest_finds_pnl_via_owner_name_fallback(self):
-        # No `users` row for guest_jeff. The relationship detector wrote
-        # observer_id="Jeff" (display name from the cash seat). Fallback
-        # must surface the PnL.
-        player_id = 'guest_jeff'
-        self._seed_bankroll(player_id)
-        _insert_game(
-            self.db_path, game_id='g1', owner_id=player_id,
-            owner_name='Jeff', created_at='2026-05-20 12:00:00',
+    def test_groups_ranks_and_autofits(self):
+        now = datetime(2026, 5, 25, 12, 0, 0)
+        t0 = (now - timedelta(hours=2)).isoformat() + 'Z'
+        t1 = (now - timedelta(hours=1)).isoformat() + 'Z'
+        points = [
+            {'entity_id': 'ai:rich', 'kind': 'ai', 'captured_at': t0,
+             'net_worth': 500, 'chips': 500, 'receivable': 0, 'outstanding': 0},
+            {'entity_id': 'ai:rich', 'kind': 'ai', 'captured_at': t1,
+             'net_worth': 900, 'chips': 900, 'receivable': 0, 'outstanding': 0},
+            {'entity_id': 'ai:poor', 'kind': 'ai', 'captured_at': t1,
+             'net_worth': 100, 'chips': 100, 'receivable': 0, 'outstanding': 0},
+        ]
+        out = compute_holdings_history(
+            snapshots_repo=_StubSnaps(points), personality_repo=None,
+            user_repo=None, days=30, now=now, sandbox_id=SANDBOX,
         )
-        cash_pnl = {
-            'Jeff': {
-                'chips_won': 900, 'chips_lost': 250,
-                'net_pnl': 650, 'hands_played_cash': 30,
-            },
-        }
+        self.assertFalse(out['requires_sandbox'])
+        self.assertEqual(out['series_total'], 2)
+        # Ranked by current (latest) net worth descending.
+        self.assertEqual([s['entity_id'] for s in out['series']],
+                         ['ai:rich', 'ai:poor'])
+        self.assertEqual(out['series'][0]['current_net_worth'], 900)
+        # Auto-fit: x-domain starts at the earliest recorded point, not the
+        # 30-day-ago window edge.
+        self.assertEqual(out['since'], t0)
 
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer=cash_pnl,
-            db_path=self.db_path,
+
+class TestRecordSnapshotRoundTrip(_Base):
+    def test_record_then_history(self):
+        self._seed_ai('hero', 1000)
+        _insert_stake(self.db_path, stake_id='s1', staker_id='hero',
+                      borrower_id='other', status='active', principal=200)
+
+        written = record_holdings_snapshot(
+            snapshots_repo=self.snaps, bankroll_repo=self.bankroll_repo,
+            personality_repo=self.personality_repo, user_repo=self.user_repo,
+            stake_repo=self.stake_repo, db_path=self.db_path, sandbox_id=SANDBOX,
         )
+        self.assertGreaterEqual(written, 1)
 
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row['name'], 'Jeff')
-        self.assertEqual(row['net_pnl'], 650)
-        self.assertEqual(row['chips_won'], 900)
-        self.assertEqual(row['chips_lost'], 250)
-
-    def test_guest_with_no_games_degrades_to_zeros(self):
-        # No users row, no games row — no fallback key available. Row
-        # still renders with zero PnL rather than crashing.
-        player_id = 'guest_orphan'
-        self._seed_bankroll(player_id, chips=2_000)
-
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer={},
-            db_path=self.db_path,
+        out = compute_holdings_history(
+            snapshots_repo=self.snaps, personality_repo=self.personality_repo,
+            user_repo=self.user_repo, days=30, sandbox_id=SANDBOX,
         )
-
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row['name'], 'guest_orphan')
-        self.assertEqual(row['stored_chips'], 2_000)
-        self.assertEqual(row['net_pnl'], 0)
-        self.assertEqual(row['chips_won'], 0)
-        self.assertEqual(row['chips_lost'], 0)
-
-    def test_most_recent_owner_name_wins(self):
-        # Player has played under multiple display names over time. The
-        # PnL is keyed on the most recent owner_name.
-        player_id = 'guest_multi'
-        self._seed_bankroll(player_id)
-        _insert_game(
-            self.db_path, game_id='g_old', owner_id=player_id,
-            owner_name='OldName', created_at='2026-01-01 12:00:00',
-        )
-        _insert_game(
-            self.db_path, game_id='g_new', owner_id=player_id,
-            owner_name='NewName', created_at='2026-05-20 12:00:00',
-        )
-        cash_pnl = {
-            'NewName': {
-                'chips_won': 500, 'chips_lost': 0,
-                'net_pnl': 500, 'hands_played_cash': 10,
-            },
-            'OldName': {
-                'chips_won': 9_999, 'chips_lost': 0,
-                'net_pnl': 9_999, 'hands_played_cash': 99,
-            },
-        }
-
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer=cash_pnl,
-            db_path=self.db_path,
-        )
-
-        self.assertEqual(rows[0]['name'], 'NewName')
-        self.assertEqual(rows[0]['net_pnl'], 500)
-
-    def test_pnl_keyed_directly_on_player_id_still_works(self):
-        # When `cash_pair_stats.observer_id` IS the player_id (the modern
-        # canonical key), no fallback is needed and the row still finds
-        # its PnL.
-        player_id = 'guest_modern'
-        self._seed_bankroll(player_id)
-        cash_pnl = {
-            player_id: {
-                'chips_won': 300, 'chips_lost': 100,
-                'net_pnl': 200, 'hands_played_cash': 5,
-            },
-        }
-
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer=cash_pnl,
-            db_path=self.db_path,
-        )
-
-        self.assertEqual(rows[0]['net_pnl'], 200)
-        self.assertEqual(rows[0]['chips_won'], 300)
-
-    def test_owner_name_null_on_all_games_falls_through(self):
-        # If every game row for this owner has NULL/empty owner_name, the
-        # bulk fetch returns nothing and PnL is zero.
-        player_id = 'guest_null'
-        self._seed_bankroll(player_id)
-        _insert_game(
-            self.db_path, game_id='g_null', owner_id=player_id,
-            owner_name=None, created_at='2026-05-20 12:00:00',
-        )
-        _insert_game(
-            self.db_path, game_id='g_empty', owner_id=player_id,
-            owner_name='', created_at='2026-05-20 13:00:00',
-        )
-
-        rows = _collect_player_rows(
-            user_repo=self.user_repo,
-            cash_pnl_by_observer={'Jeff': {
-                'chips_won': 1, 'chips_lost': 0, 'net_pnl': 1,
-                'hands_played_cash': 1,
-            }},
-            db_path=self.db_path,
-        )
-
-        self.assertEqual(rows[0]['net_pnl'], 0)
-
-
-class TestFetchRecentOwnerNames(_HoldingsViewBase):
-    def test_empty_input_returns_empty(self):
-        self.assertEqual(_fetch_recent_owner_names(self.db_path, []), {})
-
-    def test_returns_most_recent_per_owner(self):
-        _insert_game(
-            self.db_path, game_id='g1', owner_id='guest_a',
-            owner_name='Alpha', created_at='2026-01-01 12:00:00',
-        )
-        _insert_game(
-            self.db_path, game_id='g2', owner_id='guest_a',
-            owner_name='AlphaTwo', created_at='2026-05-01 12:00:00',
-        )
-        _insert_game(
-            self.db_path, game_id='g3', owner_id='guest_b',
-            owner_name='Bravo', created_at='2026-03-15 12:00:00',
-        )
-
-        result = _fetch_recent_owner_names(
-            self.db_path, ['guest_a', 'guest_b', 'guest_missing'],
-        )
-        self.assertEqual(result.get('guest_a'), 'AlphaTwo')
-        self.assertEqual(result.get('guest_b'), 'Bravo')
-        self.assertNotIn('guest_missing', result)
+        hero = next(s for s in out['series'] if s['entity_id'] == 'ai:hero')
+        self.assertEqual(hero['current_net_worth'], 1200)  # 1000 chips + 200 recv
 
 
 if __name__ == '__main__':

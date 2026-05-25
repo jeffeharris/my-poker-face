@@ -18,6 +18,7 @@ from ..extensions import (
     bankroll_repo,
     cash_table_repo,
     chip_ledger_repo,
+    holdings_snapshots_repo,
     persistence_db_path,
     personality_repo,
     relationship_repo,
@@ -30,6 +31,7 @@ from ..services.chip_ledger_audit import compute_audit
 from ..services.holdings_view import (
     compute_holdings_history,
     compute_holdings_snapshot,
+    record_holdings_snapshot,
 )
 from poker.authorization import require_permission
 
@@ -109,20 +111,21 @@ def chip_ledger_recent():
 @chip_ledger_bp.route('/api/admin/chip-ledger/holdings')
 @_admin_required
 def chip_ledger_holdings():
-    """Return the per-player holdings table for the admin "Holdings" section.
+    """Return the per-entity net-worth table for the admin "Holdings" section.
 
     Lists every AI personality in scope and every human player with a
-    bankroll row, with both stored and projected chip counts. AI scope
-    honors `?sandbox_id=`; human rows come from the global
-    `player_bankroll_state` regardless of sandbox (humans aren't
-    sandbox-scoped in v1).
+    bankroll row. When `?sandbox_id=` selects a sandbox, each row carries
+    net worth (chips + stakes receivable − stakes outstanding) plus vice
+    spent / side-hustle earned. In the cross-sandbox "All sandboxes" view
+    net worth is omitted (chips only) — stakes are global per entity, so
+    attributing them across per-sandbox chip rows isn't meaningful.
     """
     try:
         data = compute_holdings_snapshot(
             bankroll_repo=bankroll_repo,
             personality_repo=personality_repo,
             user_repo=user_repo,
-            relationship_repo=relationship_repo,
+            stake_repo=stake_repo,
             db_path=persistence_db_path,
             sandbox_id=_sandbox_arg(),
         )
@@ -135,27 +138,40 @@ def chip_ledger_holdings():
 @chip_ledger_bp.route('/api/admin/chip-ledger/holdings/history')
 @_admin_required
 def chip_ledger_holdings_history():
-    """Return per-entity cumulative chip flow into/out of the central bank.
+    """Return per-entity net worth over time for the selected sandbox.
 
-    Drives the time-series chart in the Holdings section. The series
-    value is "net chips received from the central bank to date" — NOT
-    actual entity balance, since the ledger doesn't observe seat-to-
-    seat (intra-table) chip flows. `?days=N` clamps to [1, 365],
-    default 30.
+    Drives the time-series chart in the Holdings section, read from the
+    `holdings_snapshots` the world ticker records. Net worth requires a
+    sandbox (`requires_sandbox=true` and an empty series otherwise). On
+    first view of a sandbox with no snapshots yet, seed one so the chart
+    isn't blank. `?days=N` clamps to [1, 365], default 30.
     """
     try:
         days = int(request.args.get('days', 30))
     except (TypeError, ValueError):
         days = 30
+    sandbox_id = _sandbox_arg()
     try:
+        # First-view seed: if a sandbox is selected but nothing has been
+        # recorded yet (ticker hasn't fired, or fresh table), capture one
+        # point now so the curve has something to draw.
+        if sandbox_id is not None and holdings_snapshots_repo is not None:
+            if holdings_snapshots_repo.latest_captured_at(sandbox_id) is None:
+                record_holdings_snapshot(
+                    snapshots_repo=holdings_snapshots_repo,
+                    bankroll_repo=bankroll_repo,
+                    personality_repo=personality_repo,
+                    user_repo=user_repo,
+                    stake_repo=stake_repo,
+                    db_path=persistence_db_path,
+                    sandbox_id=sandbox_id,
+                )
         data = compute_holdings_history(
-            ledger_repo=chip_ledger_repo,
-            bankroll_repo=bankroll_repo,
+            snapshots_repo=holdings_snapshots_repo,
             personality_repo=personality_repo,
             user_repo=user_repo,
-            db_path=persistence_db_path,
             days=days,
-            sandbox_id=_sandbox_arg(),
+            sandbox_id=sandbox_id,
         )
         return jsonify(data)
     except Exception as e:
@@ -174,6 +190,23 @@ def list_sandboxes():
     """
     try:
         sandboxes = sandbox_repo.list_all()
+        # Order by freshest net-worth snapshot, then newest — so the admin
+        # panel can default to a sandbox that actually has a chart (the one
+        # the ticker is actively recording) rather than a dormant/empty one.
+        latest: dict = {}
+        if holdings_snapshots_repo is not None:
+            for s in sandboxes:
+                try:
+                    latest[s.sandbox_id] = (
+                        holdings_snapshots_repo.latest_captured_at(s.sandbox_id) or ''
+                    )
+                except Exception:
+                    latest[s.sandbox_id] = ''
+        sandboxes = sorted(
+            sandboxes,
+            key=lambda s: (latest.get(s.sandbox_id, ''), s.created_at.isoformat()),
+            reverse=True,
+        )
         return jsonify({
             'sandboxes': [
                 {

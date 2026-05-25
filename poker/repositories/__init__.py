@@ -34,6 +34,7 @@ from .cash_session_repository import CashSessionRepository
 from .vice_state_repository import ViceStateRepository, ViceState
 from .side_hustle_state_repository import SideHustleStateRepository, SideHustleState
 from .user_preferences_repository import UserPreferencesRepository
+from .holdings_snapshots_repository import HoldingsSnapshotsRepository
 
 
 def create_repos(db_path: str) -> dict:
@@ -75,6 +76,7 @@ def create_repos(db_path: str) -> dict:
         'vice_state_repo': ViceStateRepository(db_path),
         'side_hustle_state_repo': SideHustleStateRepository(db_path),
         'user_prefs_repo': UserPreferencesRepository(db_path),
+        'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'db_path': db_path,
     }
 
@@ -92,6 +94,7 @@ __all__ = [
     'GameRepository',
     'GuestTrackingRepository',
     'HandHistoryRepository',
+    'HoldingsSnapshotsRepository',
     'LLMRepository',
     'PersonalityRepository',
     'PressureEventRepository',
