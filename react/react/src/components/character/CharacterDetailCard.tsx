@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   fetchCharacterDossier,
@@ -528,7 +529,12 @@ export function CharacterDetailCard({
   const relationship = character.affiliation?.relationship;
   const relMeta = relationship ? RELATIONSHIP_COPY[relationship] : null;
 
-  return (
+  // Rendered through a portal to <body> so the fixed-position overlay
+  // escapes any ancestor stacking context (e.g. PageLayout's `position:
+  // fixed` wrapper). Without this, a higher-z-index app header (.menu-bar,
+  // z-index 400) would paint over the dossier — including its close button —
+  // because the trapped overlay's z-index only competes inside that ancestor.
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -1021,6 +1027,7 @@ export function CharacterDetailCard({
           </motion.article>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

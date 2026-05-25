@@ -430,6 +430,51 @@ class TestPerRefreshCaps:
         assert len(deposits) <= FAKE_VICE_DEPOSITS_PER_REFRESH
 
 
+class TestFishConservationInvariant:
+    """Guard the load-bearing fish funding invariant in the seed file.
+
+    Fish are pool-funded: chips are drawn from the bank pool into their
+    bankroll, never minted. Autonomous regen (`project_bankroll` with a
+    non-zero `bankroll_rate`) WOULD mint into that pool-backed bankroll
+    and silently break conservation. The merged model relies entirely on
+    every fish persona carrying `bankroll_rate == 0` — there is no code
+    guard, so assert it on the seed file. See CASH_MODE_FISH_AS_PERSONAS.md.
+    """
+
+    def _load_personalities(self):
+        path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'poker', 'personalities.json',
+        )
+        with open(path) as fh:
+            data = json.load(fh)
+        # Shape is {"personalities": {name: config}}; the config dict has
+        # no inner "name", so inject the key for readable offender reports.
+        container = data.get('personalities', data) if isinstance(data, dict) else data
+        if isinstance(container, dict):
+            return [
+                {**cfg, 'name': name}
+                for name, cfg in container.items()
+                if isinstance(cfg, dict)
+            ]
+        return container
+
+    def test_every_fish_persona_has_zero_bankroll_rate(self):
+        fish = [
+            p for p in self._load_personalities()
+            if isinstance(p, dict) and p.get('archetype') == 'fish'
+        ]
+        assert fish, "expected at least one archetype=='fish' persona in seed file"
+        offenders = {
+            p.get('name'): (p.get('bankroll_knobs') or {}).get('bankroll_rate')
+            for p in fish
+            if (p.get('bankroll_knobs') or {}).get('bankroll_rate')
+        }
+        assert not offenders, (
+            "fish personas must have bankroll_rate==0 (pool-funded, no regen "
+            f"minting); offenders: {offenders}"
+        )
+
+
 class TestConstants:
     """Sanity-check constants are wired correctly."""
 

@@ -2203,6 +2203,11 @@
     "Vacation Greg": {
       "archetype": "fish",
       "play_style": "loose-passive tourist; calls everything, never reads the board, here for fun",
+      "visual_identity": {
+        "identity": "a cheerful, oblivious middle-aged vacationing dad",
+        "appearance": "early 50s, sunburned face, thinning sandy hair, soft round build, big easy grin, laugh lines",
+        "apparel": "loud floral Hawaiian shirt, holding a frozen cocktail with a tiny paper umbrella"
+      },
       "default_confidence": "cheerful",
       "default_attitude": "oblivious",
       "anchors": {
@@ -2247,6 +2252,11 @@
     "Bachelorette Brenda": {
       "archetype": "fish",
       "play_style": "tipsy-aggressive on the bluffs, calling-station when sober — neither sustained for long",
+      "visual_identity": {
+        "identity": "a giggly young woman at her friend's bachelorette party",
+        "appearance": "late 20s, flushed cheeks, long wavy hair, bright playful eyes, wide tipsy smile",
+        "apparel": "party dress with a 'BRIDE TRIBE' sash slipping off one shoulder, glittery accessories"
+      },
       "default_confidence": "giggly",
       "default_attitude": "delighted",
       "anchors": {
@@ -2291,6 +2301,11 @@
     "Cruise Carl": {
       "archetype": "fish",
       "play_style": "retired insurance salesman convinced he's good at poker — calls down with second pair every time",
+      "visual_identity": {
+        "identity": "a smug retired insurance salesman on a cruise",
+        "appearance": "late 60s, ruddy jowly face, silver combed-over hair, bushy eyebrows, self-satisfied smirk",
+        "apparel": "pastel golf polo, chunky gold watch and a pinky ring"
+      },
       "default_confidence": "supremely overconfident",
       "default_attitude": "patronizing",
       "anchors": {
@@ -2335,6 +2350,11 @@
     "Birthday Bobby": {
       "archetype": "fish",
       "play_style": "it's his birthday, he's playing every hand, the math doesn't apply tonight",
+      "visual_identity": {
+        "identity": "an exuberant guy celebrating his birthday at the casino",
+        "appearance": "mid 30s, round flushed face, short dark hair, gap-toothed grin, bright energetic eyes",
+        "apparel": "crooked plastic gold birthday crown, untucked button-up shirt"
+      },
       "default_confidence": "invincible",
       "default_attitude": "celebratory",
       "anchors": {
@@ -2379,6 +2399,11 @@
     "After Hours Trent": {
       "archetype": "fish",
       "play_style": "four whiskeys deep, posturing about pot odds, makes bizarre folds and hero calls in equal measure",
+      "visual_identity": {
+        "identity": "a tipsy finance bro fresh from the office",
+        "appearance": "early 30s, flushed face, slicked-back hair, strong jaw, glassy overconfident eyes, five-o'clock shadow",
+        "apparel": "branded fleece vest over a dress shirt, loosened tie, an Old Fashioned in hand"
+      },
       "default_confidence": "performatively analytical",
       "default_attitude": "condescending-but-friendly",
       "anchors": {
@@ -2423,6 +2448,11 @@
     "Lucky Mona": {
       "archetype": "fish",
       "play_style": "has a 'system' built from signs — dealer's hat color, ice left in her drink, the date — plays the system, not the cards",
+      "visual_identity": {
+        "identity": "a serene, superstitious grandmother with a lucky system",
+        "appearance": "late 60s, soft wrinkled kind face, silver curled hair, reading glasses, gentle knowing smile",
+        "apparel": "floral cardigan, costume-pearl necklace, rings on every finger"
+      },
       "default_confidence": "serene",
       "default_attitude": "grandmotherly",
       "anchors": {
@@ -2467,6 +2497,11 @@
     "Slots Linda": {
       "archetype": "fish",
       "play_style": "wandered over from the penny slots, treats every hand like a pull — no concept of relative position, no concept of opponents",
+      "visual_identity": {
+        "identity": "a zoned-out casino regular wandered over from the slot machines",
+        "appearance": "50s, blank tired expression, dyed reddish hair, heavy eye makeup, vacant glassy stare",
+        "apparel": "casino-logo windbreaker, players-club lanyard, a watery cocktail in hand"
+      },
       "default_confidence": "zoned-out",
       "default_attitude": "agreeable",
       "anchors": {
@@ -2511,6 +2546,11 @@
     "Golf Trip Brad": {
       "archetype": "fish",
       "play_style": "took a break from the round, treats poker like blackjack, only sees his own cards and never the board",
+      "visual_identity": {
+        "identity": "an upbeat guy on a golf trip taking a break from the course",
+        "appearance": "40s, tanned face, athletic build, short cropped hair, easy confident grin, sunglasses tan lines",
+        "apparel": "white golf visor, pastel performance polo, a beer in hand"
+      },
       "default_confidence": "loose and casual",
       "default_attitude": "upbeat",
       "anchors": {
@@ -2555,6 +2595,11 @@
     "Freddie Fratboy": {
       "archetype": "fish",
       "play_style": "spring-break loud, plays every hand because folding would be 'no balls', escalates with anyone who calls his bluff",
+      "visual_identity": {
+        "identity": "a brash, loud spring-break frat boy",
+        "appearance": "early 20s, tanned smug face, broad athletic build, cocky open-mouthed grin, faint stubble",
+        "apparel": "backwards baseball cap, sleeveless muscle tee, a light beer can in hand"
+      },
       "default_confidence": "brash",
       "default_attitude": "showboat",
       "anchors": {

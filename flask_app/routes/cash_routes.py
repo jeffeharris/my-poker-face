@@ -3038,6 +3038,7 @@ def offer_stake_to_ai():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
+        chip_ledger_repo=_chip_ledger_repo,
     )
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -3105,13 +3106,16 @@ def offer_stake_to_ai():
         )
 
     # Match-share: debit the AI's match contribution from their bankroll
-    # before the seat write. Pure non-bank transfer (chips go onto the
-    # seat alongside the player's principal) so no ledger entry.
+    # before the seat write. Atomic regen+debit (chip_ledger_repo passed
+    # so any pending regen commits via `ai_regen` instead of being
+    # ignored and silently clamped at the debit).
     if stake_format == STAKE_FORMAT_MATCH_SHARE:
         from cash_mode.bankroll import debit_bankroll_for_seat
         debit_bankroll_for_seat(
             bankroll_repo, target_pid, match_amount,
             sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+            now=now,
         )
 
     updated_table = table.with_seat(
@@ -3975,6 +3979,7 @@ def get_lobby():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
+        chip_ledger_repo=_chip_ledger_repo,
     )
 
     # Mark this sandbox active so the realtime world ticker advances it.

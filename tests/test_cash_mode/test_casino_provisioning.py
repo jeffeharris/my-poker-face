@@ -865,3 +865,84 @@ class TestFishSeats:
             for pid in spawn.fish_seated:
                 assert not pid.startswith("tourist-")
                 assert not pid.startswith("_tourist_")
+
+
+class TestZombieSeatReclaim:
+    """AI seats whose persona no longer resolves (old-model
+    `tourist-<uuid>` seats, or any deleted persona) are self-healed:
+    opened, with chips returned to the pool, so a dead seat can never
+    permanently block the human or a live-filling grinder from sitting.
+    """
+
+    def _spawn_casino(self, db_setup, *, seed=60_000, rng_seed=0):
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=seed)
+        resolve_casino_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(rng_seed), now=ANCHOR,
+        )
+        return next(
+            t for t in db_setup["tables"].list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+
+    def test_helper_opens_zombie_returns_chips_keeps_valid(self, db_setup):
+        from cash_mode.casino_provisioning import _reclaim_zombie_casino_seats
+
+        tables, ledger = db_setup["tables"], db_setup["ledger"]
+        casino = self._spawn_casino(db_setup)
+        opens = [i for i, s in enumerate(casino.seats) if s.get("kind") == "open"]
+        assert opens, "spawn should leave open seats for grinders/human"
+        valid_fish_before = [
+            s["personality_id"] for s in casino.seats if s.get("kind") == "ai"
+        ]
+        # Plant an old-model zombie tourist seat with residual chips.
+        casino.seats[opens[0]] = {
+            "kind": "ai", "personality_id": "tourist-deadbeef", "chips": 150,
+        }
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+        pool_before = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        reclaimed = _reclaim_zombie_casino_seats(
+            tables, ledger, sandbox_id=SBX,
+            valid_pids=db_setup["personality"].list_all_personality_ids(),
+            now=ANCHOR,
+        )
+
+        assert reclaimed == 1
+        reloaded = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_id == casino.table_id
+        )
+        live = [s.get("personality_id") for s in reloaded.seats if s.get("kind") == "ai"]
+        assert "tourist-deadbeef" not in live          # zombie seat opened
+        for pid in valid_fish_before:
+            assert pid in live                          # real fish untouched
+        # Chips return to the pool exactly (helper runs without a refill).
+        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == pool_before + 150
+
+    def test_resolver_clears_planted_zombie(self, db_setup):
+        """The full provisioning resolve wires the reclaim in: a planted
+        zombie seat is gone after one normal pass."""
+        tables, ledger = db_setup["tables"], db_setup["ledger"]
+        casino = self._spawn_casino(db_setup)
+        opens = [i for i, s in enumerate(casino.seats) if s.get("kind") == "open"]
+        if not opens:
+            pytest.skip("spawn left no open seat to plant a zombie")
+        casino.seats[opens[0]] = {
+            "kind": "ai", "personality_id": "tourist-deadbeef", "chips": 90,
+        }
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=ledger,
+            sandbox_id=SBX, rng=random.Random(3), now=ANCHOR,
+        )
+
+        reloaded = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_id == casino.table_id
+        )
+        live = [s.get("personality_id") for s in reloaded.seats if s.get("kind") == "ai"]
+        assert "tourist-deadbeef" not in live

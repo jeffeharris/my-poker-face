@@ -470,20 +470,11 @@ def update_and_emit_game_state(game_id: str) -> None:
                 display_emotion = controller.psychology.get_display_emotion()
             else:
                 display_emotion = 'confident'  # Default for RuleBots
-            # Ephemeral tourists: skip avatar generation. The fallback
-            # path would call `generate_character_images(player_name)`
-            # which calls `personality_generator.get_personality(name)`
-            # which auto-creates a DB personality with the tourist's
-            # display name — zombies that then leak into the eligible
-            # pool at every stake. UI renders the initial letter when
-            # avatar_url is None. Detect by the controller's fish_leak
-            # attribute (only RuleBotController has it; only tourists
-            # have it set).
-            is_ephemeral_tourist = bool(getattr(controller, 'fish_leak', None))
-            if is_ephemeral_tourist:
-                avatar_url = None
-            else:
-                avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
+            # Fish are permanent personas now (real DB rows, stable names),
+            # so they resolve avatars through the standard on-demand
+            # pipeline like every other AI — no zombie-personality risk
+            # that the old synthetic-tourist path had.
+            avatar_url = get_avatar_url_with_fallback(game_id, player_name, display_emotion)
             player_dict['avatar_emotion'] = display_emotion
             player_dict['avatar_url'] = avatar_url
 
@@ -1330,8 +1321,8 @@ def _emit_seated_movement_chat(
         i: dict(s) for i, s in enumerate(table_pre_refresh.seats)
     }
     # Index pre-refresh seats by pid for leave-path personality lookups
-    # — ephemeral tourists carry their personality inline on the seat,
-    # so DB lookup by pid alone would miss them.
+    # — a seat that just left is gone from the post-refresh table, so we
+    # need the pre-refresh snapshot to resolve its personality.
     pre_seats_by_pid: Dict[str, Dict[str, Any]] = {
         s.get("personality_id"): s
         for s in pre_seats.values()
@@ -1354,10 +1345,9 @@ def _emit_seated_movement_chat(
     def _personality_for(pid: str, *, seat: Optional[Dict[str, Any]] = None):
         """Resolve a seat's personality dict.
 
-        If `seat` is provided OR a seat with this pid is in the pre/post
-        snapshots, the inline `ephemeral_personality` (tourists) wins
-        over a DB lookup. Falls through to `PersonalityRepository` for
-        regular AI seats.
+        Resolves via the pre/post seat snapshots when available (so a
+        just-left seat still resolves), falling back to a direct
+        `PersonalityRepository` lookup by pid.
         """
         resolved_seat = seat or post_seats_by_pid.get(pid) or pre_seats_by_pid.get(pid)
         if resolved_seat is not None:
@@ -1635,9 +1625,8 @@ def _seat_freshly_filled_ais(
         # `personality_for_seat` catches expected repo failures internally
         # and logs them; programmer bugs propagate so they get fixed.
         personality = personality_for_seat(seat, personality_repo) if seat else None
-        # Prefer the seat's display_name (set for tourists by
-        # `ai_slot_ephemeral`); fall back to the personality's name; fall
-        # back to the raw pid.
+        # Prefer the seat's display_name when present; fall back to the
+        # personality's name; fall back to the raw pid.
         name = (
             (seat or {}).get("display_name")
             or (personality or {}).get("name")
@@ -1655,12 +1644,11 @@ def _seat_freshly_filled_ais(
         state_machine.game_state = game_state
         occupied_names.add(name)
 
-        # Route fish-archetype personalities (including ephemeral
-        # tourists) to RuleBotController with strategy='fish'. Without
-        # this, mid-session live fills would build a HybridAIController
-        # for a tourist — wasting LLM calls and ignoring the designated
-        # `fish_leak`. Mirrors the sit-route's `rule_strategy_override`
-        # branch in cash_routes.py.
+        # Route fish-archetype personalities to RuleBotController with
+        # strategy='fish'. Without this, mid-session live fills would
+        # build a HybridAIController for a fish — wasting LLM calls and
+        # ignoring the designated `fish_leak`. Mirrors the sit-route's
+        # `rule_strategy_override` branch in cash_routes.py.
         rule_strategy_override = (
             (personality or {}).get("rule_strategy")
             if isinstance(personality, dict) else None

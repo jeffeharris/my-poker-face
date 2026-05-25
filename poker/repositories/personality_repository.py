@@ -4,7 +4,7 @@ Manages the personalities and avatar_images tables.
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 
 from poker.repositories.base_repository import BaseRepository
 from poker.personality_id import (
@@ -411,6 +411,24 @@ class PersonalityRepository(BaseRepository):
                 for row in cursor
             ]
 
+    def list_all_personality_ids(self) -> Set[str]:
+        """Return the set of every non-NULL `personality_id` in the table.
+
+        A fast membership check for "does this seated AI still resolve to
+        a real personality?" — used by the casino resolver's zombie-seat
+        reclaim to spot AI seats whose persona no longer exists (e.g.
+        old-model `tourist-<uuid>` seats from before the fish-as-personas
+        migration). One query, no per-seat lookups.
+        """
+        with self._get_connection() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            if 'personality_id' not in columns:
+                return set()
+            cursor = conn.execute(
+                "SELECT personality_id FROM personalities WHERE personality_id IS NOT NULL"
+            )
+            return {row["personality_id"] for row in cursor}
+
     def delete_personality(self, name: str) -> bool:
         """Delete a personality from the database."""
         try:
@@ -422,24 +440,6 @@ class PersonalityRepository(BaseRepository):
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error deleting personality {name}: {e}")
-            return False
-
-    def delete_personality_by_id(self, personality_id: str) -> bool:
-        """Delete a personality row by stable id.
-
-        Preferred over `delete_personality(name)` for ephemeral
-        instances (e.g. fish) whose display names aren't unique or
-        stable across spawns. Returns True if a row was removed.
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM personalities WHERE personality_id = ?",
-                    (personality_id,),
-                )
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Error deleting personality_id {personality_id}: {e}")
             return False
 
     def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:
