@@ -997,19 +997,11 @@ def refresh_unseated_tables(
                 table.dealer_idx = r.dealer_seat_idx
             sim_results.append(r)
 
-            # Closed-economy: if this casino is in 'closing' state,
-            # decrement its hand countdown. When the countdown hits 0
-            # the next casino-provisioning resolution will actually
-            # delete the row (smooth shutdown vs immediate teardown).
-            if table.table_type == 'casino' and r.delta > 0:
-                from cash_mode.casino_provisioning import (
-                    decrement_closing_hands,
-                    is_closing,
-                )
-                if is_closing(cash_table_repo, sandbox_id, table.table_id):
-                    decrement_closing_hands(
-                        cash_table_repo, sandbox_id, table.table_id,
-                    )
+            # (The casino closing countdown is no longer decremented here.
+            # A casino only enters closing once it's empty of fish, so it
+            # plays no hands and this hook never fired. The countdown is now
+            # ticked once per provisioning resolution instead — see
+            # `resolve_casino_provisioning` Pass 2.)
 
             # Advance detached counters for AI seats now that the hand
             # has resolved (their psychology reflects this hand's events).

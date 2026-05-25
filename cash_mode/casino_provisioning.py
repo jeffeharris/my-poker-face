@@ -162,10 +162,11 @@ def decrement_closing_hands(
     """Tick down the closing countdown. Returns the new count, or None
     if the casino isn't in closing state.
 
-    Called from each hand-boundary path — the full-sim loop and the
-    human-play `leave_hand` hook — once per completed hand at the
-    table. On reaching 0, the next provisioning resolution actually
-    deletes the row.
+    Called once per casino-provisioning resolution for a closing table
+    (see `resolve_casino_provisioning` Pass 2). Closing is only entered
+    once a casino is empty of fish, and an empty table plays no hands —
+    so a per-hand hook would never fire. On reaching 0, a later
+    resolution actually deletes the row.
     """
     if cash_table_repo is None:
         return None
@@ -1055,6 +1056,17 @@ def resolve_casino_provisioning(
                             "[CASH][CASINO] teardown failed for %s: %s",
                             table.table_id, exc,
                         )
+                else:
+                    # Tick the countdown down once per provisioning
+                    # resolution. A casino only enters closing once it's
+                    # empty of fish (above), and an empty table plays no
+                    # hands — so a per-hand decrement would never fire and
+                    # the countdown would stick forever. Counting down per
+                    # resolution guarantees a closing table reaches 0 and
+                    # tears down on a later pass.
+                    decrement_closing_hands(
+                        cash_table_repo, sandbox_id, table.table_id,
+                    )
                 continue
 
             # Not closing yet. Enter closing only when there are no fish AND
