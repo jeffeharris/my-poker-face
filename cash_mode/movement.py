@@ -70,6 +70,14 @@ DEFAULT_LIVE_FILL_PROB = 0.05
 # after a short-stack leave-vs-rebuy roll lands on 'rebuy'.
 REBUY_BASE_WEIGHTS = {"min": 40.0, "mid": 40.0, "max": 20.0}
 
+# Fish are pool-funded chip donors: they stay and reload from their
+# bankroll instead of leaving, so the whole stake feeds the table — UNLESS
+# they tilt. At/above this emotional intensity a fish may storm off with
+# its remaining chips (chance scales with intensity). Makes table manners
+# an economic lever: keep the fish content and it keeps donating;
+# needle / cooler / berate it and it leaves. Tunable.
+FISH_TILT_LEAVE_THRESHOLD = 0.5
+
 # Minimum cooldown seconds between an AI leaving a table and being
 # eligible to refill the same table. The pressure-derived variable
 # extension on top of this is computed at leave time.
@@ -189,6 +197,42 @@ def evaluate_ai_movement(
         )
         return "stake_up" if can_stake_up else "take_break"
     return "bored_move"
+
+
+def _coerce_fish_movement(
+    decision: MovementDecision,
+    ctx: MovementContext,
+    rng: random.Random,
+) -> MovementDecision:
+    """Apply fish-specific movement rules to a raw movement decision.
+
+    A fish is a pool-funded chip donor meant to feed the table until its
+    stake is gone, not a session-booking grinder. So:
+
+    - **Content fish** (`emotional_intensity < FISH_TILT_LEAVE_THRESHOLD`):
+      never wander tables (`bored_move`) or move up stakes (`stake_up`),
+      and instead of leaving short (`take_break`) or busting the seat
+      (`forced_leave`) they **reload from the bankroll** (`rebuy`) — until
+      the bankroll is too thin to fund a buy-in, at which point they bust
+      for real. Net effect: the entire pool-funded stake is lost at the
+      table rather than recycled back to the pool on a cash-out.
+
+    - **Upset fish** (intensity at/above the threshold): table manners
+      failed. A fish already busting just goes; otherwise it may storm off
+      *with its remaining chips*, the chance rising with how tilted it is.
+      Keep the fish content and this branch never fires.
+    """
+    if ctx.emotional_intensity >= FISH_TILT_LEAVE_THRESHOLD:
+        if decision == "forced_leave":
+            return "forced_leave"
+        return "take_break" if rng.random() < ctx.emotional_intensity else "stay"
+
+    if decision in ("stake_up", "bored_move"):
+        return "stay"
+    if decision in ("take_break", "forced_leave"):
+        can_reload = ctx.projected_bankroll >= ctx.min_buy_in
+        return "rebuy" if can_reload else decision
+    return decision
 
 
 def resolve_dominant_signal(
@@ -788,11 +832,11 @@ def refresh_table_roster(
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
         )
         decision = evaluate_ai_movement(ctx, rng)
-        # Fish stay put at the casino: coerce tier-drift (`stake_up`) and
-        # table-wander (`bored_move`) to `stay`. Leave / rebuy / take_break
-        # stand so a busted fish still re-buys from its bankroll or goes home.
-        if is_fish and decision in ("stake_up", "bored_move"):
-            decision = "stay"
+        # Fish are casino-bound chip donors: they reload from their
+        # pool-funded bankroll and stay until the whole stake is gone,
+        # unless they tilt and storm off. See `_coerce_fish_movement`.
+        if is_fish:
+            decision = _coerce_fish_movement(decision, ctx, rng)
         # Stamp the dominant pressure signal so the lobby's activity
         # emitter can build narrative hints for leave_narrative without
         # rerunning the pressure compute (or worse, re-querying psych).
@@ -912,6 +956,14 @@ def refresh_table_roster(
             #     would cause a double-debit, so keep these two channels
             #     in sync if you refactor.
             rebuy_amount = pick_rebuy_amount(ctx, rng)
+            # Never rebuy more than the bankroll can fund. `_apply_rebuys`
+            # clamps the bankroll debit to >=0 but credits the seat the full
+            # amount, so an over-reach would mint chips (audit drift). Clamp
+            # to the projected bankroll; if there's nothing left to reload
+            # with, skip the rebuy and leave the short stack as-is.
+            rebuy_amount = min(rebuy_amount, max(0, ctx.projected_bankroll))
+            if rebuy_amount <= 0:
+                continue
             new_chips = ai_chips + rebuy_amount
             new_seats[i] = ai_slot(pid, new_chips)
             rebuy_changes.append(RebuyChange(
