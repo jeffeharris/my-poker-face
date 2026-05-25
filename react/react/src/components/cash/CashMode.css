@@ -785,6 +785,13 @@
 .lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
   color: #86efac;
 }
+/* Last stand — a seat with its whole bankroll on the line. Burning
+   orange so the "go target them" signal pops against the calmer
+   join/leave/stake tints. */
+.lobby-ticker__item--last_stand .lobby-ticker__icon {
+  color: #fb923c;
+  filter: drop-shadow(0 0 4px rgba(251, 146, 60, 0.5));
+}
 
 .lobby-ticker__message {
   color: var(--text-primary, #f5f5f5);

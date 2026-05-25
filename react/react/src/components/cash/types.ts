@@ -202,7 +202,10 @@ export interface LobbyEvent {
     | 'vice_end'
     // Side hustle — broke AI goes off-grid to earn (mirror of vice).
     | 'hustle_start'
-    | 'hustle_end';
+    | 'hustle_end'
+    // Last stand — an AI (or the player) has their entire bankroll on a
+    // single table. The predator signal: a vulnerable seat to target.
+    | 'last_stand';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -219,7 +222,8 @@ export interface LobbyEvent {
    *     defaults; the `message` verb distinguishes the two)
    *   - ai_payoff: the staker's personality_id (counterparty)
    *   - ai_forgiven: the borrower's personality_id (the staker is
-   *     the actor in a forgive grant, so they lead `personality_id`) */
+   *     the actor in a forgive grant, so they lead `personality_id`)
+   *   - last_stand: empty for AIs; `'self'` for the player's own line */
   reason: string;
   message: string;
   created_at: string;

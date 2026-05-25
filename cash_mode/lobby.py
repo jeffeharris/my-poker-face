@@ -406,6 +406,66 @@ def _global_seated_set(tables: List[CashTableState]) -> Set[str]:
     return out
 
 
+# Last-stand (predator-signal) dedup state. Maps sandbox_id -> the set of
+# personality_ids currently announced as having their whole bankroll on a
+# table. In-memory and best-effort: a process restart re-announces each
+# committed AI once, which is harmless. Mirrors the ring buffer's
+# "session-scoped is fine" stance (cash_mode/activity.py). Keyed by
+# sandbox so two players' worlds don't suppress each other's signals.
+_last_stand_announced: Dict[str, Set[str]] = {}
+
+
+def _committed_seated_ais(
+    table: CashTableState,
+    *,
+    reserve_lookup: Callable[[str], Optional[int]],
+) -> Dict[str, int]:
+    """Return `{personality_id: seat_chips}` for AI seats whose reserve
+    bankroll is $0 while they still hold chips — i.e. their entire net
+    worth is on this table.
+
+    Strict $0 by design: that's the only state in which busting the seat
+    stack fully crashes the AI out. Any reserve at all and they'd go idle
+    + side-hustle back, so a "go finish them" signal would be a lie. $0
+    reserve while seated is reachable whenever a low-reserve AI rebuys for
+    more than they have left — `debit_bankroll_for_seat` clamps stored
+    chips at 0. `reserve_lookup` returns the AI's off-table bankroll (None
+    when no row exists — treated as "not committed" so a missing row never
+    produces a false alarm).
+    """
+    out: Dict[str, int] = {}
+    for slot in table.seats:
+        if slot.get("kind") != "ai":
+            continue
+        pid = slot.get("personality_id")
+        chips = int(slot.get("chips", 0))
+        if not pid or chips <= 0:
+            continue
+        reserve = reserve_lookup(pid)
+        if reserve is None:
+            continue
+        if reserve <= 0:
+            out[pid] = chips
+    return out
+
+
+def _select_new_last_stands(
+    sandbox_id: Optional[str], now_qualifying: Set[str],
+) -> Set[str]:
+    """Diff this refresh's committed AIs against the prior refresh's.
+
+    Returns the personality_ids that are newly committed (so the ticker
+    fires once, not every tick) and rolls the announced set forward to
+    `now_qualifying`. An AI that recovered, left, or moved to a table not
+    scanned this refresh drops out of the set and can re-trigger later.
+    """
+    key = sandbox_id or ""
+    prev = _last_stand_announced.get(key, set())
+    newly = now_qualifying - prev
+    _last_stand_announced[key] = set(now_qualifying)
+    return newly
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -753,6 +813,12 @@ def refresh_unseated_tables(
         # destination table. We close over the current iteration's
         # `table.stake_label` via the outer scope.
         return _current_table_buy_in[pid]
+
+    # Last-stand detection: pid -> (table_id, stake_label) for every
+    # seated AI at $0 reserve seen this refresh. Reconciled against the
+    # prior refresh after the table loop so the ticker fires once per
+    # episode rather than every tick.
+    last_stand_qualifying: Dict[str, Tuple[str, str]] = {}
 
     out: Dict[str, RosterRefreshResult] = {}
     for table in tables:
@@ -1499,11 +1565,40 @@ def refresh_unseated_tables(
             sandbox_id=sandbox_id,
         )
 
+        # Predator signal: collect AI seats whose entire net worth is now
+        # on this table ($0 reserve — one busted stack from a full crash
+        # out). Reserve reflects every chip move applied above (rebuys,
+        # leave-credits, stake settlements/creations), so the scan reads
+        # the post-refresh truth. Emission is deferred to one dedup'd pass
+        # after every table is processed.
+        for _pid, _chips in _committed_seated_ais(
+            result.new_table,
+            reserve_lookup=_bankroll_lookup,
+        ).items():
+            last_stand_qualifying[_pid] = (
+                result.new_table.table_id, result.new_table.stake_label,
+            )
+
         # Refresh idle_pool snapshot so the next iteration sees the
         # updated state (we may have added or removed entries).
         idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
 
         out[table.table_id] = result
+
+    # Emit the last-stand predator signal for AIs newly committed since
+    # the previous refresh. Dedup keeps a steadily-committed seat from
+    # re-flooding the ticker every tick; recovered / departed AIs drop
+    # out of the announced set and can re-trigger on a future episode.
+    newly_committed = _select_new_last_stands(
+        sandbox_id, set(last_stand_qualifying),
+    )
+    if newly_committed:
+        _emit_last_stand_events(
+            candidates={pid: last_stand_qualifying[pid] for pid in newly_committed},
+            personality_repo=personality_repo,
+            now=now,
+            sandbox_id=sandbox_id,
+        )
 
     # Phase 4.5 Commits 3-5: AI-initiated carry resolution. Runs once
     # per lobby refresh, after every table has been processed. Iterates
@@ -1840,6 +1935,54 @@ def _emit_activity_events(
                 name=name,
                 reason="",
                 message=format_join_message(name, stake),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception:
+            pass
+
+
+def _emit_last_stand_events(
+    *,
+    candidates: Dict[str, Tuple[str, str]],
+    personality_repo,
+    now: datetime,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Push last-stand (predator-signal) events to the ring buffer.
+
+    `candidates` maps `personality_id -> (table_id, stake_label)` for the
+    AIs newly committed this refresh (already dedup'd by the caller).
+    Best-effort, same defensive stance as the other emitters — the
+    ticker is UX, never a correctness surface.
+    """
+    if not candidates:
+        return
+    from cash_mode.activity import (
+        EVENT_LAST_STAND,
+        LobbyEvent,
+        format_last_stand_message,
+        record_event,
+    )
+
+    ts = now.isoformat()
+    for pid, (table_id, stake_label) in candidates.items():
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        name = (personality or {}).get("name") if personality else None
+        if not name:
+            continue
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_LAST_STAND,
+                table_id=table_id,
+                stake_label=stake_label,
+                personality_id=pid,
+                name=name,
+                reason="",
+                message=format_last_stand_message(name, stake_label),
                 created_at=ts,
                 sandbox_id=sandbox_id,
             ))

@@ -67,6 +67,22 @@ table on the next refresh tick): `bust` is the hand-level "they're
 out of chips" beat; `leave` is the "they walked away" beat. Both
 fire over the course of a single lobby read after a bust hand."""
 
+EVENT_LAST_STAND = "last_stand"
+"""An AI (or the player) has their entire net worth on a single table —
+reserve bankroll is $0, so the stack on the felt is literally all they
+have left. This is the only state in which busting their table stack
+*completely* crashes them out (any reserve at all and they'd just go idle
++ side-hustle back), which is exactly why it's the *predator* signal: it
+tells the player whose elimination is actually on the table right now so
+they can sit down and finish them. Distinct from `bust` (already out of
+chips this hand) and from the side hustle (an *idle* broke AI that left
+the felt to earn) — `last_stand` is the still-seated "last chips" beat.
+
+Emitted once per episode: re-entering the committed state after recovering
+(or after leaving and coming back) re-triggers it, but a steady committed
+seat doesn't re-flood the ticker every refresh. `reason` is `''` for AIs
+and `'self'` for the player's own line."""
+
 EVENT_AI_STAKE = "ai_stake"
 """An AI staked another AI. Phase 4 of the backing system. Surfaces
 the AI economy as visible drama in the lobby ticker — "Bezos staked
@@ -284,6 +300,21 @@ def format_all_in_message(
 def format_bust_message(name: str, stake_label: str) -> str:
     """Phrasing for a bust event — AI's stack hit 0 during a hand."""
     return f"{name} busted out at {stake_label}"
+
+
+def format_last_stand_message(name: str, stake_label: str) -> str:
+    """Phrasing for an AI's last-stand event — their whole bankroll is
+    now on the table. Framed so the player reads it as an opening: a
+    seat worth targeting because the occupant has nothing left to fall
+    back on."""
+    return f"{name} has their whole bankroll on the {stake_label} table"
+
+
+def format_player_last_stand_message(stake_label: str) -> str:
+    """Phrasing for the player's own last-stand line — a self-warning
+    that they're playing without a reserve. Second-person so it reads
+    as a heads-up, not a spectator beat."""
+    return f"Your whole bankroll is on the {stake_label} table"
 
 
 def format_ai_stake_message(

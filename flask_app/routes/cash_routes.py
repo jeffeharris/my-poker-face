@@ -4310,15 +4310,53 @@ def get_lobby():
     except Exception:
         world_pace = "lively"
 
+    events_payload = [
+        serialize_event(e)
+        for e in recent_events(limit=5, sandbox_id=sandbox_id)
+    ]
+
+    # The player's own last-stand line — bankroll is $0 and they have a
+    # stack in play, so their entire net worth is on a single table. The
+    # AI version of this signal is emitted into the ring buffer during the
+    # refresh, but the player's own table is never refreshed there (the
+    # human-seated table is skipped), so we synthesize the line here at
+    # response time. Recomputed each poll while the condition holds — a
+    # standing self-warning rather than a one-shot beat.
+    if bankroll.chips == 0 and active_game_id:
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            human_stack = 0
+            try:
+                sm = active_game.get("state_machine")
+                for p in sm.game_state.players:
+                    if p.is_human:
+                        human_stack = int(p.stack)
+                        break
+            except Exception:
+                human_stack = 0
+            stake_label = active_game.get("cash_stake_label") or ""
+            if human_stack > 0:
+                from cash_mode.activity import (
+                    EVENT_LAST_STAND,
+                    format_player_last_stand_message,
+                )
+                events_payload.insert(0, {
+                    "type": EVENT_LAST_STAND,
+                    "table_id": active_game.get("cash_table_id", ""),
+                    "stake_label": stake_label,
+                    "personality_id": owner_id,
+                    "name": "You",
+                    "reason": "self",
+                    "message": format_player_last_stand_message(stake_label),
+                    "created_at": datetime.utcnow().isoformat(),
+                })
+
     return jsonify({
         "bankroll": bankroll.chips,
         "tier": current_tier,
         "tier_stake_label": current_tier_stake,
         "tables": response_tables,
-        "events": [
-            serialize_event(e)
-            for e in recent_events(limit=5, sandbox_id=sandbox_id)
-        ],
+        "events": events_payload,
         "pending_forgiveness_count": pending_forgiveness_count,
         "active_vices": active_vices_payload,
         "world_pace": world_pace,
