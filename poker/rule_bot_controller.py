@@ -212,7 +212,17 @@ class RuleBotController(AIPlayerController):
         # the dict on hand-number transition; lazy-capture on first
         # decision of each hand (or mid-hand fallback when this controller
         # was instantiated after the hand began).
-        hand_number = self.state_machine.stats.hand_count if self.state_machine else 0
+        # PokerStateMachine.stats (and the StateMachineAdapter that proxies
+        # to it) exposes stats as a dict — {'hand_count': N} — not the raw
+        # StateMachineStats dataclass. Read it as a dict, but tolerate the
+        # dataclass form too in case a raw state ever reaches here.
+        hand_number = 0
+        if self.state_machine:
+            _stats = self.state_machine.stats
+            hand_number = (
+                _stats.get('hand_count', 0) if isinstance(_stats, dict)
+                else getattr(_stats, 'hand_count', 0)
+            )
         if hand_number != self._last_hand_number:
             self._this_hand_starts = {}
             self._last_hand_number = hand_number
