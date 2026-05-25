@@ -2,7 +2,7 @@
 purpose: Scope and build-vs-buy analysis for generating solver-derived lookup charts (the "~32 sets of charts") across player counts, stack depths, action histories, and bet sizings
 type: design
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-05-25
 ---
 
 # Solver Chart Scope — the full lookup-table program
@@ -145,3 +145,44 @@ Each catches a different failure class before compute is spent:
 Planning/scoping only — **no solver build has started.** Next decision gate
 is the solver-viability question in `NEXT_PHASE_VISION.md` Bucket 6 (a
 Cepheus/Kuhn match pilot) before committing to a build.
+
+## MEASURED: the short-stack leak is real and large (2026-05-25)
+
+The "100bb tables at 25bb effective" premise was previously an untested
+hypothesis. It is now **measured** (`experiments/measure_passivity.py --stack-bb`,
+Baseline vs the Jeff_clone human model, 3000 × seeds 42/142/242, fixed-depth
+proxy — per-hand reset, not full SNG dynamics):
+
+| Effective stack | bb/100 | AggFactor |
+|---|---|---|
+| 100bb | **−4.2** | 0.27 |
+| 50bb | **−18.8** | 0.16 |
+| 25bb | **−21.8** | 0.06 |
+| 15bb | **−2.1** | 0.01 |
+
+**The leak is concentrated at 25–50bb (−18 to −22 bb/100), ~4–5× the 100bb
+leak.** This confirms the premise — and refines the target:
+- It is **NOT a push/fold problem**: 15bb is already near break-even (jam/fold
+  is forgiving + small stacks compress the loss). Published <15bb push/fold
+  charts are therefore **low priority**.
+- The money is lost in the **25–50bb middle** — real shallow-SPR poker (preflop
+  ranges too loose, raises too small, marginal calls, missed commit/jam spots).
+  The bot also gets *less* aggressive as stacks shorten (AF 0.27→0.06), the
+  opposite of correct.
+- So the highest-value chart target is **depth-correct 25–50bb** strategy
+  (preflop + postflop), NOT the <15bb push/fold table that `PUSH_FOLD_6MAX_SCOPE`
+  scoped first.
+
+**Recommended next (de-risked, before committing to the full solver):**
+1. **Diagnose** *what* the bot does wrong at 25–50bb (leak surface / per-action
+   breakdown at those depths) to scope whether a depth-tuned hand-authored
+   chart + sizing/commit heuristics recovers most of it cheaply.
+2. If a hand-authored 25–50bb chart materially closes the gap, that may suffice
+   (the 100bb→fix pattern). If not, that's the concrete justification for a
+   25–50bb **solve** (the doc's "then add short-stack depths" pass).
+3. The fixed-depth proxy here understates/overstates vs true SNG dynamics; a
+   **full WTA-SNG runner** (escalating blinds, elimination, win-rate) is the
+   honest final eval — build it once a 25–50bb fix is in hand to validate.
+
+Harness: `measure_passivity.py` now takes `--stack-bb` (effective depth knob).
+The full-SNG runner is not yet built.

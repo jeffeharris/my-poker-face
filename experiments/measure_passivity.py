@@ -557,11 +557,12 @@ def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
 def print_report(hero: str, opponents: List[str], n_hands: int,
                  seeds: List[int], stats: PassivityStats,
                  per_seed_bb100: List[Tuple[int, float]], mode: str,
-                 entry: str = 'default', leak_report: bool = False):
+                 entry: str = 'default', leak_report: bool = False,
+                 stack_bb: int = 100):
     opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
-    print(f"PASSIVITY (Tier A): {hero} vs {opp_desc} | mode={mode} entry={entry}")
+    print(f"PASSIVITY (Tier A): {hero} vs {opp_desc} | mode={mode} entry={entry} stack={stack_bb}bb")
     print(f"{total_hands} hands ({n_hands} x seeds {seeds})")
     print("=" * 72)
 
@@ -667,13 +668,13 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
         print_leak_surface(stats)
 
 
-def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset]]):
+def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int]):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)
@@ -681,6 +682,7 @@ def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[st
     deltas, stats = run_passivity_matchup(
         hero, opponents, n_hands, strategy_table, base_seed=seed, mode=mode,
         entry=entry, h1_classes=h1_classes,
+        starting_stack=stack_bb * 100,  # big_blind=100 → stack_bb effective
     )
     return seed, deltas, stats
 
@@ -693,8 +695,10 @@ def main():
     p.add_argument('--hands', type=int, default=2000, help='hands per seed')
     p.add_argument('--seeds', default='42', help='comma-separated base seeds (e.g. 42,142,242)')
     p.add_argument('--mode', default='off', choices=list(MODES),
-                   help='A/B arm: off | h1 | h2 | on (multi-street) | '
-                        'vbf (value-bet floor) | vbfon (both)')
+                   help='A/B arm: off | h1 | h2 | on (multi-street layer)')
+    p.add_argument('--stack-bb', type=int, default=100,
+                   help='effective starting stack in BB (default 100). Sweep '
+                        '100/50/25/15 to probe the 100bb-tables-at-short-stack leak.')
     p.add_argument('--entry', default='default', choices=['default', 'isolate'],
                    help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)")
     p.add_argument('--clone-profile', default=None,
@@ -743,7 +747,7 @@ def main():
     # Run seeds concurrently (one child process per seed). The cost is the
     # opponents' equity-MC, so seeds are CPU-bound and parallelize cleanly.
     work = [(args.hero, opponents, args.hands, s, args.mode, args.entry,
-             clone_profile, h1_classes)
+             clone_profile, h1_classes, args.stack_bb)
             for s in seeds]
     results = []
     if len(seeds) > 1:
@@ -760,7 +764,8 @@ def main():
         per_seed_bb100.append((seed, ms.bb100))
 
     print_report(args.hero, opponents, args.hands, sorted(seeds), agg_stats,
-                 per_seed_bb100, args.mode, args.entry, leak_report=args.leak_report)
+                 per_seed_bb100, args.mode, args.entry, leak_report=args.leak_report,
+                 stack_bb=args.stack_bb)
 
 
 if __name__ == '__main__':
