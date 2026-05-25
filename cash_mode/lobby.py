@@ -433,6 +433,12 @@ def refresh_unseated_tables(
     # When None, the side hustle is disabled. Optional for the same
     # back-compat reason as vice_repo. See CASH_MODE_SIDE_HUSTLE.md.
     side_hustle_repo=None,
+    # Fake ("stub") vice — the LLM-free, psych-free pool-deposit stand-in
+    # for real vice, used ONLY by the sim (which can't afford an LLM call
+    # per tick). Off by default so no live path runs it: in production the
+    # real, LLM-narrated `vice_spending` is the sole vice. The sim opts in
+    # via sim_runner. See `resolve_fake_vice_deposits` / CASH_MODE_SIDE_HUSTLE.md.
+    enable_fake_vice: bool = False,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -1712,13 +1718,14 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] side-hustle event emission failed: %s", exc,
             )
 
-    # Closed-economy testbed: fake-vice deposits + tourist injections.
-    # Gated on `chip_ledger_repo` because both flows write ledger
-    # entries — without the repo, there's no pool to compute against
-    # and no way to record the chip moves audit-correctly. Best-effort:
-    # a failure in either resolver doesn't tank the lobby refresh.
+    # Closed-economy testbed: fake-vice deposits. Gated on `chip_ledger_repo`
+    # (needs the pool ledger) AND `enable_fake_vice` — the stub vice is
+    # sim-only. In a live game the real, LLM-narrated `vice_spending` pass
+    # above is the sole vice contributor to the pool; running fake vice
+    # here too would double-drain rich AIs (the `bank_pool_deposit` overlap
+    # we removed). Best-effort: a failure doesn't tank the lobby refresh.
     # Spec: `docs/plans/CASH_MODE_CLOSED_ECONOMY.md`.
-    if chip_ledger_repo is not None:
+    if chip_ledger_repo is not None and enable_fake_vice:
         try:
             from cash_mode.closed_economy import resolve_closed_economy
 
