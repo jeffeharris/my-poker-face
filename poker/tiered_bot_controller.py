@@ -54,6 +54,7 @@ from .strategy.math_floor import apply_pot_odds_floor
 from .strategy.multiway import apply_multiway_adjustment
 from .strategy.personality_modifier import apply_river_bluff_guardrail, modify_strategy
 from .strategy.postflop_classifier import build_postflop_node
+from .strategy.postflop_commit import apply_postflop_commit
 from .strategy.preflop_classifier import build_preflop_node
 from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
 from .strategy.short_stack import apply_short_stack_heuristics
@@ -1085,6 +1086,21 @@ class TieredBotController(AIPlayerController):
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
         self._last_intervention_trace.append(short_stack_trace)
+
+        # 6a.7 Postflop commit: at low SPR, funnel value-hand (nuts/
+        # strong_made) passive + small-bet mass into a jam — get the money in
+        # when committed instead of checking the nuts / flatting (the
+        # diagnosed low-SPR passivity). Pairs with the SPR fallback in the
+        # postflop lookup. No-op preflop (node.spr_bucket is postflop-only).
+        modified_strategy, postflop_commit_trace = apply_postflop_commit(
+            modified_strategy,
+            spr_bucket=node.spr_bucket,
+            hand_class=hand_strength,
+            facing_action=node.facing_action,
+            legal_actions=valid_actions,
+            disable_rules=getattr(self, "disable_rules", frozenset()),
+        )
+        self._last_intervention_trace.append(postflop_commit_trace)
 
         # 6b. Math floor — override when arithmetic mandates a call/jam.
         # Runs AFTER personality + river guardrail so it has final say.

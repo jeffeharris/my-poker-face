@@ -267,3 +267,70 @@ class TestParseHelpers:
     def test_empty_json(self):
         data = _parse_json_to_preflop_data({})
         assert data == {}
+
+
+# ---------------------------------------------------------------------------
+# Postflop SPR fallback (the chart is populated only at spr_bucket='high')
+# ---------------------------------------------------------------------------
+
+from poker.strategy.nodes import PostflopNode
+
+
+def _pf_node(spr_bucket, *, texture='dry_high', facing='unopened'):
+    return PostflopNode(
+        street='flop',
+        position='IP',
+        pot_type='SRP',
+        board_texture=texture,
+        made_tier='nuts',
+        draw_modifier='no_draw',
+        facing_action=facing,
+        spr_bucket=spr_bucket,
+    )
+
+
+class TestPostflopSPRFallback:
+    """Low/medium-SPR lookups degrade to the populated high-SPR entry rather
+    than falling to the passive conservative default."""
+
+    @pytest.fixture
+    def pf_table(self):
+        # Only a high-SPR nuts/unopened entry exists (mirrors the real chart).
+        high = _pf_node('high')
+        return StrategyTable(
+            preflop_data={},
+            postflop_data={high.key: StrategyProfile({'bet_67': 0.7, 'check': 0.3})},
+        )
+
+    def test_exact_high_lookup(self, pf_table):
+        out = pf_table.lookup_postflop_with_fallback(_pf_node('high'), ['check', 'raise'])
+        assert out.action_probabilities.get('bet_67', 0) == pytest.approx(0.7)
+
+    def test_low_spr_falls_back_to_high(self, pf_table):
+        # Without the fallback this would be check-100% (passive default).
+        out = pf_table.lookup_postflop_with_fallback(_pf_node('low'), ['check', 'raise'])
+        assert out.action_probabilities.get('bet_67', 0) == pytest.approx(0.7)
+        assert out.action_probabilities.get('check', 0) == pytest.approx(0.3)
+
+    def test_medium_spr_falls_back_to_high(self, pf_table):
+        out = pf_table.lookup_postflop_with_fallback(_pf_node('medium'), ['check', 'raise'])
+        assert out.action_probabilities.get('bet_67', 0) == pytest.approx(0.7)
+
+    def test_exact_low_entry_takes_precedence(self):
+        # If a low-SPR entry ever gets authored, it wins over the high fallback.
+        high, low = _pf_node('high'), _pf_node('low')
+        table = StrategyTable(
+            preflop_data={},
+            postflop_data={
+                high.key: StrategyProfile({'bet_67': 0.7, 'check': 0.3}),
+                low.key: StrategyProfile({'jam': 1.0}),
+            },
+        )
+        out = table.lookup_postflop_with_fallback(low, ['check', 'bet', 'all_in'])
+        assert out.action_probabilities.get('jam', 0) == pytest.approx(1.0)
+
+    def test_no_high_entry_falls_to_conservative_default(self):
+        # Nothing at any SPR → passive default (check when legal).
+        table = StrategyTable(preflop_data={}, postflop_data={})
+        out = table.lookup_postflop_with_fallback(_pf_node('low'), ['check', 'bet'])
+        assert out.action_probabilities == {'check': 1.0}
