@@ -154,6 +154,14 @@ class TickMetrics:
     casino_closing_count: int = 0
     hungry_grinder_count: int = 0
 
+    # `fish_net_to_players`: cumulative chips fish have lost to players
+    # (grinders + human), by conservation —
+    #   Σ(ledger inflow to fish) − Σ(ledger outflow from fish) − fish holdings.
+    # Player↔player pots aren't ledgered (only fish↔pool/house flows are),
+    # so the residual is exactly what fish fed the population. Positive =
+    # the population net-farmed the fish; negative = fish are net up.
+    fish_net_to_players: int = 0
+
     # Audit drift — only populated on audit ticks; None otherwise so
     # downstream tooling can distinguish "drift was zero" from "we
     # didn't check this tick".
@@ -394,6 +402,7 @@ def _capture_tick_metrics(
     casino_seated_fish_count = 0
     casino_seated_total_chips = 0
     casino_closing_count = 0
+    fish_seat_chips = 0  # fish holdings on the felt (fish are casino-only)
     # Reuse the run-level db_path (already in scope as a kwarg) for a
     # short-lived CashTableRepository — the per-tick walk is read-only.
     cash_table_repo = CashTableRepository(db_path)
@@ -411,10 +420,21 @@ def _capture_tick_metrics(
             casino_seated_total_chips += chips
             if pid in fish_ids_set:
                 casino_seated_fish_count += 1
+                fish_seat_chips += chips
 
     hungry_grinder_count = len(list_hungry_grinders(
         bankroll_repo, sandbox_id=sandbox_id, now=now,
     ))
+
+    # Fish drain: chips fish have fed the population (grinders + human).
+    # Fish holdings = bankroll (fish_bankroll_total) + chips on the felt
+    # (fish_seat_chips). See TickMetrics.fish_net_to_players.
+    fish_inflow, fish_outflow = _fish_ledger_flows(
+        db_path, sandbox_id=sandbox_id, fish_ids=fish_ids_set,
+    )
+    fish_net_to_players = (
+        fish_inflow - fish_outflow - (fish_bankroll_total + fish_seat_chips)
+    )
 
     metrics = TickMetrics(
         tick=tick,
@@ -446,6 +466,7 @@ def _capture_tick_metrics(
         casino_seated_total_chips=casino_seated_total_chips,
         casino_closing_count=casino_closing_count,
         hungry_grinder_count=hungry_grinder_count,
+        fish_net_to_players=fish_net_to_players,
         audit_drift=None,
     )
     return metrics, new_creations, new_destructions
@@ -508,6 +529,35 @@ def _stake_state_for_pids(db_path: str, pids: set) -> Dict[str, int]:
         elif status == STAKE_STATUS_DEFAULTED:
             out['defaulted_count'] = int(row['n'])
     return out
+
+
+def _fish_ledger_flows(db_path: str, *, sandbox_id: str, fish_ids: set) -> tuple:
+    """Cumulative ledger chips flowing INTO and OUT OF fish accounts.
+
+    Fish accounts are encoded `ai:<pid>` in the ledger's source/sink.
+    Returns `(inflow, outflow)`. Player↔player pot transfers aren't
+    ledgered — only fish↔pool/house flows are — so
+    `inflow − outflow − fish_holdings` is exactly the chips fish lost to
+    other players (see `TickMetrics.fish_net_to_players`).
+
+    Empty fish set → `(0, 0)`, no query.
+    """
+    if not fish_ids:
+        return 0, 0
+    accounts = [f'ai:{pid}' for pid in fish_ids]
+    ph = ','.join('?' for _ in accounts)
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN sink   IN ({ph}) THEN amount END), 0) AS inflow,
+                COALESCE(SUM(CASE WHEN source IN ({ph}) THEN amount END), 0) AS outflow
+            FROM chip_ledger_entries
+            WHERE sandbox_id = ?
+            """,
+            accounts + accounts + [sandbox_id],
+        ).fetchone()
+    return int(row[0] or 0), int(row[1] or 0)
 
 
 def _diff_reasons(
@@ -699,6 +749,7 @@ def flatten_for_csv(metrics: List[TickMetrics]) -> List[Dict[str, object]]:
             'casino_seated_total_chips': m.casino_seated_total_chips,
             'casino_closing_count': m.casino_closing_count,
             'hungry_grinder_count': m.hungry_grinder_count,
+            'fish_net_to_players': m.fish_net_to_players,
             'audit_drift': m.audit_drift if m.audit_drift is not None else '',
         }
         for key in sorted(reason_keys):
