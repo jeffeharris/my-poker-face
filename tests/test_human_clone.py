@@ -482,6 +482,86 @@ class TestV2StrategyUsesPerStreetAF:
         assert result['action'] == 'call'
 
 
+class TestBluffAirBranch:
+    """The synthetic `bluff_air_freq` lever (EVAL_HARNESS_PLAN P0.5 punisher).
+
+    Default 0.0 must be byte-identical to the prior behavior (DB-derived
+    profiles never bluff); a high value makes the clone barrel air.
+    """
+
+    def _make(self, bluff_air_freq):
+        return build_clone_strategy(
+            CloneProfile(
+                source_player='P',
+                hands_observed=200,
+                vpip=0.26,
+                pfr=0.20,
+                aggression_factor=3.0,
+                fold_to_cbet=0.70,
+                bluff_air_freq=bluff_air_freq,
+            )
+        )
+
+    def test_default_zero_never_barrels_air(self):
+        # No bluff lever: free-to-act with sub-value equity always checks,
+        # never bets — the pre-existing behavior every committed profile relies
+        # on. Run many trials so a stray RNG raise would surface.
+        strat = self._make(0.0)
+        random.seed(7)
+        actions = {
+            strat(_ctx(phase='FLOP', cost_to_call=0, equity=0.30, valid_actions=['check', 'raise']))[
+                'action'
+            ]
+            for _ in range(200)
+        }
+        assert actions == {'check'}
+
+    def test_high_freq_barrels_air(self):
+        # bluff_air_freq=1.0 → always bets air when checked to with a raise
+        # available (the over-folding punisher).
+        strat = self._make(1.0)
+        random.seed(7)
+        result = strat(
+            _ctx(phase='FLOP', cost_to_call=0, equity=0.30, valid_actions=['check', 'raise'])
+        )
+        assert result['action'] == 'raise'
+
+    def test_air_branch_skipped_when_no_raise_available(self):
+        # Can't bet → checks, never folds when free.
+        strat = self._make(1.0)
+        result = strat(_ctx(phase='FLOP', cost_to_call=0, equity=0.30, valid_actions=['check']))
+        assert result['action'] == 'check'
+
+    def test_value_hands_use_value_branch_not_air(self):
+        # equity >= 0.55 routes through the value branch (street_rate), so a
+        # river_af that suppresses betting still checks strong hands even with
+        # bluff_air_freq high — the air branch must not double-count value.
+        strat = build_clone_strategy(
+            CloneProfile(
+                source_player='P',
+                hands_observed=200,
+                vpip=0.26,
+                pfr=0.20,
+                aggression_factor=3.0,
+                fold_to_cbet=0.70,
+                river_af=0.01,  # value bet rate ≈ 1%
+                bluff_air_freq=1.0,
+            )
+        )
+        random.seed(1)
+        raises = sum(
+            1
+            for _ in range(200)
+            if strat(
+                _ctx(phase='RIVER', cost_to_call=0, equity=0.75, valid_actions=['check', 'raise'])
+            )['action']
+            == 'raise'
+        )
+        # ~1% value-bet rate, NOT ~100% (which would mean the air branch leaked
+        # into the value range).
+        assert raises < 20
+
+
 class TestRegisterCloneStrategy:
     def test_register_adds_to_built_in(self):
         from poker.rule_strategies import BUILT_IN_STRATEGIES
@@ -562,6 +642,7 @@ class TestProfileSerialization:
         profile = profile_from_dict(data)
         assert profile.bluff_frequency == 0.30  # field default
         assert profile.wtsd is None  # V2 field default
+        assert profile.bluff_air_freq == 0.0  # synthetic lever default → no bluffing
 
     def test_committed_jeff_snapshot_loads_and_registers(self):
         # The repo ships experiments/clone_profiles/jeff.json so any checkout
@@ -571,6 +652,9 @@ class TestProfileSerialization:
         profile = load_profile_from_file(path)
         assert profile.source_player == 'Jeff'
         assert profile.display_name == 'Jeff_clone'
+        # Jeff is a calling station, never a bluffer: the new synthetic lever
+        # must stay 0.0 so every prior Jeff measurement remains reproducible.
+        assert profile.bluff_air_freq == 0.0
         from poker.rule_strategies import BUILT_IN_STRATEGIES
 
         register_clone_strategy('clone_jeff', profile)
@@ -578,3 +662,21 @@ class TestProfileSerialization:
             assert 'clone_jeff' in BUILT_IN_STRATEGIES
         finally:
             BUILT_IN_STRATEGIES.pop('clone_jeff', None)
+
+    def test_committed_punisher_snapshot_loads_and_bluffs(self):
+        # The repo ships experiments/clone_profiles/punisher.json — the
+        # EVAL_HARNESS_PLAN P0.5 non-station opponent. Guard against drift and
+        # confirm it carries the air-barrel lever that punishes over-folding.
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(repo_root, 'experiments', 'clone_profiles', 'punisher.json')
+        profile = load_profile_from_file(path)
+        assert profile.source_player == 'Punisher'
+        assert profile.display_name == 'Punisher_clone'
+        assert profile.bluff_air_freq > 0.0  # it must actually bluff
+        from poker.rule_strategies import BUILT_IN_STRATEGIES
+
+        register_clone_strategy('clone_punisher', profile)
+        try:
+            assert 'clone_punisher' in BUILT_IN_STRATEGIES
+        finally:
+            BUILT_IN_STRATEGIES.pop('clone_punisher', None)

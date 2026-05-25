@@ -15,6 +15,60 @@ last_updated: 2026-05-25
 > medium-SPR, LLM-refined grids) are worth authoring at all.** Build the eval
 > first. Read with the `tieredbot-bb100-lookup-tables` memory note.
 
+## Status — P0 + P0.5 implemented (2026-05-25)
+
+Built and tested; **P1 (SNG runner) deferred** per the plan's own ordering.
+
+**What landed:**
+- `experiments/champion_challenger.py` — the **P0** harness. One table, some
+  seats challenger (change ON) vs champion (change OFF), all the same archetype
+  (default `Baseline`); reports challenger net bb/100 with paired seeds, a
+  pooled 95%-CI verdict, per-seed + per-seat sign-disagreement, and a
+  chips-conserved check. Both flavors are `--change` presets: **flag flavor**
+  (`multistreet`, `multistreet_h1`, `multistreet_h2`) and **chart flavor**
+  (`low_spr`, champion loads the table *without* the authored low-SPR slice).
+  Defaults to 6-max 3v3; `--seats 2 --challenger-seats 1` gives HU.
+- `experiments/clone_profiles/punisher.json` + a `bluff_air_freq` lever on
+  `CloneProfile` (`poker/human_clone.py`, default 0.0 → **Jeff byte-identical**)
+  — the **P0.5** non-station opponent: a disciplined reg that folds correctly
+  (punishes over-calling) *and* barrels air (punishes over-folding). Run via
+  `measure_passivity --opponents punisher`.
+- `load_strategy_table(include_low_spr=False)` — champion table for the chart
+  flavor. Tests: `tests/test_champion_challenger.py` (+ bluff/punisher cases in
+  `tests/test_human_clone.py`); full clone + strategy-table suites green.
+
+**First results — the eval immediately re-grounded a shipped change.** The
+P0 gate (challenger = change ON vs champion = change OFF) and the P0.5
+absolute checks agree: **the multistreet layer is not an improvement**, and the
+prior "wins" were station-inflation exactly as the plan feared.
+
+| Lens (opponent) | mode OFF | mode ON | Δ multistreet | read |
+|---|---|---|---|---|
+| **P0 self-play, HU** (`multistreet`) | — | — | **−18.6** CI [−32.5,−4.7] | **CI-clear NEGATIVE** |
+| ⮑ H1 only (HU) | — | — | **−19.8** CI [−33.9,−5.7] | **CI-clear NEGATIVE** |
+| ⮑ H2 only (HU) | — | — | **−17.7** CI [−31.9,−3.6] | **CI-clear NEGATIVE** |
+| P0 self-play, 6-max | — | — | ~0 | spots are HU-gated → rare |
+| Abs. vs `jeff` station | +48.9 | +50.1 | +1.2 | ~noise (station can't punish) |
+| Abs. vs `punisher` reg | +10.1 | +8.5 | **−1.6** | hurts (it bluffs the barrels) |
+
+Reading:
+- **Both H1 *and* H2 independently regress vs the bot itself in HU** — the
+  layer over-barrels thin value (H1) and over-folds to barrels (H2) against a
+  coherent opponent. The +EV it showed historically came from value-bots /
+  stations that don't punish either error.
+- **The punisher discriminates as designed:** the bot beats it by only +10.1
+  (vs +48.9 off the station), and it generates **331 facing-double-barrel
+  spots vs the station's 33** because it actually barrels air — so multistreet's
+  fold-to-barrel knob is finally tested against real bluffs, and it loses.
+- **`low_spr` chart flavor: +2.5 bb/100, CI [−5.3, +10.4] → INCONCLUSIVE**
+  (24k hands, 6-max) — the authored low-SPR chart is *not* a clear win over the
+  bare always-on SPR fallback; a wash at this sample.
+
+**Recommendation:** gate/re-examine the multistreet layer before trusting any
+bb/100 that credited it; treat the low-SPR chart as unproven. This is the eval
+doing its job — every prior result measured only vs stations/value-bots needs
+re-grounding through the P0 gate before more charts are authored.
+
 ## The problem
 
 All current opponents reward the *same* thing — value extraction from a

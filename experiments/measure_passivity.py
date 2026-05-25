@@ -74,21 +74,33 @@ from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET,
 from poker.strategy.preflop_isolate import build_isolation_table
 from poker.strategy.strategy_table import load_strategy_table
 
-# Default frozen clone profile (Track 2 eval). Resolved relative to this
-# module so it works regardless of cwd / worktree.
-DEFAULT_CLONE_PROFILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'clone_profiles', 'jeff.json'
-)
+# Frozen clone profiles (Track 2 eval). Resolved relative to this module so
+# they work regardless of cwd / worktree.
+_CLONE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'clone_profiles')
+DEFAULT_CLONE_PROFILE = os.path.join(_CLONE_DIR, 'jeff.json')
+PUNISHER_CLONE_PROFILE = os.path.join(_CLONE_DIR, 'punisher.json')
 
 # Opponent roster presets. GTO-Lite / MIX are rule bots (never fold preflop →
 # always-multiway, insensitive to postflop quality — see STRUCTURAL_PASSIVITY
 # §9-10). `jeff` is the Track-2 precision-rewarding eval: 5 Jeff_clones (a
 # human model that folds ~45% to c-bets), which should create HU/short-handed
-# pots and reward initiative.
+# pots and reward initiative. `punisher` is the EVAL_HARNESS_PLAN §P0.5
+# non-station opponent: a disciplined aggressive reg that *folds correctly*
+# (punishes over-calling) AND *barrels air* (punishes over-folding) — a win
+# vs jeff that does NOT hold vs punisher is overfit to the station.
 ROSTERS = {
     'gto': ['GTO-Lite'] * 5,
     'mix': DEFAULT_RULE_OPPONENTS,
     'jeff': ['Jeff_clone'] * 5,
+    'punisher': ['Punisher_clone'] * 5,
+}
+
+# Default frozen profile per clone roster preset, so `--opponents punisher`
+# loads punisher.json without an explicit --clone-profile (the auto-detect
+# below would otherwise register jeff.json and leave Punisher_clone unknown).
+ROSTER_CLONE_PROFILE = {
+    'jeff': DEFAULT_CLONE_PROFILE,
+    'punisher': PUNISHER_CLONE_PROFILE,
 }
 
 
@@ -873,10 +885,19 @@ def main():
 
     # Track 2: if the roster references a *_clone opponent, register the frozen
     # CloneProfile so it exists as an ARCHETYPE (in the parent for the
-    # single-seed path + validation; workers re-register themselves).
+    # single-seed path + validation; workers re-register themselves). A named
+    # preset (jeff/punisher) picks its own profile; an explicit comma roster
+    # of clones falls back to jeff.
     clone_profile = args.clone_profile
-    if any(o.endswith('_clone') for o in opponents) and clone_profile is None:
-        clone_profile = DEFAULT_CLONE_PROFILE
+    if clone_profile is None and args.opponents in ROSTER_CLONE_PROFILE:
+        clone_profile = ROSTER_CLONE_PROFILE[args.opponents]
+    elif clone_profile is None and any(o.endswith('_clone') for o in opponents):
+        # Explicit comma roster of clones: infer the profile from the clone's
+        # source name (Punisher_clone → punisher.json); fall back to jeff for an
+        # unknown clone so the prior default still holds.
+        first = next(o for o in opponents if o.endswith('_clone'))
+        inferred = os.path.join(_CLONE_DIR, f"{first[: -len('_clone')].lower()}.json")
+        clone_profile = inferred if os.path.exists(inferred) else DEFAULT_CLONE_PROFILE
     if clone_profile:
         key = _ensure_clone_registered(clone_profile)
         print(f"[CLONE] registered {key!r} from {clone_profile}")

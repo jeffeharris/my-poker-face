@@ -291,12 +291,18 @@ def _parse_postflop_json(data: dict) -> Dict[str, StrategyProfile]:
 def load_strategy_table(
     json_path: str = None,
     postflop_path: str = None,
+    include_low_spr: bool = True,
 ) -> StrategyTable:
     """Load strategy table from JSON files.
 
     Default paths:
     - Preflop: poker/strategy/data/preflop_100bb_6max.json
     - Postflop: poker/strategy/data/postflop_strategies.json
+
+    ``include_low_spr=False`` skips merging the generated low-SPR slice, so the
+    table falls back to the always-on SPR degrade (low → high entry). This is
+    the *champion* table for the EVAL_HARNESS_PLAN chart-flavor A/B that
+    re-judges whether the authored low-SPR chart beats the bare fallback.
     """
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
 
@@ -321,7 +327,7 @@ def load_strategy_table(
     # See generate_postflop_spr.py / depth doc. Absent file → SPR fallback
     # still degrades low-SPR lookups to the high entry.
     low_spr_path = os.path.join(data_dir, 'postflop_strategies_low_spr.json')
-    if os.path.exists(low_spr_path):
+    if include_low_spr and os.path.exists(low_spr_path):
         with open(low_spr_path) as f:
             postflop_data.update(_parse_postflop_json(json.load(f)))
 
