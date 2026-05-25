@@ -246,3 +246,52 @@ a station, fold-to-cbet ≈0.45, so bluff-shoves are −EV); `vs_open` gates on
 raise-dominance (not committed facing one raise), `vs_3bet` on fold-frequency
 (committed shallow). Tests: `tests/test_strategy/test_depth_charts.py` (17);
 full `test_strategy/` green (1230).
+
+### SHIPPED (2026-05-25): the postflop chart's SPR gap — the *real* passivity leak
+
+Chasing the 50bb postflop residual surfaced a far bigger, **longstanding**
+problem. The postflop chart (`postflop_strategies.json`) has **2160 entries,
+all `spr_bucket='high'`** — and has since it was introduced (commit `e16a42aa`,
+2026-02-17, never modified). But the classifier buckets SPR into **high (>6) /
+medium (2–6) / low (<2)**. So every medium/low-SPR spot — *most turns and rivers
+after any betting, at every stack depth* — missed the chart, missed the
+texture-neighbor fallback (same SPR → also missed), and fell to the
+**hand-class-blind conservative default**: `check 100%` unopened, `fold 70% /
+call 30%` facing a bet. **The bot was folding the nuts ~70% to bets on
+non-high-SPR streets** (math_floor rescued only the obviously pot-committed
+ones). This is the worst leak in poker, and it predates the entire bb/100
+investigation — every prior measurement was taken on top of it.
+
+**Fix (two parts):**
+1. **SPR fallback** (`lookup_postflop_with_fallback`): a low/medium-SPR miss
+   degrades to the same node's populated `high`-SPR entry instead of the passive
+   default — recovers real, hand-class-aware strategy. The dominant fix.
+2. **Postflop commit layer** (`poker/strategy/postflop_commit.py`, registered
+   pipeline layer, runs just before math_floor): at low SPR with a value class
+   (nuts/strong_made), funnel passive + small-bet mass into a jam — get stacks
+   in when committed. Additive on top of the fallback.
+
+Measured (Baseline vs Jeff_clone, 3000h × 42/142/242), vs the post-preflop-chart
+baseline (25bb −8.0 / 50bb −14.0 / 100bb −4.2):
+
+| Depth | fallback only | fallback + commit | total Δ |
+|---|---|---|---|
+| 25bb | — | **+32.5** | +40.5 |
+| 50bb | +27.8 | **+32.7** | +46.7 |
+| 100bb | +28.8 | **+49.1** | +53.3 |
+
+Attribution: the SPR fallback is dominant (+33 to +42); the commit layer is
+additive (+5 at 50bb, +20 at 100bb — bigger where low-SPR pots are large
+turn/river pots that reward jamming value). Mechanism confirmed by hand class:
+facing a bet, **nuts/strong_made now fold 0%** (was ~70% from the blind
+default) while air still folds ~73%. AggFactor 0.06–0.27 → 0.34–0.38.
+
+**Honest caveat:** the magnitude is inflated by the station eval — folding
+winners bleeds maximally to an opponent that bets into you and calls your value.
+The changes are GTO-direction-correct (don't fold the nuts; commit value at low
+SPR) but +40–53 bb/100 is not a realistic edge vs a competent player. The clean
+next step for *correctness* (not just beating the station) is to author the
+medium/low-SPR postflop entries the chart never had — the fallback is a
+graceful-degradation stopgap, not a substitute for a real shallow-SPR chart.
+Tests: `test_postflop_commit.py` (24) + SPR-fallback cases in
+`test_strategy_table.py`; full `test_strategy/` green (1252).

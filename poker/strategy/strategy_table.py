@@ -9,6 +9,7 @@ to bridge abstract strategy actions to the game engine's legal action set.
 import json
 import logging
 import os
+from dataclasses import replace
 from typing import Dict, List, Optional
 
 from .nodes import PreflopNode, PostflopNode
@@ -152,12 +153,19 @@ class StrategyTable:
     def lookup_postflop_with_fallback(
         self, node: PostflopNode, legal_actions: List[str],
     ) -> StrategyProfile:
-        """Look up postflop strategy with texture-neighbor fallback.
+        """Look up postflop strategy with SPR + texture-neighbor fallback.
 
         Fallback ladder:
         1. Exact key lookup
-        2. Texture neighbor lookup (swap board_texture, keep everything else)
-        3. Context-aware conservative default
+        2. SPR fallback: the chart is populated only at spr_bucket='high', so
+           a low/medium-SPR spot (short stack) retries the same node at
+           spr='high'. Without this, short-stack postflop play falls all the
+           way to the passive conservative default (check-100% unopened /
+           fold-70% facing a bet) — the diagnosed low-SPR passivity leak.
+           Commitment for genuinely-short SPR is layered on downstream
+           (postflop_commit); here we just recover real strategy.
+        3. Texture neighbor lookup (swap board_texture, keep everything else)
+        4. Context-aware conservative default
         """
         # 1. Exact lookup
         profile = self._postflop.get(node.key)
@@ -166,19 +174,25 @@ class StrategyTable:
             if masked is not None:
                 return masked
 
-        # 2. Texture neighbor fallback
-        neighbor_texture = _TEXTURE_NEIGHBOR.get(node.board_texture)
+        # 2. SPR fallback → high (the only populated bucket). All further
+        # fallbacks operate on this high-SPR node.
+        lookup_node = node
+        if node.spr_bucket != 'high':
+            lookup_node = replace(node, spr_bucket='high')
+            profile = self._postflop.get(lookup_node.key)
+            if profile is not None:
+                masked = _mask_and_renormalize(profile, legal_actions)
+                if masked is not None:
+                    logger.debug(
+                        f"Postflop SPR fallback: {node.spr_bucket} → high "
+                        f"for {node.key}"
+                    )
+                    return masked
+
+        # 3. Texture neighbor fallback
+        neighbor_texture = _TEXTURE_NEIGHBOR.get(lookup_node.board_texture)
         if neighbor_texture:
-            neighbor_node = PostflopNode(
-                street=node.street,
-                position=node.position,
-                pot_type=node.pot_type,
-                board_texture=neighbor_texture,
-                made_tier=node.made_tier,
-                draw_modifier=node.draw_modifier,
-                facing_action=node.facing_action,
-                spr_bucket=node.spr_bucket,
-            )
+            neighbor_node = replace(lookup_node, board_texture=neighbor_texture)
             profile = self._postflop.get(neighbor_node.key)
             if profile is not None:
                 masked = _mask_and_renormalize(profile, legal_actions)
@@ -189,7 +203,7 @@ class StrategyTable:
                     )
                     return masked
 
-        # 3. Conservative default
+        # 4. Conservative default
         logger.debug(f"Postflop conservative default for {node.key}")
         return _postflop_conservative_default(node.facing_action, legal_actions)
 
