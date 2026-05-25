@@ -16,6 +16,12 @@ What a casino is:
 Spawn / teardown both run inside `refresh_unseated_tables` (lobby
 refresh), wrapped best-effort. The resolver is idempotent across
 ticks — it's safe to call every refresh.
+
+This module also owns `resolve_whale_provisioning` — the `$200`+ relief
+gate that replaces the retired `$200` casino. A whale is the same kind of
+pool-funded fish entity, just seated at a real cardroom (lobby) table with
+a much deeper prefund, so it reuses the conservation helpers here. See the
+"Whale provisioning" section below and `CASH_MODE_WHALE_AT_CARDROOM.md`.
 """
 
 from __future__ import annotations
@@ -61,6 +67,32 @@ logger = logging.getLogger(__name__)
 CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
     '$2': 5_000,
     '$10': 50_000,
+    # High-stakes casino. Fish bleed scales with the big blind, so this
+    # is the magnitude lever for "fish feed the population" — a $50 table
+    # moves ~5x the $10 rate. Predators are rich AIs that seat by
+    # affordability and stay via predator-retention (see
+    # `_coerce_predator_retention`). The threshold covers ~2 fish prefund
+    # (2.5-3.6x the tier's max buy-in) plus a refill buffer: $50 max
+    # buy-in 5k → ~36k for 2 fish.
+    #
+    # Casinos cap at $50: the $200+ band is whale-only (a rare pool-funded
+    # high roller at a real cardroom/lobby table, not a synthetic casino).
+    # See `resolve_whale_provisioning` + `WHALE_POOL_THRESHOLDS` below and
+    # `docs/plans/CASH_MODE_WHALE_AT_CARDROOM.md`.
+    '$50': 100_000,
+}
+
+# Dam wind-down floor for the high-stakes gate. The $50 casino is a
+# relief valve: opening it draws its fish prefund from the pool and the
+# fish bleed those pool-origin chips into predator bankrolls, so the gate
+# *drains* the reservoir. The floor closes it as the pool falls, so it
+# doesn't drain a normalizing pool to empty — the pool settles into a
+# band instead. The floor sits well below the open threshold (gap > the
+# ~max fish-prefund draw) so opening the gate can't instantly trip its
+# own close. Base tiers ($2/$10) have no floor — they're the always-on
+# base and only close via the natural out-of-fish teardown.
+CASINO_CLOSE_THRESHOLDS: Dict[str, int] = {
+    '$50': 45_000,
 }
 
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
@@ -100,6 +132,51 @@ CASINO_TABLE_ID_PREFIX = "cash-casino"
 #   • The display name surfaces the countdown so the lobby UI can
 #     warn players
 CASINO_CLOSING_HAND_COUNTDOWN = 10
+
+
+# --- Whale provisioning: the $200+ relief gate -----------------------
+#
+# A whale is the high-stakes relief valve that replaces the (retired)
+# $200 casino: a single, rare pool-funded high roller seated at a real
+# cardroom (lobby) table — not a synthetic casino. Mechanically a whale
+# is JUST a fish: an `archetype='fish'` persona with a pool-funded
+# bankroll and ordinary fish movement (reload-until-broke, storm off on
+# tilt). The only difference is the depth of the stack — the dormant
+# `_fish_prefund(whale=True)` grant is 10-18x the table max buy-in (vs a
+# casino fish's 2.5-3.6x). So a $200 whale is a single ~200k-360k draw
+# from the pool, the right "open the big gate when the reservoir is
+# bloated" release.
+#
+# Because regular fish are casino-only, "a fish seated at a LOBBY table"
+# IS the whale — no separate archetype or seat flag is needed, and all
+# the fish machinery (movement, predator-retention, the pool↔seat
+# conservation helpers, the drain-on-exit sweep) is reused verbatim.
+#
+# Spec: `docs/plans/CASH_MODE_WHALE_AT_CARDROOM.md`.
+
+# Per-stake high-watermark. Spawn a whale at this cardroom stake only
+# when the pool can cover the deep prefund (up to 18x max buy-in) AND
+# leave a healthy floor. Sits well above the $50 casino threshold (the
+# whale is the biggest release). Restrict this dict to a single stake to
+# A/B a $50-cardroom whale against a $200-cardroom whale:
+#   $50  → max buy-in 5k,  whale prefund 50k-90k    → 150k clears it + ~60k floor
+#   $200 → max buy-in 20k, whale prefund 200k-360k  → 500k clears it + ~140k floor
+WHALE_POOL_THRESHOLDS: Dict[str, int] = {
+    '$50': 150_000,
+    '$200': 500_000,
+}
+
+# Per-stake low-watermark. A live whale winds down (leaves; its seat
+# residual + remaining bankroll return to the pool) once reserves fall
+# below this — the relief valve recalls the whale's unused stake when the
+# pool needs the chips elsewhere, so a one-time deep draw isn't stranded
+# forever at an un-farmed table. Each floor sits well below its spawn
+# threshold (gap > the max prefund draw) so spawning can't instantly trip
+# the whale's own wind-down.
+WHALE_POOL_FLOORS: Dict[str, int] = {
+    '$50': 30_000,
+    '$200': 80_000,
+}
 
 
 # --- DB-backed closing-state API -------------------------------------
@@ -166,10 +243,11 @@ def decrement_closing_hands(
     """Tick down the closing countdown. Returns the new count, or None
     if the casino isn't in closing state.
 
-    Called from each hand-boundary path — the full-sim loop and the
-    human-play `leave_hand` hook — once per completed hand at the
-    table. On reaching 0, the next provisioning resolution actually
-    deletes the row.
+    Called once per casino-provisioning resolution for a closing table
+    (see `resolve_casino_provisioning` Pass 2). Closing is only entered
+    once a casino is empty of fish, and an empty table plays no hands —
+    so a per-hand hook would never fire. On reaching 0, a later
+    resolution actually deletes the row.
     """
     if cash_table_repo is None:
         return None
@@ -244,6 +322,41 @@ class CasinoProvisioningBatch:
     spawns: List[CasinoSpawn] = field(default_factory=list)
     refills: List[CasinoRefill] = field(default_factory=list)
     teardowns: List[CasinoTeardown] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WhaleSpawn:
+    """A whale sat down at a cardroom (lobby) table."""
+
+    table_id: str
+    stake_label: str
+    whale_id: str
+    name: str
+    buy_in: int
+    bank_pool_drawn: int
+
+
+@dataclass(frozen=True)
+class WhaleTeardown:
+    """A whale was recalled from a cardroom table (dam wind-down)."""
+
+    table_id: str
+    stake_label: str
+    whale_id: str
+    name: str
+    reason: str
+
+
+@dataclass
+class WhaleProvisioningBatch:
+    """Result of one whale-provisioning tick — at most one of each, since
+    there is only ever one whale live at a time. Mutable: the resolver
+    assigns `spawn`/`teardown` by attribute, which a `frozen=True`
+    dataclass would forbid. (The casino batch can be frozen because it
+    only ever `.append()`s to its list fields, never reassigns them.)"""
+
+    spawn: Optional[WhaleSpawn] = None
+    teardown: Optional[WhaleTeardown] = None
 
 
 # --- Helpers ----------------------------------------------------------
@@ -1017,6 +1130,10 @@ def resolve_casino_provisioning(
 
     # --- Pass 1: refill --------------------------------------------------
     for stake_label, tables_here in by_stake.items():
+        # Retired tier (e.g. the old $200 casino, replaced by the cardroom
+        # whale): never refill it — Pass 2 winds it down instead.
+        if stake_label not in CASINO_SPAWN_THRESHOLDS:
+            continue
         _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
         fish_buy_in = min(int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER), max_buy_in)
         for table in tables_here:
@@ -1126,6 +1243,72 @@ def resolve_casino_provisioning(
                             table.table_id,
                             exc,
                         )
+                else:
+                    # Tick the countdown down once per provisioning
+                    # resolution. A casino only enters closing once it's
+                    # empty of fish (above), and an empty table plays no
+                    # hands — so a per-hand decrement would never fire and
+                    # the countdown would stick forever. Counting down per
+                    # resolution guarantees a closing table reaches 0 and
+                    # tears down on a later pass.
+                    decrement_closing_hands(
+                        cash_table_repo,
+                        sandbox_id,
+                        table.table_id,
+                    )
+                continue
+
+            # Retired tier: a casino at a stake no longer in
+            # CASINO_SPAWN_THRESHOLDS (e.g. the old $200 casino, replaced by
+            # the cardroom whale) shouldn't exist anymore. Wind it down even
+            # with fish seated — the closing countdown plays out and teardown
+            # returns all pool-funded chips, so a pre-existing casino from
+            # before the tier was retired drains cleanly instead of lingering
+            # forever (Pass 1 already declines to refill it).
+            if stake_label not in CASINO_SPAWN_THRESHOLDS:
+                enter_closing(
+                    cash_table_repo, sandbox_id, table.table_id, CASINO_CLOSING_HAND_COUNTDOWN
+                )
+                batch.teardowns.append(
+                    CasinoTeardown(
+                        table_id=table.table_id,
+                        stake_label=stake_label,
+                        reason='retired_tier_wind_down',
+                    )
+                )
+                logger.info(
+                    "[CASH][CASINO] %s retired-tier wind-down (%s no longer spawns)",
+                    table.table_id,
+                    stake_label,
+                )
+                continue
+
+            # Dam wind-down: a high-stakes gate closes as the reservoir
+            # drains below its floor, even with fish still seated — it's a
+            # relief valve, not a permanent fixture. The closing countdown
+            # plays out and teardown returns all chips to the pool, so the
+            # pool settles into a band rather than draining to empty.
+            close_floor = CASINO_CLOSE_THRESHOLDS.get(stake_label)
+            if (
+                close_floor is not None
+                and compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
+                < close_floor
+            ):
+                enter_closing(
+                    cash_table_repo, sandbox_id, table.table_id, CASINO_CLOSING_HAND_COUNTDOWN
+                )
+                batch.teardowns.append(
+                    CasinoTeardown(
+                        table_id=table.table_id,
+                        stake_label=stake_label,
+                        reason='dam_wind_down_pool_below_floor',
+                    )
+                )
+                logger.info(
+                    "[CASH][CASINO] %s dam wind-down (pool below %d floor)",
+                    table.table_id,
+                    close_floor,
+                )
                 continue
 
             # Not closing yet. Enter closing only when there are no fish AND
@@ -1157,11 +1340,19 @@ def resolve_casino_provisioning(
     hungry_grinders = list_hungry_grinders(bankroll_repo, sandbox_id=sandbox_id, now=now)
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
-    for stake_label in threshold_order:
+    for idx, stake_label in enumerate(threshold_order):
         threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
         # One casino per stake; a closing table holds the slot until its
         # countdown elapses.
         if by_stake_after_teardown.get(stake_label):
+            continue
+        # Dam ladder: a higher gate opens only once the gate below it is
+        # open — the reservoir fills past each stake before the next
+        # releases ($2 → $10 → $50 → $200, gradual). A lower tier spawned
+        # earlier in this same loop counts (by_stake_after_teardown is
+        # updated on each spawn below), so a deep pool can cascade several
+        # gates open in one resolve.
+        if idx > 0 and not by_stake_after_teardown.get(threshold_order[idx - 1]):
             continue
         if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < threshold:
             continue
@@ -1271,3 +1462,386 @@ def resolve_casino_provisioning(
         )
 
     return batch
+
+
+# --- Whale provisioning -----------------------------------------------
+
+
+def _find_seated_whale(
+    cash_table_repo,
+    *,
+    sandbox_id: str,
+) -> Optional[Tuple[CashTableState, int, str]]:
+    """Return `(table, seat_idx, personality_id)` for the live whale, or
+    None if no whale is seated.
+
+    A whale is a `archetype='fish'` seat at a LOBBY table — regular fish
+    are casino-only, so a fish stamp at a cardroom table is unambiguously
+    the whale. One whale at a time, so the first match wins (lowest seat
+    index of the first lobby table iterated).
+    """
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'lobby':
+            continue
+        for idx, slot in enumerate(table.seats):
+            if slot.get('kind') == 'ai' and slot.get('archetype') == 'fish':
+                pid = slot.get('personality_id')
+                if pid:
+                    return table, idx, pid
+    return None
+
+
+def _open_lobby_table_for_stake(
+    cash_table_repo,
+    *,
+    sandbox_id: str,
+    stake_label: str,
+) -> Optional[CashTableState]:
+    """First lobby table at `stake_label` with at least one open seat."""
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'lobby' or table.stake_label != stake_label:
+            continue
+        if _open_seat_indices(table):
+            return table
+    return None
+
+
+def resolve_whale_provisioning(
+    *,
+    cash_table_repo,
+    bankroll_repo,
+    personality_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+) -> WhaleProvisioningBatch:
+    """Spawn / wind down the cardroom whale — the top gate of the dam.
+
+    One whale at a time. Mechanically the whale is just a fish seated at a
+    LOBBY table with a deep (`whale=True`) pool-funded prefund, so the
+    pool↔seat conservation is identical to a casino fish: pool → bankroll
+    (seed) → seat buy-in; on exit, seat residual + bankroll return to the
+    pool. The whale's natural exit (busts as it's farmed, or storms off on
+    tilt) runs through ordinary fish movement and the casino resolver's
+    drain-on-exit sweep — this resolver only handles the *spawn* and the
+    *dam wind-down* (a forced recall when the pool drops below the stake's
+    floor). Best-effort: a failure must not tank the lobby refresh.
+
+    Returns a `WhaleProvisioningBatch` carrying at most one spawn or one
+    teardown, for the caller (lobby refresh) to surface on the ticker.
+    """
+    batch = WhaleProvisioningBatch()
+    if cash_table_repo is None or chip_ledger_repo is None:
+        return batch
+    if bankroll_repo is None or personality_repo is None:
+        return batch
+
+    # Name lookup for the ticker. `list_fish_for_cash_mode` is the whale's
+    # persona pool too (a whale is a fish persona).
+    fish_rows = personality_repo.list_fish_for_cash_mode()
+    fish_ids: Set[str] = {r['personality_id'] for r in fish_rows if r.get('personality_id')}
+    if not fish_ids:
+        return batch
+    name_of: Dict[str, str] = {
+        r['personality_id']: r.get('name') or r['personality_id']
+        for r in fish_rows
+        if r.get('personality_id')
+    }
+
+    # --- One whale live: wind-down check only ---------------------------
+    seated = _find_seated_whale(cash_table_repo, sandbox_id=sandbox_id)
+    if seated is not None:
+        table, seat_idx, pid = seated
+        floor = WHALE_POOL_FLOORS.get(table.stake_label)
+        if floor is None:
+            return batch  # stake not whale-eligible (config changed) — leave it
+        pool = compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
+        if pool >= floor:
+            return batch  # reservoir healthy — let the whale ride
+        teardown = _wind_down_whale(
+            cash_table_repo,
+            chip_ledger_repo,
+            bankroll_repo,
+            table=table,
+            seat_idx=seat_idx,
+            personality_id=pid,
+            name=name_of.get(pid, pid),
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+        if teardown is not None:
+            batch.teardown = teardown
+            logger.info(
+                "[CASH][WHALE] %s wind-down at %s (pool below %d floor)",
+                pid,
+                table.table_id,
+                floor,
+            )
+        return batch
+
+    # --- No whale live: try to spawn one --------------------------------
+    already_seated: Set[str] = set()
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        for slot in table.seats:
+            if slot.get('kind') == 'ai' and slot.get('personality_id'):
+                already_seated.add(slot['personality_id'])
+    available = sorted(fish_ids - already_seated)
+    if not available:
+        return batch
+
+    # Prefer the highest eligible stake the pool can fund — the biggest
+    # release first (a $200 whale over a $50 whale when reserves allow).
+    eligible_stakes = [s for s in STAKES_ORDER if s in WHALE_POOL_THRESHOLDS]
+    for stake_label in reversed(eligible_stakes):
+        threshold = WHALE_POOL_THRESHOLDS[stake_label]
+        if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < threshold:
+            continue
+        lobby_table = _open_lobby_table_for_stake(
+            cash_table_repo,
+            sandbox_id=sandbox_id,
+            stake_label=stake_label,
+        )
+        if lobby_table is None:
+            continue  # no open cardroom seat at this stake — try a lower one
+        whale_pid = rng.choice(available)
+        spawn = _spawn_whale_at(
+            lobby_table,
+            stake_label=stake_label,
+            personality_id=whale_pid,
+            name=name_of.get(whale_pid, whale_pid),
+            chip_ledger_repo=chip_ledger_repo,
+            cash_table_repo=cash_table_repo,
+            bankroll_repo=bankroll_repo,
+            sandbox_id=sandbox_id,
+            rng=rng,
+            now=now,
+        )
+        if spawn is None:
+            continue
+        batch.spawn = spawn
+        logger.info(
+            "[CASH][WHALE] %s sat down at %s (%s): buy-in %d, %d drawn from pool",
+            spawn.whale_id,
+            lobby_table.table_id,
+            stake_label,
+            spawn.buy_in,
+            spawn.bank_pool_drawn,
+        )
+        return batch
+
+    return batch
+
+
+def _spawn_whale_at(
+    table: CashTableState,
+    *,
+    stake_label: str,
+    personality_id: str,
+    name: str,
+    chip_ledger_repo,
+    cash_table_repo,
+    bankroll_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+) -> Optional[WhaleSpawn]:
+    """Seat one whale at an open seat of a cardroom (lobby) table.
+
+    Funds it exactly like a casino fish — pool → bankroll (deep
+    `whale=True` prefund) → seat buy-in — but buys in for the table MAX
+    (a deep, dramatic stack on the felt) and the rest of the prefund is
+    rebuy reserve. Returns None (with everything unwound) when no seat is
+    open, the pool can't fund the prefund, or a write fails.
+    """
+    open_seats = _open_seat_indices(table)
+    if not open_seats:
+        return None
+    _, _, max_buy_in = table_buy_in_window(stake_label)
+    buy_in = max_buy_in
+
+    drawn = _prefund_fish_from_pool(
+        bankroll_repo,
+        chip_ledger_repo,
+        personality_id=personality_id,
+        target_chips=_fish_prefund(max_buy_in, rng, whale=True),
+        sandbox_id=sandbox_id,
+        now=now,
+        context={
+            'site': 'whale_spawn',
+            'stake_label': stake_label,
+            'table_id': table.table_id,
+        },
+    )
+    if drawn <= 0:
+        return None
+
+    if (
+        debit_bankroll_for_seat(
+            bankroll_repo,
+            personality_id,
+            buy_in,
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+            now=now,
+        )
+        is None
+    ):
+        # Prefund (≥10x max buy-in) should always cover the max buy-in;
+        # if it somehow didn't, unwind the draw to the pool.
+        _drain_fish_bankroll_to_pool(
+            bankroll_repo,
+            chip_ledger_repo,
+            personality_id=personality_id,
+            sandbox_id=sandbox_id,
+            now=now,
+            reason_detail='whale_buyin_failed',
+        )
+        return None
+
+    seat_idx = rng.choice(open_seats)
+    new_seats = list(table.seats)
+    new_seats[seat_idx] = ai_slot_fish(personality_id, buy_in)
+    updated = CashTableState(
+        table_id=table.table_id,
+        stake_label=table.stake_label,
+        seats=new_seats,
+        created_at=table.created_at,
+        last_activity_at=now,
+        name=table.name,
+        table_type=table.table_type,  # 'lobby' — the whale sits where players are
+        dealer_idx=table.dealer_idx,
+        closing_hand_countdown=table.closing_hand_countdown,
+    )
+    try:
+        cash_table_repo.save_table(updated, sandbox_id=sandbox_id, now=now)
+    except Exception as exc:
+        logger.warning(
+            "[CASH][WHALE] spawn save_table failed for %s: %s",
+            table.table_id,
+            exc,
+        )
+        # Seat write never persisted — return the whole funded bankroll
+        # (prefund, incl. the part the buy-in debit moved to nowhere) to
+        # the pool so the draw isn't stranded. Mirrors `_refill_one_fish`.
+        _drain_fish_bankroll_to_pool(
+            bankroll_repo,
+            chip_ledger_repo,
+            personality_id=personality_id,
+            sandbox_id=sandbox_id,
+            now=now,
+            reason_detail='whale_save_failed',
+        )
+        return None
+
+    return WhaleSpawn(
+        table_id=table.table_id,
+        stake_label=stake_label,
+        whale_id=personality_id,
+        name=name,
+        buy_in=buy_in,
+        bank_pool_drawn=drawn,
+    )
+
+
+def _wind_down_whale(
+    cash_table_repo,
+    chip_ledger_repo,
+    bankroll_repo,
+    *,
+    table: CashTableState,
+    seat_idx: int,
+    personality_id: str,
+    name: str,
+    sandbox_id: str,
+    now: datetime,
+) -> Optional[WhaleTeardown]:
+    """Recall a live whale: vacate its seat and return all pool-funded
+    chips (seat residual + remaining bankroll) to the pool.
+
+    Conservation-safe ordering — this is the SAME shape as a natural
+    leave (`movement.py`'s `from_seat` → `credit_ai_cash_out` → next-tick
+    drain), which is what makes it robust against partial-write failures:
+
+      1. **Vacate the seat first** (`save_table` opening the slot). If this
+         write fails, NOTHING else has happened — the whale stays seated,
+         no ledger row was written, and the next tick retries cleanly. The
+         whale is still found by `_find_seated_whale`, so the wind-down
+         re-attempts; nothing double-counts.
+      2. **Move the seat residual into the bankroll** — a ledger-SILENT
+         surface move (chips already exist; they're just changing surface,
+         exactly as `credit_ai_cash_out` folds a table stack into the
+         bankroll without a ledger row).
+      3. **Drain the whole bankroll to the pool** via
+         `_drain_fish_bankroll_to_pool` (one `casino_seat_return`). If that
+         ledger write strands, the chips sit safely in the bankroll and the
+         casino resolver's drain-on-exit sweep recovers them next tick (the
+         whale is unseated now) — no vanish, no double-count.
+
+    Returns None if the seat couldn't be vacated (retry next tick).
+
+    NB: deliberately NOT mirroring `_shed_excess_fish`, which writes the
+    seat-return ledger row BEFORE opening the seat — a `save_table` failure
+    there leaves a committed pool credit against chips still on the felt
+    (double-count), and for a retriable wind-down that compounds per tick.
+    """
+    seat_chips = int(table.seats[seat_idx].get('chips') or 0)
+
+    new_seats = list(table.seats)
+    new_seats[seat_idx] = open_slot()
+    updated = CashTableState(
+        table_id=table.table_id,
+        stake_label=table.stake_label,
+        seats=new_seats,
+        created_at=table.created_at,
+        last_activity_at=now,
+        name=table.name,
+        table_type=table.table_type,
+        dealer_idx=table.dealer_idx,
+        closing_hand_countdown=table.closing_hand_countdown,
+    )
+    try:
+        cash_table_repo.save_table(updated, sandbox_id=sandbox_id, now=now)
+    except Exception as exc:
+        logger.warning(
+            "[CASH][WHALE] wind-down save_table failed for %s: %s — "
+            "seat intact, no ledger written, will retry",
+            table.table_id,
+            exc,
+        )
+        return None
+
+    # Seat is now open. Fold the residual into the bankroll (no ledger),
+    # then drain the lot back to the pool.
+    if seat_chips > 0:
+        existing = _load_ai_chips(bankroll_repo, personality_id, sandbox_id)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=personality_id,
+                chips=existing + seat_chips,
+                last_regen_tick=now,
+            ),
+            sandbox_id=sandbox_id,
+        )
+    _, stranded = _drain_fish_bankroll_to_pool(
+        bankroll_repo,
+        chip_ledger_repo,
+        personality_id=personality_id,
+        sandbox_id=sandbox_id,
+        now=now,
+        reason_detail='whale_wind_down',
+    )
+    if stranded:
+        logger.warning(
+            "[CASH][WHALE] wind-down bankroll drain partial for %s "
+            "(%d stranded; drain-on-exit sweep recovers it next tick)",
+            personality_id,
+            stranded,
+        )
+    return WhaleTeardown(
+        table_id=table.table_id,
+        stake_label=table.stake_label,
+        whale_id=personality_id,
+        name=name,
+        reason='dam_wind_down_pool_below_floor',
+    )

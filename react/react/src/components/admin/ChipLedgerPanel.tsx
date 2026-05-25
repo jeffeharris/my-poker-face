@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { adminAPI } from '../../utils/api';
+import { useAuth } from '../../hooks/useAuth';
 import './ChipLedgerPanel.css';
 
 interface LedgerTotals {
@@ -68,28 +69,34 @@ interface HoldingsRow {
   projected_chips: number;
   uncommitted_regen: number;
   last_regen_tick: string | null;
-  chips_won: number;
-  chips_lost: number;
-  net_pnl: number;
+  // Net-worth block — present only in the scoped (single-sandbox) view.
+  // net_worth = projected chips + receivable − outstanding.
+  net_worth?: number;
+  receivable?: number;
+  outstanding?: number;
+  vice_spent?: number;
+  side_hustle_earned?: number;
 }
 
 interface HoldingsSnapshotResponse {
   rows: HoldingsRow[];
   as_of: string;
   sandbox_id: string | null;
+  // False in the cross-sandbox "All sandboxes" view → net worth omitted
+  // (stakes are global per entity; chips are per-sandbox).
+  net_worth_scoped: boolean;
 }
 
 interface HoldingsSeriesPoint {
   t: string;
-  value: number;
-  reason: string;
+  value: number; // net worth at this timestamp
 }
 
 interface HoldingsSeries {
   entity_id: string;
   label: string;
   kind: 'ai' | 'player';
-  total_net_flow: number;
+  current_net_worth: number;
   points: HoldingsSeriesPoint[];
 }
 
@@ -101,6 +108,9 @@ interface HoldingsHistoryResponse {
   as_of: string;
   sandbox_id: string | null;
   days: number;
+  // True when no sandbox is selected — net worth needs one, so the chart
+  // shows a "select a sandbox" prompt instead of an empty plot.
+  requires_sandbox: boolean;
 }
 
 interface ChipLedgerPanelProps {
@@ -145,6 +155,11 @@ function signed(n: number | undefined | null): string {
 }
 
 export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
+  const { user } = useAuth();
+  // Tracks whether the admin has manually changed the sandbox dropdown, so
+  // the "default to your own sandbox" auto-select never fights a manual pick
+  // (including an intentional "All sandboxes").
+  const userChoseRef = useRef(false);
   const [audit, setAudit] = useState<AuditResponse | null>(null);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [sandboxes, setSandboxes] = useState<SandboxRow[]>([]);
@@ -152,6 +167,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [holdings, setHoldings] = useState<HoldingsRow[] | null>(null);
+  const [holdingsScoped, setHoldingsScoped] = useState<boolean>(false);
   const [history, setHistory] = useState<HoldingsHistoryResponse | null>(null);
   const [historyDays, setHistoryDays] = useState<number>(30);
   const [highlightedEntity, setHighlightedEntity] = useState<string | null>(null);
@@ -159,16 +175,15 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const fetchAll = useCallback(async () => {
     setError(null);
     const scope = sandboxId ? `?sandbox_id=${encodeURIComponent(sandboxId)}` : '';
-    const recentScope = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
-    const historyScope = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
+    // Same value as `scope` but as a trailing `&` param for URLs that already
+    // carry a query string (recent's `limit`, history's `days`).
+    const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
       const [auditResp, recentResp, holdingsResp, historyResp] = await Promise.all([
         adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
-        adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${recentScope}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
-        adminAPI.fetch(
-          `/api/admin/chip-ledger/holdings/history?days=${historyDays}${historyScope}`
-        ),
+        adminAPI.fetch(`/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`),
       ]);
       if (!auditResp.ok) {
         throw new Error(`Audit returned ${auditResp.status}`);
@@ -182,6 +197,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
       if (holdingsResp.ok) {
         const holdingsData: HoldingsSnapshotResponse = await holdingsResp.json();
         setHoldings(holdingsData.rows || []);
+        setHoldingsScoped(Boolean(holdingsData.net_worth_scoped));
       }
       if (historyResp.ok) {
         const historyData: HoldingsHistoryResponse = await historyResp.json();
@@ -214,6 +230,18 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
       cancelled = true;
     };
   }, []);
+
+  // Default the scope to the admin's OWN sandbox (fallback: the first one)
+  // once the sandbox list + auth resolve. Net worth is gated behind a
+  // selected sandbox, so leaving the default on "All sandboxes" would show
+  // an empty chart + chips-only table — reads as broken. "All sandboxes" is
+  // still one click away, and a manual pick is never overridden.
+  useEffect(() => {
+    if (userChoseRef.current || sandboxes.length === 0) return;
+    const own = user ? sandboxes.find((s) => s.owner_id === user.id) : undefined;
+    const target = own?.sandbox_id ?? sandboxes[0].sandbox_id;
+    setSandboxId((prev) => (prev === target ? prev : target));
+  }, [sandboxes, user]);
 
   useEffect(() => {
     fetchAll();
@@ -267,7 +295,10 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <select
             className="chip-ledger-sandbox-select"
             value={sandboxId}
-            onChange={(e) => setSandboxId(e.target.value)}
+            onChange={(e) => {
+              userChoseRef.current = true;
+              setSandboxId(e.target.value);
+            }}
           >
             <option value={ALL_SANDBOXES}>All sandboxes (admin view)</option>
             {sandboxes.map((s) => (
@@ -413,20 +444,20 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
 
         <HoldingsTable
           rows={holdings}
+          scoped={holdingsScoped}
           highlightedEntity={highlightedEntity}
           onSelectEntity={setHighlightedEntity}
         />
 
         <p className="chip-ledger-holdings-caveat">
-          The chart shows <em>net chips received from the central bank</em> per player (seed, regen,
-          stake settlements, rake). Intra-table chip movement between players isn't tracked in the
-          ledger and isn't plotted here — for true balance-over-time, a snapshot table would need to
-          be added.
+          <em>Net worth</em> = projected chips + stakes receivable − stakes outstanding.{' '}
+          <em>Vice</em> and <em>Side hustle</em> are per-entity totals from the chip ledger. These
+          require a selected sandbox: stakes are global per entity while chips are per-sandbox, so
+          the "All sandboxes" view shows chips only.
           <br />
-          <em>Won / Lost / Net</em> columns aggregate cash-mode pair PnL (from{' '}
-          <code>cash_pair_stats</code>) — scoped to the selected sandbox, or lifetime cross-sandbox
-          in the "All sandboxes" view. Pre-v109 rows aren't migrated, so totals reflect activity
-          from the v109 schema upgrade onward.
+          The chart plots net worth <em>over time</em> from periodic snapshots the world ticker
+          records (~every 10&nbsp;min). History accrues going forward — it can't be reconstructed
+          retroactively, since chips won/lost between players never touch the central-bank ledger.
         </p>
       </section>
 
@@ -467,6 +498,9 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
 
 interface HoldingsTableProps {
   rows: HoldingsRow[] | null;
+  // True when a sandbox is selected → show the net-worth columns.
+  // False ("All sandboxes") → chips-only, since net worth needs a sandbox.
+  scoped: boolean;
   highlightedEntity: string | null;
   onSelectEntity: (entityId: string | null) => void;
 }
@@ -474,14 +508,24 @@ interface HoldingsTableProps {
 type SortKey =
   | 'name'
   | 'kind'
-  | 'stored_chips'
   | 'projected_chips'
-  | 'uncommitted_regen'
-  | 'chips_won'
-  | 'chips_lost'
-  | 'net_pnl'
-  | 'sandbox_id';
+  | 'sandbox_id'
+  | 'net_worth'
+  | 'receivable'
+  | 'outstanding'
+  | 'vice_spent'
+  | 'side_hustle_earned';
 type SortDir = 'asc' | 'desc';
+
+// Net-worth-only columns: meaningless (absent) in the All-sandboxes view.
+const NET_WORTH_KEYS: ReadonlySet<SortKey> = new Set<SortKey>([
+  'net_worth',
+  'receivable',
+  'outstanding',
+  'vice_spent',
+  'side_hustle_earned',
+]);
+const STRING_KEYS: ReadonlySet<SortKey> = new Set<SortKey>(['name', 'kind', 'sandbox_id']);
 
 interface SortableHeaderProps {
   label: string;
@@ -514,9 +558,10 @@ function SortableHeader({
 }
 
 function compareRows(a: HoldingsRow, b: HoldingsRow, key: SortKey, dir: SortDir): number {
-  const av = a[key];
-  const bv = b[key];
-  // Nullable / string columns: push nulls to the bottom regardless of dir.
+  // Coerce undefined (absent net-worth fields) and null to a sentinel that
+  // sorts to the bottom regardless of direction.
+  const av = a[key] ?? null;
+  const bv = b[key] ?? null;
   if (av === null && bv === null) return 0;
   if (av === null) return 1;
   if (bv === null) return -1;
@@ -529,8 +574,8 @@ function compareRows(a: HoldingsRow, b: HoldingsRow, key: SortKey, dir: SortDir)
   return dir === 'asc' ? cmp : -cmp;
 }
 
-function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('projected_chips');
+function HoldingsTable({ rows, scoped, highlightedEntity, onSelectEntity }: HoldingsTableProps) {
+  const [sortKey, setSortKey] = useState<SortKey>('net_worth');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const handleSort = (key: SortKey) => {
@@ -538,11 +583,8 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      // First click on a new column: numeric columns default to desc
-      // (largest first — what admins usually want for chip counts);
-      // string columns default to asc.
-      const isNumeric = key !== 'name' && key !== 'kind' && key !== 'sandbox_id';
-      setSortDir(isNumeric ? 'desc' : 'asc');
+      // Numeric columns default to desc (largest first); strings to asc.
+      setSortDir(STRING_KEYS.has(key) ? 'asc' : 'desc');
     }
   };
 
@@ -553,10 +595,20 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
     return <p className="chip-ledger-empty">No bankroll rows in scope.</p>;
   }
 
-  const sortedRows = [...rows].sort((a, b) => compareRows(a, b, sortKey, sortDir));
+  // In the unscoped view the net-worth columns are absent, so fall back to
+  // chips for the active sort if a net-worth column was selected.
+  const effectiveSortKey: SortKey =
+    !scoped && NET_WORTH_KEYS.has(sortKey) ? 'projected_chips' : sortKey;
+  const sortedRows = [...rows].sort((a, b) => compareRows(a, b, effectiveSortKey, sortDir));
 
   return (
     <div className="chip-ledger-holdings-table-wrap">
+      {!scoped && (
+        <p className="chip-ledger-holdings-scope-note">
+          Select a sandbox to see net worth, stakes, vice, and side-hustle — stakes are global per
+          entity, so they aren't shown cross-sandbox.
+        </p>
+      )}
       <table>
         <thead>
           <tr>
@@ -574,54 +626,60 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
               currentDir={sortDir}
               onSort={handleSort}
             />
+            {scoped && (
+              <SortableHeader
+                label="Net worth"
+                sortKey="net_worth"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                align="right"
+                onSort={handleSort}
+              />
+            )}
             <SortableHeader
-              label="Stored"
-              sortKey="stored_chips"
-              currentKey={sortKey}
-              currentDir={sortDir}
-              align="right"
-              onSort={handleSort}
-            />
-            <SortableHeader
-              label="Projected"
+              label="Chips"
               sortKey="projected_chips"
               currentKey={sortKey}
               currentDir={sortDir}
               align="right"
               onSort={handleSort}
             />
-            <SortableHeader
-              label="Δ regen"
-              sortKey="uncommitted_regen"
-              currentKey={sortKey}
-              currentDir={sortDir}
-              align="right"
-              onSort={handleSort}
-            />
-            <SortableHeader
-              label="Won*"
-              sortKey="chips_won"
-              currentKey={sortKey}
-              currentDir={sortDir}
-              align="right"
-              onSort={handleSort}
-            />
-            <SortableHeader
-              label="Lost*"
-              sortKey="chips_lost"
-              currentKey={sortKey}
-              currentDir={sortDir}
-              align="right"
-              onSort={handleSort}
-            />
-            <SortableHeader
-              label="Net*"
-              sortKey="net_pnl"
-              currentKey={sortKey}
-              currentDir={sortDir}
-              align="right"
-              onSort={handleSort}
-            />
+            {scoped && (
+              <>
+                <SortableHeader
+                  label="Recv"
+                  sortKey="receivable"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  align="right"
+                  onSort={handleSort}
+                />
+                <SortableHeader
+                  label="Owed"
+                  sortKey="outstanding"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  align="right"
+                  onSort={handleSort}
+                />
+                <SortableHeader
+                  label="Vice"
+                  sortKey="vice_spent"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  align="right"
+                  onSort={handleSort}
+                />
+                <SortableHeader
+                  label="Side hustle"
+                  sortKey="side_hustle_earned"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  align="right"
+                  onSort={handleSort}
+                />
+              </>
+            )}
             <SortableHeader
               label="Sandbox"
               sortKey="sandbox_id"
@@ -632,57 +690,39 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
           </tr>
         </thead>
         <tbody>
-          {(() => {
-            // Won/Lost/Net come from cash_pair_stats aggregated per
-            // observer_id. The holdings table can hold multiple rows
-            // per personality (one per sandbox) in the cross-sandbox
-            // admin view, but the aggregate has only one entry per
-            // observer_id — so showing the same PnL number on every
-            // row would visually multi-count it. Render PnL only on
-            // the first row encountered for each entity_id; the rest
-            // get an em-dash with a hover hint. When the sandbox
-            // dropdown is set to a specific sandbox each personality
-            // already appears once, so this is a no-op there.
-            const pnlShown = new Set<string>();
-            return sortedRows.map((row) => {
-              const isHighlighted = highlightedEntity === row.entity_id;
-              const drift = row.uncommitted_regen;
-              const net = row.net_pnl;
-              const showPnl = !pnlShown.has(row.entity_id);
-              if (showPnl) pnlShown.add(row.entity_id);
-              const dupeHint = showPnl ? undefined : 'Lifetime total shown on first row';
-              return (
-                <tr
-                  key={`${row.entity_id}@${row.sandbox_id ?? ''}`}
-                  className={isHighlighted ? 'highlighted' : ''}
-                  onClick={() => onSelectEntity(isHighlighted ? null : row.entity_id)}
-                >
-                  <td>{row.name}</td>
-                  <td>{row.kind === 'ai' ? 'AI' : 'Human'}</td>
-                  <td className="amount">{fmt(row.stored_chips)}</td>
-                  <td className="amount">{fmt(row.projected_chips)}</td>
-                  <td className={`amount ${drift > 0 ? 'pos' : drift < 0 ? 'neg' : ''}`}>
-                    {drift === 0 ? '—' : signed(drift)}
+          {sortedRows.map((row) => {
+            const isHighlighted = highlightedEntity === row.entity_id;
+            const netWorth = row.net_worth ?? 0;
+            return (
+              <tr
+                key={`${row.entity_id}@${row.sandbox_id ?? ''}`}
+                className={isHighlighted ? 'highlighted' : ''}
+                onClick={() => onSelectEntity(isHighlighted ? null : row.entity_id)}
+              >
+                <td>{row.name}</td>
+                <td>{row.kind === 'ai' ? 'AI' : 'Human'}</td>
+                {scoped && (
+                  <td className={`amount ${netWorth > 0 ? 'pos' : netWorth < 0 ? 'neg' : ''}`}>
+                    {fmt(netWorth)}
                   </td>
-                  <td className="amount pos" title={dupeHint}>
-                    {!showPnl || row.chips_won === 0 ? '—' : fmt(row.chips_won)}
-                  </td>
-                  <td className="amount neg" title={dupeHint}>
-                    {!showPnl || row.chips_lost === 0 ? '—' : fmt(row.chips_lost)}
-                  </td>
-                  <td
-                    className={`amount ${showPnl && net > 0 ? 'pos' : showPnl && net < 0 ? 'neg' : ''}`}
-                    title={dupeHint}
-                  >
-                    {!showPnl || net === 0 ? '—' : signed(net)}
-                  </td>
-                  <td className="sandbox-cell">
-                    {row.sandbox_id ? row.sandbox_id.slice(0, 8) : '—'}
-                  </td>
-                </tr>
-              );
-            });
-          })()}
+                )}
+                <td className="amount">{fmt(row.projected_chips)}</td>
+                {scoped && (
+                  <>
+                    <td className="amount pos">{row.receivable ? fmt(row.receivable) : '—'}</td>
+                    <td className="amount neg">{row.outstanding ? fmt(row.outstanding) : '—'}</td>
+                    <td className="amount neg">{row.vice_spent ? fmt(row.vice_spent) : '—'}</td>
+                    <td className="amount pos">
+                      {row.side_hustle_earned ? fmt(row.side_hustle_earned) : '—'}
+                    </td>
+                  </>
+                )}
+                <td className="sandbox-cell">
+                  {row.sandbox_id ? row.sandbox_id.slice(0, 8) : '—'}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -699,12 +739,15 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
   if (history === null) {
     return <p className="chip-ledger-empty">Loading history…</p>;
   }
+  if (history.requires_sandbox) {
+    return <p className="chip-ledger-empty">Select a sandbox to chart net worth over time.</p>;
+  }
   if (history.series.length === 0) {
-    return <p className="chip-ledger-empty">No central-bank events in the selected window.</p>;
+    return <p className="chip-ledger-empty">No net-worth snapshots recorded yet in this window.</p>;
   }
 
-  // Cap at the top-N by absolute net flow so the chart stays
-  // readable. The dropped series still appear in the table below.
+  // Cap at the top-N by current net worth so the chart stays readable.
+  // The dropped series still appear in the table below.
   const visibleSeries = history.series.slice(0, CHART_TOP_N);
 
   const sinceMs = new Date(history.since).getTime();
@@ -745,7 +788,7 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
         viewBox={`0 0 ${VB_WIDTH} ${CHART_HEIGHT}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="Player holdings over time"
+        aria-label="Net worth over time"
       >
         {yTicks.map((tick) => {
           const y = yOf(tick);
@@ -762,13 +805,10 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
           const color = CHART_COLORS[idx % CHART_COLORS.length];
           const isHighlighted = highlightedEntity === series.entity_id;
           const isDimmed = highlightedEntity !== null && !isHighlighted;
-          const points = [
-            // Pin the start at zero so every line opens at the chart
-            // origin instead of jumping in at its first event — matches
-            // the cumulative-net-flow semantic ("since `since`").
-            { x: xOf(history.since), y: yOf(0) },
-            ...series.points.map((p) => ({ x: xOf(p.t), y: yOf(p.value) })),
-          ];
+          // Net worth is a level, not a cumulative flow — start each line at
+          // its first recorded snapshot (no zero pin). A single point still
+          // renders as a dot via the line cap.
+          const points = series.points.map((p) => ({ x: xOf(p.t), y: yOf(p.value) }));
           const d = points
             .map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`)
             .join(' ');
@@ -806,7 +846,7 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
             >
               <span className="swatch" style={{ background: color }} />
               <span className="label">{series.label}</span>
-              <span className="value">{signed(series.total_net_flow)}</span>
+              <span className="value">{fmt(series.current_net_worth)}</span>
             </button>
           );
         })}

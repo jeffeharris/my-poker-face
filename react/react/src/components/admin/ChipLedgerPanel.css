@@ -404,6 +404,13 @@
   color: var(--text-secondary, #aaa);
 }
 
+.chip-ledger-holdings-scope-note {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, #777);
+  font-style: italic;
+}
+
 .chip-ledger-empty {
   color: var(--text-secondary, #888);
   font-style: italic;

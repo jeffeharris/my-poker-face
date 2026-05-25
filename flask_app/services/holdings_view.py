@@ -1,19 +1,27 @@
-"""Admin "Player Holdings" view — current snapshot + time-series history.
+"""Admin "Player Holdings" view — net-worth snapshot + over-time history.
 
-Powers the Chip Economy → Player Holdings section. Two payloads:
+Powers the Chip Economy → Player Holdings section. Three entry points:
 
-  * `compute_holdings_snapshot` — per-player table of current chip
-    counts. AI personalities scoped to the requested sandbox (or
-    cross-sandbox when `sandbox_id=None`); human players come from the
-    global `player_bankroll_state` (humans aren't sandbox-scoped in v1).
+  * `compute_holdings_snapshot` — per-entity table of current net worth
+    and its components (chips, stakes receivable, stakes outstanding)
+    plus vice spent / side-hustle earned. Net worth requires a sandbox
+    (stakes are global per entity but chips are per-sandbox); in the
+    cross-sandbox "All sandboxes" view the table degrades to chips only
+    (`net_worth_scoped=False`).
 
-  * `compute_holdings_history` — per-player cumulative chip flow into
-    and out of the central bank, time-ordered. Derived from
-    `chip_ledger_entries` — only counts events that touch the bank
-    (seed, regen, rake, stake settlement). Intra-table P&L is NOT
-    captured because the ledger doesn't observe seat-to-seat flows;
-    the UI labels the chart accordingly so it isn't read as a true
-    balance curve.
+  * `compute_holdings_history` — per-entity net worth over time, read
+    from the `holdings_snapshots` table the background ticker records.
+    Net worth can't be reconstructed from the chip ledger (seat-to-seat
+    chip flows never hit it), so the curve accrues forward from the
+    first recorded snapshot. Requires a sandbox.
+
+  * `record_holdings_snapshot` — compute the scoped net-worth rows and
+    persist one capture column. Called by the world ticker (rate-limited)
+    and as a first-view seed so the chart is never blank.
+
+net worth = liquid chips + stakes receivable − stakes outstanding
+(mirrors `GET /api/cash/net-worth`). See
+`docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
 """
 
 from __future__ import annotations
@@ -25,179 +33,229 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+VICE_REASON = 'vice_spending'
+SIDE_HUSTLE_REASON = 'side_hustle_earning'
+
+MAX_SERIES = 12  # plotted-line cap; rest still appear in the holdings table
+MAX_POINTS_PER_SERIES = 400
+DEFAULT_RETENTION_DAYS = 30
+
 
 def compute_holdings_snapshot(
     *,
     bankroll_repo,
     personality_repo,
     user_repo,
-    relationship_repo,
+    stake_repo,
     db_path: str,
     now: Optional[datetime] = None,
     sandbox_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Return the per-player holdings table payload.
+    """Return the per-entity net-worth table payload.
 
-    AI rows project regen at read time so the value matches what a
-    live cash-mode read would return. Human rows expose `chips`
-    verbatim — no regen, no projection.
+    AI rows project regen at read time so the chip count matches what a
+    live cash-mode read would return. Human rows expose `chips` verbatim.
 
-    Each row also carries cash-mode `chips_won` / `chips_lost`
-    from `cash_pair_stats`. When `sandbox_id` is set, the aggregate
-    is scoped to that sandbox (matches what the dropdown shows);
-    when `None` (admin "All sandboxes" view), it's the lifetime
-    cross-sandbox total. v109 added the sandbox_id column so the
-    per-sandbox filter actually narrows the data.
-
-    Rows are sorted by `projected_chips` descending so the largest
-    holders appear first.
+    When `sandbox_id` is set, each row carries `net_worth`, `receivable`,
+    `outstanding`, `vice_spent`, and `side_hustle_earned`. When `None`
+    (the deprecated cross-sandbox view) net worth is omitted — stakes are
+    global per entity, so attributing them across per-sandbox chip rows
+    isn't meaningful — and the rows carry chips only.
     """
     if now is None:
         now = datetime.utcnow()
+    scoped = sandbox_id is not None
 
-    # Cash PnL aggregate. Scoped when a sandbox is selected so the
-    # Won/Lost/Net columns match the dropdown; unscoped (lifetime
-    # cross-sandbox) in the admin "All sandboxes" view. Keyed on
-    # the observer_id that the relationship detector wrote — historically
-    # sometimes the personality slug, sometimes the display name. Look
-    # up each row's PnL by trying every plausible key.
-    if relationship_repo is not None:
-        try:
-            cash_pnl_by_observer = relationship_repo.aggregate_cash_pnl_by_entity(
-                sandbox_id=sandbox_id,
-            )
-        except Exception as e:
-            logger.warning("holdings: aggregate_cash_pnl_by_entity failed: %s", e)
-            cash_pnl_by_observer = {}
-    else:
-        cash_pnl_by_observer = {}
+    # Net-worth inputs. Stakes are global (the `stakes` table has no
+    # sandbox_id), so receivable/outstanding are entity totals; vice and
+    # side-hustle come from the per-entity chip ledger scoped to this
+    # sandbox. All only computed in the scoped view.
+    receivables: Dict[str, int] = {}
+    outstanding: Dict[str, int] = {}
+    vice: Dict[str, int] = {}
+    side_hustle: Dict[str, int] = {}
+    if scoped:
+        if stake_repo is not None:
+            try:
+                receivables = stake_repo.aggregate_receivables_by_staker()
+                outstanding = stake_repo.aggregate_outstanding_by_borrower()
+            except Exception as e:
+                logger.warning("holdings: stake aggregate failed: %s", e)
+        vice = _aggregate_ledger_by_entity(db_path, VICE_REASON, 'source', sandbox_id)
+        side_hustle = _aggregate_ledger_by_entity(
+            db_path,
+            SIDE_HUSTLE_REASON,
+            'sink',
+            sandbox_id,
+        )
 
     ai_rows = _collect_ai_rows(
         bankroll_repo=bankroll_repo,
         personality_repo=personality_repo,
-        cash_pnl_by_observer=cash_pnl_by_observer,
+        receivables=receivables,
+        outstanding=outstanding,
+        vice=vice,
+        side_hustle=side_hustle,
         now=now,
         sandbox_id=sandbox_id,
+        scoped=scoped,
     )
     player_rows = _collect_player_rows(
         user_repo=user_repo,
-        cash_pnl_by_observer=cash_pnl_by_observer,
+        receivables=receivables,
+        outstanding=outstanding,
+        vice=vice,
+        side_hustle=side_hustle,
         db_path=db_path,
+        scoped=scoped,
     )
 
     rows = ai_rows + player_rows
-    rows.sort(key=lambda r: r['projected_chips'], reverse=True)
+    sort_key = 'net_worth' if scoped else 'chips'
+    rows.sort(key=lambda r: (r.get(sort_key) or 0), reverse=True)
     return {
         'rows': rows,
         'as_of': now.isoformat(),
         'sandbox_id': sandbox_id,
+        'net_worth_scoped': scoped,
     }
 
 
-MAX_SERIES = 12  # plotted-line cap; rest still appear in the holdings table
-MAX_POINTS_PER_SERIES = 400
+def record_holdings_snapshot(
+    *,
+    snapshots_repo,
+    bankroll_repo,
+    personality_repo,
+    user_repo,
+    stake_repo,
+    db_path: str,
+    sandbox_id: str,
+    now: Optional[datetime] = None,
+    retention_days: int = DEFAULT_RETENTION_DAYS,
+) -> int:
+    """Capture one net-worth column for `sandbox_id` into holdings_snapshots.
+
+    Reuses `compute_holdings_snapshot` (scoped) so the recorded curve and
+    the live table agree by construction. Writes only the net-worth
+    components; vice/side-hustle are table-only (current totals, not a
+    time series). Prunes rows past the retention window each call (cheap
+    delete on an indexed column). Returns the number of points written.
+    A `None` sandbox is a no-op — net worth requires a sandbox.
+    """
+    if sandbox_id is None:
+        return 0
+    if now is None:
+        now = datetime.utcnow()
+    snap = compute_holdings_snapshot(
+        bankroll_repo=bankroll_repo,
+        personality_repo=personality_repo,
+        user_repo=user_repo,
+        stake_repo=stake_repo,
+        db_path=db_path,
+        now=now,
+        sandbox_id=sandbox_id,
+    )
+    captured_at = _normalize_to_utc_iso(now.isoformat())
+    rows = [
+        {
+            'sandbox_id': sandbox_id,
+            'entity_id': r['entity_id'],
+            'kind': r['kind'],
+            'net_worth': r['net_worth'],
+            'chips': r['projected_chips'],
+            'receivable': r['receivable'],
+            'outstanding': r['outstanding'],
+        }
+        for r in snap['rows']
+        if r.get('net_worth') is not None
+    ]
+    written = snapshots_repo.record(rows, captured_at=captured_at)
+    try:
+        cutoff = _normalize_to_utc_iso((now - timedelta(days=retention_days)).isoformat())
+        snapshots_repo.prune(cutoff)
+    except Exception as e:
+        logger.warning("holdings: snapshot prune failed: %s", e)
+    return written
 
 
 def compute_holdings_history(
     *,
-    ledger_repo,
-    bankroll_repo,
+    snapshots_repo,
     personality_repo,
     user_repo,
-    db_path: str,
     days: int = 30,
     now: Optional[datetime] = None,
     sandbox_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Return per-entity cumulative chip flow into/out of the central bank.
+    """Return per-entity net worth over time for a sandbox.
 
-    Walks `chip_ledger_entries` since `now - days` and accumulates a
-    running signed total per non-bank entity. Each entity's series ends
-    with a synthetic point at `now` so the chart flattens cleanly to
-    the current cumulative value rather than dropping off at the last
-    event.
+    Reads recorded `holdings_snapshots` points (not the chip ledger). The
+    `since` returned is auto-fit to the earliest available point inside
+    the window so a young economy renders as real movement rather than a
+    flat line pinned to the window's left edge.
 
-    The series value is NOT the entity's balance — it's "net chips
-    received from the central bank to date." Seed + regen + stake
-    issue increase it; rake + stake settlement decrease it. The frontend
-    titles the chart accordingly.
+    `sandbox_id=None` returns an empty payload with `requires_sandbox`
+    set — net worth is only meaningful within a sandbox (decision: the
+    cross-sandbox net-worth view is deprecated).
     """
     if now is None:
         now = datetime.utcnow()
     days = max(1, min(int(days), 365))
     since = now - timedelta(days=days)
-    since_iso = since.isoformat()
+    since_iso = _normalize_to_utc_iso(since.isoformat())
+    end_iso = _normalize_to_utc_iso(now.isoformat())
 
-    entries = ledger_repo.non_bank_entries_since(
-        since_iso,
-        sandbox_id=sandbox_id,
-    )
+    if sandbox_id is None:
+        return {
+            'series': [],
+            'series_total': 0,
+            'series_truncated_to': 0,
+            'since': since_iso,
+            'as_of': end_iso,
+            'sandbox_id': None,
+            'days': days,
+            'requires_sandbox': True,
+        }
+
+    points = snapshots_repo.series_since(since_iso, sandbox_id=sandbox_id)
 
     series_by_entity: Dict[str, List[Dict[str, Any]]] = {}
-    running: Dict[str, int] = {}
-
-    for entry in entries:
-        source = entry['source']
-        sink = entry['sink']
-        amount = entry['amount']
-        # SQLite's `CURRENT_TIMESTAMP` default writes `YYYY-MM-DD HH:MM:SS`
-        # (space separator, no timezone). Browsers disagree on parsing
-        # that string — Safari returns NaN, Chrome treats it as local
-        # time. Normalize to ISO-8601 with explicit UTC so the React
-        # chart can `new Date(t).getTime()` it reliably.
-        created_at = _normalize_to_utc_iso(entry['created_at'])
-        # The bank is on exactly one side (the repo query enforces that
-        # at least one side is non-bank; pure non-bank transfers
-        # don't currently exist, but if they did this would skip them
-        # rather than miscount).
-        if sink.startswith('player:') or sink.startswith('ai:'):
-            entity = sink
-            signed = amount
-        elif source.startswith('player:') or source.startswith('ai:'):
-            entity = source
-            signed = -amount
-        else:
-            continue
-
-        new_total = running.get(entity, 0) + signed
-        running[entity] = new_total
-        series_by_entity.setdefault(entity, []).append(
+    for p in points:
+        series_by_entity.setdefault(p['entity_id'], []).append(
             {
-                't': created_at,
-                'value': new_total,
-                'reason': entry['reason'],
+                't': _normalize_to_utc_iso(p['captured_at']),
+                'value': p['net_worth'],
             }
         )
 
-    # Flatten each series to `now` so the chart doesn't end at the
-    # last event — feels broken otherwise when the latest activity was
-    # hours ago.
-    end_iso = _normalize_to_utc_iso(now.isoformat())
-    for entity, points in series_by_entity.items():
-        if not points or points[-1]['t'] != end_iso:
-            points.append(
-                {
-                    't': end_iso,
-                    'value': running[entity],
-                    'reason': 'now',
-                }
-            )
+    # Extend each series flat to `now` with its latest value. Two reasons:
+    # the curve shouldn't visually end at the last capture (feels stale when
+    # the ticker last fired minutes ago), and a single recorded point would
+    # otherwise be one SVG move-to that draws nothing — the synthetic
+    # endpoint guarantees a visible (≥2-point) line on first view.
+    for pts in series_by_entity.values():
+        if pts and pts[-1]['t'] != end_iso:
+            pts.append({'t': end_iso, 'value': pts[-1]['value']})
 
-    # Resolve labels: AI personalities → display name, players → user
-    # name / email. Done after the walk so we only look up entities
-    # that actually appear in the series.
+    # Auto-fit: start the x-domain at the earliest recorded point (when it
+    # falls inside the window) so the curve fills the chart instead of a
+    # long flat stub back to `since`.
+    earliest = min(
+        (pts[0]['t'] for pts in series_by_entity.values() if pts),
+        default=None,
+    )
+    effective_since = earliest if (earliest and earliest > since_iso) else since_iso
+
     labels = _resolve_entity_labels(
         entity_ids=list(series_by_entity.keys()),
         personality_repo=personality_repo,
         user_repo=user_repo,
     )
 
-    # Rank by absolute net flow so both top gainers and biggest
-    # net-losers make the cut (a personality whose bank credits got
-    # raked back is just as interesting as one accumulating chips).
+    # Rank by current (latest) net worth descending — richest first.
     ranked = sorted(
         series_by_entity.items(),
-        key=lambda kv: abs(running[kv[0]]),
+        key=lambda kv: kv[1][-1]['value'] if kv[1] else 0,
         reverse=True,
     )
     truncated = ranked[:MAX_SERIES]
@@ -206,28 +264,58 @@ def compute_holdings_history(
             'entity_id': entity_id,
             'label': labels.get(entity_id, entity_id),
             'kind': 'ai' if entity_id.startswith('ai:') else 'player',
-            'total_net_flow': running[entity_id],
-            'points': _downsample(points, MAX_POINTS_PER_SERIES),
+            'current_net_worth': pts[-1]['value'] if pts else 0,
+            'points': _downsample(pts, MAX_POINTS_PER_SERIES),
         }
-        for entity_id, points in truncated
+        for entity_id, pts in truncated
     ]
-    # Present the chart in net-flow descending order (gainers first)
-    # rather than abs order; the ranking above was just for the
-    # truncation cut, not the display order.
-    series.sort(key=lambda s: s['total_net_flow'], reverse=True)
 
     return {
         'series': series,
         'series_total': len(series_by_entity),
         'series_truncated_to': len(series),
-        'since': _normalize_to_utc_iso(since_iso),
+        'since': effective_since,
         'as_of': end_iso,
         'sandbox_id': sandbox_id,
         'days': days,
+        'requires_sandbox': False,
     }
 
 
 # --- internals ---
+
+
+def _aggregate_ledger_by_entity(
+    db_path: str,
+    reason: str,
+    side: str,
+    sandbox_id: str,
+) -> Dict[str, int]:
+    """Sum chip-ledger `amount` per entity for one reason, scoped to a sandbox.
+
+    `side` is `'source'` (entity paid, e.g. vice spending) or `'sink'`
+    (entity received, e.g. side-hustle earning). Returns
+    `{entity_id: total}` keyed by the raw ledger vocabulary
+    (`ai:<slug>` / `player:<id>`), so callers look up by the row's
+    `entity_id` directly. Missing / unreadable → empty map.
+    """
+    col = 'source' if side == 'source' else 'sink'
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"""
+                SELECT {col} AS entity, SUM(amount) AS total
+                FROM chip_ledger_entries
+                WHERE reason = ? AND sandbox_id = ?
+                GROUP BY {col}
+                """,
+                (reason, sandbox_id),
+            ).fetchall()
+    except sqlite3.Error as e:
+        logger.warning("holdings: ledger aggregate (%s) failed: %s", reason, e)
+        return {}
+    return {row['entity']: int(row['total'] or 0) for row in rows}
 
 
 def _normalize_to_utc_iso(value: Optional[str]) -> Optional[str]:
@@ -259,18 +347,12 @@ def _downsample(
 ) -> List[Dict[str, Any]]:
     """Cap a time-ordered point list to `target` points, preserving shape.
 
-    Uses uniform-stride sampling that always retains the first and
-    last points. For cumulative-flow series this preserves the curve's
-    shape well — values are step-monotonic-ish, so a stride-skipped
-    point lands close to its neighbors anyway. We keep last-in-bucket
-    semantics by selecting indices, not averaging, so reasons stay
-    truthful.
+    Uniform-stride sampling that always retains the first and last points.
+    Selects indices (no averaging) so timestamps stay truthful.
     """
     n = len(points)
     if n <= target:
         return points
-    # Always keep first and last; sample (target - 2) interior points
-    # at uniform stride.
     if target <= 2:
         return [points[0], points[-1]]
     interior_count = target - 2
@@ -281,46 +363,58 @@ def _downsample(
     return [points[i] for i in sorted(indices)]
 
 
-def _lookup_cash_pnl(
-    cash_pnl_by_observer: Dict[str, Dict[str, int]],
-    *keys: Optional[str],
+def _net_worth_for(
+    entity_id: str,
+    bare_id: str,
+    chips: int,
+    *,
+    receivables: Dict[str, int],
+    outstanding: Dict[str, int],
+    vice: Dict[str, int],
+    side_hustle: Dict[str, int],
 ) -> Dict[str, int]:
-    """Find the cash-PnL aggregate for a row by trying each key in order.
+    """Build the net-worth column block for one row.
 
-    `cash_pair_stats.observer_id` is mixed in legacy data: sometimes
-    the personality slug, sometimes the display name. The caller passes
-    every plausible key (slug, name) and we return the first match —
-    or all-zero if nothing hits.
+    `bare_id` keys the (global) stake aggregates (`staker_id` /
+    `borrower_id` are bare slugs / player ids); `entity_id` keys the chip
+    ledger aggregates (`ai:<slug>` / `player:<id>`).
     """
-    for key in keys:
-        if key and key in cash_pnl_by_observer:
-            return cash_pnl_by_observer[key]
-    return {'chips_won': 0, 'chips_lost': 0, 'net_pnl': 0, 'hands_played_cash': 0}
+    receivable = int(receivables.get(bare_id, 0))
+    owed = int(outstanding.get(bare_id, 0))
+    return {
+        'receivable': receivable,
+        'outstanding': owed,
+        'net_worth': chips + receivable - owed,
+        'vice_spent': int(vice.get(entity_id, 0)),
+        'side_hustle_earned': int(side_hustle.get(entity_id, 0)),
+    }
 
 
 def _collect_ai_rows(
     *,
     bankroll_repo,
     personality_repo,
-    cash_pnl_by_observer: Dict[str, Dict[str, int]],
+    receivables: Dict[str, int],
+    outstanding: Dict[str, int],
+    vice: Dict[str, int],
+    side_hustle: Dict[str, int],
     now: datetime,
     sandbox_id: Optional[str],
+    scoped: bool,
 ) -> List[Dict[str, Any]]:
     """Build one row per AI personality bankroll in scope.
 
     Cross-sandbox (`sandbox_id=None`) walks every (personality_id,
-    sandbox_id) pair — the same surface the chip-ledger audit uses for
-    its projected sum — so a personality with bankrolls in multiple
-    sandboxes shows up once per sandbox. A specific sandbox returns
-    one row per personality in that sandbox.
+    sandbox_id) pair so a personality with bankrolls in multiple sandboxes
+    shows up once per sandbox (chips only — no net worth in that view). A
+    specific sandbox returns one row per personality with the full
+    net-worth block.
     """
     pairs: List[Tuple[str, str]] = []
     if sandbox_id is None:
         try:
             pairs = list(bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox())
         except AttributeError:
-            # Degraded fallback: list unique personality_ids without a
-            # sandbox column; show them as cross-sandbox blanks.
             pids = bankroll_repo.iter_personality_ids_with_bankrolls(
                 sandbox_id=None,
             )
@@ -333,10 +427,6 @@ def _collect_ai_rows(
 
     rows: List[Dict[str, Any]] = []
     for pid, sid in pairs:
-        # `sid` may be the empty string only on the degraded
-        # `AttributeError` fallback path — that's the "sandbox unknown"
-        # sentinel. Treat it the same as None here so the row at least
-        # surfaces with stored=0 instead of crashing the load call.
         loadable_sid = sid if sid else None
         state = None
         stored = 0
@@ -371,40 +461,52 @@ def _collect_ai_rows(
                 )
 
         name = _resolve_personality_name(personality_repo, pid)
-        pnl = _lookup_cash_pnl(cash_pnl_by_observer, pid, name)
-        rows.append(
-            {
-                'entity_id': f'ai:{pid}',
-                'kind': 'ai',
-                'id': pid,
-                'name': name,
-                'sandbox_id': sid or None,
-                'stored_chips': stored,
-                'projected_chips': projected,
-                'uncommitted_regen': projected - stored,
-                'last_regen_tick': (
-                    state.last_regen_tick.isoformat() if state and state.last_regen_tick else None
-                ),
-                'chips_won': pnl['chips_won'],
-                'chips_lost': pnl['chips_lost'],
-                'net_pnl': pnl['net_pnl'],
-            }
-        )
+        entity_id = f'ai:{pid}'
+        row = {
+            'entity_id': entity_id,
+            'kind': 'ai',
+            'id': pid,
+            'name': name,
+            'sandbox_id': sid or None,
+            'stored_chips': stored,
+            'projected_chips': projected,
+            'uncommitted_regen': projected - stored,
+            'last_regen_tick': (
+                state.last_regen_tick.isoformat() if state and state.last_regen_tick else None
+            ),
+        }
+        if scoped:
+            row.update(
+                _net_worth_for(
+                    entity_id,
+                    pid,
+                    projected,
+                    receivables=receivables,
+                    outstanding=outstanding,
+                    vice=vice,
+                    side_hustle=side_hustle,
+                )
+            )
+        rows.append(row)
     return rows
 
 
 def _collect_player_rows(
     *,
     user_repo,
-    cash_pnl_by_observer: Dict[str, Dict[str, int]],
+    receivables: Dict[str, int],
+    outstanding: Dict[str, int],
+    vice: Dict[str, int],
+    side_hustle: Dict[str, int],
     db_path: str,
+    scoped: bool,
 ) -> List[Dict[str, Any]]:
     """Build one row per human player bankroll.
 
     `player_bankroll_state` is global (not sandbox-scoped in v1) so the
-    same player rows appear regardless of the admin sandbox filter.
-    The UI flags this so admins don't try to read per-sandbox player
-    holdings into the table.
+    same player rows appear regardless of the admin sandbox filter. In the
+    scoped view they carry the net-worth block (stakes are global; vice /
+    side-hustle are looked up by the player's `player:<id>` ledger key).
     """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -412,85 +514,38 @@ def _collect_player_rows(
             "SELECT player_id, chips, starting_bankroll FROM player_bankroll_state"
         ).fetchall()
 
-    # Guests have no `users` row, so `users.name` lookups miss. The
-    # relationship detector historically wrote `observer_id` as the seat
-    # display name (e.g. "Jeff") rather than the owner_id, so we also
-    # fall back to the player's most-recent `games.owner_name` to bridge
-    # that gap. Bulk-fetched once to avoid an N+1 per player row.
-    player_ids = [row['player_id'] for row in rows]
-    owner_names = _fetch_recent_owner_names(db_path, player_ids)
-
     out: List[Dict[str, Any]] = []
     for row in rows:
         player_id = row['player_id']
         chips = int(row['chips'] or 0)
         user_name = _resolve_player_name(user_repo, player_id)
-        owner_name = owner_names.get(player_id)
-        name = user_name or owner_name or player_id
-        pnl = _lookup_cash_pnl(
-            cash_pnl_by_observer,
-            player_id,
-            user_name,
-            owner_name,
-        )
-        out.append(
-            {
-                'entity_id': f'player:{player_id}',
-                'kind': 'player',
-                'id': player_id,
-                'name': name,
-                'sandbox_id': None,
-                'stored_chips': chips,
-                'projected_chips': chips,
-                'uncommitted_regen': 0,
-                'last_regen_tick': None,
-                'chips_won': pnl['chips_won'],
-                'chips_lost': pnl['chips_lost'],
-                'net_pnl': pnl['net_pnl'],
-            }
-        )
+        name = user_name or player_id
+        entity_id = f'player:{player_id}'
+        record = {
+            'entity_id': entity_id,
+            'kind': 'player',
+            'id': player_id,
+            'name': name,
+            'sandbox_id': None,
+            'stored_chips': chips,
+            'projected_chips': chips,
+            'uncommitted_regen': 0,
+            'last_regen_tick': None,
+        }
+        if scoped:
+            record.update(
+                _net_worth_for(
+                    entity_id,
+                    player_id,
+                    chips,
+                    receivables=receivables,
+                    outstanding=outstanding,
+                    vice=vice,
+                    side_hustle=side_hustle,
+                )
+            )
+        out.append(record)
     return out
-
-
-def _fetch_recent_owner_names(
-    db_path: str,
-    player_ids: List[str],
-) -> Dict[str, str]:
-    """Return `{owner_id: most_recent_owner_name}` for each id in scope.
-
-    Bulk-fetches the most recent non-empty `games.owner_name` per
-    `owner_id` in a single query. Players with no game rows (or only
-    NULL/empty `owner_name`s) are simply absent from the result map —
-    the caller treats that as "no fallback key available."
-    """
-    if not player_ids:
-        return {}
-    placeholders = ','.join('?' for _ in player_ids)
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                f"""
-                SELECT owner_id, owner_name
-                FROM games
-                WHERE owner_id IN ({placeholders})
-                  AND owner_name IS NOT NULL
-                  AND owner_name != ''
-                  AND (owner_id, created_at) IN (
-                      SELECT owner_id, MAX(created_at)
-                      FROM games
-                      WHERE owner_id IN ({placeholders})
-                        AND owner_name IS NOT NULL
-                        AND owner_name != ''
-                      GROUP BY owner_id
-                  )
-                """,
-                list(player_ids) + list(player_ids),
-            ).fetchall()
-    except sqlite3.Error as e:
-        logger.warning("holdings: owner_name bulk lookup failed: %s", e)
-        return {}
-    return {row['owner_id']: row['owner_name'] for row in rows}
 
 
 def _resolve_personality_name(personality_repo, personality_id: str) -> str:
@@ -507,12 +562,7 @@ def _resolve_personality_name(personality_repo, personality_id: str) -> str:
 
 
 def _resolve_player_name(user_repo, player_id: str) -> Optional[str]:
-    """Look up a human player's display name. Falls back to None.
-
-    `player_id` is the user / owner id used in `player_bankroll_state`.
-    Guest ids may not have a `users` row — those callers fall back to
-    the id string in the calling row builder.
-    """
+    """Look up a human player's display name. Falls back to None."""
     if user_repo is None:
         return None
     try:
@@ -530,13 +580,7 @@ def _resolve_entity_labels(
     personality_repo,
     user_repo,
 ) -> Dict[str, str]:
-    """Build {entity_id: display_label} for every entity in the series.
-
-    AI entities use the personality's display name; player entities use
-    the user record's name/email. Unknown ids fall back to the id
-    portion (after the `ai:`/`player:` prefix) so the legend always
-    has *something* readable.
-    """
+    """Build {entity_id: display_label} for every entity in the series."""
     labels: Dict[str, str] = {}
     for entity_id in entity_ids:
         if entity_id.startswith('ai:'):

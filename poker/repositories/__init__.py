@@ -18,6 +18,7 @@ from .experiment_repository import ExperimentRepository
 from .game_repository import GameRepository, SavedGame
 from .guest_tracking_repository import GuestTrackingRepository
 from .hand_history_repository import HandHistoryRepository
+from .holdings_snapshots_repository import HoldingsSnapshotsRepository
 from .llm_repository import LLMRepository
 from .personality_repository import PersonalityRepository
 from .prompt_capture_repository import PromptCaptureRepository
@@ -75,6 +76,7 @@ def create_repos(db_path: str) -> dict:
         'vice_state_repo': ViceStateRepository(db_path),
         'side_hustle_state_repo': SideHustleStateRepository(db_path),
         'user_prefs_repo': UserPreferencesRepository(db_path),
+        'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'db_path': db_path,
     }
 
@@ -92,6 +94,7 @@ __all__ = [
     'GameRepository',
     'GuestTrackingRepository',
     'HandHistoryRepository',
+    'HoldingsSnapshotsRepository',
     'LLMRepository',
     'PersonalityRepository',
     'PressureEventRepository',

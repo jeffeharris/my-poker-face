@@ -444,6 +444,58 @@ class StakeRepository(BaseRepository):
             ).fetchone()
             return int(row[0] or 0)
 
+    def aggregate_receivables_by_staker(self) -> Dict[str, int]:
+        """Per-staker receivable totals (chips others owe / hold for them).
+
+        Drives the admin net-worth view's `receivable` column. For each
+        `staker_id`, sums two surfaces in one pass:
+
+          * active stakes: `principal + match_amount` — chips currently on
+            a borrower's seat the staker has claim to at settlement.
+          * carry stakes: `carry_amount` — settled-but-unrecovered debt
+            still owed back to the staker.
+
+        Global (the `stakes` table has no `sandbox_id`). House stakes
+        (`staker_id IS NULL`) are excluded — they have no entity to credit.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    staker_id,
+                    SUM(CASE WHEN status = ?
+                        THEN principal + match_amount ELSE 0 END)
+                  + SUM(CASE WHEN status = ?
+                        THEN carry_amount ELSE 0 END) AS receivable
+                FROM stakes
+                WHERE staker_id IS NOT NULL
+                GROUP BY staker_id
+                """,
+                (STAKE_STATUS_ACTIVE, STAKE_STATUS_CARRY),
+            ).fetchall()
+        return {row['staker_id']: int(row['receivable'] or 0) for row in rows}
+
+    def aggregate_outstanding_by_borrower(self) -> Dict[str, int]:
+        """Per-borrower outstanding carry debt (chips the entity owes).
+
+        Drives the admin net-worth view's `outstanding` column — the
+        residual `carry_amount` a borrower still owes across all their
+        carry rows. Global (no `sandbox_id`). Only `carry` rows carry
+        residual debt; active stakes are the staker's claim, not the
+        borrower's liability, and settled/defaulted rows are closed.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT borrower_id, SUM(carry_amount) AS outstanding
+                FROM stakes
+                WHERE status = ?
+                GROUP BY borrower_id
+                """,
+                (STAKE_STATUS_CARRY,),
+            ).fetchall()
+        return {row['borrower_id']: int(row['outstanding'] or 0) for row in rows}
+
     def update_carry_amount(self, stake_id: str, carry_amount: int) -> bool:
         """Set `carry_amount` on a stake. Returns True if updated.
 

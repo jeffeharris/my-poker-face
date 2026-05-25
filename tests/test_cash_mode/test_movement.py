@@ -36,6 +36,7 @@ from cash_mode.movement import (
     RebuyChange,
     RosterRefreshResult,
     _coerce_fish_movement,
+    _coerce_predator_retention,
     clear_cooldowns,
     compute_leave_cooldown_seconds,
     compute_leave_pressure,
@@ -474,6 +475,98 @@ class TestRefreshFishAreCasinoBound:
         assert seat0["kind"] == "ai"
         assert seat0["personality_id"] == "vacation_greg"
         assert seat0.get("archetype") == "fish"
+
+    def test_fish_rebuy_preserves_archetype_stamp(self):
+        """A reloading fish must KEEP its `archetype='fish'` stamp.
+
+        The stamp gates fish movement (no wander) + predator retention +
+        the chip-return paths. A bare `ai_slot` rewrite on rebuy would
+        silently de-stamp the fish — harmless at a casino (zombie-reclaim
+        re-seats a fresh fish) but fatal for a whale at a lobby table,
+        where it'd become a wandering grinder holding a deep pool-funded
+        stack. A fish reloads until its bankroll is dry, so this fires
+        often. Here a near-busted content fish (<= 0.3x min buy-in →
+        forced_leave hard floor) reloads from a healthy bankroll.
+        """
+        seats = [
+            {
+                "kind": "ai",
+                "personality_id": "vacation_greg",
+                "chips": 50,  # <= 0.3 * min (400) → forced_leave hard floor
+                "archetype": "fish",
+            },
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        table = _make_table(seats)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"vacation_greg"},
+            # Healthy pool-funded bankroll → forced_leave is coerced to rebuy.
+            bankroll_lookup=_bankroll_lookup_factory({"vacation_greg": 1800}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=random.Random(0),
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+        )
+        assert result.decisions["vacation_greg"] == "rebuy"
+        seat0 = result.new_table.seats[0]
+        assert seat0["kind"] == "ai"
+        assert seat0["personality_id"] == "vacation_greg"
+        # The stamp survives the reload — still a fish after rebuying.
+        assert seat0.get("archetype") == "fish"
+        # And it actually topped up off the short stack.
+        assert seat0["chips"] > 50
+
+
+class TestCoercePredatorRetention:
+    """Grinders stay to farm a seated fish until they tire; rotation
+    exits (take_break/bust) and tired predators still leave."""
+
+    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
+    TIRED = 0.1  # energy < floor → released to cycle out
+
+    def test_stake_up_suppressed_at_fish_table(self):
+        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stay"
+
+    def test_bored_move_suppressed_at_fish_table(self):
+        assert _coerce_predator_retention("bored_move", True, self.FRESH) == "stay"
+
+    def test_take_break_still_rotates_out(self):
+        # Tired predators still leave — keeps the fish's chips redistributing.
+        assert _coerce_predator_retention("take_break", True, self.FRESH) == "take_break"
+
+    def test_forced_leave_still_busts(self):
+        assert _coerce_predator_retention("forced_leave", True, self.FRESH) == "forced_leave"
+
+    def test_stay_unchanged(self):
+        assert _coerce_predator_retention("stay", True, self.FRESH) == "stay"
+
+    def test_no_retention_without_fish(self):
+        # No fish to farm → normal movement, predators free to move on.
+        assert _coerce_predator_retention("stake_up", False, self.FRESH) == "stake_up"
+        assert _coerce_predator_retention("bored_move", False, self.FRESH) == "bored_move"
+
+    def test_tired_predator_released_to_cycle_out(self):
+        # Worn down past the fatigue floor → retention lifts, predator leaves.
+        assert _coerce_predator_retention("stake_up", True, self.TIRED) == "stake_up"
+        assert _coerce_predator_retention("bored_move", True, self.TIRED) == "bored_move"
+
+    def test_fatigue_boundary(self):
+        from cash_mode.movement import CASINO_PREDATOR_FATIGUE_FLOOR
+
+        at = CASINO_PREDATOR_FATIGUE_FLOOR
+        below = CASINO_PREDATOR_FATIGUE_FLOOR - 0.01
+        assert _coerce_predator_retention("stake_up", True, at) == "stay"  # at floor → retained
+        assert _coerce_predator_retention("stake_up", True, below) == "stake_up"  # below → released
 
 
 class TestCoerceFishMovement:

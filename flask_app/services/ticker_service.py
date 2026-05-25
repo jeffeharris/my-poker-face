@@ -78,6 +78,15 @@ _last_marker: Dict[str, str] = {}
 _cycle = 0
 _rr_offset = 0
 
+# Net-worth snapshot cadence. The ticker records a holdings snapshot per
+# active sandbox at most this often (wall-clock), driving the admin
+# "Player Holdings" net-worth-over-time chart. Far slower than the base
+# tick — net worth drifts on the order of minutes, and the table is just
+# for admin analytics, so a fine cadence would only bloat the table.
+SNAPSHOT_INTERVAL_SECONDS = 600.0
+# sandbox_id -> monotonic time of its last recorded snapshot.
+_last_snapshot_at: Dict[str, float] = {}
+
 
 def start_world_ticker(socketio) -> None:
     """Start the shared ticker once. Idempotent across create_app() calls."""
@@ -199,6 +208,8 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         side_hustle_repo=extensions.side_hustle_state_repo,
     )
 
+    _maybe_record_holdings_snapshot(sandbox_id)
+
     room = presence.lobby_room_name(owner_id)
     # Push new ticker events (newest-first from the buffer; emit oldest
     # first so the client appends in chronological order).
@@ -215,3 +226,39 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
 
     # Lightweight nudge so a mounted lobby refetches the snapshot.
     socketio.emit("lobby_tick", {"sandbox_id": sandbox_id, "ts": time.time()}, to=room)
+
+
+def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:
+    """Record a net-worth snapshot for this sandbox, rate-limited.
+
+    Captures at most once per `SNAPSHOT_INTERVAL_SECONDS` per sandbox so
+    the admin "Player Holdings" chart has real net-worth-over-time points.
+    Best-effort: any failure is logged and swallowed — snapshotting must
+    never delay or break the world tick.
+    """
+    now = time.monotonic()
+    last = _last_snapshot_at.get(sandbox_id)
+    if last is not None and (now - last) < SNAPSHOT_INTERVAL_SECONDS:
+        return
+    try:
+        from flask_app import extensions
+        from flask_app.services.holdings_view import record_holdings_snapshot
+
+        repo = getattr(extensions, "holdings_snapshots_repo", None)
+        if repo is None:
+            return
+        # Stamp the attempt BEFORE recording: a persistently failing snapshot
+        # (DB lock, schema mismatch) must back off to the normal cadence, not
+        # retry the full N+1 computation on every 2s tick.
+        _last_snapshot_at[sandbox_id] = now
+        record_holdings_snapshot(
+            snapshots_repo=repo,
+            bankroll_repo=extensions.bankroll_repo,
+            personality_repo=extensions.personality_repo,
+            user_repo=extensions.user_repo,
+            stake_repo=extensions.stake_repo,
+            db_path=extensions.persistence_db_path,
+            sandbox_id=sandbox_id,
+        )
+    except Exception:
+        logger.exception("[TICKER] holdings snapshot failed for sandbox=%s", sandbox_id)
