@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Wallet } from 'lucide-react';
 import {
   getForgivenessRequests,
@@ -217,7 +218,10 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
 
   if (!isOpen) return null;
 
-  return (
+  // Portaled to <body> so the fixed overlay escapes the Lobby's
+  // PageLayout stacking context — otherwise the app header (.menu-bar)
+  // paints over the centered sheet's close button. See CharacterDetailCard.
+  return createPortal(
     <div className="net-worth-drawer__overlay" onClick={onClose}>
       <div
         className="net-worth-drawer__sheet"
@@ -271,7 +275,8 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

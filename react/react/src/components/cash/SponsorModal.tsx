@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { getSponsorOffers, sponsorAndSit } from './api';
@@ -129,7 +130,10 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
 
   if (!isOpen) return null;
 
-  return (
+  // Portaled to <body> so the fixed overlay escapes the Lobby's
+  // PageLayout stacking context — otherwise the app header (.menu-bar)
+  // paints over the centered sheet's close button. See CharacterDetailCard.
+  return createPortal(
     <div className="sponsor-modal__overlay" onClick={onClose}>
       <div
         className="sponsor-modal__sheet"
@@ -241,6 +245,7 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
