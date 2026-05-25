@@ -199,7 +199,10 @@ export interface LobbyEvent {
     | 'ai_forgiven'
     // Vice spending — AI goes off-grid for a duration.
     | 'vice_start'
-    | 'vice_end';
+    | 'vice_end'
+    // Side hustle — broke AI goes off-grid to earn (mirror of vice).
+    | 'hustle_start'
+    | 'hustle_end';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -254,7 +257,25 @@ export interface LobbyResponse {
    *  narration shows on the personality dossier + the vice_start
    *  ticker event. */
   active_vices?: ActiveVice[];
+  /** How fast the realtime background ticker advances this user's world.
+   *  Set via PUT /api/cash/world-pace; drives the lobby pace selector. */
+  world_pace?: WorldPace;
 }
+
+/** How fast the background world ticks for unseated tables. */
+export type WorldPace = 'subtle' | 'lively' | 'bustling';
+
+/** Socket `lobby_tick` payload — a lightweight nudge telling a mounted
+ *  lobby to refetch its snapshot. The world itself advances server-side
+ *  in the ticker; this just says "something may have changed." */
+export interface LobbyTick {
+  sandbox_id: string;
+  ts: number;
+}
+
+/** Socket `world_event` payload. Same wire shape as a lobby event, but
+ *  pushed in realtime so a toast/feed can surface it without a refetch. */
+export type WorldEvent = LobbyEvent;
 
 /** Successful response from POST /api/cash/sit. */
 export interface SitResponse {

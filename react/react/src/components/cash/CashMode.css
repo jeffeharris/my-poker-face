@@ -39,6 +39,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* World pace selector — controls how fast the realtime ticker advances
+ * the other (unseated) tables. See CASH_MODE_REALTIME_TICKER.md. */
+.cash-entry__pace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cash-entry__pace-label {
+  color: var(--text-secondary, #aaa);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+}
+
+.cash-entry__pace-select {
+  background: rgba(255, 216, 125, 0.06);
+  border: 1px solid rgba(255, 216, 125, 0.22);
+  border-radius: 8px;
+  color: #ffd87d;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
 .cash-entry__stakes h2,
 .cash-entry__buy-in h2 {
   margin: 0 0 0.75rem 0;

@@ -3977,27 +3977,38 @@ def get_lobby():
         sandbox_id=sandbox_id,
     )
 
-    # Read-side movement refresh on unseated tables. The handoff
-    # documents this as intentional: lazy cadence vs. background ticker.
-    try:
-        from flask_app.extensions import (
-            chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
-            side_hustle_state_repo,
-        )
-        refresh_unseated_tables(
-            cash_table_repo=cash_table_repo,
-            personality_repo=personality_repo,
-            bankroll_repo=bankroll_repo,
-            user_id=owner_id,
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-            relationship_repo=relationship_repo,
-            stake_repo=stake_repo,
-            vice_repo=vice_state_repo,
-            side_hustle_repo=side_hustle_state_repo,
-        )
-    except Exception as e:
-        logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
+    # Mark this sandbox active so the realtime world ticker advances it.
+    # `touch` also keeps the world alive for an HTTP-only client whose
+    # websocket failed (it keeps polling → keeps touching).
+    from flask_app.services import presence
+    from flask_app.services.ticker_service import is_enabled as _ticker_enabled
+    presence.touch(owner_id, sandbox_id)
+
+    # World advancement. When the realtime ticker owns it, this read is
+    # PURE — calling refresh here too would double-advance the world
+    # (refresh_unseated_tables plays hands + rolls movement; it is not
+    # idempotent). When the ticker is disabled, fall back to the legacy
+    # read-driven refresh so the world still moves on read.
+    if not _ticker_enabled():
+        try:
+            from flask_app.extensions import (
+                chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
+                side_hustle_state_repo,
+            )
+            refresh_unseated_tables(
+                cash_table_repo=cash_table_repo,
+                personality_repo=personality_repo,
+                bankroll_repo=bankroll_repo,
+                user_id=owner_id,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                relationship_repo=relationship_repo,
+                stake_repo=stake_repo,
+                vice_repo=vice_state_repo,
+                side_hustle_repo=side_hustle_state_repo,
+            )
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
 
     # Build live-emotion map for AIs at the player's active cash table.
     # Other AIs (at tables without the player, or in the idle pool)
@@ -4291,6 +4302,14 @@ def get_lobby():
     except Exception as exc:
         logger.warning("[CASH][LOBBY] active_vices payload failed: %s", exc)
 
+    # Current world pace so the lobby can render the pace selector in the
+    # right state. Defaults gracefully if the prefs row is unset.
+    try:
+        from flask_app.extensions import user_prefs_repo
+        world_pace = user_prefs_repo.get_world_pace(owner_id)
+    except Exception:
+        world_pace = "lively"
+
     return jsonify({
         "bankroll": bankroll.chips,
         "tier": current_tier,
@@ -4302,7 +4321,31 @@ def get_lobby():
         ],
         "pending_forgiveness_count": pending_forgiveness_count,
         "active_vices": active_vices_payload,
+        "world_pace": world_pace,
     })
+
+
+@cash_bp.route("/api/cash/world-pace", methods=["PUT"])
+def set_world_pace():
+    """PUT /api/cash/world-pace — set how fast the background world ticks.
+
+    Body: `{"pace": "subtle" | "lively" | "bustling"}`. Persisted per
+    user; the realtime ticker reads it on the next cycle. Returns the
+    stored pace. 400 on an unknown value.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    data = request.get_json(silent=True) or {}
+    pace = data.get("pace")
+    from flask_app.extensions import user_prefs_repo
+    try:
+        user_prefs_repo.set_world_pace(owner_id, pace)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"world_pace": pace})
 
 
 @cash_bp.route("/api/cash/net-worth", methods=["GET"])

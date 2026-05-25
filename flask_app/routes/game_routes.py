@@ -1861,6 +1861,40 @@ def api_game_llm_configs(game_id):
 def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
 
+    @sio.on('connect')
+    def on_connect():
+        """Register cash presence + join the per-user lobby room.
+
+        Drives the realtime world ticker: a sandbox is ticked while the
+        owner has a live socket (lobby OR game page — both connect here).
+        Best-effort and non-fatal: anonymous/guest sockets or any
+        resolution failure just skip presence, leaving game sockets
+        working exactly as before. We never reject the connection.
+        """
+        try:
+            from flask_app.services import presence
+            from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+            from flask_app.extensions import sandbox_repo
+
+            user = auth_manager.get_current_user() if auth_manager else None
+            owner_id = user.get('id') if user else None
+            if not owner_id:
+                return  # unauthenticated socket — nothing to track
+            sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
+            presence.mark_active(owner_id, sandbox_id, request.sid)
+            join_room(presence.lobby_room_name(owner_id))
+        except Exception as e:
+            logger.debug(f"[SOCKET] connect presence skipped: {e}")
+
+    @sio.on('disconnect')
+    def on_disconnect():
+        """Drop the socket from cash presence (TTL grace handles gaps)."""
+        try:
+            from flask_app.services import presence
+            presence.mark_inactive(request.sid)
+        except Exception as e:
+            logger.debug(f"[SOCKET] disconnect presence skipped: {e}")
+
     @sio.on('join_game')
     @socket_rate_limit(max_calls=20, window_seconds=10)
     def on_join(game_id):

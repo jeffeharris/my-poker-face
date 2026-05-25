@@ -39,6 +39,18 @@ os.environ['RATE_LIMIT_GAME_ACTION'] = '10000 per minute'
 # etc.) and don't see the per-package conftest.
 os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
 
+# Disable the realtime world ticker across the suite. The ticker is a
+# background daemon started in create_app(); left on, it runs against
+# torn-down per-test DBs (noisy "tick failed" logs, latent flake) and,
+# more importantly, makes `GET /api/cash/lobby` a pure read — moving
+# world-advancement off the request path onto an async thread, which
+# breaks tests that expect a lobby read to advance movement synchronously.
+# Off in tests, `get_lobby` keeps its synchronous read-driven refresh
+# fallback, preserving prior behavior. Plain assignment so a compose-
+# injected value can't flip it on. The ticker's own unit tests
+# (`test_ticker_service.py`) override this var explicitly per-test.
+os.environ['WORLD_TICKER_ENABLED'] = 'false'
+
 import pytest
 from unittest.mock import Mock, patch
 

@@ -169,7 +169,12 @@ logger = logging.getLogger(__name__)
 #       `ai_vice_state`: one row per active hustle keyed
 #       `(personality_id, sandbox_id)`, deleted at expiry when the payout
 #       is credited. See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`.
-SCHEMA_VERSION = 114
+# v115: Create `user_preferences` for per-user settings. First setting is
+#       `world_pace` (subtle/lively/bustling) controlling the realtime
+#       background ticker's hand-sim rate. One row per user; a
+#       `preferences_json` blob is reserved for future scalar prefs. See
+#       `docs/plans/CASH_MODE_REALTIME_TICKER.md`.
+SCHEMA_VERSION = 115
 
 
 
@@ -1396,6 +1401,7 @@ class SchemaManager:
             112: (self._migrate_v112_create_ai_vice_state, "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)"),
             113: (self._migrate_v113_add_casino_closing_countdown, "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)"),
             114: (self._migrate_v114_create_ai_side_hustle_state, "Create ai_side_hustle_state table for the side-hustle mechanic (per-sandbox off-grid earning status; mirror of ai_vice_state)"),
+            115: (self._migrate_v115_create_user_preferences, "Create user_preferences table for per-user settings (first: world_pace for the realtime background ticker)"),
         }
 
         with self._get_connection() as conn:
@@ -5333,3 +5339,25 @@ class SchemaManager:
                 ON ai_side_hustle_state(sandbox_id, ends_at)
         """)
         logger.info("Migration v114 complete: ai_side_hustle_state table created")
+
+    def _migrate_v115_create_user_preferences(self, conn: sqlite3.Connection) -> None:
+        """Migration v115: create `user_preferences` for per-user settings.
+
+        One row per user, keyed by `user_id`. The first concrete setting is
+        `world_pace` (`subtle` / `lively` / `bustling`), which controls the
+        realtime background ticker's hand-sim rate for that user's sandbox.
+        `preferences_json` is reserved for future scalar prefs so adding the
+        next setting doesn't need another migration.
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS). See
+        `docs/plans/CASH_MODE_REALTIME_TICKER.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id TEXT PRIMARY KEY,
+                world_pace TEXT NOT NULL DEFAULT 'lively',
+                preferences_json TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("Migration v115 complete: user_preferences table created")
