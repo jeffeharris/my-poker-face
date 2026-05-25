@@ -1854,11 +1854,16 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] closed-economy resolution failed: %s", exc,
             )
 
-        # Casino provisioning: spawn `table_type='casino'` tables when
-        # the bank pool is fat enough, tear them down when fish are
-        # busted + pool empty. Runs after closed-economy so fresh
-        # vice deposits / tourist injections show up in the depth
-        # check on the same tick.
+    # Casino provisioning: spawn `table_type='casino'` tables when the bank
+    # pool is fat enough, refill fish, tear them down when fish are busted +
+    # pool empty. Gated ONLY on `chip_ledger_repo` (it needs the bank-pool
+    # ledger) — NOT on vice_mode. Fish seating is a live-game feature, not a
+    # sim testbed one; it was previously nested inside the `vice_mode ==
+    # 'fake'` block above and so silently stopped running in production
+    # (vice_mode='real'), starving casinos of fish while grinders live-filled
+    # every seat. Runs after closed-economy so fresh vice deposits show up in
+    # the pool-depth check on the same tick.
+    if chip_ledger_repo is not None:
         try:
             from cash_mode.casino_provisioning import resolve_casino_provisioning
 
