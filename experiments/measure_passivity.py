@@ -153,6 +153,15 @@ class PassivityStats:
     # toward HU (2 players), creating the initiative spots the bot lacks.
     postflop_active_count: Counter = field(default_factory=Counter)
 
+    # Per-signature leak surface: bucket the bot's decisions by a multi-street
+    # LINE-SIGNATURE (street, action_context, hand_class, prev-aggressor bit,
+    # double-barrel bit) and compare realized aggression to the chart's OWN
+    # intended aggression (base_strategy_probs). A large gap = where the
+    # pipeline/policy diverges from the chart for that signature → the input
+    # to "which spots need a better policy" (vs hand-authoring 2^K on faith).
+    sig_action: Dict[tuple, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    sig_chart_agg_sum: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
+
     def record_decision(self, node_key: str, action: str,
                         opp_bet_flop: bool, opp_bet_prev: bool, street: str):
         """Record one hero postflop decision keyed by its node context."""
@@ -210,6 +219,10 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
     into.facing_double_barrel += src.facing_double_barrel
     into.h2_spot_marginal += src.h2_spot_marginal
     into.postflop_active_count.update(src.postflop_active_count)
+    for sig, c in src.sig_action.items():
+        into.sig_action[sig].update(c)
+    for sig, v in src.sig_chart_agg_sum.items():
+        into.sig_chart_agg_sum[sig] += v
 
 
 def _apply_mode(controller, mode: str):
@@ -320,6 +333,15 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
                         stats.facing_double_barrel += 1
                         if hand_strength in H2_FOLD_TARGET:
                             stats.h2_spot_marginal += 1
+                # Per-signature leak surface: realized action vs chart intent.
+                signature = (phase_name, action_context, hand_strength,
+                             sig.was_prev_street_aggressor, sig.facing_double_barrel)
+                stats.sig_action[signature][action] += 1
+                base = snap.get('base_strategy_probs', {})
+                stats.sig_chart_agg_sum[signature] += sum(
+                    p for a, p in base.items()
+                    if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
+                )
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 hero_reached_river = True
@@ -397,6 +419,7 @@ def run_passivity_matchup(
     base_seed: int = 42,
     mode: str = 'off',
     entry: str = 'default',
+    h1_classes: Optional[frozenset] = None,
 ) -> Tuple[List[float], PassivityStats]:
     """Run n_hands of 6-max (hero + 5 opponents); return (deltas, Tier-A stats).
 
@@ -453,6 +476,7 @@ def run_passivity_matchup(
         # for decisions/stacks and disables equity-MC (plan requirement).
         controllers[0].opponent_model_manager = None
         _apply_mode(controllers[0], mode)
+        controllers[0].multistreet_h1_classes = h1_classes
 
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
             controllers.append(
@@ -493,10 +517,45 @@ def _fmt_ctx(label: str, counter: Counter) -> str:
             f"RAISE {raise_pct:4.0f}%")
 
 
+def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
+    """Per-signature leak surface: where realized aggression diverges most
+    from the chart's intent, ranked by |gap| × volume.
+
+    Signature = (street, action_context, hand_class, prev_aggressor,
+    double_barrel). For each (with n >= min_n): the realized action split, the
+    chart's intended aggression (mean base_strategy bet+raise mass), and the
+    gap (realized − chart). Negative gap = pipeline/multiway STRIPPED the
+    chart's aggression; positive = added. A passive realized policy where the
+    chart *also* wanted passive (gap≈0) points at the chart itself, not the
+    pipeline — i.e. a candidate for a better situation policy.
+    """
+    rows = []
+    for sig, counter in stats.sig_action.items():
+        n = sum(counter.values())
+        if n < min_n:
+            continue
+        agg = sum(counter[a] for a in _AGGRESSIVE)
+        realized = agg / n
+        chart = stats.sig_chart_agg_sum[sig] / n
+        rows.append((sig, n, counter, realized, chart, realized - chart))
+    rows.sort(key=lambda r: -abs(r[5]) * r[1])  # biggest systematic divergence first
+
+    print(f"\n── PER-SIGNATURE LEAK SURFACE (n≥{min_n}, top {top} by |gap|×vol) ──")
+    print(f"  {'street':<6} {'ctx':<12} {'class':<14} {'agg?':<4} {'dbl?':<4} "
+          f"{'n':>5}  {'fold':>4} {'chk':>4} {'call':>4} {'AGG':>4} | {'chart':>5} {'gap':>5}")
+    for sig, n, counter, realized, chart, gap in rows[:top]:
+        street, ctx, cls, prev_aggr, dbl = sig
+        print(f"  {street:<6} {ctx:<12} {cls:<14} "
+              f"{'Y' if prev_aggr else '-':<4} {'Y' if dbl else '-':<4} "
+              f"{n:>5}  {_pct(counter,'fold'):>4.0f} {_pct(counter,'check'):>4.0f} "
+              f"{_pct(counter,'call'):>4.0f} {100*realized:>4.0f} | "
+              f"{100*chart:>5.0f} {100*gap:>+5.0f}")
+
+
 def print_report(hero: str, opponents: List[str], n_hands: int,
                  seeds: List[int], stats: PassivityStats,
                  per_seed_bb100: List[Tuple[int, float]], mode: str,
-                 entry: str = 'default'):
+                 entry: str = 'default', leak_report: bool = False):
     opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
@@ -602,21 +661,24 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     print(f"  MEAN:    {mean_bb:+8.1f} bb/100"
           + ("   ⚠ per-seed SIGN DISAGREEMENT (noise)" if sign_disagree else ""))
 
+    if leak_report:
+        print_leak_surface(stats)
 
-def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str]]):
+
+def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset]]):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
     deltas, stats = run_passivity_matchup(
         hero, opponents, n_hands, strategy_table, base_seed=seed, mode=mode,
-        entry=entry,
+        entry=entry, h1_classes=h1_classes,
     )
     return seed, deltas, stats
 
@@ -635,7 +697,17 @@ def main():
     p.add_argument('--clone-profile', default=None,
                    help=f"frozen CloneProfile JSON for a *_clone opponent "
                         f"(default {DEFAULT_CLONE_PROFILE} when roster uses a clone)")
+    p.add_argument('--h1-classes', default='all', choices=['all', 'value'],
+                   help="H1 barrel classes: 'all' (incl. air_strong_draw bluff-barrel) "
+                        "or 'value' (nuts/strong/medium only — for high-WtSD opponents)")
+    p.add_argument('--leak-report', action='store_true',
+                   help="print the per-signature leak surface (realized vs chart "
+                        "aggression by line-signature) — the leak finder")
     args = p.parse_args()
+    h1_classes = (
+        frozenset({'nuts', 'strong_made', 'medium_made'})
+        if args.h1_classes == 'value' else None
+    )
 
     if args.opponents in ROSTERS:
         opponents = ROSTERS[args.opponents]
@@ -667,7 +739,8 @@ def main():
 
     # Run seeds concurrently (one child process per seed). The cost is the
     # opponents' equity-MC, so seeds are CPU-bound and parallelize cleanly.
-    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry, clone_profile)
+    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry,
+             clone_profile, h1_classes)
             for s in seeds]
     results = []
     if len(seeds) > 1:
@@ -684,7 +757,7 @@ def main():
         per_seed_bb100.append((seed, ms.bb100))
 
     print_report(args.hero, opponents, args.hands, sorted(seeds), agg_stats,
-                 per_seed_bb100, args.mode, args.entry)
+                 per_seed_bb100, args.mode, args.entry, leak_report=args.leak_report)
 
 
 if __name__ == '__main__':

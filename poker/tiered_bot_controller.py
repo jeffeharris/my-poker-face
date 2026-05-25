@@ -962,6 +962,7 @@ class TieredBotController(AIPlayerController):
                 active_count=active_count,
                 h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
                 h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
+                h1_classes=getattr(self, 'multistreet_h1_classes', None),
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )

@@ -287,6 +287,7 @@ def apply_multistreet_context(
     active_count: int,
     h1_enabled: bool = True,
     h2_enabled: bool = True,
+    h1_classes: Optional[frozenset] = None,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -301,6 +302,9 @@ def apply_multistreet_context(
             'facing_raise').
         active_count: number of players still in the hand (HU = 2).
         h1_enabled / h2_enabled: per-hypothesis A/B toggles.
+        h1_classes: optional subset of H1_BARREL_TARGET keys to barrel (the
+            rest are skipped). None = all four. Used to A/B "value-only"
+            barreling (drop air_strong_draw) vs high-WtSD opponents.
         prior_layer_fired: True iff an upstream override already replaced the
             distribution this decision — defer to it (mirrors defense_floor).
         disable_rules: ablation set; (LAYER,'barrel') / (LAYER,'fold_barrel').
@@ -315,12 +319,14 @@ def apply_multistreet_context(
         )
 
     # ── H1: barrel / initiative continuation ────────────────────────────────
+    barrel_classes = h1_classes if h1_classes is not None else H1_BARREL_TARGET.keys()
     h1_applies = (
         h1_enabled
         and signals.was_prev_street_aggressor
         and action_context == 'unopened'
         and active_count <= H1_MAX_ACTIVE_PLAYERS
         and hand_class in H1_BARREL_TARGET
+        and hand_class in barrel_classes
     )
     if h1_applies:
         if is_rule_disabled(disable_rules, LAYER, 'barrel'):
