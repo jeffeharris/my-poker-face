@@ -63,11 +63,14 @@ logger = logging.getLogger(__name__)
 CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
     '$2': 5_000,
     '$10': 50_000,
-    # EXPERIMENT (uncommitted): a high-stakes casino. Fish bleed scales
-    # with the big blind, so a $200 table should move ~20x the $10 rate.
-    # Threshold covers ~2 fish prefund (2.5-3.6x the 20k max buy-in ≈
-    # 100-145k) plus buffer. Predators are rich AIs seating by
-    # affordability (15 can cover the 8k min buy-in), not hungry grinders.
+    # High-stakes casinos. Fish bleed scales with the big blind, so these
+    # are the magnitude lever for "fish feed the population" — a $200 table
+    # moves ~20x the $10 rate, a $50 table ~5x (sim-validated for $200).
+    # Predators are rich AIs that seat by affordability and stay via
+    # predator-retention (see `_coerce_predator_retention`). Each threshold
+    # covers ~2 fish prefund (2.5-3.6x the tier's max buy-in) plus a refill
+    # buffer: $50 max buy-in 5k → ~36k for 2 fish; $200 → ~145k.
+    '$50': 100_000,
     '$200': 250_000,
 }
 
