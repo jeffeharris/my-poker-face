@@ -2643,11 +2643,31 @@ def stakable_ai():
         cash_table_repo=cash_table_repo,
     )
 
+    # Resolve display emotions + avatar URLs for the candidate portraits.
+    # Every candidate here is an unseated AI (the panel only surfaces
+    # AIs not in a session), so emotion comes from the persisted
+    # emotional_state_json column (schema v97) — same source the lobby
+    # uses for its unseated seats. Falls back to "confident", a priority
+    # emotion that's always generated, so the avatar lookup resolves
+    # without kicking off on-demand image generation.
+    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+
+    candidate_pids = [c.personality_id for c in candidates]
+    emotion_blobs = bankroll_repo.load_emotional_state_json_for_pids(
+        candidate_pids, sandbox_id=sandbox_id,
+    )
+    candidate_emotions: Dict[str, str] = {}
+    for pid, blob in emotion_blobs.items():
+        candidate_emotions[pid] = (
+            _resolve_emotion_from_blob(blob, pid) if blob else "confident"
+        )
+
     # Group by target tier for the per-section rendering pattern. Tier
     # order matches STAKES_ORDER so the frontend can iterate in lobby
     # order without re-sorting.
     by_tier: Dict[str, Dict[str, Any]] = {}
     for c in candidates:
+        emotion = candidate_emotions.get(c.personality_id, "confident")
         bucket = by_tier.setdefault(c.target_stake_label, {
             "stake_label": c.target_stake_label,
             "min_buy_in": c.min_buy_in,
@@ -2665,6 +2685,8 @@ def stakable_ai():
             "heat": round(c.heat, 3),
             "desperation": round(c.desperation, 3),
             "ego": round(c.ego, 3),
+            "emotion": emotion,
+            "avatar_url": get_avatar_url_with_fallback(None, c.name, emotion),
         })
 
     return jsonify({

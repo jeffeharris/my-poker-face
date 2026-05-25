@@ -539,6 +539,12 @@ export interface StakableAiCandidate {
   /** AI's personality `ego` anchor (0..1). Drives the willingness
    *  math alongside `desperation`. */
   ego: number;
+  /** Portrait URL ("/api/avatar/<name>/<emotion>/full"), or null if no
+   *  avatar exists yet — the card falls back to a name initial. */
+  avatar_url: string | null;
+  /** Current display emotion driving the portrait (persisted sim state,
+   *  defaulting to "confident"). Also feeds the dossier wax-seal badge. */
+  emotion: string;
 }
 
 /** One target-tier section of stakable candidates. */

@@ -22,6 +22,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Coins, RefreshCw } from 'lucide-react';
 import { getStakableAi } from './api';
 import type { StakableAiCandidate, StakableAiResponse } from './types';
+import { absolutizeAvatarUrl } from './avatarUrl';
+// type-only import keeps the Lobby ↔ IdleStakablePanel cycle erased at runtime
+import type { AiSeatClick } from './Lobby';
 import { logger } from '../../utils/logger';
 import './IdleStakablePanel.css';
 
@@ -33,6 +36,9 @@ interface IdleStakablePanelProps {
   /** Fires when the player taps "Stake" on a candidate. Lobby opens
    *  the StakeOfferModal pre-targeted to this AI. */
   onStake: (candidate: StakableAiCandidate, targetStakeLabel: string) => void;
+  /** Fires when the player taps a candidate's portrait — Lobby opens
+   *  the dossier (same handler as the table-card seat portraits). */
+  onOpenDossier: (click: AiSeatClick) => void;
 }
 
 /** Read the desperation signal into a soft cue. Avoid showing the
@@ -43,7 +49,7 @@ function desperationLabel(desperation: number): string {
   return '';
 }
 
-export function IdleStakablePanel({ refreshKey, onStake }: IdleStakablePanelProps) {
+export function IdleStakablePanel({ refreshKey, onStake, onOpenDossier }: IdleStakablePanelProps) {
   const [data, setData] = useState<StakableAiResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Mirrors whether we've ever loaded data, readable from the dep-free
@@ -140,6 +146,7 @@ export function IdleStakablePanel({ refreshKey, onStake }: IdleStakablePanelProp
                     candidate={c}
                     targetStakeLabel={tier.stake_label}
                     onStake={onStake}
+                    onOpenDossier={onOpenDossier}
                   />
                 ))}
               </ul>
@@ -155,44 +162,90 @@ interface CandidateCardProps {
   candidate: StakableAiCandidate;
   targetStakeLabel: string;
   onStake: (candidate: StakableAiCandidate, targetStakeLabel: string) => void;
+  onOpenDossier: (click: AiSeatClick) => void;
 }
 
-function CandidateCard({ candidate, targetStakeLabel, onStake }: CandidateCardProps) {
+function CandidateCard({
+  candidate,
+  targetStakeLabel,
+  onStake,
+  onOpenDossier,
+}: CandidateCardProps) {
   const handleClick = useCallback(() => {
     onStake(candidate, targetStakeLabel);
   }, [candidate, targetStakeLabel, onStake]);
 
+  // Tapping the portrait/name opens the dossier — mirrors the table-card
+  // seat behavior so the gesture is consistent across the lobby. Origin
+  // is the tapped element's center so the card can animate out from it.
+  const handleOpenDossier = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      onOpenDossier({
+        dossier: {
+          name: candidate.name,
+          avatarUrl: absolutizeAvatarUrl(candidate.avatar_url) ?? undefined,
+          emotion: candidate.emotion,
+          affiliation: candidate.relationship_hint
+            ? {
+                relationship: 'neutral',
+                relationshipNote: candidate.relationship_hint,
+              }
+            : undefined,
+        },
+        origin: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+        identifier: candidate.personality_id,
+      });
+    },
+    [candidate, onOpenDossier],
+  );
+
   const desperation = desperationLabel(candidate.desperation);
+  const avatarSrc = absolutizeAvatarUrl(candidate.avatar_url);
 
   return (
     <li className="idle-stakable-panel__card">
-      <div className="idle-stakable-panel__avatar" aria-hidden="true">
-        {candidate.name.charAt(0).toUpperCase()}
-      </div>
-      <div className="idle-stakable-panel__body">
-        <div className="idle-stakable-panel__name">{candidate.name}</div>
-        <div className="idle-stakable-panel__meta">
-          <span className="idle-stakable-panel__comfort">
-            plays {candidate.comfort_zone}
+      <button
+        type="button"
+        className="idle-stakable-panel__identity"
+        onClick={handleOpenDossier}
+        title={`View ${candidate.name}'s dossier`}
+        aria-label={`Open dossier for ${candidate.name}`}
+      >
+        <span className="idle-stakable-panel__avatar">
+          {avatarSrc ? (
+            <img src={avatarSrc} alt="" loading="lazy" />
+          ) : (
+            <span aria-hidden="true">
+              {candidate.name.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+        <span className="idle-stakable-panel__body">
+          <span className="idle-stakable-panel__name">{candidate.name}</span>
+          <span className="idle-stakable-panel__meta">
+            <span className="idle-stakable-panel__comfort">
+              plays {candidate.comfort_zone}
+            </span>
+            {candidate.relationship_hint && (
+              <>
+                <span className="idle-stakable-panel__sep">·</span>
+                <span className="idle-stakable-panel__hint">
+                  {candidate.relationship_hint}
+                </span>
+              </>
+            )}
+            {desperation && (
+              <>
+                <span className="idle-stakable-panel__sep">·</span>
+                <span className="idle-stakable-panel__desperation">
+                  {desperation}
+                </span>
+              </>
+            )}
           </span>
-          {candidate.relationship_hint && (
-            <>
-              <span className="idle-stakable-panel__sep">·</span>
-              <span className="idle-stakable-panel__hint">
-                {candidate.relationship_hint}
-              </span>
-            </>
-          )}
-          {desperation && (
-            <>
-              <span className="idle-stakable-panel__sep">·</span>
-              <span className="idle-stakable-panel__desperation">
-                {desperation}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
+        </span>
+      </button>
       <button
         type="button"
         className="idle-stakable-panel__cta"

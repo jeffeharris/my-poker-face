@@ -455,6 +455,7 @@ export function Lobby() {
         <IdleStakablePanel
           refreshKey={stakablePanelTick}
           onStake={handleStakeClick}
+          onOpenDossier={setDossier}
         />
       </div>
         <SponsorModal
