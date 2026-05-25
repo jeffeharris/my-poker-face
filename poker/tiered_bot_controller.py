@@ -281,6 +281,13 @@ class TieredBotController(AIPlayerController):
         self.multistreet_h1_barrel: bool = True
         self.multistreet_h2_foldbarrel: bool = True
 
+        # Value-bet floor (STRUCTURAL_PASSIVITY_PLAN.md §12). OFF by default.
+        # When enabled, pumps bet frequency for clear value classes
+        # (nuts/strong_made) in unopened spots — the broad fix for the chart's
+        # diagnosed under-betting of value. Measurement scaffold: if it proves
+        # +EV the frequencies get baked into the chart and this retires.
+        self.enable_value_bet_floor: bool = False
+
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
         # decision — dominant cost in long sim runs) but still
@@ -971,6 +978,38 @@ class TieredBotController(AIPlayerController):
             )
         self._last_intervention_trace.append(multistreet_trace)
 
+        # 6a.5b.3 Value-bet floor (STRUCTURAL_PASSIVITY_PLAN.md §12). Behind
+        # enable_value_bet_floor (default off). Pumps bet for value classes
+        # (nuts/strong_made) in unopened spots — the broad fix for the chart's
+        # diagnosed under-betting of value (catches the population H1's
+        # prev-aggressor gate misses). Unopened-only, so no conflict with
+        # defense_floor/math_floor; defers when an upstream override already
+        # replaced the distribution and feeds prior_layer_fired below.
+        value_bet_floor_trace = make_no_op_trace(
+            layer='value_bet_floor', rule_id='default',
+            layer_order=layer_order_for('value_bet_floor'),
+            reason_code='flag_disabled',
+        )
+        if getattr(self, 'enable_value_bet_floor', False):
+            from .strategy.value_bet_floor import apply_value_bet_floor
+            vbf_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+                or multistreet_trace.fired
+            )
+            modified_strategy, value_bet_floor_trace = apply_value_bet_floor(
+                modified_strategy,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                prior_layer_fired=vbf_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            value_bet_floor_trace = _fill_prior_action_source(
+                value_bet_floor_trace, self._last_intervention_trace,
+            )
+        self._last_intervention_trace.append(value_bet_floor_trace)
+
         # 6a.5c Plan §2: price-sensitive defense floor. Pumps call
         # probability for legitimate made hands at favorable prices
         # that the upstream rules left fold-heavy. Sits *after* both
@@ -984,6 +1023,7 @@ class TieredBotController(AIPlayerController):
             or value_override_trace.fired
             or bluff_catch_trace.fired
             or multistreet_trace.fired
+            or value_bet_floor_trace.fired
         )
         defense_floor_facing_bet = (
             outer_decision_context.bet_bucket is not None

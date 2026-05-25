@@ -477,4 +477,52 @@ The chart was never the problem; the eval was.
    then tune which classes/boards barrel.
 4. **Retire preflop isolation as a lever** (keep code; it's not the fix).
 
+## 12. H1/H2 attribution + per-signature leak finder (2026-05-25)
+
+**Attribution (vs Jeff_clone, 3000×3, paired):** H1-only **−8.7** (Δ +0.9, all
+seeds +); H2-only **−10.0** (Δ −0.4, all seeds −); H1+H2 −9.1. So H1 (barrel)
+is +EV vs the folding human; **H2 is opponent-dependent** — +4–7 vs value-heavy
+rule bots but −0.4 vs Jeff (he bluffs, so folding marginal hands to his
+double-barrels folds out winners). H2's correct home is opponent-gated, not
+blanket-on. **H1 tuning:** value-only (drop `air_strong_draw`) is *worse*
+(−9.5 vs −8.7) — semi-bluff barrels with strong draws are +EV even vs a station
+(fold equity + draw equity). Keep H1 = all four classes.
+
+**Per-signature leak finder** (`measure_passivity --leak-report`): buckets the
+bot's postflop decisions by line-signature (street, action_context, hand_class,
+prev-aggressor, double-barrel) and ranks by the gap between realized aggression
+and the chart's own intent (`base_strategy_probs`). Run vs Jeff (9000 hands):
+
+```
+street ctx       class         agg?   n   chk  AGG | chart  gap
+TURN   unopened  nuts          -      73   42   58 |  45    +12
+TURN   unopened  strong_made   -     291   62   38 |  36    +3
+RIVER  unopened  strong_made   -     355   61   39 |  36    +3
+FLOP   unopened  strong_made   Y     131   70   30 |  36    -6
+```
+
+**Findings:**
+1. **The pipeline is not the leak on this eval** — every gap is ±3–7%
+   (realized ≈ chart). The multiway/override "stripping" was a rule-bot
+   artifact; on the (mostly-HU) Jeff eval the bot faithfully executes the chart.
+2. **The leak is the CHART itself: it under-bets value.** In absolute terms it
+   checks the **nuts 42% on the turn**, **strong made 60–62% turn/river**, and
+   **70% as the flop c-bettor** — leaving value uncollected vs a call-happy
+   human (Jeff WtSD 0.59).
+3. **Multi-street line-bits barely move behavior** (prev-aggressor Y vs − differ
+   ~2% for the same hand_class). The dominant axis is `hand_class × street ×
+   context`. **So the biggest leak is low-dimensional — not a 2^K signature
+   table or a solver; the chart's unopened value-betting frequencies.**
+
+**Architecture takeaway (re: "one idea to replace the disparate layers"):** the
+disparate layers split into *situation policy* ⊕ *opponent-exploit deviation*,
+and they cannot merge (H2 sign-flips by opponent). But the leak finder shows the
+situation-policy leak is low-dimensional and chart-local — fixable with a
+targeted **value-bet floor** (mirror of `defense_floor`, for betting), not a
+big unify. That floor would also catch the population **H1 misses** (strong
+hands get checked 60%+ even when hero is *not* the prior-street aggressor).
+
+**Next lever:** value-bet floor — hand-class-gated bet floor for unopened
+{nuts, strong_made} (and thin medium on the river vs stations), tested on Jeff.
+
 

@@ -225,17 +225,19 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
         into.sig_chart_agg_sum[sig] += v
 
 
-def _apply_mode(controller, mode: str):
-    """Set the multi-street-context A/B arm on the hero controller.
+MODES = ('off', 'h1', 'h2', 'on', 'vbf', 'vbfon')
 
-    Inert until the layer + flag land on TieredBotController (plan Step 3).
-    'off' is the current behavior (no flag set). The other arms set the flag
-    plus per-hypothesis sub-toggles the layer reads.
+
+def _apply_mode(controller, mode: str):
+    """Set the A/B arm on the hero controller.
+
+    'off' = current behavior. h1/h2/on = multi-street layer arms. vbf =
+    value-bet floor only. vbfon = value-bet floor + full multi-street layer.
     """
-    controller.enable_multistreet_context = (mode != 'off')
-    # Per-hypothesis gating the layer honors (default both on for 'on').
-    controller.multistreet_h1_barrel = mode in ('h1', 'on')
-    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
+    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on', 'vbfon')
+    controller.multistreet_h1_barrel = mode in ('h1', 'on', 'vbfon')
+    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on', 'vbfon')
+    controller.enable_value_bet_floor = mode in ('vbf', 'vbfon')
 
 
 def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
@@ -690,8 +692,9 @@ def main():
                    help="roster preset (gto|mix) or comma-separated 5 archetypes")
     p.add_argument('--hands', type=int, default=2000, help='hands per seed')
     p.add_argument('--seeds', default='42', help='comma-separated base seeds (e.g. 42,142,242)')
-    p.add_argument('--mode', default='off', choices=['off', 'h1', 'h2', 'on'],
-                   help='multi-street-context A/B arm (postflop layer)')
+    p.add_argument('--mode', default='off', choices=list(MODES),
+                   help='A/B arm: off | h1 | h2 | on (multi-street) | '
+                        'vbf (value-bet floor) | vbfon (both)')
     p.add_argument('--entry', default='default', choices=['default', 'isolate'],
                    help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)")
     p.add_argument('--clone-profile', default=None,
