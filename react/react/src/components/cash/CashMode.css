@@ -895,7 +895,385 @@
    * into 2 columns, squishing each TableCard into a cramped square.
    * The tier wrapper scopes this to the lobby — CashModeEntry's grid
    * isn't tier-nested, so its ladder layout is unaffected. */
-  .cash-entry__tier .cash-entry__stake-grid {
+  .cash-entry__tier .cash-entry__stake-grid,
+  .cash-entry__stakes--casino .cash-entry__stake-grid {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===========================================================
+   Table-area redesign — venue tabs, smart tiers, table cards
+   (Cardroom / Casino). Cards are compact-by-default with an
+   expandable roster + a scouting line.
+   =========================================================== */
+
+/* Group the tabs + the active venue's table list into one unit, so the
+   selector reads as connected to its list instead of floating 1.5rem
+   (the parent `.cash-entry` flex gap) above it. The whole group keeps
+   that breathing room from its neighbours; inside it the tab→list gap is
+   tight. */
+.cash-entry__venues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* --- Venue tabs --- */
+.cash-entry__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.cash-entry__tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: 9px;
+  color: var(--color-text-secondary, #aaa);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cash-entry__tab.is-active {
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.24), rgba(212, 165, 116, 0.12));
+  color: var(--color-gold-bright, #f5d89a);
+  box-shadow: 0 0 16px rgba(212, 165, 116, 0.12);
+}
+
+.cash-entry__tab-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.cash-entry__tab-closing {
+  color: #fca5a5;
+  margin-left: -2px;
+  animation: cashTabClosingPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes cashTabClosingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cash-entry__tab-closing { animation: none; }
+}
+
+/* --- Smart tier headers --- */
+.cash-entry__tier-label {
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.cash-entry__tier-name {
+  font-size: 0.82rem;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.cash-entry__tier-spacer { flex: 1; }
+
+.cash-entry__tier-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.74rem;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.cash-entry__tier-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+  display: inline-block;
+}
+
+.cash-entry__tier--open .cash-entry__tier-header {
+  background: rgba(74, 222, 128, 0.07);
+  border-color: rgba(74, 222, 128, 0.26);
+}
+.cash-entry__tier--stakeable .cash-entry__tier-header {
+  background: rgba(212, 165, 116, 0.06);
+  border-color: rgba(212, 165, 116, 0.26);
+}
+.cash-entry__tier--locked .cash-entry__tier-header {
+  opacity: 0.72;
+}
+
+.cash-entry__tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cash-entry__tier-badge--stake {
+  background: rgba(212, 165, 116, 0.16);
+  color: var(--color-gold-bright, #f5d89a);
+  border: 1px solid rgba(212, 165, 116, 0.32);
+}
+.cash-entry__tier-badge--locked {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-tertiary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-transform: none;
+}
+
+.cash-entry__tier-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 4px 8px;
+  overflow: hidden;
+}
+.cash-entry__tier-progress > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-gold-dark, #a67c4a), var(--color-gold-bright, #f5d89a));
+  border-radius: 2px;
+}
+
+/* --- Casino venue framing --- */
+.cash-entry__venue-intro {
+  font-size: 0.8rem;
+  color: var(--color-text-tertiary);
+  margin: 0 2px 0.75rem;
+  line-height: 1.45;
+}
+.cash-entry__venue-empty {
+  color: var(--color-text-tertiary);
+  font-size: 0.85rem;
+  padding: 0.5rem 2px;
+}
+.cash-entry__casino-empty {
+  text-align: center;
+  padding: 26px 16px;
+  color: var(--color-text-tertiary);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* --- Table card: container + states --- */
+.lobby-table-card {
+  background: var(--gradient-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  color: inherit;
+  text-align: left;
+}
+.lobby-table-card.is-sponsor {
+  border-color: rgba(255, 216, 125, 0.45);
+  background: rgba(255, 216, 125, 0.05);
+}
+.lobby-table-card.is-disabled {
+  opacity: 0.6;
+}
+.lobby-table-card.is-disabled .lobby-table-card__seat-image,
+.lobby-table-card.is-disabled .lobby-table-card__pip img {
+  filter: grayscale(100%);
+}
+.lobby-table-card.is-closing {
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+/* --- Table card: head (name + buy-in + Sit) --- */
+.lobby-table-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.lobby-table-card__title { flex: 1; min-width: 0; }
+.lobby-table-card__name {
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lobby-table-card__meta {
+  font-size: 0.78rem;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+.lobby-table-card__closing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fca5a5;
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.lobby-table-card__sit {
+  flex: 0 0 auto;
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.86rem;
+  line-height: 1.1;
+  text-align: center;
+  background: linear-gradient(135deg, #4ade80, #22a85a);
+  color: #052e16;
+  box-shadow: 0 2px 10px rgba(74, 222, 128, 0.25);
+  transition: filter 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.lobby-table-card__sit:hover:not(:disabled) { filter: brightness(1.08); }
+.lobby-table-card__sit small {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.lobby-table-card__sit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: linear-gradient(135deg, #555, #444);
+  color: #ccc;
+  box-shadow: none;
+}
+
+/* --- Table card: scouting line --- */
+.lobby-table-card__scout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 12px;
+  margin-top: 10px;
+  font-size: 0.76rem;
+}
+.lobby-table-card__scout > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lobby-table-card__scout-open { color: #6ee7b7; font-weight: 600; }
+.lobby-table-card__scout-open > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+  display: inline-block;
+}
+.lobby-table-card__scout-open.is-full { color: var(--color-text-tertiary); }
+.lobby-table-card__scout-open.is-full > i { background: #888; box-shadow: none; }
+.lobby-table-card__scout-chips { color: var(--color-text-secondary); }
+.lobby-table-card__scout-fish { color: #7dd3fc; }
+.lobby-table-card__scout-whale { color: var(--color-gold-bright, #f5d89a); font-weight: 700; }
+.lobby-table-card__scout-owe { color: #fca5a5; }
+
+/* --- Table card: condensed pip strip --- */
+.lobby-table-card__pips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+}
+.lobby-table-card__pips--footer { margin-top: 9px; }
+.lobby-table-card__pips-rest { flex: 1; }
+.lobby-table-card__pip {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: #3b4252;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.lobby-table-card__pip img { width: 100%; height: 100%; object-fit: cover; }
+.lobby-table-card__pip--human { cursor: default; }
+.lobby-table-card__pip--open {
+  background: rgba(250, 204, 21, 0.08);
+  border: 2px dashed rgba(250, 204, 21, 0.4);
+  color: var(--color-gold-bright, #f5d89a);
+  cursor: default;
+  font-size: 0.74rem;
+}
+.lobby-table-card__pip--emotion-confident { border-color: rgba(74, 222, 128, 0.7); }
+.lobby-table-card__pip--emotion-thinking { border-color: rgba(96, 165, 250, 0.7); }
+.lobby-table-card__pip--emotion-poker_face { border-color: rgba(180, 180, 180, 0.5); }
+.lobby-table-card__pip--emotion-tilted,
+.lobby-table-card__pip--emotion-frustrated,
+.lobby-table-card__pip--emotion-shaken { border-color: rgba(239, 68, 68, 0.75); }
+.lobby-table-card__pip--emotion-excited,
+.lobby-table-card__pip--emotion-happy { border-color: rgba(250, 204, 21, 0.7); }
+
+.lobby-table-card__expander {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.lobby-table-card__expander:hover { color: var(--color-text-secondary); }
+
+/* --- Table card: role badge on expanded seats --- */
+.lobby-table-card__role {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.lobby-table-card__role--fish { background: rgba(125, 211, 252, 0.85); color: #04293b; }
+.lobby-table-card__role--whale { background: rgba(245, 216, 154, 0.9); color: #2b1d00; }

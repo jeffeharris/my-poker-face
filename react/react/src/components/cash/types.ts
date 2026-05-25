@@ -147,6 +147,12 @@ export type LobbySeat =
        *  small "in stake" glyph on the table card so the player can
        *  see live AI-economy dynamics without opening each dossier. */
       in_active_stake?: boolean;
+      /** Scouting tag for the lobby card. `fish` = the loose/passive
+       *  donor archetype; `whale` = a fish whose persistent bankroll is
+       *  deep relative to the stakes (a prime target). Absent for
+       *  non-fish AIs. Fish are casino-only, so this mostly appears on
+       *  the Casino tab. Computed server-side (see WHALE_BANKROLL_MULTIPLE). */
+      role?: 'fish' | 'whale';
     }
   | {
       kind: 'human';
@@ -173,10 +179,14 @@ export interface LobbyTable {
    *  `cash_mode/lobby_config.py` for lobby tables; private/casino
    *  tables (future) will source their own. */
   table_name?: string | null;
-  /** v111: table-type discriminator. Today only `'lobby'` is seeded;
-   *  `'private'` and `'casino'` are reserved schema slots for upcoming
-   *  features. Frontend can use this for badges and filtering. */
+  /** v111: table-type discriminator. `'lobby'` = the Cardroom career
+   *  ladder; `'casino'` = the ephemeral $2 fish floor (own tab). `'private'`
+   *  stays reserved for a future invite-only feature. */
   table_type?: 'lobby' | 'private' | 'casino';
+  /** v113: hands left before this (casino) table tears down. Present →
+   *  the table is in its closing countdown; `null`/absent → active. Drives
+   *  the "closing" tag on the card and the Casino tab's closing indicator. */
+  closing_hand_countdown?: number | null;
 }
 
 /** One lobby movement event surfaced to the activity ticker.

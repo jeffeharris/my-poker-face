@@ -3922,6 +3922,13 @@ def top_up():
     })
 
 
+# A fish counts as a "whale" (prime target) for the lobby scouting tag
+# when its persistent bankroll is deep relative to the stakes it's sitting
+# at — enough to reload many times over. Relative (× max buy-in) so it
+# scales if casinos ever run above $2. Tuning knob, not load-bearing.
+WHALE_BANKROLL_MULTIPLE = 20
+
+
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
 @limiter.limit(config.RATE_LIMIT_POLLING)
 def get_lobby():
@@ -4135,6 +4142,18 @@ def get_lobby():
                 "[CASH][LOBBY] active stake participants load failed: %s", e,
             )
 
+    # Fish/whale scouting tags. `load_fish_ids` is one bulk query for the
+    # loose/passive donor archetype; the per-seat whale check (a fish deep
+    # enough to be a prime target) only fires for those few pids, so the
+    # hot path stays cheap. Fish are casino-only, so this mostly lights up
+    # the Casino tab. Best-effort — an empty set just means no tags.
+    fish_ids: set = set()
+    try:
+        from cash_mode.closed_economy import load_fish_ids
+        fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] fish-id load failed: %s", e)
+
     response_tables = []
     for table in tables:
         big_blind, min_buy_in, max_buy_in = table_buy_in_window(table.stake_label)
@@ -4245,6 +4264,25 @@ def get_lobby():
                 # active stake dynamics at a glance.
                 if pid in active_stake_pids:
                     entry["in_active_stake"] = True
+                # Fish/whale scouting tag. Fish = loose/passive donor
+                # archetype (preloaded set); whale = a fish whose persistent
+                # bankroll is deep relative to this table's stakes — a prime
+                # target. Only fish trigger the bankroll lookup; non-fish get
+                # no tag. Best-effort.
+                if pid in fish_ids:
+                    role = "fish"
+                    try:
+                        ai_bk = bankroll_repo.load_ai_bankroll(
+                            pid, sandbox_id=sandbox_id,
+                        )
+                        if (
+                            ai_bk is not None
+                            and ai_bk.chips >= WHALE_BANKROLL_MULTIPLE * max_buy_in
+                        ):
+                            role = "whale"
+                    except Exception:
+                        pass
+                    entry["role"] = role
             elif slot["kind"] == "human":
                 entry["personality_id"] = slot.get("personality_id")
                 entry["chips"] = int(slot.get("chips", 0))
@@ -4264,6 +4302,10 @@ def get_lobby():
             # tier-grouped sections with friendly labels.
             "table_name": table.name,
             "table_type": table.table_type,
+            # v113: casino tables run a closing countdown before teardown.
+            # Surface it so the lobby can tag the table and flag the Casino
+            # tab. None for active tables (the common case).
+            "closing_hand_countdown": table.closing_hand_countdown,
         })
 
     # Top-level tier reflects "what tier am I currently playing at?".
