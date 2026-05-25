@@ -806,6 +806,16 @@ def refresh_unseated_tables(
                 _starting_bankroll_cache[pid] = None
         return _starting_bankroll_cache[pid]
 
+    def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
+        """Display name for an AI personality on lobby ticker events."""
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
     def _carry_lookup(staker_id: str, borrower_id: str) -> int:
         """Phase 4.5 Commit 1 — total outstanding carry borrower → staker.
 
@@ -861,13 +871,18 @@ def refresh_unseated_tables(
         # pure helper.
         _current_table_buy_in: Dict[str, int] = {}
 
-        def _buy_in_for(pid: str) -> int:
-            if pid in _current_table_buy_in:
-                return _current_table_buy_in[pid]
+        def _buy_in_for(
+            pid: str,
+            _cache=_current_table_buy_in,
+            _min=table_min_buy_in,
+            _max=table_max_buy_in,
+        ) -> int:
+            if pid in _cache:
+                return _cache[pid]
             knobs = bankroll_repo.load_personality_knobs(pid)
-            threshold = round(table_min_buy_in * knobs.buy_in_multiplier)
-            value = min(threshold, table_max_buy_in)
-            _current_table_buy_in[pid] = value
+            threshold = round(_min * knobs.buy_in_multiplier)
+            value = min(threshold, _max)
+            _cache[pid] = value
             return value
 
         # Phase 4.5 Commit 2 — tier-gated take_stake. Wrap the borrower
@@ -938,8 +953,8 @@ def refresh_unseated_tables(
 
         controller_cache = _get_default_controller_cache()
 
-        def _psych_lookup_sim(pid: str) -> Dict[str, Any]:
-            ctrl = controller_cache.get(pid)
+        def _psych_lookup_sim(pid: str, _cache=controller_cache) -> Dict[str, Any]:
+            ctrl = _cache.get(pid)
             if ctrl is None:
                 return {}
             psych = getattr(ctrl, 'psychology', None)
@@ -1195,6 +1210,7 @@ def refresh_unseated_tables(
                 stake_repo=stake_repo,
                 relationship_repo=relationship_repo,
                 personality_repo=personality_repo,
+                chip_ledger_repo=chip_ledger_repo,
                 sandbox_id=sandbox_id,
                 now=now,
                 rng=rng,
@@ -1473,15 +1489,6 @@ def refresh_unseated_tables(
         #     toward the borrower reflect the new tie.
         #   - Emit EVENT_AI_STAKE on the lobby ticker (Commit 5).
         from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
-
-        def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
-            try:
-                personality = personality_repo.load_personality_by_id(pid)
-            except Exception:
-                return None
-            if not personality:
-                return None
-            return personality.get("name") or pid
 
         if result.stake_creations:
             import uuid
@@ -2857,6 +2864,7 @@ def _process_aspiration_asks(
     stake_repo,
     relationship_repo,
     personality_repo,
+    chip_ledger_repo,
     sandbox_id: Optional[str],
     now: datetime,
     rng: random.Random,

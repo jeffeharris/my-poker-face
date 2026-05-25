@@ -205,7 +205,7 @@ class PromptCaptureRepository(BaseRepository):
 
         # Determine if we need the decision-analysis join. Used by both
         # psychology filters and `has_decision_analysis`.
-        needs_pda_join = any(
+        any(
             [
                 display_emotion,
                 min_tilt_level is not None,

@@ -40,10 +40,6 @@ jobs:
         run: ruff format --check .
 
       - name: Ruff lint
-        # Non-blocking until Phase 4 cleans up the residual ~140 manual-fix findings
-        # (B904 raise-without-from, B023 loop-variable closures, F821 undefined names,
-        # E402 module-imports-after-code, etc). Flip continue-on-error to false once green.
-        continue-on-error: true
         run: ruff check . --output-format=github
 
   test-backend:

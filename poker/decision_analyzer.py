@@ -11,7 +11,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+from poker.card_utils import normalize_card_string
 
 # Import equity calculator - gracefully degrade if not available
 try:
@@ -20,7 +20,7 @@ except ImportError:
     EVAL7_AVAILABLE = False
     EquityCalculator = None
 
-from poker.card_utils import normalize_card_string
+logger = logging.getLogger(__name__)
 
 
 def calculate_max_winnable(

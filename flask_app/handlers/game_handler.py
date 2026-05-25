@@ -544,7 +544,7 @@ def update_and_emit_game_state(game_id: str) -> None:
             player_dict['avatar_url'] = avatar_url
 
             # Rule-bot flag drives the UI's "bot" badge overlay.
-            if isinstance(controller, (RuleBotController, BaselineSolverBot)):
+            if isinstance(controller, RuleBotController | BaselineSolverBot):
                 player_dict['is_rule_bot'] = True
 
             # Add nickname from personality config (for compact UI display)

@@ -74,8 +74,8 @@ class PromptPresetRepository(BaseRepository):
                 preset_id = cursor.lastrowid
                 logger.info(f"Created prompt preset '{name}' with ID {preset_id}")
                 return preset_id
-        except sqlite3.IntegrityError:
-            raise ValueError(f"Prompt preset with name '{name}' already exists")
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Prompt preset with name '{name}' already exists") from exc
 
     def get_prompt_preset(self, preset_id: int) -> Optional[Dict[str, Any]]:
         """Get a prompt preset by ID.
@@ -218,8 +218,8 @@ class PromptPresetRepository(BaseRepository):
                     logger.info(f"Updated prompt preset ID {preset_id}")
                     return True
                 return False
-        except sqlite3.IntegrityError:
-            raise ValueError(f"Prompt preset with name '{name}' already exists")
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Prompt preset with name '{name}' already exists") from exc
 
     def update_prompt_preset_for_owner(
         self,
@@ -278,8 +278,8 @@ class PromptPresetRepository(BaseRepository):
                     logger.info(f"Updated prompt preset ID {preset_id} for owner {owner_id}")
                     return True
                 return False
-        except sqlite3.IntegrityError:
-            raise ValueError(f"Prompt preset with name '{name}' already exists")
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Prompt preset with name '{name}' already exists") from exc
 
     def delete_prompt_preset(self, preset_id: int) -> bool:
         """Delete a prompt preset.

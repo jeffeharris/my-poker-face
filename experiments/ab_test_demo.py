@@ -75,14 +75,11 @@ def run_ab_test(db_path: str = None):
         **base_config,
     )
 
-    results_a = []
-    results_b = []
-
     # Run Variant A
     print("Running Variant A...")
     print("-" * 40)
     runner_a = AITournamentRunner(config_a, db_path=db_path)
-    results_a = runner_a.run_experiment()
+    runner_a.run_experiment()
     experiment_id_a = runner_a.experiment_id
     print(f"Variant A complete. Experiment ID: {experiment_id_a}")
     print()
@@ -91,7 +88,7 @@ def run_ab_test(db_path: str = None):
     print("Running Variant B...")
     print("-" * 40)
     runner_b = AITournamentRunner(config_b, db_path=db_path)
-    results_b = runner_b.run_experiment()
+    runner_b.run_experiment()
     experiment_id_b = runner_b.experiment_id
     print(f"Variant B complete. Experiment ID: {experiment_id_b}")
     print()

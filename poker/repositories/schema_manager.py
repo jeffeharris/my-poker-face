@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import sqlite3
+from typing import Dict
 
 from poker.personality_id import (
     assign_unique_personality_id as _assign_unique_personality_id,

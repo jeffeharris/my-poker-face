@@ -288,7 +288,7 @@ class CharacterImageService:
             }
 
         try:
-            from PIL import Image, ImageDraw
+            from PIL import Image, ImageDraw  # noqa: F401  # availability check
         except ImportError as e:
             return {"success": False, "error": f"Missing dependency: {e}"}
 
@@ -332,7 +332,7 @@ class CharacterImageService:
             Dict with 'success', 'generated', 'failed', 'skipped' counts
         """
         try:
-            from PIL import Image, ImageDraw
+            from PIL import Image, ImageDraw  # noqa: F401  # availability check
         except ImportError as e:
             logger.error(f"Missing dependency for image generation: {e}")
             return {

@@ -417,8 +417,10 @@ class TestHandClassificationDataclass:
         assert isinstance(result.danger_flags, frozenset)
 
     def test_dataclass_is_frozen(self):
+        from dataclasses import FrozenInstanceError
+
         result = classify_hand_full(['Ah', 'Kd'], ['Ks', '7c', '2h'])
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             result.made_tier = 'air'
 
     def test_preflop_no_community_cards_returns_empty_flags(self):

@@ -452,7 +452,7 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
     called_turn = 'call' in hero_actions_by_street.get('TURN', [])
     if called_flop and called_turn and hero_reached_river:
         stats.callcall_river += 1
-        delta = final_stacks.get(hero_name, 0)
+        final_stacks.get(hero_name, 0)
         # delta computed by caller vs starting stack; here just flag a loss
         # via the returned stacks (caller passes starting_stack for the real
         # delta). We mark payoff_loss using the returned stacks below.

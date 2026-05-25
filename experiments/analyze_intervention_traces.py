@@ -128,7 +128,7 @@ def aggregate_firing_rates(
                 if entry.get('fired'):
                     fired_per_rule[key] += 1
                     es = entry.get('effect_size', 0.0)
-                    if isinstance(es, (int, float)):
+                    if isinstance(es, int | float):
                         effect_sizes_when_fired[key].append(float(es))
 
     rules_sorted = sorted(

@@ -133,8 +133,10 @@ class TestClassifyBetSizeDataclass:
         assert result.bet_size_pot_ratio == 0.0
 
     def test_dataclass_is_frozen(self):
+        from dataclasses import FrozenInstanceError
+
         result = classify_bet_size(100, 100)
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             result.bucket = BUCKET_SMALL
 
 

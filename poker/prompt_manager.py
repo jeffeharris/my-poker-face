@@ -207,7 +207,7 @@ class PromptTemplate:
                 rendered = section_content.format(**kwargs)
                 rendered_sections.append(rendered)
             except KeyError as e:
-                raise ValueError(f"Missing variable {e} in section '{section_name}'")
+                raise ValueError(f"Missing variable {e} in section '{section_name}'") from e
         return "\n\n".join(rendered_sections)
 
 

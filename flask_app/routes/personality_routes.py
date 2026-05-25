@@ -119,7 +119,7 @@ def get_personality(name):
                 return jsonify(
                     {'success': True, 'personality': data['personalities'][name], 'name': name}
                 )
-        except:
+        except Exception:
             pass
 
         return jsonify({'success': False, 'error': 'Personality not found'})
@@ -634,7 +634,7 @@ Return ONLY the JSON object, no other text."""
             all_personalities = list(get_celebrities())
             personalities = random.sample(all_personalities, min(4, len(all_personalities)))
             return jsonify({'success': True, 'personalities': personalities, 'fallback': True})
-        except:
+        except Exception:
             return jsonify({'error': 'Failed to generate theme'}), 500
 
 

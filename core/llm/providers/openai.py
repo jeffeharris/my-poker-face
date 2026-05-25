@@ -124,7 +124,7 @@ class OpenAIProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, openai.RateLimitError):
             return True, 30
-        if isinstance(exception, (openai.APITimeoutError, openai.APIConnectionError)):
+        if isinstance(exception, openai.APITimeoutError | openai.APIConnectionError):
             return True, 2
         if isinstance(exception, openai.InternalServerError):
             return True, 2
@@ -190,7 +190,7 @@ class OpenAIProvider(LLMProvider):
 
         # Check if tool_calls exists and is a proper list (not a Mock or None)
         tool_calls = getattr(message, 'tool_calls', None)
-        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+        if tool_calls is None or not isinstance(tool_calls, list | tuple):
             return None
 
         if len(tool_calls) == 0:

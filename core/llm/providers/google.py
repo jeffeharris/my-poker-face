@@ -195,7 +195,7 @@ class GoogleProvider(LLMProvider):
         if isinstance(exception, google_exceptions.DeadlineExceeded):
             return True, 2
         if isinstance(
-            exception, (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError)
+            exception, google_exceptions.ServiceUnavailable | google_exceptions.InternalServerError
         ):
             return True, 2
         return False, 0

@@ -895,7 +895,7 @@ def _select_bluff_catch_config(config, street: str, hand_strength: str) -> Dict:
         if dampener is not None:
             for attr in (f'street_{street}', 'dangerous_texture_mult', 'paired_board_mult'):
                 value = getattr(dampener, attr, None)
-                if isinstance(value, (int, float)):
+                if isinstance(value, int | float):
                     snapshot[f'dampener.{attr}'] = float(value)
     except AttributeError:
         # Config layout drift — degrade quietly. The trace is still
@@ -911,12 +911,12 @@ def _safe_band_dump(band) -> Dict[str, float]:
     empty dict on unknown shape rather than raising.
     """
     if isinstance(band, dict):
-        return {str(k): float(v) for k, v in band.items() if isinstance(v, (int, float))}
+        return {str(k): float(v) for k, v in band.items() if isinstance(v, int | float)}
     out: Dict[str, float] = {}
     for attr in dir(band):
         if attr.startswith('_'):
             continue
         value = getattr(band, attr, None)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, int | float) and not isinstance(value, bool):
             out[attr] = float(value)
     return out

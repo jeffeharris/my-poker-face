@@ -162,7 +162,7 @@ def replay_strategy_pipeline(
             )
 
     # ── Bluff-catch override (postflop, mutually exclusive with strong-hand) ─
-    spots = snapshot.get('opponent_spots') or []
+    snapshot.get('opponent_spots') or []
     # The bluff_catch gate needs spots (multiway suppression). Without
     # them, we can't faithfully replay — fall back to: only replay when
     # hand_strength is in the trigger set AND the snapshot indicates

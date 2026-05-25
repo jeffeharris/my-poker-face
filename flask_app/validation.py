@@ -27,7 +27,7 @@ def validate_player_action(game_state, action, amount):
             f"Action '{action}' not available. Options: {game_state.current_player_options}",
         )
 
-    if action == 'raise' and (not isinstance(amount, (int, float)) or amount < 0):
+    if action == 'raise' and (not isinstance(amount, int | float) or amount < 0):
         return False, "Invalid raise amount"
 
     return True, ""

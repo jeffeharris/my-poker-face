@@ -173,12 +173,9 @@ class SkillEvaluator:
 
         # Format range as percentage string for reasoning messages
         range_str = f"top {int(range_pct * 100)}%" if has_personal_range else ""
-        _reason = lambda personal, fallback: self._position_reasoning(
-            has_personal_range,
-            range_str,
-            personal,
-            fallback,
-        )
+
+        def _reason(personal, fallback):
+            return self._position_reasoning(has_personal_range, range_str, personal, fallback)
 
         # Helper: use personal range if available, else fall back to a static tier flag
         def in_range_for(fallback_key: str) -> bool:

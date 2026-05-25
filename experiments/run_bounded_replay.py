@@ -763,7 +763,7 @@ def _parse_json_field(value, default):
     """Parse a JSON string field, returning default on failure."""
     if value is None:
         return default
-    if isinstance(value, (list, dict)):
+    if isinstance(value, list | dict):
         return value
     try:
         return json.loads(value)

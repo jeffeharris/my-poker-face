@@ -173,7 +173,7 @@ def serialize(converted_object):
         return {k: serialize(v) for k, v in converted_object.items()}
     elif isinstance(converted_object, list):
         return [serialize(v) for v in converted_object]
-    elif isinstance(converted_object, (str, int, float, bool, type(None))):
+    elif isinstance(converted_object, str | int | float | bool | type(None)):
         return converted_object
     else:
         # Provide a placeholder or convert to string

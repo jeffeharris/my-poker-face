@@ -66,7 +66,7 @@ def set_game_state():
         )
 
         pot = state_data.get('pot', {'total': 0})
-        if isinstance(pot, (int, float)):
+        if isinstance(pot, int | float):
             pot = {'total': int(pot)}
 
         game_state = PokerGameState(

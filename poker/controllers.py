@@ -3,9 +3,12 @@ import logging
 import random
 from collections import deque
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from core.card import Card, CardRenderer
+
+if TYPE_CHECKING:
+    from .narration_gate import NarrationGate
 
 from .ai_resilience import (
     AIFallbackStrategy,

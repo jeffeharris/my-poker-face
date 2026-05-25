@@ -2983,7 +2983,7 @@ def offer_stake_to_ai():
         ), 400
     if not isinstance(principal, int) or principal <= 0:
         return jsonify({"error": "principal must be a positive integer"}), 400
-    if not isinstance(cut, (int, float)):
+    if not isinstance(cut, int | float):
         return jsonify({"error": "cut must be a number"}), 400
     cut = float(cut)
     if cut < 0.0 or cut > 0.55:
@@ -3333,7 +3333,7 @@ def offer_stake_to_ai():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
-        chip_ledger_repo=_chip_ledger_repo,
+        chip_ledger_repo=chip_ledger_repo,
     )
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 

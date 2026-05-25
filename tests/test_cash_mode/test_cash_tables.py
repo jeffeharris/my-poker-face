@@ -150,7 +150,7 @@ class TestJsonRoundtrip:
         assert parsed == seats
 
     def test_invalid_json_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             seats_from_json("not a json list")
 
     def test_non_list_json_raises(self):

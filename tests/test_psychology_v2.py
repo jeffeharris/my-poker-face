@@ -113,7 +113,9 @@ class TestPersonalityAnchors:
             baseline_energy=0.5,
             recovery_rate=0.15,
         )
-        with pytest.raises(Exception):  # FrozenInstanceError
+        from dataclasses import FrozenInstanceError
+
+        with pytest.raises(FrozenInstanceError):
             anchors.baseline_aggression = 0.8
 
     def test_from_dict(self):

@@ -162,7 +162,7 @@ class XAIProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, openai.RateLimitError):
             return True, 30
-        if isinstance(exception, (openai.APITimeoutError, openai.APIConnectionError)):
+        if isinstance(exception, openai.APITimeoutError | openai.APIConnectionError):
             return True, 2
         if isinstance(exception, openai.InternalServerError):
             return True, 2
@@ -224,7 +224,7 @@ class XAIProvider(LLMProvider):
         message = raw_response.choices[0].message
 
         tool_calls = getattr(message, 'tool_calls', None)
-        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+        if tool_calls is None or not isinstance(tool_calls, list | tuple):
             return None
 
         if len(tool_calls) == 0:

@@ -7,7 +7,10 @@ Tracks opponent tendencies and memorable hands for AI learning.
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from ..strategy.exploitation import AggregatedOpponentStats
 
 from ..archetypes import (
     AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,

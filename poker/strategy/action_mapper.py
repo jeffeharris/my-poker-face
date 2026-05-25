@@ -162,7 +162,6 @@ def resolve_postflop_sizing(
     if action == 'jam':
         return ('all_in', player_total)
 
-    big_blind = game_state.current_ante
     highest_bet = game_state.highest_bet
     # See preflop comment: re-raise increment must >= prior raise size.
     min_raise = highest_bet + game_state.min_raise_amount

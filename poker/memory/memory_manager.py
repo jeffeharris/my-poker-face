@@ -998,7 +998,7 @@ class AIMemoryManager:
 
         ranked = sorted(speakers, key=priority_key)
         protected = set(ranked[: self.MAX_UNCAPPED_SPEAKERS])
-        overflow = ranked[self.MAX_UNCAPPED_SPEAKERS :]
+        ranked[self.MAX_UNCAPPED_SPEAKERS :]
 
         final: Dict[str, bool] = {}
         for name in wants_speak:

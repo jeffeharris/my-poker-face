@@ -463,14 +463,14 @@ class TestDatabaseSchema(unittest.TestCase):
         with sqlite3.connect(self.test_db.name) as conn:
             # Check ai_player_state table
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='ai_player_state'
             """)
             self.assertIsNotNone(cursor.fetchone())
 
             # Check personality_snapshots table
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='personality_snapshots'
             """)
             self.assertIsNotNone(cursor.fetchone())
@@ -481,7 +481,7 @@ class TestDatabaseSchema(unittest.TestCase):
 
         with sqlite3.connect(self.test_db.name) as conn:
             cursor = conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='index' AND name='idx_ai_player_game'
             """)
             self.assertIsNotNone(cursor.fetchone())

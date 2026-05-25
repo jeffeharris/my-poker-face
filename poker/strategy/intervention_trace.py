@@ -289,7 +289,7 @@ def _safe_serialize(value: Any) -> Any:
     str(value) so a trace never raises on serialization — the trace
     is observability, not authoritative state.
     """
-    if value is None or isinstance(value, (bool, int, str)):
+    if value is None or isinstance(value, bool | int | str):
         return value
     if isinstance(value, float):
         return value if math.isfinite(value) else None
@@ -304,7 +304,7 @@ def _safe_serialize(value: Any) -> Any:
             return str(value)
     if isinstance(value, Mapping):
         return {str(k): _safe_serialize(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, list | tuple | set | frozenset):
         return [_safe_serialize(v) for v in value]
     return str(value)
 

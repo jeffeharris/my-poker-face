@@ -327,7 +327,7 @@ def _run_hand_instrumented(
 def _categorize_hand(result: Dict, hero_name: str, starting_stack: int, villain_name: str) -> str:
     folded_at = result['hero_folded_at']
     delta = result['final_stacks'].get(hero_name, starting_stack) - starting_stack
-    villain_delta = result['final_stacks'].get(villain_name, starting_stack) - starting_stack
+    result['final_stacks'].get(villain_name, starting_stack) - starting_stack
 
     if folded_at is not None:
         return f"fold_{folded_at.name.lower()}"

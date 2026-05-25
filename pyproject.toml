@@ -52,9 +52,18 @@ ignore = [
 "**/migrations/**/*.py" = ["E402"]
 # Flask route/handler/extension modules expose attributes for tests to patch via
 # `patch('flask_app.routes.foo.bar', ...)`. Removing "unused" imports breaks those tests.
-"flask_app/routes/*.py" = ["F401"]
-"flask_app/handlers/*.py" = ["F401"]
+# E402 carve-out: cash_routes.py legitimately has interleaved imports below long
+# section comments.
+"flask_app/routes/*.py" = ["F401", "E402"]
+"flask_app/handlers/*.py" = ["F401", "F811"]
 "flask_app/extensions.py" = ["F401"]
+# Re-export shim modules: imports intentionally placed below sectioning comments.
+"poker/player_psychology.py" = ["E402"]
+# Modules whose imports must follow runtime initialization (load_dotenv, sys.path setup).
+"flask_app/config.py" = ["E402"]
+"populate_personalities_db.py" = ["E402"]
+"backup_personalities.py" = ["E402"]
+"bin/*.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 # Treat first-party packages as local imports.

@@ -286,7 +286,7 @@ class ResponseValidator:
             self.warnings.append(f"Unknown fields will be ignored: {unknown_fields}")
 
         # Context-based validation
-        if context.get("should_speak") == False:
+        if context.get("should_speak") is False:
             if "dramatic_sequence" in response:
                 self.warnings.append(
                     "dramatic_sequence included but player shouldn't speak (will be removed)"
@@ -323,7 +323,7 @@ class ResponseValidator:
         #   gesture=False → strip dramatic_sequence entirely (legacy)
         should_speak = context.get("should_speak", True)
         should_gesture = context.get("should_gesture", False)
-        if should_speak == False:
+        if should_speak is False:
             if should_gesture and isinstance(cleaned.get("dramatic_sequence"), list):
                 cleaned["dramatic_sequence"] = [
                     b

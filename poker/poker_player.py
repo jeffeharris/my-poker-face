@@ -4,14 +4,14 @@ import random
 from typing import Dict, List, Optional
 
 from core.card import Card, CardSet
-
-logger = logging.getLogger(__name__)
 from core.llm import Assistant, CallType, LLMClient
 from core.llm.settings import get_default_model, get_default_provider
 
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
 from .personality_generator import PersonalityGenerator
 from .prompt_manager import PERSONA_EXAMPLES, RESPONSE_FORMAT, PromptManager
+
+logger = logging.getLogger(__name__)
 
 
 class PokerPlayer:
@@ -206,7 +206,7 @@ class AIPokerPlayer(PokerPlayer):
 
             return instance
         except KeyError as e:
-            raise ValueError(f"Missing key in player_dict: {e}")
+            raise ValueError(f"Missing key in player_dict: {e}") from e
 
     @property
     def player_state(self):

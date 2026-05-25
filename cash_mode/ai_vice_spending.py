@@ -463,7 +463,7 @@ def _load_anchors_dict(
     anchors_blob = config.get('anchors')
     if not isinstance(anchors_blob, dict):
         return None
-    return {k: float(v) for k, v in anchors_blob.items() if isinstance(v, (int, float))}
+    return {k: float(v) for k, v in anchors_blob.items() if isinstance(v, int | float)}
 
 
 def _apply_psych_recovery(

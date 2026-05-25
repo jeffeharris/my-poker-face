@@ -127,7 +127,6 @@ class ZoneReportGenerator:
     def _generate_summary_section(self, analysis) -> str:
         """Generate the summary section."""
         comparison = analysis.tilt_band_comparison
-        aggregate = analysis.aggregate_tilt
 
         # Count pass/fail
         passed = sum(1 for v in comparison.values() if v['status'] == 'pass')

@@ -146,7 +146,7 @@ class PersonalityAnchors:
             'recovery_rate',
         ]:
             val = getattr(self, name)
-            if not isinstance(val, (int, float)):
+            if not isinstance(val, int | float):
                 raise TypeError(f"Anchor '{name}' must be numeric, got {type(val).__name__}")
             if not 0.0 <= val <= 1.0:
                 raise ValueError(f"Anchor '{name}' must be in [0,1], got {val}")

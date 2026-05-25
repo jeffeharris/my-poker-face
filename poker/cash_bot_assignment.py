@@ -82,7 +82,7 @@ def assign_bot(personality_config: Optional[Dict[str, Any]]) -> BotAssignment:
     anchors = personality_config.get("anchors")
     if isinstance(anchors, dict):
         poise = anchors.get("poise")
-        if isinstance(poise, (int, float)):
+        if isinstance(poise, int | float):
             bot_type = _bucket_from_poise(float(poise))
             return BotAssignment(bot_type, dict(BUCKET_DEFAULTS[bot_type]))
 

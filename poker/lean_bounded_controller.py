@@ -90,7 +90,6 @@ class LeanBoundedController(HybridAIController):
 
         # Build context for option generation
         player_options = game_state.current_player_options
-        big_blind = game_state.current_ante or 100
         raw_cost_to_call = game_state.highest_bet - player.bet
         cost_to_call = min(raw_cost_to_call, player.stack)
 

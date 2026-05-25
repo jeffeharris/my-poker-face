@@ -206,7 +206,7 @@ def main():
     try:
         original_resp = json.loads(capture['ai_response'])
         print(f"\nOriginal inner monologue: {original_resp.get('inner_monologue', 'N/A')[:200]}...")
-    except:
+    except Exception:
         pass
 
     # Determine which variants to test

@@ -383,7 +383,6 @@ def build_clone_strategy(profile: CloneProfile):
 
     # threebet_rate gates whether to widen or tighten when facing a preflop raise.
     # Default of 0.05 is "rarely 3-bets"; humans typically 5-12%.
-    threebet_rate = profile.threebet_rate if profile.threebet_rate is not None else 0.05
 
     def strategy(context: Dict) -> Dict:
         valid = context.get('valid_actions', [])

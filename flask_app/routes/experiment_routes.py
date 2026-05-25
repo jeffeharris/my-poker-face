@@ -76,7 +76,7 @@ def _complete_experiment_with_summary(experiment_id: int) -> None:
             logger.error(f"Cannot complete experiment {experiment_id}: not found")
             return
 
-        exp_config = experiment.get('config', {})
+        experiment.get('config', {})
 
         # Get live stats (queries DB directly)
         live_stats = experiment_repo.get_experiment_live_stats(experiment_id)
@@ -351,7 +351,7 @@ def _compute_config_diff(old_config: Dict[str, Any], new_config: Dict[str, Any])
             def format_val(v):
                 if v is None:
                     return "null"
-                if isinstance(v, (list, dict)):
+                if isinstance(v, list | dict):
                     return json.dumps(v, separators=(',', ':'))
                 return repr(v)
 
@@ -2181,7 +2181,7 @@ def get_prompt_options():
             config_fields.append(
                 {
                     'name': field.name,
-                    'type': 'boolean' if field.type == bool else 'integer',
+                    'type': 'boolean' if field.type is bool else 'integer',
                     'default': field.default if hasattr(field, 'default') else None,
                 }
             )
@@ -3004,12 +3004,11 @@ def resume_experiment_background(
         }
         exp_config = ExperimentConfig(**filtered_config)
 
-        results = []
         paused_again = False
 
         for tournament_info in incomplete_tournaments:
             game_id = tournament_info['game_id']
-            variant = tournament_info.get('variant')
+            tournament_info.get('variant')
             variant_config = tournament_info.get('variant_config')
 
             logger.info(f"Resuming tournament {game_id}")

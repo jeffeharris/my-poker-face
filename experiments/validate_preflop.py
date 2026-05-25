@@ -252,7 +252,6 @@ def simulate_preflop_hands(
         if scenario_roll < 0.50:
             scenario = 'rfi'
             opener = ''
-            raises = 0
             legal = ['fold', 'raise', 'all_in']
         elif scenario_roll < 0.85:
             scenario = 'vs_open'
@@ -262,7 +261,6 @@ def simulate_preflop_hands(
                 opener = rng.choice(POSITIONS[:pos_idx])
             else:
                 opener = 'UTG'
-            raises = 1
             legal = ['fold', 'call', 'raise', 'all_in']
         else:
             scenario = 'vs_3bet'
@@ -272,7 +270,6 @@ def simulate_preflop_hands(
                 opener = rng.choice(POSITIONS[pos_idx + 1 :])
             else:
                 opener = 'BB'
-            raises = 2
             legal = ['fold', 'call', 'raise', 'all_in']
 
         # BB can check in some scenarios

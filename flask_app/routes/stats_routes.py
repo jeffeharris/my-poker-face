@@ -19,6 +19,7 @@ from poker.config import is_development_mode
 from poker.memory.hand_history import RecordedHand
 from poker.prompt_manager import PromptManager
 
+from .. import config
 from ..extensions import (
     auth_manager,
     game_repo,
@@ -27,11 +28,10 @@ from ..extensions import (
     personality_generator,
     tournament_repo,
 )
+from ..services import game_state_service
 
 # Module-level prompt manager instance (with hot-reload in dev mode)
 _prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
-from .. import config
-from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
 

@@ -31,12 +31,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
 
-logger = logging.getLogger(__name__)
-
 from ..moment_analyzer import MomentAnalyzer
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
 from .relationship_events import RelationshipEvent
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..equity_snapshot import HandEquityHistory

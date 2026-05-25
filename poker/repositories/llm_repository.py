@@ -482,10 +482,10 @@ class LLMRepository(BaseRepository):
                     unit = entry['unit']
                     try:
                         cost = float(entry['cost'])
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as exc:
                         raise ValueError(
                             f"Invalid cost value '{entry.get('cost')}': must be a number"
-                        )
+                        ) from exc
                     valid_from = entry.get('valid_from') or now
                     notes = entry.get('notes')
 

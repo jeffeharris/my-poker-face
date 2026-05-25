@@ -912,15 +912,20 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         num_players = len(game_state.players)
         dealer_idx = game_state.current_dealer_idx
 
-        def distance_from_dealer(player_name):
+        def distance_from_dealer(
+            player_name,
+            _positions=player_positions,
+            _dealer_idx=dealer_idx,
+            _num_players=num_players,
+        ):
             """Calculate seats to the left of dealer (1 = immediately left, etc.)
 
             The dealer (distance 0) receives odd chips last, so we return
             num_players instead of 0 to place dealer at the end of the order.
             """
-            pos = player_positions.get(player_name, 0)
-            dist = (pos - dealer_idx) % num_players
-            return dist if dist > 0 else num_players
+            pos = _positions.get(player_name, 0)
+            dist = (pos - _dealer_idx) % _num_players
+            return dist if dist > 0 else _num_players
 
         # Sort winners by distance from dealer (closest to left gets odd chip first)
         sorted_winners = sorted(tier_winners, key=distance_from_dealer)

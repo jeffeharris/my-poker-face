@@ -196,13 +196,13 @@ class PromptConfig:
     def disable_all(self) -> 'PromptConfig':
         """Return new config with all boolean components disabled."""
         return PromptConfig(
-            **{f.name: False if f.type == bool else getattr(self, f.name) for f in fields(self)}
+            **{f.name: False if f.type is bool else getattr(self, f.name) for f in fields(self)}
         )
 
     def enable_all(self) -> 'PromptConfig':
         """Return new config with all boolean components enabled."""
         return PromptConfig(
-            **{f.name: True if f.type == bool else getattr(self, f.name) for f in fields(self)}
+            **{f.name: True if f.type is bool else getattr(self, f.name) for f in fields(self)}
         )
 
     def copy(self, **overrides) -> 'PromptConfig':
@@ -213,7 +213,7 @@ class PromptConfig:
 
     def __repr__(self) -> str:
         """Compact representation showing only disabled boolean components."""
-        disabled = [f.name for f in fields(self) if f.type == bool and not getattr(self, f.name)]
+        disabled = [f.name for f in fields(self) if f.type is bool and not getattr(self, f.name)]
         extras = []
         if self.memory_keep_exchanges > 0:
             extras.append(f"memory_keep_exchanges={self.memory_keep_exchanges}")

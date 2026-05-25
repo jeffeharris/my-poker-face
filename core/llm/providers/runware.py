@@ -236,7 +236,7 @@ class RunwareProvider(LLMProvider):
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(f"Runware API timeout after {MAX_RETRIES + 1} attempts")
+                    raise Exception(f"Runware API timeout after {MAX_RETRIES + 1} attempts") from e
             except requests.exceptions.HTTPError as e:
                 # Extract status code and error details
                 status_code = e.response.status_code if e.response is not None else 0
@@ -258,7 +258,7 @@ class RunwareProvider(LLMProvider):
 
                 # Don't retry client errors (4xx)
                 if 400 <= status_code < 500:
-                    raise Exception(f"Runware API error ({status_code}): {error_text}")
+                    raise Exception(f"Runware API error ({status_code}): {error_text}") from e
                 # Retry server errors (5xx) or unknown errors
                 last_exception = e
                 if attempt < MAX_RETRIES:
@@ -272,9 +272,9 @@ class RunwareProvider(LLMProvider):
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(f"Runware API error ({status_code}): {error_text}")
+                    raise Exception(f"Runware API error ({status_code}): {error_text}") from e
             except requests.exceptions.RequestException as e:
-                raise Exception(f"Runware API request failed: {e}")
+                raise Exception(f"Runware API request failed: {e}") from e
 
         # Should never reach here, but just in case
         raise Exception(f"Runware API failed: {last_exception}")

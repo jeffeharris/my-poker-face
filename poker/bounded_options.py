@@ -633,7 +633,7 @@ def generate_bounded_options(
     raw_equity = context.get('equity', 0.5)
     cost_to_call = context.get('cost_to_call', 0)
     pot_total = context.get('pot_total', 0)
-    stack_bb = context.get('stack_bb', 100)
+    context.get('stack_bb', 100)
 
     # Heads-up positional equity offset (T1-34, gated). When opted in via
     # apply_hu_equity_offset=True, add HEADS_UP_POSITION_OFFSETS to the
@@ -1084,7 +1084,7 @@ def _make_aggressive_option(
     max_raise = context.get('max_raise', 0)
     min_raise = context.get('min_raise', 0)
     pot_total = context.get('pot_total', 0)
-    big_blind = context.get('big_blind', 100)
+    context.get('big_blind', 100)
     equity = context.get('equity', 0.5)
 
     # Find the largest existing raise

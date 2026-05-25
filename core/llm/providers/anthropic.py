@@ -168,7 +168,7 @@ class AnthropicProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, anthropic.RateLimitError):
             return True, 30
-        if isinstance(exception, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
+        if isinstance(exception, anthropic.APITimeoutError | anthropic.APIConnectionError):
             return True, 2
         if isinstance(exception, anthropic.InternalServerError):
             return True, 2

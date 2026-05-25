@@ -396,7 +396,6 @@ def with_ai_fallback(
                 else:
                     return _get_fallback_response(args, kwargs, fallback_strategy)
 
-            last_error = None
             for attempt in range(max_retries):
                 try:
                     result = func(*args, **kwargs)
@@ -412,12 +411,10 @@ def with_ai_fallback(
 
                 except (json.JSONDecodeError, AIResponseError) as e:
                     logger.error(f"AI response parsing error: {e}")
-                    last_error = e
                     # Don't retry parsing errors, go straight to fallback
                     break
 
                 except Exception as e:
-                    last_error = e
                     wait_time = min(2**attempt, 16)  # Exponential backoff, max 16 seconds
                     logger.warning(
                         f"AI operation '{func.__name__}' failed "

@@ -202,13 +202,15 @@ class PollinationsProvider(LLMProvider):
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(f"Pollinations API timeout after {MAX_RETRIES + 1} attempts")
+                    raise Exception(
+                        f"Pollinations API timeout after {MAX_RETRIES + 1} attempts"
+                    ) from e
             except requests.exceptions.HTTPError as e:
                 # Don't retry client errors (4xx)
                 status_code = e.response.status_code if e.response else 0
                 error_text = e.response.text[:200] if e.response else str(e)
                 if 400 <= status_code < 500:
-                    raise Exception(f"Pollinations API error ({status_code}): {error_text}")
+                    raise Exception(f"Pollinations API error ({status_code}): {error_text}") from e
                 # Retry server errors (5xx)
                 last_exception = e
                 if attempt < MAX_RETRIES:
@@ -222,9 +224,9 @@ class PollinationsProvider(LLMProvider):
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(f"Pollinations API error ({status_code}): {error_text}")
+                    raise Exception(f"Pollinations API error ({status_code}): {error_text}") from e
             except requests.exceptions.RequestException as e:
-                raise Exception(f"Pollinations API request failed: {e}")
+                raise Exception(f"Pollinations API request failed: {e}") from e
 
         # Should never reach here, but just in case
         raise Exception(f"Pollinations API failed: {last_exception}")

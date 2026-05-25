@@ -148,7 +148,7 @@ def _curated_anchors(personality: dict) -> Optional[dict]:
 
     def get(key: str) -> Optional[float]:
         v = anchors.get(key)
-        return float(v) if isinstance(v, (int, float)) else None
+        return float(v) if isinstance(v, int | float) else None
 
     return {
         'aggression': get('baseline_aggression'),

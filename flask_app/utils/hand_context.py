@@ -429,9 +429,7 @@ def _compute_best5_info(
         f"{str(c)}({hole_label})" if (c.value, c.suit) in hole_set else f"{str(c)}(board)"
         for c in ordered
     ]
-    used_hole_strs = [
-        str(c) for c in hole_cards if (c.value, c.suit) in {(b.value, b.suit) for b in best5_cards}
-    ]
+    [str(c) for c in hole_cards if (c.value, c.suit) in {(b.value, b.suit) for b in best5_cards}]
     # Map back to the original strings so unicode-suit display is preserved.
     used_hole_input_strs = [
         hole_strs[i]

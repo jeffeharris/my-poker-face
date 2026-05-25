@@ -39,6 +39,16 @@ from cash_mode.fake_sim import (
     DEFAULT_FAKE_HAND_PROB,
     DEFAULT_MAX_POT_BB,
 )
+from poker.poker_game import (
+    Player,
+    PokerGameState,
+    advance_to_next_active_player,
+    award_pot_winnings,
+    create_deck,
+    determine_winner,
+    play_turn,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
 
 # Per-sandbox `AIMemoryManager` cache. Wires the opponent-model /
 # memory pipeline into the sim path so exploitation rules
@@ -148,17 +158,6 @@ def hand_burst_count(
         return min(burst_hand_cap, 1)
     return min(burst_hand_cap, int(gap_seconds // burst_pacing_seconds))
 
-
-from poker.poker_game import (
-    Player,
-    PokerGameState,
-    advance_to_next_active_player,
-    award_pot_winnings,
-    create_deck,
-    determine_winner,
-    play_turn,
-)
-from poker.poker_state_machine import PokerPhase, PokerStateMachine
 
 logger = logging.getLogger(__name__)
 
