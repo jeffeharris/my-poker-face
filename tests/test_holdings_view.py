@@ -20,6 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from cash_mode.bankroll import AIBankrollState, PlayerBankrollState
 from flask_app.services.holdings_view import (
     _aggregate_ledger_by_entity,
+    _collect_seat_stacks_by_entity,
     _net_worth_for,
     compute_holdings_history,
     compute_holdings_snapshot,
@@ -121,14 +122,20 @@ class TestNetWorthFor(unittest.TestCase):
             1000,
             receivables={'x': 200},  # keyed by bare id
             outstanding={'x': 50},  # keyed by bare id
+            staking_pnl={'x': 333},  # keyed by bare id
             vice={'ai:x': 30},  # keyed by ledger entity_id
             side_hustle={'ai:x': 10},
+            rake={'ai:x': 77},  # keyed by ledger entity_id
         )
         self.assertEqual(out['receivable'], 200)
         self.assertEqual(out['outstanding'], 50)
+        # Net worth uses chips + recv − owed; staking/vice/hustle/rake are
+        # informational history, NOT folded into net worth.
         self.assertEqual(out['net_worth'], 1000 + 200 - 50)
+        self.assertEqual(out['staking_pnl'], 333)
         self.assertEqual(out['vice_spent'], 30)
         self.assertEqual(out['side_hustle_earned'], 10)
+        self.assertEqual(out['rake_paid'], 77)
 
     def test_missing_keys_default_zero(self):
         out = _net_worth_for(
@@ -137,12 +144,16 @@ class TestNetWorthFor(unittest.TestCase):
             500,
             receivables={},
             outstanding={},
+            staking_pnl={},
             vice={},
             side_hustle={},
+            rake={},
         )
         self.assertEqual(out['net_worth'], 500)
         self.assertEqual(out['receivable'], 0)
+        self.assertEqual(out['staking_pnl'], 0)
         self.assertEqual(out['vice_spent'], 0)
+        self.assertEqual(out['rake_paid'], 0)
 
 
 class TestAggregateLedgerByEntity(_Base):
@@ -229,8 +240,123 @@ class TestStakeAggregates(_Base):
         self.assertEqual(owed.get('B'), 50)  # only carry rows are debt
         self.assertNotIn('C', owed)  # active is the staker's claim
 
+    def test_staking_pnl_closed_only_excludes_carry_and_house(self):
+        # Settled win: got 3000 back on a 2000 stake → +1000.
+        _insert_stake(
+            self.db_path,
+            stake_id='w',
+            staker_id='A',
+            borrower_id='B',
+            status='settled',
+            principal=2000,
+        )
+        self._set_payout('w', 3000)
+        # Defaulted: recovered only 1200 of 2000 → −800.
+        _insert_stake(
+            self.db_path,
+            stake_id='d',
+            staker_id='A',
+            borrower_id='C',
+            status='defaulted',
+            principal=2000,
+        )
+        self._set_payout('d', 1200)
+        # Carry (open) — excluded; its value lives in receivable.
+        _insert_stake(
+            self.db_path,
+            stake_id='c',
+            staker_id='A',
+            borrower_id='D',
+            status='carry',
+            principal=2000,
+            carry_amount=500,
+        )
+        self._set_payout('c', 1500)
+        # House stake — excluded (no entity to credit).
+        _insert_stake(
+            self.db_path,
+            stake_id='h',
+            staker_id=None,
+            borrower_id='E',
+            status='settled',
+            principal=9999,
+            staker_kind='house',
+        )
+
+        pnl = self.stake_repo.aggregate_staking_pnl_by_staker()
+        self.assertEqual(pnl.get('A'), 1000 - 800)  # carry not counted
+        self.assertNotIn(None, pnl)
+
+    def _set_payout(self, stake_id, payout):
+        import sqlite3 as _sq
+
+        with _sq.connect(self.db_path) as conn:
+            conn.execute("UPDATE stakes SET staker_payout=? WHERE stake_id=?", (payout, stake_id))
+
+
+class _FakeTable:
+    def __init__(self, seats):
+        self.seats = seats
+
+
+class _StubTables:
+    """Stand-in cash_table_repo returning fixed tables/seats."""
+
+    def __init__(self, tables):
+        self._tables = tables
+
+    def list_all_tables(self, *, sandbox_id):
+        return self._tables
+
+
+class TestSeatStacks(unittest.TestCase):
+    def test_keys_by_kind_and_skips_open_and_zero(self):
+        tables = [
+            _FakeTable(
+                [
+                    {'kind': 'ai', 'personality_id': 'blackbeard', 'chips': 340076},
+                    {'kind': 'open'},
+                    {'kind': 'ai', 'personality_id': 'zeus', 'chips': 0},  # zero skipped
+                    {'kind': 'human', 'player_id': 'guest_jeff', 'chips': 500},
+                ]
+            )
+        ]
+        out = _collect_seat_stacks_by_entity(_StubTables(tables), 'sb')
+        self.assertEqual(out, {'ai:blackbeard': 340076, 'player:guest_jeff': 500})
+
+    def test_none_repo_is_empty(self):
+        self.assertEqual(_collect_seat_stacks_by_entity(None, 'sb'), {})
+
 
 class TestComputeHoldingsSnapshot(_Base):
+    def test_seat_stack_folds_into_chips_and_net_worth(self):
+        # Blackbeard: 90k bankroll + 340k in play at a table → chips 430k,
+        # net worth 430k (no stakes). The bug this guards: net worth that
+        # ignored the in-play stack showed ~90k for a player sitting on 340k.
+        self._seed_ai('blackbeard', 90_000)
+        tables = _StubTables(
+            [
+                _FakeTable(
+                    [
+                        {'kind': 'ai', 'personality_id': 'blackbeard', 'chips': 340_000},
+                    ]
+                )
+            ]
+        )
+        snap = compute_holdings_snapshot(
+            bankroll_repo=self.bankroll_repo,
+            personality_repo=self.personality_repo,
+            user_repo=self.user_repo,
+            stake_repo=self.stake_repo,
+            cash_table_repo=tables,
+            db_path=self.db_path,
+            sandbox_id=SANDBOX,
+        )
+        row = next(r for r in snap['rows'] if r['id'] == 'blackbeard')
+        self.assertEqual(row['seat_chips'], 340_000)
+        self.assertEqual(row['chips'], 430_000)
+        self.assertEqual(row['net_worth'], 430_000)
+
     def test_scoped_has_net_worth_block(self):
         self._seed_ai('don_quixote', 1000)
         _insert_stake(

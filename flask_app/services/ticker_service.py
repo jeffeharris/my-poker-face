@@ -257,6 +257,7 @@ def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:
             personality_repo=extensions.personality_repo,
             user_repo=extensions.user_repo,
             stake_repo=extensions.stake_repo,
+            cash_table_repo=extensions.cash_table_repo,
             db_path=extensions.persistence_db_path,
             sandbox_id=sandbox_id,
         )

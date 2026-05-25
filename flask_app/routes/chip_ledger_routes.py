@@ -127,6 +127,7 @@ def chip_ledger_holdings():
             personality_repo=personality_repo,
             user_repo=user_repo,
             stake_repo=stake_repo,
+            cash_table_repo=cash_table_repo,
             db_path=persistence_db_path,
             sandbox_id=_sandbox_arg(),
         )
@@ -164,6 +165,7 @@ def chip_ledger_holdings_history():
                     personality_repo=personality_repo,
                     user_repo=user_repo,
                     stake_repo=stake_repo,
+                    cash_table_repo=cash_table_repo,
                     db_path=persistence_db_path,
                     sandbox_id=sandbox_id,
                 )

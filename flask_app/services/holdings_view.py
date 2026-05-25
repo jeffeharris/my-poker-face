@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 VICE_REASON = 'vice_spending'
 SIDE_HUSTLE_REASON = 'side_hustle_earning'
+RAKE_REASON = 'table_rake'
 
 MAX_SERIES = 12  # plotted-line cap; rest still appear in the holdings table
 MAX_POINTS_PER_SERIES = 400
@@ -47,20 +48,25 @@ def compute_holdings_snapshot(
     personality_repo,
     user_repo,
     stake_repo,
+    cash_table_repo=None,
     db_path: str,
     now: Optional[datetime] = None,
     sandbox_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Return the per-entity net-worth table payload.
 
-    AI rows project regen at read time so the chip count matches what a
-    live cash-mode read would return. Human rows expose `chips` verbatim.
+    `chips` is total chips the entity controls: off-table bankroll
+    (regen-projected for AI) PLUS chips currently in play on a cash-table
+    seat. Folding the seat stack in matters a lot for an actively-seated
+    winner — otherwise net worth looks far lower than the stack the admin
+    sees on the table.
 
-    When `sandbox_id` is set, each row carries `net_worth`, `receivable`,
-    `outstanding`, `vice_spent`, and `side_hustle_earned`. When `None`
-    (the deprecated cross-sandbox view) net worth is omitted — stakes are
-    global per entity, so attributing them across per-sandbox chip rows
-    isn't meaningful — and the rows carry chips only.
+    When `sandbox_id` is set, each row carries `net_worth` (= chips +
+    receivable − outstanding), `receivable`, `outstanding`, `vice_spent`,
+    and `side_hustle_earned`. When `None` (the deprecated cross-sandbox
+    view) net worth + seat stacks are omitted — stakes are global per
+    entity and seats are per-sandbox, so attributing them across
+    per-sandbox chip rows isn't meaningful — and rows carry bankroll only.
     """
     if now is None:
         now = datetime.utcnow()
@@ -72,13 +78,17 @@ def compute_holdings_snapshot(
     # sandbox. All only computed in the scoped view.
     receivables: Dict[str, int] = {}
     outstanding: Dict[str, int] = {}
+    staking_pnl: Dict[str, int] = {}
     vice: Dict[str, int] = {}
     side_hustle: Dict[str, int] = {}
+    rake: Dict[str, int] = {}
+    seat_stacks: Dict[str, int] = {}
     if scoped:
         if stake_repo is not None:
             try:
                 receivables = stake_repo.aggregate_receivables_by_staker()
                 outstanding = stake_repo.aggregate_outstanding_by_borrower()
+                staking_pnl = stake_repo.aggregate_staking_pnl_by_staker()
             except Exception as e:
                 logger.warning("holdings: stake aggregate failed: %s", e)
         vice = _aggregate_ledger_by_entity(db_path, VICE_REASON, 'source', sandbox_id)
@@ -88,14 +98,19 @@ def compute_holdings_snapshot(
             'sink',
             sandbox_id,
         )
+        rake = _aggregate_ledger_by_entity(db_path, RAKE_REASON, 'source', sandbox_id)
+        seat_stacks = _collect_seat_stacks_by_entity(cash_table_repo, sandbox_id)
 
     ai_rows = _collect_ai_rows(
         bankroll_repo=bankroll_repo,
         personality_repo=personality_repo,
         receivables=receivables,
         outstanding=outstanding,
+        staking_pnl=staking_pnl,
         vice=vice,
         side_hustle=side_hustle,
+        rake=rake,
+        seat_stacks=seat_stacks,
         now=now,
         sandbox_id=sandbox_id,
         scoped=scoped,
@@ -104,8 +119,11 @@ def compute_holdings_snapshot(
         user_repo=user_repo,
         receivables=receivables,
         outstanding=outstanding,
+        staking_pnl=staking_pnl,
         vice=vice,
         side_hustle=side_hustle,
+        rake=rake,
+        seat_stacks=seat_stacks,
         db_path=db_path,
         scoped=scoped,
     )
@@ -128,6 +146,7 @@ def record_holdings_snapshot(
     personality_repo,
     user_repo,
     stake_repo,
+    cash_table_repo=None,
     db_path: str,
     sandbox_id: str,
     now: Optional[datetime] = None,
@@ -151,6 +170,7 @@ def record_holdings_snapshot(
         personality_repo=personality_repo,
         user_repo=user_repo,
         stake_repo=stake_repo,
+        cash_table_repo=cash_table_repo,
         db_path=db_path,
         now=now,
         sandbox_id=sandbox_id,
@@ -162,7 +182,7 @@ def record_holdings_snapshot(
             'entity_id': r['entity_id'],
             'kind': r['kind'],
             'net_worth': r['net_worth'],
-            'chips': r['projected_chips'],
+            'chips': r['chips'],  # bankroll + in-play seat stack
             'receivable': r['receivable'],
             'outstanding': r['outstanding'],
         }
@@ -318,6 +338,46 @@ def _aggregate_ledger_by_entity(
     return {row['entity']: int(row['total'] or 0) for row in rows}
 
 
+def _collect_seat_stacks_by_entity(
+    cash_table_repo,
+    sandbox_id: str,
+) -> Dict[str, int]:
+    """Sum chips currently in play on cash-table seats, per entity.
+
+    Returns `{entity_id: seat_chips}` keyed in the ledger vocabulary
+    (`ai:<slug>` / `player:<id>`) so it lines up with the row builders.
+    Mirrors the chip-ledger audit's `_sum_cash_table_ai_seats` surface —
+    these are real chips the entity controls, just sitting on a seat
+    rather than in its bankroll. Missing repo / unreadable seats degrade
+    to an empty map (net worth simply omits the in-play portion).
+    """
+    if cash_table_repo is None:
+        return {}
+    stacks: Dict[str, int] = {}
+    try:
+        tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+    except Exception as e:
+        logger.warning("holdings: list_all_tables failed: %s", e)
+        return {}
+    for table in tables:
+        for slot in getattr(table, 'seats', []) or []:
+            kind = slot.get('kind')
+            chips = int(slot.get('chips', 0) or 0)
+            if not chips:
+                continue
+            if kind == 'ai' and slot.get('personality_id'):
+                key = f"ai:{slot['personality_id']}"
+            elif kind == 'human':
+                pid = slot.get('player_id') or slot.get('owner_id') or slot.get('id')
+                if not pid:
+                    continue
+                key = f"player:{pid}"
+            else:
+                continue
+            stacks[key] = stacks.get(key, 0) + chips
+    return stacks
+
+
 def _normalize_to_utc_iso(value: Optional[str]) -> Optional[str]:
     """Return `value` in `YYYY-MM-DDTHH:MM:SS...Z` form for browser parsing.
 
@@ -370,14 +430,21 @@ def _net_worth_for(
     *,
     receivables: Dict[str, int],
     outstanding: Dict[str, int],
+    staking_pnl: Dict[str, int],
     vice: Dict[str, int],
     side_hustle: Dict[str, int],
+    rake: Dict[str, int],
 ) -> Dict[str, int]:
-    """Build the net-worth column block for one row.
+    """Build the scoped column block for one row.
 
     `bare_id` keys the (global) stake aggregates (`staker_id` /
     `borrower_id` are bare slugs / player ids); `entity_id` keys the chip
     ledger aggregates (`ai:<slug>` / `player:<id>`).
+
+    `net_worth` = chips + receivable − outstanding. `staking_pnl` (realized
+    backing P&L), `vice_spent`, `side_hustle_earned`, and `rake_paid` are
+    informational history columns — already reflected in `chips`, not
+    re-added to net worth.
     """
     receivable = int(receivables.get(bare_id, 0))
     owed = int(outstanding.get(bare_id, 0))
@@ -385,8 +452,10 @@ def _net_worth_for(
         'receivable': receivable,
         'outstanding': owed,
         'net_worth': chips + receivable - owed,
+        'staking_pnl': int(staking_pnl.get(bare_id, 0)),
         'vice_spent': int(vice.get(entity_id, 0)),
         'side_hustle_earned': int(side_hustle.get(entity_id, 0)),
+        'rake_paid': int(rake.get(entity_id, 0)),
     }
 
 
@@ -396,8 +465,11 @@ def _collect_ai_rows(
     personality_repo,
     receivables: Dict[str, int],
     outstanding: Dict[str, int],
+    staking_pnl: Dict[str, int],
     vice: Dict[str, int],
     side_hustle: Dict[str, int],
+    rake: Dict[str, int],
+    seat_stacks: Dict[str, int],
     now: datetime,
     sandbox_id: Optional[str],
     scoped: bool,
@@ -462,6 +534,8 @@ def _collect_ai_rows(
 
         name = _resolve_personality_name(personality_repo, pid)
         entity_id = f'ai:{pid}'
+        seat = int(seat_stacks.get(entity_id, 0)) if scoped else 0
+        chips = projected + seat  # total controlled: off-table + in-play
         row = {
             'entity_id': entity_id,
             'kind': 'ai',
@@ -470,6 +544,8 @@ def _collect_ai_rows(
             'sandbox_id': sid or None,
             'stored_chips': stored,
             'projected_chips': projected,
+            'seat_chips': seat,
+            'chips': chips,
             'uncommitted_regen': projected - stored,
             'last_regen_tick': (
                 state.last_regen_tick.isoformat() if state and state.last_regen_tick else None
@@ -480,11 +556,13 @@ def _collect_ai_rows(
                 _net_worth_for(
                     entity_id,
                     pid,
-                    projected,
+                    chips,
                     receivables=receivables,
                     outstanding=outstanding,
+                    staking_pnl=staking_pnl,
                     vice=vice,
                     side_hustle=side_hustle,
+                    rake=rake,
                 )
             )
         rows.append(row)
@@ -496,8 +574,11 @@ def _collect_player_rows(
     user_repo,
     receivables: Dict[str, int],
     outstanding: Dict[str, int],
+    staking_pnl: Dict[str, int],
     vice: Dict[str, int],
     side_hustle: Dict[str, int],
+    rake: Dict[str, int],
+    seat_stacks: Dict[str, int],
     db_path: str,
     scoped: bool,
 ) -> List[Dict[str, Any]]:
@@ -521,6 +602,8 @@ def _collect_player_rows(
         user_name = _resolve_player_name(user_repo, player_id)
         name = user_name or player_id
         entity_id = f'player:{player_id}'
+        seat = int(seat_stacks.get(entity_id, 0)) if scoped else 0
+        total = chips + seat  # bankroll + in-play seat stack
         record = {
             'entity_id': entity_id,
             'kind': 'player',
@@ -529,6 +612,8 @@ def _collect_player_rows(
             'sandbox_id': None,
             'stored_chips': chips,
             'projected_chips': chips,
+            'seat_chips': seat,
+            'chips': total,
             'uncommitted_regen': 0,
             'last_regen_tick': None,
         }
@@ -537,11 +622,13 @@ def _collect_player_rows(
                 _net_worth_for(
                     entity_id,
                     player_id,
-                    chips,
+                    total,
                     receivables=receivables,
                     outstanding=outstanding,
+                    staking_pnl=staking_pnl,
                     vice=vice,
                     side_hustle=side_hustle,
+                    rake=rake,
                 )
             )
         out.append(record)
