@@ -608,26 +608,27 @@ def api_game_state(game_id):
                         suppress_for_casino = False
                         if is_cash_game:
                             # cash_table_id isn't in the saved game JSON, and
-                            # current_game_data is still None on this cold-load
-                            # path (it's built further down) — so read it from
-                            # the durable cash_sessions row (v108), the same
-                            # source the buy-in/seat restore below uses. A
-                            # lookup failure trips the fail-safe: suppress.
+                            # current_game_data isn't built yet at this point.
+                            # The durable cash_sessions row (v108) is the source
+                            # of truth — populated at sit-down by
+                            # cash_routes._record_cash_session_start. A failed
+                            # lookup leaves cash_table_id None, which falls
+                            # through to the fail-safe suppression below.
                             cash_table_id = None
                             try:
-                                from flask_app.extensions import cash_session_repo
-                                if cash_session_repo is not None:
-                                    _cs = cash_session_repo.load(game_id)
+                                from flask_app.extensions import cash_session_repo as _cash_session_repo
+                                if _cash_session_repo is not None:
+                                    _cs = _cash_session_repo.load(game_id)
                                     if _cs is not None:
                                         cash_table_id = _cs.cash_table_id
-                            except Exception as exc:
-                                suppress_for_casino = True
+                            except Exception as e:
                                 logger.warning(
-                                    "[LOAD] cash_sessions lookup failed for %s "
-                                    "during casino-suppression check: %s — "
-                                    "suppressing relationship writes (fail-safe).",
-                                    game_id, exc,
+                                    "[LOAD] cash_sessions lookup for relationship "
+                                    "suppression failed for %s: %s — suppressing "
+                                    "relationship writes (fail-safe).",
+                                    game_id, e,
                                 )
+                                suppress_for_casino = True
                             if cash_table_id:
                                 try:
                                     from flask_app.extensions import cash_table_repo as _cash_table_repo
@@ -1859,6 +1860,40 @@ def api_game_llm_configs(game_id):
 # SocketIO event handlers
 def register_socket_events(sio):
     """Register SocketIO event handlers for game events."""
+
+    @sio.on('connect')
+    def on_connect():
+        """Register cash presence + join the per-user lobby room.
+
+        Drives the realtime world ticker: a sandbox is ticked while the
+        owner has a live socket (lobby OR game page — both connect here).
+        Best-effort and non-fatal: anonymous/guest sockets or any
+        resolution failure just skip presence, leaving game sockets
+        working exactly as before. We never reject the connection.
+        """
+        try:
+            from flask_app.services import presence
+            from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+            from flask_app.extensions import sandbox_repo
+
+            user = auth_manager.get_current_user() if auth_manager else None
+            owner_id = user.get('id') if user else None
+            if not owner_id:
+                return  # unauthenticated socket — nothing to track
+            sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
+            presence.mark_active(owner_id, sandbox_id, request.sid)
+            join_room(presence.lobby_room_name(owner_id))
+        except Exception as e:
+            logger.debug(f"[SOCKET] connect presence skipped: {e}")
+
+    @sio.on('disconnect')
+    def on_disconnect():
+        """Drop the socket from cash presence (TTL grace handles gaps)."""
+        try:
+            from flask_app.services import presence
+            presence.mark_inactive(request.sid)
+        except Exception as e:
+            logger.debug(f"[SOCKET] disconnect presence skipped: {e}")
 
     @sio.on('join_game')
     @socket_rate_limit(max_calls=20, window_seconds=10)

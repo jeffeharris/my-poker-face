@@ -24,9 +24,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import { ChevronDown, Wallet } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
-import { getLobby, getState, sitAtTable } from './api';
+import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -38,8 +39,11 @@ import type {
   LobbyTable,
   StakableAiCandidate,
   StakeLabel,
+  WorldEvent,
+  WorldPace,
 } from './types';
 import { STAKES } from './types';
+import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import {
   CharacterDetailCard,
@@ -55,7 +59,18 @@ export interface AiSeatClick {
   identifier?: string;
 }
 
-const LOBBY_REFRESH_INTERVAL_MS = 8000;
+// Fallback poll. The realtime ticker pushes `lobby_tick` over the
+// socket as the primary driver now, so this only backstops a dropped
+// websocket — much slower than the old 8s read-driven cadence.
+const LOBBY_REFRESH_INTERVAL_MS = 25000;
+
+// Coalesce bursts of `lobby_tick` pushes into one refetch.
+const LOBBY_TICK_DEBOUNCE_MS = 400;
+
+// In dev, pin the socket to long-polling (matches useSocket.ts — the
+// Werkzeug + threading combo mis-negotiates the WS upgrade). Prod lets
+// socket.io negotiate normally behind Caddy + GeventWebSocketWorker.
+const SOCKET_TRANSPORTS = import.meta.env.PROD ? undefined : ['polling'];
 
 /** Mobile-first breakpoint. On widths at or below this, tier sections
  *  collapse by default so the player only sees one tier at a time;
@@ -80,6 +95,36 @@ function groupTablesByStake(tables: LobbyTable[]): Map<StakeLabel, LobbyTable[]>
   return grouped;
 }
 
+/** Cap on the rolling activity feed. The server snapshot is short (so the
+ *  payload stays small); the client accumulates beyond it so the user can
+ *  scroll back through more history than any single poll returns. */
+const MAX_FEED_EVENTS = 60;
+
+/** Stable identity for de-duping the feed. The player's own last-stand
+ *  line is re-synthesized with a fresh timestamp on every poll, so all of
+ *  its copies collapse onto one key — otherwise a standing self-warning
+ *  would pile up one row per poll. */
+function feedEventKey(e: LobbyEvent): string {
+  if (e.type === 'last_stand' && e.reason === 'self') return 'self:last_stand';
+  return `${e.created_at}|${e.type}|${e.personality_id}`;
+}
+
+/** Merge incoming events into the rolling feed: keep the newest copy of
+ *  each key, sort newest-first, cap the buffer. Accumulating (rather than
+ *  replacing with the server's short snapshot) is what lets the user
+ *  scroll back; the cap keeps the buffer from growing without bound. */
+function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent[] {
+  const byKey = new Map<string, LobbyEvent>();
+  for (const e of [...incoming, ...existing]) {
+    const k = feedEventKey(e);
+    const cur = byKey.get(k);
+    if (!cur || e.created_at > cur.created_at) byKey.set(k, e);
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, MAX_FEED_EVENTS);
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
@@ -96,6 +141,9 @@ export function Lobby() {
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
+  /** How fast the background world ticks. Null until the first lobby
+   *  load resolves the server-stored preference. */
+  const [worldPace, setWorldPaceState] = useState<WorldPace | null>(null);
   /** Tick incremented on every lobby reload so the IdleStakablePanel's
    *  useEffect re-fetches its own data in lockstep. The two endpoints
    *  return overlapping state (seated AIs disappear from stakable,
@@ -142,10 +190,11 @@ export function Lobby() {
   // lobby UI for users who are already in a game.
   //
   // Polling every 8s keeps the activity ticker + roster fresh.
-  // Important: the lobby read itself drives `refresh_unseated_tables`
-  // server-side, so polling is ALSO what keeps the world moving in
-  // v1.5 (there's no background daemon). Stop the poll when the
-  // component unmounts.
+  // The world now advances server-side in the realtime ticker; this
+  // read is a pure snapshot (it no longer drives `refresh_unseated_tables`
+  // when the ticker is enabled). The socket's `lobby_tick` is the primary
+  // refresh trigger — see the socket effect below — and this interval is
+  // just a slow fallback for a dropped websocket. Stop both on unmount.
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -156,8 +205,21 @@ export function Lobby() {
         if (cancelled) return;
         setBankroll(lobby.bankroll);
         setTables(lobby.tables);
-        setEvents(lobby.events ?? []);
+        // Merge into the rolling feed rather than replace, so history the
+        // server snapshot no longer carries stays scrollable. Drop any
+        // prior self last-stand line first so the poll snapshot stays
+        // authoritative for it (it clears when the condition lifts).
+        setEvents((prev) =>
+          mergeEvents(
+            prev.filter((e) => !(e.type === 'last_stand' && e.reason === 'self')),
+            lobby.events ?? [],
+          ),
+        );
         setPendingForgivenessCount(lobby.pending_forgiveness_count ?? 0);
+        // Adopt the server pace only on first load; once set, the local
+        // (optimistic) value wins so a refetch can't clobber a pace the
+        // user just changed. Single writer per sandbox makes this safe.
+        setWorldPaceState((cur) => cur ?? lobby.world_pace ?? 'lively');
         setStakablePanelTick((t) => t + 1);
       } catch (e) {
         if (cancelled) return;
@@ -190,6 +252,63 @@ export function Lobby() {
       if (interval !== null) clearInterval(interval);
     };
   }, [navigate]);
+
+  // Realtime push. The backend's `connect` handler joins this user's
+  // lobby room (auth comes from the session cookie via withCredentials),
+  // and the world ticker emits `lobby_tick` / `world_event` to it. We
+  // debounce-refetch on tick and merge pushed events into the feed for
+  // instant motion ahead of the refetch. No-op gracefully if the socket
+  // can't connect — the fallback poll above still refreshes.
+  useEffect(() => {
+    const socket = io(config.SOCKET_URL, {
+      withCredentials: true,
+      ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
+    });
+
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const onTick = () => {
+      if (debounce) return;
+      debounce = setTimeout(() => {
+        debounce = null;
+        void reloadLobbyRef.current();
+      }, LOBBY_TICK_DEBOUNCE_MS);
+    };
+    const onWorldEvent = (event: WorldEvent) => {
+      // Merge for immediate motion; the debounced refetch reconciles to
+      // server truth. Shared merge de-dupes on the natural key so a
+      // tick-refetch landing right after doesn't double-show.
+      setEvents((prev) => mergeEvents(prev, [event]));
+      // Future: curated "signal" toasts (whale arrived / on a heater /
+      // on tilt) hang off this same channel — see CASH_MODE_REALTIME_TICKER.md.
+    };
+
+    socket.on('lobby_tick', onTick);
+    socket.on('world_event', onWorldEvent);
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      socket.off('lobby_tick', onTick);
+      socket.off('world_event', onWorldEvent);
+      socket.disconnect();
+    };
+  }, []);
+
+  const handlePaceChange = useCallback(
+    async (pace: WorldPace) => {
+      const prev = worldPace;
+      setWorldPaceState(pace); // optimistic
+      try {
+        await setWorldPace(pace);
+      } catch (e) {
+        setWorldPaceState(prev); // revert on failure
+        logger.error(
+          'Failed to set world pace:',
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    },
+    [worldPace],
+  );
 
   const handleSeatTap = useCallback(
     async (table: LobbyTable, seatIndex: number) => {
@@ -296,6 +415,25 @@ export function Lobby() {
                 </span>
               )}
             </button>
+          </div>
+        )}
+
+        {worldPace !== null && (
+          <div className="cash-entry__pace">
+            <label htmlFor="world-pace" className="cash-entry__pace-label">
+              World pace
+            </label>
+            <select
+              id="world-pace"
+              className="cash-entry__pace-select"
+              value={worldPace}
+              onChange={(e) => handlePaceChange(e.target.value as WorldPace)}
+              title="How fast the other tables play while you're here"
+            >
+              <option value="subtle">Subtle</option>
+              <option value="lively">Lively</option>
+              <option value="bustling">Bustling</option>
+            </select>
           </div>
         )}
 

@@ -47,8 +47,9 @@ class TestCallType:
     def test_call_type_count(self):
         """Test we have the expected number of call types."""
         # This ensures we don't accidentally remove types.
-        # 19 includes VICE_NARRATION added by the vice-spending feature.
-        assert len(CallType) == 19
+        # 20 includes VICE_NARRATION (vice-spending) and
+        # SIDE_HUSTLE_NARRATION (side-hustle economy).
+        assert len(CallType) == 20
 
 
 class TestUsageTracker:

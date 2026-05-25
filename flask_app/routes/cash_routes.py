@@ -3979,28 +3979,41 @@ def get_lobby():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
-        chip_ledger_repo=chip_ledger_repo,
+        chip_ledger_repo=_chip_ledger_repo,
     )
 
-    # Read-side movement refresh on unseated tables. The handoff
-    # documents this as intentional: lazy cadence vs. background ticker.
-    try:
-        from flask_app.extensions import (
-            chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
-        )
-        refresh_unseated_tables(
-            cash_table_repo=cash_table_repo,
-            personality_repo=personality_repo,
-            bankroll_repo=bankroll_repo,
-            user_id=owner_id,
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-            relationship_repo=relationship_repo,
-            stake_repo=stake_repo,
-            vice_repo=vice_state_repo,
-        )
-    except Exception as e:
-        logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
+    # Mark this sandbox active so the realtime world ticker advances it.
+    # `touch` also keeps the world alive for an HTTP-only client whose
+    # websocket failed (it keeps polling → keeps touching).
+    from flask_app.services import presence
+    from flask_app.services.ticker_service import is_enabled as _ticker_enabled
+    presence.touch(owner_id, sandbox_id)
+
+    # World advancement. When the realtime ticker owns it, this read is
+    # PURE — calling refresh here too would double-advance the world
+    # (refresh_unseated_tables plays hands + rolls movement; it is not
+    # idempotent). When the ticker is disabled, fall back to the legacy
+    # read-driven refresh so the world still moves on read.
+    if not _ticker_enabled():
+        try:
+            from flask_app.extensions import (
+                chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
+                side_hustle_state_repo,
+            )
+            refresh_unseated_tables(
+                cash_table_repo=cash_table_repo,
+                personality_repo=personality_repo,
+                bankroll_repo=bankroll_repo,
+                user_id=owner_id,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                relationship_repo=relationship_repo,
+                stake_repo=stake_repo,
+                vice_repo=vice_state_repo,
+                side_hustle_repo=side_hustle_state_repo,
+            )
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
 
     # Build live-emotion map for AIs at the player's active cash table.
     # Other AIs (at tables without the player, or in the idle pool)
@@ -4294,18 +4307,92 @@ def get_lobby():
     except Exception as exc:
         logger.warning("[CASH][LOBBY] active_vices payload failed: %s", exc)
 
+    # Current world pace so the lobby can render the pace selector in the
+    # right state. Defaults gracefully if the prefs row is unset.
+    try:
+        from flask_app.extensions import user_prefs_repo
+        world_pace = user_prefs_repo.get_world_pace(owner_id)
+    except Exception:
+        world_pace = "lively"
+
+    # Send a deeper slice than the ~5 shown at once so a fresh load lands
+    # with real scroll-back history; the client merges these into its
+    # rolling feed (it accumulates further over the session). Bounded by
+    # the activity ring buffer's own cap.
+    events_payload = [
+        serialize_event(e)
+        for e in recent_events(limit=30, sandbox_id=sandbox_id)
+    ]
+
+    # The player's own last-stand line — bankroll is $0 and they have a
+    # stack in play, so their entire net worth is on a single table. The
+    # AI version of this signal is emitted into the ring buffer during the
+    # refresh, but the player's own table is never refreshed there (the
+    # human-seated table is skipped), so we synthesize the line here at
+    # response time. Recomputed each poll while the condition holds — a
+    # standing self-warning rather than a one-shot beat.
+    if bankroll.chips == 0 and active_game_id:
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            human_stack = 0
+            try:
+                sm = active_game.get("state_machine")
+                for p in sm.game_state.players:
+                    if p.is_human:
+                        human_stack = int(p.stack)
+                        break
+            except Exception:
+                human_stack = 0
+            stake_label = active_game.get("cash_stake_label") or ""
+            if human_stack > 0:
+                from cash_mode.activity import (
+                    EVENT_LAST_STAND,
+                    format_player_last_stand_message,
+                )
+                events_payload.insert(0, {
+                    "type": EVENT_LAST_STAND,
+                    "table_id": active_game.get("cash_table_id", ""),
+                    "stake_label": stake_label,
+                    "personality_id": owner_id,
+                    "name": "You",
+                    "reason": "self",
+                    "message": format_player_last_stand_message(stake_label),
+                    "created_at": datetime.utcnow().isoformat(),
+                })
+
     return jsonify({
         "bankroll": bankroll.chips,
         "tier": current_tier,
         "tier_stake_label": current_tier_stake,
         "tables": response_tables,
-        "events": [
-            serialize_event(e)
-            for e in recent_events(limit=5, sandbox_id=sandbox_id)
-        ],
+        "events": events_payload,
         "pending_forgiveness_count": pending_forgiveness_count,
         "active_vices": active_vices_payload,
+        "world_pace": world_pace,
     })
+
+
+@cash_bp.route("/api/cash/world-pace", methods=["PUT"])
+def set_world_pace():
+    """PUT /api/cash/world-pace — set how fast the background world ticks.
+
+    Body: `{"pace": "subtle" | "lively" | "bustling"}`. Persisted per
+    user; the realtime ticker reads it on the next cycle. Returns the
+    stored pace. 400 on an unknown value.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    data = request.get_json(silent=True) or {}
+    pace = data.get("pace")
+    from flask_app.extensions import user_prefs_repo
+    try:
+        user_prefs_repo.set_world_pace(owner_id, pace)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"world_pace": pace})
 
 
 @cash_bp.route("/api/cash/net-worth", methods=["GET"])

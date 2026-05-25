@@ -6,8 +6,16 @@ Three independent variables:
 
   - `REGEN_ENABLED`: the passive faucet. When False, `project_bankroll`
     returns stored chips verbatim — AIs no longer accrue chips while
-    idle. Pair with the staking/loan system as the AI recovery
-    mechanism, or keep regen on and balance it with rake.
+    idle. **Default False** as of CASH_MODE_SIDE_HUSTLE.md: passive regen
+    is retired in favour of the active side hustle (`SIDE_HUSTLE_ENABLED`),
+    where broke AIs go off-grid to earn a pool-funded lump. The
+    projection machinery is kept (flip back to True to A/B the old
+    passive faucet), but production runs with it off.
+
+  - `SIDE_HUSTLE_ENABLED`: the active faucet that replaces passive regen.
+    When True, broke AIs (those who can't afford to play) are sent to an
+    off-grid side hustle on lobby refresh and return with a lump drawn
+    from the bank pool. See `cash_mode/ai_side_hustle.py`.
 
   - `RAKE_ENABLED`: the table-side sink. When True, a fraction of every
     pot is destroyed (ledger reason `table_rake`, sink = central_bank)
@@ -36,7 +44,38 @@ from __future__ import annotations
 
 # --- Faucet ---------------------------------------------------------------
 
-REGEN_ENABLED: bool = True
+# Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side
+# hustle is the replacement faucet. Flip back to True only to A/B the old
+# passive-accrual behaviour; production runs with it off.
+REGEN_ENABLED: bool = False
+
+# The active faucet: broke AIs earn a pool-funded lump via an off-grid
+# side hustle (`cash_mode/ai_side_hustle.py`), gated at the lobby refresh.
+SIDE_HUSTLE_ENABLED: bool = True
+
+
+# --- Vice mode (mutually-exclusive 3-state toggle) ------------------------
+
+# Which vice mechanism (if any) drains rich AIs into the bank pool.
+# Exactly one of `VICE_MODES` — a single value, so the two mechanisms can
+# never both run (the double-drain bug) or silently both be off:
+#
+#   'real' — the live, LLM-narrated vice (`vice_spending`). Rich AIs go
+#            off-grid with character narration + one-shot psych recovery.
+#            Needs a vice_repo + an LLM call per fire → the production
+#            setting. See `cash_mode/ai_vice_spending.py`.
+#   'fake' — the LLM-free / psych-free stub (`bank_pool_deposit`) for
+#            sims + testbeds that can't afford an LLM call per tick. Same
+#            chip drain, no narration / off-grid / recovery. See
+#            `resolve_fake_vice_deposits` in `cash_mode/closed_economy.py`.
+#   'off'  — no vice; the pool is fed only by table rake (+ casino returns).
+#
+# `refresh_unseated_tables` reads this (overridable per-call via its
+# `vice_mode` kwarg); the sim forces 'fake' since real vice can't run
+# without an LLM. The real-vice *expiry* pass always runs regardless of
+# mode, so existing off-grid AIs still return when the mode is switched.
+VICE_MODE: str = 'real'
+VICE_MODES = ('real', 'fake', 'off')
 
 
 # --- Sink (table rake) ----------------------------------------------------

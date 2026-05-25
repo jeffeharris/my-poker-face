@@ -97,6 +97,12 @@ def create_app():
     from .services.game_state_service import start_cleanup_timer
     start_cleanup_timer()
 
+    # Start the realtime cash-mode world ticker (advances unseated tables
+    # for active sandboxes; pushes lobby_tick / world_event over socket).
+    # Idempotent across create_app() calls; no-op when disabled.
+    from .services.ticker_service import start_world_ticker
+    start_world_ticker(socketio)
+
     # Drop every in-flight cash session (memory + DB) and seed the
     # persistent lobby. `kill_all_cash_sessions` subsumes the old
     # `cleanup_orphan_cash_games`: in v1.5 the deploy that lands the

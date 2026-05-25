@@ -67,6 +67,22 @@ table on the next refresh tick): `bust` is the hand-level "they're
 out of chips" beat; `leave` is the "they walked away" beat. Both
 fire over the course of a single lobby read after a bust hand."""
 
+EVENT_LAST_STAND = "last_stand"
+"""An AI (or the player) has their entire net worth on a single table —
+reserve bankroll is $0, so the stack on the felt is literally all they
+have left. This is the only state in which busting their table stack
+*completely* crashes them out (any reserve at all and they'd just go idle
++ side-hustle back), which is exactly why it's the *predator* signal: it
+tells the player whose elimination is actually on the table right now so
+they can sit down and finish them. Distinct from `bust` (already out of
+chips this hand) and from the side hustle (an *idle* broke AI that left
+the felt to earn) — `last_stand` is the still-seated "last chips" beat.
+
+Emitted once per episode: re-entering the committed state after recovering
+(or after leaving and coming back) re-triggers it, but a steady committed
+seat doesn't re-flood the ticker every refresh. `reason` is `''` for AIs
+and `'self'` for the player's own line."""
+
 EVENT_AI_STAKE = "ai_stake"
 """An AI staked another AI. Phase 4 of the backing system. Surfaces
 the AI economy as visible drama in the lobby ticker — "Bezos staked
@@ -128,6 +144,19 @@ psych-recovery side effect has already run. `message` is a short
 return phrase ("{name} is back"); the original narration isn't
 re-rendered (the player saw it on the start event). `reason` is
 the duration_bucket that just finished."""
+
+EVENT_HUSTLE_START = "hustle_start"
+"""A broke AI went off-grid to a side hustle (the mirror of vice).
+Carries the narration ("Napoleon is flipping a small business...") as
+`message` and the duration bucket as `reason`. `stake_label` is empty —
+the hustle is a between-tables activity. Frontend renders the same
+dimmed "Away" state as vice. See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`."""
+
+EVENT_HUSTLE_END = "hustle_end"
+"""An AI's side hustle expired; they're back with a pool-funded lump
+(or empty-handed if the pool was dry). `message` is a short return
+phrase ("{name} is back with $X" / "{name} is back"); `reason` is the
+duration_bucket that just finished. Mirror of EVENT_VICE_END."""
 
 
 @dataclass(frozen=True)
@@ -273,6 +302,21 @@ def format_bust_message(name: str, stake_label: str) -> str:
     return f"{name} busted out at {stake_label}"
 
 
+def format_last_stand_message(name: str, stake_label: str) -> str:
+    """Phrasing for an AI's last-stand event — their whole bankroll is
+    now on the table. Framed so the player reads it as an opening: a
+    seat worth targeting because the occupant has nothing left to fall
+    back on."""
+    return f"{name} has their whole bankroll on the {stake_label} table"
+
+
+def format_player_last_stand_message(stake_label: str) -> str:
+    """Phrasing for the player's own last-stand line — a self-warning
+    that they're playing without a reserve. Second-person so it reads
+    as a heads-up, not a spectator beat."""
+    return f"Your whole bankroll is on the {stake_label} table"
+
+
 def format_ai_stake_message(
     staker_name: str, borrower_name: str, stake_label: str, principal: int,
 ) -> str:
@@ -386,6 +430,35 @@ def format_vice_end_message(name: str) -> str:
     a wall of vice-end events after a long session. The drama was at
     the start; the end is just a status flip.
     """
+    return f"{name} is back"
+
+
+def format_hustle_start_message(name: str, narration: str) -> str:
+    """The narration leads the start message; ensure the name is in it.
+
+    Identical defensive shape to `format_vice_start_message` — the LLM is
+    asked to lead with the character's name, but models occasionally drop
+    it, leaving the ticker reading as an unattributed quote. Prepend
+    `{name} — ` when the narration doesn't already lead with the name.
+    """
+    narration = narration.strip()
+    if not narration:
+        return f"{name} stepped out to earn"
+    if narration.lower().startswith(name.lower()):
+        return narration
+    return f"{name} — {narration}"
+
+
+def format_hustle_end_message(name: str, paid_amount: int = 0) -> str:
+    """Short return phrase. The full narration already showed at start.
+
+    Surfaces the payout when the pool funded one ("{name} is back with
+    $X"); falls back to the terse vice-style phrasing when the hustle
+    returned empty-handed (pool was dry), since "back with $0" reads as a
+    bug rather than a beat.
+    """
+    if paid_amount > 0:
+        return f"{name} is back with ${paid_amount:,}"
     return f"{name} is back"
 
 
