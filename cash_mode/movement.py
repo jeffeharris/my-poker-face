@@ -235,6 +235,32 @@ def _coerce_fish_movement(
     return decision
 
 
+def _coerce_predator_retention(
+    decision: MovementDecision,
+    table_has_fish: bool,
+) -> MovementDecision:
+    """Keep a grinder seated while there's a fish to farm (the predator
+    side of table attractiveness).
+
+    A grinder up enough to book the win (`stake_up`) or drifting off out
+    of boredom (`bored_move`) would normally leave — but a table holding a
+    seated fish is a feeding ground, and a predator that walks away from
+    it leaves money on the felt. Suppress those *discretionary* exits so
+    predators stay and farm. This is what staffs a high-stakes casino:
+    without it, rich AIs win a pot off the fish and immediately leave
+    (the $200 table sat half-empty in sim).
+
+    `take_break` (tired) and `forced_leave` (bust) still stand, so a
+    predator that's losing or worn out still rotates out — the fish's
+    pool-funded chips redistribute across predators over time rather than
+    piling into one permanent stack. Short/losing predators are
+    unaffected here (their exits are `short`-driven, not stake_up/bored).
+    """
+    if table_has_fish and decision in ("stake_up", "bored_move"):
+        return "stay"
+    return decision
+
+
 def resolve_dominant_signal(
     ctx: MovementContext,
     decision: MovementDecision,
@@ -803,6 +829,14 @@ def refresh_table_roster(
         if s.get("kind") == "ai" and s.get("personality_id")
     ]
 
+    # Is there a fish to farm at this table? Drives predator retention:
+    # grinders stay to feast instead of booking the win and leaving.
+    # Fish are casino-only, so this is non-trivial only at casinos.
+    table_has_fish = any(
+        s.get("kind") == "ai" and s.get("archetype") == "fish"
+        for s in new_seats
+    )
+
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
         if slot["kind"] != "ai":
@@ -837,6 +871,11 @@ def refresh_table_roster(
         # unless they tilt and storm off. See `_coerce_fish_movement`.
         if is_fish:
             decision = _coerce_fish_movement(decision, ctx, rng)
+        else:
+            # Predator retention: grinders stay to farm a seated fish
+            # rather than booking the win and leaving (the pull that
+            # staffs high-stakes casinos). See `_coerce_predator_retention`.
+            decision = _coerce_predator_retention(decision, table_has_fish)
         # Stamp the dominant pressure signal so the lobby's activity
         # emitter can build narrative hints for leave_narrative without
         # rerunning the pressure compute (or worse, re-querying psych).

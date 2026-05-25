@@ -28,6 +28,7 @@ from cash_mode.movement import (
     FORCED_LEAVE_RATIO,
     LEAVE_K,
     _coerce_fish_movement,
+    _coerce_predator_retention,
     MIN_COOLDOWN_SECONDS,
     MovementContext,
     RebuyChange,
@@ -455,6 +456,31 @@ class TestRefreshFishAreCasinoBound:
         assert seat0["kind"] == "ai"
         assert seat0["personality_id"] == "vacation_greg"
         assert seat0.get("archetype") == "fish"
+
+
+class TestCoercePredatorRetention:
+    """Grinders stay to farm a seated fish; rotation exits still stand."""
+
+    def test_stake_up_suppressed_at_fish_table(self):
+        assert _coerce_predator_retention("stake_up", True) == "stay"
+
+    def test_bored_move_suppressed_at_fish_table(self):
+        assert _coerce_predator_retention("bored_move", True) == "stay"
+
+    def test_take_break_still_rotates_out(self):
+        # Tired predators still leave — keeps the fish's chips redistributing.
+        assert _coerce_predator_retention("take_break", True) == "take_break"
+
+    def test_forced_leave_still_busts(self):
+        assert _coerce_predator_retention("forced_leave", True) == "forced_leave"
+
+    def test_stay_unchanged(self):
+        assert _coerce_predator_retention("stay", True) == "stay"
+
+    def test_no_retention_without_fish(self):
+        # No fish to farm → normal movement, predators free to move on.
+        assert _coerce_predator_retention("stake_up", False) == "stake_up"
+        assert _coerce_predator_retention("bored_move", False) == "bored_move"
 
 
 class TestCoerceFishMovement:

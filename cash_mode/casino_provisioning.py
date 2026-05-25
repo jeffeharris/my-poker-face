@@ -63,6 +63,12 @@ logger = logging.getLogger(__name__)
 CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
     '$2': 5_000,
     '$10': 50_000,
+    # EXPERIMENT (uncommitted): a high-stakes casino. Fish bleed scales
+    # with the big blind, so a $200 table should move ~20x the $10 rate.
+    # Threshold covers ~2 fish prefund (2.5-3.6x the 20k max buy-in ≈
+    # 100-145k) plus buffer. Predators are rich AIs seating by
+    # affordability (15 can cover the 8k min buy-in), not hungry grinders.
+    '$200': 250_000,
 }
 
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
