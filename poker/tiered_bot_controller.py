@@ -773,7 +773,10 @@ class TieredBotController(AIPlayerController):
         )
         if active_count > 2:
             base_strategy = apply_multiway_adjustment(
-                base_strategy, active_count, node.position
+                base_strategy, active_count, node.position,
+                # §13 value exemption: don't suppress value-hand aggression in
+                # multiway (you value-bet the nuts into a field). Pure on node.
+                hand_class=self._classify_postflop_hand_strength(node),
             )
             if self.debug_logging:
                 logger.info(

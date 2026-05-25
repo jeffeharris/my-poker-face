@@ -525,4 +525,59 @@ hands get checked 60%+ even when hero is *not* the prior-street aggressor).
 **Next lever:** value-bet floor — hand-class-gated bet floor for unopened
 {nuts, strong_made} (and thin medium on the river vs stations), tested on Jeff.
 
+## 13. Value-bet floor — the win (2026-05-25, commit `0a81f1a8`)
+
+`poker/strategy/value_bet_floor.py` (betting mirror of defense_floor): unopened
++ hand_class ∈ {nuts, strong_made} → pump bet mass to a floor (0.85 / 0.70),
+reusing `_pump_bet`. Flag `enable_value_bet_floor` (default OFF); harness modes
+`vbf` / `vbfon`. Hand-class gated, so it catches the broad population H1's
+prev-aggressor gate misses.
+
+**Result (3000 × seeds 42/142/242, paired) — improves on EVERY eval, all seeds +:**
+
+| Eval | baseline OFF | value-bet floor | Δ bb/100 | per-seed |
+|---|---|---|---|---|
+| **Jeff_clone** | −9.6 | **−2.6** | **+7.0** | +7.9 / +11.9 / +1.2 |
+| **MIX** | −106.2 | **−93.6** | **+12.6** | +13.2 / +12.9 / +11.6 |
+| **GTO-Lite** | −78.9 | **−52.1** | **+26.8** | +40.3 / +23.9 / +16.4 |
+
+unopened nuts 41→56% / strong_made 37→57%; AggFactor (Jeff) 0.208→0.288. For
+contrast: H1 +0.9, H2 −0.4. **The dominant leak was the chart under-betting
+made value, not multi-street planning.** No multiway-over-aggression regression
+— the floor pumps only *value* classes; value-betting into a field is fine
+(only *bluffing* into fields failed earlier).
+
+**Decision: SHIP.** Per the floor→measure→bake plan, the measured EV is
+decisive and robust. Note: realized nuts only reached 56% (target 0.85) because
+`_pump_bet` only lifts nodes that already have a bet key; pure-check chart
+entries stay check (bet-key injection deferred).
+
+## 14. The bake — root cause was MULTIWAY, not the chart (2026-05-25)
+
+Inspecting the chart before baking overturned the §13 framing: the chart's raw
+unopened value-betting is **fine** — nuts bet 0.75 (turn) / 0.85 (river),
+strong_made 0.66 / 0.74. The leak finder's "chart" reference was *post-multiway*
+and ~half the Jeff pots are 3–4 way, so the low realized aggression was
+**`multiway.py` suppressing value hands**, not a passive chart. Confirmed
+directly: a turn-nuts node bets 0.75 HU but multiway scales it to **0.32 in a
+6-way pot (checks the nuts 68%)**. And the value-bet floor's biggest gains were
+vs the *most-multiway* rosters (GTO 78% 6-way → +26.8), i.e. its win came from
+overriding multiway's value-suppression.
+
+**So the faithful bake target is `multiway.py`, not the chart** — and a
+pre-multiway chart edit wouldn't even work (multiway would re-suppress it). Fix:
+a **value-class exemption** in `apply_multiway_adjustment` — `nuts`/`strong_made`
+(`VALUE_CLASSES`) skip suppression entirely; bluffs/marginal still get
+suppressed (that part was always correct). The controller passes
+`hand_class=_classify_postflop_hand_strength(node)` to the multiway call.
+Backward-compatible (`hand_class=None` = legacy); unit-tested
+(`test_multiway.py::TestValueExemption`).
+
+This is the principled root fix: value-betting knowledge lives in the multiway
+layer (the situation policy), composes correctly with field size, and makes the
+`value_bet_floor` override redundant. **Status: EV validation in flight**
+(mode-off-with-fix vs jeff/gto/mix, comparing to the floor's −2.6/−52.1/−93.6);
+**if it reproduces, `value_bet_floor` retires.** Until then the override stays
+in place but flag-default-OFF (dormant; no double-apply).
+
 
