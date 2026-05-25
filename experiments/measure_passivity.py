@@ -225,19 +225,19 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
         into.sig_chart_agg_sum[sig] += v
 
 
-MODES = ('off', 'h1', 'h2', 'on', 'vbf', 'vbfon')
+MODES = ('off', 'h1', 'h2', 'on')
 
 
 def _apply_mode(controller, mode: str):
-    """Set the A/B arm on the hero controller.
+    """Set the multi-street-context A/B arm on the hero controller.
 
-    'off' = current behavior. h1/h2/on = multi-street layer arms. vbf =
-    value-bet floor only. vbfon = value-bet floor + full multi-street layer.
+    'off' = current behavior. h1/h2/on = multi-street layer arms.
+    (The value-bet-floor 'vbf' modes were retired — its win was baked into
+    multiway.py's VALUE_CLASSES exemption; see STRUCTURAL_PASSIVITY_PLAN §14.)
     """
-    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on', 'vbfon')
-    controller.multistreet_h1_barrel = mode in ('h1', 'on', 'vbfon')
-    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on', 'vbfon')
-    controller.enable_value_bet_floor = mode in ('vbf', 'vbfon')
+    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on')
+    controller.multistreet_h1_barrel = mode in ('h1', 'on')
+    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
 def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
