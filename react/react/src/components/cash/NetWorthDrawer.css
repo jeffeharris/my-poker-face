@@ -6,10 +6,21 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
   z-index: 1000;
+  /* Outer container owns the scroll. A taller-than-viewport sheet
+     can't reliably scroll its own `overflow-y: auto` when it's
+     `align-items: center`'d in a flex parent on iOS Safari — the
+     sheet's top edge ends up above the visible area and the header
+     (close button) and submit button become unreachable. Scrolling
+     the overlay instead lets the whole sheet scroll top-to-bottom
+     when it's too tall. See CashOutSummary.css for the same idiom. */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top, 0px))
+           16px
+           max(16px, env(safe-area-inset-bottom, 0px));
   animation: net-worth-drawer-fade-in 0.18s ease-out;
 }
 
@@ -24,8 +35,12 @@
   border-radius: 16px;
   max-width: 540px;
   width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
+  /* `margin: auto` centers the sheet when it fits; when it's taller
+     than the viewport the overlay's `overflow-y: auto` takes over so
+     the user can scroll to the header and submit button. Replaces the
+     old `max-height: 90vh; overflow-y: auto`, which clipped both ends
+     on short/mobile viewports. */
+  margin: auto;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.08);
   animation: net-worth-drawer-slide-up 0.24s ease-out;
