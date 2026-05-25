@@ -944,15 +944,18 @@ class AITournamentRunner:
                 from poker.tiered_bot_controller import TieredBotController
                 from poker.strategy.strategy_table import (
                     load_strategy_table, load_hu_strategy_table,
+                    load_depth_strategy_tables,
                 )
 
                 strategy_table = load_strategy_table()
                 hu_strategy_table = load_hu_strategy_table()
+                depth_strategy_tables = load_depth_strategy_tables()
                 controller = TieredBotController(
                     player_name=player.name,
                     state_machine=state_machine,
                     strategy_table=strategy_table,
                     hu_strategy_table=hu_strategy_table,
+                    depth_strategy_tables=depth_strategy_tables,
                     llm_config=player_llm_config,
                     game_id=tournament_id,
                     owner_id=self._owner_id,

@@ -20,7 +20,7 @@ from .controllers import AIPlayerController, _get_canonical_hand
 from .card_utils import card_to_string
 from .bounded_options import get_emotional_shift
 from .strategy.nodes import PreflopNode
-from .strategy.strategy_table import StrategyTable
+from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
 from .strategy.preflop_classifier import build_preflop_node, get_6max_position
 from .strategy.postflop_classifier import build_postflop_node
 from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
@@ -213,6 +213,7 @@ class TieredBotController(AIPlayerController):
         skip_personality_distortion: bool = False,
         expression_generator: Optional[ExpressionGenerator] = None,
         hu_strategy_table: Optional[StrategyTable] = None,
+        depth_strategy_tables: Optional[Dict[int, StrategyTable]] = None,
         **kwargs,
     ):
         super().__init__(
@@ -223,6 +224,10 @@ class TieredBotController(AIPlayerController):
         )
         self.strategy_table = strategy_table
         self.hu_strategy_table = hu_strategy_table
+        # Shallow 6-max preflop charts keyed by depth bucket (e.g. {50:.., 25:..}).
+        # Empty dict → no depth adjustment (the base table is used at every
+        # depth, the pre-depth-aware behavior). See _select_preflop_table.
+        self.depth_strategy_tables: Dict[int, StrategyTable] = depth_strategy_tables or {}
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
         # Competitive feel: bet sizing jitter band. When > 0, the action
@@ -521,17 +526,19 @@ class TieredBotController(AIPlayerController):
         # seated count (not non-folded count) so 6-max spots that collapse to
         # 2 players after folds still use the 6-max chart.
         num_seated = len(game_state.players)
-        preflop_table = (
-            self.hu_strategy_table
-            if num_seated == 2 and self.hu_strategy_table is not None
-            else self.strategy_table
+        # Depth-aware: pick the 6-max chart calibrated for the effective
+        # stack (100/50/25bb). Computed here (not just at the short_stack
+        # step below) because the base ranges themselves are depth-dependent.
+        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        preflop_table, chart_label = self._select_preflop_table(
+            num_seated, effective_stack_bb
         )
 
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
                 f"hand={canonical_hand} node_key={node.key} "
-                f"chart={'HU' if preflop_table is self.hu_strategy_table else '6max'}"
+                f"chart={chart_label} eff_bb={effective_stack_bb:.1f}"
             )
 
         # Layer 1: Lookup base strategy. Short-stack HU spots bypass the
@@ -630,7 +637,7 @@ class TieredBotController(AIPlayerController):
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
         # of medium-raise probability mass below 20 BB effective stack.
         # Independent of opponent type — always fires when stack is short.
-        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        # (effective_stack_bb already computed above for chart selection.)
         # Snapshot for Mode 1 replay.
         self._last_pipeline_snapshot['effective_stack_bb'] = effective_stack_bb
         modified_strategy, short_stack_trace = apply_short_stack_heuristics(
@@ -1780,6 +1787,28 @@ class TieredBotController(AIPlayerController):
     def _compute_effective_stack_bb(self, game_state, player_idx):
         """Effective stack in big blinds — delegates to `stack_utils`."""
         return effective_stack_bb(game_state, game_state.players[player_idx])
+
+    def _select_preflop_table(self, num_seated, effective_stack_bb):
+        """Pick the preflop chart for this spot. Returns (table, label).
+
+        - 2-handed: the HU chart (depth selection is 6-max-only for now —
+          the HU chart has no shallow variants, and short stacks there are
+          covered by the push/fold chart at the lookup step).
+        - 6-max/multiway: the shallow depth chart nearest the effective
+          stack (50/25bb) when available, else the 100bb base table. With no
+          depth tables loaded this is always the base table — the original,
+          depth-agnostic behavior.
+        """
+        if num_seated == 2 and self.hu_strategy_table is not None:
+            return self.hu_strategy_table, 'HU'
+        # getattr default keeps controllers built by bypassing __init__
+        # (test fixtures, factories) working with no depth adjustment.
+        depth_tables = getattr(self, 'depth_strategy_tables', None) or {}
+        if not depth_tables:
+            return self.strategy_table, '6max'
+        bucket = nearest_depth_bucket(effective_stack_bb)
+        table = depth_tables.get(bucket, self.strategy_table)
+        return table, f'6max@{bucket}bb'
 
     def _classify_postflop_hand_strength(self, node):
         """Map PostflopNode → simplified hand class string ('nuts',
@@ -3341,6 +3370,7 @@ class BaselineSolverBot(TieredBotController):
         debug_logging: bool = False,
         rng_seed=None,
         hu_strategy_table: Optional[StrategyTable] = None,
+        depth_strategy_tables: Optional[Dict[int, StrategyTable]] = None,
         **kwargs,
     ):
         kwargs.pop('skip_personality_distortion', None)
@@ -3353,5 +3383,6 @@ class BaselineSolverBot(TieredBotController):
             rng_seed=rng_seed,
             skip_personality_distortion=True,
             hu_strategy_table=hu_strategy_table,
+            depth_strategy_tables=depth_strategy_tables,
             **kwargs,
         )

@@ -214,3 +214,35 @@ current behavior is *zero adjustment*, even a **coarse hand-authored depth chart
 should recover most of the −18 to −22** (the cheap 100bb→fix pattern); a 25–50bb
 **solve** is the principled ceiling, justified only if the hand-authored pass
 stalls. <15bb push/fold remains low priority (15bb already ~break-even).
+
+### SHIPPED (2026-05-25): hand-authored depth charts — the cheap fix works
+
+Built `poker/strategy/data/generate_depth_charts.py` → `preflop_50bb_6max.json`
+and `preflop_25bb_6max.json`, derived from the 100bb chart by the rule **"flat
+less, jam/polarize more as stacks shorten"** (spec: `depth_charts_README.md`).
+Selection is depth-bucketed by effective stack (100/50/25bb,
+`nearest_depth_bucket`, mirroring `push_fold`) in the 6-max preflop branch of
+`tiered_bot_controller.py`; wired through all three construction sites
+(sim `make_controller`, `run_ai_tournament`, `tiered_factory`). Default-on
+wherever the chart files exist; `{}` → the old depth-agnostic behavior.
+
+Measured (Baseline vs Jeff_clone, 3000h × seeds 42/142/242):
+
+| Depth | Before | After | Δ |
+|---|---|---|---|
+| 25bb | −21.8 | **−8.0** | **+13.8** |
+| 50bb | −18.8 | **−14.0** | **+4.8** |
+| 100bb | −4.2 | −4.2 | 0 (base table untouched — exact match) |
+
+**The diagnosis held: a coarse depth chart recovered most of the 25bb leak.**
+25bb wins big because jam-or-fold polarization removes the awkward low-SPR
+postflop spots entirely. **50bb's residual is now isolated as postflop-bound:**
+an aggressive 50bb preflop variant moved bb/100 by ~0 (−14.0 → −13.8, noise) —
+50bb still sees flatted/3-bet flops and plays them passive (AggFactor 0.16 vs
+0.27 at 100bb). So the **next lever is low-SPR postflop commit logic**, not more
+preflop polarization, and a 25–50bb *solve* is still not justified. Poker
+correctness notes: jam ranges are **value-gated** (no bluff-jams — Jeff_clone is
+a station, fold-to-cbet ≈0.45, so bluff-shoves are −EV); `vs_open` gates on
+raise-dominance (not committed facing one raise), `vs_3bet` on fold-frequency
+(committed shallow). Tests: `tests/test_strategy/test_depth_charts.py` (17);
+full `test_strategy/` green (1230).
