@@ -162,6 +162,17 @@ class PassivityStats:
     sig_action: Dict[tuple, Counter] = field(default_factory=lambda: defaultdict(Counter))
     sig_chart_agg_sum: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
 
+    # Preflop instrumentation — the 100bb-ranges-at-short-stacks leak is likely
+    # mostly preflop (ranges too loose, raises too small, missed jams), which
+    # the postflop surface can't see. Captures the hero's preflop decisions by
+    # scenario (rfi/vs_open/vs_3bet/vs_4bet) so VPIP/PFR/jam%/avg-open-size are
+    # readable and comparable across stack depths.
+    pf_decisions: int = 0
+    pf_action: Counter = field(default_factory=Counter)             # overall fold/check/call/raise/all_in
+    pf_scenario_action: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    pf_raise_to_bb_sum: float = 0.0   # sum of resolved raise-to (in BB) for raises (excl all_in)
+    pf_raise_n: int = 0               # count of raises (excl all_in) — for avg open size
+
     def record_decision(self, node_key: str, action: str,
                         opp_bet_flop: bool, opp_bet_prev: bool, street: str):
         """Record one hero postflop decision keyed by its node context."""
@@ -223,6 +234,12 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
         into.sig_action[sig].update(c)
     for sig, v in src.sig_chart_agg_sum.items():
         into.sig_chart_agg_sum[sig] += v
+    into.pf_decisions += src.pf_decisions
+    into.pf_action.update(src.pf_action)
+    for sc, c in src.pf_scenario_action.items():
+        into.pf_scenario_action[sc].update(c)
+    into.pf_raise_to_bb_sum += src.pf_raise_to_bb_sum
+    into.pf_raise_n += src.pf_raise_n
 
 
 MODES = ('off', 'h1', 'h2', 'on')
@@ -300,6 +317,20 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
         decision = controller.decide_action()
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
+
+        # ── Instrument the hero's preflop decision ──────────────────────────
+        # Bucket by scenario from raises_this_round (0=rfi, 1=vs_open,
+        # 2=vs_3bet, 3+=vs_4bet) so VPIP/PFR/jam%/avg-open-size are readable
+        # and comparable across stack depths (the short-stack range leak).
+        if is_hero and phase_name == 'PRE_FLOP':
+            raises = getattr(gs, 'raises_this_round', 0)
+            scenario = {0: 'rfi', 1: 'vs_open', 2: 'vs_3bet'}.get(raises, 'vs_4bet')
+            stats.pf_decisions += 1
+            stats.pf_action[action] += 1
+            stats.pf_scenario_action[scenario][action] += 1
+            if action == 'raise':
+                stats.pf_raise_to_bb_sum += raise_to / 100.0  # big_blind=100 in sim
+                stats.pf_raise_n += 1
 
         # ── Instrument the hero's postflop decision ─────────────────────────
         if is_hero and phase_name in _POSTFLOP_STREETS:
@@ -519,6 +550,34 @@ def _fmt_ctx(label: str, counter: Counter) -> str:
             f"RAISE {raise_pct:4.0f}%")
 
 
+def print_preflop(stats: PassivityStats):
+    """Preflop summary: VPIP/PFR/jam%/avg-open-size overall + by scenario.
+
+    The short-stack range leak surfaces here: does the bot tighten / jam more
+    as stacks shorten, or play the same 100bb ranges at 25bb? (It uses one
+    depth-agnostic preflop chart, so the expectation is little/no adjustment.)
+    """
+    n = stats.pf_decisions
+    if not n:
+        return
+    a = stats.pf_action
+    vpip = 100.0 * (a['call'] + a['raise'] + a['all_in']) / n
+    pfr = 100.0 * (a['raise'] + a['all_in']) / n
+    jam = 100.0 * a['all_in'] / n
+    avg_open = stats.pf_raise_to_bb_sum / stats.pf_raise_n if stats.pf_raise_n else 0.0
+    print("\n── PREFLOP (the short-stack range leak shows here) ──")
+    print(f"  decisions {n} | VPIP {vpip:.0f}% | PFR {pfr:.0f}% | jam {jam:.1f}% | "
+          f"avg raise-to {avg_open:.1f}bb")
+    print(f"  {'scenario':<10} {'n':>5}  {'fold':>4} {'call':>4} {'raise':>5} {'jam':>4}")
+    for sc in ('rfi', 'vs_open', 'vs_3bet', 'vs_4bet'):
+        c = stats.pf_scenario_action.get(sc)
+        if not c:
+            continue
+        sn = sum(c.values())
+        print(f"  {sc:<10} {sn:>5}  {_pct(c,'fold'):>4.0f} {_pct(c,'call'):>4.0f} "
+              f"{_pct(c,'raise'):>5.0f} {_pct(c,'all_in'):>4.0f}")
+
+
 def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
     """Per-signature leak surface: where realized aggression diverges most
     from the chart's intent, ranked by |gap| × volume.
@@ -573,6 +632,8 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     pac_desc = ', '.join(f"{k}p={v}" for k, v in sorted(pac.items()))
     print(f"\n  Field size @ postflop decisions: [{pac_desc}]")
     print(f"    → HU (2p): {hu_pct:.0f}%  (Track 1 target: ↑ = more initiative spots)")
+
+    print_preflop(stats)
 
     print("\n── PER-CONTEXT ACTION SPLIT ──")
     for ctx in ('unopened', 'facing_bet', 'facing_raise'):
