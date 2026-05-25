@@ -78,6 +78,20 @@ REBUY_BASE_WEIGHTS = {"min": 40.0, "mid": 40.0, "max": 20.0}
 # needle / cooler / berate it and it leaves. Tunable.
 FISH_TILT_LEAVE_THRESHOLD = 0.5
 
+# Predator retention is gated on energy: a grinder farms a fish table
+# until it's worn down to this floor, then it's released to cycle out
+# (its winnings redistribute as a fresh predator takes the seat). Without
+# the floor a winning predator — never short, with stake_up/bored_move
+# suppressed — would hoard the table forever (sim showed one stack run to
+# ~94k). Approximates "casinos drain energy faster, cycling people
+# through" without threading table type into the psychology system.
+#
+# Tuned low — release only when genuinely worn down. At 0.35 it cycled
+# predators so eagerly the high tables under-staffed and farmed less
+# (sim: $200 fell to 1 grinder, fish stopped bleeding). 0.2 keeps
+# predators farming while still rotating the most-tenured eventually.
+CASINO_PREDATOR_FATIGUE_FLOOR = 0.2
+
 # Minimum cooldown seconds between an AI leaving a table and being
 # eligible to refill the same table. The pressure-derived variable
 # extension on top of this is computed at leave time.
@@ -238,9 +252,10 @@ def _coerce_fish_movement(
 def _coerce_predator_retention(
     decision: MovementDecision,
     table_has_fish: bool,
+    energy: float,
 ) -> MovementDecision:
     """Keep a grinder seated while there's a fish to farm (the predator
-    side of table attractiveness).
+    side of table attractiveness) — until it tires and cycles out.
 
     A grinder up enough to book the win (`stake_up`) or drifting off out
     of boredom (`bored_move`) would normally leave — but a table holding a
@@ -250,13 +265,18 @@ def _coerce_predator_retention(
     without it, rich AIs win a pot off the fish and immediately leave
     (the $200 table sat half-empty in sim).
 
-    `take_break` (tired) and `forced_leave` (bust) still stand, so a
-    predator that's losing or worn out still rotates out — the fish's
-    pool-funded chips redistribute across predators over time rather than
-    piling into one permanent stack. Short/losing predators are
-    unaffected here (their exits are `short`-driven, not stake_up/bored).
+    Retention is gated on energy: once a predator is worn down past
+    `CASINO_PREDATOR_FATIGUE_FLOOR` it's released (its discretionary exits
+    stand) so it cycles out and a fresh predator takes the seat — the
+    fish's pool-funded chips redistribute across predators rather than
+    piling into one permanent stack. `take_break`/`forced_leave` always
+    stand, so losing/short predators rotate regardless.
     """
-    if table_has_fish and decision in ("stake_up", "bored_move"):
+    if not table_has_fish:
+        return decision
+    if energy < CASINO_PREDATOR_FATIGUE_FLOOR:
+        return decision  # worn down — let it cycle out
+    if decision in ("stake_up", "bored_move"):
         return "stay"
     return decision
 
@@ -874,8 +894,9 @@ def refresh_table_roster(
         else:
             # Predator retention: grinders stay to farm a seated fish
             # rather than booking the win and leaving (the pull that
-            # staffs high-stakes casinos). See `_coerce_predator_retention`.
-            decision = _coerce_predator_retention(decision, table_has_fish)
+            # staffs high-stakes casinos), until they tire and cycle out.
+            # See `_coerce_predator_retention`.
+            decision = _coerce_predator_retention(decision, table_has_fish, ctx.energy)
         # Stamp the dominant pressure signal so the lobby's activity
         # emitter can build narrative hints for leave_narrative without
         # rerunning the pressure compute (or worse, re-querying psych).

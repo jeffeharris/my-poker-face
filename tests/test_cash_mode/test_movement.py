@@ -459,28 +459,44 @@ class TestRefreshFishAreCasinoBound:
 
 
 class TestCoercePredatorRetention:
-    """Grinders stay to farm a seated fish; rotation exits still stand."""
+    """Grinders stay to farm a seated fish until they tire; rotation
+    exits (take_break/bust) and tired predators still leave."""
+
+    FRESH = 0.8   # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
+    TIRED = 0.1   # energy < floor → released to cycle out
 
     def test_stake_up_suppressed_at_fish_table(self):
-        assert _coerce_predator_retention("stake_up", True) == "stay"
+        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stay"
 
     def test_bored_move_suppressed_at_fish_table(self):
-        assert _coerce_predator_retention("bored_move", True) == "stay"
+        assert _coerce_predator_retention("bored_move", True, self.FRESH) == "stay"
 
     def test_take_break_still_rotates_out(self):
         # Tired predators still leave — keeps the fish's chips redistributing.
-        assert _coerce_predator_retention("take_break", True) == "take_break"
+        assert _coerce_predator_retention("take_break", True, self.FRESH) == "take_break"
 
     def test_forced_leave_still_busts(self):
-        assert _coerce_predator_retention("forced_leave", True) == "forced_leave"
+        assert _coerce_predator_retention("forced_leave", True, self.FRESH) == "forced_leave"
 
     def test_stay_unchanged(self):
-        assert _coerce_predator_retention("stay", True) == "stay"
+        assert _coerce_predator_retention("stay", True, self.FRESH) == "stay"
 
     def test_no_retention_without_fish(self):
         # No fish to farm → normal movement, predators free to move on.
-        assert _coerce_predator_retention("stake_up", False) == "stake_up"
-        assert _coerce_predator_retention("bored_move", False) == "bored_move"
+        assert _coerce_predator_retention("stake_up", False, self.FRESH) == "stake_up"
+        assert _coerce_predator_retention("bored_move", False, self.FRESH) == "bored_move"
+
+    def test_tired_predator_released_to_cycle_out(self):
+        # Worn down past the fatigue floor → retention lifts, predator leaves.
+        assert _coerce_predator_retention("stake_up", True, self.TIRED) == "stake_up"
+        assert _coerce_predator_retention("bored_move", True, self.TIRED) == "bored_move"
+
+    def test_fatigue_boundary(self):
+        from cash_mode.movement import CASINO_PREDATOR_FATIGUE_FLOOR
+        at = CASINO_PREDATOR_FATIGUE_FLOOR
+        below = CASINO_PREDATOR_FATIGUE_FLOOR - 0.01
+        assert _coerce_predator_retention("stake_up", True, at) == "stay"      # at floor → retained
+        assert _coerce_predator_retention("stake_up", True, below) == "stake_up"  # below → released
 
 
 class TestCoerceFishMovement:

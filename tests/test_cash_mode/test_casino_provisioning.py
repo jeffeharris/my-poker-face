@@ -23,6 +23,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from cash_mode.bankroll import AIBankrollState
 from cash_mode.casino_provisioning import (
+    CASINO_CLOSE_THRESHOLDS,
     CASINO_CLOSING_HAND_COUNTDOWN,
     CASINO_FISH_BUY_IN_MULTIPLIER,
     CASINO_FISH_MAX,
@@ -524,6 +525,78 @@ class TestShedExcessFish:
 
         assert shed == 0
         assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == pool_before
+
+
+class TestDamLadder:
+    """High-stakes gates open in ladder order — no leapfrogging a tier."""
+
+    def _resolve(self, db_setup, seed, rng_seed=1):
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=seed)
+        resolve_casino_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(rng_seed), now=ANCHOR,
+        )
+        return {
+            t.stake_label for t in db_setup["tables"].list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        }
+
+    def test_shallow_pool_opens_only_low_tiers(self, db_setup):
+        # 60k covers $2 (5k) and $10 (50k) but not $50 (100k) / $200 (250k).
+        stakes = self._resolve(db_setup, seed=60_000)
+        assert "$50" not in stakes
+        assert "$200" not in stakes
+
+    def test_deep_pool_cascades_without_gaps(self, db_setup):
+        stakes = self._resolve(db_setup, seed=2_000_000)
+        # No gaps: present tiers must be a prefix of the ladder (you can't
+        # have $200 without $50, $50 without $10, ...).
+        order = ["$2", "$10", "$50", "$200"]
+        present = [s for s in order if s in stakes]
+        assert present == order[: len(present)]
+        # A deep pool reaches the top gate.
+        assert "$200" in stakes
+
+
+class TestDamWindDown:
+    """High-stakes gates close as the pool drains below their floor."""
+
+    def _make_200_casino(self, db_setup, n_fish=2, buy_in=8000):
+        fish = db_setup["fish_pids"][:n_fish]
+        seats = [ai_slot_fish(p, buy_in) for p in fish]
+        while len(seats) < 6:
+            seats.append(open_slot())
+        casino = CashTableState(
+            table_id="cash-casino-200-001", stake_label="$200", seats=seats,
+            created_at=ANCHOR, last_activity_at=ANCHOR,
+            name="Casino — $200", table_type="casino",
+        )
+        db_setup["tables"].save_table(casino, sandbox_id=SBX, now=ANCHOR)
+
+    def _resolve(self, db_setup, seed):
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=seed)
+        resolve_casino_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(1), now=ANCHOR,
+        )
+
+    def test_winds_down_below_floor(self, db_setup):
+        self._make_200_casino(db_setup)
+        # Pool below the $200 floor (80k) → wind down even with fish seated.
+        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$200"] - 10_000)
+        assert get_closing_countdown(
+            db_setup["tables"], SBX, "cash-casino-200-001"
+        ) is not None
+
+    def test_stays_open_above_floor(self, db_setup):
+        self._make_200_casino(db_setup)
+        # Pool comfortably above the floor → stays open (not closing).
+        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$200"] + 120_000)
+        assert get_closing_countdown(
+            db_setup["tables"], SBX, "cash-casino-200-001"
+        ) is None
 
 
 class TestClosingState:

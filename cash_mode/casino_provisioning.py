@@ -74,6 +74,22 @@ CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
     '$200': 250_000,
 }
 
+# Dam wind-down floors for the high-stakes gates. A high-stakes casino
+# is a relief valve: opening it draws its fish prefund from the pool and
+# the fish bleed those pool-origin chips into predator bankrolls, so the
+# gate *drains* the reservoir. These floors close the big gates as the
+# pool falls, so they don't drain a normalizing pool to empty — the pool
+# settles into a band instead. Floors sit well below the open thresholds
+# (gap > the ~max fish-prefund draw) so opening a gate can't instantly
+# trip its own close. Base tiers ($2/$10) have no floor — they're the
+# always-on base and only close via the natural out-of-fish teardown.
+# Higher floors close first as the pool drains, which keeps the ladder
+# ($200 winds down before $50) intact without explicit cascade logic.
+CASINO_CLOSE_THRESHOLDS: Dict[str, int] = {
+    '$50': 45_000,
+    '$200': 80_000,
+}
+
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
 # the refill pass keeps casinos topped up to MAX as long as the pool
 # can fund it. Kept LOW (well under TABLE_SEAT_COUNT=6) so each fish is
@@ -1072,6 +1088,28 @@ def resolve_casino_provisioning(
                     )
                 continue
 
+            # Dam wind-down: a high-stakes gate closes as the reservoir
+            # drains below its floor, even with fish still seated — it's a
+            # relief valve, not a permanent fixture. The closing countdown
+            # plays out and teardown returns all chips to the pool, so the
+            # pool settles into a band rather than draining to empty.
+            close_floor = CASINO_CLOSE_THRESHOLDS.get(stake_label)
+            if (
+                close_floor is not None
+                and compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < close_floor
+            ):
+                enter_closing(cash_table_repo, sandbox_id, table.table_id, CASINO_CLOSING_HAND_COUNTDOWN)
+                batch.teardowns.append(CasinoTeardown(
+                    table_id=table.table_id,
+                    stake_label=stake_label,
+                    reason='dam_wind_down_pool_below_floor',
+                ))
+                logger.info(
+                    "[CASH][CASINO] %s dam wind-down (pool below %d floor)",
+                    table.table_id, close_floor,
+                )
+                continue
+
             # Not closing yet. Enter closing only when there are no fish AND
             # the pool can't refill one.
             if seated_count > 0:
@@ -1096,11 +1134,19 @@ def resolve_casino_provisioning(
     hungry_grinders = list_hungry_grinders(bankroll_repo, sandbox_id=sandbox_id, now=now)
 
     threshold_order = [s for s in STAKES_ORDER if s in CASINO_SPAWN_THRESHOLDS]
-    for stake_label in threshold_order:
+    for idx, stake_label in enumerate(threshold_order):
         threshold = CASINO_SPAWN_THRESHOLDS[stake_label]
         # One casino per stake; a closing table holds the slot until its
         # countdown elapses.
         if by_stake_after_teardown.get(stake_label):
+            continue
+        # Dam ladder: a higher gate opens only once the gate below it is
+        # open — the reservoir fills past each stake before the next
+        # releases ($2 → $10 → $50 → $200, gradual). A lower tier spawned
+        # earlier in this same loop counts (by_stake_after_teardown is
+        # updated on each spawn below), so a deep pool can cascade several
+        # gates open in one resolve.
+        if idx > 0 and not by_stake_after_teardown.get(threshold_order[idx - 1]):
             continue
         if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < threshold:
             continue
