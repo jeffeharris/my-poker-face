@@ -906,6 +906,7 @@ class TestZombieSeatReclaim:
         reclaimed = _reclaim_zombie_casino_seats(
             tables, ledger, sandbox_id=SBX,
             valid_pids=db_setup["personality"].list_all_personality_ids(),
+            fish_ids={f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()},
             now=ANCHOR,
         )
 
@@ -946,3 +947,112 @@ class TestZombieSeatReclaim:
         )
         live = [s.get("personality_id") for s in reloaded.seats if s.get("kind") == "ai"]
         assert "tourist-deadbeef" not in live
+
+
+class TestUnstampedFishSeatHealing:
+    """Old-model `<fish>__eph_<hash>` seats hold a fish *persona* but were
+    placed via `ai_slot` (no `archetype='fish'` seat stamp). They must not
+    count as fish — otherwise provisioning sees the casino as full while the
+    player sees none ("no tourists") — and must be reclaimable so refill can
+    reseat properly-stamped fish.
+    """
+
+    def _make_casino(self, seats, *, table_id="cash-casino-2-001"):
+        return CashTableState(
+            table_id=table_id,
+            stake_label="$2",
+            seats=seats,
+            created_at=ANCHOR,
+            last_activity_at=ANCHOR,
+            name="Casino — $2",
+            table_type="casino",
+        )
+
+    def test_count_seated_fish_uses_seat_stamp_not_persona(self, db_setup):
+        """Only the `archetype='fish'` seat stamp counts — a fish persona
+        seated without the stamp does not inflate the fish count."""
+        from cash_mode.casino_provisioning import _count_seated_fish
+        from cash_mode.tables import ai_slot, ai_slot_fish
+
+        table = self._make_casino([
+            ai_slot_fish("vacation_greg", 80),            # stamped fish -> counts
+            ai_slot("birthday_bobby", 80),                # fish persona, NO stamp -> not counted
+            ai_slot("hungry_grinder_0", 80),              # grinder -> not counted
+            open_slot(), open_slot(), open_slot(),
+        ])
+        assert _count_seated_fish(table) == 1
+
+    def test_reclaim_opens_unstamped_fish_keeps_stamped_and_grinder(self, db_setup):
+        from cash_mode.casino_provisioning import _reclaim_zombie_casino_seats
+        from cash_mode.tables import ai_slot, ai_slot_fish
+
+        tables, ledger, personality = (
+            db_setup["tables"], db_setup["ledger"], db_setup["personality"],
+        )
+        table = self._make_casino([
+            ai_slot_fish("vacation_greg", 80),       # stamped fish — keep
+            ai_slot("birthday_bobby", 120),          # un-stamped fish persona — reclaim
+            ai_slot("hungry_grinder_0", 80),         # grinder — keep
+            open_slot(), open_slot(), open_slot(),
+        ])
+        tables.save_table(table, sandbox_id=SBX, now=ANCHOR)
+        pool_before = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        fish_ids = {f["personality_id"] for f in personality.list_fish_for_cash_mode()}
+
+        reclaimed = _reclaim_zombie_casino_seats(
+            tables, ledger, sandbox_id=SBX,
+            valid_pids=personality.list_all_personality_ids(),
+            fish_ids=fish_ids, now=ANCHOR,
+        )
+
+        assert reclaimed == 1
+        reloaded = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_id == table.table_id
+        )
+        live = [s.get("personality_id") for s in reloaded.seats if s.get("kind") == "ai"]
+        assert "birthday_bobby" not in live      # un-stamped fish seat opened
+        assert "vacation_greg" in live           # stamped fish untouched
+        assert "hungry_grinder_0" in live        # grinder untouched
+        # Its residual chips return to the pool exactly (conservation).
+        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == pool_before + 120
+
+    def test_resolver_unwedges_casino_full_of_unstamped_fish(self, db_setup):
+        """The wedge: a casino whose every seat is an un-stamped fish persona
+        reads 0 fish (not "full"), so the full resolve reclaims those seats
+        and refills with a properly-stamped fish."""
+        from cash_mode.casino_provisioning import _count_seated_fish
+        from cash_mode.tables import ai_slot
+
+        tables, ledger = db_setup["tables"], db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+        # Six un-stamped fish-persona seats, no open seats — the wedge.
+        wedged = self._make_casino([
+            ai_slot(pid, 80) for pid in db_setup["fish_pids"][:6]
+        ])
+        assert _count_seated_fish(wedged) == 0   # none stamped -> reads empty
+        tables.save_table(wedged, sandbox_id=SBX, now=ANCHOR)
+
+        resolve_casino_provisioning(
+            cash_table_repo=tables, bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=ledger,
+            sandbox_id=SBX, rng=random.Random(1), now=ANCHOR,
+        )
+
+        reloaded = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_id == wedged.table_id
+        )
+        fish_ids = {
+            f["personality_id"] for f in db_setup["personality"].list_fish_for_cash_mode()
+        }
+        # No seat holds an un-stamped fish persona anymore.
+        unstamped = [
+            s for s in reloaded.seats
+            if s.get("kind") == "ai"
+            and s.get("personality_id") in fish_ids
+            and s.get("archetype") != "fish"
+        ]
+        assert not unstamped
+        # And refill seated at least one properly-stamped fish.
+        assert _count_seated_fish(reloaded) >= 1

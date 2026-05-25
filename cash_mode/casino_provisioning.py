@@ -233,20 +233,33 @@ def _reclaim_zombie_casino_seats(
     *,
     sandbox_id: str,
     valid_pids: Set[str],
+    fish_ids: Set[str],
     now: datetime,
 ) -> int:
-    """Open any casino AI seat whose `personality_id` no longer resolves.
+    """Open stale casino AI seats that nothing else can clear.
 
-    Such "zombie" seats — old-model `tourist-<uuid>` seats left over from
-    before the fish-as-personas migration, or any persona deleted while
-    seated — permanently consume a seat the human or a live-filling
-    grinder could take, because nothing else ever clears them (refill
-    only adds fish; teardown only sweeps `archetype='fish'`). This is the
-    same ghost-seat failure class the cash code has hit before, so guard
-    it structurally rather than one-off.
+    Two seat classes qualify, both of which permanently consume a seat the
+    human or a live-filling grinder could take (refill only adds fish;
+    teardown only sweeps `archetype='fish'` seats):
 
-    Casino seats are pool-funded, so a zombie's residual chips return to
-    the bank pool (`casino_seat_return`) before the seat is opened — the
+      1. **Zombie** — `personality_id` no longer resolves: old-model
+         `tourist-<uuid>` seats from before the fish-as-personas migration,
+         or any persona deleted while seated.
+      2. **Un-stamped fish** — a seat holding a fish *persona*
+         (`personality_id in fish_ids`) that lacks the `archetype='fish'`
+         seat stamp. These are pre-migration `<fish>__eph_<hash>` seats
+         placed via `ai_slot` (no stamp). They're invisible to the
+         stamp-based fish count, so provisioning treats the casino as full
+         of fish and never refills/tears it down, while the player sees no
+         fish — the wedge this reclaim breaks. Re-opened seats are then
+         refilled with properly-stamped fish; the freed persona's residual
+         bankroll drains to the pool via the drain-on-exit sweep.
+
+    This is the same ghost-seat failure class the cash code has hit before,
+    so guard it structurally rather than one-off.
+
+    Casino seats are pool-funded, so a stale seat's residual chips return
+    to the bank pool (`casino_seat_return`) before the seat is opened — the
     pool is the conservation-safe sink for orphaned chips. A seat is only
     opened once its chips are safely returned (or it had none); a failed
     return leaves the seat untouched to retry next resolve, so chips
@@ -264,9 +277,17 @@ def _reclaim_zombie_casino_seats(
             if slot.get('kind') != 'ai':
                 continue
             pid = slot.get('personality_id')
-            if pid in valid_pids:
+            unresolved = pid not in valid_pids
+            # Old-model fish seat: holds a fish persona but was placed
+            # without the `archetype='fish'` stamp. A stamped fish seat
+            # (the healthy case) is skipped here.
+            unstamped_fish = (
+                pid in fish_ids and slot.get('archetype') != 'fish'
+            )
+            if not unresolved and not unstamped_fish:
                 continue
-            # Zombie seat — return residual chips to the pool first.
+            reason = 'unresolved_personality' if unresolved else 'unstamped_fish_seat'
+            # Stale seat — return residual chips to the pool first.
             chips = int(slot.get('chips') or 0)
             if chips > 0 and pid:
                 try:
@@ -278,7 +299,7 @@ def _reclaim_zombie_casino_seats(
                             'site': 'casino_zombie_reclaim',
                             'table_id': table.table_id,
                             'stake_label': table.stake_label,
-                            'reason': 'unresolved_personality',
+                            'reason': reason,
                         },
                         sandbox_id=sandbox_id,
                     )
@@ -301,8 +322,8 @@ def _reclaim_zombie_casino_seats(
             changed = True
             reclaimed += 1
             logger.info(
-                "[CASH][CASINO] reclaimed zombie seat %s/%s (%d chips -> pool)",
-                table.table_id, pid, chips,
+                "[CASH][CASINO] reclaimed stale seat %s/%s (%s, %d chips -> pool)",
+                table.table_id, pid, reason, chips,
             )
         if changed:
             updated = CashTableState(
@@ -571,11 +592,22 @@ def _drain_fish_bankroll_to_pool(
 # --- Resolver ---------------------------------------------------------
 
 
-def _count_seated_fish(table: CashTableState, fish_ids: Set[str]) -> int:
-    """Return the number of fish currently seated at this casino."""
+def _count_seated_fish(table: CashTableState) -> int:
+    """Return the number of pool-funded fish currently seated at this casino.
+
+    Counts by the ``archetype='fish'`` SEAT stamp — the single source of
+    truth for "this seat is a fish" (see ``ai_slot_fish``), the same signal
+    the teardown chip-return and the lobby UI read. Counting by
+    ``personality_id in fish_ids`` instead would also count old-model
+    un-stamped seats that merely hold a fish *persona* (e.g. pre-migration
+    ``<fish>__eph_<hash>`` seats placed via ``ai_slot``), inflating the
+    count and wedging the casino: provisioning believes it's full of fish
+    and skips both refill and teardown, while the player sees no fish at
+    all. ``_reclaim_zombie_casino_seats`` clears those un-stamped seats.
+    """
     return sum(
         1 for slot in table.seats
-        if slot.get('kind') == 'ai' and slot.get('personality_id') in fish_ids
+        if slot.get('kind') == 'ai' and slot.get('archetype') == 'fish'
     )
 
 
@@ -765,6 +797,7 @@ def resolve_casino_provisioning(
             chip_ledger_repo,
             sandbox_id=sandbox_id,
             valid_pids=personality_repo.list_all_personality_ids(),
+            fish_ids=fish_ids,
             now=now,
         )
         if reclaimed:
@@ -808,7 +841,7 @@ def resolve_casino_provisioning(
         for table in tables_here:
             if is_closing(cash_table_repo, sandbox_id, table.table_id):
                 continue
-            if _count_seated_fish(table, fish_ids) >= CASINO_FISH_MAX:
+            if _count_seated_fish(table) >= CASINO_FISH_MAX:
                 continue
             if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < fish_buy_in:
                 continue
@@ -841,7 +874,7 @@ def resolve_casino_provisioning(
         _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
         fish_buy_in = min(int(min_buy_in * CASINO_FISH_BUY_IN_MULTIPLIER), max_buy_in)
         for table in tables_here:
-            seated_count = _count_seated_fish(table, fish_ids)
+            seated_count = _count_seated_fish(table)
             currently_closing = is_closing(cash_table_repo, sandbox_id, table.table_id)
             countdown = get_closing_countdown(cash_table_repo, sandbox_id, table.table_id)
 
