@@ -185,3 +185,8 @@ opponent (or the full-SNG runner) would tell us whether the postflop fixes are
 medium-SPR, LLM-refined grids) are worth authoring at all. Alternatives if
 staying on charts: medium-SPR entries (cheap, mirrors the low-SPR generator) or
 LLM-refining the low-SPR grid.
+
+→ **The eval plan is now its own doc: `docs/plans/EVAL_HARNESS_PLAN.md`**
+(prioritized: **P0** champion-vs-challenger head-to-head [cheap, discriminating,
+gates every change], **P0.5** a non-station "punisher" clone, **P1** the
+full-SNG win-rate runner). Do P0 before authoring more charts.
