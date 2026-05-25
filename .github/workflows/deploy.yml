@@ -18,6 +18,33 @@ on:
           - real
 
 jobs:
+  lint-backend:
+    name: Lint Backend (Python — ruff)
+    runs-on: ubuntu-latest
+    # Non-blocking until the baseline cleanup commit lands. Once the codebase is clean,
+    # add `lint-backend` to the `deploy` job's `needs:` list to make it required.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install 'ruff~=0.7.0'
+
+      - name: Ruff lint
+        run: ruff check . --output-format=github
+
+      - name: Ruff format check
+        run: ruff format --check .
+
   test-backend:
     name: Test Backend (Python)
     runs-on: ubuntu-latest
@@ -69,6 +96,19 @@ jobs:
       - name: Lint
         working-directory: react/react
         run: npm run lint -- --max-warnings=0
+
+      - name: Format check (Prettier)
+        working-directory: react/react
+        # Non-blocking until the baseline reformat commit lands.
+        continue-on-error: true
+        run: npm run format:check
+
+      - name: Type check
+        working-directory: react/react
+        # Non-blocking until existing TS errors are cleaned up (8 known errors on
+        # ExperimentDetail/Lobby as of 2026-05-25). Flip to blocking once green.
+        continue-on-error: true
+        run: npm run typecheck
 
       - name: Build
         working-directory: react/react

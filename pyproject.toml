@@ -1,0 +1,65 @@
+[tool.ruff]
+# Target the lowest Python version we actually run (backend container is 3.10; CI 3.11).
+target-version = "py310"
+line-length = 100
+
+# Folders/files ruff should not look at. Tests are linted but with slightly looser rules.
+extend-exclude = [
+    "archived_avatars",
+    "output",
+    ".dev",
+    "my_poker_face_venv",
+    "react",
+    "__pycache__",
+    "data",
+    "*.ipynb",
+]
+
+[tool.ruff.lint]
+# Conservative starter ruleset: real-bug rules + import sorting. Everything else can be opted
+# into later once the baseline is clean.
+#   E, W: pycodestyle errors/warnings (PEP 8 style)
+#   F:    pyflakes (unused imports, undefined names, etc.)
+#   I:    isort (import ordering)
+#   B:    flake8-bugbear (subset, see ignores below) — catches common real bugs
+#   UP:   pyupgrade — modern syntax for 3.10+
+select = ["E", "F", "W", "I", "B", "UP"]
+
+ignore = [
+    # Handled by the formatter, not by lint:
+    "E501",   # line too long
+    # Allow ambiguous single-letter names — common in math/poker math code:
+    "E741",
+    # Bugbear's "function call in default argument" — used intentionally with Flask/FastAPI etc:
+    "B008",
+    # Bugbear's "loop variable not used" — too noisy on enumerate patterns:
+    "B007",
+    # Pyupgrade rewrites of Optional[X] -> X | None are mechanical noise; defer:
+    "UP007",
+    # pyupgrade: keep typing.List/Dict/Tuple imports until we explicitly migrate:
+    "UP006",
+    "UP035",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can do whatever they need: re-import, magic asserts, wildcard, etc.
+"tests/**/*.py" = ["F401", "F811", "F841", "B011", "E402"]
+# __init__.py: re-exports are intentional, unused imports are part of the API surface.
+"**/__init__.py" = ["F401"]
+# Migrations & one-off scripts: allow `print`, top-of-file imports below module logic, etc.
+"scripts/**/*.py" = ["E402", "T201"]
+"experiments/**/*.py" = ["E402"]
+"**/migrations/**/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+# Treat first-party packages as local imports.
+known-first-party = ["poker", "flask_app", "core", "experiments"]
+combine-as-imports = true
+
+[tool.ruff.format]
+# Don't touch quote style — codebase is ~50/50 single vs double and we don't want a giant
+# reformat diff. Revisit later if we want consistency.
+quote-style = "preserve"
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = false

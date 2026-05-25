@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,css,json,md}'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,css,json,md}'",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -34,6 +37,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^17.2.0",
+    "prettier": "^3.3.0",
     "jsdom": "^28.0.0",
     "sharp": "^0.34.5",
     "typescript": "~5.9.3",
