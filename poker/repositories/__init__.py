@@ -32,6 +32,7 @@ from .sandbox_repository import SandboxRepository, SandboxState
 from .stake_repository import StakeRepository
 from .cash_session_repository import CashSessionRepository
 from .vice_state_repository import ViceStateRepository, ViceState
+from .side_hustle_state_repository import SideHustleStateRepository, SideHustleState
 
 
 def create_repos(db_path: str) -> dict:
@@ -71,6 +72,7 @@ def create_repos(db_path: str) -> dict:
         'cash_session_repo': CashSessionRepository(db_path),
         'sandbox_repo': SandboxRepository(db_path),
         'vice_state_repo': ViceStateRepository(db_path),
+        'side_hustle_state_repo': SideHustleStateRepository(db_path),
         'db_path': db_path,
     }
 
@@ -100,6 +102,8 @@ __all__ = [
     'SavedGame',
     'SchemaManager',
     'SettingsRepository',
+    'SideHustleState',
+    'SideHustleStateRepository',
     'StakeRepository',
     'TournamentRepository',
     'UserRepository',

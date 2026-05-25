@@ -429,6 +429,10 @@ def refresh_unseated_tables(
     # no expiry pass, no start pass. Optional so existing test callers
     # that don't care about vice can pass nothing and keep working.
     vice_repo=None,
+    # Side-hustle repo (the mirror of vice — broke AIs earn off-grid).
+    # When None, the side hustle is disabled. Optional for the same
+    # back-compat reason as vice_repo. See CASH_MODE_SIDE_HUSTLE.md.
+    side_hustle_repo=None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -482,19 +486,56 @@ def refresh_unseated_tables(
             )
             on_vice = set()
 
+    # Side-hustle expiry pass — the mirror of the vice expiry pass.
+    # Runs BEFORE the table loop so an AI who finished hustling (and was
+    # just credited a pool-funded payout) becomes immediately eligible
+    # for seating this same refresh. Gated on SIDE_HUSTLE_ENABLED + the
+    # repos needed to draw from / ledger the pool.
+    from cash_mode import economy_flags
+    hustle_ends: list = []
+    on_hustle: Set[str] = set()
+    if (
+        economy_flags.SIDE_HUSTLE_ENABLED
+        and side_hustle_repo is not None
+        and sandbox_id is not None
+        and chip_ledger_repo is not None
+    ):
+        try:
+            from cash_mode.ai_side_hustle import tick_side_hustle_expirations
+            hustle_ends = tick_side_hustle_expirations(
+                side_hustle_repo=side_hustle_repo,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] side-hustle expiry pass failed: %s", exc,
+            )
+        try:
+            on_hustle = side_hustle_repo.active_pids(sandbox_id=sandbox_id, now=now)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] side-hustle active_pids failed: %s", exc,
+            )
+            on_hustle = set()
+
     # Filter the idle pool and eligible-personality lists to exclude
-    # AIs currently on vice. Every downstream gate (live-fill,
-    # staking-candidate selection, cross-table pool) reads these
-    # variables, so a single filter at the top covers all the seating
-    # / staking eligibility surfaces without per-call-site changes.
-    if on_vice:
+    # AIs currently off-grid (on a vice OR a side hustle). Every
+    # downstream gate (live-fill, staking-candidate selection,
+    # cross-table pool) reads these variables, so a single filter at the
+    # top covers all the seating / staking eligibility surfaces without
+    # per-call-site changes.
+    off_grid = on_vice | on_hustle
+    if off_grid:
         idle_pool = [
             entry for entry in idle_pool
-            if entry.personality_id not in on_vice
+            if entry.personality_id not in off_grid
         ]
         eligible = [
             cand for cand in eligible
-            if cand.get("personality_id") not in on_vice
+            if cand.get("personality_id") not in off_grid
         ]
 
     # Closed-economy: fish are a casino-only player class. The lobby
@@ -1593,6 +1634,84 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] vice event emission failed: %s", exc,
             )
 
+    # AI side hustle — start pass (mirror of the vice start pass). Sends
+    # broke idle AIs off-grid to earn. Candidate set = idle AIs who can't
+    # afford the cheapest buy-in (so they can't sit *anywhere* — casino
+    # tables stay the preferred place for anyone who CAN sit), minus any
+    # AI already off-grid (on a vice or hustle) and minus fish (a
+    # casino-only class that never hustles). The payout lands at expiry,
+    # so no chips move here — only the state row + narration.
+    hustle_starts: list = []
+    if (
+        economy_flags.SIDE_HUSTLE_ENABLED
+        and side_hustle_repo is not None
+        and sandbox_id is not None
+    ):
+        try:
+            from cash_mode.ai_side_hustle import resolve_ai_side_hustle
+            from cash_mode.side_hustle_narration import narrate_side_hustle
+
+            # Cheapest buy-in in the lobby = the lowest stake tier's min.
+            # An AI projected below this (scaled by its buy-in multiplier)
+            # can't sit at any table and is a hustle candidate.
+            cheapest_min_buy_in = table_buy_in_window(STAKES_ORDER[0])[1]
+            current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
+            candidates: Set[str] = set()
+            for e in current_idle:
+                pid = e.personality_id
+                if pid in on_vice or pid in on_hustle or pid in _fish_ids:
+                    continue
+                try:
+                    projected = bankroll_repo.load_ai_bankroll_current(
+                        pid, sandbox_id=sandbox_id, now=now,
+                    )
+                    knobs = bankroll_repo.load_personality_knobs(pid)
+                except Exception:
+                    continue
+                if projected is None:
+                    continue
+                threshold = round(cheapest_min_buy_in * knobs.buy_in_multiplier)
+                if projected < threshold:
+                    candidates.add(pid)
+
+            def _hustle_narrate(pid, amount):
+                # Bind personality_repo so the LLM prompt can include
+                # style + anchors + verbal tics. Fail-soft internally.
+                return narrate_side_hustle(
+                    pid, amount, personality_repo=personality_repo,
+                )
+
+            if candidates:
+                hustle_starts = resolve_ai_side_hustle(
+                    candidates=candidates,
+                    side_hustle_repo=side_hustle_repo,
+                    bankroll_repo=bankroll_repo,
+                    sandbox_id=sandbox_id,
+                    rng=rng,
+                    now=now,
+                    narrate_fn=_hustle_narrate,
+                )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] AI side hustle failed: %s", exc,
+            )
+
+    # Emit side-hustle ticker events for both starts (this refresh) and
+    # ends (from the expiry pass at the top). Best-effort.
+    if hustle_starts or hustle_ends:
+        try:
+            _emit_side_hustle_events(
+                starts=hustle_starts,
+                ends=hustle_ends,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] side-hustle event emission failed: %s", exc,
+            )
+
     # Closed-economy testbed: fake-vice deposits + tourist injections.
     # Gated on `chip_ledger_repo` because both flows write ledger
     # entries — without the repo, there's no pool to compute against
@@ -2249,6 +2368,90 @@ def _emit_vice_spending_events(
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] vice end event emit failed pid=%r: %s",
+                e.personality_id, exc,
+            )
+
+
+def _emit_side_hustle_events(
+    *,
+    starts,
+    ends,
+    personality_repo,
+    now: datetime,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Translate side-hustle start / end results into LobbyEvents.
+
+    Mirror of `_emit_vice_spending_events`. Like vice, the hustle is a
+    between-tables activity, so `table_id` / `stake_label` are empty and
+    `reason` carries the duration bucket. The start message is the
+    narration; the end message surfaces the pool-funded payout
+    ("{name} is back with $X") or the terse phrase when the pool was dry.
+
+    `starts` is already bounded at the dispatcher (HUSTLE_STARTS_PER_REFRESH);
+    ends are unbounded but cheap. Best-effort: ring-buffer failures don't
+    propagate.
+    """
+    if not starts and not ends:
+        return
+
+    from cash_mode.activity import (
+        EVENT_HUSTLE_END,
+        EVENT_HUSTLE_START,
+        LobbyEvent,
+        format_hustle_end_message,
+        format_hustle_start_message,
+        record_event,
+    )
+
+    def _name_for(pid: str) -> str:
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            personality = None
+        if personality and personality.get("name"):
+            return personality["name"]
+        return pid
+
+    ts = now.isoformat()
+
+    for s in starts:
+        name = _name_for(s.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_HUSTLE_START,
+                table_id="",
+                stake_label="",
+                personality_id=s.personality_id,
+                name=name,
+                reason=s.duration_bucket,
+                message=format_hustle_start_message(name, s.narration),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] hustle start event emit failed pid=%r: %s",
+                s.personality_id, exc,
+            )
+
+    for e in ends:
+        name = _name_for(e.personality_id)
+        try:
+            record_event(LobbyEvent(
+                type=EVENT_HUSTLE_END,
+                table_id="",
+                stake_label="",
+                personality_id=e.personality_id,
+                name=name,
+                reason=e.duration_bucket,
+                message=format_hustle_end_message(name, e.paid_amount),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            ))
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] hustle end event emit failed pid=%r: %s",
                 e.personality_id, exc,
             )
 

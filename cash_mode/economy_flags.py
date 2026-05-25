@@ -6,8 +6,16 @@ Three independent variables:
 
   - `REGEN_ENABLED`: the passive faucet. When False, `project_bankroll`
     returns stored chips verbatim — AIs no longer accrue chips while
-    idle. Pair with the staking/loan system as the AI recovery
-    mechanism, or keep regen on and balance it with rake.
+    idle. **Default False** as of CASH_MODE_SIDE_HUSTLE.md: passive regen
+    is retired in favour of the active side hustle (`SIDE_HUSTLE_ENABLED`),
+    where broke AIs go off-grid to earn a pool-funded lump. The
+    projection machinery is kept (flip back to True to A/B the old
+    passive faucet), but production runs with it off.
+
+  - `SIDE_HUSTLE_ENABLED`: the active faucet that replaces passive regen.
+    When True, broke AIs (those who can't afford to play) are sent to an
+    off-grid side hustle on lobby refresh and return with a lump drawn
+    from the bank pool. See `cash_mode/ai_side_hustle.py`.
 
   - `RAKE_ENABLED`: the table-side sink. When True, a fraction of every
     pot is destroyed (ledger reason `table_rake`, sink = central_bank)
@@ -36,7 +44,14 @@ from __future__ import annotations
 
 # --- Faucet ---------------------------------------------------------------
 
-REGEN_ENABLED: bool = True
+# Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side
+# hustle is the replacement faucet. Flip back to True only to A/B the old
+# passive-accrual behaviour; production runs with it off.
+REGEN_ENABLED: bool = False
+
+# The active faucet: broke AIs earn a pool-funded lump via an off-grid
+# side hustle (`cash_mode/ai_side_hustle.py`), gated at the lobby refresh.
+SIDE_HUSTLE_ENABLED: bool = True
 
 
 # --- Sink (table rake) ----------------------------------------------------

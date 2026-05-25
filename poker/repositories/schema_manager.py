@@ -163,7 +163,13 @@ logger = logging.getLogger(__name__)
 #       `(personality_id, sandbox_id)`. Expired rows are deleted by the
 #       lobby refresh's expiry pass. See
 #       `docs/plans/CASH_MODE_AI_VICE_SPENDING.md`.
-SCHEMA_VERSION = 113
+# v114: Create `ai_side_hustle_state` for the side-hustle mechanic — the
+#       mirror of vice. Broke AIs go off-grid to earn a lump drawn from
+#       the bank pool (replacing passive regen). Same shape as
+#       `ai_vice_state`: one row per active hustle keyed
+#       `(personality_id, sandbox_id)`, deleted at expiry when the payout
+#       is credited. See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`.
+SCHEMA_VERSION = 114
 
 
 
@@ -553,6 +559,28 @@ class SchemaManager:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_ai_vice_ends_at
                     ON ai_vice_state(sandbox_id, ends_at)
+            """)
+
+            # 10g. AI side-hustle state (v114) — the mirror of vice. One
+            #      row while a broke AI is off-grid earning a lump from the
+            #      bank pool. Deleted at expiry by the lobby refresh's
+            #      `tick_side_hustle_expirations` pass (which credits the
+            #      payout). See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_side_hustle_state (
+                    personality_id TEXT NOT NULL,
+                    sandbox_id TEXT NOT NULL,
+                    started_at TIMESTAMP NOT NULL,
+                    ends_at TIMESTAMP NOT NULL,
+                    amount INTEGER NOT NULL,
+                    duration_bucket TEXT NOT NULL,
+                    narration TEXT NOT NULL,
+                    PRIMARY KEY (personality_id, sandbox_id)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ai_side_hustle_ends_at
+                    ON ai_side_hustle_state(sandbox_id, ends_at)
             """)
 
             # 11. Hand commentary (v41)
@@ -1367,6 +1395,7 @@ class SchemaManager:
             111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
             112: (self._migrate_v112_create_ai_vice_state, "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)"),
             113: (self._migrate_v113_add_casino_closing_countdown, "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)"),
+            114: (self._migrate_v114_create_ai_side_hustle_state, "Create ai_side_hustle_state table for the side-hustle mechanic (per-sandbox off-grid earning status; mirror of ai_vice_state)"),
         }
 
         with self._get_connection() as conn:
@@ -5273,3 +5302,34 @@ class SchemaManager:
                 ON ai_vice_state(sandbox_id, ends_at)
         """)
         logger.info("Migration v112 complete: ai_vice_state table created")
+
+    def _migrate_v114_create_ai_side_hustle_state(self, conn: sqlite3.Connection) -> None:
+        """Migration v114: create `ai_side_hustle_state` for the side hustle.
+
+        The mirror of `ai_vice_state` (v112). One row per active hustle,
+        keyed `(personality_id, sandbox_id)`. A broke AI goes off-grid to
+        earn a lump from the bank pool; the row is deleted when the
+        hustle expires and the payout is credited. The index supports the
+        per-refresh expiry scan (`SELECT ... WHERE sandbox_id = ? AND
+        ends_at <= ?`).
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS +
+        CREATE INDEX IF NOT EXISTS). See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_side_hustle_state (
+                personality_id TEXT NOT NULL,
+                sandbox_id TEXT NOT NULL,
+                started_at TIMESTAMP NOT NULL,
+                ends_at TIMESTAMP NOT NULL,
+                amount INTEGER NOT NULL,
+                duration_bucket TEXT NOT NULL,
+                narration TEXT NOT NULL,
+                PRIMARY KEY (personality_id, sandbox_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ai_side_hustle_ends_at
+                ON ai_side_hustle_state(sandbox_id, ends_at)
+        """)
+        logger.info("Migration v114 complete: ai_side_hustle_state table created")

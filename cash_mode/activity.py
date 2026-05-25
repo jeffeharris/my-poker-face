@@ -129,6 +129,19 @@ return phrase ("{name} is back"); the original narration isn't
 re-rendered (the player saw it on the start event). `reason` is
 the duration_bucket that just finished."""
 
+EVENT_HUSTLE_START = "hustle_start"
+"""A broke AI went off-grid to a side hustle (the mirror of vice).
+Carries the narration ("Napoleon is flipping a small business...") as
+`message` and the duration bucket as `reason`. `stake_label` is empty —
+the hustle is a between-tables activity. Frontend renders the same
+dimmed "Away" state as vice. See `docs/plans/CASH_MODE_SIDE_HUSTLE.md`."""
+
+EVENT_HUSTLE_END = "hustle_end"
+"""An AI's side hustle expired; they're back with a pool-funded lump
+(or empty-handed if the pool was dry). `message` is a short return
+phrase ("{name} is back with $X" / "{name} is back"); `reason` is the
+duration_bucket that just finished. Mirror of EVENT_VICE_END."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:
@@ -386,6 +399,35 @@ def format_vice_end_message(name: str) -> str:
     a wall of vice-end events after a long session. The drama was at
     the start; the end is just a status flip.
     """
+    return f"{name} is back"
+
+
+def format_hustle_start_message(name: str, narration: str) -> str:
+    """The narration leads the start message; ensure the name is in it.
+
+    Identical defensive shape to `format_vice_start_message` — the LLM is
+    asked to lead with the character's name, but models occasionally drop
+    it, leaving the ticker reading as an unattributed quote. Prepend
+    `{name} — ` when the narration doesn't already lead with the name.
+    """
+    narration = narration.strip()
+    if not narration:
+        return f"{name} stepped out to earn"
+    if narration.lower().startswith(name.lower()):
+        return narration
+    return f"{name} — {narration}"
+
+
+def format_hustle_end_message(name: str, paid_amount: int = 0) -> str:
+    """Short return phrase. The full narration already showed at start.
+
+    Surfaces the payout when the pool funded one ("{name} is back with
+    $X"); falls back to the terse vice-style phrasing when the hustle
+    returned empty-handed (pool was dry), since "back with $0" reads as a
+    bug rather than a beat.
+    """
+    if paid_amount > 0:
+        return f"{name} is back with ${paid_amount:,}"
     return f"{name} is back"
 
 

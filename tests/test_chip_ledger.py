@@ -242,3 +242,55 @@ class TestCasinoSeatReturn:
         from cash_mode.closed_economy import compute_bank_pool_reserves
         # Seed+return cancel out: depth unchanged from initial 0.
         assert compute_bank_pool_reserves(repo, sandbox_id='sb-1') == 0
+
+
+class TestRecordSideHustleEarning:
+    """`side_hustle_earning` draws from the bank pool: central_bank -> ai.
+
+    Mirror of `record_tourist_injection` — the faucet that replaces
+    passive ai_regen (CASH_MODE_SIDE_HUSTLE.md). The pool funds it, so
+    the reason lives in BANK_POOL_DRAW_REASONS.
+    """
+
+    def test_records_bank_to_ai(self, repo):
+        eid = ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=250,
+            context={'site': 'side_hustle_return', 'duration_bucket': 'medium'},
+            sandbox_id='sb-1',
+        )
+        assert eid is not None
+        entry = repo.recent_entries()[0]
+        assert entry['source'] == 'central_bank'
+        assert entry['sink'] == 'ai:napoleon'
+        assert entry['amount'] == 250
+        assert entry['reason'] == 'side_hustle_earning'
+
+    def test_is_a_bank_pool_draw_reason(self):
+        from core.economy.ledger import BANK_POOL_DRAW_REASONS
+        assert 'side_hustle_earning' in BANK_POOL_DRAW_REASONS
+
+    def test_draws_down_pool_reserves(self, repo):
+        """Rake deposits 100; a 30-chip hustle payout draws it back down,
+        leaving 70 — proving the hustle spends recyclable pool depth."""
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        ledger_mod.record_table_rake(
+            repo, source=ledger_mod.ai('bezos'), amount=100, sandbox_id='sb-1',
+        )
+        ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=30, sandbox_id='sb-1',
+        )
+        assert compute_bank_pool_reserves(repo, sandbox_id='sb-1') == 70
+
+    def test_noop_on_none_repo(self):
+        assert ledger_mod.record_side_hustle_earning(
+            None, personality_id='napoleon', amount=100,
+        ) is None
+
+    def test_noop_on_zero_or_negative_amount(self, repo):
+        assert ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=0,
+        ) is None
+        assert ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=-5,
+        ) is None
+        assert repo.recent_entries() == []

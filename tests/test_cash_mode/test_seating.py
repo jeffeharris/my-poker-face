@@ -291,7 +291,11 @@ class TestCashOutAISeat:
         assert new_b.last_regen_tick == now
         assert new_b.personality_id == "napoleon"
 
-    def test_projection_applied_before_credit(self, empty_table, knobs, now):
+    def test_projection_applied_before_credit(self, empty_table, knobs, now, monkeypatch):
+        # Regen projection is retired as a *default* (REGEN_ENABLED=False)
+        # per CASH_MODE_SIDE_HUSTLE.md but still supported; enable it so
+        # this test exercises the projection-before-credit ordering.
+        monkeypatch.setattr("cash_mode.economy_flags.REGEN_ENABLED", True)
         # last_regen_tick is one day ago. Bankroll debited by sit_down
         # would be 9_500, but we construct the seated state manually
         # so we control the regen tick.

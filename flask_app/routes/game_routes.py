@@ -607,10 +607,28 @@ def api_game_state(game_id):
                         # permanently corrupts relationship state.
                         suppress_for_casino = False
                         if is_cash_game:
-                            cash_table_id = (
-                                game_data.get('cash_table_id')
-                                if isinstance(game_data, dict) else None
-                            )
+                            # cash_table_id isn't in the saved game JSON, and
+                            # current_game_data isn't built yet at this point.
+                            # The durable cash_sessions row (v108) is the source
+                            # of truth — populated at sit-down by
+                            # cash_routes._record_cash_session_start. A failed
+                            # lookup leaves cash_table_id None, which falls
+                            # through to the fail-safe suppression below.
+                            cash_table_id = None
+                            try:
+                                from flask_app.extensions import cash_session_repo as _cash_session_repo
+                                if _cash_session_repo is not None:
+                                    _cs = _cash_session_repo.load(game_id)
+                                    if _cs is not None:
+                                        cash_table_id = _cs.cash_table_id
+                            except Exception as e:
+                                logger.warning(
+                                    "[LOAD] cash_sessions lookup for relationship "
+                                    "suppression failed for %s: %s — suppressing "
+                                    "relationship writes (fail-safe).",
+                                    game_id, e,
+                                )
+                                suppress_for_casino = True
                             if cash_table_id:
                                 try:
                                     from flask_app.extensions import cash_table_repo as _cash_table_repo
