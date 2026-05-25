@@ -270,6 +270,17 @@ class TieredBotController(AIPlayerController):
         # counterfactual per-decision evaluation.
         self.disable_rules: frozenset = frozenset()
 
+        # Multi-street context layer (docs/plans/STRUCTURAL_PASSIVITY_PLAN.md).
+        # OFF by default — byte-identical to pre-layer behavior. When enabled,
+        # the postflop pipeline reads hero's-own-line + sustained-aggression
+        # context (which the memoryless table lacks) and applies a narrowly-
+        # gated barrel-continuation (H1) / fold-to-double-barrel (H2) override.
+        # The two sub-toggles let the A/B isolate which hypothesis carries any
+        # effect (H1-only / H2-only / both).
+        self.enable_multistreet_context: bool = False
+        self.multistreet_h1_barrel: bool = True
+        self.multistreet_h2_foldbarrel: bool = True
+
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
         # decision — dominant cost in long sim runs) but still
@@ -731,6 +742,11 @@ class TieredBotController(AIPlayerController):
                 f"[TIERED_BOT] {self.player_name}: "
                 f"postflop node_key={node.key}"
             )
+        # Snapshot the node key (encodes street|position|pot_type|texture|
+        # hand_class|draw|action_context|spr) so passivity instrumentation can
+        # pair the resolved action with its full postflop context without
+        # re-deriving the node. Cheap; the snapshot already exists for replay.
+        self._last_pipeline_snapshot['node_key'] = node.key
 
         # 3. Lookup base strategy (with texture fallback)
         base_strategy = self.strategy_table.lookup_postflop_with_fallback(
@@ -914,6 +930,46 @@ class TieredBotController(AIPlayerController):
         )
         self._last_intervention_trace.append(bluff_catch_trace)
 
+        # 6a.5b.2 Multi-street context (STRUCTURAL_PASSIVITY_PLAN.md).
+        # Behind enable_multistreet_context (default off). Reads hero's-own-
+        # line (was_prev_street_aggressor) + sustained-aggression
+        # (facing_double_barrel) — signals the memoryless table can't see —
+        # and applies a narrowly-gated barrel-continuation (H1, HU only) /
+        # fold-to-double-barrel (H2) override. Sits before defense_floor and
+        # feeds prior_layer_fired so the floor defers when it replaces the
+        # distribution; downstream math_floor keeps final say on pot-odds
+        # mandates. OFF arm is byte-identical to current behavior.
+        multistreet_trace = make_no_op_trace(
+            layer='multistreet_context', rule_id='default',
+            layer_order=layer_order_for('multistreet_context'),
+            reason_code='flag_disabled',
+        )
+        if getattr(self, 'enable_multistreet_context', False):
+            from .strategy.multistreet_context import (
+                apply_multistreet_context, derive_signals,
+            )
+            signals = derive_signals(self, node.street)
+            ms_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+            )
+            modified_strategy, multistreet_trace = apply_multistreet_context(
+                modified_strategy,
+                signals=signals,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                active_count=active_count,
+                h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
+                h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
+                prior_layer_fired=ms_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            multistreet_trace = _fill_prior_action_source(
+                multistreet_trace, self._last_intervention_trace,
+            )
+        self._last_intervention_trace.append(multistreet_trace)
+
         # 6a.5c Plan §2: price-sensitive defense floor. Pumps call
         # probability for legitimate made hands at favorable prices
         # that the upstream rules left fold-heavy. Sits *after* both
@@ -926,6 +982,7 @@ class TieredBotController(AIPlayerController):
             induce_override_trace.fired
             or value_override_trace.fired
             or bluff_catch_trace.fired
+            or multistreet_trace.fired
         )
         defense_floor_facing_bet = (
             outer_decision_context.bet_bucket is not None

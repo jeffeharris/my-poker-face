@@ -260,37 +260,72 @@ def test_bet_100():
 # --- Raise actions (facing a bet) ---
 
 def test_raise_67():
-    """raise_67 facing bet of 500, pot=1500 total.
+    """raise_67 facing a flop bet, realistic cumulative state.
 
-    call_amount = 500 - 0 = 500
-    pot_after_call = 1500 + 500 = 2000
-    raise_to = 500 + int(2000 * 0.67) = 500 + 1340 = 1840
+    HU flop: hero committed 300 preflop (player.bet=300); villain committed
+    300 preflop then bet 400 on the flop (player.bet=700). This engine keeps
+    `pot['total']` == sum(player.bet) == 1000 (bets are cumulative, never
+    reset per street).
+
+        true_pot       = pot['total']     = 1000
+        call_amount    = 700 - 300        = 400
+        pot_after_call = 1000 + 400       = 1400
+        raise_to       = 700 + int(1400 * 0.67) = 700 + 938 = 1638
     """
-    # pot['total']=1000, villain bet=500, hero bet=0 → pot_total=1500
     gs = _make_postflop_state(
-        stack=10000, bet=0, current_ante=100, highest_bet=500, pot_total=1000,
-        other_players=[(9500, 500)],
+        stack=9700, bet=300, current_ante=100, highest_bet=700, pot_total=1000,
+        other_players=[(9300, 700)], min_raise_amount=400,
     )
     action, amount = resolve_postflop_sizing('raise_67', gs, 0)
     assert action == 'raise'
-    assert amount == 1840
+    assert amount == 1638
 
 
 def test_raise_150():
-    """raise_150 facing bet of 200, pot=600 total.
+    """raise_150 facing a flop bet, realistic cumulative state.
 
-    call_amount = 200 - 0 = 200
-    pot_after_call = 600 + 200 = 800
-    raise_to = 200 + int(800 * 1.5) = 200 + 1200 = 1400
+    HU flop: hero committed 200 preflop; villain committed 200 then bet 200 on
+    the flop (player.bet=400). pot['total'] == sum(bets) == 600.
+
+        true_pot       = 600
+        call_amount    = 400 - 200 = 200
+        pot_after_call = 600 + 200 = 800
+        raise_to       = 400 + int(800 * 1.5) = 400 + 1200 = 1600
     """
-    # pot['total']=400, villain bet=200, hero bet=0 → pot_total=600
     gs = _make_postflop_state(
-        stack=10000, bet=0, current_ante=100, highest_bet=200, pot_total=400,
-        other_players=[(9800, 200)],
+        stack=9600, bet=200, current_ante=100, highest_bet=400, pot_total=600,
+        other_players=[(9600, 400)], min_raise_amount=200,
     )
     action, amount = resolve_postflop_sizing('raise_150', gs, 0)
     assert action == 'raise'
-    assert amount == 1400
+    assert amount == 1600
+
+
+def test_bet_adds_correct_fraction_of_true_pot():
+    """Regression for the 2026-05-24 postflop sizing fix.
+
+    A bet must ADD `pct` of the TRUE pot on top of the hero's cumulative
+    commitment — not set the total bet to `pct` of a double-counted pot.
+
+    Realistic cumulative state: HU flop, both committed 300 preflop, no flop
+    bet yet, so pot['total'] == sum(bets) == 600 (engine invariant).
+
+        true_pot = 600
+        raise_to = player.bet(300) + int(600 * 0.67) = 300 + 402 = 702
+        added    = 702 - 300 = 402  == 67% of the TRUE pot
+
+    Pre-fix code computed pot_total = 600 + 600 = 1200 AND omitted the
+    `player.bet +`, giving raise_to = int(1200 * 0.67) = 804 (adding 504 ≈
+    84% of the true pot). This test fails on the old code, passes on the new.
+    """
+    gs = _make_postflop_state(
+        stack=9700, bet=300, current_ante=100, highest_bet=300, pot_total=600,
+        other_players=[(9700, 300)], min_raise_amount=100,
+    )
+    action, amount = resolve_postflop_sizing('bet_67', gs, 0)
+    assert action == 'raise'
+    assert amount == 702
+    assert amount - 300 == int(600 * 0.67)  # added chips == 67% of the TRUE pot
 
 
 # --- Jam ---
