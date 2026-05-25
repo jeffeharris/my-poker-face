@@ -57,6 +57,7 @@ def reset_flags():
         economy_flags.RAKE_PLAYER_TABLES,
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
+        economy_flags.RAKE_STAKE_BIG_BLINDS,
     )
     yield
     (
@@ -65,6 +66,7 @@ def reset_flags():
         economy_flags.RAKE_PLAYER_TABLES,
         economy_flags.RAKE_RATE,
         economy_flags.RAKE_CAP_BB,
+        economy_flags.RAKE_STAKE_BIG_BLINDS,
     ) = saved
 
 
@@ -126,6 +128,7 @@ class TestComputeRake:
         economy_flags.RAKE_ENABLED = True
         economy_flags.RAKE_RATE = 0.02
         economy_flags.RAKE_CAP_BB = 100  # high enough not to bind
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({10})  # isolate math from tier gate
         # 2% of 1000 = 20
         assert economy_flags.compute_rake(pot=1000, big_blind=10) == 20
 
@@ -133,6 +136,7 @@ class TestComputeRake:
         economy_flags.RAKE_ENABLED = True
         economy_flags.RAKE_RATE = 0.10  # would give 100
         economy_flags.RAKE_CAP_BB = 4
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({10})  # isolate math from tier gate
         # cap = 4 * 10 = 40
         assert economy_flags.compute_rake(pot=1000, big_blind=10) == 40
 
@@ -143,6 +147,34 @@ class TestComputeRake:
     def test_rake_invalid_bb_returns_zero(self):
         economy_flags.RAKE_ENABLED = True
         assert economy_flags.compute_rake(pot=1000, big_blind=0) == 0
+
+    def test_rake_skips_unlisted_stake(self):
+        # Default set is {1000}: a $10 table (bb=10) rakes nothing even
+        # with a juicy pot and rake otherwise enabled.
+        economy_flags.RAKE_ENABLED = True
+        economy_flags.RAKE_RATE = 0.10
+        economy_flags.RAKE_CAP_BB = 100
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({1000})
+        assert economy_flags.compute_rake(pot=1000, big_blind=10) == 0
+
+    def test_rake_applies_to_listed_stake(self):
+        # The $1000 tier (bb=1000) rakes normally.
+        economy_flags.RAKE_ENABLED = True
+        economy_flags.RAKE_RATE = 0.02
+        economy_flags.RAKE_CAP_BB = 100  # cap = 100_000, won't bind
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({1000})
+        # 2% of 50_000 = 1000
+        assert economy_flags.compute_rake(pot=50_000, big_blind=1000) == 1000
+
+    def test_rake_multiple_listed_stakes(self):
+        # The gate is a set — several tiers can rake while others don't.
+        economy_flags.RAKE_ENABLED = True
+        economy_flags.RAKE_RATE = 0.02
+        economy_flags.RAKE_CAP_BB = 1000  # non-binding
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({200, 1000})
+        assert economy_flags.compute_rake(pot=10_000, big_blind=200) == 200
+        assert economy_flags.compute_rake(pot=10_000, big_blind=1000) == 200
+        assert economy_flags.compute_rake(pot=10_000, big_blind=10) == 0
 
 
 # --- record_table_rake --------------------------------------------------
@@ -250,6 +282,7 @@ class TestRakeInFullSim:
         economy_flags.RAKE_ENABLED = True
         economy_flags.RAKE_RATE = 0.05
         economy_flags.RAKE_CAP_BB = 100
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({10})  # rake this tier
 
         starting = {'napoleon': 1000, 'bezos': 1000}
         final = {'napoleon': 1500, 'bezos': 500}  # pot = 500
@@ -326,6 +359,7 @@ class TestRakeInFullSim:
         economy_flags.RAKE_ENABLED = True
         economy_flags.RAKE_RATE = 0.50  # absurd, just for the bound
         economy_flags.RAKE_CAP_BB = 1000
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({2})  # rake this tier
 
         # Tiny net of 10 — half of pot=100 would be 50, but the winner
         # only netted 10.
@@ -386,6 +420,7 @@ class TestUniverseConservation:
 
         economy_flags.RAKE_ENABLED = True
         economy_flags.RAKE_RATE = 0.02
+        economy_flags.RAKE_STAKE_BIG_BLINDS = frozenset({10})  # rake this tier
 
         starting = {'a': 1000, 'b': 1000}
         final = {'a': 1500, 'b': 500}

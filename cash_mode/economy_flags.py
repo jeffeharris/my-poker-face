@@ -27,6 +27,14 @@ Three independent variables:
     rake also applies at tables with a human seated. Keeping this off
     preserves the "sandbox" feel for players.
 
+  - `RAKE_STAKE_BIG_BLINDS`: the stake tiers rake applies at, keyed by
+    big blind (the 1:1 proxy for a stake label — see
+    `cash_mode/stakes_ladder.STAKES_LADDER`). Tier-keyed, not table-keyed,
+    so any number of tables at a listed stake rake identically (one $1000
+    table or ten, present or future). Default `{1000}` — only the top
+    tier rakes, which throttles pool inflow at the high-volume low stakes.
+    Add a big blind to the set to rake another tier.
+
 Tuning levers:
 
   - `RAKE_RATE`: fraction of pot destroyed per hand. 0.02 = 2%.
@@ -85,17 +93,26 @@ RAKE_PLAYER_TABLES: bool = True
 RAKE_RATE: float = 0.02
 RAKE_CAP_BB: int = 4
 
+# Stake tiers rake applies at, keyed by big blind (1:1 with a stake
+# label — see STAKES_LADDER). Tier-keyed, not table-keyed: every table
+# at a listed stake rakes the same, however many there are. Default to
+# the top tier only ($1000) to throttle pool inflow at low stakes.
+RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 
-    Returns 0 when rake is disabled, the pot is non-positive, or
-    big_blind is non-positive. The cap is applied in chip terms
+    Returns 0 when rake is disabled, the pot is non-positive,
+    big_blind is non-positive, or the stake (keyed by `big_blind`) is
+    not in `RAKE_STAKE_BIG_BLINDS`. The cap is applied in chip terms
     (`RAKE_CAP_BB * big_blind`) so it scales with the table's stake.
     """
     if not RAKE_ENABLED:
         return 0
     if pot <= 0 or big_blind <= 0:
+        return 0
+    if big_blind not in RAKE_STAKE_BIG_BLINDS:
         return 0
     raw = int(pot * RAKE_RATE)
     cap = RAKE_CAP_BB * big_blind
