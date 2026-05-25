@@ -186,3 +186,31 @@ leak.** This confirms the premise — and refines the target:
 
 Harness: `measure_passivity.py` now takes `--stack-bb` (effective depth knob).
 The full-SNG runner is not yet built.
+
+### DIAGNOSED: the leak is *zero preflop depth-adjustment* (2026-05-25)
+
+Added preflop instrumentation (`measure_passivity` PREFLOP section: VPIP/PFR/
+jam%/avg-open + by-scenario split). Swept Jeff by depth — the result is
+unambiguous: **preflop play is byte-identical at 100/50/25bb.**
+
+| Depth | VPIP | PFR | jam% | avg open | vs_open f/c/r/jam | vs_3bet f/c/r/jam |
+|---|---|---|---|---|---|---|
+| 100bb | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 50bb  | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 25bb  | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 15bb  | 17% | 14% | **7.1%** | 3.2bb | 68/18/7/**7** | 85/11/0/4 |
+
+**The bot has no depth-awareness above 15bb.** It opens to 3.3bb (= 13% of a
+25bb stack), ~never jams, and flat-calls 18% vs opens (a commitment error when
+shallow). Only the `<20bb` short-stack heuristic kicks in at 15bb (and weakly).
+Postflop compounds it: the small opens make low-SPR flops the bot plays
+deep-passive (at 25bb it checks the nuts 89% unopened, raises facing a bet 1%;
+AggFactor 0.27→0.06 across depths).
+
+**Scope of the fix (preflop is the dominant lever):** depth-correct preflop
+charts at ~50bb and ~25bb — polarized 3-bet/open **jam** ranges, larger relative
+sizing, less flat-calling — plus low-SPR postflop commit logic. Because the
+current behavior is *zero adjustment*, even a **coarse hand-authored depth chart
+should recover most of the −18 to −22** (the cheap 100bb→fix pattern); a 25–50bb
+**solve** is the principled ceiling, justified only if the hand-authored pass
+stalls. <15bb push/fold remains low priority (15bb already ~break-even).
