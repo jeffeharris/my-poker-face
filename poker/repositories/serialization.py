@@ -114,6 +114,7 @@ def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:
         current_ante=current_ante,
         last_raise_amount=last_raise_amount,
         raises_this_round=state_dict.get('raises_this_round', 0),
+        preflop_raise_count=state_dict.get('preflop_raise_count', 0),
         pre_flop_action_taken=state_dict['pre_flop_action_taken'],
         awaiting_action=state_dict['awaiting_action'],
         run_it_out=state_dict.get('run_it_out', False),

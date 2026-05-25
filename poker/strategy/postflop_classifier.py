@@ -81,6 +81,15 @@ def _determine_facing_action(game_state) -> str:
     return 'facing_raise'
 
 
+def _determine_pot_type(game_state) -> str:
+    """Classify the pot as single-raised (SRP) or 3-bet+ (3BP) from the
+    hand-scoped preflop raise count (survives street resets; see
+    PokerGameState.preflop_raise_count). 0-1 raises = SRP (limp/open), 2+ =
+    3BP. 4-bet+ collapses into 3BP — the node model is two-valued."""
+    raises = getattr(game_state, 'preflop_raise_count', 0)
+    return '3BP' if raises >= 2 else 'SRP'
+
+
 def _determine_spr_bucket(game_state, player_idx: int) -> str:
     """Classify the stack-to-pot ratio into a bucket."""
     player = game_state.players[player_idx]
@@ -130,7 +139,7 @@ def build_postflop_node(
     return PostflopNode(
         street=street,
         position=position,
-        pot_type='SRP',
+        pot_type=_determine_pot_type(game_state),
         board_texture=board_texture,
         made_tier=classification.made_tier,
         draw_modifier=classification.draw_modifier,

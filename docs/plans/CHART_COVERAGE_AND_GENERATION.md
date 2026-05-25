@@ -157,34 +157,46 @@ the bluff (bet → check unopened, raise → fold facing).
   bug)** — real chips, just exploiting always-calling rule bots (the known
   "rule-bot bb/100 is misleading" caveat). Jeff remains the meaningful eval.
 
-**Still open:** medium-SPR entries (currently fallback→high; revisit if a
-medium-SPR leak shows). Then P2 (3BP + un-hardcode classifier), P3, P4.
+**Medium-SPR — tried + REVERTED (2026-05-25).** A partial-commit medium slice
+*regressed* −7 to −14 bb/100 vs Jeff (all seeds). Lesson: at medium SPR (2–6)
+there are still streets to bet, so partial-jamming forgoes multi-street value
+(esp. vs a station). The correct medium-SPR strategy *is* the high-SPR
+multi-street strategy — which the SPR classifier already routes to. Medium
+stays on the high fallback **by design** (correctness, not a gap); only LOW SPR
+needed real entries.
 
-## Next concrete step — DECISION NEEDED (not a quick win)
+**P2 (3-bet pots) — SHIPPED 2026-05-25.** `pot_type` dimension filled:
+- Detection: hand-scoped `preflop_raise_count` on `PokerGameState`
+  (incremented by preflop raises, survives street resets, resets per hand,
+  serialized w/ old-save compat); `build_postflop_node` maps `≥2 raises → 3BP`.
+- Entries: `generate_postflop_3bp.py` → `postflop_strategies_3bp.json` (4,320,
+  derived from SRP: value more aggressive, air less bluffy), merged at load.
+- Fallback: postflop lookup degrades a miss toward the populated SRP/high base
+  (no regression possible).
+- vs Jeff (3000h×3): 25bb +31.7 / 50bb +36.7 / 100bb +48.5 — **flat vs low-only
+  (0 / −0.3 / −0.4, noise)**. Neutral + correct → kept (completes the
+  dimension). Fires on ~21% of hands.
 
-P2 (3-bet pots) turned out **harder and lower-value than first scoped**:
-- **Detection isn't a one-line un-hardcode.** `raises_this_round` is reset each
-  betting round (`poker_state_machine.py:206/242`), so the preflop raise count
-  is gone by postflop — game_state carries no preflop history. Detecting 3BP
-  needs either (a) **state-machine plumbing** (preserve a preflop-raise count
-  through the round reset — touches the immutable core, higher blast radius) or
-  (b) a pot-size-vs-blinds heuristic.
-- **And the value may already be captured.** 3-bet pots are inherently low-SPR,
-  so they already get the **low-SPR chart** (the SPR classifier fires
-  regardless of `pot_type`). A separate 3BP slice only adds SRP-vs-3BP nuance
-  *at the same SPR* (range/nut advantage to the 3-bettor) — second-order.
-- Also note: naive un-hardcoding **regresses** 3-bet pots — `pot_type` has no
-  fallback, so `3BP` lookups would miss → conservative default. A `3BP→SRP`
-  fallback must land first.
+**Both frozen axes are now populated → 8,640 postflop entries (was 2,160).**
+The grid is complete: high authored, low generated, 3BP generated; medium = high
+by design.
 
-**Recommended re-prioritization:** the bigger lever now is probably the **eval,
-not more charts** — every postflop win is measured vs exploitable opponents
-(Jeff station + always-calling rule bots; +200 vs the latter). A tougher
-opponent (or the full-SNG runner) would tell us whether the postflop fixes are
-*correct* or just *station-beating*, which gates whether finer charts (3BP,
-medium-SPR, LLM-refined grids) are worth authoring at all. Alternatives if
-staying on charts: medium-SPR entries (cheap, mirrors the low-SPR generator) or
-LLM-refining the low-SPR grid.
+## Eval: first non-pushover signal (2026-05-25)
+
+Self-play / champion-vs-challenger (the user's `EVAL_HARNESS_PLAN.md` P0):
+Baseline (pure charts) vs `TAG,LAG,Rock,Nit,GTO-Lite` at 100bb = **+10.3 bb/100
+(per-seed +29.7 / +8.3 / −7.1 — within noise, ~parity)**, HU 73%. The honest
+signal: against our *strongest* opponents the charts are roughly break-even — a
+competent player, not a fish-beating artifact (cf. +48 vs Jeff station, +200 vs
+rule bots). This is the eval that should gate further chart work.
+
+## Next concrete step
+
+The chart grid is complete; the open question is now **correctness vs strong
+play**, which is the eval program (`EVAL_HARNESS_PLAN.md`): build out P0
+champion-vs-challenger as the standing gate, P0.5 a non-station punisher clone,
+P1 the full-SNG win-rate runner. Finer chart work (3BP precision, LLM-refined
+grids, P3/P4 preflop+endgame) should be driven by what those evals expose.
 
 → **The eval plan is now its own doc: `docs/plans/EVAL_HARNESS_PLAN.md`**
 (prioritized: **P0** champion-vs-challenger head-to-head [cheap, discriminating,

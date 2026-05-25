@@ -80,8 +80,8 @@ class TestLowSPRMerge:
         return load_strategy_table()
 
     def test_low_spr_entries_loaded(self, table):
-        # 2160 authored high + 2160 generated low.
-        assert table.postflop_size == 4320
+        # 2160 authored high + 2160 generated low + 4320 generated 3BP.
+        assert table.postflop_size == 8640
 
     def test_low_spr_lookup_hits_exact(self, table):
         # Exact lookup (no fallback) returns the committed low-SPR entry.

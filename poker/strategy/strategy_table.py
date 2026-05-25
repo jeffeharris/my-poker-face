@@ -153,46 +153,47 @@ class StrategyTable:
     def lookup_postflop_with_fallback(
         self, node: PostflopNode, legal_actions: List[str],
     ) -> StrategyProfile:
-        """Look up postflop strategy with SPR + texture-neighbor fallback.
+        """Look up postflop strategy, degrading toward the populated base.
 
-        Fallback ladder:
-        1. Exact key lookup
-        2. SPR fallback: the chart is populated only at spr_bucket='high', so
-           a low/medium-SPR spot (short stack) retries the same node at
-           spr='high'. Without this, short-stack postflop play falls all the
-           way to the passive conservative default (check-100% unopened /
-           fold-70% facing a bet) — the diagnosed low-SPR passivity leak.
-           Commitment for genuinely-short SPR is layered on downstream
-           (postflop_commit); here we just recover real strategy.
-        3. Texture neighbor lookup (swap board_texture, keep everything else)
-        4. Context-aware conservative default
+        Two chart axes may be unpopulated for a given spot — `spr_bucket`
+        (only `high` was authored; `low` is generated) and `pot_type` (only
+        `SRP` / `3BP`). The ladder degrades a miss toward the populated base
+        (`pot_type='SRP'`, `spr_bucket='high'`), SPR first then pot_type, so a
+        shallow or 3-bet-pot spot recovers real strategy instead of falling to
+        the passive conservative default (check-100% / fold-70%):
+
+        1. Exact, then (orig pot_type, high SPR), then (SRP, orig SPR), then
+           (SRP, high) — each at the original board_texture.
+        2. Texture-neighbor lookup at the fully-degraded (SRP, high) base.
+        3. Context-aware conservative default.
+
+        Commitment for genuinely-short SPR is layered on downstream
+        (postflop_commit); here we just recover real strategy.
         """
-        # 1. Exact lookup
-        profile = self._postflop.get(node.key)
-        if profile is not None:
-            masked = _mask_and_renormalize(profile, legal_actions)
-            if masked is not None:
-                return masked
-
-        # 2. SPR fallback → high (the only populated bucket). All further
-        # fallbacks operate on this high-SPR node.
-        lookup_node = node
+        # Degradation candidates, most-specific first. SPR degrades before
+        # pot_type: shallow sizing/commit matters more than the SRP↔3BP nuance.
+        candidates = [node]
         if node.spr_bucket != 'high':
-            lookup_node = replace(node, spr_bucket='high')
-            profile = self._postflop.get(lookup_node.key)
+            candidates.append(replace(node, spr_bucket='high'))
+        if node.pot_type != 'SRP':
+            candidates.append(replace(node, pot_type='SRP'))
+            if node.spr_bucket != 'high':
+                candidates.append(replace(node, pot_type='SRP', spr_bucket='high'))
+
+        for cand in candidates:
+            profile = self._postflop.get(cand.key)
             if profile is not None:
                 masked = _mask_and_renormalize(profile, legal_actions)
                 if masked is not None:
-                    logger.debug(
-                        f"Postflop SPR fallback: {node.spr_bucket} → high "
-                        f"for {node.key}"
-                    )
+                    if cand is not node:
+                        logger.debug(f"Postflop fallback: {node.key} → {cand.key}")
                     return masked
 
-        # 3. Texture neighbor fallback
-        neighbor_texture = _TEXTURE_NEIGHBOR.get(lookup_node.board_texture)
+        # Texture neighbor at the fully-degraded base (SRP, high).
+        base = replace(node, pot_type='SRP', spr_bucket='high')
+        neighbor_texture = _TEXTURE_NEIGHBOR.get(base.board_texture)
         if neighbor_texture:
-            neighbor_node = replace(lookup_node, board_texture=neighbor_texture)
+            neighbor_node = replace(base, board_texture=neighbor_texture)
             profile = self._postflop.get(neighbor_node.key)
             if profile is not None:
                 masked = _mask_and_renormalize(profile, legal_actions)
@@ -203,7 +204,7 @@ class StrategyTable:
                     )
                     return masked
 
-        # 4. Conservative default
+        # Conservative default
         logger.debug(f"Postflop conservative default for {node.key}")
         return _postflop_conservative_default(node.facing_action, legal_actions)
 
@@ -308,6 +309,15 @@ def load_strategy_table(
     low_spr_path = os.path.join(data_dir, 'postflop_strategies_low_spr.json')
     if os.path.exists(low_spr_path):
         with open(low_spr_path) as f:
+            postflop_data.update(_parse_postflop_json(json.load(f)))
+
+    # Merge the generated 3-bet-pot slice (distinct pot_type=3BP keys). Fills
+    # the pot_type dimension the original never populated (it only had SRP, and
+    # the classifier hardcoded SRP). See generate_postflop_3bp.py. Absent file
+    # → the pot_type fallback degrades 3BP lookups to SRP.
+    three_bet_path = os.path.join(data_dir, 'postflop_strategies_3bp.json')
+    if os.path.exists(three_bet_path):
+        with open(three_bet_path) as f:
             postflop_data.update(_parse_postflop_json(json.load(f)))
 
     return StrategyTable(preflop_data, postflop_data)

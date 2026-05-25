@@ -97,6 +97,7 @@ class PokerGameState:
     current_ante: int = ANTE
     last_raise_amount: int = ANTE  # Tracks the size of the last raise (defaults to big blind)
     raises_this_round: int = 0  # Track raises for cap enforcement (reset each betting round)
+    preflop_raise_count: int = 0  # Hand-scoped count of preflop raises (1=SRP, 2=3BP, 3+=4BP+); survives street resets, used for postflop pot_type classification
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
@@ -119,6 +120,7 @@ class PokerGameState:
             'current_ante': self.current_ante,
             'last_raise_amount': self.last_raise_amount,
             'raises_this_round': self.raises_this_round,
+            'preflop_raise_count': self.preflop_raise_count,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
             'run_it_out': self.run_it_out,
@@ -514,10 +516,15 @@ def player_raise(game_state, raise_to_amount: int):
     game_state = place_bet(game_state=game_state, amount=total_to_add)
 
     # Track the raise amount for minimum raise calculations and increment raise counter
-    game_state = game_state.update(
-        last_raise_amount=raise_by_amount,
-        raises_this_round=game_state.raises_this_round + 1
-    )
+    raise_updates = {
+        'last_raise_amount': raise_by_amount,
+        'raises_this_round': game_state.raises_this_round + 1,
+    }
+    # Hand-scoped preflop raise count (survives street resets) for postflop
+    # pot_type classification. Preflop is detected by no community cards dealt.
+    if len(game_state.community_cards) == 0:
+        raise_updates['preflop_raise_count'] = game_state.preflop_raise_count + 1
+    game_state = game_state.update(**raise_updates)
     return game_state
 
 
@@ -548,6 +555,9 @@ def player_all_in(game_state):
         updates = {'raises_this_round': game_state.raises_this_round + 1}
         if raise_by >= game_state.last_raise_amount:
             updates['last_raise_amount'] = raise_by
+        # Preflop all-in raise counts toward the hand-scoped preflop raise count.
+        if len(game_state.community_cards) == 0:
+            updates['preflop_raise_count'] = game_state.preflop_raise_count + 1
 
         game_state = game_state.update(**updates)
     return game_state
