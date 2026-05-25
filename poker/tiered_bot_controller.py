@@ -20,7 +20,7 @@ from .controllers import AIPlayerController, _get_canonical_hand
 from .card_utils import card_to_string
 from .bounded_options import get_emotional_shift
 from .strategy.nodes import PreflopNode
-from .strategy.strategy_table import StrategyTable
+from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
 from .strategy.preflop_classifier import build_preflop_node, get_6max_position
 from .strategy.postflop_classifier import build_postflop_node
 from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
@@ -213,6 +213,7 @@ class TieredBotController(AIPlayerController):
         skip_personality_distortion: bool = False,
         expression_generator: Optional[ExpressionGenerator] = None,
         hu_strategy_table: Optional[StrategyTable] = None,
+        depth_strategy_tables: Optional[Dict[int, StrategyTable]] = None,
         **kwargs,
     ):
         super().__init__(
@@ -223,6 +224,10 @@ class TieredBotController(AIPlayerController):
         )
         self.strategy_table = strategy_table
         self.hu_strategy_table = hu_strategy_table
+        # Shallow 6-max preflop charts keyed by depth bucket (e.g. {50:.., 25:..}).
+        # Empty dict → no depth adjustment (the base table is used at every
+        # depth, the pre-depth-aware behavior). See _select_preflop_table.
+        self.depth_strategy_tables: Dict[int, StrategyTable] = depth_strategy_tables or {}
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
         # Competitive feel: bet sizing jitter band. When > 0, the action
@@ -280,13 +285,6 @@ class TieredBotController(AIPlayerController):
         self.enable_multistreet_context: bool = False
         self.multistreet_h1_barrel: bool = True
         self.multistreet_h2_foldbarrel: bool = True
-
-        # Value-bet floor (STRUCTURAL_PASSIVITY_PLAN.md §12). OFF by default.
-        # When enabled, pumps bet frequency for clear value classes
-        # (nuts/strong_made) in unopened spots — the broad fix for the chart's
-        # diagnosed under-betting of value. Measurement scaffold: if it proves
-        # +EV the frequencies get baked into the chart and this retires.
-        self.enable_value_bet_floor: bool = False
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -528,17 +526,19 @@ class TieredBotController(AIPlayerController):
         # seated count (not non-folded count) so 6-max spots that collapse to
         # 2 players after folds still use the 6-max chart.
         num_seated = len(game_state.players)
-        preflop_table = (
-            self.hu_strategy_table
-            if num_seated == 2 and self.hu_strategy_table is not None
-            else self.strategy_table
+        # Depth-aware: pick the 6-max chart calibrated for the effective
+        # stack (100/50/25bb). Computed here (not just at the short_stack
+        # step below) because the base ranges themselves are depth-dependent.
+        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        preflop_table, chart_label = self._select_preflop_table(
+            num_seated, effective_stack_bb
         )
 
         if self.debug_logging:
             logger.info(
                 f"[TIERED_BOT] {self.player_name}: "
                 f"hand={canonical_hand} node_key={node.key} "
-                f"chart={'HU' if preflop_table is self.hu_strategy_table else '6max'}"
+                f"chart={chart_label} eff_bb={effective_stack_bb:.1f}"
             )
 
         # Layer 1: Lookup base strategy. Short-stack HU spots bypass the
@@ -637,7 +637,7 @@ class TieredBotController(AIPlayerController):
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
         # of medium-raise probability mass below 20 BB effective stack.
         # Independent of opponent type — always fires when stack is short.
-        effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
+        # (effective_stack_bb already computed above for chart selection.)
         # Snapshot for Mode 1 replay.
         self._last_pipeline_snapshot['effective_stack_bb'] = effective_stack_bb
         modified_strategy, short_stack_trace = apply_short_stack_heuristics(
@@ -981,37 +981,12 @@ class TieredBotController(AIPlayerController):
             )
         self._last_intervention_trace.append(multistreet_trace)
 
-        # 6a.5b.3 Value-bet floor (STRUCTURAL_PASSIVITY_PLAN.md §12). Behind
-        # enable_value_bet_floor (default off). Pumps bet for value classes
-        # (nuts/strong_made) in unopened spots — the broad fix for the chart's
-        # diagnosed under-betting of value (catches the population H1's
-        # prev-aggressor gate misses). Unopened-only, so no conflict with
-        # defense_floor/math_floor; defers when an upstream override already
-        # replaced the distribution and feeds prior_layer_fired below.
-        value_bet_floor_trace = make_no_op_trace(
-            layer='value_bet_floor', rule_id='default',
-            layer_order=layer_order_for('value_bet_floor'),
-            reason_code='flag_disabled',
-        )
-        if getattr(self, 'enable_value_bet_floor', False):
-            from .strategy.value_bet_floor import apply_value_bet_floor
-            vbf_prior_fired = (
-                induce_override_trace.fired
-                or value_override_trace.fired
-                or bluff_catch_trace.fired
-                or multistreet_trace.fired
-            )
-            modified_strategy, value_bet_floor_trace = apply_value_bet_floor(
-                modified_strategy,
-                hand_class=hand_strength,
-                action_context=node.facing_action,
-                prior_layer_fired=vbf_prior_fired,
-                disable_rules=getattr(self, "disable_rules", frozenset()),
-            )
-            value_bet_floor_trace = _fill_prior_action_source(
-                value_bet_floor_trace, self._last_intervention_trace,
-            )
-        self._last_intervention_trace.append(value_bet_floor_trace)
+        # NOTE: the value-bet floor override (§12) was retired (§14) once its
+        # win was traced to multiway over-suppressing value hands and baked
+        # into apply_multiway_adjustment's VALUE_CLASSES exemption (the root
+        # fix). The exemption reproduced the floor's GTO win in full and the
+        # majority elsewhere; the residual was an exploitative over-bet that
+        # belongs in the exploitation layer, not the base policy.
 
         # 6a.5c Plan §2: price-sensitive defense floor. Pumps call
         # probability for legitimate made hands at favorable prices
@@ -1026,7 +1001,6 @@ class TieredBotController(AIPlayerController):
             or value_override_trace.fired
             or bluff_catch_trace.fired
             or multistreet_trace.fired
-            or value_bet_floor_trace.fired
         )
         defense_floor_facing_bet = (
             outer_decision_context.bet_bucket is not None
@@ -1813,6 +1787,28 @@ class TieredBotController(AIPlayerController):
     def _compute_effective_stack_bb(self, game_state, player_idx):
         """Effective stack in big blinds — delegates to `stack_utils`."""
         return effective_stack_bb(game_state, game_state.players[player_idx])
+
+    def _select_preflop_table(self, num_seated, effective_stack_bb):
+        """Pick the preflop chart for this spot. Returns (table, label).
+
+        - 2-handed: the HU chart (depth selection is 6-max-only for now —
+          the HU chart has no shallow variants, and short stacks there are
+          covered by the push/fold chart at the lookup step).
+        - 6-max/multiway: the shallow depth chart nearest the effective
+          stack (50/25bb) when available, else the 100bb base table. With no
+          depth tables loaded this is always the base table — the original,
+          depth-agnostic behavior.
+        """
+        if num_seated == 2 and self.hu_strategy_table is not None:
+            return self.hu_strategy_table, 'HU'
+        # getattr default keeps controllers built by bypassing __init__
+        # (test fixtures, factories) working with no depth adjustment.
+        depth_tables = getattr(self, 'depth_strategy_tables', None) or {}
+        if not depth_tables:
+            return self.strategy_table, '6max'
+        bucket = nearest_depth_bucket(effective_stack_bb)
+        table = depth_tables.get(bucket, self.strategy_table)
+        return table, f'6max@{bucket}bb'
 
     def _classify_postflop_hand_strength(self, node):
         """Map PostflopNode → simplified hand class string ('nuts',
@@ -3374,6 +3370,7 @@ class BaselineSolverBot(TieredBotController):
         debug_logging: bool = False,
         rng_seed=None,
         hu_strategy_table: Optional[StrategyTable] = None,
+        depth_strategy_tables: Optional[Dict[int, StrategyTable]] = None,
         **kwargs,
     ):
         kwargs.pop('skip_personality_distortion', None)
@@ -3386,5 +3383,6 @@ class BaselineSolverBot(TieredBotController):
             rng_seed=rng_seed,
             skip_personality_distortion=True,
             hu_strategy_table=hu_strategy_table,
+            depth_strategy_tables=depth_strategy_tables,
             **kwargs,
         )

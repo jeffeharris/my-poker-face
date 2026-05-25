@@ -9,7 +9,9 @@ import logging
 from typing import Optional
 
 from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
-from poker.strategy.strategy_table import load_strategy_table, load_hu_strategy_table
+from poker.strategy.strategy_table import (
+    load_strategy_table, load_hu_strategy_table, load_depth_strategy_tables,
+)
 from poker.strategy.expression_generator import ExpressionGenerator
 from core.llm import LLMClient, CallType
 
@@ -38,12 +40,14 @@ def build_tiered_controller(
     llm_config = llm_config or {}
     strategy_table = load_strategy_table()
     hu_strategy_table = load_hu_strategy_table()  # None if file missing
+    depth_strategy_tables = load_depth_strategy_tables()  # {} if files missing
     controller_cls = BaselineSolverBot if baseline else TieredBotController
     controller = controller_cls(
         player_name=player_name,
         state_machine=state_machine,
         strategy_table=strategy_table,
         hu_strategy_table=hu_strategy_table,
+        depth_strategy_tables=depth_strategy_tables,
         llm_config=llm_config,
         game_id=game_id,
         owner_id=owner_id,

@@ -2,7 +2,7 @@
 purpose: Scope and build-vs-buy analysis for generating solver-derived lookup charts (the "~32 sets of charts") across player counts, stack depths, action histories, and bet sizings
 type: design
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-05-25
 ---
 
 # Solver Chart Scope — the full lookup-table program
@@ -145,3 +145,104 @@ Each catches a different failure class before compute is spent:
 Planning/scoping only — **no solver build has started.** Next decision gate
 is the solver-viability question in `NEXT_PHASE_VISION.md` Bucket 6 (a
 Cepheus/Kuhn match pilot) before committing to a build.
+
+## MEASURED: the short-stack leak is real and large (2026-05-25)
+
+The "100bb tables at 25bb effective" premise was previously an untested
+hypothesis. It is now **measured** (`experiments/measure_passivity.py --stack-bb`,
+Baseline vs the Jeff_clone human model, 3000 × seeds 42/142/242, fixed-depth
+proxy — per-hand reset, not full SNG dynamics):
+
+| Effective stack | bb/100 | AggFactor |
+|---|---|---|
+| 100bb | **−4.2** | 0.27 |
+| 50bb | **−18.8** | 0.16 |
+| 25bb | **−21.8** | 0.06 |
+| 15bb | **−2.1** | 0.01 |
+
+**The leak is concentrated at 25–50bb (−18 to −22 bb/100), ~4–5× the 100bb
+leak.** This confirms the premise — and refines the target:
+- It is **NOT a push/fold problem**: 15bb is already near break-even (jam/fold
+  is forgiving + small stacks compress the loss). Published <15bb push/fold
+  charts are therefore **low priority**.
+- The money is lost in the **25–50bb middle** — real shallow-SPR poker (preflop
+  ranges too loose, raises too small, marginal calls, missed commit/jam spots).
+  The bot also gets *less* aggressive as stacks shorten (AF 0.27→0.06), the
+  opposite of correct.
+- So the highest-value chart target is **depth-correct 25–50bb** strategy
+  (preflop + postflop), NOT the <15bb push/fold table that `PUSH_FOLD_6MAX_SCOPE`
+  scoped first.
+
+**Recommended next (de-risked, before committing to the full solver):**
+1. **Diagnose** *what* the bot does wrong at 25–50bb (leak surface / per-action
+   breakdown at those depths) to scope whether a depth-tuned hand-authored
+   chart + sizing/commit heuristics recovers most of it cheaply.
+2. If a hand-authored 25–50bb chart materially closes the gap, that may suffice
+   (the 100bb→fix pattern). If not, that's the concrete justification for a
+   25–50bb **solve** (the doc's "then add short-stack depths" pass).
+3. The fixed-depth proxy here understates/overstates vs true SNG dynamics; a
+   **full WTA-SNG runner** (escalating blinds, elimination, win-rate) is the
+   honest final eval — build it once a 25–50bb fix is in hand to validate.
+
+Harness: `measure_passivity.py` now takes `--stack-bb` (effective depth knob).
+The full-SNG runner is not yet built.
+
+### DIAGNOSED: the leak is *zero preflop depth-adjustment* (2026-05-25)
+
+Added preflop instrumentation (`measure_passivity` PREFLOP section: VPIP/PFR/
+jam%/avg-open + by-scenario split). Swept Jeff by depth — the result is
+unambiguous: **preflop play is byte-identical at 100/50/25bb.**
+
+| Depth | VPIP | PFR | jam% | avg open | vs_open f/c/r/jam | vs_3bet f/c/r/jam |
+|---|---|---|---|---|---|---|
+| 100bb | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 50bb  | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 25bb  | 18% | 14% | 0.4% | 3.3bb | 69/18/13/0 | 79/12/9/0 |
+| 15bb  | 17% | 14% | **7.1%** | 3.2bb | 68/18/7/**7** | 85/11/0/4 |
+
+**The bot has no depth-awareness above 15bb.** It opens to 3.3bb (= 13% of a
+25bb stack), ~never jams, and flat-calls 18% vs opens (a commitment error when
+shallow). Only the `<20bb` short-stack heuristic kicks in at 15bb (and weakly).
+Postflop compounds it: the small opens make low-SPR flops the bot plays
+deep-passive (at 25bb it checks the nuts 89% unopened, raises facing a bet 1%;
+AggFactor 0.27→0.06 across depths).
+
+**Scope of the fix (preflop is the dominant lever):** depth-correct preflop
+charts at ~50bb and ~25bb — polarized 3-bet/open **jam** ranges, larger relative
+sizing, less flat-calling — plus low-SPR postflop commit logic. Because the
+current behavior is *zero adjustment*, even a **coarse hand-authored depth chart
+should recover most of the −18 to −22** (the cheap 100bb→fix pattern); a 25–50bb
+**solve** is the principled ceiling, justified only if the hand-authored pass
+stalls. <15bb push/fold remains low priority (15bb already ~break-even).
+
+### SHIPPED (2026-05-25): hand-authored depth charts — the cheap fix works
+
+Built `poker/strategy/data/generate_depth_charts.py` → `preflop_50bb_6max.json`
+and `preflop_25bb_6max.json`, derived from the 100bb chart by the rule **"flat
+less, jam/polarize more as stacks shorten"** (spec: `depth_charts_README.md`).
+Selection is depth-bucketed by effective stack (100/50/25bb,
+`nearest_depth_bucket`, mirroring `push_fold`) in the 6-max preflop branch of
+`tiered_bot_controller.py`; wired through all three construction sites
+(sim `make_controller`, `run_ai_tournament`, `tiered_factory`). Default-on
+wherever the chart files exist; `{}` → the old depth-agnostic behavior.
+
+Measured (Baseline vs Jeff_clone, 3000h × seeds 42/142/242):
+
+| Depth | Before | After | Δ |
+|---|---|---|---|
+| 25bb | −21.8 | **−8.0** | **+13.8** |
+| 50bb | −18.8 | **−14.0** | **+4.8** |
+| 100bb | −4.2 | −4.2 | 0 (base table untouched — exact match) |
+
+**The diagnosis held: a coarse depth chart recovered most of the 25bb leak.**
+25bb wins big because jam-or-fold polarization removes the awkward low-SPR
+postflop spots entirely. **50bb's residual is now isolated as postflop-bound:**
+an aggressive 50bb preflop variant moved bb/100 by ~0 (−14.0 → −13.8, noise) —
+50bb still sees flatted/3-bet flops and plays them passive (AggFactor 0.16 vs
+0.27 at 100bb). So the **next lever is low-SPR postflop commit logic**, not more
+preflop polarization, and a 25–50bb *solve* is still not justified. Poker
+correctness notes: jam ranges are **value-gated** (no bluff-jams — Jeff_clone is
+a station, fold-to-cbet ≈0.45, so bluff-shoves are −EV); `vs_open` gates on
+raise-dominance (not committed facing one raise), `vs_3bet` on fold-frequency
+(committed shallow). Tests: `tests/test_strategy/test_depth_charts.py` (17);
+full `test_strategy/` green (1230).

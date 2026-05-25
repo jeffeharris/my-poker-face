@@ -41,6 +41,7 @@ from poker.psychology_model import PersonalityAnchors
 from poker.strategy.strategy_table import (
     load_strategy_table,
     load_hu_strategy_table,
+    load_depth_strategy_tables,
     StrategyTable,
 )
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
@@ -193,6 +194,20 @@ def _get_hu_table() -> Optional[StrategyTable]:
     return _HU_TABLE_CACHE
 
 
+_DEPTH_TABLES_CACHE: Optional[dict] = None
+
+
+def _get_depth_tables() -> dict:
+    """Lazy-load + cache the shallow 6-max depth charts ({50:.., 25:..}).
+
+    Empty dict if no shallow charts are present (→ no depth adjustment).
+    """
+    global _DEPTH_TABLES_CACHE
+    if _DEPTH_TABLES_CACHE is None:
+        _DEPTH_TABLES_CACHE = load_depth_strategy_tables()
+    return _DEPTH_TABLES_CACHE
+
+
 def make_controller(
     name: str,
     archetype_config: dict,
@@ -250,6 +265,9 @@ def make_controller(
     controller.hu_strategy_table = (
         hu_strategy_table if hu_strategy_table is not None else _get_hu_table()
     )
+    # Depth-aware shallow 6-max charts ({50:.., 25:..}); empty → no
+    # depth adjustment. Cached module-wide like the HU table.
+    controller.depth_strategy_tables = _get_depth_tables()
     controller.debug_logging = False
     controller.rng = random.Random(rng_seed)
     controller.skip_personality_distortion = is_baseline
