@@ -160,9 +160,28 @@ the bluff (bet → check unopened, raise → fold facing).
 **Still open:** medium-SPR entries (currently fallback→high; revisit if a
 medium-SPR leak shows). Then P2 (3BP + un-hardcode classifier), P3, P4.
 
-## Next concrete step
+## Next concrete step — DECISION NEEDED (not a quick win)
 
-P2a (cheap correctness win): un-hardcode `postflop_classifier.py:133` so 3-bet
-pots are *detected* (`pot_type='3BP'`) instead of always playing SRP; then
-decide whether 3BP needs its own authored slice or the low-SPR work already
-covers its shallowness. Measure vs Jeff at 25/50/100bb.
+P2 (3-bet pots) turned out **harder and lower-value than first scoped**:
+- **Detection isn't a one-line un-hardcode.** `raises_this_round` is reset each
+  betting round (`poker_state_machine.py:206/242`), so the preflop raise count
+  is gone by postflop — game_state carries no preflop history. Detecting 3BP
+  needs either (a) **state-machine plumbing** (preserve a preflop-raise count
+  through the round reset — touches the immutable core, higher blast radius) or
+  (b) a pot-size-vs-blinds heuristic.
+- **And the value may already be captured.** 3-bet pots are inherently low-SPR,
+  so they already get the **low-SPR chart** (the SPR classifier fires
+  regardless of `pot_type`). A separate 3BP slice only adds SRP-vs-3BP nuance
+  *at the same SPR* (range/nut advantage to the 3-bettor) — second-order.
+- Also note: naive un-hardcoding **regresses** 3-bet pots — `pot_type` has no
+  fallback, so `3BP` lookups would miss → conservative default. A `3BP→SRP`
+  fallback must land first.
+
+**Recommended re-prioritization:** the bigger lever now is probably the **eval,
+not more charts** — every postflop win is measured vs exploitable opponents
+(Jeff station + always-calling rule bots; +200 vs the latter). A tougher
+opponent (or the full-SNG runner) would tell us whether the postflop fixes are
+*correct* or just *station-beating*, which gates whether finer charts (3BP,
+medium-SPR, LLM-refined grids) are worth authoring at all. Alternatives if
+staying on charts: medium-SPR entries (cheap, mirrors the low-SPR generator) or
+LLM-refining the low-SPR grid.
