@@ -307,21 +307,36 @@ class PressureStatsTracker:
             return
 
         try:
-            events = self.event_repository.get_pressure_events(self.game_id)
+            # PressureEventRepository.get_events_for_game returns a list of
+            # dicts (keys: player_name, event_type, timestamp, details), not
+            # entity objects — use subscript access, not attributes.
+            events = self.event_repository.get_events_for_game(self.game_id)
 
             for event_entity in events:
-                player_name = event_entity.player_name
+                player_name = event_entity['player_name']
 
                 # Ensure player stats exist
                 if player_name not in self.player_stats:
                     self.player_stats[player_name] = PlayerPressureStats(player_name)
 
+                # SQLite stores timestamp as a string; coerce back to datetime
+                # to honor the PressureEvent contract (falls back to now() on
+                # any unexpected format rather than failing the whole load).
+                raw_ts = event_entity.get('timestamp')
+                if isinstance(raw_ts, datetime):
+                    timestamp = raw_ts
+                else:
+                    try:
+                        timestamp = datetime.fromisoformat(str(raw_ts))
+                    except (TypeError, ValueError):
+                        timestamp = datetime.now()
+
                 # Recreate event and add to player stats
                 event = PressureEvent(
-                    timestamp=event_entity.timestamp,
-                    event_type=event_entity.event_type,
+                    timestamp=timestamp,
+                    event_type=event_entity['event_type'],
                     player_name=player_name,
-                    details=event_entity.details or {}
+                    details=event_entity.get('details') or {}
                 )
 
                 self.player_stats[player_name].add_event(event)

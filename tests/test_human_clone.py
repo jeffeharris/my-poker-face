@@ -20,6 +20,10 @@ from poker.human_clone import (
     _tier_for_frequency,
     build_clone_strategy,
     derive_profile_from_db,
+    dump_profile_to_file,
+    load_profile_from_file,
+    profile_from_dict,
+    profile_to_dict,
     register_clone_strategy,
 )
 from poker.hand_tiers import PREMIUM_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_95_HANDS
@@ -428,3 +432,65 @@ class TestRegisterCloneStrategy:
             assert result['action'] in ('raise', 'call', 'fold', 'check')
         finally:
             BUILT_IN_STRATEGIES.pop('clone_testuser', None)
+
+
+class TestProfileSerialization:
+    """Round-trip + portability of the frozen-snapshot export/import path."""
+
+    def _full_profile(self):
+        # Every field populated, including V2, to prove nothing is dropped.
+        return CloneProfile(
+            source_player='Jeff', hands_observed=4669,
+            vpip=0.3867, pfr=0.1588, aggression_factor=1.2239,
+            fold_to_cbet=0.4470, bluff_frequency=0.30, showdown_win_rate=0.4583,
+            wtsd=0.5859, threebet_rate=0.0171,
+            flop_af=0.30, turn_af=0.3462, river_af=0.3268,
+        )
+
+    def test_dict_round_trip_preserves_all_fields(self):
+        profile = self._full_profile()
+        assert profile_from_dict(profile_to_dict(profile)) == profile
+
+    def test_to_dict_omits_derived_display_name(self):
+        # display_name is a property, not a field — it must not be serialized
+        # (it's rebuilt from source_player on load).
+        assert 'display_name' not in profile_to_dict(self._full_profile())
+
+    def test_file_round_trip(self, tmp_path):
+        profile = self._full_profile()
+        path = tmp_path / 'nested' / 'jeff.json'
+        written = dump_profile_to_file(profile, str(path))
+        assert os.path.exists(written)
+        assert load_profile_from_file(written) == profile
+
+    def test_from_dict_drops_unknown_keys(self):
+        # A snapshot from a newer version with an extra field still loads.
+        data = profile_to_dict(self._full_profile())
+        data['some_future_stat'] = 0.99
+        assert profile_from_dict(data).source_player == 'Jeff'
+
+    def test_from_dict_fills_missing_optional_with_defaults(self):
+        # A pre-V2 snapshot (no wtsd/threebet/street-AF) still loads.
+        data = {
+            'source_player': 'Legacy', 'hands_observed': 80,
+            'vpip': 0.30, 'pfr': 0.15, 'aggression_factor': 1.0,
+            'fold_to_cbet': 0.50,
+        }
+        profile = profile_from_dict(data)
+        assert profile.bluff_frequency == 0.30  # field default
+        assert profile.wtsd is None             # V2 field default
+
+    def test_committed_jeff_snapshot_loads_and_registers(self):
+        # The repo ships experiments/clone_profiles/jeff.json so any checkout
+        # can use Jeff_clone without the source DB. Guard against drift.
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(repo_root, 'experiments', 'clone_profiles', 'jeff.json')
+        profile = load_profile_from_file(path)
+        assert profile.source_player == 'Jeff'
+        assert profile.display_name == 'Jeff_clone'
+        from poker.rule_strategies import BUILT_IN_STRATEGIES
+        register_clone_strategy('clone_jeff', profile)
+        try:
+            assert 'clone_jeff' in BUILT_IN_STRATEGIES
+        finally:
+            BUILT_IN_STRATEGIES.pop('clone_jeff', None)

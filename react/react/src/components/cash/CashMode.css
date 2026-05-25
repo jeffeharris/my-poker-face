@@ -39,6 +39,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* World pace selector — controls how fast the realtime ticker advances
+ * the other (unseated) tables. See CASH_MODE_REALTIME_TICKER.md. */
+.cash-entry__pace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cash-entry__pace-label {
+  color: var(--text-secondary, #aaa);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+}
+
+.cash-entry__pace-select {
+  background: rgba(255, 216, 125, 0.06);
+  border: 1px solid rgba(255, 216, 125, 0.22);
+  border-radius: 8px;
+  color: #ffd87d;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
 .cash-entry__stakes h2,
 .cash-entry__buy-in h2 {
   margin: 0 0 0.75rem 0;
@@ -535,8 +564,14 @@
 .lobby-table-card__seat-initial {
   font-size: 2.5rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.45);
+  /* Used to be 45% white (placeholder-while-image-loads). Bumped to
+     near-opaque so the letter reads as primary identity — necessary
+     for ephemeral tourists, whose seats never get a generated image
+     (avatar generation auto-creates zombie personalities; see
+     `cash_routes.py` skip + `CASH_MODE_EPHEMERAL_TOURISTS.md`). */
+  color: rgba(255, 255, 255, 0.88);
   font-family: Georgia, serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 /* Overlay band at the bottom — gradient so text is readable over
@@ -683,14 +718,31 @@
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  max-height: 160px;
+  /* Locked height (~5 rows) so the feed never resizes the page as events
+     stream in and out. It's a rolling list — older items scroll into
+     view rather than expanding the box. */
+  height: 8.5rem;
   overflow-y: auto;
+  /* Reserve scrollbar gutter so content doesn't shift the moment the
+     feed grows past the visible rows. */
+  scrollbar-gutter: stable;
+}
+
+.lobby-ticker__empty {
+  color: var(--text-secondary, #888);
+  font-size: 0.8rem;
+  font-style: italic;
+  opacity: 0.7;
+  padding: 0.2rem 0;
 }
 
 .lobby-ticker__item {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
-  align-items: baseline;
+  grid-template-columns: 14px 1fr;
+  /* Top-align so the icon and timestamp sit with the FIRST line of a
+     wrapped (1-2 line) message rather than floating to its vertical
+     centre. */
+  align-items: start;
   gap: 0.5rem;
   padding: 0.2rem 0;
   font-size: 0.85rem;
@@ -701,14 +753,16 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  align-self: center;
   justify-self: center;
+  /* Nudge down to sit on the first text line (line-box is ~1.1rem tall). */
+  margin-top: 0.45rem;
   background: rgba(255, 255, 255, 0.4);
 }
 
 .lobby-ticker__icon {
-  align-self: center;
   justify-self: center;
+  /* Optically centre the 14px glyph on the first text line. */
+  margin-top: 0.1rem;
   color: #fcd34d;
   filter: drop-shadow(0 0 4px rgba(252, 211, 77, 0.4));
 }
@@ -750,23 +804,26 @@
 .lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
   color: #86efac;
 }
+/* Last stand — a seat with its whole bankroll on the line. Burning
+   orange so the "go target them" signal pops against the calmer
+   join/leave/stake tints. */
+.lobby-ticker__item--last_stand .lobby-ticker__icon {
+  color: #fb923c;
+  filter: drop-shadow(0 0 4px rgba(251, 146, 60, 0.5));
+}
 
 .lobby-ticker__message {
   color: var(--text-primary, #f5f5f5);
-}
-
-.lobby-ticker__time {
-  color: var(--text-secondary, #aaa);
-  font-size: 0.7rem;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  /* Wrap long messages so the whole row is readable. Rows can be 1-2
+     lines tall; that's fine — the list is a fixed-height scroll area, so
+     variable row height never resizes the page. `min-width: 0` lets the
+     1fr grid track shrink and wrap rather than overflowing. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 480px) {
   .lobby-ticker__item {
     font-size: 0.78rem;
-  }
-  .lobby-ticker__time {
-    font-size: 0.65rem;
   }
 }

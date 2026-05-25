@@ -18,7 +18,7 @@
  * etc.). Not an error condition — it's expected during early play.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Coins, RefreshCw } from 'lucide-react';
 import { getStakableAi } from './api';
 import type { StakableAiCandidate, StakableAiResponse } from './types';
@@ -46,16 +46,25 @@ function desperationLabel(desperation: number): string {
 export function IdleStakablePanel({ refreshKey, onStake }: IdleStakablePanelProps) {
   const [data, setData] = useState<StakableAiResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Mirrors whether we've ever loaded data, readable from the dep-free
+  // `load` callback without forcing it (and the poll effect) to re-run.
+  const hasDataRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const response = await getStakableAi();
+      hasDataRef.current = true;
       setData(response);
       setLoadError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('Failed to load stakable AI:', msg);
-      setLoadError(msg);
+      // This panel refetches on every lobby poll tick (~8s). A
+      // transient failure on a background refresh — e.g. a one-off
+      // 429 — shouldn't wipe out the candidates we already have.
+      // Only surface a hard error on the *initial* load, when there's
+      // nothing else to show. Subsequent polls quietly recover.
+      if (!hasDataRef.current) setLoadError(msg);
     }
   }, []);
 

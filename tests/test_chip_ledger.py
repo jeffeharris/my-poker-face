@@ -182,3 +182,115 @@ class TestLedgerModule:
         entries = repo.recent_entries()
         assert entries[0]['amount'] == 0
         assert entries[0]['context'] == {'forgiven_principal': 500}
+
+
+class TestCasinoSeatReturn:
+    """`record_casino_seat_return` is the destruction-side mirror of
+    `record_casino_seat_seed`. It returns residual seat chips to the
+    bank pool when a casino tears down with chips still on a tourist's
+    seat. Without this helper, the conservation invariant would break
+    (chips would just vanish from the universe).
+    """
+
+    def test_writes_destruction_to_bank(self, repo):
+        eid = ledger_mod.record_casino_seat_return(
+            repo,
+            personality_id='tourist-abc12345',
+            amount=200,
+            context={'site': 'casino_teardown', 'stake_label': '$2'},
+            sandbox_id='sb-1',
+        )
+        assert eid is not None
+        entries = repo.recent_entries()
+        assert entries[0]['source'] == 'ai:tourist-abc12345'
+        assert entries[0]['sink'] == 'central_bank'
+        assert entries[0]['amount'] == 200
+        assert entries[0]['reason'] == 'casino_seat_return'
+
+    def test_counts_as_bank_pool_deposit(self, repo):
+        """Pool depth must absorb the returned chips — that's the whole
+        point of using a BANK_POOL_DEPOSIT_REASON."""
+        from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS
+        assert 'casino_seat_return' in BANK_POOL_DEPOSIT_REASONS
+
+    def test_noop_on_none_repo(self):
+        result = ledger_mod.record_casino_seat_return(
+            None, personality_id='tourist-x', amount=100,
+        )
+        assert result is None
+
+    def test_noop_on_zero_or_negative_amount(self, repo):
+        assert ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-x', amount=0,
+        ) is None
+        assert ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-x', amount=-1,
+        ) is None
+        assert repo.recent_entries() == []
+
+    def test_pairs_with_seat_seed_for_net_zero(self, repo):
+        """Seed 80 chips to a tourist seat, return 80 → net pool change
+        is zero. This is the conservation property we care about."""
+        ledger_mod.record_casino_seat_seed(
+            repo, personality_id='tourist-roundtrip', amount=80,
+            sandbox_id='sb-1',
+        )
+        ledger_mod.record_casino_seat_return(
+            repo, personality_id='tourist-roundtrip', amount=80,
+            sandbox_id='sb-1',
+        )
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        # Seed+return cancel out: depth unchanged from initial 0.
+        assert compute_bank_pool_reserves(repo, sandbox_id='sb-1') == 0
+
+
+class TestRecordSideHustleEarning:
+    """`side_hustle_earning` draws from the bank pool: central_bank -> ai.
+
+    Mirror of `record_tourist_injection` — the faucet that replaces
+    passive ai_regen (CASH_MODE_SIDE_HUSTLE.md). The pool funds it, so
+    the reason lives in BANK_POOL_DRAW_REASONS.
+    """
+
+    def test_records_bank_to_ai(self, repo):
+        eid = ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=250,
+            context={'site': 'side_hustle_return', 'duration_bucket': 'medium'},
+            sandbox_id='sb-1',
+        )
+        assert eid is not None
+        entry = repo.recent_entries()[0]
+        assert entry['source'] == 'central_bank'
+        assert entry['sink'] == 'ai:napoleon'
+        assert entry['amount'] == 250
+        assert entry['reason'] == 'side_hustle_earning'
+
+    def test_is_a_bank_pool_draw_reason(self):
+        from core.economy.ledger import BANK_POOL_DRAW_REASONS
+        assert 'side_hustle_earning' in BANK_POOL_DRAW_REASONS
+
+    def test_draws_down_pool_reserves(self, repo):
+        """Rake deposits 100; a 30-chip hustle payout draws it back down,
+        leaving 70 — proving the hustle spends recyclable pool depth."""
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        ledger_mod.record_table_rake(
+            repo, source=ledger_mod.ai('bezos'), amount=100, sandbox_id='sb-1',
+        )
+        ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=30, sandbox_id='sb-1',
+        )
+        assert compute_bank_pool_reserves(repo, sandbox_id='sb-1') == 70
+
+    def test_noop_on_none_repo(self):
+        assert ledger_mod.record_side_hustle_earning(
+            None, personality_id='napoleon', amount=100,
+        ) is None
+
+    def test_noop_on_zero_or_negative_amount(self, repo):
+        assert ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=0,
+        ) is None
+        assert ledger_mod.record_side_hustle_earning(
+            repo, personality_id='napoleon', amount=-5,
+        ) is None
+        assert repo.recent_entries() == []

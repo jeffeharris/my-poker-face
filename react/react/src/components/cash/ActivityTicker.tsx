@@ -15,27 +15,12 @@
  */
 
 import { useMemo } from 'react';
-import { HandCoins, Gift, ReceiptText, Sparkles, DoorOpen } from 'lucide-react';
+import { HandCoins, Gift, ReceiptText, Sparkles, DoorOpen, Briefcase, Flame } from 'lucide-react';
 import type { LobbyEvent } from './types';
 import './CashMode.css';
 
 interface ActivityTickerProps {
   events: LobbyEvent[];
-}
-
-/** Relative time formatter — used because the absolute UTC timestamp
- *  isn't useful in a ticker. `30s ago`, `2m ago`, `1h ago`. Returns
- *  `just now` for < 5s. */
-function formatRelativeTime(createdAt: string): string {
-  const then = Date.parse(createdAt);
-  if (Number.isNaN(then)) return '';
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
 }
 
 /** Drop `big_loss` events that are the mirror of a `big_win` already in
@@ -60,12 +45,18 @@ function dedupeChipPairs(events: LobbyEvent[]): LobbyEvent[] {
 
 export function ActivityTicker({ events }: ActivityTickerProps) {
   const visibleEvents = useMemo(() => dedupeChipPairs(events), [events]);
-  if (visibleEvents.length === 0) return null;
 
+  // Always render the container (even empty) at a locked height — the
+  // list scrolls internally rather than resizing the page as events
+  // stream in and out. The feed itself is a rolling buffer (see
+  // Lobby.tsx merge); only ~5 rows show at once, scroll back for more.
   return (
     <div className="lobby-ticker" aria-label="Recent table activity">
       <h3 className="lobby-ticker__heading">Activity</h3>
       <ul className="lobby-ticker__list">
+        {visibleEvents.length === 0 && (
+          <li className="lobby-ticker__empty">Waiting for the next move…</li>
+        )}
         {visibleEvents.map((event, idx) => (
           <li
             key={`${event.created_at}-${event.personality_id}-${event.type}-${idx}`}
@@ -103,12 +94,29 @@ export function ActivityTicker({ events }: ActivityTickerProps) {
                 className="lobby-ticker__icon"
                 aria-hidden="true"
               />
+            ) : event.type === 'hustle_start' ? (
+              <Briefcase
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'last_stand' ? (
+              <Flame
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
+            ) : event.type === 'hustle_end' ? (
+              <DoorOpen
+                size={14}
+                className="lobby-ticker__icon"
+                aria-hidden="true"
+              />
             ) : (
               <span className="lobby-ticker__dot" aria-hidden="true" />
             )}
-            <span className="lobby-ticker__message">{event.message}</span>
-            <span className="lobby-ticker__time">
-              {formatRelativeTime(event.created_at)}
+            <span className="lobby-ticker__message" title={event.message}>
+              {event.message}
             </span>
           </li>
         ))}

@@ -30,10 +30,7 @@ from cash_mode.closed_economy import (
     FAKE_VICE_COMFORT_FLOOR,
     FAKE_VICE_DEPOSITS_PER_REFRESH,
     FAKE_VICE_MAX_PROB,
-    MAX_TOURIST_INJECTIONS_PER_REFRESH,
-    MIN_TOURIST_INJECTION,
     MIN_VICE_AMOUNT,
-    TOURIST_INJECTION_THRESHOLD,
     compute_bank_pool_reserves,
     compute_excess_ratio,
     compute_vice_amount,
@@ -41,7 +38,6 @@ from cash_mode.closed_economy import (
     load_fish_ids,
     resolve_closed_economy,
     resolve_fake_vice_deposits,
-    resolve_tourist_injection,
 )
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
@@ -336,102 +332,6 @@ class TestFakeViceDeposit:
         assert deposits == []
 
 
-class TestTouristInjection:
-    def _seed_bank_pool(self, ledger, amount: int) -> None:
-        """Helper: deposit chips into the bank pool via the ledger."""
-        from core.economy.ledger import ai, record_bank_pool_deposit
-        record_bank_pool_deposit(
-            ledger,
-            source=ai("rich_grinder"),
-            amount=amount,
-            sandbox_id=SBX,
-        )
-
-    def test_low_fish_gets_refilled(self, db_setup):
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-        self._seed_bank_pool(ledger, 5_000)
-
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            now=ANCHOR,
-            fish_ids={"test_fish"},
-        )
-        assert len(injections) == 1
-        inj = injections[0]
-        assert inj.personality_id == "test_fish"
-        # Refill amount = min(deficit, pool). deficit = 2500 - 200 = 2300.
-        # Pool = 5000. So injection = 2300.
-        assert inj.amount == 2_300
-
-        # Fish bankroll is restored to starting (2500).
-        state = bankroll.load_ai_bankroll("test_fish", sandbox_id=SBX)
-        assert state.chips == 2_500
-
-        # Pool depleted by the injection amount.
-        pool_after = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
-        assert pool_after == 5_000 - 2_300
-
-    def test_full_fish_not_refilled(self, db_setup):
-        """Fish at or above injection threshold are skipped."""
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-        self._seed_bank_pool(ledger, 5_000)
-        # Fish at 60% of starting — above the 40% threshold.
-        bankroll.save_ai_bankroll(
-            AIBankrollState(
-                personality_id="test_fish",
-                chips=1_500,
-                last_regen_tick=ANCHOR,
-            ),
-            sandbox_id=SBX,
-        )
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            now=ANCHOR,
-            fish_ids={"test_fish"},
-        )
-        assert injections == []
-
-    def test_empty_pool_no_injection(self, db_setup):
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-        # No deposits — pool is empty.
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            now=ANCHOR,
-            fish_ids={"test_fish"},
-        )
-        assert injections == []
-
-    def test_partial_pool_caps_injection(self, db_setup):
-        """When pool < deficit, inject what we have (not more)."""
-        bankroll = db_setup["bankroll"]
-        ledger = db_setup["ledger"]
-        # Pool has only 1500 chips; fish needs 2300.
-        self._seed_bank_pool(ledger, 1_500)
-
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll,
-            chip_ledger_repo=ledger,
-            sandbox_id=SBX,
-            now=ANCHOR,
-            fish_ids={"test_fish"},
-        )
-        assert len(injections) == 1
-        assert injections[0].amount == 1_500
-
-        # Pool fully drained.
-        pool_after = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
-        assert pool_after == 0
-
-
 class TestConservationInvariant:
     """The whole closed-economy loop must preserve the conservation invariant.
 
@@ -462,7 +362,8 @@ class TestConservationInvariant:
 
         initial = total_ai_chips()
 
-        # Run a full cycle: vice deposit + tourist injection.
+        # Run a full cycle: vice deposits (post-EPHEMERAL_TOURISTS,
+        # tourist injection no longer fires).
         batch = resolve_closed_economy(
             bankroll_repo=bankroll,
             chip_ledger_repo=ledger,
@@ -473,15 +374,14 @@ class TestConservationInvariant:
 
         final = total_ai_chips()
 
-        # Net chip movement: destruction (vice) + creation (injection).
-        # initial - vice + injection = final
+        # Net chip movement: only vice destructions matter now.
+        # initial - vice = final
         total_vice = sum(d.amount for d in batch.deposits)
-        total_inj = sum(i.amount for i in batch.injections)
-        assert final == initial - total_vice + total_inj
+        assert final == initial - total_vice
 
-        # Bank pool delta from the batch matches ledger.
+        # Bank pool delta: deposits ONLY add (no withdrawals to fish).
         pool_delta = batch.bank_pool_after - batch.bank_pool_before
-        assert pool_delta == total_vice - total_inj
+        assert pool_delta == total_vice
 
 
 class TestPerRefreshCaps:
@@ -528,6 +428,51 @@ class TestPerRefreshCaps:
             fish_ids={"test_fish"},
         )
         assert len(deposits) <= FAKE_VICE_DEPOSITS_PER_REFRESH
+
+
+class TestFishConservationInvariant:
+    """Guard the load-bearing fish funding invariant in the seed file.
+
+    Fish are pool-funded: chips are drawn from the bank pool into their
+    bankroll, never minted. Autonomous regen (`project_bankroll` with a
+    non-zero `bankroll_rate`) WOULD mint into that pool-backed bankroll
+    and silently break conservation. The merged model relies entirely on
+    every fish persona carrying `bankroll_rate == 0` — there is no code
+    guard, so assert it on the seed file. See CASH_MODE_FISH_AS_PERSONAS.md.
+    """
+
+    def _load_personalities(self):
+        path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'poker', 'personalities.json',
+        )
+        with open(path) as fh:
+            data = json.load(fh)
+        # Shape is {"personalities": {name: config}}; the config dict has
+        # no inner "name", so inject the key for readable offender reports.
+        container = data.get('personalities', data) if isinstance(data, dict) else data
+        if isinstance(container, dict):
+            return [
+                {**cfg, 'name': name}
+                for name, cfg in container.items()
+                if isinstance(cfg, dict)
+            ]
+        return container
+
+    def test_every_fish_persona_has_zero_bankroll_rate(self):
+        fish = [
+            p for p in self._load_personalities()
+            if isinstance(p, dict) and p.get('archetype') == 'fish'
+        ]
+        assert fish, "expected at least one archetype=='fish' persona in seed file"
+        offenders = {
+            p.get('name'): (p.get('bankroll_knobs') or {}).get('bankroll_rate')
+            for p in fish
+            if (p.get('bankroll_knobs') or {}).get('bankroll_rate')
+        }
+        assert not offenders, (
+            "fish personas must have bankroll_rate==0 (pool-funded, no regen "
+            f"minting); offenders: {offenders}"
+        )
 
 
 class TestConstants:

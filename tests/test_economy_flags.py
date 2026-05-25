@@ -191,6 +191,48 @@ class TestRecordTableRake:
         assert result is None
 
 
+# --- Rake feeds the bank pool (CASH_MODE_SIDE_HUSTLE.md Phase 1) ---------
+
+
+class TestRakeFeedsBankPool:
+    """Rake is now recyclable, not pure destruction.
+
+    The ledger entry is unchanged (winner -> central_bank); what changed
+    is that `table_rake` joined BANK_POOL_DEPOSIT_REASONS, so the raked
+    chips count toward bank-pool depth and become drawable by pool draws
+    (side hustle / tourist injection) instead of evaporating.
+    """
+
+    def test_table_rake_is_a_bank_pool_deposit_reason(self):
+        from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS
+        assert 'table_rake' in BANK_POOL_DEPOSIT_REASONS
+
+    def test_rake_increases_pool_reserves(self, ledger_repo):
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id='sb-1') == 0
+        chip_ledger.record_table_rake(
+            ledger_repo,
+            source=chip_ledger.ai("napoleon"),
+            amount=40,
+            sandbox_id='sb-1',
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id='sb-1') == 40
+
+    def test_rake_funds_a_pool_draw_net(self, ledger_repo):
+        """Rake in, tourist injection out — the pool nets the difference,
+        proving rake is recyclable fuel for draws."""
+        from cash_mode.closed_economy import compute_bank_pool_reserves
+        chip_ledger.record_table_rake(
+            ledger_repo, source=chip_ledger.ai("napoleon"), amount=100,
+            sandbox_id='sb-1',
+        )
+        chip_ledger.record_tourist_injection(
+            ledger_repo, personality_id='vacation_greg', amount=30,
+            sandbox_id='sb-1',
+        )
+        assert compute_bank_pool_reserves(ledger_repo, sandbox_id='sb-1') == 70
+
+
 # --- Full-sim integration: rake skim on AI-only hands -------------------
 
 

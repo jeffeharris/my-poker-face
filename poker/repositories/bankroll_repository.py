@@ -136,32 +136,6 @@ class BankrollRepository(BaseRepository):
                 sandbox_id=sandbox_id,
             )
 
-    def delete_ai_bankroll(
-        self,
-        personality_id: str,
-        *,
-        sandbox_id: str,
-    ) -> bool:
-        """Delete the bankroll row for a personality in a sandbox.
-
-        Returns True iff a row was removed. Intended for ephemeral
-        cleanup paths (e.g. fish removed on casino teardown) — the
-        normal long-lived bankroll lifecycle never deletes.
-
-        Does NOT write a ledger entry for the removed chips; callers
-        that need the audit trail to balance must record the
-        appropriate destruction reason BEFORE calling this (e.g. the
-        casino teardown path should already have reaped any remaining
-        seat chips via the standard return-to-bankroll flow).
-        """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM ai_bankroll_state "
-                "WHERE personality_id = ? AND sandbox_id = ?",
-                (personality_id, sandbox_id),
-            )
-            return cursor.rowcount > 0
-
     def load_ai_bankroll(
         self,
         personality_id: str,
@@ -565,6 +539,28 @@ class BankrollRepository(BaseRepository):
             return None
         archetype = config.get("archetype")
         return archetype if isinstance(archetype, str) else None
+
+    def load_fish_leak(self, personality_id: str) -> Optional[str]:
+        """Read the top-level `fish_leak` field from `config_json`.
+
+        Names a value in `poker.rule_strategies.FishLeak` (e.g.
+        "calls_down_top_pair"). The `_strategy_fish` rule path applies
+        the leak as a deterministic deviation. Returns None when absent —
+        the fish then plays the generic loose-passive script.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT config_json FROM personalities WHERE personality_id = ?",
+                (personality_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            config = json.loads(row["config_json"])
+        except (TypeError, ValueError):
+            return None
+        leak = config.get("fish_leak")
+        return leak if isinstance(leak, str) else None
 
     def load_rule_strategy(self, personality_id: str) -> Optional[str]:
         """Read the top-level `rule_strategy` field from `config_json`.

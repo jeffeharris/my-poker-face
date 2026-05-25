@@ -34,7 +34,8 @@ from __future__ import annotations
 import json
 import random
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
+from pathlib import Path
 from typing import Dict, Optional
 
 from .hand_tiers import (
@@ -242,6 +243,57 @@ def derive_profile_from_db(
     except Exception:
         mined = {}
     return CloneProfile(**base, **mined)
+
+
+# ── Serialization (portable export / import) ──────────────────────────────
+#
+# `derive_profile_from_db` needs the source player's ~thousands of hands in
+# the local DB. That makes a clone non-portable: a fresh checkout or a
+# different machine has no such history. The functions below let you freeze
+# a derived profile to a small JSON file once, commit it, and reconstruct the
+# exact same bot anywhere — no DB required.
+
+
+def profile_to_dict(profile: CloneProfile) -> Dict:
+    """Serialize a CloneProfile to a plain JSON-ready dict.
+
+    `asdict` emits only dataclass fields, so the derived `display_name`
+    property is intentionally omitted (it's reconstructed from
+    `source_player` on load).
+    """
+    return asdict(profile)
+
+
+def profile_from_dict(data: Dict) -> CloneProfile:
+    """Reconstruct a CloneProfile from a dict.
+
+    Unknown keys are dropped so a snapshot written by a newer version (extra
+    fields) still loads here; missing optional keys fall back to dataclass
+    defaults so a snapshot written by an older version (pre-V2) also loads.
+    A missing *required* field still raises TypeError — the correct loud
+    failure for a truncated/corrupt snapshot.
+    """
+    known = {f.name for f in fields(CloneProfile)}
+    filtered = {k: v for k, v in data.items() if k in known}
+    return CloneProfile(**filtered)
+
+
+def dump_profile_to_file(profile: CloneProfile, path: str) -> str:
+    """Write `profile` to `path` as pretty JSON, creating parent dirs.
+
+    Returns the path written. Round-trips exactly with
+    `load_profile_from_file`.
+    """
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(profile_to_dict(profile), indent=2, sort_keys=True) + "\n")
+    return str(out)
+
+
+def load_profile_from_file(path: str) -> CloneProfile:
+    """Load a CloneProfile previously written by `dump_profile_to_file`."""
+    with open(path) as fh:
+        return profile_from_dict(json.load(fh))
 
 
 # ── VPIP / PFR → hand-tier mapping ────────────────────────────────────────

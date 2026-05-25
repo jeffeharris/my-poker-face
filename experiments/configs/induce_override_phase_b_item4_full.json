@@ -1,0 +1,206 @@
+{
+  "name": "induce_override_phase_b_item4_full",
+  "description": "Phase B Item 4 full ablation matrix for the open-spot induce branch. TieredBot (hero) vs five rule_bot villains: TrapBaitBot (primary lift target), ManiacBot, CaseBot (GTO-Lite-style), GTO-Lite, ABCBot. Two arms per villain: rule ON and rule OFF (ablated via TieredBotController.disable_rules). Mirrors Phase A's config structure with TrapBaitBot added.",
+  "hypothesis": "(H1) ≥ +5 bb/100 lift vs TrapBaitBot when rule is ON vs OFF (the lift target). (H2) ≤ −2 bb/100 leak vs each non-trap-bait villain (regression check). (H3) Open-spot branch fires ≥ 1× per arm vs TrapBaitBot at 8000-hand scale (qualitative sanity — Item 3 shipped with 0 fires at smaller scale; this checks if 8x sample lifts it). All three should hold; H1 indeterminate at this scale is acceptable per handoff Finding 3 (Phase B items move bb/100 less than noise floor).",
+  "tags": ["tiered", "induce_override", "phase-b", "item-4", "full", "heads-up"],
+
+  "num_tournaments": 8,
+  "hands_per_tournament": 1000,
+  "num_players": 2,
+  "starting_stack": 20000,
+  "big_blind": 100,
+  "random_seed": 1042,
+  "reset_on_elimination": true,
+
+  "model": "gpt-5-nano",
+  "provider": "openai",
+
+  "personalities": ["TieredHero", "Villain"],
+  "capture_prompts": false,
+
+  "control": {
+    "label": "control_trapbait_rule_OFF",
+    "player_types": {
+      "TieredHero": {
+        "type": "tiered",
+        "expression": false,
+        "disable_rules": [["induce_override", "default"]]
+      },
+      "Villain": {
+        "type": "rule_bot",
+        "strategy": "trap_bait"
+      }
+    },
+    "enable_psychology": false,
+    "enable_telemetry": true,
+    "enable_commentary": false
+  },
+
+  "variants": [
+    {
+      "label": "A1_trapbait_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "trap_bait"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "A2_trapbait_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "trap_bait"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "B1_maniac_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "maniac"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "B2_maniac_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "maniac"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "C1_casebot_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "case_based"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "C2_casebot_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "case_based"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "D1_gtolite_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "pot_odds_robot"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "D2_gtolite_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "pot_odds_robot"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "E1_abcbot_rule_OFF",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false,
+          "disable_rules": [["induce_override", "default"]]
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "abc"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    },
+    {
+      "label": "E2_abcbot_rule_ON",
+      "player_types": {
+        "TieredHero": {
+          "type": "tiered",
+          "expression": false
+        },
+        "Villain": {
+          "type": "rule_bot",
+          "strategy": "abc"
+        }
+      },
+      "enable_psychology": false,
+      "enable_telemetry": true,
+      "enable_commentary": false
+    }
+  ]
+}

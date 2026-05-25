@@ -25,6 +25,7 @@ from poker.strategy.intervention_trace import (
     InterventionTrace,
     TRACE_SCHEMA_VERSION,
     _LAYER_NAMES,
+    _LAYER_ORDER,
     _RULE_IDS_BY_LAYER,
     amount_bucket,
     l1_distance,
@@ -54,6 +55,18 @@ class TestLayerNames:
                 "in _RULE_IDS_BY_LAYER"
             )
             assert len(_RULE_IDS_BY_LAYER[layer]) >= 1
+
+    def test_every_ordered_layer_is_in_layer_names(self):
+        """Regression: prior to Phase B Item 5, `induce_override` was in
+        _LAYER_ORDER but not in _LAYER_NAMES / _RULE_IDS_BY_LAYER —
+        validate_trace raised on any induce trace. Lock the three
+        registries in sync so future layers don't repeat the pattern."""
+        for layer in _LAYER_ORDER:
+            assert layer in _LAYER_NAMES, (
+                f"_LAYER_ORDER has {layer!r} which is not in _LAYER_NAMES "
+                "— keep all three registries (_LAYER_NAMES, "
+                "_RULE_IDS_BY_LAYER, _LAYER_ORDER) in sync"
+            )
 
 
 # ── validate_trace invariants ────────────────────────────────────────────

@@ -34,12 +34,17 @@ _decision_analyzer = DecisionAnalyzer(iterations=2000)
 
 
 def _get_position_label(game_state, player_idx: int) -> str:
-    """Get position label for a player."""
+    """Get position label for a player.
+
+    Drops the trailing '_player' on the blind keys so the blinds read as
+    'Small Blind' / 'Big Blind' (matching _position_label_to_key's mapping)
+    rather than 'Small Blind Player' / 'Big Blind Player'.
+    """
     positions = game_state.table_positions
     player_name = game_state.players[player_idx].name
     for position, name in positions.items():
         if name == player_name:
-            return position.replace('_', ' ').title()
+            return position.replace('_player', '').replace('_', ' ').title()
     return "Unknown"
 
 
@@ -578,7 +583,7 @@ def _get_position_context(position: str, phase: str) -> str:
 
     Position names from game: button, small_blind_player, big_blind_player,
     under_the_gun, cutoff, middle_position_1/2/3
-    After _get_position_label: "Button", "Small Blind Player", etc.
+    After _get_position_label: "Button", "Small Blind", "Big Blind", etc.
     """
     pos_lower = position.lower()
 

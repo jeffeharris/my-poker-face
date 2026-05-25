@@ -60,14 +60,42 @@ def ledger_repo(db_path):
 @pytest.fixture(scope="module")
 def cash_routes_module():
     """Load `flask_app/routes/cash_routes.py` directly, skipping the
-    package init that wires a live Flask limiter."""
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(here, 'flask_app', 'routes', 'cash_routes.py')
-    spec = importlib.util.spec_from_file_location('flask_app_cash_routes_for_test', path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    package init that wires a live Flask limiter.
+
+    `cash_routes` does `from flask_app.extensions import limiter` at
+    module top so the decorator can reference it. Production init order
+    guarantees `init_limiter()` has run before any blueprint imports,
+    but this fixture deliberately bypasses that — so we install a no-op
+    stub on `flask_app.extensions.limiter` before exec'ing the module.
+    """
+    import flask_app.extensions as _ext
+
+    class _NoOpLimiter:
+        """Just enough surface for `@limiter.limit(...)` to no-op."""
+
+        def limit(self, *_args, **_kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    saved_limiter = _ext.limiter
+    if _ext.limiter is None:
+        _ext.limiter = _NoOpLimiter()
+
+    try:
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(here, 'flask_app', 'routes', 'cash_routes.py')
+        spec = importlib.util.spec_from_file_location('flask_app_cash_routes_for_test', path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        # Only restore if we installed the stub — leave a real limiter in
+        # place if production code wired one up between fixture entry and
+        # exit (currently impossible, but cheap insurance).
+        if saved_limiter is None:
+            _ext.limiter = None
 
 
 def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> None:
@@ -89,8 +117,13 @@ def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> No
 
 class TestCreditAICashOutLedger:
     def test_regen_recorded_when_projected_exceeds_stored(
-        self, bankroll_repo, ledger_repo, db_path,
+        self, bankroll_repo, ledger_repo, db_path, monkeypatch,
     ):
+        # Passive regen is retired as a default (REGEN_ENABLED=False) per
+        # CASH_MODE_SIDE_HUSTLE.md, but the projection + ai_regen ledger
+        # mechanism is kept. This test exercises that mechanism, so enable
+        # the flag for it; the "off" behaviour is covered elsewhere.
+        monkeypatch.setattr("cash_mode.economy_flags.REGEN_ENABLED", True)
         _insert_personality(db_path, "napoleon", knobs={
             "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,

@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, HandCoins } from 'lucide-react';
 import { offerStake } from './api';
 import type {
@@ -193,7 +194,10 @@ export function StakeOfferModal({
         ? 'down on their starting bankroll'
         : 'comfortable financially';
 
-  return (
+  // Portaled to <body> so the fixed overlay escapes the Lobby's
+  // PageLayout stacking context — otherwise the app header (.menu-bar)
+  // paints over the centered sheet's close button. See CharacterDetailCard.
+  return createPortal(
     <div className="stake-offer-modal__overlay" onClick={onClose}>
       <div
         className="stake-offer-modal__sheet"
@@ -451,6 +455,7 @@ export function StakeOfferModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

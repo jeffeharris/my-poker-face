@@ -1458,6 +1458,18 @@ def main():
              '"Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot"). Requires the '
              'player to have ≥20 hands_observed in opponent_models.',
     )
+    parser.add_argument(
+        '--clone-profile', type=str, action='append', default=None,
+        metavar='PROFILE_JSON',
+        help='Load a frozen CloneProfile from a JSON file (produced by '
+             'human_clone.dump_profile_to_file, e.g. '
+             'experiments/clone_profiles/jeff.json) and register it as '
+             'archetype "<source_player>_clone". Repeatable. Unlike '
+             '--clone-opponent this needs no DB — the snapshot is fully '
+             'portable across checkouts/machines. Reference via --opponents '
+             '(e.g. --clone-profile experiments/clone_profiles/jeff.json '
+             '--opponents "Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot").',
+    )
     args = parser.parse_args()
 
     # Register any clone opponents the user requested. Do this before
@@ -1485,6 +1497,28 @@ def main():
             print(
                 f"[CLONE] Registered {archetype_key!r} from {profile.hands_observed} "
                 f"observed hand(s) — vpip={profile.vpip:.2f} pfr={profile.pfr:.2f} "
+                f"af={profile.aggression_factor:.2f} ftc={profile.fold_to_cbet:.2f}"
+            )
+
+    # Register any clone opponents loaded from frozen JSON snapshots. Same
+    # archetype wiring as --clone-opponent, but the profile comes from a
+    # portable file instead of the local DB, so this works on any checkout.
+    if args.clone_profile:
+        from poker.human_clone import load_profile_from_file, register_clone_strategy
+        for profile_path in args.clone_profile:
+            profile = load_profile_from_file(profile_path)
+            player_name = profile.source_player
+            strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
+            register_clone_strategy(strategy_key, profile)
+            archetype_key = f"{player_name}_clone"
+            ARCHETYPES[archetype_key] = {
+                'kind': 'rule_bot',
+                'strategy': strategy_key,
+            }
+            print(
+                f"[CLONE] Loaded {archetype_key!r} from {profile_path} — "
+                f"{profile.hands_observed} observed hand(s), "
+                f"vpip={profile.vpip:.2f} pfr={profile.pfr:.2f} "
                 f"af={profile.aggression_factor:.2f} ftc={profile.fold_to_cbet:.2f}"
             )
 

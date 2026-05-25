@@ -27,6 +27,7 @@ import type {
   StakeLabel,
   StakeOfferResponse,
   StakerForgiveResponse,
+  WorldPace,
 } from './types';
 
 const BASE = `${config.API_URL}/api/cash`;
@@ -133,6 +134,22 @@ export async function rebuy(amount: number): Promise<{ stack: number; bankroll: 
 
 export async function getLobby(): Promise<LobbyResponse> {
   return getJson('/lobby');
+}
+
+/** Set how fast the background world ticks (subtle/lively/bustling).
+ *  Persisted per user; the realtime ticker picks it up next cycle. */
+export async function setWorldPace(pace: WorldPace): Promise<{ world_pace: WorldPace }> {
+  const res = await fetch(`${BASE}/world-pace`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pace }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 // --- Net Worth (Phase 3) ---

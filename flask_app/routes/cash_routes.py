@@ -27,6 +27,13 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+from flask_app import config
+# `limiter` is set by init_limiter() during init_extensions(), which runs
+# before blueprints are imported, and is never reassigned afterward — so a
+# top-level import captures the real instance (unlike the repo globals, which
+# are reassigned by init_persistence() and must be imported lazily).
+from flask_app.extensions import limiter
+
 from cash_mode.bankroll import (
     AIBankrollState,
     PlayerBankrollState,
@@ -66,6 +73,7 @@ from cash_mode.stakes_ladder import (
     table_buy_in_window,
 )
 from cash_mode.table import PLAYER_SEAT_ID
+from cash_mode.tables import personality_for_seat
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
 logger = logging.getLogger(__name__)
@@ -422,13 +430,18 @@ def _build_preselected_from_table(
         if slot["kind"] != "ai":
             continue
         pid = slot["personality_id"]
-        personality = None
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            personality = None
-        name = (personality or {}).get("name") if personality else pid
-        preselected_ai.append({"personality_id": pid, "name": name})
+        # `personality_for_seat` catches DB/decode failures and logs them;
+        # programmer bugs propagate so they get fixed.
+        personality = personality_for_seat(slot, personality_repo)
+        # Tourists carry display_name on the seat; for regular AI seats
+        # use the personality's name; fall back to pid.
+        name = (
+            slot.get("display_name")
+            or (personality or {}).get("name")
+            or pid
+        )
+        entry: Dict[str, Any] = {"personality_id": pid, "name": name}
+        preselected_ai.append(entry)
         preselected_chips[pid] = int(slot.get("chips", 0))
         next_player_idx += 1
     return preselected_ai, preselected_chips, dealer_player_idx
@@ -573,6 +586,7 @@ def _build_cash_game(
     preselected_ai: Optional[list] = None,
     preselected_ai_chips: Optional[Dict[str, int]] = None,
     dealer_player_idx: int = 0,
+    table_type: str = 'lobby',
 ) -> tuple[Optional[str], Optional[tuple[dict, int]]]:
     """Create + register a cash game; return (game_id, None) or (None, (err, status)).
 
@@ -741,9 +755,41 @@ def _build_cash_game(
             continue
         ai_entry = next((a for a in selected_ai if a["name"] == player.name), None)
         pid = ai_entry["personality_id"] if ai_entry else None
-        personality_config = (
-            personality_repo.load_personality_by_id(pid) if pid else None
+        # Fish are real curated personas now, so a plain DB lookup resolves
+        # them (and their `rule_strategy: 'fish'` / `fish_leak`).
+        if pid:
+            personality_config = personality_repo.load_personality_by_id(pid)
+        else:
+            personality_config = None
+        # Fish personalities route to
+        # RuleBotController with `_strategy_fish`. assign_bot's poise-
+        # bucket would otherwise put fish into 'chaos' (LLM-driven),
+        # which both wastes tokens and ignores the personality's
+        # designated leak. Detect via the personality's `rule_strategy`
+        # field — set to 'fish' for both the JSON personalities and the
+        # ephemeral tourists.
+        rule_strategy_override = (
+            (personality_config or {}).get("rule_strategy")
+            if isinstance(personality_config, dict) else None
         )
+        if rule_strategy_override == "fish":
+            from poker.rule_bot_controller import RuleBotController
+            fish_leak = (personality_config or {}).get("fish_leak")
+            bot_types[player.name] = "fish"
+            player_llm_configs[player.name] = {}
+            controller = RuleBotController(
+                player_name=player.name,
+                state_machine=state_machine,
+                strategy="fish",
+                llm_config={},
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=capture_label_repo,
+                decision_analysis_repo=decision_analysis_repo,
+                fish_leak=fish_leak,
+            )
+            ai_controllers[player.name] = controller
+            continue
         assignment = assign_bot(personality_config)
         bot_types[player.name] = assignment.bot_type
         player_llm_configs[player.name] = assignment.llm_config
@@ -790,9 +836,24 @@ def _build_cash_game(
 
     memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
     memory_manager.set_hand_history_repo(hand_history_repo)
+    # Always wire the relationship repo — grinders and the human build
+    # history with each other everywhere, including casino tables. Fish
+    # are suppressed PER-PAIR via set_fish_ids (below): they're real but
+    # transient chip-donors nobody should learn about (and they don't read
+    # the dossier themselves), so any event/flow touching a fish is skipped
+    # in the detector dispatch. Grinder↔grinder / grinder↔human pairs at
+    # the same casino table still accrue normally.
     memory_manager.set_relationship_repo(
-        relationship_repo, cash_mode=True, sandbox_id=sandbox_id,
+        relationship_repo,
+        cash_mode=True,
+        sandbox_id=sandbox_id,
+        table_max_buy_in=max_buy_in,
     )
+    memory_manager.set_fish_ids({
+        p['personality_id']
+        for p in personality_repo.list_fish_for_cash_mode()
+        if p.get('personality_id')
+    })
     for player in state_machine.game_state.players:
         try:
             pid = personality_repo.resolve_name_to_personality_id(player.name)
@@ -1167,6 +1228,7 @@ def sit_at_table():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type,
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -1716,6 +1778,7 @@ def sponsor_and_sit():
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
+        table_type=claimed_table.table_type if claimed_table is not None else 'lobby',
     )
     if err is not None:
         # Roll back the seat claim so the player can retry.
@@ -2538,6 +2601,7 @@ from cash_mode.player_staking import (
 
 
 @cash_bp.route("/api/cash/stakable-ai", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def stakable_ai():
     """GET /api/cash/stakable-ai — curated per-tier list of AIs the
     player can offer a stake to right now.
@@ -2621,7 +2685,9 @@ def offer_stake_to_ai():
 
     Validates (all gates also enforced in `list_stakeable_ai`):
       - Player bankroll ≥ 1.5 × min_buy_in @ stake_label.
-      - `principal` in `[min_buy_in, max_buy_in]`.
+      - Seat total in `[min_buy_in, max_buy_in]`: that's `principal`
+        on pure stakes, or `principal + match_amount` on match_share
+        (both halves land on the seat together).
       - For match_share: bankroll covers (principal); AI's match
         contribution comes from their seat funding.
       - Target AI cash-eligible, willing, met-before, relationship
@@ -2714,25 +2780,25 @@ def offer_stake_to_ai():
     )
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
-    if principal < min_buy_in or principal > max_buy_in:
+    # Match-share's combined principal+match lands on the seat together,
+    # so the buy-in window check must compare against the combined sum;
+    # pure stakes fund the seat entirely from `principal`. AI's match
+    # capacity is checked further down once the AI is loaded.
+    seat_total = principal + (
+        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
+    )
+    if seat_total < min_buy_in or seat_total > max_buy_in:
+        amount_label = (
+            "principal+match_amount"
+            if stake_format == STAKE_FORMAT_MATCH_SHARE
+            else "principal"
+        )
         return jsonify({
             "error": (
-                f"principal {principal} out of range for {stake_label} table "
+                f"{amount_label} {seat_total} out of range for {stake_label} table "
                 f"(min={min_buy_in}, max={max_buy_in})"
             ),
         }), 400
-    if stake_format == STAKE_FORMAT_MATCH_SHARE:
-        # Match-share's combined principal+match must fit the buy-in
-        # window — both contributions land on the seat together. AI's
-        # share comes from their bankroll, so we need to check their
-        # capacity too (further down once we have the AI loaded).
-        if principal + match_amount > max_buy_in:
-            return jsonify({
-                "error": (
-                    f"principal+match_amount {principal + match_amount} exceeds "
-                    f"max buy-in {max_buy_in} for {stake_label}"
-                ),
-            }), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     bankroll_floor = int(PLAYER_STAKER_BANKROLL_FLOOR_MULT * min_buy_in)
@@ -2972,6 +3038,7 @@ def offer_stake_to_ai():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
+        chip_ledger_repo=_chip_ledger_repo,
     )
     all_tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -3039,13 +3106,16 @@ def offer_stake_to_ai():
         )
 
     # Match-share: debit the AI's match contribution from their bankroll
-    # before the seat write. Pure non-bank transfer (chips go onto the
-    # seat alongside the player's principal) so no ledger entry.
+    # before the seat write. Atomic regen+debit (chip_ledger_repo passed
+    # so any pending regen commits via `ai_regen` instead of being
+    # ignored and silently clamped at the debit).
     if stake_format == STAKE_FORMAT_MATCH_SHARE:
         from cash_mode.bankroll import debit_bankroll_for_seat
         debit_bankroll_for_seat(
             bankroll_repo, target_pid, match_amount,
             sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+            now=now,
         )
 
     updated_table = table.with_seat(
@@ -3831,6 +3901,7 @@ def top_up():
 
 
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_lobby():
     """GET /api/cash/lobby — multi-table lobby snapshot.
 
@@ -3908,27 +3979,41 @@ def get_lobby():
         bankroll_repo=bankroll_repo,
         user_id=owner_id,
         sandbox_id=sandbox_id,
+        chip_ledger_repo=_chip_ledger_repo,
     )
 
-    # Read-side movement refresh on unseated tables. The handoff
-    # documents this as intentional: lazy cadence vs. background ticker.
-    try:
-        from flask_app.extensions import (
-            chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
-        )
-        refresh_unseated_tables(
-            cash_table_repo=cash_table_repo,
-            personality_repo=personality_repo,
-            bankroll_repo=bankroll_repo,
-            user_id=owner_id,
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-            relationship_repo=relationship_repo,
-            stake_repo=stake_repo,
-            vice_repo=vice_state_repo,
-        )
-    except Exception as e:
-        logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
+    # Mark this sandbox active so the realtime world ticker advances it.
+    # `touch` also keeps the world alive for an HTTP-only client whose
+    # websocket failed (it keeps polling → keeps touching).
+    from flask_app.services import presence
+    from flask_app.services.ticker_service import is_enabled as _ticker_enabled
+    presence.touch(owner_id, sandbox_id)
+
+    # World advancement. When the realtime ticker owns it, this read is
+    # PURE — calling refresh here too would double-advance the world
+    # (refresh_unseated_tables plays hands + rolls movement; it is not
+    # idempotent). When the ticker is disabled, fall back to the legacy
+    # read-driven refresh so the world still moves on read.
+    if not _ticker_enabled():
+        try:
+            from flask_app.extensions import (
+                chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
+                side_hustle_state_repo,
+            )
+            refresh_unseated_tables(
+                cash_table_repo=cash_table_repo,
+                personality_repo=personality_repo,
+                bankroll_repo=bankroll_repo,
+                user_id=owner_id,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                relationship_repo=relationship_repo,
+                stake_repo=stake_repo,
+                vice_repo=vice_state_repo,
+                side_hustle_repo=side_hustle_state_repo,
+            )
+        except Exception as e:
+            logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
 
     # Build live-emotion map for AIs at the player's active cash table.
     # Other AIs (at tables without the player, or in the idle pool)
@@ -4061,11 +4146,9 @@ def get_lobby():
             entry = {"index": idx, "kind": slot["kind"]}
             if slot["kind"] == "ai":
                 pid = slot["personality_id"]
-                personality = None
-                try:
-                    personality = personality_repo.load_personality_by_id(pid)
-                except Exception:
-                    personality = None
+                # `personality_for_seat` catches DB/decode failures and logs
+                # them; programmer bugs propagate so they get fixed.
+                personality = personality_for_seat(slot, personality_repo)
                 # Orphan seat: the seat references a personality that no
                 # longer exists in the DB (manual cleanup, migration, or
                 # an old seat surviving a deletion). Render as `open` so
@@ -4082,7 +4165,13 @@ def get_lobby():
                     serialized_seats.append(entry)
                     continue
                 entry["personality_id"] = pid
-                ai_name = personality.get("name") or pid
+                # Tourists carry display_name on the seat; regular AIs
+                # fall through to personality.name.
+                ai_name = (
+                    slot.get("display_name")
+                    or personality.get("name")
+                    or pid
+                )
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
                 # Emotion resolution priority:
@@ -4099,6 +4188,10 @@ def get_lobby():
                 else:
                     emotion = "confident"
                 entry["emotion"] = emotion
+                # Fish are real curated personas with their own avatar
+                # rows, so the normal name-keyed fallback resolves them
+                # (no synthetic-pid zombie risk that the old tourist path
+                # had to guard against).
                 entry["avatar_url"] = get_avatar_url_with_fallback(
                     None, ai_name, emotion,
                 )
@@ -4214,18 +4307,92 @@ def get_lobby():
     except Exception as exc:
         logger.warning("[CASH][LOBBY] active_vices payload failed: %s", exc)
 
+    # Current world pace so the lobby can render the pace selector in the
+    # right state. Defaults gracefully if the prefs row is unset.
+    try:
+        from flask_app.extensions import user_prefs_repo
+        world_pace = user_prefs_repo.get_world_pace(owner_id)
+    except Exception:
+        world_pace = "lively"
+
+    # Send a deeper slice than the ~5 shown at once so a fresh load lands
+    # with real scroll-back history; the client merges these into its
+    # rolling feed (it accumulates further over the session). Bounded by
+    # the activity ring buffer's own cap.
+    events_payload = [
+        serialize_event(e)
+        for e in recent_events(limit=30, sandbox_id=sandbox_id)
+    ]
+
+    # The player's own last-stand line — bankroll is $0 and they have a
+    # stack in play, so their entire net worth is on a single table. The
+    # AI version of this signal is emitted into the ring buffer during the
+    # refresh, but the player's own table is never refreshed there (the
+    # human-seated table is skipped), so we synthesize the line here at
+    # response time. Recomputed each poll while the condition holds — a
+    # standing self-warning rather than a one-shot beat.
+    if bankroll.chips == 0 and active_game_id:
+        active_game = game_state_service.get_game(active_game_id)
+        if active_game:
+            human_stack = 0
+            try:
+                sm = active_game.get("state_machine")
+                for p in sm.game_state.players:
+                    if p.is_human:
+                        human_stack = int(p.stack)
+                        break
+            except Exception:
+                human_stack = 0
+            stake_label = active_game.get("cash_stake_label") or ""
+            if human_stack > 0:
+                from cash_mode.activity import (
+                    EVENT_LAST_STAND,
+                    format_player_last_stand_message,
+                )
+                events_payload.insert(0, {
+                    "type": EVENT_LAST_STAND,
+                    "table_id": active_game.get("cash_table_id", ""),
+                    "stake_label": stake_label,
+                    "personality_id": owner_id,
+                    "name": "You",
+                    "reason": "self",
+                    "message": format_player_last_stand_message(stake_label),
+                    "created_at": datetime.utcnow().isoformat(),
+                })
+
     return jsonify({
         "bankroll": bankroll.chips,
         "tier": current_tier,
         "tier_stake_label": current_tier_stake,
         "tables": response_tables,
-        "events": [
-            serialize_event(e)
-            for e in recent_events(limit=5, sandbox_id=sandbox_id)
-        ],
+        "events": events_payload,
         "pending_forgiveness_count": pending_forgiveness_count,
         "active_vices": active_vices_payload,
+        "world_pace": world_pace,
     })
+
+
+@cash_bp.route("/api/cash/world-pace", methods=["PUT"])
+def set_world_pace():
+    """PUT /api/cash/world-pace — set how fast the background world ticks.
+
+    Body: `{"pace": "subtle" | "lively" | "bustling"}`. Persisted per
+    user; the realtime ticker reads it on the next cycle. Returns the
+    stored pace. 400 on an unknown value.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    data = request.get_json(silent=True) or {}
+    pace = data.get("pace")
+    from flask_app.extensions import user_prefs_repo
+    try:
+        user_prefs_repo.set_world_pace(owner_id, pace)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"world_pace": pace})
 
 
 @cash_bp.route("/api/cash/net-worth", methods=["GET"])
@@ -4590,6 +4757,7 @@ def get_net_worth():
 
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
 def get_state():
     """GET /api/cash/state — entry-screen snapshot.
 

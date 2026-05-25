@@ -41,6 +41,23 @@ from poker.repositories.schema_manager import SchemaManager
 SANDBOX_ID = "test-sandbox-1"
 
 
+@pytest.fixture(autouse=True)
+def _enable_regen():
+    """This file exercises the passive-regen projection mechanism.
+
+    Passive regen is retired as a *default* (`REGEN_ENABLED=False`) per
+    CASH_MODE_SIDE_HUSTLE.md, but the projection machinery is kept and
+    still supported. Force the flag on for these tests so the accrual /
+    clamp assertions exercise the mechanism rather than the new default.
+    The "off" behaviour is covered by tests/test_economy_flags.py.
+    """
+    from cash_mode import economy_flags
+    saved = economy_flags.REGEN_ENABLED
+    economy_flags.REGEN_ENABLED = True
+    yield
+    economy_flags.REGEN_ENABLED = saved
+
+
 def _insert_personality(
     db_path: str,
     personality_id: str,

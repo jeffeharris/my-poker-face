@@ -1,28 +1,35 @@
-"""Closed-economy testbed: fake-vice deposits + tourist injection.
+"""Closed-economy: bank-pool plumbing + fake-vice testbed + grinder demand.
 
-This is the SIM testbed for the closed-loop economy thesis in
-`docs/plans/CASH_MODE_CLOSED_ECONOMY.md`. Two resolution passes
-that ship together:
+Shipping pieces of the closed-loop economy thesis in
+`docs/plans/CASH_MODE_CLOSED_ECONOMY.md` + the fish-as-personas pivot in
+`docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
 
-  1. `resolve_fake_vice_deposits` — stub for real AI vice. Drains
-     chips from rich AIs into the central bank's recyclable pool.
-     Same probability/amount shape as `CASH_MODE_AI_VICE_SPENDING.md`
-     but without the psych-pressure modifier (testbed doesn't depend
-     on cached controller state). Real vice replaces this drop-in.
+What lives here:
 
-  2. `resolve_tourist_injection` — draws from the bank pool to refill
-     fish-archetype bankrolls. Fish are the casino tier's chip donors;
-     when their bankroll dips below `TOURIST_INJECTION_THRESHOLD` of
-     `starting_bankroll`, they get topped back up so they can re-enter
-     the seating pool.
+  - **Bank-pool query** (`compute_bank_pool_reserves`, `seed_bank_pool`):
+    virtual depth = Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(BANK_POOL_DRAW_REASONS),
+    computed on demand from `chip_ledger_entries`. No state table.
+    `seed_bank_pool` writes a drift-safe paired entry for sim cold-start.
 
-Bank pool depth is `Σ(BANK_POOL_DEPOSIT_REASONS) − Σ(tourist_injection)`,
-computed on demand from `chip_ledger_entries`. No new state table; the
-pool is virtual.
+  - **Grinder demand signal** (`is_hungry_grinder`, `list_hungry_grinders`):
+    identifies AIs whose bankroll has dropped below
+    `GRINDER_HUNGER_THRESHOLD × starting_bankroll` and whose comfort zone
+    is the casino tier. Casino spawn gates on this.
 
-The conservation invariant from `CASH_MODE_ECONOMY.md` holds:
-every chip movement here writes a ledger row, so `drift == 0` stays
-correct as long as the bankroll writes pair with their ledger entries.
+  - **`resolve_fake_vice_deposits`** — stub for real AI vice. Drains chips
+    from rich AIs into the recyclable bank pool. Same probability / amount
+    shape as `CASH_MODE_AI_VICE_SPENDING.md` but without the psych-pressure
+    modifier (testbed doesn't depend on cached controller state). Real vice
+    drops in over it.
+
+Casino bankroll funding is **not** here — it lives in
+`cash_mode/casino_provisioning.py` (`_prefund_fish_from_pool`,
+`_drain_fish_bankroll_to_pool`) so the spawn/refill/teardown lifecycle
+keeps the chip-flow code adjacent to the table-lifecycle code.
+
+The conservation invariant from `CASH_MODE_ECONOMY.md` holds: every chip
+movement writes a ledger row, so `drift == 0` stays correct as long as
+bankroll writes pair with their ledger entries.
 """
 
 from __future__ import annotations
@@ -40,7 +47,6 @@ from core.economy.ledger import (
     ai,
     record_bank_pool_deposit,
     record_bank_pool_sim_seed_pair,
-    record_tourist_injection,
 )
 from cash_mode.bankroll import AIBankrollState, project_bankroll
 
@@ -67,11 +73,6 @@ FAKE_VICE_FLOOR_PROTECTION = 0.5
 MIN_VICE_AMOUNT = 50
 FAKE_VICE_DEPOSITS_PER_REFRESH = 3
 
-# Tourist injection
-TOURIST_INJECTION_THRESHOLD = 0.4
-MAX_TOURIST_INJECTIONS_PER_REFRESH = 5
-MIN_TOURIST_INJECTION = 100
-
 # Grinder definition — the AIs that come to the casino to farm fish.
 # A "hungry grinder" satisfies all three:
 #   • archetype != 'fish' (fish farm nobody)
@@ -82,7 +83,6 @@ MIN_TOURIST_INJECTION = 100
 # starting bankroll is desperate to recover.
 GRINDER_HUNGER_THRESHOLD = 0.8
 GRINDER_COMFORT_ZONES = frozenset({'$2', '$10'})
-
 
 # --- Dataclasses ------------------------------------------------------
 
@@ -98,19 +98,17 @@ class FakeViceDeposit:
 
 
 @dataclass(frozen=True)
-class TouristInjection:
-    """One refill event: chips drawn from the bank pool to a fish bankroll."""
-
-    personality_id: str
-    amount: int
-
-
-@dataclass(frozen=True)
 class ClosedEconomyBatch:
-    """Result of one closed-economy resolution tick."""
+    """Result of one closed-economy resolution tick.
+
+    Post-EPHEMERAL_TOURISTS: the `injections` field was removed (tourist
+    injection no longer fires — ephemeral tourists have no bankrolls to
+    refill). Callers that historically read `batch.injections` should
+    treat the field as gone; pool depth is derived from `bank_pool_before`
+    vs `bank_pool_after` instead.
+    """
 
     deposits: List[FakeViceDeposit] = field(default_factory=list)
-    injections: List[TouristInjection] = field(default_factory=list)
     bank_pool_before: int = 0
     bank_pool_after: int = 0
 
@@ -306,183 +304,19 @@ def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str
     `load_archetype` on each, filters to fish. Fish not yet seeded
     into this sandbox's `ai_bankroll_state` won't appear — they only
     enter the eligibility loop once they've been seated at least once.
+    Returns the curated, permanent fish personas (`vacation_greg`,
+    etc.) that have been seeded into this sandbox. Fish are real
+    personalities now — there are no synthetic instances to
+    distinguish (see CASH_MODE_FISH_AS_PERSONAS.md).
 
-    Returns both template fish (`vacation_greg`, etc.) and ephemeral
-    instances (`vacation_greg__eph_*`). Use `load_is_ephemeral_fish`
-    to distinguish if needed.
+    For the seat-eligible pool (every curated fish persona regardless
+    of sandbox state), use `personality_repo.list_fish_for_cash_mode`
+    instead.
     """
     if bankroll_repo is None:
         return set()
     pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
     return {pid for pid in pids if bankroll_repo.load_archetype(pid) == 'fish'}
-
-
-# --- Ephemeral fish spawning ------------------------------------------
-#
-# Fish are a casino-only player class with no long-term lifecycle. The
-# 4 base entries in `personalities.json` (Vacation Greg, Bachelorette
-# Brenda, Cruise Carl, Birthday Bobby) are **templates** — they're
-# never seated directly. Casino spawn / refill clones a template into
-# an ephemeral instance with an alliterative first-name variant. When
-# the casino tears down, those instances get deleted.
-#
-# The pid pattern `<template>__eph_<6char>` doubles as the
-# template→instance link and the cleanup filter.
-
-
-# Per-template alliterative name pools. Each entry replaces the
-# template's first name (e.g. Vacation **Greg** → Vacation **Glenn**)
-# so casino dossiers feel like a rotating cast rather than the same
-# four NPCs over and over.
-EPHEMERAL_FISH_NAME_POOLS: dict = {
-    'vacation_greg': [
-        'Gary', 'Glenn', 'Gus', 'Greta', 'Gabe', 'Gordon', 'Gertie',
-        'Gwen', 'Geoff', 'Gail', 'Gunther', 'Gloria',
-    ],
-    'bachelorette_brenda': [
-        'Bea', 'Becca', 'Bridget', 'Belinda', 'Bonnie', 'Betsy',
-        'Brittany', 'Babs', 'Blair', 'Britt', 'Bianca', 'Beth',
-    ],
-    'cruise_carl': [
-        'Cal', 'Casey', 'Chuck', 'Curtis', 'Cliff', 'Cooper',
-        'Cody', 'Connor', 'Cyrus', 'Clement', 'Conrad', 'Clark',
-    ],
-    'birthday_bobby': [
-        'Brett', 'Boyd', 'Brad', 'Bruno', 'Bart', 'Burt', 'Buddy',
-        'Bo', 'Beau', 'Buster', 'Buck', 'Barry',
-    ],
-}
-
-# All templates supported by the spawn logic. Keeping this explicit
-# (vs. discovered at runtime) so a new template fails loudly when
-# its name pool is missing.
-EPHEMERAL_FISH_TEMPLATES = tuple(EPHEMERAL_FISH_NAME_POOLS.keys())
-
-
-def _ephemeral_pid(template_pid: str, rng: random.Random) -> str:
-    """Generate `<template>__eph_<6char>` from a 32-char hex pool."""
-    hex_chars = '0123456789abcdef'
-    suffix = ''.join(rng.choices(hex_chars, k=6))
-    return f"{template_pid}__eph_{suffix}"
-
-
-def is_ephemeral_fish_pid(pid: str) -> bool:
-    """True iff `pid` matches the ephemeral-fish naming convention."""
-    return '__eph_' in pid
-
-
-def spawn_ephemeral_fish(
-    *,
-    template_pid: str,
-    personality_repo,
-    bankroll_repo,
-    rng: random.Random,
-    sandbox_id: str,
-    now: datetime,
-    chip_ledger_repo=None,
-) -> Optional[tuple]:
-    """Clone a template fish into a new ephemeral instance.
-
-    Picks an alliterative first-name variant from the template's pool,
-    generates a unique pid, writes a personality row (with
-    `is_ephemeral: True` in config_json), and creates a zero-chip
-    bankroll state row in the sandbox. The casino spawner credits
-    actual chips at seat time via `record_casino_seat_seed`.
-
-    Returns `(personality_id, display_name)` on success, or None when
-    the template is unknown / repo writes fail.
-
-    Caller is responsible for seating the new pid and recording the
-    seat-seed ledger entry — this function does NOT touch the bank
-    pool. (Decoupled so the same generator can be reused for refills
-    where chips and personality come from separate code paths.)
-    """
-    if template_pid not in EPHEMERAL_FISH_NAME_POOLS:
-        logger.warning(
-            "[CASH][FISH] unknown ephemeral fish template %r — "
-            "no name pool registered; skipping",
-            template_pid,
-        )
-        return None
-
-    name_pool = EPHEMERAL_FISH_NAME_POOLS[template_pid]
-    variant_name = rng.choice(name_pool)
-
-    # Pull the template config so the new instance inherits anchors,
-    # tics, knobs, etc. `load_personality_by_id` returns the config
-    # dict directly with `name` + `id` populated.
-    template_config = personality_repo.load_personality_by_id(template_pid)
-    if not template_config:
-        logger.warning(
-            "[CASH][FISH] template %r not in DB; cannot spawn ephemeral",
-            template_pid,
-        )
-        return None
-
-    # Build the variant display name by swapping the template's first
-    # word (e.g. "Vacation Greg" → "Vacation Glenn"). Falls back to
-    # `template_name + variant_name` when the template name is
-    # single-word (shouldn't happen with current templates).
-    template_name = template_config.get('name', '') or ''
-    parts = template_name.split(' ', 1)
-    if len(parts) >= 2:
-        display_name = f"{parts[0]} {variant_name}"
-    else:
-        display_name = f"{template_name} {variant_name}".strip()
-
-    # Compose the ephemeral config: inherit everything, mark as
-    # ephemeral + record the template lineage for cleanup / debug.
-    ephemeral_config = dict(template_config)
-    ephemeral_config['is_ephemeral'] = True
-    ephemeral_config['template_personality_id'] = template_pid
-    ephemeral_config.pop('id', None)  # let save_personality assign
-    ephemeral_config.pop('name', None)  # name is the row name; not in config_json
-    # Drop the template's pre-baked bankroll knobs that don't apply to
-    # an instance (e.g. fixed starting_bankroll) — the casino seat
-    # seeds chips directly; the bankroll row stays at 0.
-
-    new_pid = _ephemeral_pid(template_pid, rng)
-    try:
-        personality_repo.save_personality(
-            display_name,
-            ephemeral_config,
-            source='ephemeral_fish',
-            personality_id=new_pid,
-        )
-    except Exception as exc:
-        logger.warning(
-            "[CASH][FISH] save_personality failed for %s: %s",
-            new_pid, exc,
-        )
-        return None
-
-    # Bankroll row starts at 0 — fish chips live at the seat, not in
-    # a bankroll account. The seat seed (`casino_seat_seed`) handles
-    # the actual chip creation from the bank pool.
-    try:
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=new_pid,
-                chips=0,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
-            chip_ledger_repo=chip_ledger_repo,
-        )
-    except Exception as exc:
-        logger.warning(
-            "[CASH][FISH] save_ai_bankroll failed for %s: %s",
-            new_pid, exc,
-        )
-        # Personality row exists but bankroll doesn't — caller will
-        # see this as a failure via the None return and skip seating.
-        return None
-
-    logger.info(
-        "[CASH][FISH] spawned ephemeral fish %s (%s) from template %s",
-        new_pid, display_name, template_pid,
-    )
-    return (new_pid, display_name)
 
 
 # --- Resolvers --------------------------------------------------------
@@ -589,78 +423,6 @@ def resolve_fake_vice_deposits(
     return deposits
 
 
-def resolve_tourist_injection(
-    *,
-    bankroll_repo,
-    chip_ledger_repo,
-    sandbox_id: str,
-    now: datetime,
-    fish_ids: Set[str],
-) -> List[TouristInjection]:
-    """Refill low-bankroll fish from the bank pool.
-
-    For each fish in the sandbox, check current chips. Eligible
-    targets have `chips < starting × TOURIST_INJECTION_THRESHOLD`.
-    Refill targets `starting_bankroll`, bounded by remaining pool
-    reserves and the per-refresh cap.
-
-    Idempotent in the trivial case (empty pool → no injections).
-    Pool is decremented logically as we go so multiple injections in
-    one refresh don't oversubscribe the available reserves.
-    """
-    if bankroll_repo is None or chip_ledger_repo is None or not fish_ids:
-        return []
-
-    pool = compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
-    if pool <= 0:
-        return []
-
-    candidates: List[tuple] = []  # (pid, current_chips, starting, deficit)
-    for pid in fish_ids:
-        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-        knobs = bankroll_repo.load_personality_knobs(pid)
-        starting = knobs.starting_bankroll
-        if starting <= 0:
-            continue
-        current = state.chips if state else 0
-        if current >= starting * TOURIST_INJECTION_THRESHOLD:
-            continue
-        deficit = max(0, starting - current)
-        if deficit < MIN_TOURIST_INJECTION:
-            continue
-        candidates.append((pid, current, starting, deficit))
-
-    candidates.sort(key=lambda c: c[3], reverse=True)
-    candidates = candidates[:MAX_TOURIST_INJECTIONS_PER_REFRESH]
-
-    injections: List[TouristInjection] = []
-    for pid, current, starting, deficit in candidates:
-        if pool <= 0:
-            break
-        amount = min(deficit, pool)
-        if amount < MIN_TOURIST_INJECTION:
-            continue
-        new_chips = current + amount
-        bankroll_repo.save_ai_bankroll(
-            AIBankrollState(
-                personality_id=pid,
-                chips=new_chips,
-                last_regen_tick=now,
-            ),
-            sandbox_id=sandbox_id,
-        )
-        record_tourist_injection(
-            chip_ledger_repo,
-            personality_id=pid,
-            amount=amount,
-            context={'site': 'tourist_injection', 'fish_starting': starting},
-            sandbox_id=sandbox_id,
-        )
-        injections.append(TouristInjection(personality_id=pid, amount=amount))
-        pool -= amount
-    return injections
-
-
 def resolve_closed_economy(
     *,
     bankroll_repo,
@@ -671,17 +433,17 @@ def resolve_closed_economy(
 ) -> ClosedEconomyBatch:
     """One closed-economy resolution tick.
 
-    Runs fake-vice deposits then tourist injections, captures the
-    bank pool delta. Each phase wrapped in try/except so a failure
-    in one doesn't tank the other — mirrors the carry-resolution
-    best-effort pattern (`cash_mode/lobby.py:1412`).
+    Runs fake-vice deposits and captures the bank pool delta. Post-
+    EPHEMERAL_TOURISTS, tourist injection was removed — pool reserves
+    now fund on-demand casino spawns instead of refilling named fish
+    bankrolls. Wrapped in try/except so a vice failure doesn't tank
+    the resolve (mirrors the carry-resolution best-effort pattern).
     """
     pool_before = compute_bank_pool_reserves(
         chip_ledger_repo, sandbox_id=sandbox_id,
     )
     fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     deposits: List[FakeViceDeposit] = []
-    injections: List[TouristInjection] = []
     try:
         deposits = resolve_fake_vice_deposits(
             bankroll_repo=bankroll_repo,
@@ -696,25 +458,11 @@ def resolve_closed_economy(
             "[CLOSED_ECONOMY] fake-vice deposit failed for sandbox %s: %s",
             sandbox_id, exc,
         )
-    try:
-        injections = resolve_tourist_injection(
-            bankroll_repo=bankroll_repo,
-            chip_ledger_repo=chip_ledger_repo,
-            sandbox_id=sandbox_id,
-            now=now,
-            fish_ids=fish_ids,
-        )
-    except Exception as exc:  # noqa: BLE001 — best-effort resolution
-        logger.warning(
-            "[CLOSED_ECONOMY] tourist injection failed for sandbox %s: %s",
-            sandbox_id, exc,
-        )
     pool_after = compute_bank_pool_reserves(
         chip_ledger_repo, sandbox_id=sandbox_id,
     )
     return ClosedEconomyBatch(
         deposits=deposits,
-        injections=injections,
         bank_pool_before=pool_before,
         bank_pool_after=pool_after,
     )

@@ -38,6 +38,23 @@ from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
 
 
+@pytest.fixture(autouse=True)
+def _enable_regen():
+    """This file tests the regen-projection-on-cash-out mechanism.
+
+    Passive regen is retired as a *default* (`REGEN_ENABLED=False`) per
+    CASH_MODE_SIDE_HUSTLE.md, but the projection machinery is kept and
+    still supported. Enable it for these tests so the projection-before-
+    credit / accrual assertions exercise the mechanism; the "off"
+    behaviour is covered by tests/test_economy_flags.py.
+    """
+    from cash_mode import economy_flags
+    saved = economy_flags.REGEN_ENABLED
+    economy_flags.REGEN_ENABLED = True
+    yield
+    economy_flags.REGEN_ENABLED = saved
+
+
 def _insert_personality(
     db_path: str,
     personality_id: str,

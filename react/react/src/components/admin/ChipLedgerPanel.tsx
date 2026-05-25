@@ -342,6 +342,10 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           </section>
         )}
 
+        {audit.bank_pool && (
+          <BankPoolFlow pool={audit.bank_pool} byReason={byReason} />
+        )}
+
         <section className="chip-ledger-card">
           <h3>By reason (all-time)</h3>
           <ReasonTable totals={byReason} />
@@ -733,6 +737,96 @@ function computeYTicks(yMin: number, yMax: number): number[] {
   return ticks;
 }
 
+// Friendly labels for ledger reason codes. Unmapped reasons fall back to
+// the raw code so a newly-added reason never disappears from the UI.
+const REASON_LABELS: Record<string, string> = {
+  player_seed: 'Player seed',
+  ai_seed: 'AI seed',
+  ai_regen: 'AI regen (passive, retired)',
+  house_stake_issue: 'House stake issued',
+  tourist_injection: 'Tourist injection',
+  casino_seat_seed: 'Casino seat seed',
+  side_hustle_earning: 'Side hustle',
+  bank_pool_sim_seed: 'Bank pool sim seed',
+  cap_clamp: 'Cap clamp (legacy)',
+  house_stake_settle: 'House stake settle',
+  table_rake: 'Table rake',
+  bank_pool_deposit: 'Bank pool deposit',
+  vice_spending: 'Vice spending',
+  casino_seat_return: 'Casino seat return',
+  forgive_balance: 'Forgive balance',
+};
+
+function labelFor(reason: string): string {
+  return REASON_LABELS[reason] ?? reason;
+}
+
+// Grouped deposits→pool→draws view so the closed-economy loop is legible
+// at a glance. Deposits are destructions (negative in by_reason); draws
+// are creations (positive). We show absolute magnitudes per direction.
+function BankPoolFlow({
+  pool,
+  byReason,
+}: {
+  pool: BankPool;
+  byReason: Record<string, number>;
+}) {
+  const rows = (reasons: string[]) =>
+    reasons
+      .map((r) => ({ reason: r, amount: Math.abs(byReason[r] ?? 0) }))
+      .filter((d) => d.amount !== 0)
+      .sort((a, b) => b.amount - a.amount);
+
+  const deposits = rows(pool.deposit_reasons);
+  const draws = rows(pool.draw_reasons);
+  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+
+  const directionTable = (
+    items: { reason: string; amount: number }[],
+    sign: '+' | '-',
+    totalLabel: string,
+  ) =>
+    items.length === 0 ? (
+      <p className="chip-ledger-empty">none yet</p>
+    ) : (
+      <table>
+        <tbody>
+          {items.map((d) => (
+            <tr key={d.reason}>
+              <td title={d.reason}>{labelFor(d.reason)}</td>
+              <td className={`amount ${sign === '+' ? 'pos' : 'neg'}`}>
+                {sign}
+                {fmt(d.amount)}
+              </td>
+            </tr>
+          ))}
+          <tr className="chip-ledger-pool-flow__subtotal">
+            <td><strong>{totalLabel}</strong></td>
+            <td className={`amount ${sign === '+' ? 'pos' : 'neg'}`}>
+              <strong>{sign}{fmt(sum(items))}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    );
+
+  return (
+    <section className="chip-ledger-card chip-ledger-pool-flow">
+      <h3>Bank pool flow</h3>
+      <h4>Deposits → pool</h4>
+      {directionTable(deposits, '+', 'Total in')}
+      <h4>Pool → draws</h4>
+      {directionTable(draws, '-', 'Total out')}
+      <p className="chip-ledger-bank-pool-caveat">
+        Reserves = deposits − draws = <strong>{fmt(pool.reserves)}</strong>.
+        Rake + vice feed the pool; the side hustle + tourist injection draw
+        it down. A dry pool starves the side hustle (broke AIs stay broke
+        until rake/vice refill it).
+      </p>
+    </section>
+  );
+}
+
 function ReasonTable({ totals }: { totals: Record<string, number> }) {
   const entries = Object.entries(totals);
   if (entries.length === 0) {
@@ -744,7 +838,7 @@ function ReasonTable({ totals }: { totals: Record<string, number> }) {
       <tbody>
         {entries.map(([reason, amount]) => (
           <tr key={reason}>
-            <td>{reason}</td>
+            <td title={reason}>{labelFor(reason)}</td>
             <td className={`amount ${amount > 0 ? 'pos' : amount < 0 ? 'neg' : ''}`}>
               {signed(amount)}
             </td>

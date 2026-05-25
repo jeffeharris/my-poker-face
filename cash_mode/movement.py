@@ -765,6 +765,11 @@ def refresh_table_roster(
             continue
         pid = slot["personality_id"]
         ai_chips = int(slot.get("chips", 0))
+        # Fish are casino-bound. With a real (pool-funded) bankroll they
+        # run normal movement — short-stack → re-buy from that bankroll,
+        # or go home when it's dry — but their tier-drift decisions are
+        # suppressed below so they never wander to another stake or table.
+        is_fish = slot.get("archetype") == "fish"
         # buy_in_lookup gives this AI's table-specific buy-in (honors
         # per-personality buy-in multipliers). table_min_buy_in /
         # table_max_buy_in are absolute and feed pressure thresholds.
@@ -783,6 +788,11 @@ def refresh_table_roster(
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
         )
         decision = evaluate_ai_movement(ctx, rng)
+        # Fish stay put at the casino: coerce tier-drift (`stake_up`) and
+        # table-wander (`bored_move`) to `stay`. Leave / rebuy / take_break
+        # stand so a busted fish still re-buys from its bankroll or goes home.
+        if is_fish and decision in ("stake_up", "bored_move"):
+            decision = "stay"
         # Stamp the dominant pressure signal so the lobby's activity
         # emitter can build narrative hints for leave_narrative without
         # rerunning the pressure compute (or worse, re-querying psych).

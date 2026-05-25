@@ -39,6 +39,11 @@ LEDGER_REASONS = frozenset({
     'house_stake_issue',   # house-archetype stake principal issued to borrower
     'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
     'tourist_injection',   # bank pool → fish bankroll (closed-economy refill)
+    'side_hustle_earning', # bank pool → broke AI bankroll. The side-hustle
+                           # faucet that replaces passive `ai_regen`: a broke
+                           # AI goes off-grid to earn, drawing a lump from the
+                           # recyclable pool (caller clamps to pool depth).
+                           # See CASH_MODE_SIDE_HUSTLE.md.
     'casino_seat_seed',    # bank pool → fish seat chips at casino spawn
                            # (atomic seed event — chips land at the seat,
                            # not the bankroll; same pool draw semantics
@@ -57,7 +62,12 @@ LEDGER_REASONS = frozenset({
                            # than a ceiling. Kept in the vocabulary so the
                            # audit can still query historical entries.
     'house_stake_settle',  # leave-time settlement of a house-archetype stake
-    'table_rake',          # per-hand pot rake destroyed at award time
+    'table_rake',          # per-hand pot rake skimmed at award time. Feeds
+                           # the recyclable bank pool (see
+                           # BANK_POOL_DEPOSIT_REASONS) — the chips are still
+                           # removed from circulation, but become drawable by
+                           # the side hustle / tourist injection rather than
+                           # evaporating. See CASH_MODE_SIDE_HUSTLE.md.
     'bank_pool_deposit',   # stub vice (and other operator-driven deposits)
                            # → bank pool; the recyclable subset of central_bank
                            # chips that fund `tourist_injection` /
@@ -67,6 +77,12 @@ LEDGER_REASONS = frozenset({
                            # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
                            # this also feeds the bank pool — see
                            # BANK_POOL_DEPOSIT_REASONS below.
+    'casino_seat_return',  # ai → bank pool: residual seat chips returned
+                           # when a casino tears down (or a tourist leaves
+                           # mid-life). Mirror of `casino_seat_seed` —
+                           # ephemeral-tourist chips were never on a
+                           # bankroll, so the seat balance returns
+                           # straight to the pool to preserve drift==0.
 
     # Annotation (amount=0, audit reconciliation only)
     'forgive_balance',     # borrower left short of principal on a house stake
@@ -80,9 +96,17 @@ LEDGER_REASONS = frozenset({
 # `vice_spending` (real AI vice) and `bank_pool_deposit` (stub vice + sim
 # seed) both deposit here, so the closed-economy loop is agnostic to
 # which vice implementation is live.
+#
+# `table_rake` joined this set per CASH_MODE_SIDE_HUSTLE.md: rake used to
+# be pure destruction (chips left the universe), but redirecting it into
+# the recyclable pool is what funds the side hustle / tourist injection.
+# The ledger entry direction is unchanged (winner → central_bank) — only
+# its pool-depth classification moved.
 BANK_POOL_DEPOSIT_REASONS = frozenset({
     'bank_pool_deposit',
     'vice_spending',
+    'casino_seat_return',
+    'table_rake',
 })
 
 # Pool draws — creations that pull from the recyclable pool. Adding a
@@ -91,6 +115,7 @@ BANK_POOL_DEPOSIT_REASONS = frozenset({
 BANK_POOL_DRAW_REASONS = frozenset({
     'tourist_injection',
     'casino_seat_seed',
+    'side_hustle_earning',
 })
 
 
@@ -553,6 +578,42 @@ def record_tourist_injection(
     )
 
 
+def record_side_hustle_earning(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """central_bank → ai for a side-hustle payout drawn from the bank pool.
+
+    The faucet that replaces passive `ai_regen` (see
+    CASH_MODE_SIDE_HUSTLE.md): a broke AI goes off-grid to earn and
+    returns with a lump credited to its bankroll. `side_hustle_earning`
+    is in `BANK_POOL_DRAW_REASONS`, so it draws down pool depth the same
+    way `tourist_injection` does.
+
+    Caller is responsible for clamping `amount` to available pool
+    reserves before drawing — this helper just writes the row (the pool
+    is virtual; depth is computed, not gated by a row count). Mirror of
+    `record_tourist_injection`.
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=bank(),
+        sink=ai(personality_id),
+        amount=int(amount),
+        reason='side_hustle_earning',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
 def record_bank_pool_sim_seed_pair(
     repo: Optional[ChipLedgerRepository],
     *,
@@ -627,6 +688,41 @@ def record_casino_seat_seed(
         sink=ai(personality_id),
         amount=int(amount),
         reason='casino_seat_seed',
+        context=context,
+        sandbox_id=sandbox_id,
+    )
+
+
+def record_casino_seat_return(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    personality_id: str,
+    amount: int,
+    context: Optional[Dict[str, Any]] = None,
+    sandbox_id: Optional[str] = None,
+) -> Optional[int]:
+    """ai → central_bank for residual seat chips returned to the pool.
+
+    Mirror of `record_casino_seat_seed`. Fires at casino teardown for any
+    seat with chips > 0, and at any other point where a tourist leaves
+    with residual chips on the seat. Ephemeral tourists have no bankroll,
+    so chips that were `casino_seat_seed`'d to the seat must return
+    directly to the bank pool — never to a bankroll — to keep the
+    conservation invariant (`drift == 0`).
+
+    `casino_seat_return` is a `BANK_POOL_DEPOSIT_REASON`, so audit math
+    correctly absorbs the chips back into pool depth.
+
+    No-op when `repo` is None or `amount <= 0`.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record(
+        repo,
+        source=ai(personality_id),
+        sink=bank(),
+        amount=int(amount),
+        reason='casino_seat_return',
         context=context,
         sandbox_id=sandbox_id,
     )

@@ -69,6 +69,11 @@ class OpponentTendencies:
     # of relying on AF_pf×cbet_attempt as a proxy.
     barrel_frequency: float = 0.5         # turn bet rate after cbet+call
     third_barrel_frequency: float = 0.5   # river bet rate after barrel+call
+    # Phase B Item 4: flop-check-then-barrel rate. Measures the
+    # open-spot trap-bait pattern — how often this player checks flop
+    # OOP and then bets turn after a check-through. Drives the
+    # open-spot IP induce branch's signal.
+    flop_check_then_barrel_rate: float = 0.5
     bluff_frequency: float = 0.3    # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
     all_in_frequency: float = 0.0   # All-in actions per hand dealt
@@ -136,6 +141,13 @@ class OpponentTendencies:
     _barrel_opportunity_count: int = 0
     _third_barrel_count: int = 0
     _third_barrel_opportunity_count: int = 0
+    # Phase B Item 4: flop-check-then-barrel counters. Denominator is
+    # opportunities — hands where this player was the first voluntary
+    # flop checker AND the flop went check-through AND they had a
+    # clean turn-first decision. Numerator is turn bets actually
+    # fired in that spot.
+    _flop_check_barrel_count: int = 0
+    _flop_check_barrel_opportunity_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
 
@@ -522,6 +534,21 @@ class OpponentTendencies:
             self._third_barrel_count += 1
         self._recalculate_stats()
 
+    def update_flop_check_barrel_attempt(self, attempted: bool):
+        """Phase B Item 4: record one flop-check-then-barrel opportunity.
+
+        Increments the denominator on every call and the numerator only
+        when `attempted=True`. Caller (MemoryManager via
+        CbetDetector.consume_flop_check_barrel_attempt_events) should
+        only invoke this when the player checked OOP on the flop, the
+        flop went check-through, and they had a clean turn-first
+        decision (no donk ahead of them).
+        """
+        self._flop_check_barrel_opportunity_count += 1
+        if attempted:
+            self._flop_check_barrel_count += 1
+        self._recalculate_stats()
+
     def update_equity_at_action(self, action: str, equity: float) -> None:
         """Polarization Phase A: record observed equity at the moment of a
         postflop action by this opponent.
@@ -623,6 +650,14 @@ class OpponentTendencies:
         if self._third_barrel_opportunity_count > 0:
             self.third_barrel_frequency = (
                 self._third_barrel_count / self._third_barrel_opportunity_count
+            )
+
+        # Phase B Item 4: flop-check-then-barrel rate. Same neutral-prior
+        # 0.5 stance as the other Phase B stats.
+        if self._flop_check_barrel_opportunity_count > 0:
+            self.flop_check_then_barrel_rate = (
+                self._flop_check_barrel_count
+                / self._flop_check_barrel_opportunity_count
             )
 
         if self._showdowns > 0:
@@ -1342,6 +1377,8 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         barrel_opportunities=t._barrel_opportunity_count,
         third_barrel_frequency=t.third_barrel_frequency,
         third_barrel_opportunities=t._third_barrel_opportunity_count,
+        flop_check_then_barrel_rate=t.flop_check_then_barrel_rate,
+        flop_check_barrel_opportunities=t._flop_check_barrel_opportunity_count,
         # Phase 7.5 Step 0 fields
         aggression_factor_postflop=t.aggression_factor_postflop,
         all_in_per_facing_bet=t.all_in_per_facing_bet,
@@ -1404,6 +1441,13 @@ def _build_aggregate_from_multi(tendencies_list):
     min_third_barrel_opps = min(
         t._third_barrel_opportunity_count for t in tendencies_list
     )
+    # Phase B Item 4 flop-check-then-barrel fields — same policy.
+    avg_flop_check_barrel_rate = sum(
+        t.flop_check_then_barrel_rate for t in tendencies_list
+    ) / n
+    min_flop_check_barrel_opps = min(
+        t._flop_check_barrel_opportunity_count for t in tendencies_list
+    )
 
     # Phase 7.5 Step 0 fields
     avg_af_postflop = sum(t.aggression_factor_postflop for t in tendencies_list) / n
@@ -1463,6 +1507,8 @@ def _build_aggregate_from_multi(tendencies_list):
         barrel_opportunities=min_barrel_opps,
         third_barrel_frequency=avg_third_barrel_freq,
         third_barrel_opportunities=min_third_barrel_opps,
+        flop_check_then_barrel_rate=avg_flop_check_barrel_rate,
+        flop_check_barrel_opportunities=min_flop_check_barrel_opps,
         aggression_factor_postflop=avg_af_postflop,
         all_in_per_facing_bet=avg_all_in_pfb,
         facing_bet_opportunities=min_facing_bet_opps,

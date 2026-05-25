@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import './BottomSheet.css';
 
@@ -14,7 +15,9 @@ export interface BottomSheetProps {
 export function BottomSheet({ isOpen, onClose, title, children, desktopMode = 'sheet' }: BottomSheetProps) {
   if (!isOpen) return null;
 
-  return (
+  // Portaled to <body> so the fixed sheet + backdrop escape any ancestor
+  // stacking context (e.g. PageLayout). See CharacterDetailCard.
+  return createPortal(
     <>
       <div className="bottom-sheet-backdrop" onClick={onClose} />
       <div className={`bottom-sheet${desktopMode === 'modal' ? ' bottom-sheet--modal' : ''}`}>
@@ -31,6 +34,7 @@ export function BottomSheet({ isOpen, onClose, title, children, desktopMode = 's
           {children}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
