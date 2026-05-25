@@ -9,32 +9,28 @@ This module provides memory and learning capabilities for AI poker players:
 - Memory manager orchestration
 """
 
-from .hand_history import RecordedHand, RecordedAction, HandHistoryRecorder
-from .session_memory import SessionMemory, HandMemory
-from .opponent_model import OpponentTendencies, OpponentModel, OpponentModelManager
-from .commentary_generator import DecisionPlan, HandCommentary, CommentaryGenerator
+from .commentary_generator import CommentaryGenerator, DecisionPlan, HandCommentary
+from .hand_history import HandHistoryRecorder, RecordedAction, RecordedHand
 from .memory_manager import AIMemoryManager
+from .opponent_model import OpponentModel, OpponentModelManager, OpponentTendencies
+from .session_memory import HandMemory, SessionMemory
 
 __all__ = [
     # Hand history
     'RecordedHand',
     'RecordedAction',
     'HandHistoryRecorder',
-
     # Session memory
     'SessionMemory',
     'HandMemory',
-
     # Opponent modeling
     'OpponentTendencies',
     'OpponentModel',
     'OpponentModelManager',
-
     # Commentary & Decision Plans
     'DecisionPlan',
     'HandCommentary',
     'CommentaryGenerator',
-
     # Manager
     'AIMemoryManager',
 ]

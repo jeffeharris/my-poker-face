@@ -43,8 +43,15 @@ def _insert_game(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                game_id, created_at, created_at, 'PRE_FLOP', 2, 0.0,
-                '{}', owner_id, owner_name,
+                game_id,
+                created_at,
+                created_at,
+                'PRE_FLOP',
+                2,
+                0.0,
+                '{}',
+                owner_id,
+                owner_name,
             ),
         )
 
@@ -66,11 +73,13 @@ class _HoldingsViewBase(unittest.TestCase):
             pass
 
     def _seed_bankroll(self, player_id: str, chips: int = 5_000) -> None:
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=player_id,
-            chips=chips,
-            starting_bankroll=chips,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=player_id,
+                chips=chips,
+                starting_bankroll=chips,
+            )
+        )
 
 
 class TestCollectPlayerRowsResolution(_HoldingsViewBase):
@@ -78,15 +87,19 @@ class TestCollectPlayerRowsResolution(_HoldingsViewBase):
         # When `users.name` is set, the user_name key is what we hit on —
         # owner_name fallback is irrelevant.
         self.user_repo.create_google_user(
-            google_sub='abc', email='alice@example.com', name='Alice',
+            google_sub='abc',
+            email='alice@example.com',
+            name='Alice',
         )
         player_id = 'google_abc'
         self._seed_bankroll(player_id)
 
         cash_pnl = {
             'Alice': {
-                'chips_won': 1_200, 'chips_lost': 400,
-                'net_pnl': 800, 'hands_played_cash': 50,
+                'chips_won': 1_200,
+                'chips_lost': 400,
+                'net_pnl': 800,
+                'hands_played_cash': 50,
             },
         }
         rows = _collect_player_rows(
@@ -109,13 +122,18 @@ class TestCollectPlayerRowsResolution(_HoldingsViewBase):
         player_id = 'guest_jeff'
         self._seed_bankroll(player_id)
         _insert_game(
-            self.db_path, game_id='g1', owner_id=player_id,
-            owner_name='Jeff', created_at='2026-05-20 12:00:00',
+            self.db_path,
+            game_id='g1',
+            owner_id=player_id,
+            owner_name='Jeff',
+            created_at='2026-05-20 12:00:00',
         )
         cash_pnl = {
             'Jeff': {
-                'chips_won': 900, 'chips_lost': 250,
-                'net_pnl': 650, 'hands_played_cash': 30,
+                'chips_won': 900,
+                'chips_lost': 250,
+                'net_pnl': 650,
+                'hands_played_cash': 30,
             },
         }
 
@@ -158,21 +176,31 @@ class TestCollectPlayerRowsResolution(_HoldingsViewBase):
         player_id = 'guest_multi'
         self._seed_bankroll(player_id)
         _insert_game(
-            self.db_path, game_id='g_old', owner_id=player_id,
-            owner_name='OldName', created_at='2026-01-01 12:00:00',
+            self.db_path,
+            game_id='g_old',
+            owner_id=player_id,
+            owner_name='OldName',
+            created_at='2026-01-01 12:00:00',
         )
         _insert_game(
-            self.db_path, game_id='g_new', owner_id=player_id,
-            owner_name='NewName', created_at='2026-05-20 12:00:00',
+            self.db_path,
+            game_id='g_new',
+            owner_id=player_id,
+            owner_name='NewName',
+            created_at='2026-05-20 12:00:00',
         )
         cash_pnl = {
             'NewName': {
-                'chips_won': 500, 'chips_lost': 0,
-                'net_pnl': 500, 'hands_played_cash': 10,
+                'chips_won': 500,
+                'chips_lost': 0,
+                'net_pnl': 500,
+                'hands_played_cash': 10,
             },
             'OldName': {
-                'chips_won': 9_999, 'chips_lost': 0,
-                'net_pnl': 9_999, 'hands_played_cash': 99,
+                'chips_won': 9_999,
+                'chips_lost': 0,
+                'net_pnl': 9_999,
+                'hands_played_cash': 99,
             },
         }
 
@@ -193,8 +221,10 @@ class TestCollectPlayerRowsResolution(_HoldingsViewBase):
         self._seed_bankroll(player_id)
         cash_pnl = {
             player_id: {
-                'chips_won': 300, 'chips_lost': 100,
-                'net_pnl': 200, 'hands_played_cash': 5,
+                'chips_won': 300,
+                'chips_lost': 100,
+                'net_pnl': 200,
+                'hands_played_cash': 5,
             },
         }
 
@@ -213,20 +243,30 @@ class TestCollectPlayerRowsResolution(_HoldingsViewBase):
         player_id = 'guest_null'
         self._seed_bankroll(player_id)
         _insert_game(
-            self.db_path, game_id='g_null', owner_id=player_id,
-            owner_name=None, created_at='2026-05-20 12:00:00',
+            self.db_path,
+            game_id='g_null',
+            owner_id=player_id,
+            owner_name=None,
+            created_at='2026-05-20 12:00:00',
         )
         _insert_game(
-            self.db_path, game_id='g_empty', owner_id=player_id,
-            owner_name='', created_at='2026-05-20 13:00:00',
+            self.db_path,
+            game_id='g_empty',
+            owner_id=player_id,
+            owner_name='',
+            created_at='2026-05-20 13:00:00',
         )
 
         rows = _collect_player_rows(
             user_repo=self.user_repo,
-            cash_pnl_by_observer={'Jeff': {
-                'chips_won': 1, 'chips_lost': 0, 'net_pnl': 1,
-                'hands_played_cash': 1,
-            }},
+            cash_pnl_by_observer={
+                'Jeff': {
+                    'chips_won': 1,
+                    'chips_lost': 0,
+                    'net_pnl': 1,
+                    'hands_played_cash': 1,
+                }
+            },
             db_path=self.db_path,
         )
 
@@ -239,20 +279,30 @@ class TestFetchRecentOwnerNames(_HoldingsViewBase):
 
     def test_returns_most_recent_per_owner(self):
         _insert_game(
-            self.db_path, game_id='g1', owner_id='guest_a',
-            owner_name='Alpha', created_at='2026-01-01 12:00:00',
+            self.db_path,
+            game_id='g1',
+            owner_id='guest_a',
+            owner_name='Alpha',
+            created_at='2026-01-01 12:00:00',
         )
         _insert_game(
-            self.db_path, game_id='g2', owner_id='guest_a',
-            owner_name='AlphaTwo', created_at='2026-05-01 12:00:00',
+            self.db_path,
+            game_id='g2',
+            owner_id='guest_a',
+            owner_name='AlphaTwo',
+            created_at='2026-05-01 12:00:00',
         )
         _insert_game(
-            self.db_path, game_id='g3', owner_id='guest_b',
-            owner_name='Bravo', created_at='2026-03-15 12:00:00',
+            self.db_path,
+            game_id='g3',
+            owner_id='guest_b',
+            owner_name='Bravo',
+            created_at='2026-03-15 12:00:00',
         )
 
         result = _fetch_recent_owner_names(
-            self.db_path, ['guest_a', 'guest_b', 'guest_missing'],
+            self.db_path,
+            ['guest_a', 'guest_b', 'guest_missing'],
         )
         self.assertEqual(result.get('guest_a'), 'AlphaTwo')
         self.assertEqual(result.get('guest_b'), 'Bravo')

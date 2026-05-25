@@ -26,8 +26,19 @@ from poker.board_analyzer import analyze_board_texture
 from poker.hand_evaluator import HandEvaluator, _has_straight_draw
 
 RANK_VALUES = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
+    '2': 2,
+    '3': 3,
+    '4': 4,
+    '5': 5,
+    '6': 6,
+    '7': 7,
+    '8': 8,
+    '9': 9,
+    'T': 10,
+    'J': 11,
+    'Q': 12,
+    'K': 13,
+    'A': 14,
 }
 
 # --- Danger flag names (constants for grep-ability) ----------------
@@ -59,6 +70,7 @@ class HandClassification:
         nut_status: 'actual_nuts' | 'near_nuts' | 'non_nut_strong' | 'bluff_catcher'
         danger_flags: frozenset of danger flag strings (see PAIRED_BOARD etc.)
     """
+
     made_tier: str
     draw_modifier: str
     hand_class: str
@@ -85,8 +97,8 @@ def _classify_made_tier(
     # Three of a kind — set vs trips
     if hand_rank == 7:
         if hole_ranks[0] == hole_ranks[1]:
-            return 'nuts'       # Set (pocket pair hit the board)
-        return 'strong_made'    # Trips (one hole card + board pair)
+            return 'nuts'  # Set (pocket pair hit the board)
+        return 'strong_made'  # Trips (one hole card + board pair)
 
     # Two pair
     if hand_rank == 8:
@@ -194,6 +206,7 @@ def _classify_draw_modifier(
 
 # --- Board-aware danger / nut-status helpers -----------------------
 
+
 def _has_four_in_window(ranks: List[int]) -> bool:
     """True if 4 distinct ranks form a 4-consecutive run (including wheel)."""
     unique = sorted(set(ranks))
@@ -280,12 +293,8 @@ def _compute_danger_flags(
     # reachable by an opponent with the missing high card of the suit.
     if hand_rank == 5:
         flush_suit = max(suit_counts, key=suit_counts.get)
-        hole_flush_ranks = {
-            RANK_VALUES[c[0]] for c in hole_cards if c[1] == flush_suit
-        }
-        board_flush_ranks = {
-            RANK_VALUES[c[0]] for c in community_cards if c[1] == flush_suit
-        }
+        hole_flush_ranks = {RANK_VALUES[c[0]] for c in hole_cards if c[1] == flush_suit}
+        board_flush_ranks = {RANK_VALUES[c[0]] for c in community_cards if c[1] == flush_suit}
         seen = hole_flush_ranks | board_flush_ranks
         hero_top_flush = max(hole_flush_ranks | {0}, default=0)
         for higher in (14, 13, 12):
@@ -341,8 +350,7 @@ def _classify_nut_status(
     if hand_rank == 7:
         if FULL_HOUSE_POSSIBLE in danger_flags:
             return NUT_NON_NUT_STRONG
-        if (FOUR_FLUSH_BOARD in danger_flags
-                or FOUR_STRAIGHT_BOARD in danger_flags):
+        if FOUR_FLUSH_BOARD in danger_flags or FOUR_STRAIGHT_BOARD in danger_flags:
             return NUT_NON_NUT_STRONG
         return NUT_NEAR
 
@@ -350,8 +358,7 @@ def _classify_nut_status(
     if hand_rank == 8:
         if FULL_HOUSE_POSSIBLE in danger_flags:
             return NUT_NON_NUT_STRONG
-        if (FOUR_FLUSH_BOARD in danger_flags
-                or FOUR_STRAIGHT_BOARD in danger_flags):
+        if FOUR_FLUSH_BOARD in danger_flags or FOUR_STRAIGHT_BOARD in danger_flags:
             return NUT_BLUFF_CATCHER
         return NUT_NON_NUT_STRONG
 
@@ -363,8 +370,7 @@ def _classify_nut_status(
         if PAIRED_BOARD in danger_flags:
             return NUT_BLUFF_CATCHER
         # Pair on highly coordinated board (4-flush / 4-straight)
-        if (FOUR_FLUSH_BOARD in danger_flags
-                or FOUR_STRAIGHT_BOARD in danger_flags):
+        if FOUR_FLUSH_BOARD in danger_flags or FOUR_STRAIGHT_BOARD in danger_flags:
             return NUT_BLUFF_CATCHER
         return NUT_NON_NUT_STRONG
 
@@ -424,19 +430,32 @@ def classify_hand_full(
     board_ranks = [RANK_VALUES[c[0]] for c in community_cards]
 
     danger_flags = _compute_danger_flags(
-        hole_cards, community_cards, hand_rank, hand_values,
+        hole_cards,
+        community_cards,
+        hand_rank,
+        hand_values,
     )
     nut_status = _classify_nut_status(
-        hand_rank, hole_ranks, board_ranks, danger_flags,
+        hand_rank,
+        hole_ranks,
+        board_ranks,
+        danger_flags,
     )
     raw_made_tier = _classify_made_tier(
-        hand_rank, hole_ranks, board_ranks, community_cards,
+        hand_rank,
+        hole_ranks,
+        board_ranks,
+        community_cards,
     )
     made_tier = _apply_made_tier_downgrade(
-        raw_made_tier, nut_status, danger_flags,
+        raw_made_tier,
+        nut_status,
+        danger_flags,
     )
     draw_modifier = _classify_draw_modifier(
-        hand_rank, hole_cards, community_cards,
+        hand_rank,
+        hole_cards,
+        community_cards,
     )
     hand_class = simplify_hand_class(made_tier, draw_modifier)
 

@@ -6,6 +6,7 @@ rule_strategies.py), RuleBotController imports from the new module while
 RuleBasedController re-exports the old names. A strategy that broke during
 extraction would only surface at game time without this test.
 """
+
 import unittest
 
 from poker.rule_strategies import BUILT_IN_STRATEGIES
@@ -58,9 +59,18 @@ class TestBuiltInStrategiesSmoke(unittest.TestCase):
     def test_built_in_strategies_registered(self):
         """Sanity check: the strategies the route advertises are all present."""
         expected = {
-            'always_fold', 'always_call', 'always_raise', 'always_all_in',
-            'abc', 'foldy', 'position_aware', 'pot_odds_robot',
-            'maniac', 'trap_bait', 'bluffbot', 'case_based',
+            'always_fold',
+            'always_call',
+            'always_raise',
+            'always_all_in',
+            'abc',
+            'foldy',
+            'position_aware',
+            'pot_odds_robot',
+            'maniac',
+            'trap_bait',
+            'bluffbot',
+            'case_based',
         }
         self.assertTrue(
             expected.issubset(set(BUILT_IN_STRATEGIES.keys())),
@@ -76,7 +86,8 @@ class TestBuiltInStrategiesSmoke(unittest.TestCase):
                 self.assertIsInstance(decision, dict, f"{name} returned non-dict")
                 self.assertIn('action', decision, f"{name} missing 'action' key")
                 self.assertIn(
-                    decision['action'], self.VALID_ACTIONS,
+                    decision['action'],
+                    self.VALID_ACTIONS,
                     f"{name} returned unknown action: {decision['action']!r}",
                 )
                 # If the action is a raise, amount must be a number
@@ -88,7 +99,9 @@ class TestBuiltInStrategiesSmoke(unittest.TestCase):
     def test_strategies_handle_free_check_context(self):
         """Strategies must not crash when cost_to_call=0 (free check available)."""
         ctx = _baseline_context(
-            cost_to_call=0, pot_odds=None, highest_bet=0,
+            cost_to_call=0,
+            pot_odds=None,
+            highest_bet=0,
             valid_actions=['check', 'raise'],
         )
         for name, fn in BUILT_IN_STRATEGIES.items():

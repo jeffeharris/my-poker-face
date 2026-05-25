@@ -1,10 +1,11 @@
 """Tests for SchemaManager."""
+
 import os
+import sqlite3
 import tempfile
 import unittest
-import sqlite3
 
-from poker.repositories.schema_manager import SchemaManager, SCHEMA_VERSION
+from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
 class TestSchemaManager(unittest.TestCase):
@@ -23,19 +24,28 @@ class TestSchemaManager(unittest.TestCase):
         sm.ensure_schema()
 
         conn = sqlite3.connect(self.test_db.name)
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = {row[0] for row in cursor.fetchall()}
         conn.close()
 
         # Check core tables exist
         expected_tables = {
-            'schema_version', 'games', 'game_messages', 'ai_player_state',
-            'personalities', 'hand_history', 'tournament_results',
-            'avatar_images', 'api_usage', 'prompt_captures',
-            'experiments', 'experiment_games', 'users',
-            'app_settings', 'prompt_presets', 'guest_usage_tracking',
+            'schema_version',
+            'games',
+            'game_messages',
+            'ai_player_state',
+            'personalities',
+            'hand_history',
+            'tournament_results',
+            'avatar_images',
+            'api_usage',
+            'prompt_captures',
+            'experiments',
+            'experiment_games',
+            'users',
+            'app_settings',
+            'prompt_presets',
+            'guest_usage_tracking',
         }
         for table in expected_tables:
             self.assertIn(table, tables, f"Missing table: {table}")

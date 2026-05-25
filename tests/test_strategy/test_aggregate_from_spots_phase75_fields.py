@@ -24,15 +24,19 @@ from poker.strategy.exploitation import (
     aggregate_from_spots,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 def _stats(**kwargs) -> AggregatedOpponentStats:
     """Build AggregatedOpponentStats with sensible defaults + overrides."""
     base = dict(
-        hands_observed=50, vpip=0.5, pfr=0.25,
-        aggression_factor=1.5, all_in_frequency=0.05,
-        fold_to_cbet=0.5, cbet_faced_count=10,
+        hands_observed=50,
+        vpip=0.5,
+        pfr=0.25,
+        aggression_factor=1.5,
+        all_in_frequency=0.05,
+        fold_to_cbet=0.5,
+        cbet_faced_count=10,
         # Phase 7.5 defaults
         aggression_factor_postflop=1.0,
         all_in_per_facing_bet=0.0,
@@ -44,17 +48,28 @@ def _stats(**kwargs) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(**base)
 
 
-def _spot(name: str, stats: AggregatedOpponentStats, *,
-          is_active: bool = True, committed_this_hand: int = 0) -> OpponentSpot:
+def _spot(
+    name: str,
+    stats: AggregatedOpponentStats,
+    *,
+    is_active: bool = True,
+    committed_this_hand: int = 0,
+) -> OpponentSpot:
     return OpponentSpot(
-        name=name, stats=stats,
-        is_active=is_active, is_aggressor=False, is_all_in=False,
-        current_bet=0, stack=10000,
-        committed_this_street=0, committed_this_hand=committed_this_hand,
+        name=name,
+        stats=stats,
+        is_active=is_active,
+        is_aggressor=False,
+        is_all_in=False,
+        current_bet=0,
+        stack=10000,
+        committed_this_street=0,
+        committed_this_hand=committed_this_hand,
     )
 
 
 # ── Single-opponent path: verbatim forwarding ────────────────────────────
+
 
 class TestSingleOpponent:
     def test_phase_75_fields_forwarded_verbatim(self):
@@ -75,13 +90,14 @@ class TestSingleOpponent:
 
 # ── 60%-dominant path: verbatim forwarding ───────────────────────────────
 
+
 class TestDominantOpponent:
     def test_dominant_phase_75_fields_forwarded_verbatim(self):
         """When 60% rule fires, ALL fields (including 7.5) come from the
         dominant opponent — NOT averaged with the others."""
         dominant_stats = _stats(
             hands_observed=200,
-            aggression_factor_postflop=7.0,   # Extreme
+            aggression_factor_postflop=7.0,  # Extreme
             all_in_per_facing_bet=0.40,
             facing_bet_opportunities=150,
             postflop_jam_open_rate=0.30,
@@ -111,26 +127,39 @@ class TestDominantOpponent:
 
 # ── Weighted-average path: equal-weight averages + MIN sample counts ─────
 
+
 class TestWeightedAverageNew:
     def test_phase_75_rates_equal_weight_averaged(self):
         """When no opponent dominates (60% rule doesn't fire), Phase 7.5
         rate fields are equal-weight averaged across opponents."""
         spots = [
-            _spot('A', _stats(
-                aggression_factor_postflop=6.0,
-                all_in_per_facing_bet=0.40,
-                postflop_jam_open_rate=0.30,
-            ), committed_this_hand=300),
-            _spot('B', _stats(
-                aggression_factor_postflop=2.0,
-                all_in_per_facing_bet=0.10,
-                postflop_jam_open_rate=0.05,
-            ), committed_this_hand=300),
-            _spot('C', _stats(
-                aggression_factor_postflop=1.0,
-                all_in_per_facing_bet=0.04,
-                postflop_jam_open_rate=0.01,
-            ), committed_this_hand=300),
+            _spot(
+                'A',
+                _stats(
+                    aggression_factor_postflop=6.0,
+                    all_in_per_facing_bet=0.40,
+                    postflop_jam_open_rate=0.30,
+                ),
+                committed_this_hand=300,
+            ),
+            _spot(
+                'B',
+                _stats(
+                    aggression_factor_postflop=2.0,
+                    all_in_per_facing_bet=0.10,
+                    postflop_jam_open_rate=0.05,
+                ),
+                committed_this_hand=300,
+            ),
+            _spot(
+                'C',
+                _stats(
+                    aggression_factor_postflop=1.0,
+                    all_in_per_facing_bet=0.04,
+                    postflop_jam_open_rate=0.01,
+                ),
+                committed_this_hand=300,
+            ),
         ]
         result = aggregate_from_spots(spots)
         # Equal-weight averages
@@ -142,18 +171,30 @@ class TestWeightedAverageNew:
         """Opportunity counters take MIN across active spots, matching
         the policy for legacy hands_observed / cbet_faced_count."""
         spots = [
-            _spot('A', _stats(
-                facing_bet_opportunities=150,
-                postflop_open_opportunities=100,
-            ), committed_this_hand=300),
-            _spot('B', _stats(
-                facing_bet_opportunities=60,
-                postflop_open_opportunities=40,
-            ), committed_this_hand=300),
-            _spot('C', _stats(
-                facing_bet_opportunities=200,
-                postflop_open_opportunities=80,
-            ), committed_this_hand=300),
+            _spot(
+                'A',
+                _stats(
+                    facing_bet_opportunities=150,
+                    postflop_open_opportunities=100,
+                ),
+                committed_this_hand=300,
+            ),
+            _spot(
+                'B',
+                _stats(
+                    facing_bet_opportunities=60,
+                    postflop_open_opportunities=40,
+                ),
+                committed_this_hand=300,
+            ),
+            _spot(
+                'C',
+                _stats(
+                    facing_bet_opportunities=200,
+                    postflop_open_opportunities=80,
+                ),
+                committed_this_hand=300,
+            ),
         ]
         result = aggregate_from_spots(spots)
         # MIN over active spots
@@ -162,6 +203,7 @@ class TestWeightedAverageNew:
 
 
 # ── Empty / inactive cases ───────────────────────────────────────────────
+
 
 class TestEmptyAndInactive:
     def test_empty_spots_returns_zero_defaults_for_new_fields(self):
@@ -175,15 +217,24 @@ class TestEmptyAndInactive:
     def test_inactive_spots_excluded_before_aggregation(self):
         """Folded spots are filtered before averaging."""
         spots = [
-            _spot('Active', _stats(
-                aggression_factor_postflop=5.0,
-                facing_bet_opportunities=100,
-            ), committed_this_hand=300),
+            _spot(
+                'Active',
+                _stats(
+                    aggression_factor_postflop=5.0,
+                    facing_bet_opportunities=100,
+                ),
+                committed_this_hand=300,
+            ),
             # Folded — should be ignored.
-            _spot('Folded', _stats(
-                aggression_factor_postflop=1.0,
-                facing_bet_opportunities=20,
-            ), is_active=False, committed_this_hand=200),
+            _spot(
+                'Folded',
+                _stats(
+                    aggression_factor_postflop=1.0,
+                    facing_bet_opportunities=20,
+                ),
+                is_active=False,
+                committed_this_hand=200,
+            ),
         ]
         result = aggregate_from_spots(spots)
         # Only Active counts → its stats forwarded verbatim (single-opp path)

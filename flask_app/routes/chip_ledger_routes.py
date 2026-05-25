@@ -14,6 +14,8 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
+from poker.authorization import require_permission
+
 from ..extensions import (
     bankroll_repo,
     cash_table_repo,
@@ -31,7 +33,6 @@ from ..services.holdings_view import (
     compute_holdings_history,
     compute_holdings_snapshot,
 )
-from poker.authorization import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -174,17 +175,19 @@ def list_sandboxes():
     """
     try:
         sandboxes = sandbox_repo.list_all()
-        return jsonify({
-            'sandboxes': [
-                {
-                    'sandbox_id': s.sandbox_id,
-                    'owner_id': s.owner_id,
-                    'name': s.name,
-                    'created_at': s.created_at.isoformat(),
-                }
-                for s in sandboxes
-            ],
-        })
+        return jsonify(
+            {
+                'sandboxes': [
+                    {
+                        'sandbox_id': s.sandbox_id,
+                        'owner_id': s.owner_id,
+                        'name': s.name,
+                        'created_at': s.created_at.isoformat(),
+                    }
+                    for s in sandboxes
+                ],
+            }
+        )
     except Exception as e:
         logger.error("admin sandbox list failed: %s", e, exc_info=True)
         return jsonify({'error': 'Sandbox list failed'}), 500

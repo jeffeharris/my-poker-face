@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -35,8 +34,7 @@ def _create_v85_schema_subset(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute(
-        "CREATE UNIQUE INDEX idx_personalities_personality_id "
-        "ON personalities(personality_id)"
+        "CREATE UNIQUE INDEX idx_personalities_personality_id " "ON personalities(personality_id)"
     )
     conn.execute(
         """
@@ -55,6 +53,7 @@ def _create_v85_schema_subset(conn: sqlite3.Connection) -> None:
 
 def _apply_v86(conn: sqlite3.Connection) -> None:
     from poker.repositories.schema_manager import SchemaManager
+
     sm = SchemaManager.__new__(SchemaManager)
     sm._migrate_v86_add_opponent_model_ids(conn)
 
@@ -77,8 +76,7 @@ def v85_db():
 
     # Seed opponent_models rows that reference the personalities by name
     conn.executemany(
-        "INSERT INTO opponent_models (game_id, observer_name, opponent_name) "
-        "VALUES (?, ?, ?)",
+        "INSERT INTO opponent_models (game_id, observer_name, opponent_name) " "VALUES (?, ?, ?)",
         [
             ("game_1", "Abraham Lincoln", "Bob Ross"),
             ("game_1", "Bob Ross", "Abraham Lincoln"),
@@ -134,9 +132,9 @@ class TestV86Migration:
     def test_indexes_created(self, v85_db):
         _apply_v86(v85_db)
         idxs = [
-            row[1] for row in v85_db.execute(
-                "SELECT * FROM sqlite_master "
-                "WHERE type='index' AND tbl_name='opponent_models'"
+            row[1]
+            for row in v85_db.execute(
+                "SELECT * FROM sqlite_master " "WHERE type='index' AND tbl_name='opponent_models'"
             )
         ]
         assert "idx_opponent_models_observer_id" in idxs
@@ -173,9 +171,7 @@ class TestV86Migration:
 
         _apply_v86(v85_db)  # re-run
 
-        result = v85_db.execute(
-            "SELECT opponent_id FROM opponent_models WHERE id = 1"
-        ).fetchone()
+        result = v85_db.execute("SELECT opponent_id FROM opponent_models WHERE id = 1").fetchone()
         assert result["opponent_id"] == "custom_override"
 
     def test_nulls_rebackfill_on_rerun(self, v85_db):
@@ -194,7 +190,6 @@ class TestV86Migration:
         _apply_v86(v85_db)  # re-run
 
         result = v85_db.execute(
-            "SELECT opponent_id FROM opponent_models "
-            "WHERE opponent_name = 'Some Guest Player'"
+            "SELECT opponent_id FROM opponent_models " "WHERE opponent_name = 'Some Guest Player'"
         ).fetchone()
         assert result["opponent_id"] == "some_guest_player"

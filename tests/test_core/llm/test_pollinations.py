@@ -1,8 +1,9 @@
 """Tests for Pollinations provider."""
+
 import unittest
 from unittest.mock import Mock, patch
 
-from core.llm.providers.pollinations import PollinationsProvider, PollinationsImageResponse
+from core.llm.providers.pollinations import PollinationsImageResponse, PollinationsProvider
 
 
 class TestPollinationsProvider(unittest.TestCase):
@@ -31,9 +32,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_complete_raises_not_implemented(self):
         """Test that complete() raises NotImplementedError."""
         with self.assertRaises(NotImplementedError) as context:
-            self.provider.complete(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            self.provider.complete(messages=[{"role": "user", "content": "Hello"}])
         self.assertIn("image-only provider", str(context.exception))
 
     @patch('core.llm.providers.pollinations.requests.Session')
@@ -107,6 +106,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_generate_image_timeout_with_retries(self, mock_session_class, mock_sleep):
         """Test timeout handling with retry logic."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
@@ -130,6 +130,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_generate_image_retry_succeeds_on_second_attempt(self, mock_session_class, mock_sleep):
         """Test that retry succeeds after initial timeout."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}
         mock_session_class.return_value = mock_session
@@ -141,10 +142,7 @@ class TestPollinationsProvider(unittest.TestCase):
         mock_response.raise_for_status = Mock()
 
         # First call times out, second succeeds
-        mock_session.get.side_effect = [
-            requests.exceptions.Timeout(),
-            mock_response
-        ]
+        mock_session.get.side_effect = [requests.exceptions.Timeout(), mock_response]
 
         provider = PollinationsProvider(model="flux")
         provider._session = mock_session
@@ -160,6 +158,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_generate_image_http_error_4xx_no_retry(self, mock_session_class):
         """Test that 4xx client errors are NOT retried."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}  # Real dict for header assignment
         mock_session_class.return_value = mock_session
@@ -186,6 +185,7 @@ class TestPollinationsProvider(unittest.TestCase):
     def test_generate_image_http_error_5xx_retries(self, mock_session_class, mock_sleep):
         """Test that 5xx server errors ARE retried."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}
         mock_session_class.return_value = mock_session

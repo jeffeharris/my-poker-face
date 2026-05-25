@@ -10,16 +10,15 @@ from poker.strategy.preflop_classifier import (
     get_6max_position,
 )
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def _player(name, bet=0):
     """Lightweight player stub."""
     return SimpleNamespace(name=name, bet=bet, is_folded=False, stack=1000)
 
 
-def _game(players, dealer_idx=0, current_idx=0, raises=0, ante=50,
-          table_positions=None):
+def _game(players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positions=None):
     """Build a minimal game-state namespace for testing."""
     gs = SimpleNamespace(
         players=tuple(players),
@@ -57,14 +56,11 @@ def _derive_positions(gs):
         6: base + ["under_the_gun", "middle_position_1", "cutoff"],
     }
     all_pos = configs.get(num, base)
-    return {
-        pos: gs.players[(dealer + i) % num].name
-        for i, pos in enumerate(all_pos)
-        if i < num
-    }
+    return {pos: gs.players[(dealer + i) % num].name for i, pos in enumerate(all_pos) if i < num}
 
 
 # ── Position mapping: 6 players ───────────────────────────────────────
+
 
 class TestGet6maxPosition:
     """Verify that each seat maps to the correct 6-max label."""
@@ -74,19 +70,23 @@ class TestGet6maxPosition:
         players = [_player(f"P{i}") for i in range(6)]
         return _game(players, dealer_idx=0)
 
-    @pytest.mark.parametrize("idx,expected", [
-        (0, "BTN"),
-        (1, "SB"),
-        (2, "BB"),
-        (3, "UTG"),
-        (4, "HJ"),
-        (5, "CO"),
-    ])
+    @pytest.mark.parametrize(
+        "idx,expected",
+        [
+            (0, "BTN"),
+            (1, "SB"),
+            (2, "BB"),
+            (3, "UTG"),
+            (4, "HJ"),
+            (5, "CO"),
+        ],
+    )
     def test_six_player_positions(self, six_player_game, idx, expected):
         assert get_6max_position(six_player_game, idx) == expected
 
 
 # ── Position collapse: fewer players ──────────────────────────────────
+
 
 class TestPositionCollapse:
     def test_five_players_no_hj(self):
@@ -117,6 +117,7 @@ class TestPositionCollapse:
 
 # ── Scenario classification ───────────────────────────────────────────
 
+
 class TestClassifyPreflopScenario:
     def test_rfi_utg(self):
         """Unopened pot, UTG to act → rfi."""
@@ -130,12 +131,12 @@ class TestClassifyPreflopScenario:
     def test_vs_open_btn_facing_co_raise(self):
         """CO opens (1 raise), BTN to act → vs_open, opener=CO."""
         players = [
-            _player("P0"),              # BTN
-            _player("P1"),              # SB
-            _player("P2", bet=50),      # BB (posted blind)
-            _player("P3"),              # UTG
-            _player("P4"),              # HJ
-            _player("P5", bet=150),     # CO (opened to 150)
+            _player("P0"),  # BTN
+            _player("P1"),  # SB
+            _player("P2", bet=50),  # BB (posted blind)
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=150),  # CO (opened to 150)
         ]
         gs = _game(players, dealer_idx=0, current_idx=0, raises=1)
         scenario, pos, opener = classify_preflop_scenario(gs)
@@ -146,12 +147,12 @@ class TestClassifyPreflopScenario:
     def test_bb_defend_vs_btn_open(self):
         """BTN opens, action to BB → vs_open, opener=BTN."""
         players = [
-            _player("P0", bet=150),     # BTN (opened)
-            _player("P1"),              # SB (folded)
-            _player("P2", bet=50),      # BB (to act)
-            _player("P3"),              # UTG
-            _player("P4"),              # HJ
-            _player("P5"),              # CO
+            _player("P0", bet=150),  # BTN (opened)
+            _player("P1"),  # SB (folded)
+            _player("P2", bet=50),  # BB (to act)
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5"),  # CO
         ]
         gs = _game(players, dealer_idx=0, current_idx=2, raises=1)
         scenario, pos, opener = classify_preflop_scenario(gs)
@@ -162,12 +163,12 @@ class TestClassifyPreflopScenario:
     def test_vs_3bet(self):
         """CO opens, BTN 3-bets, CO to act → vs_3bet, opener=BTN (3-bettor)."""
         players = [
-            _player("P0", bet=450),     # BTN (3-bet to 450)
-            _player("P1"),              # SB
-            _player("P2", bet=50),      # BB
-            _player("P3"),              # UTG
-            _player("P4"),              # HJ
-            _player("P5", bet=150),     # CO (original open to 150)
+            _player("P0", bet=450),  # BTN (3-bet to 450)
+            _player("P1"),  # SB
+            _player("P2", bet=50),  # BB
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=150),  # CO (original open to 150)
         ]
         gs = _game(players, dealer_idx=0, current_idx=5, raises=2)
         scenario, pos, opener = classify_preflop_scenario(gs)
@@ -178,12 +179,12 @@ class TestClassifyPreflopScenario:
     def test_vs_4bet(self):
         """3+ raises → vs_4bet."""
         players = [
-            _player("P0", bet=450),     # BTN (3-bet)
-            _player("P1"),              # SB
-            _player("P2", bet=50),      # BB
-            _player("P3"),              # UTG
-            _player("P4"),              # HJ
-            _player("P5", bet=1200),    # CO (4-bet to 1200)
+            _player("P0", bet=450),  # BTN (3-bet)
+            _player("P1"),  # SB
+            _player("P2", bet=50),  # BB
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=1200),  # CO (4-bet to 1200)
         ]
         gs = _game(players, dealer_idx=0, current_idx=0, raises=3)
         scenario, pos, opener = classify_preflop_scenario(gs)
@@ -193,6 +194,7 @@ class TestClassifyPreflopScenario:
 
 
 # ── build_preflop_node integration ─────────────────────────────────────
+
 
 class TestBuildPreflopNode:
     def test_rfi_node(self):
@@ -207,12 +209,12 @@ class TestBuildPreflopNode:
 
     def test_vs_open_node(self):
         players = [
-            _player("P0"),              # BTN
-            _player("P1"),              # SB
-            _player("P2", bet=50),      # BB
-            _player("P3"),              # UTG
-            _player("P4"),              # HJ
-            _player("P5", bet=150),     # CO (opened)
+            _player("P0"),  # BTN
+            _player("P1"),  # SB
+            _player("P2", bet=50),  # BB
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=150),  # CO (opened)
         ]
         gs = _game(players, dealer_idx=0, current_idx=0, raises=1)
         node = build_preflop_node(gs, 0, "TT")
@@ -225,7 +227,7 @@ class TestBuildPreflopNode:
     def test_heads_up_node(self):
         """Heads-up: button/SB opens, BB to act."""
         players = [
-            _player("Hero", bet=150),    # BTN/SB (opened)
+            _player("Hero", bet=150),  # BTN/SB (opened)
             _player("Villain", bet=50),  # BB
         ]
         gs = _game(players, dealer_idx=0, current_idx=1, raises=1)

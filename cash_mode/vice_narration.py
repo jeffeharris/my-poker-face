@@ -82,10 +82,13 @@ def narrate_vice(
     except Exception as exc:
         logger.warning(
             "[VICE_NARRATION] narrate_vice failed pid=%r: %s; using template",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return _templated_narrate_fn(
-            personality_id, amount, psychology_snapshot,
+            personality_id,
+            amount,
+            psychology_snapshot,
         )
 
 
@@ -154,8 +157,13 @@ def _build_user_prompt(
         anchors = config.get("anchors") or {}
         anchor_lines = []
         for axis in (
-            "baseline_aggression", "baseline_looseness", "ego",
-            "poise", "expressiveness", "risk_identity", "baseline_energy",
+            "baseline_aggression",
+            "baseline_looseness",
+            "ego",
+            "poise",
+            "expressiveness",
+            "risk_identity",
+            "baseline_energy",
         ):
             if axis in anchors:
                 anchor_lines.append(f"  {axis} = {anchors[axis]}")
@@ -212,7 +220,8 @@ def _parse_response(
     except (TypeError, ValueError):
         logger.warning(
             "[VICE_NARRATION] non-JSON response pid=%r: %r",
-            personality_id, content[:200],
+            personality_id,
+            content[:200],
         )
         return _templated_narrate_fn(personality_id, amount, psychology_snapshot)
 
@@ -224,7 +233,8 @@ def _parse_response(
 
     if not isinstance(narration, str) or not narration.strip():
         logger.warning(
-            "[VICE_NARRATION] missing/empty narration pid=%r", personality_id,
+            "[VICE_NARRATION] missing/empty narration pid=%r",
+            personality_id,
         )
         return _templated_narrate_fn(personality_id, amount, psychology_snapshot)
 
@@ -234,7 +244,9 @@ def _parse_response(
     if duration not in DURATION_RANGES:
         logger.info(
             "[VICE_NARRATION] unknown duration %r pid=%r; defaulting to %s",
-            duration, personality_id, DEFAULT_DURATION_BUCKET,
+            duration,
+            personality_id,
+            DEFAULT_DURATION_BUCKET,
         )
         duration = DEFAULT_DURATION_BUCKET
 

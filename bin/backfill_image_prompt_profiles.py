@@ -14,7 +14,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-
 DEFAULT_PROFILE = {
     "character_kind": "human",
     "age_band": "adult",
@@ -46,7 +45,9 @@ def infer_character_kind(name: str, core_description: str | None) -> str:
         return "robot"
     if any(token in text for token in ("badger", "dog", "cat", "wolf", "bear", "bird")):
         return "animal"
-    if any(token in text for token in ("cthulhu", "eldritch", "tentacle", "monster", "demon", "alien")):
+    if any(
+        token in text for token in ("cthulhu", "eldritch", "tentacle", "monster", "demon", "alien")
+    ):
         return "creature"
     if any(token in text for token in ("statue", "object", "car", "ship")):
         return "object"
@@ -93,9 +94,13 @@ def normalize_profile(name: str, profile: Any) -> Dict[str, Any]:
             out["iconic_association"] = iconic.strip()
 
     while len(out["outfit_options"]) < 2:
-        out["outfit_options"].append(DEFAULT_PROFILE["outfit_options"][len(out["outfit_options"]) % 2])
+        out["outfit_options"].append(
+            DEFAULT_PROFILE["outfit_options"][len(out["outfit_options"]) % 2]
+        )
     while len(out["accessory_options"]) < 2:
-        out["accessory_options"].append(DEFAULT_PROFILE["accessory_options"][len(out["accessory_options"]) % 2])
+        out["accessory_options"].append(
+            DEFAULT_PROFILE["accessory_options"][len(out["accessory_options"]) % 2]
+        )
 
     if out["character_kind"] not in VALID_KINDS:
         out["character_kind"] = infer_character_kind(name, out.get("core_description"))

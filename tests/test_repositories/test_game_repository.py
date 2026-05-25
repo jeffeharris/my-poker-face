@@ -1,11 +1,14 @@
 """Tests for GameRepository."""
+
 import json
+
 import pytest
-from poker.repositories.game_repository import GameRepository, SavedGame
-from poker.poker_game import PokerGameState, Player
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.memory.opponent_model import OpponentModelManager
+
 from core.card import Card
+from poker.memory.opponent_model import OpponentModelManager
+from poker.poker_game import Player, PokerGameState
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.repositories.game_repository import GameRepository, SavedGame
 
 
 @pytest.fixture
@@ -34,6 +37,7 @@ def _make_state_machine():
 
 
 # --- Game CRUD ---
+
 
 def test_save_and_load_game(repo):
     sm = _make_state_machine()
@@ -73,7 +77,13 @@ def test_load_game_preserves_hand_count_and_blind_config(repo):
     save, so restored games re-ran blind escalation from hand 0 and lost
     the user's max_blind cap from custom game settings.
     """
-    from poker.poker_state_machine import PokerStateMachine, ImmutableStateMachine, StateMachineStats, BlindConfig
+    from poker.poker_state_machine import (
+        BlindConfig,
+        ImmutableStateMachine,
+        PokerStateMachine,
+        StateMachineStats,
+    )
+
     sm = _make_state_machine()
     sm._state = ImmutableStateMachine(
         game_state=sm._state.game_state,
@@ -133,7 +143,9 @@ def test_delete_game(repo):
     sm = _make_state_machine()
     repo.save_game("game1", sm)
     repo.save_message("game1", "chat", "Hello")
-    repo.save_ai_player_state("game1", "Bob", [{"role": "user", "content": "hi"}], {"mood": "happy"})
+    repo.save_ai_player_state(
+        "game1", "Bob", [{"role": "user", "content": "hi"}], {"mood": "happy"}
+    )
 
     repo.delete_game("game1")
     assert repo.load_game("game1") is None
@@ -157,13 +169,17 @@ def test_delete_game_preserves_pressure_events(repo, db_path):
 
     event_repo = PressureEventRepository(db_path)
     event_repo.save_event(
-        game_id="game1", player_name="Alice",
-        event_type="big_win", hand_number=1,
+        game_id="game1",
+        player_name="Alice",
+        event_type="big_win",
+        hand_number=1,
         details={"pot_size": 41564},
     )
     event_repo.save_event(
-        game_id="game1", player_name="Bob",
-        event_type="big_loss", hand_number=1,
+        game_id="game1",
+        player_name="Bob",
+        event_type="big_loss",
+        hand_number=1,
         details={"pot_size": 41564},
     )
 
@@ -185,6 +201,7 @@ def test_coach_mode(repo):
 
 # --- Tournament Tracker ---
 
+
 def test_tournament_tracker_save_load(repo):
     tracker_data = {"round": 1, "players_remaining": 4}
     repo.save_tournament_tracker("game1", tracker_data)
@@ -204,6 +221,7 @@ def test_tournament_tracker_upsert(repo):
 
 
 # --- Messages ---
+
 
 def test_save_and_load_messages(repo):
     repo.save_message("game1", "chat", "Alice: Hello everyone")
@@ -237,6 +255,7 @@ def test_load_messages_limit(repo):
 
 # --- AI Player State ---
 
+
 def test_ai_player_state_save_load(repo):
     messages = [{"role": "system", "content": "You are a poker player"}]
     personality = {"mood": "confident", "aggression": 0.8}
@@ -261,11 +280,12 @@ def test_personality_snapshot(repo):
 
     # Verify the snapshot was persisted via raw SQL
     import sqlite3
+
     conn = sqlite3.connect(repo.db_path)
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM personality_snapshots WHERE game_id = ? AND player_name = ?",
-        ("game1", "Batman")
+        ("game1", "Batman"),
     ).fetchone()
     conn.close()
     assert row is not None
@@ -287,6 +307,7 @@ def test_save_personality_snapshot_idempotent(repo):
     repo.save_personality_snapshot("game1", "Batman", 5, traits, pressure)
 
     import sqlite3
+
     conn = sqlite3.connect(repo.db_path)
     count = conn.execute(
         "SELECT COUNT(*) FROM personality_snapshots "
@@ -298,6 +319,7 @@ def test_save_personality_snapshot_idempotent(repo):
 
 
 # --- Emotional State ---
+
 
 def test_emotional_state_save_load(repo):
     state = {
@@ -350,15 +372,22 @@ def test_delete_emotional_state(repo):
 SAMPLE_PSYCHOLOGY_V2 = {
     'player_name': 'Batman',
     'anchors': {
-        'baseline_aggression': 0.7, 'baseline_looseness': 0.4,
-        'ego': 0.8, 'poise': 0.6, 'expressiveness': 0.5,
-        'risk_identity': 0.6, 'adaptation_bias': 0.5,
-        'baseline_energy': 0.6, 'recovery_rate': 0.15,
+        'baseline_aggression': 0.7,
+        'baseline_looseness': 0.4,
+        'ego': 0.8,
+        'poise': 0.6,
+        'expressiveness': 0.5,
+        'risk_identity': 0.6,
+        'adaptation_bias': 0.5,
+        'baseline_energy': 0.6,
+        'recovery_rate': 0.15,
     },
     'axes': {'confidence': 0.65, 'composure': 0.45, 'energy': 0.70},
     'composure_state': {
-        'pressure_source': 'bad_beat', 'nemesis': 'Joker',
-        'recent_losses': [], 'losing_streak': 2,
+        'pressure_source': 'bad_beat',
+        'nemesis': 'Joker',
+        'recent_losses': [],
+        'losing_streak': 2,
     },
     'hand_count': 12,
     'consecutive_folds': 1,
@@ -428,6 +457,7 @@ def test_controller_state_psychology_round_trip(repo):
 
 
 # --- Opponent Models ---
+
 
 def test_opponent_models_save_load(repo):
     models = {
@@ -568,15 +598,18 @@ def test_load_opponent_models_json_decode_error(repo):
 
     # Manually insert a row with invalid JSON in notes
     import sqlite3
+
     conn = sqlite3.connect(repo.db_path)
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO opponent_models
         (game_id, observer_name, opponent_name, hands_observed, vpip, pfr,
          aggression_factor, fold_to_cbet, bluff_frequency, showdown_win_rate,
          recent_trend, notes, last_updated)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """, ("game1", "Alice", "Bob", 10, 0.5, 0.3, 1.5, 0.5, 0.3, 0.5, "stable",
-          "not valid json"))
+    """,
+        ("game1", "Alice", "Bob", 10, 0.5, 0.3, 1.5, 0.5, 0.3, 0.5, "stable", "not valid json"),
+    )
     conn.commit()
     conn.close()
 
@@ -590,43 +623,50 @@ def test_load_opponent_models_json_decode_error(repo):
 
 # --- Cross-Session Opponent Models ---
 
+
 def test_cross_session_opponent_models_aggregation(repo):
     """Stats are aggregated across games with weighted averages."""
     sm = _make_state_machine()
 
     # Game 1: Alice observes Bob for 10 hands, VPIP=0.6
     repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game1", {
-        "Alice": {
-            "Bob": {
-                "tendencies": {
-                    "hands_observed": 10,
-                    "vpip": 0.6,
-                    "pfr": 0.3,
-                    "aggression_factor": 2.0,
-                },
-                "memorable_hands": [],
-                "narrative_observations": ["Plays loose"],
+    repo.save_opponent_models(
+        "game1",
+        {
+            "Alice": {
+                "Bob": {
+                    "tendencies": {
+                        "hands_observed": 10,
+                        "vpip": 0.6,
+                        "pfr": 0.3,
+                        "aggression_factor": 2.0,
+                    },
+                    "memorable_hands": [],
+                    "narrative_observations": ["Plays loose"],
+                }
             }
-        }
-    })
+        },
+    )
 
     # Game 2: Alice observes Bob for 30 hands, VPIP=0.4
     repo.save_game("game2", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game2", {
-        "Alice": {
-            "Bob": {
-                "tendencies": {
-                    "hands_observed": 30,
-                    "vpip": 0.4,
-                    "pfr": 0.2,
-                    "aggression_factor": 1.0,
-                },
-                "memorable_hands": [],
-                "narrative_observations": ["Tightened up"],
+    repo.save_opponent_models(
+        "game2",
+        {
+            "Alice": {
+                "Bob": {
+                    "tendencies": {
+                        "hands_observed": 30,
+                        "vpip": 0.4,
+                        "pfr": 0.2,
+                        "aggression_factor": 1.0,
+                    },
+                    "memorable_hands": [],
+                    "narrative_observations": ["Tightened up"],
+                }
             }
-        }
-    })
+        },
+    )
 
     # Load cross-session data
     result = repo.load_cross_session_opponent_models("Alice", "user1")
@@ -660,14 +700,24 @@ def test_cross_session_distinct_session_count(repo):
 
     # Save 3 games but only 2 with Bob data
     repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game1", {
-        "Alice": {"Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}}
-    })
+    repo.save_opponent_models(
+        "game1",
+        {
+            "Alice": {
+                "Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}
+            }
+        },
+    )
 
     repo.save_game("game2", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game2", {
-        "Alice": {"Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}}
-    })
+    repo.save_opponent_models(
+        "game2",
+        {
+            "Alice": {
+                "Bob": {"tendencies": {"hands_observed": 5, "vpip": 0.5}, "memorable_hands": []}
+            }
+        },
+    )
 
     repo.save_game("game3", sm, owner_id="user1", owner_name="Alice")
     # game3 has no opponent models for Bob
@@ -691,15 +741,25 @@ def test_cross_session_filters_by_owner_id(repo):
 
     # User1's game
     repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game1", {
-        "Alice": {"Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.6}, "memorable_hands": []}}
-    })
+    repo.save_opponent_models(
+        "game1",
+        {
+            "Alice": {
+                "Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.6}, "memorable_hands": []}
+            }
+        },
+    )
 
     # User2's game - should not be included
     repo.save_game("game2", sm, owner_id="user2", owner_name="Other")
-    repo.save_opponent_models("game2", {
-        "Alice": {"Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.2}, "memorable_hands": []}}
-    })
+    repo.save_opponent_models(
+        "game2",
+        {
+            "Alice": {
+                "Bob": {"tendencies": {"hands_observed": 10, "vpip": 0.2}, "memorable_hands": []}
+            }
+        },
+    )
 
     result = repo.load_cross_session_opponent_models("Alice", "user1")
 
@@ -713,9 +773,14 @@ def test_cross_session_excludes_zero_hand_observations(repo):
     sm = _make_state_machine()
 
     repo.save_game("game1", sm, owner_id="user1", owner_name="Alice")
-    repo.save_opponent_models("game1", {
-        "Alice": {"Bob": {"tendencies": {"hands_observed": 0, "vpip": 0.9}, "memorable_hands": []}}
-    })
+    repo.save_opponent_models(
+        "game1",
+        {
+            "Alice": {
+                "Bob": {"tendencies": {"hands_observed": 0, "vpip": 0.9}, "memorable_hands": []}
+            }
+        },
+    )
 
     result = repo.load_cross_session_opponent_models("Alice", "user1")
     assert "Bob" not in result

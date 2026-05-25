@@ -1,9 +1,9 @@
 """Tests for LLMClient."""
-import sqlite3
 
+import sqlite3
 from unittest.mock import Mock, patch
 
-from core.llm import LLMClient, CallType, UsageTracker
+from core.llm import CallType, LLMClient, UsageTracker
 
 
 class TestLLMClient:

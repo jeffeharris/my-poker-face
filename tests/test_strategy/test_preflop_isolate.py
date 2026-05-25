@@ -44,9 +44,13 @@ class TestTransform:
 
     def test_rfi_and_vs3bet_untouched(self):
         data = {
-            'rfi|CO||TT': StrategyProfile(action_probabilities={
-                'call': 0.2, 'fold': 0.3, 'raise_2.5': 0.5,
-            }),
+            'rfi|CO||TT': StrategyProfile(
+                action_probabilities={
+                    'call': 0.2,
+                    'fold': 0.3,
+                    'raise_2.5': 0.5,
+                }
+            ),
             'vs_3bet|CO|BTN|TT': _prof(call=0.4, fold=0.4, raise_3x=0.2),
         }
         out = transform_vs_open_to_isolate(data)
@@ -70,8 +74,12 @@ class TestBuildTable:
         table = StrategyTable(pre, post)
         iso = build_isolation_table(table, shift_fraction=0.7)
         # transformed preflop
-        assert iso._preflop['vs_open|CO|UTG|AJs'].action_probabilities['raise_3x'] == pytest.approx(0.36)
+        assert iso._preflop['vs_open|CO|UTG|AJs'].action_probabilities['raise_3x'] == pytest.approx(
+            0.36
+        )
         # original table untouched (non-destructive)
-        assert table._preflop['vs_open|CO|UTG|AJs'].action_probabilities['raise_3x'] == pytest.approx(0.15)
+        assert table._preflop['vs_open|CO|UTG|AJs'].action_probabilities[
+            'raise_3x'
+        ] == pytest.approx(0.15)
         # postflop shared unchanged
         assert iso._postflop == post

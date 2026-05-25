@@ -2,17 +2,19 @@
 """
 Test suite for experiment variant (A/B testing) functionality.
 """
+
 import os
 import sys
-import unittest
 import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from experiments.run_ai_tournament import ExperimentConfig, TournamentResult
-from experiments.variant_config import build_effective_variant_config, VariantConfig, ControlConfig
+from experiments.variant_config import ControlConfig, VariantConfig, build_effective_variant_config
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
@@ -105,7 +107,7 @@ class TestExperimentConfigVariants(unittest.TestCase):
         label, effective_config = variants[0]
         self.assertEqual(label, 'GPT Baseline')
         self.assertEqual(effective_config['model'], 'gpt-5-nano')  # From experiment
-        self.assertEqual(effective_config['provider'], 'openai')   # From experiment
+        self.assertEqual(effective_config['provider'], 'openai')  # From experiment
 
         # Second should be first variant (overrides model/provider)
         label, effective_config = variants[1]
@@ -154,7 +156,7 @@ class TestExperimentConfigVariants(unittest.TestCase):
         label, variant_config = variants[1]
         self.assertEqual(label, 'No Pot Odds')
         self.assertEqual(variant_config['model'], 'gpt-5-nano')  # From experiment
-        self.assertEqual(variant_config['provider'], 'openai')   # From experiment
+        self.assertEqual(variant_config['provider'], 'openai')  # From experiment
 
     def test_get_variant_configs_control_defaults_to_experiment(self):
         """Test that control inherits unspecified fields from experiment config."""
@@ -218,8 +220,7 @@ class TestBuildEffectiveVariantConfigGameMode(unittest.TestCase):
     def test_build_effective_with_game_mode(self):
         """build_effective_variant_config should include game_mode."""
         result = build_effective_variant_config(
-            {'label': 'V1', 'game_mode': 'pro'},
-            control_dict={'game_mode': 'standard'}
+            {'label': 'V1', 'game_mode': 'pro'}, control_dict={'game_mode': 'standard'}
         )
         self.assertEqual(result['game_mode'], 'pro')  # Variant overrides control
 
@@ -227,16 +228,13 @@ class TestBuildEffectiveVariantConfigGameMode(unittest.TestCase):
         """Variant should inherit game_mode from control if not set."""
         result = build_effective_variant_config(
             {'label': 'V1'},  # No game_mode
-            control_dict={'game_mode': 'standard'}
+            control_dict={'game_mode': 'standard'},
         )
         self.assertEqual(result['game_mode'], 'standard')
 
     def test_game_mode_none_when_not_set(self):
         """game_mode should be None when not set anywhere."""
-        result = build_effective_variant_config(
-            {'label': 'V1'},
-            control_dict=None
-        )
+        result = build_effective_variant_config({'label': 'V1'}, control_dict=None)
         self.assertIsNone(result['game_mode'])
 
     def test_variant_config_dataclass_game_mode(self):
@@ -428,9 +426,10 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def setUp(self):
         """Create test Flask app."""
+        from unittest.mock import patch
+
         from flask_app import create_app
         from poker.repositories import create_repos
-        from unittest.mock import patch
 
         self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.test_db.close()
@@ -440,6 +439,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         # Patch init_persistence to use our test DB repos instead of creating new ones
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -481,22 +481,24 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'ab_test',
-                    'num_tournaments': 3,
-                    'control': {
-                        'label': 'GPT Control',
-                        'model': 'gpt-4o',
-                        'provider': 'openai',
-                    },
-                    'variants': [
-                        {
-                            'label': 'Claude Variant',
-                            'model': 'claude-sonnet-4-20250514',
-                            'provider': 'anthropic',
-                        }
-                    ]
-                }}
+                json={
+                    'config': {
+                        'name': 'ab_test',
+                        'num_tournaments': 3,
+                        'control': {
+                            'label': 'GPT Control',
+                            'model': 'gpt-4o',
+                            'provider': 'openai',
+                        },
+                        'variants': [
+                            {
+                                'label': 'Claude Variant',
+                                'model': 'claude-sonnet-4-20250514',
+                                'provider': 'anthropic',
+                            }
+                        ],
+                    }
+                },
             )
             data = response.get_json()
 
@@ -509,13 +511,15 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'ab_test',
-                    'control': {
-                        'model': 'gpt-4o',
-                        # Missing label
-                    },
-                }}
+                json={
+                    'config': {
+                        'name': 'ab_test',
+                        'control': {
+                            'model': 'gpt-4o',
+                            # Missing label
+                        },
+                    }
+                },
             )
             data = response.get_json()
 
@@ -528,13 +532,15 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'ab_test',
-                    'control': {'label': 'Control'},
-                    'variants': [
-                        {'model': 'claude-sonnet-4-20250514'}  # Missing label
-                    ]
-                }}
+                json={
+                    'config': {
+                        'name': 'ab_test',
+                        'control': {'label': 'Control'},
+                        'variants': [
+                            {'model': 'claude-sonnet-4-20250514'}  # Missing label
+                        ],
+                    }
+                },
             )
             data = response.get_json()
 
@@ -547,14 +553,16 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'ab_test',
-                    'control': {'label': 'Control'},
-                    'variants': [
-                        {'label': 'Same Label'},
-                        {'label': 'Same Label'},  # Duplicate
-                    ]
-                }}
+                json={
+                    'config': {
+                        'name': 'ab_test',
+                        'control': {'label': 'Control'},
+                        'variants': [
+                            {'label': 'Same Label'},
+                            {'label': 'Same Label'},  # Duplicate
+                        ],
+                    }
+                },
             )
             data = response.get_json()
 
@@ -567,13 +575,15 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'ab_test',
-                    'control': {'label': 'Same Label'},
-                    'variants': [
-                        {'label': 'Same Label'},  # Matches control
-                    ]
-                }}
+                json={
+                    'config': {
+                        'name': 'ab_test',
+                        'control': {'label': 'Same Label'},
+                        'variants': [
+                            {'label': 'Same Label'},  # Matches control
+                        ],
+                    }
+                },
             )
             data = response.get_json()
 
@@ -586,15 +596,17 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'large_ab_test',
-                    'num_tournaments': 10,
-                    'control': {'label': 'Control'},
-                    'variants': [
-                        {'label': 'Variant 1'},
-                        {'label': 'Variant 2'},
-                    ]
-                }}
+                json={
+                    'config': {
+                        'name': 'large_ab_test',
+                        'num_tournaments': 10,
+                        'control': {'label': 'Control'},
+                        'variants': [
+                            {'label': 'Variant 1'},
+                            {'label': 'Variant 2'},
+                        ],
+                    }
+                },
             )
             data = response.get_json()
 

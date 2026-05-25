@@ -68,6 +68,7 @@ def _get_session_memory_manager(sandbox_id: Optional[str], db_path: Optional[str
             return mm
         try:
             from poker.memory.memory_manager import AIMemoryManager
+
             mm = AIMemoryManager(
                 game_id=f"sim_{sandbox_id}",
                 db_path=db_path,
@@ -76,7 +77,8 @@ def _get_session_memory_manager(sandbox_id: Optional[str], db_path: Optional[str
             )
         except Exception as exc:
             logger.warning(
-                "[FULL_SIM] AIMemoryManager construction failed: %s", exc,
+                "[FULL_SIM] AIMemoryManager construction failed: %s",
+                exc,
             )
             return None
         _session_memory_managers[sandbox_id] = mm
@@ -89,6 +91,7 @@ def _next_hand_number(sandbox_id: str) -> int:
         n = _session_hand_counters.get(sandbox_id, 0)
         _session_hand_counters[sandbox_id] = n + 1
         return n
+
 
 # Per-table probability gate (per lobby read). Same numerical default
 # as the predecessor fake-sim gate so the swap is behavior-neutral on
@@ -144,6 +147,8 @@ def hand_burst_count(
     if burst_pacing_seconds <= 0:
         return min(burst_hand_cap, 1)
     return min(burst_hand_cap, int(gap_seconds // burst_pacing_seconds))
+
+
 from poker.poker_game import (
     Player,
     PokerGameState,
@@ -165,6 +170,7 @@ HAND_EVENT_ALL_IN = "all_in"
 HAND_EVENT_SUCKOUT = "suckout"
 HAND_EVENT_BUST = "bust"
 HAND_EVENT_NICE_POT = "nice_pot"
+
 
 # Default name resolver used when callers don't pass `name_for`. The
 # personality_id is used as the Player.name fallback, which lets the
@@ -363,7 +369,10 @@ def _build_controller(
 
 
 def _hydrate_psychology(
-    controller, personality_id: str, bankroll_repo, sandbox_id: str,
+    controller,
+    personality_id: str,
+    bankroll_repo,
+    sandbox_id: str,
 ) -> None:
     """Apply persisted emotional state to a freshly-built controller.
 
@@ -383,12 +392,11 @@ def _hydrate_psychology(
         return
     try:
         blob = bankroll_repo.load_emotional_state_json(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:  # noqa: BLE001 — repo is best-effort here
-        logger.debug(
-            f"[FULL_SIM] {personality_id}: load_emotional_state_json failed: {exc}"
-        )
+        logger.debug(f"[FULL_SIM] {personality_id}: load_emotional_state_json failed: {exc}")
         return
     if not blob:
         return
@@ -405,11 +413,10 @@ def _hydrate_psychology(
     try:
         from poker.player_psychology import PlayerPsychology
 
-        personality_config = getattr(
-            controller.ai_player, "personality_config", {}
-        )
+        personality_config = getattr(controller.ai_player, "personality_config", {})
         controller.psychology = PlayerPsychology.from_dict(
-            state_dict, personality_config,
+            state_dict,
+            personality_config,
         )
     except Exception as exc:  # noqa: BLE001 — psychology is best-effort
         logger.warning(
@@ -431,14 +438,15 @@ def _serialize_psychology(controller) -> Optional[str]:
     try:
         return json.dumps(psych.to_dict())
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            f"[FULL_SIM] _serialize_psychology failed: {exc}"
-        )
+        logger.warning(f"[FULL_SIM] _serialize_psychology failed: {exc}")
         return None
 
 
 def _flush_psychology(
-    controller, personality_id: str, bankroll_repo, sandbox_id: str,
+    controller,
+    personality_id: str,
+    bankroll_repo,
+    sandbox_id: str,
 ) -> None:
     """Write the controller's current emotional state to the repo.
 
@@ -454,16 +462,19 @@ def _flush_psychology(
         return
     try:
         bankroll_repo.save_emotional_state_json(
-            personality_id, blob, sandbox_id=sandbox_id,
+            personality_id,
+            blob,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.debug(
-            f"[FULL_SIM] {personality_id}: save_emotional_state_json failed: {exc}"
-        )
+        logger.debug(f"[FULL_SIM] {personality_id}: save_emotional_state_json failed: {exc}")
 
 
 def _maybe_flush_psychology(
-    controller, personality_id: str, bankroll_repo, sandbox_id: str,
+    controller,
+    personality_id: str,
+    bankroll_repo,
+    sandbox_id: str,
 ) -> None:
     """Increment the per-controller sim-hand counter and flush every
     PSYCHOLOGY_FLUSH_EVERY_HANDS hands."""
@@ -476,10 +487,7 @@ def _maybe_flush_psychology(
 
 
 def _ai_seat_indices(seats: List[dict]) -> List[int]:
-    return [
-        i for i, s in enumerate(seats)
-        if s.get("kind") == "ai" and int(s.get("chips", 0)) > 0
-    ]
+    return [i for i, s in enumerate(seats) if s.get("kind") == "ai" and int(s.get("chips", 0)) > 0]
 
 
 def _apply_rake_to_winner(
@@ -723,20 +731,16 @@ def _play_one_hand_inner(
         # are static per personality — the cache holds the right
         # controller class permanently once built, so this is a
         # warm-path no-op after the first hand.
-        archetype = (
-            bankroll_repo.load_archetype(pid) if bankroll_repo is not None else None
-        )
-        rule_strategy = (
-            bankroll_repo.load_rule_strategy(pid) if bankroll_repo is not None else None
-        )
-        fish_leak = (
-            bankroll_repo.load_fish_leak(pid) if bankroll_repo is not None else None
-        )
+        archetype = bankroll_repo.load_archetype(pid) if bankroll_repo is not None else None
+        rule_strategy = bankroll_repo.load_rule_strategy(pid) if bankroll_repo is not None else None
+        fish_leak = bankroll_repo.load_fish_leak(pid) if bankroll_repo is not None else None
         ctrl, was_miss = controller_cache.get_or_create_tracked(
             pid,
-            lambda pid_local=pid, name_local=player.name,
-                   arch_local=archetype, rs_local=rule_strategy,
-                   fl_local=fish_leak: _build_controller(
+            lambda pid_local=pid,
+            name_local=player.name,
+            arch_local=archetype,
+            rs_local=rule_strategy,
+            fl_local=fish_leak: _build_controller(
                 personality_id=pid_local,
                 display_name=name_local,
                 state_machine=sm,
@@ -783,13 +787,12 @@ def _play_one_hand_inner(
             except Exception as exc:
                 logger.debug(
                     "[FULL_SIM] initialize_for_player(%r) failed: %s",
-                    player.name, exc,
+                    player.name,
+                    exc,
                 )
 
     # Snapshot starting chips per pid so we can compute deltas.
-    starting_chips: Dict[str, int] = {
-        seat_pid_by_name[p.name]: p.stack for p in players
-    }
+    starting_chips: Dict[str, int] = {seat_pid_by_name[p.name]: p.stack for p in players}
 
     # Notify memory_manager of hand start. Safe no-op when memory is
     # disabled / unavailable.
@@ -815,19 +818,14 @@ def _play_one_hand_inner(
         _maybe_flush_psychology(ctrl, pid, bankroll_repo, sandbox_id)
 
     # Awards already applied by _run_hand. Read final stacks.
-    final_chips: Dict[str, int] = {
-        seat_pid_by_name[p.name]: p.stack for p in sm.game_state.players
-    }
+    final_chips: Dict[str, int] = {seat_pid_by_name[p.name]: p.stack for p in sm.game_state.players}
 
     winner_pid, loser_pid, delta = _headline_pair(starting_chips, final_chips)
     big_event = delta >= big_blind * big_event_threshold_bb
     # Pot total: sum of all positive deltas (= sum of all negative
     # deltas in absolute value). Equivalent to the actual pot that
     # got awarded across all side pots in a multiway hand.
-    pot = sum(
-        max(0, final_chips[pid] - starting_chips[pid])
-        for pid in starting_chips
-    )
+    pot = sum(max(0, final_chips[pid] - starting_chips[pid]) for pid in starting_chips)
 
     # Apply table rake (destruction sink, paired with `ai_regen` faucet).
     # Skim happens after the engine awards but before we materialize
@@ -880,7 +878,7 @@ def _play_one_hand_inner(
         big_event=big_event,
         hand_events=hand_events,
         pot=pot,
-        showdown_hands=None,     # Phase 6 (psychology at unseated tables) may populate
+        showdown_hands=None,  # Phase 6 (psychology at unseated tables) may populate
         dealer_seat_idx=dealer_seat_idx,
     )
 
@@ -924,12 +922,14 @@ def _detect_hand_events(
     # Bust detection: final chips == 0. Skipped for opens / non-AIs.
     for pid, final in final_chips.items():
         if final <= 0 and starting_chips.get(pid, 0) > 0:
-            events.append(HandEvent(
-                type=HAND_EVENT_BUST,
-                personality_id=pid,
-                amount=starting_chips[pid],   # how much they lost
-                opponent_pid=winner_pid if winner_pid != pid else None,
-            ))
+            events.append(
+                HandEvent(
+                    type=HAND_EVENT_BUST,
+                    personality_id=pid,
+                    amount=starting_chips[pid],  # how much they lost
+                    opponent_pid=winner_pid if winner_pid != pid else None,
+                )
+            )
 
     # All-in detection: read the per-player flag from the final
     # game-state. A player who won an all-in pot still has the flag
@@ -947,19 +947,19 @@ def _detect_hand_events(
         # all-in as the more dramatic outcome.
         if final_chips.get(pid, 0) <= 0:
             continue
-        events.append(HandEvent(
-            type=HAND_EVENT_ALL_IN,
-            personality_id=pid,
-            amount=max(
-                starting_chips.get(pid, 0),
-                final_chips.get(pid, 0),
-            ),
-            opponent_pid=(
-                loser_pid if pid == winner_pid else
-                winner_pid if pid == loser_pid else
-                None
-            ),
-        ))
+        events.append(
+            HandEvent(
+                type=HAND_EVENT_ALL_IN,
+                personality_id=pid,
+                amount=max(
+                    starting_chips.get(pid, 0),
+                    final_chips.get(pid, 0),
+                ),
+                opponent_pid=(
+                    loser_pid if pid == winner_pid else winner_pid if pid == loser_pid else None
+                ),
+            )
+        )
 
     return events
 
@@ -1054,17 +1054,12 @@ def _run_hand(
         if memory_manager is not None and actor_name is not None:
             try:
                 phase_obj = sm.current_phase
-                phase_name = (
-                    phase_obj.name if phase_obj is not None else "PRE_FLOP"
-                )
+                phase_name = phase_obj.name if phase_obj is not None else "PRE_FLOP"
                 # MemoryManager only cares about the four betting
                 # streets; DEALING_CARDS/EVALUATING_HAND/SHOWDOWN don't
                 # carry actions through this codepath, but guard anyway.
                 if phase_name in ("PRE_FLOP", "FLOP", "TURN", "RIVER"):
-                    active = [
-                        p.name for p in gs.players
-                        if not getattr(p, "is_folded", False)
-                    ]
+                    active = [p.name for p in gs.players if not getattr(p, "is_folded", False)]
                     memory_manager.on_action(
                         player_name=actor_name,
                         action=action,
@@ -1076,7 +1071,9 @@ def _run_hand(
             except Exception as exc:
                 logger.debug(
                     "[FULL_SIM] on_action(%r, %r) failed: %s",
-                    actor_name, action, exc,
+                    actor_name,
+                    action,
+                    exc,
                 )
 
         adv = advance_to_next_active_player(gs)

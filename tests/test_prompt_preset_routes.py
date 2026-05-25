@@ -21,6 +21,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = self.repos['game_repo']
             ext.user_repo = self.repos['user_repo']
             ext.settings_repo = self.repos['settings_repo']
@@ -64,8 +65,12 @@ class TestPromptPresetRoutes(unittest.TestCase):
         return authz
 
     def test_create_requires_authentication(self):
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(None)):
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(None)),
+        ):
             response = self.client.post('/api/prompt-presets', json={'name': 'no-auth'})
 
         data = response.get_json()
@@ -74,8 +79,12 @@ class TestPromptPresetRoutes(unittest.TestCase):
 
     def test_create_sets_owner_from_current_user(self):
         user = {'id': 'user-1', 'name': 'User One'}
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)):
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)),
+        ):
             response = self.client.post('/api/prompt-presets', json={'name': 'my-preset'})
 
         data = response.get_json()
@@ -84,13 +93,24 @@ class TestPromptPresetRoutes(unittest.TestCase):
         self.assertEqual(data['preset']['owner_id'], 'user-1')
 
     def test_update_forbidden_for_non_owner(self):
-        preset_id = self.prompt_preset_repo.create_prompt_preset(name='owner-only', owner_id='user-1')
+        preset_id = self.prompt_preset_repo.create_prompt_preset(
+            name='owner-only', owner_id='user-1'
+        )
         user = {'id': 'user-2', 'name': 'User Two'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(False)):
-            response = self.client.put(f'/api/prompt-presets/{preset_id}', json={'name': 'hijacked'})
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
+            response = self.client.put(
+                f'/api/prompt-presets/{preset_id}', json={'name': 'hijacked'}
+            )
 
         self.assertEqual(response.status_code, 403)
         loaded = self.prompt_preset_repo.get_prompt_preset(preset_id)
@@ -100,59 +120,110 @@ class TestPromptPresetRoutes(unittest.TestCase):
         preset_id = self.prompt_preset_repo.create_prompt_preset(name='mine', owner_id='user-1')
         user = {'id': 'user-1', 'name': 'User One'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(False)):
-            response = self.client.put(f'/api/prompt-presets/{preset_id}', json={'name': 'mine-updated'})
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
+            response = self.client.put(
+                f'/api/prompt-presets/{preset_id}', json={'name': 'mine-updated'}
+            )
 
         self.assertEqual(response.status_code, 200)
         loaded = self.prompt_preset_repo.get_prompt_preset(preset_id)
         self.assertEqual(loaded['name'], 'mine-updated')
 
     def test_update_allowed_for_admin_override(self):
-        preset_id = self.prompt_preset_repo.create_prompt_preset(name='other-user', owner_id='user-1')
+        preset_id = self.prompt_preset_repo.create_prompt_preset(
+            name='other-user', owner_id='user-1'
+        )
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(admin_user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(True)):
-            response = self.client.put(f'/api/prompt-presets/{preset_id}', json={'name': 'admin-edited'})
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch(
+                'flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(admin_user)
+            ),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(True),
+            ),
+        ):
+            response = self.client.put(
+                f'/api/prompt-presets/{preset_id}', json={'name': 'admin-edited'}
+            )
 
         self.assertEqual(response.status_code, 200)
         loaded = self.prompt_preset_repo.get_prompt_preset(preset_id)
         self.assertEqual(loaded['name'], 'admin-edited')
 
     def test_delete_forbidden_for_non_owner(self):
-        preset_id = self.prompt_preset_repo.create_prompt_preset(name='delete-locked', owner_id='user-1')
+        preset_id = self.prompt_preset_repo.create_prompt_preset(
+            name='delete-locked', owner_id='user-1'
+        )
         user = {'id': 'user-2', 'name': 'User Two'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             response = self.client.delete(f'/api/prompt-presets/{preset_id}')
 
         self.assertEqual(response.status_code, 403)
         self.assertIsNotNone(self.prompt_preset_repo.get_prompt_preset(preset_id))
 
     def test_delete_allowed_for_owner(self):
-        preset_id = self.prompt_preset_repo.create_prompt_preset(name='delete-mine', owner_id='user-1')
+        preset_id = self.prompt_preset_repo.create_prompt_preset(
+            name='delete-mine', owner_id='user-1'
+        )
         user = {'id': 'user-1', 'name': 'User One'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             response = self.client.delete(f'/api/prompt-presets/{preset_id}')
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(self.prompt_preset_repo.get_prompt_preset(preset_id))
 
     def test_delete_allowed_for_admin_override(self):
-        preset_id = self.prompt_preset_repo.create_prompt_preset(name='delete-other', owner_id='user-1')
+        preset_id = self.prompt_preset_repo.create_prompt_preset(
+            name='delete-other', owner_id='user-1'
+        )
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
-        with patch('flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo), \
-             patch('flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(admin_user)), \
-             patch('flask_app.routes.prompt_preset_routes.get_authorization_service', return_value=self._admin_authz(True)):
+        with (
+            patch(
+                'flask_app.routes.prompt_preset_routes.prompt_preset_repo', self.prompt_preset_repo
+            ),
+            patch(
+                'flask_app.routes.prompt_preset_routes.auth_manager', self._auth_manager(admin_user)
+            ),
+            patch(
+                'flask_app.routes.prompt_preset_routes.get_authorization_service',
+                return_value=self._admin_authz(True),
+            ),
+        ):
             response = self.client.delete(f'/api/prompt-presets/{preset_id}')
 
         self.assertEqual(response.status_code, 200)

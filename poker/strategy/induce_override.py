@@ -59,9 +59,9 @@ pipeline. When induce fires, value_override defers via its own
 from typing import List, Tuple
 
 from .exploitation import (
+    GATING_FLOOR,
     AggregatedOpponentStats,
     DecisionContext,
-    GATING_FLOOR,
     _is_hyper_passive,
     _is_passive_with_jams,
 )
@@ -105,12 +105,12 @@ MIN_HANDS_OBSERVED = 10
 # to [0, 1]. sample_confidence ramps barrel_opportunities between
 # OPPS_MIN and OPPS_MAX to [0, 1]. Their product (∈ [0, 1]) maps to
 # call probability in [CALL_MIN, CALL_MAX].
-RATE_RAMP_MIN = 0.60   # below this the gate doesn't fire
-RATE_RAMP_MAX = 0.85   # at/above this the rate axis saturates
-OPPS_RAMP_MIN = 5.0    # aligned with MIN_BARREL_OPPORTUNITIES
-OPPS_RAMP_MAX = 50.0   # at/above this the sample axis saturates
-CALL_PROB_MIN = 0.70   # minimum trap intensity when gate fires
-CALL_PROB_MAX = 0.90   # maximum trap intensity (preserves unexploitability)
+RATE_RAMP_MIN = 0.60  # below this the gate doesn't fire
+RATE_RAMP_MAX = 0.85  # at/above this the rate axis saturates
+OPPS_RAMP_MIN = 5.0  # aligned with MIN_BARREL_OPPORTUNITIES
+OPPS_RAMP_MAX = 50.0  # at/above this the sample axis saturates
+CALL_PROB_MIN = 0.70  # minimum trap intensity when gate fires
+CALL_PROB_MAX = 0.90  # maximum trap intensity (preserves unexploitability)
 
 # Stack-depth floor in BB. Below 40 BB, the SPR after a flop call is
 # too low to extract meaningful turn/river barrels.
@@ -130,8 +130,8 @@ MIN_EFFECTIVE_STACK_BB = 40.0
 # 'nut_status_<status>'. Danger flag overage blocks with
 # 'board_too_dangerous'.
 HAND_CLASS_GATES: dict = {
-    'nuts':        (frozenset({'actual_nuts'}),                    1),
-    'strong_made': (frozenset({'actual_nuts', 'near_nuts'}),       0),
+    'nuts': (frozenset({'actual_nuts'}), 1),
+    'strong_made': (frozenset({'actual_nuts', 'near_nuts'}), 0),
 }
 ELIGIBLE_HAND_STRENGTHS = frozenset(HAND_CLASS_GATES.keys())
 
@@ -192,7 +192,9 @@ OOP_CHECK_RAISE_PROBABILITY = 0.80
 
 
 def _check_hand_class_gate(
-    hand_strength: str, nut_status: str, danger_flag_count: int,
+    hand_strength: str,
+    nut_status: str,
+    danger_flag_count: int,
 ) -> Tuple[bool, str]:
     """Phase B Item 3: per-hand-class gating helper.
 
@@ -244,10 +246,14 @@ def compute_call_probability(stats: AggregatedOpponentStats) -> float:
     and call_prob=CALL_PROB_MIN.
     """
     rate_intensity = _ramp(
-        stats.barrel_frequency, RATE_RAMP_MIN, RATE_RAMP_MAX,
+        stats.barrel_frequency,
+        RATE_RAMP_MIN,
+        RATE_RAMP_MAX,
     )
     sample_confidence = _ramp(
-        float(stats.barrel_opportunities), OPPS_RAMP_MIN, OPPS_RAMP_MAX,
+        float(stats.barrel_opportunities),
+        OPPS_RAMP_MIN,
+        OPPS_RAMP_MAX,
     )
     intensity = rate_intensity * sample_confidence
     return CALL_PROB_MIN + intensity * (CALL_PROB_MAX - CALL_PROB_MIN)
@@ -256,10 +262,7 @@ def compute_call_probability(stats: AggregatedOpponentStats) -> float:
 def _raise_actions(available_actions) -> List[str]:
     """All raise-like action keys in the current strategy. Mirrors the
     helper in value_override.py."""
-    return [
-        a for a in available_actions
-        if a == 'jam' or a.startswith(('bet_', 'raise_'))
-    ]
+    return [a for a in available_actions if a == 'jam' or a.startswith(('bet_', 'raise_'))]
 
 
 def should_apply_induce_override(
@@ -306,7 +309,9 @@ def should_apply_induce_override(
         return False, 'below_stack_floor'
 
     passed, reason = _check_hand_class_gate(
-        hand_strength, nut_status, danger_flag_count,
+        hand_strength,
+        nut_status,
+        danger_flag_count,
     )
     if not passed:
         return False, reason
@@ -373,7 +378,9 @@ def should_apply_open_spot_induce(
         return False, 'below_stack_floor'
 
     passed, reason = _check_hand_class_gate(
-        hand_strength, nut_status, danger_flag_count,
+        hand_strength,
+        nut_status,
+        danger_flag_count,
     )
     if not passed:
         return False, reason
@@ -461,7 +468,9 @@ def should_apply_oop_trap_check(
         return False, 'below_stack_floor'
 
     passed, reason = _check_hand_class_gate(
-        hand_strength, nut_status, danger_flag_count,
+        hand_strength,
+        nut_status,
+        danger_flag_count,
     )
     if not passed:
         return False, reason
@@ -556,7 +565,9 @@ def should_apply_oop_check_raise(
         return False, 'below_stack_floor'
 
     passed, reason = _check_hand_class_gate(
-        hand_strength, nut_status, danger_flag_count,
+        hand_strength,
+        nut_status,
+        danger_flag_count,
     )
     if not passed:
         return False, reason
@@ -667,7 +678,8 @@ def apply_induce_override(
     """
     if is_rule_disabled(disable_rules, 'induce_override', 'default'):
         return strategy, make_disabled_trace(
-            layer='induce_override', rule_id='default',
+            layer='induce_override',
+            rule_id='default',
             layer_order=layer_order_for('induce_override'),
         )
 
@@ -693,58 +705,79 @@ def apply_induce_override(
         if position == 'IP':
             return _apply_facing_bet_induce(
                 strategy,
-                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
-                street=street, position=position,
+                stats=stats,
+                hand_strength=hand_strength,
+                nut_status=nut_status,
+                street=street,
+                position=position,
                 danger_flag_count=danger_flag_count,
                 effective_stack_bb=effective_stack_bb,
                 active_opponent_count=active_opponent_count,
                 decision_context=decision_context,
-                has_call=has_call, has_fold=has_fold,
-                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+                has_call=has_call,
+                has_fold=has_fold,
+                adaptation_bias=adaptation_bias,
+                tilt_factor=tilt_factor,
             )
         if position == 'OOP':
             return _apply_oop_check_raise(
                 strategy,
-                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
-                street=street, position=position,
+                stats=stats,
+                hand_strength=hand_strength,
+                nut_status=nut_status,
+                street=street,
+                position=position,
                 danger_flag_count=danger_flag_count,
                 effective_stack_bb=effective_stack_bb,
                 active_opponent_count=active_opponent_count,
                 decision_context=decision_context,
-                has_call=has_call, has_fold=has_fold,
-                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+                has_call=has_call,
+                has_fold=has_fold,
+                adaptation_bias=adaptation_bias,
+                tilt_factor=tilt_factor,
             )
 
     if has_check:
         if position == 'IP':
             return _apply_open_spot_induce(
                 strategy,
-                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
-                street=street, position=position,
+                stats=stats,
+                hand_strength=hand_strength,
+                nut_status=nut_status,
+                street=street,
+                position=position,
                 danger_flag_count=danger_flag_count,
                 effective_stack_bb=effective_stack_bb,
                 active_opponent_count=active_opponent_count,
                 decision_context=decision_context,
-                has_check=has_check, has_fold=has_fold,
-                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+                has_check=has_check,
+                has_fold=has_fold,
+                adaptation_bias=adaptation_bias,
+                tilt_factor=tilt_factor,
             )
         if position == 'OOP':
             return _apply_oop_trap_check(
                 strategy,
-                stats=stats, hand_strength=hand_strength, nut_status=nut_status,
-                street=street, position=position,
+                stats=stats,
+                hand_strength=hand_strength,
+                nut_status=nut_status,
+                street=street,
+                position=position,
                 danger_flag_count=danger_flag_count,
                 effective_stack_bb=effective_stack_bb,
                 active_opponent_count=active_opponent_count,
                 decision_context=decision_context,
-                has_check=has_check, has_fold=has_fold,
-                adaptation_bias=adaptation_bias, tilt_factor=tilt_factor,
+                has_check=has_check,
+                has_fold=has_fold,
+                adaptation_bias=adaptation_bias,
+                tilt_factor=tilt_factor,
             )
 
     # Neither facing-bet nor open-spot, OR position not in {IP, OOP} —
     # no decision to redistribute.
     return strategy, make_no_op_trace(
-        layer='induce_override', rule_id='default',
+        layer='induce_override',
+        rule_id='default',
         layer_order=layer_order_for('induce_override'),
         reason_code='no_actionable_spot',
     )
@@ -786,7 +819,8 @@ def _apply_facing_bet_induce(
 
     if not should_fire:
         return strategy, make_no_op_trace(
-            layer='induce_override', rule_id='default',
+            layer='induce_override',
+            rule_id='default',
             layer_order=layer_order_for('induce_override'),
             reason_code=reason_code,
         )
@@ -881,7 +915,8 @@ def _apply_open_spot_induce(
 
     if not should_fire:
         return strategy, make_no_op_trace(
-            layer='induce_override', rule_id='default',
+            layer='induce_override',
+            rule_id='default',
             layer_order=layer_order_for('induce_override'),
             reason_code=reason_code,
         )
@@ -924,10 +959,10 @@ def _apply_open_spot_induce(
             'effective_stack_bb': round(effective_stack_bb, 2),
             'active_opponent_count': active_opponent_count,
             'flop_check_then_barrel_rate': round(
-                stats.flop_check_then_barrel_rate, 4,
+                stats.flop_check_then_barrel_rate,
+                4,
             ),
-            'flop_check_barrel_opportunities':
-                stats.flop_check_barrel_opportunities,
+            'flop_check_barrel_opportunities': stats.flop_check_barrel_opportunities,
             'check_probability': OPEN_SPOT_CHECK_PROBABILITY,
             'hands_observed': stats.hands_observed,
         },
@@ -979,7 +1014,8 @@ def _apply_oop_trap_check(
 
     if not should_fire:
         return strategy, make_no_op_trace(
-            layer='induce_override', rule_id='default',
+            layer='induce_override',
+            rule_id='default',
             layer_order=layer_order_for('induce_override'),
             reason_code=reason_code,
         )
@@ -1074,7 +1110,8 @@ def _apply_oop_check_raise(
 
     if not should_fire:
         return strategy, make_no_op_trace(
-            layer='induce_override', rule_id='default',
+            layer='induce_override',
+            rule_id='default',
             layer_order=layer_order_for('induce_override'),
             reason_code=reason_code,
         )

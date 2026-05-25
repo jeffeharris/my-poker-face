@@ -7,26 +7,26 @@ Tracks opponent tendencies and memorable hands for AI learning.
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Deque, List, Dict, Optional, Any, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
+from ..archetypes import (
+    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
+    AF_PASSIVE as AGGRESSION_FACTOR_LOW,
+    AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
+    VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
+    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
+    VPIP_VERY_SELECTIVE,
+)
+from ..config import (
+    MEMORABLE_HAND_THRESHOLD,
+    MIN_HANDS_FOR_STYLE_LABEL,
+    MIN_HANDS_FOR_SUMMARY,
+    OPPONENT_SUMMARY_TOKENS,
+)
 from .relationship_events import (
     RelationshipEvent,
     actor_shift,
     mirror_shift,
-)
-from ..archetypes import (
-    VPIP_TIGHT as VPIP_TIGHT_THRESHOLD,
-    VPIP_LOOSE as VPIP_LOOSE_THRESHOLD,
-    VPIP_VERY_SELECTIVE,
-    AF_AGGRESSIVE as AGGRESSION_FACTOR_HIGH,
-    AF_VERY_AGGRESSIVE as AGGRESSION_FACTOR_VERY_HIGH,
-    AF_PASSIVE as AGGRESSION_FACTOR_LOW,
-)
-from ..config import (
-    OPPONENT_SUMMARY_TOKENS,
-    MEMORABLE_HAND_THRESHOLD,
-    MIN_HANDS_FOR_STYLE_LABEL,
-    MIN_HANDS_FOR_SUMMARY,
 )
 
 
@@ -39,6 +39,7 @@ def _load_window_size() -> int:
     """
     try:
         from ..strategy.phase_7_5_config import CONFIG
+
         return CONFIG.tier_decay.window_size
     except Exception:
         return 50
@@ -47,7 +48,8 @@ def _load_window_size() -> int:
 @dataclass
 class OpponentTendencies:
     """Statistical model of an opponent's play style."""
-    hands_observed: int = 0     # Hands where opponent took at least one action
+
+    hands_observed: int = 0  # Hands where opponent took at least one action
 
     # Hands the opponent was at the table — regardless of whether they
     # ever acted. This is the correct denominator for VPIP/PFR/all_in_
@@ -58,25 +60,25 @@ class OpponentTendencies:
     hands_dealt: int = 0
 
     # Core stats
-    vpip: float = 0.5           # Voluntarily put in pot % (how often they enter pots)
-    pfr: float = 0.5            # Pre-flop raise % (how often they raise pre-flop)
+    vpip: float = 0.5  # Voluntarily put in pot % (how often they enter pots)
+    pfr: float = 0.5  # Pre-flop raise % (how often they raise pre-flop)
     aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
-    fold_to_cbet: float = 0.5   # Fold to continuation bet %
+    fold_to_cbet: float = 0.5  # Fold to continuation bet %
     cbet_attempt_rate: float = 0.5  # Phase 8.1a: PFR's c-bet attempt rate
     # Phase B Item 1: street-resolved barrel rates. The exploit
     # induce_override targets is "PFR fires multiple streets after
     # being called" — barrel_frequency measures it directly instead
     # of relying on AF_pf×cbet_attempt as a proxy.
-    barrel_frequency: float = 0.5         # turn bet rate after cbet+call
-    third_barrel_frequency: float = 0.5   # river bet rate after barrel+call
+    barrel_frequency: float = 0.5  # turn bet rate after cbet+call
+    third_barrel_frequency: float = 0.5  # river bet rate after barrel+call
     # Phase B Item 4: flop-check-then-barrel rate. Measures the
     # open-spot trap-bait pattern — how often this player checks flop
     # OOP and then bets turn after a check-through. Drives the
     # open-spot IP induce branch's signal.
     flop_check_then_barrel_rate: float = 0.5
-    bluff_frequency: float = 0.3    # Estimated bluff rate
+    bluff_frequency: float = 0.3  # Estimated bluff rate
     showdown_win_rate: float = 0.5  # Win rate at showdown
-    all_in_frequency: float = 0.0   # All-in actions per hand dealt
+    all_in_frequency: float = 0.0  # All-in actions per hand dealt
 
     # Phase 7.5 Step 0: opportunity-normalized stats for the three-tier
     # exploitation clamp. Computed from new postflop-only counters
@@ -84,9 +86,9 @@ class OpponentTendencies:
     #
     # See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md "Stat-definition
     # glossary" for exact denominators.
-    aggression_factor_postflop: float = 1.0   # postflop bet/raise/all-in / postflop call
-    all_in_per_facing_bet: float = 0.0        # response-aggression axis
-    postflop_jam_open_rate: float = 0.0       # open-aggression axis
+    aggression_factor_postflop: float = 1.0  # postflop bet/raise/all-in / postflop call
+    all_in_per_facing_bet: float = 0.0  # response-aggression axis
+    postflop_jam_open_rate: float = 0.0  # open-aggression axis
 
     # Opportunity-normalized preflop stats. The legacy `vpip` and `pfr`
     # use hands_dealt as denominator, which causes 1/N scaling with
@@ -112,14 +114,14 @@ class OpponentTendencies:
     vpip_per_voluntary_opportunity: float = 0.5
 
     # Trend tracking
-    recent_trend: str = 'stable'    # 'tightening', 'loosening', 'stable'
+    recent_trend: str = 'stable'  # 'tightening', 'loosening', 'stable'
 
     # Action counters (for calculating stats)
-    _vpip_count: int = 0        # Hands where player voluntarily put money in pot
-    _pfr_count: int = 0         # Hands where player raised pre-flop
-    _bet_raise_count: int = 0   # Total bets, raises, and all-ins (aggressive)
-    _call_count: int = 0        # Total calls
-    _all_in_count: int = 0      # Total all-in actions (subset of _bet_raise_count)
+    _vpip_count: int = 0  # Hands where player voluntarily put money in pot
+    _pfr_count: int = 0  # Hands where player raised pre-flop
+    _bet_raise_count: int = 0  # Total bets, raises, and all-ins (aggressive)
+    _call_count: int = 0  # Total calls
+    _all_in_count: int = 0  # Total all-in actions (subset of _bet_raise_count)
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
     # Phase 8.1a: PFR-side c-bet attempt tracking. Denominator is hands
@@ -154,12 +156,14 @@ class OpponentTendencies:
     # Phase 7.5 Step 0: per-axis counters for the new postflop-only stats.
     # Updated only when phase is FLOP/TURN/RIVER. See
     # `_apply_postflop_counters()` for the logic.
-    _postflop_bet_raise_count: int = 0   # postflop bets/raises/all-ins
-    _postflop_call_count: int = 0        # postflop calls
-    _facing_bet_opportunities: int = 0   # postflop decisions while facing a bet
-    _all_ins_facing_bet: int = 0         # subset: opponent went all-in in response
-    _postflop_open_opportunities: int = 0  # postflop decisions with no live bet (legal bet/all-in available)
-    _postflop_jam_opens: int = 0           # subset: opponent went all-in into no-bet pot
+    _postflop_bet_raise_count: int = 0  # postflop bets/raises/all-ins
+    _postflop_call_count: int = 0  # postflop calls
+    _facing_bet_opportunities: int = 0  # postflop decisions while facing a bet
+    _all_ins_facing_bet: int = 0  # subset: opponent went all-in in response
+    _postflop_open_opportunities: int = (
+        0  # postflop decisions with no live bet (legal bet/all-in available)
+    )
+    _postflop_jam_opens: int = 0  # subset: opponent went all-in into no-bet pot
 
     # Opportunity-normalized preflop counters. Counted ONCE per hand
     # (same as _vpip_count / _pfr_count) so the resulting ratios stay
@@ -198,9 +202,9 @@ class OpponentTendencies:
     # sample threshold (defined in the polarization detection spec).
     # Sums are running totals to support incremental mean update without
     # storing the full sample history.
-    equity_when_betting_postflop: float = 0.5    # mean equity on bets
-    equity_when_raising_postflop: float = 0.5    # mean equity on raises
-    equity_when_calling_postflop: float = 0.5    # mean equity on calls
+    equity_when_betting_postflop: float = 0.5  # mean equity on bets
+    equity_when_raising_postflop: float = 0.5  # mean equity on raises
+    equity_when_calling_postflop: float = 0.5  # mean equity on calls
     _equity_betting_sum: float = 0.0
     _equity_raising_sum: float = 0.0
     _equity_calling_sum: float = 0.0
@@ -251,8 +255,12 @@ class OpponentTendencies:
         self._recalculate_stats()
 
     def update_from_action(
-        self, action: str, phase: str, is_voluntary: bool = True,
-        count_hand: bool = True, was_facing_bet: Optional[bool] = None,
+        self,
+        action: str,
+        phase: str,
+        is_voluntary: bool = True,
+        count_hand: bool = True,
+        was_facing_bet: Optional[bool] = None,
     ):
         """Update stats based on observed action.
 
@@ -316,18 +324,16 @@ class OpponentTendencies:
         # are not opportunities — the chips are auto-posted, not a
         # decision. When was_facing_bet is None the caller couldn't
         # determine context, so skip rather than guess wrong.
-        if (
-            phase == 'PRE_FLOP'
-            and is_voluntary
-            and was_facing_bet is not None
-        ):
+        if phase == 'PRE_FLOP' and is_voluntary and was_facing_bet is not None:
             self._apply_preflop_opportunity_counters(action, was_facing_bet)
 
         # Recalculate stats
         self._recalculate_stats()
 
     def _apply_preflop_opportunity_counters(
-        self, action: str, was_facing_bet: bool,
+        self,
+        action: str,
+        was_facing_bet: bool,
     ) -> None:
         """Update preflop opportunity counters from one voluntary action.
 
@@ -365,10 +371,7 @@ class OpponentTendencies:
             self._preflop_open_opp_this_hand = True
 
         # Numerators
-        if (
-            action in ('call', 'raise', 'bet', 'all_in')
-            and not self._preflop_vol_action_this_hand
-        ):
+        if action in ('call', 'raise', 'bet', 'all_in') and not self._preflop_vol_action_this_hand:
             self._preflop_voluntary_action_count += 1
             self._preflop_vol_action_this_hand = True
         if (
@@ -461,16 +464,13 @@ class OpponentTendencies:
                 recent_af = 1.0
             else:
                 from ..strategy.phase_7_5_config import CONFIG
+
                 recent_af = min(float(pf_br), CONFIG.signal_thresholds.medium_af_postflop)
         else:
             recent_af = pf_br / pf_call
 
-        recent_aipfb = (
-            all_ins_facing_bet / facing_bet_opps if facing_bet_opps > 0 else 0.0
-        )
-        recent_jam_open = (
-            jam_opens / open_opps if open_opps > 0 else 0.0
-        )
+        recent_aipfb = all_ins_facing_bet / facing_bet_opps if facing_bet_opps > 0 else 0.0
+        recent_jam_open = jam_opens / open_opps if open_opps > 0 else 0.0
 
         return AggregatedOpponentStats(
             # Legacy fields left at defaults — only Phase 7.5 fields
@@ -622,6 +622,7 @@ class OpponentTendencies:
             # correctly says "this opponent might be extreme, but we
             # don't have call samples to confirm — stay at MEDIUM clamp."
             from ..strategy.phase_7_5_config import CONFIG
+
             self.aggression_factor = min(
                 float(self._bet_raise_count),
                 CONFIG.signal_thresholds.medium_af_postflop,
@@ -636,17 +637,13 @@ class OpponentTendencies:
         # default until we have at least one observed opportunity —
         # mirrors fold_to_cbet's "no sample = neutral prior" stance.
         if self._postflop_seen_as_pfr_count > 0:
-            self.cbet_attempt_rate = (
-                self._cbet_attempt_count / self._postflop_seen_as_pfr_count
-            )
+            self.cbet_attempt_rate = self._cbet_attempt_count / self._postflop_seen_as_pfr_count
 
         # Phase B Item 1: barrel rates. Same "neutral prior 0.5 until
         # observed" stance. These are the proper signal that Phase B
         # Item 2's induce_override gate will read.
         if self._barrel_opportunity_count > 0:
-            self.barrel_frequency = (
-                self._barrel_count / self._barrel_opportunity_count
-            )
+            self.barrel_frequency = self._barrel_count / self._barrel_opportunity_count
         if self._third_barrel_opportunity_count > 0:
             self.third_barrel_frequency = (
                 self._third_barrel_count / self._third_barrel_opportunity_count
@@ -656,8 +653,7 @@ class OpponentTendencies:
         # 0.5 stance as the other Phase B stats.
         if self._flop_check_barrel_opportunity_count > 0:
             self.flop_check_then_barrel_rate = (
-                self._flop_check_barrel_count
-                / self._flop_check_barrel_opportunity_count
+                self._flop_check_barrel_count / self._flop_check_barrel_opportunity_count
             )
 
         if self._showdowns > 0:
@@ -674,13 +670,11 @@ class OpponentTendencies:
         # always-raising opponent.
         if self._preflop_open_opportunities > 0:
             self.pfr_per_open_opportunity = (
-                self._preflop_open_raise_count
-                / self._preflop_open_opportunities
+                self._preflop_open_raise_count / self._preflop_open_opportunities
             )
         if self._preflop_voluntary_opportunities > 0:
             self.vpip_per_voluntary_opportunity = (
-                self._preflop_voluntary_action_count
-                / self._preflop_voluntary_opportunities
+                self._preflop_voluntary_action_count / self._preflop_voluntary_opportunities
             )
 
         # Phase 7.5 Step 0: postflop opportunity-normalized stats.
@@ -700,9 +694,11 @@ class OpponentTendencies:
                 # tier classification on noisy signal alone.
                 # Import lazily to avoid circular imports at module load.
                 from ..strategy.phase_7_5_config import CONFIG
+
                 cap = CONFIG.signal_thresholds.medium_af_postflop
                 self.aggression_factor_postflop = min(
-                    float(self._postflop_bet_raise_count), cap,
+                    float(self._postflop_bet_raise_count),
+                    cap,
                 )
         else:
             self.aggression_factor_postflop = (
@@ -711,9 +707,7 @@ class OpponentTendencies:
 
         # Response-aggression axis: all-ins per facing-bet opportunity.
         if self._facing_bet_opportunities > 0:
-            self.all_in_per_facing_bet = (
-                self._all_ins_facing_bet / self._facing_bet_opportunities
-            )
+            self.all_in_per_facing_bet = self._all_ins_facing_bet / self._facing_bet_opportunities
         else:
             self.all_in_per_facing_bet = 0.0
 
@@ -876,9 +870,10 @@ class OpponentTendencies:
             # Opportunity-normalized preflop stats (neutral prior 0.5).
             pfr_per_open_opportunity=data.get('pfr_per_open_opportunity', 0.5),
             vpip_per_voluntary_opportunity=data.get(
-                'vpip_per_voluntary_opportunity', 0.5,
+                'vpip_per_voluntary_opportunity',
+                0.5,
             ),
-            recent_trend=data.get('recent_trend', 'stable')
+            recent_trend=data.get('recent_trend', 'stable'),
         )
         tendencies._vpip_count = data.get('_vpip_count', 0)
         tendencies._pfr_count = data.get('_pfr_count', 0)
@@ -895,7 +890,8 @@ class OpponentTendencies:
         tendencies._barrel_opportunity_count = data.get('_barrel_opportunity_count', 0)
         tendencies._third_barrel_count = data.get('_third_barrel_count', 0)
         tendencies._third_barrel_opportunity_count = data.get(
-            '_third_barrel_opportunity_count', 0,
+            '_third_barrel_opportunity_count',
+            0,
         )
         tendencies._showdowns = data.get('_showdowns', 0)
         tendencies._showdowns_won = data.get('_showdowns_won', 0)
@@ -908,28 +904,35 @@ class OpponentTendencies:
         tendencies._postflop_jam_opens = data.get('_postflop_jam_opens', 0)
         # Opportunity-normalized preflop counter defaults (missing-field tolerance).
         tendencies._preflop_voluntary_opportunities = data.get(
-            '_preflop_voluntary_opportunities', 0,
+            '_preflop_voluntary_opportunities',
+            0,
         )
         tendencies._preflop_open_opportunities = data.get(
-            '_preflop_open_opportunities', 0,
+            '_preflop_open_opportunities',
+            0,
         )
         tendencies._preflop_open_raise_count = data.get(
-            '_preflop_open_raise_count', 0,
+            '_preflop_open_raise_count',
+            0,
         )
         tendencies._preflop_voluntary_action_count = data.get(
-            '_preflop_voluntary_action_count', 0,
+            '_preflop_voluntary_action_count',
+            0,
         )
         # Polarization Phase A: equity-at-action fields. Default to
         # neutral 0.5 mean and 0 count/sum so legacy records pre-Phase A
         # restore cleanly with no observed equity history.
         tendencies.equity_when_betting_postflop = data.get(
-            'equity_when_betting_postflop', 0.5,
+            'equity_when_betting_postflop',
+            0.5,
         )
         tendencies.equity_when_raising_postflop = data.get(
-            'equity_when_raising_postflop', 0.5,
+            'equity_when_raising_postflop',
+            0.5,
         )
         tendencies.equity_when_calling_postflop = data.get(
-            'equity_when_calling_postflop', 0.5,
+            'equity_when_calling_postflop',
+            0.5,
         )
         tendencies._equity_betting_sum = data.get('_equity_betting_sum', 0.0)
         tendencies._equity_raising_sum = data.get('_equity_raising_sum', 0.0)
@@ -946,12 +949,10 @@ class OpponentTendencies:
         # Coerce dicts/lists back into tuples; deque maxlen comes from
         # the current config so a saved record + new config combine
         # correctly.
-        recent_events = [
-            (action, bool(facing))
-            for action, facing in recent_events_raw
-        ]
+        recent_events = [(action, bool(facing)) for action, facing in recent_events_raw]
         tendencies._recent_postflop_events = deque(
-            recent_events, maxlen=_load_window_size(),
+            recent_events,
+            maxlen=_load_window_size(),
         )
         return tendencies
 
@@ -993,7 +994,7 @@ class RelationshipState:
     """
 
     respect: float = 0.5
-    heat: float = 0.0           # one-sided: 0 = neutral, 1 = nemesis
+    heat: float = 0.0  # one-sided: 0 = neutral, 1 = nemesis
     likability: float = 0.5
 
     # Cross-session presence
@@ -1026,7 +1027,7 @@ class CashPairStats:
 
     observer_id: str
     opponent_id: str
-    cumulative_pnl: int = 0     # chips, observer's lifetime net vs opponent
+    cumulative_pnl: int = 0  # chips, observer's lifetime net vs opponent
     hands_played_cash: int = 0
 
 
@@ -1089,12 +1090,13 @@ class MemorableHand:
     enumerate the corpus and map unknowns to known events
     out-of-band.
     """
+
     hand_id: int
     event: RelationshipEvent  # was `memory_type: str` before Phase 1
     opponent_name: str
-    impact_score: float       # 0-1, how memorable
-    narrative: str            # AI-generated or template description
-    hand_summary: str         # Brief summary of what happened
+    impact_score: float  # 0-1, how memorable
+    narrative: str  # AI-generated or template description
+    hand_summary: str  # Brief summary of what happened
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1107,7 +1109,7 @@ class MemorableHand:
             'impact_score': self.impact_score,
             'narrative': self.narrative,
             'hand_summary': self.hand_summary,
-            'timestamp': self.timestamp.isoformat()
+            'timestamp': self.timestamp.isoformat(),
         }
 
     @classmethod
@@ -1127,7 +1129,9 @@ class MemorableHand:
             impact_score=data['impact_score'],
             narrative=data['narrative'],
             hand_summary=data['hand_summary'],
-            timestamp=datetime.fromisoformat(data['timestamp']) if isinstance(data['timestamp'], str) else data['timestamp']
+            timestamp=datetime.fromisoformat(data['timestamp'])
+            if isinstance(data['timestamp'], str)
+            else data['timestamp'],
         )
 
 
@@ -1138,9 +1142,13 @@ class OpponentModel:
     for richer opponent modeling.
     """
 
-    def __init__(self, observer: str, opponent: str,
-                 observer_id: Optional[str] = None,
-                 opponent_id: Optional[str] = None):
+    def __init__(
+        self,
+        observer: str,
+        opponent: str,
+        observer_id: Optional[str] = None,
+        opponent_id: Optional[str] = None,
+    ):
         """Args:
             observer: Display name of the observing player
             opponent: Display name of the observed player
@@ -1182,8 +1190,14 @@ class OpponentModel:
             self._last_hand_dealt = hand_number
         self.tendencies.record_hand_dealt()
 
-    def observe_action(self, action: str, phase: str, is_voluntary: bool = True,
-                      hand_number: int = None, was_facing_bet: Optional[bool] = None):
+    def observe_action(
+        self,
+        action: str,
+        phase: str,
+        is_voluntary: bool = True,
+        hand_number: int = None,
+        was_facing_bet: Optional[bool] = None,
+    ):
         """Record an observed action from this opponent.
 
         Args:
@@ -1195,8 +1209,11 @@ class OpponentModel:
         if new_hand:
             self._last_hand_counted = hand_number
         self.tendencies.update_from_action(
-            action, phase, is_voluntary,
-            count_hand=new_hand, was_facing_bet=was_facing_bet,
+            action,
+            phase,
+            is_voluntary,
+            count_hand=new_hand,
+            was_facing_bet=was_facing_bet,
         )
 
     def observe_showdown(self, won: bool, bluffed: bool = False):
@@ -1205,7 +1222,9 @@ class OpponentModel:
         if bluffed and not won:
             # Caught bluffing - update bluff frequency estimate
             current_bluffs = self.tendencies.bluff_frequency * self.tendencies._showdowns
-            self.tendencies.bluff_frequency = (current_bluffs + 1) / max(self.tendencies._showdowns, 1)
+            self.tendencies.bluff_frequency = (current_bluffs + 1) / max(
+                self.tendencies._showdowns, 1
+            )
 
     def observe_fold_to_cbet(self, folded: bool):
         """Record fold/call response to continuation bet."""
@@ -1273,14 +1292,16 @@ class OpponentModel:
         if impact_score >= MEMORABLE_HAND_THRESHOLD:
             if isinstance(event, str):
                 event = RelationshipEvent.from_string(event)
-            self.memorable_hands.append(MemorableHand(
-                hand_id=hand_id,
-                event=event,
-                opponent_name=self.opponent,
-                impact_score=impact_score,
-                narrative=narrative,
-                hand_summary=hand_summary
-            ))
+            self.memorable_hands.append(
+                MemorableHand(
+                    hand_id=hand_id,
+                    event=event,
+                    opponent_name=self.opponent,
+                    impact_score=impact_score,
+                    narrative=narrative,
+                    hand_summary=hand_summary,
+                )
+            )
             # Keep only most memorable hands
             self.memorable_hands.sort(key=lambda h: h.impact_score, reverse=True)
             self.memorable_hands = self.memorable_hands[:5]
@@ -1310,7 +1331,9 @@ class OpponentModel:
         if estimated_tokens > max_tokens:
             # Fall back to just style + observation
             if narrative:
-                result = f"{self.opponent}: {self.tendencies.get_play_style_label()}. Notes: {narrative}"
+                result = (
+                    f"{self.opponent}: {self.tendencies.get_play_style_label()}. Notes: {narrative}"
+                )
             else:
                 result = f"{self.opponent}: {self.tendencies.get_play_style_label()}"
 
@@ -1363,6 +1386,7 @@ def _build_aggregate_from_single(t: OpponentTendencies):
     own derived properties + raw counters.
     """
     from poker.strategy.exploitation import AggregatedOpponentStats
+
     return AggregatedOpponentStats(
         hands_observed=t.hands_observed,
         vpip=t.vpip,
@@ -1424,27 +1448,15 @@ def _build_aggregate_from_multi(tendencies_list):
     min_cbet_faced = min(t._cbet_faced_count for t in tendencies_list)
 
     # Phase 8.1a c-bet attempt fields — rates average, counter MIN.
-    avg_cbet_attempt_rate = sum(
-        t.cbet_attempt_rate for t in tendencies_list
-    ) / n
-    min_pfr_seen = min(
-        t._postflop_seen_as_pfr_count for t in tendencies_list
-    )
+    avg_cbet_attempt_rate = sum(t.cbet_attempt_rate for t in tendencies_list) / n
+    min_pfr_seen = min(t._postflop_seen_as_pfr_count for t in tendencies_list)
     # Phase B Item 1 barrel fields — same policy.
     avg_barrel_freq = sum(t.barrel_frequency for t in tendencies_list) / n
-    min_barrel_opps = min(
-        t._barrel_opportunity_count for t in tendencies_list
-    )
-    avg_third_barrel_freq = sum(
-        t.third_barrel_frequency for t in tendencies_list
-    ) / n
-    min_third_barrel_opps = min(
-        t._third_barrel_opportunity_count for t in tendencies_list
-    )
+    min_barrel_opps = min(t._barrel_opportunity_count for t in tendencies_list)
+    avg_third_barrel_freq = sum(t.third_barrel_frequency for t in tendencies_list) / n
+    min_third_barrel_opps = min(t._third_barrel_opportunity_count for t in tendencies_list)
     # Phase B Item 4 flop-check-then-barrel fields — same policy.
-    avg_flop_check_barrel_rate = sum(
-        t.flop_check_then_barrel_rate for t in tendencies_list
-    ) / n
+    avg_flop_check_barrel_rate = sum(t.flop_check_then_barrel_rate for t in tendencies_list) / n
     min_flop_check_barrel_opps = min(
         t._flop_check_barrel_opportunity_count for t in tendencies_list
     )
@@ -1458,40 +1470,20 @@ def _build_aggregate_from_multi(tendencies_list):
 
     # Opportunity-normalized preflop fields — same policy as Phase 7.5:
     # rates average, counters MIN (limiting factor for confidence).
-    avg_pfr_per_open = sum(
-        t.pfr_per_open_opportunity for t in tendencies_list
-    ) / n
-    avg_vpip_per_vol = sum(
-        t.vpip_per_voluntary_opportunity for t in tendencies_list
-    ) / n
-    min_pre_open_opps = min(
-        t._preflop_open_opportunities for t in tendencies_list
-    )
-    min_pre_vol_opps = min(
-        t._preflop_voluntary_opportunities for t in tendencies_list
-    )
+    avg_pfr_per_open = sum(t.pfr_per_open_opportunity for t in tendencies_list) / n
+    avg_vpip_per_vol = sum(t.vpip_per_voluntary_opportunity for t in tendencies_list) / n
+    min_pre_open_opps = min(t._preflop_open_opportunities for t in tendencies_list)
+    min_pre_vol_opps = min(t._preflop_voluntary_opportunities for t in tendencies_list)
 
     # Polarization Phase A equity-at-action fields — same policy:
     # rates average across the list (legacy equal-weight path; the
     # spot-aware aggregate_from_spots stake-weights), counters MIN.
-    avg_eq_betting = sum(
-        t.equity_when_betting_postflop for t in tendencies_list
-    ) / n
-    avg_eq_raising = sum(
-        t.equity_when_raising_postflop for t in tendencies_list
-    ) / n
-    avg_eq_calling = sum(
-        t.equity_when_calling_postflop for t in tendencies_list
-    ) / n
-    min_eq_betting_count = min(
-        t._equity_betting_count for t in tendencies_list
-    )
-    min_eq_raising_count = min(
-        t._equity_raising_count for t in tendencies_list
-    )
-    min_eq_calling_count = min(
-        t._equity_calling_count for t in tendencies_list
-    )
+    avg_eq_betting = sum(t.equity_when_betting_postflop for t in tendencies_list) / n
+    avg_eq_raising = sum(t.equity_when_raising_postflop for t in tendencies_list) / n
+    avg_eq_calling = sum(t.equity_when_calling_postflop for t in tendencies_list) / n
+    min_eq_betting_count = min(t._equity_betting_count for t in tendencies_list)
+    min_eq_raising_count = min(t._equity_raising_count for t in tendencies_list)
+    min_eq_calling_count = min(t._equity_calling_count for t in tendencies_list)
 
     return AggregatedOpponentStats(
         hands_observed=min_hands,
@@ -1632,7 +1624,8 @@ class OpponentModelManager:
 
         if opponent not in self.models[observer]:
             self.models[observer][opponent] = OpponentModel(
-                observer, opponent,
+                observer,
+                opponent,
                 observer_id=self._name_to_id.get(observer),
                 opponent_id=self._name_to_id.get(opponent),
             )
@@ -1640,7 +1633,9 @@ class OpponentModelManager:
         return self.models[observer][opponent]
 
     def get_model_if_exists(
-        self, observer: str, opponent: str,
+        self,
+        observer: str,
+        opponent: str,
     ) -> Optional[OpponentModel]:
         """Return an existing model, or None. Does NOT create one.
 
@@ -1654,9 +1649,16 @@ class OpponentModelManager:
         """
         return self.models.get(observer, {}).get(opponent)
 
-    def observe_action(self, observer: str, opponent: str, action: str,
-                      phase: str, is_voluntary: bool = True, hand_number: int = None,
-                      was_facing_bet: Optional[bool] = None):
+    def observe_action(
+        self,
+        observer: str,
+        opponent: str,
+        action: str,
+        phase: str,
+        is_voluntary: bool = True,
+        hand_number: int = None,
+        was_facing_bet: Optional[bool] = None,
+    ):
         """Record an action observation.
 
         Args:
@@ -1667,8 +1669,11 @@ class OpponentModelManager:
         """
         model = self.get_model(observer, opponent)
         model.observe_action(
-            action, phase, is_voluntary,
-            hand_number=hand_number, was_facing_bet=was_facing_bet,
+            action,
+            phase,
+            is_voluntary,
+            hand_number=hand_number,
+            was_facing_bet=was_facing_bet,
         )
 
     def record_hand_dealt(self, observer: str, opponents: List[str], hand_number: int = None):
@@ -1682,8 +1687,9 @@ class OpponentModelManager:
         for opp in opponents:
             self.get_model(observer, opp).record_hand_dealt(hand_number=hand_number)
 
-    def get_table_summary(self, observer: str, opponents: List[str],
-                         max_tokens: int = OPPONENT_SUMMARY_TOKENS) -> str:
+    def get_table_summary(
+        self, observer: str, opponents: List[str], max_tokens: int = OPPONENT_SUMMARY_TOKENS
+    ) -> str:
         """Get summary of all opponents at the table."""
         if observer not in self.models:
             return ""
@@ -1768,7 +1774,9 @@ class OpponentModelManager:
                 if opp_id is not None and observer_id is not None:
                     try:
                         state = self._relationship_repo.load_relationship_state(
-                            observer_id, opp_id, now=now,
+                            observer_id,
+                            opp_id,
+                            now=now,
                         )
                         if state is not None and state.heat > HEAT_RIVAL_THRESHOLD:
                             nemesis_bonus = 1.0
@@ -1845,8 +1853,7 @@ class OpponentModelManager:
         models_with_history = [
             observer_models[opp]
             for opp in active_opponents
-            if opp in observer_models
-            and observer_models[opp].tendencies.hands_observed > 0
+            if opp in observer_models and observer_models[opp].tendencies.hands_observed > 0
         ]
 
         if not models_with_history:
@@ -1869,14 +1876,10 @@ class OpponentModelManager:
                 for name, amount in relevant.items():
                     if amount / total > 0.6:
                         # Dominant opponent gets 100% weight
-                        dominant = next(
-                            m for m in models_with_history if m.opponent == name
-                        )
+                        dominant = next(m for m in models_with_history if m.opponent == name)
                         return _build_aggregate_from_single(dominant.tendencies)
 
-        return _build_aggregate_from_multi(
-            [m.tendencies for m in models_with_history]
-        )
+        return _build_aggregate_from_multi([m.tendencies for m in models_with_history])
 
     def to_dict(self) -> Dict[str, Any]:
         # Back-compat shape: top-level keys are observer names. Add an
@@ -1885,10 +1888,7 @@ class OpponentModelManager:
         # while the round-trip preserves the id registry.
         result: Dict[str, Any] = {}
         for observer, opponents in self.models.items():
-            result[observer] = {
-                opponent: model.to_dict()
-                for opponent, model in opponents.items()
-            }
+            result[observer] = {opponent: model.to_dict() for opponent, model in opponents.items()}
         if self._name_to_id:
             result['__name_to_id__'] = dict(self._name_to_id)
         return result
@@ -1965,8 +1965,7 @@ class OpponentModelManager:
         """
         if self._relationship_repo is None:
             raise RuntimeError(
-                "OpponentModelManager.record_event requires a "
-                "relationship_repo at construction"
+                "OpponentModelManager.record_event requires a " "relationship_repo at construction"
             )
         if event is RelationshipEvent.UNKNOWN:
             # Documented no-op: quarantined events from legacy strings
@@ -2037,9 +2036,7 @@ class OpponentModelManager:
         """
         # Step 2a: load or default. Use load_raw so we get the stored
         # snapshot — step 2b explicitly projects it.
-        state = self._relationship_repo.load_raw_relationship_state(
-            observer_id, other_id
-        )
+        state = self._relationship_repo.load_raw_relationship_state(observer_id, other_id)
         if state is None:
             state = RelationshipState()
 
@@ -2069,9 +2066,7 @@ class OpponentModelManager:
         state.last_decay_tick = now
 
         # Step 2f: persist.
-        self._relationship_repo.save_relationship_state(
-            observer_id, other_id, state
-        )
+        self._relationship_repo.save_relationship_state(observer_id, other_id, state)
 
     def _resolve_id_to_name(self, personality_id: str) -> Optional[str]:
         """Reverse lookup from personality_id → display name.

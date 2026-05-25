@@ -38,12 +38,18 @@ class TestChipLedgerRoutesSandboxScoping(unittest.TestCase):
         # Seed two sandboxes with distinct ledger rows.
         ledger_repo = self.repos['chip_ledger_repo']
         ledger_repo.record(
-            source='central_bank', sink='ai:zeus', amount=2000,
-            reason='ai_seed', sandbox_id='sb1',
+            source='central_bank',
+            sink='ai:zeus',
+            amount=2000,
+            reason='ai_seed',
+            sandbox_id='sb1',
         )
         ledger_repo.record(
-            source='central_bank', sink='ai:hera', amount=1500,
-            reason='ai_seed', sandbox_id='sb2',
+            source='central_bank',
+            sink='ai:hera',
+            amount=1500,
+            reason='ai_seed',
+            sandbox_id='sb2',
         )
         sandbox_repo = self.repos['sandbox_repo']
         self.sb1 = sandbox_repo.create('owner_alice', name='Sandbox One')
@@ -51,14 +57,29 @@ class TestChipLedgerRoutesSandboxScoping(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo', 'decision_analysis_repo',
-                'prompt_preset_repo', 'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo', 'sandbox_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
+                'stake_repo',
+                'sandbox_repo',
             ):
                 setattr(ext, key, self.repos[key])
             ext.persistence_db_path = self.repos['db_path']
@@ -180,19 +201,35 @@ class TestAdminSandboxList(unittest.TestCase):
         sandbox_repo = self.repos['sandbox_repo']
         self.sb1 = sandbox_repo.create('owner_alice', name='Alpha')
         import time
+
         time.sleep(0.01)
         self.sb2 = sandbox_repo.create('owner_bob', name='Beta')
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo', 'decision_analysis_repo',
-                'prompt_preset_repo', 'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo', 'sandbox_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
+                'stake_repo',
+                'sandbox_repo',
             ):
                 setattr(ext, key, self.repos[key])
             ext.persistence_db_path = self.repos['db_path']
@@ -220,7 +257,8 @@ class TestAdminSandboxList(unittest.TestCase):
         with patch(
             'poker.authorization.authorization_service',
             _mock_authorization_service(
-                user={'id': 'admin-1'}, has_admin_permission=True,
+                user={'id': 'admin-1'},
+                has_admin_permission=True,
             ),
         ):
             response = self.client.get('/api/admin/sandboxes')
@@ -244,7 +282,8 @@ class TestAdminSandboxList(unittest.TestCase):
         with patch(
             'poker.authorization.authorization_service',
             _mock_authorization_service(
-                user={'id': 'user-1'}, has_admin_permission=False,
+                user={'id': 'user-1'},
+                has_admin_permission=False,
             ),
         ):
             response = self.client.get('/api/admin/sandboxes')

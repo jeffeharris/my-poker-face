@@ -6,7 +6,7 @@ for API responses and WebSocket emissions.
 Uses Psychology System v2.1 (anchors + axes).
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def format_elasticity_data(ai_controllers: Dict[str, Any]) -> Dict[str, Any]:
@@ -39,7 +39,8 @@ def format_elasticity_data(ai_controllers: Dict[str, Any]) -> Dict[str, Any]:
                 'current': 1.0 - psych.effective_looseness,
                 'anchor': 1.0 - psych.anchors.baseline_looseness,
                 'elasticity': 0.3,
-                'pressure': (1.0 - psych.effective_looseness) - (1.0 - psych.anchors.baseline_looseness),
+                'pressure': (1.0 - psych.effective_looseness)
+                - (1.0 - psych.anchors.baseline_looseness),
                 'min': 0.0,
                 'max': 1.0,
             },
@@ -77,9 +78,6 @@ def format_elasticity_data(ai_controllers: Dict[str, Any]) -> Dict[str, Any]:
             },
         }
 
-        elasticity_data[name] = {
-            'traits': traits_data,
-            'mood': psych.mood
-        }
+        elasticity_data[name] = {'traits': traits_data, 'mood': psych.mood}
 
     return elasticity_data

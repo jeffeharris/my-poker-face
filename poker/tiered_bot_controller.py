@@ -16,34 +16,25 @@ import logging
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-from .controllers import AIPlayerController, _get_canonical_hand
-from .card_utils import card_to_string
+from .archetypes import classify_from_anchors
 from .bounded_options import get_emotional_shift
-from .strategy.nodes import PreflopNode
-from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
-from .strategy.preflop_classifier import build_preflop_node, get_6max_position
-from .strategy.postflop_classifier import build_postflop_node
-from .strategy.personality_modifier import modify_strategy, apply_river_bluff_guardrail
-from .strategy.deviation_profiles import select_deviation_profile, DeviationProfile
-from .strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing
-from .strategy.push_fold import lookup_push_fold_action, PUSH_FOLD_THRESHOLD_BB
-from .strategy.strategy_profile import StrategyProfile
-from .strategy.hand_classification import simplify_hand_class
-from .strategy.multiway import apply_multiway_adjustment
-from .strategy.math_floor import apply_pot_odds_floor
+from .card_utils import card_to_string
+from .controllers import AIPlayerController, _get_canonical_hand
+from .hand_tiers import is_hand_in_range
+from .stack_utils import big_blind_of, effective_stack_bb
+from .strategy.action_mapper import resolve_postflop_sizing, resolve_preflop_sizing
+from .strategy.deviation_profiles import DeviationProfile, select_deviation_profile
 from .strategy.exploitation import (
-    compute_exploitation_offsets,
-    compute_exploitation_offsets_with_traces,
-    apply_exploitation_offsets,
-    classify_detected_patterns,
-    classify_opponent_archetype,
-    DecisionContext,
-    AggregatedOpponentStats,
-    ClampTier,
     GATING_FLOOR,
+    AggregatedOpponentStats,
+    DecisionContext,
     OpponentSpot,
     _determine_clamp,
     aggregate_from_spots,
+    apply_exploitation_offsets,
+    classify_detected_patterns,
+    classify_opponent_archetype,
+    compute_exploitation_offsets_with_traces,
     compute_multiway_cbet_intensity,
     compute_steal_pressure_intensity,
     compute_value_vs_station_intensity,
@@ -51,6 +42,23 @@ from .strategy.exploitation import (
     is_value_vs_station_enabled,
     select_primary_aggressor,
 )
+from .strategy.expression_context import ExpressionContext
+from .strategy.expression_generator import ExpressionGenerator
+from .strategy.hand_classification import simplify_hand_class
+from .strategy.intervention_trace import (
+    InterventionTrace,
+    layer_order_for,
+    make_no_op_trace,
+)
+from .strategy.math_floor import apply_pot_odds_floor
+from .strategy.multiway import apply_multiway_adjustment
+from .strategy.personality_modifier import apply_river_bluff_guardrail, modify_strategy
+from .strategy.postflop_classifier import build_postflop_node
+from .strategy.preflop_classifier import build_preflop_node
+from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
+from .strategy.short_stack import apply_short_stack_heuristics
+from .strategy.strategy_profile import StrategyProfile
+from .strategy.strategy_table import StrategyTable, nearest_depth_bucket
 from .strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
@@ -59,18 +67,6 @@ from .strategy.value_override import (
     should_apply_bluff_catch_override,
     should_apply_value_override,
 )
-from .strategy.intervention_trace import (
-    InterventionOperation,
-    InterventionTrace,
-    layer_order_for,
-    make_no_op_trace,
-)
-from .strategy.short_stack import apply_short_stack_heuristics
-from .stack_utils import big_blind_of, effective_stack_bb
-from .hand_tiers import is_hand_in_range
-from .strategy.expression_context import ExpressionContext
-from .strategy.expression_generator import ExpressionGenerator
-from .archetypes import classify_from_anchors
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +86,22 @@ def _coarse_strength_tier(hand_name: str) -> str:
     # Postflop strength suffix wins when present.
     if 'monster' in s:
         return 'Monster'
-    if 'very strong' in s or 'full house' in s or 'quads' in s or 'four of a kind' in s or 'straight flush' in s:
+    if (
+        'very strong' in s
+        or 'full house' in s
+        or 'quads' in s
+        or 'four of a kind' in s
+        or 'straight flush' in s
+    ):
         return 'Monster'
-    if 'strong' in s or 'flush' in s or 'straight' in s or 'trip' in s or 'three of a kind' in s or 'two pair' in s:
+    if (
+        'strong' in s
+        or 'flush' in s
+        or 'straight' in s
+        or 'trip' in s
+        or 'three of a kind' in s
+        or 'two pair' in s
+    ):
         return 'Strong'
     if 'marginal' in s or 'one pair' in s:
         return 'Marginal'
@@ -104,7 +113,13 @@ def _coarse_strength_tier(hand_name: str) -> str:
         return 'Monster'
     if 'top 20%' in s or 'top 25%' in s or 'medium pocket pair' in s or 'suited broadway' in s:
         return 'Strong'
-    if 'top 35%' in s or 'top 45%' in s or 'offsuit broadway' in s or 'suited ace' in s or 'low pocket pair' in s:
+    if (
+        'top 35%' in s
+        or 'top 45%' in s
+        or 'offsuit broadway' in s
+        or 'suited ace' in s
+        or 'low pocket pair' in s
+    ):
         return 'Marginal'
     if 'bottom' in s or 'offsuit ace' in s:
         return 'Weak'
@@ -145,19 +160,26 @@ def _exploitation_no_op_traces(
         make_disabled_trace,
         make_no_op_trace,
     )
+
     out = []
-    for (layer, rule_id) in _EXPLOITATION_RULE_ORDER:
+    for layer, rule_id in _EXPLOITATION_RULE_ORDER:
         if is_rule_disabled(disable_rules, layer, rule_id):
-            out.append(make_disabled_trace(
-                layer=layer, rule_id=rule_id,
-                layer_order=layer_order_for(layer),
-            ))
+            out.append(
+                make_disabled_trace(
+                    layer=layer,
+                    rule_id=rule_id,
+                    layer_order=layer_order_for(layer),
+                )
+            )
         else:
-            out.append(make_no_op_trace(
-                layer=layer, rule_id=rule_id,
-                layer_order=layer_order_for(layer),
-                reason_code=reason_code,
-            ))
+            out.append(
+                make_no_op_trace(
+                    layer=layer,
+                    rule_id=rule_id,
+                    layer_order=layer_order_for(layer),
+                    reason_code=reason_code,
+                )
+            )
     return out
 
 
@@ -330,6 +352,7 @@ class TieredBotController(AIPlayerController):
         # Deviation profile name (reverse-lookup against DEVIATION_PROFILES).
         try:
             from .strategy.deviation_profiles import DEVIATION_PROFILES
+
             for name, candidate in DEVIATION_PROFILES.items():
                 if candidate is self.deviation_profile:
                     snap['deviation_profile_name'] = name
@@ -357,17 +380,17 @@ class TieredBotController(AIPlayerController):
                 NarrationContext,
                 traces_to_narration_facts,
             )
+
             street = (phase or '').replace('pre_flop', 'preflop').lower()
             ctx = NarrationContext(
                 street=street,
                 position_context='',  # not yet captured per-decision
-                risk_posture='',      # ditto
+                risk_posture='',  # ditto
             )
             return traces_to_narration_facts(traces, ctx)
         except Exception as e:  # noqa: BLE001 — narration is observability
             logger.warning(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"narration_facts build failed: {e}"
+                f"[TIERED_BOT] {self.player_name}: " f"narration_facts build failed: {e}"
             )
             return None
 
@@ -381,7 +404,8 @@ class TieredBotController(AIPlayerController):
             big_blind = getattr(game_state, 'current_ante', 0) or 0
             pot_total = (
                 game_state.pot.get('total', 0)
-                if isinstance(getattr(game_state, 'pot', None), dict) else 0
+                if isinstance(getattr(game_state, 'pot', None), dict)
+                else 0
             )
             cost_to_call = getattr(game_state, 'call_amount', 0) or 0
             snap['cost_to_call'] = int(cost_to_call)
@@ -394,10 +418,17 @@ class TieredBotController(AIPlayerController):
             pass
 
     def _snapshot_exploitation_inputs(
-        self, *, stats, decision_context, adaptation_bias: float,
-        tilt_factor: float, exploitation_strength: float,
-        multiway_cbet_intensity: float, vvs_intensity_used: float,
-        steal_intensity_used: float, clamp_value: float = 0.4,
+        self,
+        *,
+        stats,
+        decision_context,
+        adaptation_bias: float,
+        tilt_factor: float,
+        exploitation_strength: float,
+        multiway_cbet_intensity: float,
+        vvs_intensity_used: float,
+        steal_intensity_used: float,
+        clamp_value: float = 0.4,
         clamp_tier_label: str = 'extreme',
     ) -> None:
         """Phase 7.6 Step 6: record exploitation pipeline inputs."""
@@ -407,12 +438,14 @@ class TieredBotController(AIPlayerController):
         if stats is not None:
             try:
                 import dataclasses
+
                 snap['aggregated_stats'] = dataclasses.asdict(stats)
             except (TypeError, ValueError):
                 pass
         if decision_context is not None:
             try:
                 import dataclasses
+
                 snap['decision_context'] = dataclasses.asdict(decision_context)
             except (TypeError, ValueError):
                 pass
@@ -434,6 +467,7 @@ class TieredBotController(AIPlayerController):
             else:
                 # Fallback to TAG if no psychology loaded yet
                 from .strategy.deviation_profiles import DEVIATION_PROFILES
+
                 self._deviation_profile = DEVIATION_PROFILES['tag']
         return self._deviation_profile
 
@@ -449,12 +483,12 @@ class TieredBotController(AIPlayerController):
             return 'nit'
         if anchors.baseline_looseness > 0.80 and anchors.baseline_aggression > 0.80:
             return 'maniac'
-        base = classify_from_anchors(
-            anchors.baseline_looseness, anchors.baseline_aggression
-        )
+        base = classify_from_anchors(anchors.baseline_looseness, anchors.baseline_aggression)
         return {
-            'tight_passive': 'rock', 'tight_aggressive': 'tag',
-            'loose_passive': 'calling_station', 'loose_aggressive': 'lag',
+            'tight_passive': 'rock',
+            'tight_aggressive': 'tag',
+            'loose_passive': 'calling_station',
+            'loose_aggressive': 'lag',
             'default': 'tag',
         }.get(base, 'tag')
 
@@ -497,9 +531,7 @@ class TieredBotController(AIPlayerController):
 
         is_preflop = phase and phase.name == 'PRE_FLOP'
         if not is_preflop:
-            return self._get_postflop_decision(
-                game_state, player_idx, valid_actions, context
-            )
+            return self._get_postflop_decision(game_state, player_idx, valid_actions, context)
 
         # ── Preflop decision ──
         # Phase 7.6 (Step 2): per-decision intervention trace accumulator.
@@ -530,9 +562,7 @@ class TieredBotController(AIPlayerController):
         # stack (100/50/25bb). Computed here (not just at the short_stack
         # step below) because the base ranges themselves are depth-dependent.
         effective_stack_bb = self._compute_effective_stack_bb(game_state, player_idx)
-        preflop_table, chart_label = self._select_preflop_table(
-            num_seated, effective_stack_bb
-        )
+        preflop_table, chart_label = self._select_preflop_table(num_seated, effective_stack_bb)
 
         if self.debug_logging:
             logger.info(
@@ -547,12 +577,13 @@ class TieredBotController(AIPlayerController):
         # standard raise sizes commit too much of the stack to be coherent
         # short of jamming.
         push_fold_action = self._try_push_fold_lookup(
-            canonical_hand, game_state, player_idx, num_seated,
+            canonical_hand,
+            game_state,
+            player_idx,
+            num_seated,
         )
         if push_fold_action is not None:
-            base_strategy = StrategyProfile(
-                action_probabilities={push_fold_action: 1.0}
-            )
+            base_strategy = StrategyProfile(action_probabilities={push_fold_action: 1.0})
             if self.debug_logging:
                 logger.info(
                     f"[TIERED_BOT] {self.player_name}: "
@@ -593,7 +624,8 @@ class TieredBotController(AIPlayerController):
         else:
             modified_strategy = base_strategy
             personality_trace = make_no_op_trace(
-                layer='personality', rule_id='default',
+                layer='personality',
+                rule_id='default',
                 layer_order=layer_order_for('personality'),
                 reason_code='distortion_skipped',
             )
@@ -611,8 +643,12 @@ class TieredBotController(AIPlayerController):
         # two-class enum (STRONG / NOT_STRONG) consumed only by the
         # value_override path below.
         modified_strategy, exploitation_traces = self._apply_exploitation(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             hand_strength=None,
         )
         self._last_intervention_trace.extend(exploitation_traces)
@@ -622,8 +658,12 @@ class TieredBotController(AIPlayerController):
         # detected hyper-aggressive opponent — offsets can't shift
         # probability mass enough for these spots.
         modified_strategy, value_override_trace = self._apply_value_override(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             hand_strength=self._classify_preflop_hand_strength(canonical_hand, anchors),
         )
         self._last_intervention_trace.append(value_override_trace)
@@ -655,7 +695,8 @@ class TieredBotController(AIPlayerController):
             modified_strategy, game_state, player_idx, valid_actions
         )
         math_floor_trace = _fill_prior_action_source(
-            math_floor_trace, self._last_intervention_trace,
+            math_floor_trace,
+            self._last_intervention_trace,
         )
         self._last_intervention_trace.append(math_floor_trace)
 
@@ -669,15 +710,15 @@ class TieredBotController(AIPlayerController):
             )
 
         game_action, raise_to = resolve_preflop_sizing(
-            abstract_action, game_state, player_idx,
+            abstract_action,
+            game_state,
+            player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         if game_action not in valid_actions:
-            game_action, raise_to = self._validate_action(
-                game_action, raise_to, valid_actions
-            )
+            game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
 
         self._last_pipeline_snapshot['resolved_action'] = game_action
         self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
@@ -703,8 +744,11 @@ class TieredBotController(AIPlayerController):
         return decision
 
     def _get_postflop_decision(
-        self, game_state, player_idx: int,
-        valid_actions: List[str], context: dict,
+        self,
+        game_state,
+        player_idx: int,
+        valid_actions: List[str],
+        context: dict,
     ) -> Dict:
         """Postflop decision: strategy table + personality + multiway + guardrails."""
         player = game_state.players[player_idx]
@@ -725,18 +769,18 @@ class TieredBotController(AIPlayerController):
 
         # 1. Convert cards to string format
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
-        community_cards = [
-            card_to_string(c) for c in game_state.community_cards
-        ] if game_state.community_cards else []
+        community_cards = (
+            [card_to_string(c) for c in game_state.community_cards]
+            if game_state.community_cards
+            else []
+        )
 
         if not hole_cards or len(community_cards) < 3:
             return self._postflop_fallback(valid_actions)
 
         # 2. Build PostflopNode
         try:
-            node = build_postflop_node(
-                game_state, player_idx, hole_cards, community_cards
-            )
+            node = build_postflop_node(game_state, player_idx, hole_cards, community_cards)
         except Exception as e:
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -745,10 +789,7 @@ class TieredBotController(AIPlayerController):
             return self._postflop_fallback(valid_actions)
 
         if self.debug_logging:
-            logger.info(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"postflop node_key={node.key}"
-            )
+            logger.info(f"[TIERED_BOT] {self.player_name}: " f"postflop node_key={node.key}")
         # Snapshot the node key (encodes street|position|pot_type|texture|
         # hand_class|draw|action_context|spr) so passivity instrumentation can
         # pair the resolved action with its full postflop context without
@@ -756,9 +797,7 @@ class TieredBotController(AIPlayerController):
         self._last_pipeline_snapshot['node_key'] = node.key
 
         # 3. Lookup base strategy (with texture fallback)
-        base_strategy = self.strategy_table.lookup_postflop_with_fallback(
-            node, valid_actions
-        )
+        base_strategy = self.strategy_table.lookup_postflop_with_fallback(node, valid_actions)
 
         if self.debug_logging:
             logger.info(
@@ -767,13 +806,12 @@ class TieredBotController(AIPlayerController):
             )
 
         # 4. Multiway adjustment (if > 2 active players)
-        active_count = sum(
-            1 for p in game_state.players
-            if not p.is_folded
-        )
+        active_count = sum(1 for p in game_state.players if not p.is_folded)
         if active_count > 2:
             base_strategy = apply_multiway_adjustment(
-                base_strategy, active_count, node.position,
+                base_strategy,
+                active_count,
+                node.position,
                 # §13 value exemption: don't suppress value-hand aggression in
                 # multiway (you value-bet the nuts into a field). Pure on node.
                 hand_class=self._classify_postflop_hand_strength(node),
@@ -809,7 +847,8 @@ class TieredBotController(AIPlayerController):
         else:
             modified_strategy = base_strategy
             personality_trace = make_no_op_trace(
-                layer='personality', rule_id='default',
+                layer='personality',
+                rule_id='default',
                 layer_order=layer_order_for('personality'),
                 reason_code='distortion_skipped',
             )
@@ -823,9 +862,7 @@ class TieredBotController(AIPlayerController):
 
         # 6. River bluff guardrail
         if node.street == 'river':
-            simplified_class = simplify_hand_class(
-                node.made_tier, node.draw_modifier
-            )
+            simplified_class = simplify_hand_class(node.made_tier, node.draw_modifier)
             modified_strategy = apply_river_bluff_guardrail(
                 modified_strategy, simplified_class, self.archetype_name
             )
@@ -859,7 +896,8 @@ class TieredBotController(AIPlayerController):
         # back to the aggregate path which is sufficient for the bet
         # bucket / required_equity / facing_bet fields.
         outer_decision_context = self._build_decision_context(
-            game_state, player_idx,
+            game_state,
+            player_idx,
         )
         # Plan §4: snapshot bet-size bucket + required_equity for
         # diagnostics. The DecisionContext already carries these for
@@ -867,12 +905,8 @@ class TieredBotController(AIPlayerController):
         # nut_status/danger_flags so post-hand analysis
         # (casebot_breakdown etc.) can read them off the controller's
         # last-decision state.
-        self._last_pipeline_snapshot['bet_bucket'] = (
-            outer_decision_context.bet_bucket
-        )
-        self._last_pipeline_snapshot['required_equity'] = (
-            outer_decision_context.required_equity
-        )
+        self._last_pipeline_snapshot['bet_bucket'] = outer_decision_context.bet_bucket
+        self._last_pipeline_snapshot['required_equity'] = outer_decision_context.required_equity
         # Plan §6: opponent_archetype is snapshotted inside
         # `_tally_exploitation_event` (where `stats` is already
         # selected) — see that method. Done as a side effect of the
@@ -880,8 +914,12 @@ class TieredBotController(AIPlayerController):
 
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             hand_strength=hand_strength,
         )
         self._last_intervention_trace.extend(exploitation_traces)
@@ -894,8 +932,12 @@ class TieredBotController(AIPlayerController):
         # has the narrower gate (IP, dry board, ≥40 BB, sample floor)
         # and wins when both match.
         modified_strategy, induce_override_trace = self._apply_induce_override(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             node=node,
             hand_strength=hand_strength,
             active_opponent_count=active_count - 1,
@@ -907,8 +949,12 @@ class TieredBotController(AIPlayerController):
         # hyper-aggressive opponent. Sits after exploitation so it takes
         # precedence on the few decisions where it fires.
         modified_strategy, value_override_trace = self._apply_value_override(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             hand_strength=hand_strength,
             prior_layer_fired=induce_override_trace.fired,
         )
@@ -927,8 +973,12 @@ class TieredBotController(AIPlayerController):
         # a marginal made hand (medium/weak) vs a confirmed EXTREME-tier
         # aggressor, with multiway / dangerous-board suppression applied.
         modified_strategy, bluff_catch_trace = self._apply_bluff_catch_override(
-            modified_strategy, game_state, player_idx, valid_actions,
-            anchors, emotional_state,
+            modified_strategy,
+            game_state,
+            player_idx,
+            valid_actions,
+            anchors,
+            emotional_state,
             hand_strength=hand_strength,
         )
         # Fill in prior_action_source — if an earlier layer fired (made
@@ -936,7 +986,8 @@ class TieredBotController(AIPlayerController):
         # only value_override is the candidate; later steps add more
         # earlier layers and the same loop covers them.
         bluff_catch_trace = _fill_prior_action_source(
-            bluff_catch_trace, self._last_intervention_trace,
+            bluff_catch_trace,
+            self._last_intervention_trace,
         )
         self._last_intervention_trace.append(bluff_catch_trace)
 
@@ -950,19 +1001,20 @@ class TieredBotController(AIPlayerController):
         # distribution; downstream math_floor keeps final say on pot-odds
         # mandates. OFF arm is byte-identical to current behavior.
         multistreet_trace = make_no_op_trace(
-            layer='multistreet_context', rule_id='default',
+            layer='multistreet_context',
+            rule_id='default',
             layer_order=layer_order_for('multistreet_context'),
             reason_code='flag_disabled',
         )
         if getattr(self, 'enable_multistreet_context', False):
             from .strategy.multistreet_context import (
-                apply_multistreet_context, derive_signals,
+                apply_multistreet_context,
+                derive_signals,
             )
+
             signals = derive_signals(self, node.street)
             ms_prior_fired = (
-                induce_override_trace.fired
-                or value_override_trace.fired
-                or bluff_catch_trace.fired
+                induce_override_trace.fired or value_override_trace.fired or bluff_catch_trace.fired
             )
             modified_strategy, multistreet_trace = apply_multistreet_context(
                 modified_strategy,
@@ -977,7 +1029,8 @@ class TieredBotController(AIPlayerController):
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
             multistreet_trace = _fill_prior_action_source(
-                multistreet_trace, self._last_intervention_trace,
+                multistreet_trace,
+                self._last_intervention_trace,
             )
         self._last_intervention_trace.append(multistreet_trace)
 
@@ -996,15 +1049,14 @@ class TieredBotController(AIPlayerController):
         # nut_status + danger_flags from the postflop node and §4's
         # required_equity + facing_bet from DecisionContext.
         from .strategy.defense_floor import apply_defense_floor
+
         prior_layer_fired = (
             induce_override_trace.fired
             or value_override_trace.fired
             or bluff_catch_trace.fired
             or multistreet_trace.fired
         )
-        defense_floor_facing_bet = (
-            outer_decision_context.bet_bucket is not None
-        )
+        defense_floor_facing_bet = outer_decision_context.bet_bucket is not None
         modified_strategy, defense_floor_trace = apply_defense_floor(
             modified_strategy,
             hand_class=hand_strength,
@@ -1016,7 +1068,8 @@ class TieredBotController(AIPlayerController):
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
         defense_floor_trace = _fill_prior_action_source(
-            defense_floor_trace, self._last_intervention_trace,
+            defense_floor_trace,
+            self._last_intervention_trace,
         )
         self._last_intervention_trace.append(defense_floor_trace)
 
@@ -1040,7 +1093,8 @@ class TieredBotController(AIPlayerController):
             modified_strategy, game_state, player_idx, valid_actions
         )
         math_floor_trace = _fill_prior_action_source(
-            math_floor_trace, self._last_intervention_trace,
+            math_floor_trace,
+            self._last_intervention_trace,
         )
         self._last_intervention_trace.append(math_floor_trace)
 
@@ -1057,16 +1111,16 @@ class TieredBotController(AIPlayerController):
 
         # 8. Resolve sizing
         game_action, raise_to = resolve_postflop_sizing(
-            abstract_action, game_state, player_idx,
+            abstract_action,
+            game_state,
+            player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
         )
 
         # 9. Validate action is legal
         if game_action not in valid_actions:
-            game_action, raise_to = self._validate_action(
-                game_action, raise_to, valid_actions
-            )
+            game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
 
         self._last_pipeline_snapshot['resolved_action'] = game_action
         self._last_pipeline_snapshot['resolved_raise_to'] = raise_to
@@ -1093,8 +1147,13 @@ class TieredBotController(AIPlayerController):
         return decision
 
     def _apply_exploitation(
-        self, strategy, game_state, player_idx, valid_actions,
-        anchors, emotional_state,
+        self,
+        strategy,
+        game_state,
+        player_idx,
+        valid_actions,
+        anchors,
+        emotional_state,
         hand_strength: Optional[str] = None,
     ) -> Tuple['StrategyProfile', List[InterventionTrace]]:
         """Phase 6 opponent exploitation step.
@@ -1120,7 +1179,8 @@ class TieredBotController(AIPlayerController):
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
             return strategy, _exploitation_no_op_traces(
-                'manager_unavailable', disable_rules=getattr(self, "disable_rules", frozenset()),
+                'manager_unavailable',
+                disable_rules=getattr(self, "disable_rules", frozenset()),
             )
 
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
@@ -1130,12 +1190,13 @@ class TieredBotController(AIPlayerController):
         # via aggregate_from_spots(), so unmigrated rules see identical
         # behavior in unambiguous cases.
         spots = self._build_opponent_spots(game_state, manager)
-        stats, primary_spot, ambiguous = (
-            self._select_exploitation_stats_from_spots(spots, game_state)
+        stats, primary_spot, ambiguous = self._select_exploitation_stats_from_spots(
+            spots, game_state
         )
 
         decision_context = self._build_decision_context(
-            game_state, player_idx,
+            game_state,
+            player_idx,
             primary_aggressor_spot=primary_spot,
         )
 
@@ -1161,15 +1222,18 @@ class TieredBotController(AIPlayerController):
         archetype = self.archetype_name
         call_amount = getattr(game_state, 'call_amount', 0) or 0
         has_bet_legal = any(
-            a == 'bet' or a.startswith('bet_')
-            or a == 'raise' or a.startswith('raise_')
+            a == 'bet'
+            or a.startswith('bet_')
+            or a == 'raise'
+            or a.startswith('raise_')
             or a == 'all_in'
             for a in valid_actions
         )
 
         vvs_intensity_raw = 0.0
         if (
-            hand_strength in {
+            hand_strength
+            in {
                 HandStrengthClass.STRONG_MADE.value,
                 HandStrengthClass.NUTS.value,
             }
@@ -1177,20 +1241,12 @@ class TieredBotController(AIPlayerController):
             and has_bet_legal
         ):
             vvs_intensity_raw = compute_value_vs_station_intensity(spots)
-        vvs_intensity_used = (
-            vvs_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
-        )
+        vvs_intensity_used = vvs_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
 
         steal_intensity_raw = 0.0
-        if (
-            decision_context.is_preflop
-            and call_amount == 0
-            and has_bet_legal
-        ):
+        if decision_context.is_preflop and call_amount == 0 and has_bet_legal:
             steal_intensity_raw = compute_steal_pressure_intensity(spots)
-        steal_intensity_used = (
-            steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
-        )
+        steal_intensity_used = steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
 
         # Plan §5: bluff reduction vs stations. Mirrors value_vs_station
         # but with the inverse hand-strength gate — fires on air-class
@@ -1201,18 +1257,12 @@ class TieredBotController(AIPlayerController):
         # below disjoint from vvs's strong+ gate; the two rules cannot
         # fire on the same decision.
         bluff_reduction_intensity_raw = 0.0
-        if (
-            hand_strength in {'air_no_draw', 'air_strong_draw'}
-            and has_bet_legal
-        ):
-            bluff_reduction_intensity_raw = (
-                compute_value_vs_station_intensity(spots)
-            )
+        if hand_strength in {'air_no_draw', 'air_strong_draw'} and has_bet_legal:
+            bluff_reduction_intensity_raw = compute_value_vs_station_intensity(spots)
         # Re-use the value_vs_station playstyle gate — same archetypes
         # benefit (nit/rock/tag postflop archetypes that face stations).
         bluff_reduction_intensity_used = (
-            bluff_reduction_intensity_raw
-            if is_value_vs_station_enabled(archetype) else 0.0
+            bluff_reduction_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
         )
 
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
@@ -1223,9 +1273,7 @@ class TieredBotController(AIPlayerController):
         # dominated the weight. Reuses compute_value_vs_station_intensity
         # — it returns >0 iff a continuing non-all-in opponent passes
         # _is_hyper_passive with adequate sample.
-        non_all_in_station_continuing = (
-            compute_value_vs_station_intensity(spots) > 0.0
-        )
+        non_all_in_station_continuing = compute_value_vs_station_intensity(spots) > 0.0
         offsets, exploitation_traces = compute_exploitation_offsets_with_traces(
             stats=stats,
             adaptation_bias=anchors.adaptation_bias,
@@ -1262,7 +1310,10 @@ class TieredBotController(AIPlayerController):
         # Diagnostic counters: track detection vs firing per rule. Useful
         # for sim runs to see if exploitation is actually engaging.
         self._tally_exploitation_event(
-            stats, offsets, decision_context, spots=spots,
+            stats,
+            offsets,
+            decision_context,
+            spots=spots,
             ambiguous_aggressor=ambiguous,
             multiway_cbet_intensity=multiway_cbet_intensity,
         )
@@ -1287,10 +1338,7 @@ class TieredBotController(AIPlayerController):
             return strategy, exploitation_traces
 
         if self.debug_logging:
-            logger.info(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"exploitation offsets={offsets}"
-            )
+            logger.info(f"[TIERED_BOT] {self.player_name}: " f"exploitation offsets={offsets}")
 
         # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
         # replacing the legacy two-tier _pick_max_total_shift. Tier is
@@ -1298,7 +1346,9 @@ class TieredBotController(AIPlayerController):
         # all_in_per_facing_bet OR postflop_jam_open_rate) with the
         # sliding-window ratchet-down applied when recent stats diverge.
         clamp_value, clamp_tier, winning_axis = self._compute_clamp(
-            stats, manager, primary_spot,
+            stats,
+            manager,
+            primary_spot,
         )
 
         # Stash tier diagnostic for downstream callers / capture.
@@ -1307,12 +1357,13 @@ class TieredBotController(AIPlayerController):
 
         # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
         clamp_tier_label = (
-            clamp_tier.value.lower() if hasattr(clamp_tier, 'value')
-            else str(clamp_tier).lower()
+            clamp_tier.value.lower() if hasattr(clamp_tier, 'value') else str(clamp_tier).lower()
         )
         self._snapshot_exploitation_inputs(
-            stats=stats, decision_context=decision_context,
-            adaptation_bias=anchors.adaptation_bias, tilt_factor=tilt_factor,
+            stats=stats,
+            decision_context=decision_context,
+            adaptation_bias=anchors.adaptation_bias,
+            tilt_factor=tilt_factor,
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             vvs_intensity_used=vvs_intensity_used,
@@ -1366,6 +1417,7 @@ class TieredBotController(AIPlayerController):
         In all early-out paths, returns the offsets dict verbatim.
         """
         from datetime import datetime
+
         from poker.memory.relationship_modifier import get_relationship_modifier
 
         # Manager must carry a relationship_repo for this to do anything.
@@ -1480,10 +1532,7 @@ class TieredBotController(AIPlayerController):
             return target_id  # may be None if name wasn't registered
 
         # Heat-max fallback. Only fires when there's no clear aggressor.
-        eligible = [
-            s for s in spots
-            if s.is_active and not s.is_all_in
-        ]
+        eligible = [s for s in spots if s.is_active and not s.is_all_in]
         if not eligible:
             return None
 
@@ -1492,6 +1541,7 @@ class TieredBotController(AIPlayerController):
             return None
 
         from datetime import datetime
+
         now = datetime.utcnow()
         best: Optional[Tuple[float, float, str]] = None  # (heat, respect, opp_id)
         for spot in eligible:
@@ -1533,7 +1583,10 @@ class TieredBotController(AIPlayerController):
         return min(candidates) if candidates else None
 
     def _compute_clamp(
-        self, stats, manager, primary_spot,
+        self,
+        stats,
+        manager,
+        primary_spot,
     ):
         """Phase 7.5 Item 2c: build the (recent_stats, archetype) inputs
         for _determine_clamp from the controller's context.
@@ -1568,9 +1621,17 @@ class TieredBotController(AIPlayerController):
         )
 
     def _apply_induce_override(
-        self, strategy, game_state, player_idx, valid_actions,
-        anchors, emotional_state, *,
-        node, hand_strength, active_opponent_count: int,
+        self,
+        strategy,
+        game_state,
+        player_idx,
+        valid_actions,
+        anchors,
+        emotional_state,
+        *,
+        node,
+        hand_strength,
+        active_opponent_count: int,
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase A: induce override (smooth-call vs barrelers).
 
@@ -1587,22 +1648,26 @@ class TieredBotController(AIPlayerController):
         """
         from .strategy.induce_override import apply_induce_override
         from .strategy.intervention_trace import (
-            is_rule_disabled, make_disabled_trace,
+            is_rule_disabled,
+            make_disabled_trace,
         )
 
         if is_rule_disabled(
             getattr(self, "disable_rules", frozenset()),
-            'induce_override', 'default',
+            'induce_override',
+            'default',
         ):
             return strategy, make_disabled_trace(
-                layer='induce_override', rule_id='default',
+                layer='induce_override',
+                rule_id='default',
                 layer_order=layer_order_for('induce_override'),
             )
 
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None or anchors is None:
             return strategy, make_no_op_trace(
-                layer='induce_override', rule_id='default',
+                layer='induce_override',
+                rule_id='default',
                 layer_order=layer_order_for('induce_override'),
                 reason_code='manager_unavailable',
             )
@@ -1612,17 +1677,19 @@ class TieredBotController(AIPlayerController):
         # Reuse value_override's stat selection so both layers see the
         # same aggressor when both gates evaluate the same decision.
         spots = self._build_opponent_spots(game_state, manager)
-        stats, primary_spot, _ambiguous = (
-            self._select_exploitation_stats_from_spots(spots, game_state)
+        stats, primary_spot, _ambiguous = self._select_exploitation_stats_from_spots(
+            spots, game_state
         )
 
         decision_context = self._build_decision_context(
-            game_state, player_idx,
+            game_state,
+            player_idx,
             primary_aggressor_spot=primary_spot,
         )
 
         effective_stack_bb = self._compute_effective_stack_bb(
-            game_state, player_idx,
+            game_state,
+            player_idx,
         )
 
         return apply_induce_override(
@@ -1642,8 +1709,14 @@ class TieredBotController(AIPlayerController):
         )
 
     def _apply_value_override(
-        self, strategy, game_state, player_idx, valid_actions,
-        anchors, emotional_state, hand_strength,
+        self,
+        strategy,
+        game_state,
+        player_idx,
+        valid_actions,
+        anchors,
+        emotional_state,
+        hand_strength,
         prior_layer_fired: bool = False,
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 6.5: strong-hand value override.
@@ -1676,16 +1749,21 @@ class TieredBotController(AIPlayerController):
         # 50/50 call/raise and the trap mechanic is lost.
         if prior_layer_fired:
             return strategy, make_no_op_trace(
-                layer='strong_hand_override', rule_id='default',
+                layer='strong_hand_override',
+                rule_id='default',
                 layer_order=layer_order_for('strong_hand_override'),
                 reason_code='deferred_to_induce_override',
             )
 
         # Phase 7.6 Step 5: ablation short-circuit.
         from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
-        if is_rule_disabled(getattr(self, "disable_rules", frozenset()), 'strong_hand_override', 'default'):
+
+        if is_rule_disabled(
+            getattr(self, "disable_rules", frozenset()), 'strong_hand_override', 'default'
+        ):
             return strategy, make_disabled_trace(
-                layer='strong_hand_override', rule_id='default',
+                layer='strong_hand_override',
+                rule_id='default',
                 layer_order=layer_order_for('strong_hand_override'),
             )
 
@@ -1704,12 +1782,13 @@ class TieredBotController(AIPlayerController):
         # aggressor selection as exploitation. Behavior is identical to
         # the legacy path in unambiguous cases.
         spots = self._build_opponent_spots(game_state, manager)
-        stats, primary_spot, _ambiguous = (
-            self._select_exploitation_stats_from_spots(spots, game_state)
+        stats, primary_spot, _ambiguous = self._select_exploitation_stats_from_spots(
+            spots, game_state
         )
 
         decision_context = self._build_decision_context(
-            game_state, player_idx,
+            game_state,
+            player_idx,
             primary_aggressor_spot=primary_spot,
         )
 
@@ -1739,8 +1818,7 @@ class TieredBotController(AIPlayerController):
 
         if self.debug_logging:
             logger.info(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"value_override fired hand={hand_strength}"
+                f"[TIERED_BOT] {self.player_name}: " f"value_override fired hand={hand_strength}"
             )
 
         return compute_value_override_strategy(
@@ -1773,13 +1851,13 @@ class TieredBotController(AIPlayerController):
         # exactly at the threshold (LAG looseness=0.70) land in the
         # intended band rather than slipping into the next one.
         if looseness < 0.30:
-            threshold = 0.10   # Nit / Rock
+            threshold = 0.10  # Nit / Rock
         elif looseness < 0.50:
-            threshold = 0.15   # TAG (Calling Station also lands here)
+            threshold = 0.15  # TAG (Calling Station also lands here)
         elif looseness <= 0.70:
-            threshold = 0.20   # LAG (0.70) — top 20% includes 88/AJo
+            threshold = 0.20  # LAG (0.70) — top 20% includes 88/AJo
         else:
-            threshold = 0.15   # Maniac (0.85+) — tightened to avoid coinflips
+            threshold = 0.15  # Maniac (0.85+) — tightened to avoid coinflips
         if is_hand_in_range(canonical_hand, threshold):
             return HandStrengthClass.STRONG.value
         return HandStrengthClass.NOT_STRONG.value
@@ -1818,8 +1896,14 @@ class TieredBotController(AIPlayerController):
         return simplify_hand_class(node.made_tier, node.draw_modifier)
 
     def _apply_bluff_catch_override(
-        self, strategy, game_state, player_idx, valid_actions,
-        anchors, emotional_state, hand_strength,
+        self,
+        strategy,
+        game_state,
+        player_idx,
+        valid_actions,
+        anchors,
+        emotional_state,
+        hand_strength,
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Phase 7.5 Item 1: bluff-catch override for marginal hands
         vs confirmed extreme aggressors.
@@ -1846,9 +1930,13 @@ class TieredBotController(AIPlayerController):
         # Phase 7.6 Step 5: ablation short-circuit before any other
         # gating, so the trace reports `disabled_by_ablation`.
         from .strategy.intervention_trace import is_rule_disabled, make_disabled_trace
-        if is_rule_disabled(getattr(self, "disable_rules", frozenset()), 'bluff_catch_override', 'default'):
+
+        if is_rule_disabled(
+            getattr(self, "disable_rules", frozenset()), 'bluff_catch_override', 'default'
+        ):
             return strategy, make_disabled_trace(
-                layer='bluff_catch_override', rule_id='default',
+                layer='bluff_catch_override',
+                rule_id='default',
                 layer_order=layer_order_for('bluff_catch_override'),
             )
 
@@ -1875,12 +1963,13 @@ class TieredBotController(AIPlayerController):
         tilt_factor = self._zone_to_tilt_factor(emotional_state)
 
         spots = self._build_opponent_spots(game_state, manager)
-        stats, primary_spot, _ambiguous = (
-            self._select_exploitation_stats_from_spots(spots, game_state)
+        stats, primary_spot, _ambiguous = self._select_exploitation_stats_from_spots(
+            spots, game_state
         )
 
         decision_context = self._build_decision_context(
-            game_state, player_idx,
+            game_state,
+            player_idx,
             primary_aggressor_spot=primary_spot,
         )
 
@@ -1888,7 +1977,9 @@ class TieredBotController(AIPlayerController):
         # sliding window) to determine if EXTREME tier is active.
         # _compute_clamp was added in Item 2c.
         clamp_value, clamp_tier, _winning_axis = self._compute_clamp(
-            stats, manager, primary_spot,
+            stats,
+            manager,
+            primary_spot,
         )
 
         should_fire = should_apply_bluff_catch_override(
@@ -1917,8 +2008,9 @@ class TieredBotController(AIPlayerController):
             hand_strength=hand_strength,
             max_total_shift=clamp_value,
             legal_actions=valid_actions,
-            tier_label=clamp_tier.value.lower() if hasattr(clamp_tier, 'value')
-                else str(clamp_tier).lower(),
+            tier_label=clamp_tier.value.lower()
+            if hasattr(clamp_tier, 'value')
+            else str(clamp_tier).lower(),
             disable_rules=getattr(self, "disable_rules", frozenset()),
         )
 
@@ -1979,6 +2071,7 @@ class TieredBotController(AIPlayerController):
 
         if not hasattr(manager, '_exploitation_counters'):
             from collections import Counter
+
             manager._exploitation_counters = Counter()
         c = manager._exploitation_counters
 
@@ -2034,6 +2127,7 @@ class TieredBotController(AIPlayerController):
             return
         if not hasattr(manager, '_exploitation_counters'):
             from collections import Counter
+
             manager._exploitation_counters = Counter()
         c = manager._exploitation_counters
         if hand_strength in BLUFF_CATCH_TRIGGER_CLASSES:
@@ -2054,6 +2148,7 @@ class TieredBotController(AIPlayerController):
             return
         if not hasattr(manager, '_exploitation_counters'):
             from collections import Counter
+
             manager._exploitation_counters = Counter()
         c = manager._exploitation_counters
         is_strong = hand_strength in {
@@ -2069,8 +2164,12 @@ class TieredBotController(AIPlayerController):
             c['value_override_fired'] += 1
 
     def _tally_exploitation_event(
-        self, stats, offsets, decision_context,
-        spots=None, ambiguous_aggressor=False,
+        self,
+        stats,
+        offsets,
+        decision_context,
+        spots=None,
+        ambiguous_aggressor=False,
         multiway_cbet_intensity: float = 0.0,
     ):
         """Increment diagnostic counters for this decision.
@@ -2120,6 +2219,7 @@ class TieredBotController(AIPlayerController):
             return
         if not hasattr(manager, '_exploitation_counters'):
             from collections import Counter
+
             manager._exploitation_counters = Counter()
         c = manager._exploitation_counters
         c['decisions'] += 1
@@ -2148,8 +2248,7 @@ class TieredBotController(AIPlayerController):
                     active
                     and not any(s.is_all_in for s in active)
                     and all(
-                        s.stats.fold_to_cbet > 0.60
-                        and s.stats.cbet_faced_count >= 5
+                        s.stats.fold_to_cbet > 0.60 and s.stats.cbet_faced_count >= 5
                         for s in active
                     )
                 ):
@@ -2160,10 +2259,7 @@ class TieredBotController(AIPlayerController):
                     # multiway_cbet_intensity == 0 here only when the
                     # cold-start / adaptation_bias gate blocked it.
                     if multiway_cbet_intensity > 0.0 and offsets:
-                        cbet_fired = any(
-                            a.startswith('bet_') or a == 'check'
-                            for a in offsets
-                        )
+                        cbet_fired = any(a.startswith('bet_') or a == 'check' for a in offsets)
                         if cbet_fired:
                             c['fired_multiway_cbet'] += 1
 
@@ -2227,9 +2323,7 @@ class TieredBotController(AIPlayerController):
             and decision_context.is_flop_as_preflop_aggressor
             and decision_context.active_opponent_count == 1
         ):
-            cbet_fired = any(
-                a.startswith('bet_') or a == 'check' for a in offsets
-            )
+            cbet_fired = any(a.startswith('bet_') or a == 'check' for a in offsets)
             if cbet_fired:
                 c['fired_high_fold_to_cbet'] += 1
 
@@ -2302,10 +2396,7 @@ class TieredBotController(AIPlayerController):
             has_acted = bool(getattr(p, 'has_acted', False))
             can_act_behind = is_active and not is_all_in and not has_acted
 
-            is_blind = (
-                (sb_idx is not None and i == sb_idx)
-                or (bb_idx is not None and i == bb_idx)
-            )
+            is_blind = (sb_idx is not None and i == sb_idx) or (bb_idx is not None and i == bb_idx)
 
             # Pull stats from existing opponent model if present. Use
             # the non-creating accessor — spot construction runs at every
@@ -2340,23 +2431,35 @@ class TieredBotController(AIPlayerController):
                             # Phase 8.1a c-bet attempt fields. getattr-with-
                             # default keeps SimpleNamespace mocks happy.
                             cbet_attempt_rate=getattr(
-                                t, 'cbet_attempt_rate', 0.5,
+                                t,
+                                'cbet_attempt_rate',
+                                0.5,
                             ),
                             postflop_seen_as_pfr_count=getattr(
-                                t, '_postflop_seen_as_pfr_count', 0,
+                                t,
+                                '_postflop_seen_as_pfr_count',
+                                0,
                             ),
                             # Phase B Item 1 barrel fields.
                             barrel_frequency=getattr(
-                                t, 'barrel_frequency', 0.5,
+                                t,
+                                'barrel_frequency',
+                                0.5,
                             ),
                             barrel_opportunities=getattr(
-                                t, '_barrel_opportunity_count', 0,
+                                t,
+                                '_barrel_opportunity_count',
+                                0,
                             ),
                             third_barrel_frequency=getattr(
-                                t, 'third_barrel_frequency', 0.5,
+                                t,
+                                'third_barrel_frequency',
+                                0.5,
                             ),
                             third_barrel_opportunities=getattr(
-                                t, '_third_barrel_opportunity_count', 0,
+                                t,
+                                '_third_barrel_opportunity_count',
+                                0,
                             ),
                             # Phase 7.5 Step 0 fields — populated for
                             # diagnostic visibility. Item 2 consumes them
@@ -2371,59 +2474,85 @@ class TieredBotController(AIPlayerController):
                             # mocks built before this field landed still
                             # work (they fall back to neutral prior / 0).
                             pfr_per_open_opportunity=getattr(
-                                t, 'pfr_per_open_opportunity', 0.5,
+                                t,
+                                'pfr_per_open_opportunity',
+                                0.5,
                             ),
                             vpip_per_voluntary_opportunity=getattr(
-                                t, 'vpip_per_voluntary_opportunity', 0.5,
+                                t,
+                                'vpip_per_voluntary_opportunity',
+                                0.5,
                             ),
                             preflop_open_opportunities=getattr(
-                                t, '_preflop_open_opportunities', 0,
+                                t,
+                                '_preflop_open_opportunities',
+                                0,
                             ),
                             preflop_voluntary_opportunities=getattr(
-                                t, '_preflop_voluntary_opportunities', 0,
+                                t,
+                                '_preflop_voluntary_opportunities',
+                                0,
                             ),
                             # Polarization Phase A equity-at-action fields.
                             # getattr-with-default for SimpleNamespace
                             # tests predating the field.
                             equity_when_betting_postflop=getattr(
-                                t, 'equity_when_betting_postflop', 0.5,
+                                t,
+                                'equity_when_betting_postflop',
+                                0.5,
                             ),
                             equity_when_raising_postflop=getattr(
-                                t, 'equity_when_raising_postflop', 0.5,
+                                t,
+                                'equity_when_raising_postflop',
+                                0.5,
                             ),
                             equity_when_calling_postflop=getattr(
-                                t, 'equity_when_calling_postflop', 0.5,
+                                t,
+                                'equity_when_calling_postflop',
+                                0.5,
                             ),
                             _equity_betting_count=getattr(
-                                t, '_equity_betting_count', 0,
+                                t,
+                                '_equity_betting_count',
+                                0,
                             ),
                             _equity_raising_count=getattr(
-                                t, '_equity_raising_count', 0,
+                                t,
+                                '_equity_raising_count',
+                                0,
                             ),
                             _equity_calling_count=getattr(
-                                t, '_equity_calling_count', 0,
+                                t,
+                                '_equity_calling_count',
+                                0,
                             ),
                         )
 
-            spots.append(OpponentSpot(
-                name=p.name,
-                stats=stats,
-                is_active=is_active,
-                is_aggressor=(is_active and p.name == live_aggressor),
-                is_all_in=is_all_in,
-                current_bet=bet,
-                stack=stack,
-                committed_this_street=bet,
-                committed_this_hand=committed_hand,
-                can_act_behind=can_act_behind,
-                has_position_on_hero=(hero_idx is not None and i > hero_idx),
-                is_blind=is_blind,
-            ))
+            spots.append(
+                OpponentSpot(
+                    name=p.name,
+                    stats=stats,
+                    is_active=is_active,
+                    is_aggressor=(is_active and p.name == live_aggressor),
+                    is_all_in=is_all_in,
+                    current_bet=bet,
+                    stack=stack,
+                    committed_this_street=bet,
+                    committed_this_hand=committed_hand,
+                    can_act_behind=can_act_behind,
+                    has_position_on_hero=(hero_idx is not None and i > hero_idx),
+                    is_blind=is_blind,
+                )
+            )
         return spots
 
     def _select_exploitation_stats(
-        self, game_state, manager, hero_name,
-        active_opponents, money_committed,
+        self,
+        game_state,
+        manager,
+        hero_name,
+        active_opponents,
+        money_committed,
     ):
         """Legacy stats selector — preserved for tests / callers not yet on spots.
 
@@ -2457,16 +2586,24 @@ class TieredBotController(AIPlayerController):
                         # with-default keeps SimpleNamespace mocks
                         # backwards compatible.
                         pfr_per_open_opportunity=getattr(
-                            t, 'pfr_per_open_opportunity', 0.5,
+                            t,
+                            'pfr_per_open_opportunity',
+                            0.5,
                         ),
                         vpip_per_voluntary_opportunity=getattr(
-                            t, 'vpip_per_voluntary_opportunity', 0.5,
+                            t,
+                            'vpip_per_voluntary_opportunity',
+                            0.5,
                         ),
                         preflop_open_opportunities=getattr(
-                            t, '_preflop_open_opportunities', 0,
+                            t,
+                            '_preflop_open_opportunities',
+                            0,
                         ),
                         preflop_voluntary_opportunities=getattr(
-                            t, '_preflop_voluntary_opportunities', 0,
+                            t,
+                            '_preflop_voluntary_opportunities',
+                            0,
                         ),
                     )
         return manager.aggregate_active_opponents(
@@ -2476,7 +2613,9 @@ class TieredBotController(AIPlayerController):
         )
 
     def _select_exploitation_stats_from_spots(
-        self, spots, game_state,
+        self,
+        spots,
+        game_state,
     ):
         """Phase 6.7a: spot-aware facing-aggression selection.
 
@@ -2572,7 +2711,9 @@ class TieredBotController(AIPlayerController):
         return getattr(self, '_sim_last_preflop_aggressor', None)
 
     def _build_decision_context(
-        self, game_state, player_idx,
+        self,
+        game_state,
+        player_idx,
         primary_aggressor_spot: Optional[OpponentSpot] = None,
     ):
         """Build DecisionContext from game state.
@@ -2643,21 +2784,17 @@ class TieredBotController(AIPlayerController):
                     if getattr(p, 'is_folded', False):
                         continue
                     opponent_bet = getattr(p, 'bet', 0) or 0
-                    if (
-                        opponent_bet == highest_opponent_bet
-                        and getattr(p, 'stack', 1) <= 0
-                    ):
+                    if opponent_bet == highest_opponent_bet and getattr(p, 'stack', 1) <= 0:
                         facing_all_in = True
                         break
 
         facing_big_bet = (
-            not facing_all_in
-            and call_amount > 10 * big_blind
-            and call_amount > pot_total / 2
+            not facing_all_in and call_amount > 10 * big_blind and call_amount > pot_total / 2
         )
 
         active_opponent_count = sum(
-            1 for p in game_state.players
+            1
+            for p in game_state.players
             if p.name != hero_name and not getattr(p, 'is_folded', False)
         )
 
@@ -2671,9 +2808,7 @@ class TieredBotController(AIPlayerController):
         except Exception:
             valid_actions = []
         hero_has_bet_raise = (
-            'raise' in valid_actions
-            or 'bet' in valid_actions
-            or 'all_in' in valid_actions
+            'raise' in valid_actions or 'bet' in valid_actions or 'all_in' in valid_actions
         )
         is_flop_as_preflop_aggressor = (
             is_flop
@@ -2683,8 +2818,7 @@ class TieredBotController(AIPlayerController):
         )
 
         facing_aggressor_name = (
-            primary_aggressor_spot.name
-            if primary_aggressor_spot is not None else None
+            primary_aggressor_spot.name if primary_aggressor_spot is not None else None
         )
 
         # Phase 7.5 Item 1c: postflop spot detail for bluff-catch.
@@ -2705,6 +2839,7 @@ class TieredBotController(AIPlayerController):
         # pot_before_bet inputs as bet_size_pot_ratio above so the two
         # views are consistent.
         from .strategy.bet_size_classification import classify_bet_size
+
         bet_class = classify_bet_size(
             call_amount=call_amount,
             pot_before_bet=pot_before_bet_calc,
@@ -2725,14 +2860,13 @@ class TieredBotController(AIPlayerController):
         community = getattr(game_state, 'community_cards', None) or []
         if community and len(community) >= 3:
             try:
-                from .card_utils import card_to_string
                 from .board_analyzer import (
-                    classify_texture_bucket, analyze_board_texture,
+                    analyze_board_texture,
+                    classify_texture_bucket,
                 )
-                card_strs = [
-                    c if isinstance(c, str) else card_to_string(c)
-                    for c in community
-                ]
+                from .card_utils import card_to_string
+
+                card_strs = [c if isinstance(c, str) else card_to_string(c) for c in community]
                 board_texture = classify_texture_bucket(card_strs) or ''
                 analysis = analyze_board_texture(card_strs) or {}
                 is_paired_board = bool(analysis.get('paired', False))
@@ -2872,7 +3006,11 @@ class TieredBotController(AIPlayerController):
         return money
 
     def _apply_math_floor(
-        self, strategy, game_state, player_idx: int, valid_actions: List[str],
+        self,
+        strategy,
+        game_state,
+        player_idx: int,
+        valid_actions: List[str],
     ) -> Tuple['StrategyProfile', InterventionTrace]:
         """Run apply_pot_odds_floor with the right context pulled from game state.
 
@@ -2890,7 +3028,8 @@ class TieredBotController(AIPlayerController):
             big_blind = big_blind_of(game_state)
             pot_total = (
                 game_state.pot.get('total', 0)
-                if isinstance(getattr(game_state, 'pot', None), dict) else 0
+                if isinstance(getattr(game_state, 'pot', None), dict)
+                else 0
             )
             cost_to_call = getattr(game_state, 'call_amount', 0) or 0
             override, trace = apply_pot_odds_floor(
@@ -2910,18 +3049,20 @@ class TieredBotController(AIPlayerController):
                 )
             return override, trace
         except Exception as e:
-            logger.warning(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"math_floor failed safely: {e}"
-            )
+            logger.warning(f"[TIERED_BOT] {self.player_name}: " f"math_floor failed safely: {e}")
             return strategy, make_no_op_trace(
-                layer='math_floor', rule_id='default',
+                layer='math_floor',
+                rule_id='default',
                 layer_order=layer_order_for('math_floor'),
                 reason_code='math_floor_internal_error',
             )
 
     def _attach_expression(
-        self, decision: Dict, game_state, player_idx: int, phase: str,
+        self,
+        decision: Dict,
+        game_state,
+        player_idx: int,
+        phase: str,
     ) -> None:
         """Populate narration fields on a committed decision AND persist
         the decision-analysis row.
@@ -2939,14 +3080,24 @@ class TieredBotController(AIPlayerController):
         expression layer produced (or None if it didn't fire).
         """
         capture_id = self._run_expression_layer(
-            decision, game_state, player_idx, phase,
+            decision,
+            game_state,
+            player_idx,
+            phase,
         )
         self._persist_decision_analysis(
-            decision, game_state, player_idx, capture_id=capture_id,
+            decision,
+            game_state,
+            player_idx,
+            capture_id=capture_id,
         )
 
     def _run_expression_layer(
-        self, decision: Dict, game_state, player_idx: int, phase: str,
+        self,
+        decision: Dict,
+        game_state,
+        player_idx: int,
+        phase: str,
     ) -> Optional[int]:
         """Run the Layer 3 character expression (LLM narration).
 
@@ -2959,20 +3110,19 @@ class TieredBotController(AIPlayerController):
             return None
 
         try:
-            from .moment_analyzer import MomentAnalyzer
             from .card_utils import card_to_string
+            from .moment_analyzer import MomentAnalyzer
 
             player = game_state.players[player_idx]
-            personality_config = getattr(
-                getattr(self, 'ai_player', None), 'personality_config', {}
-            ) or {}
-
-            hand_cards = (
-                [card_to_string(c) for c in player.hand] if player.hand else []
+            personality_config = (
+                getattr(getattr(self, 'ai_player', None), 'personality_config', {}) or {}
             )
+
+            hand_cards = [card_to_string(c) for c in player.hand] if player.hand else []
             community_cards = (
                 [card_to_string(c) for c in game_state.community_cards]
-                if game_state.community_cards else []
+                if game_state.community_cards
+                else []
             )
 
             try:
@@ -2995,7 +3145,10 @@ class TieredBotController(AIPlayerController):
             # best-effort — any sub-step that fails leaves the field empty
             # and the corresponding YAML section is skipped.
             extras = self._build_expression_extras(
-                game_state, player, hand_cards, community_cards,
+                game_state,
+                player,
+                hand_cards,
+                community_cards,
             )
 
             # Narration gates via the shared parent helper — identical to
@@ -3020,7 +3173,8 @@ class TieredBotController(AIPlayerController):
             # Best-effort: any failure produces an empty list and the
             # generator's prompt template skips the corresponding block.
             opponent_observations = self._select_opponent_observations(
-                game_state, player,
+                game_state,
+                player,
             )
 
             # Relationship-context block — shared with chaos and
@@ -3035,8 +3189,10 @@ class TieredBotController(AIPlayerController):
             ):
                 try:
                     from .memory.relationship_prompt import build_relationship_context
+
                     active_opponent_names = [
-                        p.name for p in game_state.players
+                        p.name
+                        for p in game_state.players
                         if not p.is_folded and p.name != player.name
                     ]
                     relationship_context = build_relationship_context(
@@ -3059,13 +3215,9 @@ class TieredBotController(AIPlayerController):
                 phase=phase,
                 pot_size=getattr(game_state, 'pot_total', 0) or 0,
                 opponent_count=max(0, active_count - 1),
-                personality_name=personality_config.get(
-                    'name', self.player_name
-                ),
+                personality_name=personality_config.get('name', self.player_name),
                 play_style=personality_config.get('play_style', ''),
-                default_attitude=personality_config.get(
-                    'default_attitude', 'neutral'
-                ),
+                default_attitude=personality_config.get('default_attitude', 'neutral'),
                 verbal_tics=personality_config.get('verbal_tics', []) or [],
                 physical_tics=personality_config.get('physical_tics', []) or [],
                 drama_level=drama_level,
@@ -3083,9 +3235,7 @@ class TieredBotController(AIPlayerController):
                 recent_actions=extras['recent_actions'],
                 recent_own_speech_beats=self.recent_own_speech_beats(),
                 recent_own_action_beats=self.recent_own_action_beats(),
-                callouts=self.find_callouts(
-                    getattr(self, '_current_game_messages', None)
-                ),
+                callouts=self.find_callouts(getattr(self, '_current_game_messages', None)),
                 should_speak=should_speak,
                 should_gesture=should_gesture,
                 narration_facts=narration_facts,
@@ -3110,17 +3260,18 @@ class TieredBotController(AIPlayerController):
             # repetition prompt (action gestures filtered inside).
             self.remember_own_beats(narration.get('dramatic_sequence'))
         except Exception as e:
-            logger.warning(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"expression failed safely: {e}"
-            )
+            logger.warning(f"[TIERED_BOT] {self.player_name}: " f"expression failed safely: {e}")
             return None
 
         return capture_id_holder[0]
 
     def _persist_decision_analysis(
-        self, decision: Dict, game_state, player_idx: int,
-        *, capture_id: Optional[int] = None,
+        self,
+        decision: Dict,
+        game_state,
+        player_idx: int,
+        *,
+        capture_id: Optional[int] = None,
     ) -> None:
         """Persist the per-decision intervention_trace + pipeline snapshot.
 
@@ -3145,18 +3296,17 @@ class TieredBotController(AIPlayerController):
                 {'call_amount': cost_to_call},
                 capture_id=capture_id,
                 player_bet=getattr(player_obj, 'bet', 0),
-                all_players_bets=[
-                    (p.bet, p.is_folded) for p in game_state.players
-                ],
+                all_players_bets=[(p.bet, p.is_folded) for p in game_state.players],
             )
         except Exception as e:
             logger.warning(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"decision_analysis persistence failed: {e}"
+                f"[TIERED_BOT] {self.player_name}: " f"decision_analysis persistence failed: {e}"
             )
 
     def _select_opponent_observations(
-        self, game_state, player,
+        self,
+        game_state,
+        player,
     ) -> List[Tuple[str, str]]:
         """Best-effort selection of narrative observations for Layer 3.
 
@@ -3170,8 +3320,7 @@ class TieredBotController(AIPlayerController):
             return []
         try:
             active_opponents = [
-                p.name for p in game_state.players
-                if p.name != player.name and not p.is_folded
+                p.name for p in game_state.players if p.name != player.name and not p.is_folded
             ]
             if not active_opponents:
                 return []
@@ -3198,7 +3347,11 @@ class TieredBotController(AIPlayerController):
             return []
 
     def _build_expression_extras(
-        self, game_state, player, hand_cards: List[str], community_cards: List[str],
+        self,
+        game_state,
+        player,
+        hand_cards: List[str],
+        community_cards: List[str],
     ) -> Dict[str, Any]:
         """Compute hand label, BB-normalized situation, and recent-actions
         text for the Layer 3 narration prompt.
@@ -3208,8 +3361,8 @@ class TieredBotController(AIPlayerController):
         corresponding YAML section is skipped by ExpressionGenerator.
         """
         from .controllers import (
-            evaluate_hand_strength,
             classify_preflop_hand,
+            evaluate_hand_strength,
             summarize_messages,
         )
 
@@ -3283,8 +3436,7 @@ class TieredBotController(AIPlayerController):
         # left to call).
         short_stack = bool(stack_bb and stack_bb < 3.0)
         pot_committed = bool(
-            cost_to_call_bb > 0 and stack_bb > 0
-            and stack_bb < cost_to_call_bb * 3
+            cost_to_call_bb > 0 and stack_bb > 0 and stack_bb < cost_to_call_bb * 3
         )
 
         return {
@@ -3311,10 +3463,7 @@ class TieredBotController(AIPlayerController):
             action = valid_actions[0] if valid_actions else 'fold'
 
         if self.debug_logging:
-            logger.info(
-                f"[TIERED_BOT] {self.player_name}: "
-                f"postflop_fallback={action}"
-            )
+            logger.info(f"[TIERED_BOT] {self.player_name}: " f"postflop_fallback={action}")
 
         return {
             'action': action,
@@ -3325,9 +3474,7 @@ class TieredBotController(AIPlayerController):
             'bluff_likelihood': 0,
         }
 
-    def _validate_action(
-        self, action: str, raise_to: int, valid_actions: List[str]
-    ) -> tuple:
+    def _validate_action(self, action: str, raise_to: int, valid_actions: List[str]) -> tuple:
         """Ensure the resolved action is legal, with fallback priority."""
         fallback_order = {
             'raise': ['call', 'check', 'fold'],
@@ -3341,8 +3488,7 @@ class TieredBotController(AIPlayerController):
         for fb in fallbacks:
             if fb in valid_actions:
                 logger.debug(
-                    f"[TIERED_BOT] {self.player_name}: "
-                    f"Falling back from {action} to {fb}"
+                    f"[TIERED_BOT] {self.player_name}: " f"Falling back from {action} to {fb}"
                 )
                 return (fb, 0)
 

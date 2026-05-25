@@ -47,8 +47,8 @@ from poker.strategy.hand_classification import (
 )
 from poker.strategy.strategy_profile import StrategyProfile
 
-
 # ── Canonical archetype fixtures ────────────────────────────────────
+
 
 def _pure_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """Stats that classify_opponent_archetype labels 'pure_station':
@@ -60,7 +60,8 @@ def _pure_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.75, pfr=0.05,
+        vpip=0.75,
+        pfr=0.05,
         vpip_per_voluntary_opportunity=0.85,
         preflop_voluntary_opportunities=hands - 5,
         aggression_factor=0.3,
@@ -77,7 +78,8 @@ def _sticky_jammer_stats(hands: int = 100) -> AggregatedOpponentStats:
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.65, pfr=0.03,
+        vpip=0.65,
+        pfr=0.03,
         vpip_per_voluntary_opportunity=0.80,
         preflop_voluntary_opportunities=hands - 5,
         aggression_factor=0.5,
@@ -89,7 +91,8 @@ def _balanced_stats(hands: int = 100) -> AggregatedOpponentStats:
     """Mid-spectrum opponent that classify_opponent_archetype returns None for."""
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.25, pfr=0.20,
+        vpip=0.25,
+        pfr=0.20,
         vpip_per_voluntary_opportunity=0.40,
         preflop_voluntary_opportunities=hands - 5,
         aggression_factor=2.5,
@@ -97,21 +100,29 @@ def _balanced_stats(hands: int = 100) -> AggregatedOpponentStats:
     )
 
 
-def _spot(stats: AggregatedOpponentStats, *, is_active: bool = True,
-          is_all_in: bool = False) -> OpponentSpot:
+def _spot(
+    stats: AggregatedOpponentStats, *, is_active: bool = True, is_all_in: bool = False
+) -> OpponentSpot:
     return OpponentSpot(
-        name='Opp', stats=stats,
-        is_active=is_active, is_all_in=is_all_in,
+        name='Opp',
+        stats=stats,
+        is_active=is_active,
+        is_all_in=is_all_in,
     )
 
 
 def _strategy(call: float, fold: float, raise_: float = 0.0) -> StrategyProfile:
-    return StrategyProfile(action_probabilities={
-        'fold': fold, 'call': call, 'raise_67': raise_,
-    })
+    return StrategyProfile(
+        action_probabilities={
+            'fold': fold,
+            'call': call,
+            'raise_67': raise_,
+        }
+    )
 
 
 # ── Fixtures sanity: confirm the archetype labels are what we expect ─
+
 
 class TestArchetypeFixtures:
     """Sanity check that the fixtures land on the expected archetype labels.
@@ -133,6 +144,7 @@ class TestArchetypeFixtures:
 
 # ── Row 1: Value bet strong hands ↑ via Phase 8 for both archetypes ──
 
+
 class TestValueVsStationFiresForBothPassiveArchetypes:
     """The Phase 8 `value_vs_station` rule must fire (intensity > 0)
     for both pure_station and sticky_jammer, since hero's value-bet
@@ -141,22 +153,28 @@ class TestValueVsStationFiresForBothPassiveArchetypes:
     """
 
     def test_pure_station_drives_value_vs_station_upside(self):
-        intensity = compute_value_vs_station_intensity([
-            _spot(_pure_station_stats()),
-        ])
+        intensity = compute_value_vs_station_intensity(
+            [
+                _spot(_pure_station_stats()),
+            ]
+        )
         assert intensity > 0.0
 
     def test_sticky_jammer_drives_value_vs_station_upside(self):
-        intensity = compute_value_vs_station_intensity([
-            _spot(_sticky_jammer_stats()),
-        ])
+        intensity = compute_value_vs_station_intensity(
+            [
+                _spot(_sticky_jammer_stats()),
+            ]
+        )
         assert intensity > 0.0
 
     def test_non_station_does_not_drive_upside(self):
         # Balanced / aggressive opponent → no station upside
-        intensity = compute_value_vs_station_intensity([
-            _spot(_balanced_stats()),
-        ])
+        intensity = compute_value_vs_station_intensity(
+            [
+                _spot(_balanced_stats()),
+            ]
+        )
         assert intensity == 0.0
 
     def test_both_intensities_nontrivially_above_zero(self):
@@ -174,6 +192,7 @@ class TestValueVsStationFiresForBothPassiveArchetypes:
 
 # ── Row 4: Strong/nut continues at good prices fire for both ─────────
 
+
 class TestDefenseFloorFiresForStrongHandsRegardlessOfArchetype:
     """The §2 defense floor doesn't read archetype — only hand class +
     nut status + price. Per the table, strong/nut continues at good
@@ -181,15 +200,22 @@ class TestDefenseFloorFiresForStrongHandsRegardlessOfArchetype:
     floor fires identically regardless of which archetype hero faces.
     """
 
-    @pytest.mark.parametrize('hand_class,nut_status,req,expected_target', [
-        # Row 3: near/actual_nuts at ≤45% req → strong target
-        ('strong_made', NUT_ACTUAL, 0.40, FLOOR_TARGET_STRONG),
-        ('nuts', NUT_NEAR, 0.30, FLOOR_TARGET_STRONG),
-        # Row 4: strong_made at ≤35% req → keep_alive target
-        ('strong_made', NUT_NON_NUT_STRONG, 0.30, FLOOR_TARGET_KEEP_ALIVE),
-    ])
+    @pytest.mark.parametrize(
+        'hand_class,nut_status,req,expected_target',
+        [
+            # Row 3: near/actual_nuts at ≤45% req → strong target
+            ('strong_made', NUT_ACTUAL, 0.40, FLOOR_TARGET_STRONG),
+            ('nuts', NUT_NEAR, 0.30, FLOOR_TARGET_STRONG),
+            # Row 4: strong_made at ≤35% req → keep_alive target
+            ('strong_made', NUT_NON_NUT_STRONG, 0.30, FLOOR_TARGET_KEEP_ALIVE),
+        ],
+    )
     def test_strong_hands_at_good_prices_fire_floor(
-        self, hand_class, nut_status, req, expected_target,
+        self,
+        hand_class,
+        nut_status,
+        req,
+        expected_target,
     ):
         # The floor doesn't see the archetype directly — it only sees
         # what the hand_class + nut_status + price say. Confirming that
@@ -197,17 +223,22 @@ class TestDefenseFloorFiresForStrongHandsRegardlessOfArchetype:
         # virtue of the floor being archetype-agnostic.
         s = _strategy(call=0.1, fold=0.9)
         new_s, trace = apply_defense_floor(
-            s, hand_class=hand_class, nut_status=nut_status,
+            s,
+            hand_class=hand_class,
+            nut_status=nut_status,
             danger_flags=frozenset(),
-            required_equity=req, facing_bet=True,
+            required_equity=req,
+            facing_bet=True,
         )
         assert trace.fired is True
         assert new_s.action_probabilities['call'] == pytest.approx(
-            expected_target, abs=1e-6,
+            expected_target,
+            abs=1e-6,
         )
 
 
 # ── Row 3: Marginal continues vs large bets / jams — no widening ─────
+
 
 class TestDefenseFloorDoesNotWidenMarginalsAtLargeBets:
     """The plan's row 3 says marginal continues vs large bets / jams
@@ -226,9 +257,12 @@ class TestDefenseFloorDoesNotWidenMarginalsAtLargeBets:
         # would fire row 4 only at ≤35% req. At 40% no row matches.
         s = _strategy(call=0.05, fold=0.95)
         new_s, trace = apply_defense_floor(
-            s, hand_class='medium_made', nut_status=NUT_NON_NUT_STRONG,
+            s,
+            hand_class='medium_made',
+            nut_status=NUT_NON_NUT_STRONG,
             danger_flags=frozenset(),
-            required_equity=0.40, facing_bet=True,
+            required_equity=0.40,
+            facing_bet=True,
         )
         assert trace.fired is False
         assert new_s is s
@@ -238,9 +272,12 @@ class TestDefenseFloorDoesNotWidenMarginalsAtLargeBets:
         # classifiers; row 5 needs medium+).
         s = _strategy(call=0.05, fold=0.95)
         new_s, trace = apply_defense_floor(
-            s, hand_class='weak_made', nut_status=NUT_NON_NUT_STRONG,
+            s,
+            hand_class='weak_made',
+            nut_status=NUT_NON_NUT_STRONG,
             danger_flags=frozenset(),
-            required_equity=0.40, facing_bet=True,
+            required_equity=0.40,
+            facing_bet=True,
         )
         assert trace.fired is False
         assert new_s is s
@@ -250,9 +287,12 @@ class TestDefenseFloorDoesNotWidenMarginalsAtLargeBets:
         # medium_made at this price.
         s = _strategy(call=0.0, fold=1.0)
         new_s, trace = apply_defense_floor(
-            s, hand_class='medium_made', nut_status=NUT_NON_NUT_STRONG,
+            s,
+            hand_class='medium_made',
+            nut_status=NUT_NON_NUT_STRONG,
             danger_flags=frozenset(),
-            required_equity=0.47, facing_bet=True,
+            required_equity=0.47,
+            facing_bet=True,
         )
         assert trace.fired is False
         assert new_s is s
@@ -264,15 +304,19 @@ class TestDefenseFloorDoesNotWidenMarginalsAtLargeBets:
         # against Phase 8.1b-style over-widening.
         s = _strategy(call=0.1, fold=0.9)
         new_s, trace = apply_defense_floor(
-            s, hand_class='medium_made', nut_status=NUT_BLUFF_CATCHER,
+            s,
+            hand_class='medium_made',
+            nut_status=NUT_BLUFF_CATCHER,
             danger_flags=frozenset({FOUR_STRAIGHT_BOARD}),
-            required_equity=0.15, facing_bet=True,
+            required_equity=0.15,
+            facing_bet=True,
         )
         assert trace.fired is False
         assert trace.reason_code == 'no_eligible_row'
 
 
 # ── Row 3: pure_station — allow wider AT GOOD PRICES (§2 row 5) ──────
+
 
 class TestDefenseFloorWidensCheapMediumHands:
     """The plan's row 3 says pure_station's marginal continues can
@@ -290,13 +334,17 @@ class TestDefenseFloorWidensCheapMediumHands:
         # 18% req = "small" bucket → row 5 fires for medium_made+
         s = _strategy(call=0.1, fold=0.9)
         new_s, trace = apply_defense_floor(
-            s, hand_class='medium_made', nut_status=NUT_NON_NUT_STRONG,
+            s,
+            hand_class='medium_made',
+            nut_status=NUT_NON_NUT_STRONG,
             danger_flags=frozenset(),
-            required_equity=0.18, facing_bet=True,
+            required_equity=0.18,
+            facing_bet=True,
         )
         assert trace.fired is True
         assert new_s.action_probabilities['call'] == pytest.approx(
-            FLOOR_TARGET_KEEP_ALIVE, abs=1e-6,
+            FLOOR_TARGET_KEEP_ALIVE,
+            abs=1e-6,
         )
 
     def test_medium_made_just_above_cheap_threshold_does_not_fire(self):
@@ -306,8 +354,11 @@ class TestDefenseFloorWidensCheapMediumHands:
         # disqualifies row 4 to confirm row 5's ceiling.
         s = _strategy(call=0.1, fold=0.9)
         new_s, trace = apply_defense_floor(
-            s, hand_class='medium_made', nut_status='unknown',
+            s,
+            hand_class='medium_made',
+            nut_status='unknown',
             danger_flags=frozenset(),
-            required_equity=0.22, facing_bet=True,
+            required_equity=0.22,
+            facing_bet=True,
         )
         assert trace.fired is False

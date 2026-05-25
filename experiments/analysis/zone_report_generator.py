@@ -6,15 +6,15 @@ distributions, and comparison to PRD targets.
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict
+
+from experiments.tuning.zone_parameter_tuner import ZoneParameterTuner
 
 from .zone_metrics_analyzer import (
-    ZoneMetricsAnalyzer,
-    ZoneDistribution,
     TiltBandDistribution,
-    PRD_TARGETS,
+    ZoneDistribution,
+    ZoneMetricsAnalyzer,
 )
-from experiments.tuning.zone_parameter_tuner import ZoneParameterTuner
 
 
 class ZoneReportGenerator:
@@ -61,13 +61,13 @@ class ZoneReportGenerator:
         lines = []
 
         # Header
-        lines.append(f"# Psychology Zone System Report")
-        lines.append(f"")
+        lines.append("# Psychology Zone System Report")
+        lines.append("")
         lines.append(f"**Experiment ID**: {experiment_id}")
         lines.append(f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"**Total Decisions Analyzed**: {summary['total_decisions']}")
         lines.append(f"**Total Zone Transitions**: {summary['total_transitions']}")
-        lines.append(f"")
+        lines.append("")
 
         # Summary section
         lines.append("## Summary")
@@ -115,7 +115,9 @@ class ZoneReportGenerator:
         if include_recommendations and analysis.recommendations:
             lines.append("## Tuning Recommendations")
             lines.append("")
-            lines.append("*These are informational recommendations - manual review required before applying.*")
+            lines.append(
+                "*These are informational recommendations - manual review required before applying.*"
+            )
             lines.append("")
             lines.append(self._generate_recommendations_table(analysis.recommendations))
             lines.append("")
@@ -136,9 +138,9 @@ class ZoneReportGenerator:
 
         lines = []
         lines.append(f"{status_emoji} **Overall Status**: {passed}/4 bands within target")
-        lines.append(f"")
-        lines.append(f"| Metric | Value | Target | Status |")
-        lines.append(f"|--------|-------|--------|--------|")
+        lines.append("")
+        lines.append("| Metric | Value | Target | Status |")
+        lines.append("|--------|-------|--------|--------|")
 
         band_names = {
             'baseline': 'Baseline (stable)',
@@ -178,13 +180,13 @@ class ZoneReportGenerator:
             diff = value - target_mid
             diff_str = f"+{diff:.1%}" if diff > 0 else f"{diff:.1%}"
             status = {'pass': '✅ Pass', 'warn': '⚠️ Warn', 'fail': '❌ Fail'}[data['status']]
-            lines.append(f"| {name} | {value:.1%} | {data['target_min']:.0%}-{data['target_max']:.0%} | {diff_str} | {status} |")
+            lines.append(
+                f"| {name} | {value:.1%} | {data['target_min']:.0%}-{data['target_max']:.0%} | {diff_str} | {status} |"
+            )
 
         return "\n".join(lines)
 
-    def _generate_player_zone_table(
-        self, distributions: Dict[str, ZoneDistribution]
-    ) -> str:
+    def _generate_player_zone_table(self, distributions: Dict[str, ZoneDistribution]) -> str:
         """Generate per-player zone distribution table."""
         lines = []
         lines.append("| Player | Decisions | Poker Face | Commanding | Aggro | Guarded | Neutral |")
@@ -204,9 +206,7 @@ class ZoneReportGenerator:
 
         return "\n".join(lines)
 
-    def _generate_player_tilt_table(
-        self, tilt_bands: Dict[str, TiltBandDistribution]
-    ) -> str:
+    def _generate_player_tilt_table(self, tilt_bands: Dict[str, TiltBandDistribution]) -> str:
         """Generate per-player tilt band table."""
         lines = []
         lines.append("| Player | Baseline | Medium | High | Full Tilt |")
@@ -227,9 +227,7 @@ class ZoneReportGenerator:
 
         return "\n".join(lines)
 
-    def _generate_thought_stats_table(
-        self, stats: Dict[str, Dict[str, Any]]
-    ) -> str:
+    def _generate_thought_stats_table(self, stats: Dict[str, Dict[str, Any]]) -> str:
         """Generate intrusive thought statistics table."""
         lines = []
         lines.append("| Player | Decisions | Injections | Rate |")

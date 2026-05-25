@@ -17,8 +17,8 @@ import pytest
 from poker.memory.cbet_detector import CbetDetector
 from poker.memory.opponent_model import (
     OpponentTendencies,
-    _build_aggregate_from_single,
     _build_aggregate_from_multi,
+    _build_aggregate_from_single,
 )
 from poker.strategy.exploitation import (
     AggregatedOpponentStats,
@@ -26,8 +26,8 @@ from poker.strategy.exploitation import (
     aggregate_from_spots,
 )
 
-
 # ── CbetDetector emission tests ────────────────────────────────────
+
 
 class TestFlopCheckBarrelDetection:
     def test_check_through_flop_then_turn_bet_emits_true(self):
@@ -116,6 +116,7 @@ class TestFlopCheckBarrelDetection:
 
 # ── OpponentTendencies math ────────────────────────────────────────
 
+
 class TestFlopCheckBarrelTendenciesMath:
     def test_neutral_prior_until_first_opportunity(self):
         t = OpponentTendencies()
@@ -133,11 +134,12 @@ class TestFlopCheckBarrelTendenciesMath:
         t.update_flop_check_barrel_attempt(True)
         t.update_flop_check_barrel_attempt(True)
         t.update_flop_check_barrel_attempt(False)
-        assert t.flop_check_then_barrel_rate == pytest.approx(2/3)
+        assert t.flop_check_then_barrel_rate == pytest.approx(2 / 3)
         assert t._flop_check_barrel_opportunity_count == 3
 
 
 # ── Aggregator surface ─────────────────────────────────────────────
+
 
 class TestAggregatorSurface:
     def test_aggregated_stats_defaults(self):
@@ -176,10 +178,15 @@ class TestAggregatorSurface:
             flop_check_barrel_opportunities=18,
         )
         spot = OpponentSpot(
-            name='TrapBait', stats=stats,
-            is_active=True, is_aggressor=False, is_all_in=False,
-            current_bet=0, stack=10000,
-            committed_this_street=0, committed_this_hand=100,
+            name='TrapBait',
+            stats=stats,
+            is_active=True,
+            is_aggressor=False,
+            is_all_in=False,
+            current_bet=0,
+            stack=10000,
+            committed_this_street=0,
+            committed_this_hand=100,
         )
         agg = aggregate_from_spots([spot])
         assert agg.flop_check_then_barrel_rate == 0.72

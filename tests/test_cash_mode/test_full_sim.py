@@ -37,7 +37,6 @@ from cash_mode.full_sim import (
 )
 from cash_mode.tables import ai_slot, open_slot
 
-
 # Personalities pulled from personalities.json. Using real names so
 # the TieredBotController loads a real personality config (rather
 # than falling back to defaults on unknown names).
@@ -88,9 +87,7 @@ class TestPlayOneHandRealCardplay:
         )
 
         total_after = sum(s.get("chips", 0) for s in result.new_seats)
-        assert total_after == total_before, (
-            f"chips not conserved: {total_before} -> {total_after}"
-        )
+        assert total_after == total_before, f"chips not conserved: {total_before} -> {total_after}"
 
     def test_determinism_with_fresh_cache(self):
         """Same starting seats + same RNG seed + fresh cache yields
@@ -102,13 +99,17 @@ class TestPlayOneHandRealCardplay:
         seats = _build_seats(5000, 4)
 
         result_a = play_one_hand(
-            seats, big_blind=100, rng=random.Random(10),
+            seats,
+            big_blind=100,
+            rng=random.Random(10),
             sandbox_id="test-sandbox-1",
             name_for=_identity_name_for,
             controller_cache=LruControllerCache(max_size=10),
         )
         result_b = play_one_hand(
-            seats, big_blind=100, rng=random.Random(10),
+            seats,
+            big_blind=100,
+            rng=random.Random(10),
             sandbox_id="test-sandbox-1",
             name_for=_identity_name_for,
             controller_cache=LruControllerCache(max_size=10),
@@ -123,9 +124,12 @@ class TestPlayOneHandRealCardplay:
     def test_handsimresult_shape(self, warm_cache):
         seats = _build_seats(5000, 4)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(7),
+            seats,
+            big_blind=100,
+            rng=random.Random(7),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
 
         assert isinstance(result, HandSimResult)
@@ -151,9 +155,12 @@ class TestPlayOneHandDealerRotation:
     def test_starting_dealer_seat_idx_is_honored(self, warm_cache):
         seats = _build_seats(5000, 4)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
             starting_dealer_seat_idx=2,
         )
         assert result.dealer_seat_idx == 2
@@ -164,10 +171,13 @@ class TestPlayOneHandDealerRotation:
         falls back to player 0 rather than crashing."""
         seats = _build_seats(5000, 4)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
-            starting_dealer_seat_idx=5,   # open seat in this fixture
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
+            starting_dealer_seat_idx=5,  # open seat in this fixture
         )
         assert result.dealer_seat_idx == 0
 
@@ -178,9 +188,12 @@ class TestPlayOneHandDealerRotation:
         and seat 0 is the first AI in the fixture)."""
         seats = _build_seats(5000, 4)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
         assert result.dealer_seat_idx == 0
 
@@ -189,9 +202,12 @@ class TestPlayOneHandDealerRotation:
         before = [dict(s) for s in seats]
 
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
 
         assert seats == before, "play_one_hand must not mutate input seats"
@@ -204,9 +220,12 @@ class TestPlayOneHandDealerRotation:
         winners = set()
         for seed in range(40):
             result = play_one_hand(
-                seats, big_blind=100, rng=random.Random(seed),
+                seats,
+                big_blind=100,
+                rng=random.Random(seed),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+                name_for=_identity_name_for,
+                controller_cache=warm_cache,
             )
             if result.winner_pid:
                 winners.add(result.winner_pid)
@@ -218,9 +237,12 @@ class TestPlayOneHandNoOpCases:
     def test_only_one_ai_returns_no_op(self, warm_cache):
         seats = _build_seats(5000, 1)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
         assert result.winner_pid is None
         assert result.delta == 0
@@ -231,9 +253,12 @@ class TestPlayOneHandNoOpCases:
     def test_zero_ais_returns_no_op(self, warm_cache):
         seats = [open_slot() for _ in range(6)]
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
         assert result.winner_pid is None
         assert result.delta == 0
@@ -245,17 +270,23 @@ class TestControllerCacheReuse:
         seats = _build_seats(5000, 4)
 
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
         )
         assert len(cache) == 4
 
         # Second call should not grow the cache — same 4 AIs.
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(1),
+            seats,
+            big_blind=100,
+            rng=random.Random(1),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
         )
         assert len(cache) == 4
 
@@ -264,16 +295,22 @@ class TestControllerCacheReuse:
         seats = _build_seats(5000, 4)
 
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
         )
         ctrl_first = cache.get("Napoleon")
 
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(1),
+            seats,
+            big_blind=100,
+            rng=random.Random(1),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
         )
         ctrl_second = cache.get("Napoleon")
 
@@ -292,19 +329,20 @@ class TestHandEventDetection:
         seats = [
             ai_slot("Napoleon", 50_000),
             ai_slot("Abraham Lincoln", 50_000),
-            ai_slot("Buddha", 50),   # 0.5 BB — busts on most hands
+            ai_slot("Buddha", 50),  # 0.5 BB — busts on most hands
         ] + [open_slot()] * 3
 
         saw_bust = False
         for seed in range(20):
             result = play_one_hand(
-                seats, big_blind=100, rng=random.Random(seed),
+                seats,
+                big_blind=100,
+                rng=random.Random(seed),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+                name_for=_identity_name_for,
+                controller_cache=warm_cache,
             )
-            bust_events = [
-                e for e in result.hand_events if e.type == HAND_EVENT_BUST
-            ]
+            bust_events = [e for e in result.hand_events if e.type == HAND_EVENT_BUST]
             if bust_events:
                 saw_bust = True
                 # Bust event must name the short-stacked player.
@@ -323,16 +361,15 @@ class TestHandEventDetection:
         BUST events should be empty for the common case."""
         seats = _build_seats(10_000, 4)
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+            name_for=_identity_name_for,
+            controller_cache=warm_cache,
         )
-        bust_events = [
-            e for e in result.hand_events if e.type == HAND_EVENT_BUST
-        ]
-        assert bust_events == [], (
-            "healthy stacks shouldn't bust on a single 100bb hand"
-        )
+        bust_events = [e for e in result.hand_events if e.type == HAND_EVENT_BUST]
+        assert bust_events == [], "healthy stacks shouldn't bust on a single 100bb hand"
 
 
 class TestHandBurstCount:
@@ -345,13 +382,17 @@ class TestHandBurstCount:
         always_fire = random.Random(1)
         # base_prob=1.0 → always 1 hand
         result = hand_burst_count(
-            gap_seconds=5.0, base_prob=1.0, rng=always_fire,
+            gap_seconds=5.0,
+            base_prob=1.0,
+            rng=always_fire,
         )
         assert result == 1
 
         # base_prob=0.0 → never fires
         result = hand_burst_count(
-            gap_seconds=5.0, base_prob=0.0, rng=random.Random(),
+            gap_seconds=5.0,
+            base_prob=0.0,
+            rng=random.Random(),
         )
         assert result == 0
 
@@ -367,7 +408,9 @@ class TestHandBurstCount:
     def test_long_gap_scales_with_pacing(self):
         # 5-minute gap at 20s pacing → 15 hands
         result = hand_burst_count(
-            gap_seconds=300.0, base_prob=1.0, rng=random.Random(),
+            gap_seconds=300.0,
+            base_prob=1.0,
+            rng=random.Random(),
         )
         assert result == 15
 
@@ -375,7 +418,9 @@ class TestHandBurstCount:
         # 2 hours unwatched would naively budget 360 hands; cap
         # protects the lobby response budget.
         result = hand_burst_count(
-            gap_seconds=7200.0, base_prob=1.0, rng=random.Random(),
+            gap_seconds=7200.0,
+            base_prob=1.0,
+            rng=random.Random(),
         )
         assert result == DEFAULT_BURST_HAND_CAP
 
@@ -383,7 +428,9 @@ class TestHandBurstCount:
         """Defensive: a future-dated last_activity_at (clock skew)
         shouldn't drive the burst into negative territory."""
         result = hand_burst_count(
-            gap_seconds=0.0, base_prob=0.0, rng=random.Random(),
+            gap_seconds=0.0,
+            base_prob=0.0,
+            rng=random.Random(),
         )
         assert result == 0
 
@@ -413,9 +460,12 @@ class TestMemoryFlatness:
         # PromptManager templates, etc. load lazily).
         for seed in range(5):
             play_one_hand(
-                seats, big_blind=100, rng=random.Random(seed),
+                seats,
+                big_blind=100,
+                rng=random.Random(seed),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+                name_for=_identity_name_for,
+                controller_cache=warm_cache,
             )
 
         tracemalloc.start()
@@ -423,9 +473,12 @@ class TestMemoryFlatness:
 
         for seed in range(1000):
             play_one_hand(
-                seats, big_blind=100, rng=random.Random(100 + seed),
+                seats,
+                big_blind=100,
+                rng=random.Random(100 + seed),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=warm_cache,
+                name_for=_identity_name_for,
+                controller_cache=warm_cache,
             )
 
         after = tracemalloc.take_snapshot()
@@ -462,15 +515,16 @@ class TestPsychologyPersistence:
         # Fresh cache so every seat misses.
         fresh_cache = LruControllerCache(max_size=10)
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=fresh_cache,
+            name_for=_identity_name_for,
+            controller_cache=fresh_cache,
             bankroll_repo=repo,
         )
         # All four seated AIs are cache misses → one load per pid.
-        loaded_pids = {
-            call.args[0] for call in repo.load_emotional_state_json.call_args_list
-        }
+        loaded_pids = {call.args[0] for call in repo.load_emotional_state_json.call_args_list}
         assert loaded_pids == set(PERSONALITIES[:4])
 
     def test_cache_hit_skips_hydrate(self, warm_cache):
@@ -485,18 +539,24 @@ class TestPsychologyPersistence:
         cache = LruControllerCache(max_size=10)
         # First call: all 4 misses → 4 loads.
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
             bankroll_repo=repo,
         )
         first_loads = repo.load_emotional_state_json.call_count
 
         # Second call: all 4 hits → 0 additional loads.
         play_one_hand(
-            seats, big_blind=100, rng=random.Random(1),
+            seats,
+            big_blind=100,
+            rng=random.Random(1),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
             bankroll_repo=repo,
         )
         second_loads = repo.load_emotional_state_json.call_count
@@ -516,17 +576,18 @@ class TestPsychologyPersistence:
         cache = LruControllerCache(max_size=10)
         for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS):
             play_one_hand(
-                seats, big_blind=100, rng=random.Random(hand_i),
+                seats,
+                big_blind=100,
+                rng=random.Random(hand_i),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+                name_for=_identity_name_for,
+                controller_cache=cache,
                 bankroll_repo=repo,
             )
 
         # Hand N (counting from 1) is the flush trigger. After
         # exactly N hands, every AI should have been flushed once.
-        flushed_pids = {
-            call.args[0] for call in repo.save_emotional_state_json.call_args_list
-        }
+        flushed_pids = {call.args[0] for call in repo.save_emotional_state_json.call_args_list}
         assert flushed_pids == set(PERSONALITIES[:4])
 
     def test_no_flush_before_threshold(self):
@@ -542,9 +603,12 @@ class TestPsychologyPersistence:
         # Run one fewer hand than the flush threshold.
         for hand_i in range(PSYCHOLOGY_FLUSH_EVERY_HANDS - 1):
             play_one_hand(
-                seats, big_blind=100, rng=random.Random(hand_i),
+                seats,
+                big_blind=100,
+                rng=random.Random(hand_i),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+                name_for=_identity_name_for,
+                controller_cache=cache,
                 bankroll_repo=repo,
             )
         assert repo.save_emotional_state_json.call_count == 0
@@ -559,9 +623,12 @@ class TestPsychologyPersistence:
         # assertion to make here — just that the absence of a repo
         # is handled gracefully throughout the call.
         result = play_one_hand(
-            seats, big_blind=100, rng=random.Random(0),
+            seats,
+            big_blind=100,
+            rng=random.Random(0),
             sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+            name_for=_identity_name_for,
+            controller_cache=cache,
         )
         assert result is not None
 
@@ -580,14 +647,15 @@ class TestPsychologyPersistence:
         )
 
         cache = LruControllerCache(max_size=10)
-        with patch(
-            "poker.player_psychology.PlayerPsychology.from_dict"
-        ) as mock_from_dict:
+        with patch("poker.player_psychology.PlayerPsychology.from_dict") as mock_from_dict:
             mock_from_dict.return_value = MagicMock()
             play_one_hand(
-                seats, big_blind=100, rng=random.Random(0),
+                seats,
+                big_blind=100,
+                rng=random.Random(0),
                 sandbox_id="test-sandbox-1",
-            name_for=_identity_name_for, controller_cache=cache,
+                name_for=_identity_name_for,
+                controller_cache=cache,
                 bankroll_repo=repo,
             )
         # Only Napoleon had a JSON blob → from_dict called once.

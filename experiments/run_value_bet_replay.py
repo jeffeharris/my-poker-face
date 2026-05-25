@@ -17,8 +17,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from poker.repositories import create_repos
 from experiments.run_replay_experiment import ReplayExperimentRunner
+from poker.repositories import create_repos
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +74,7 @@ VARIANTS = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def query_capture_ids(db_path: str) -> list[int]:
     """Find 80%+ equity postflop checks from the source experiment."""
     sql = """
@@ -105,13 +106,16 @@ def print_summary(repo, experiment_id: int) -> None:
     # Action distribution per variant
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT variant, new_action, COUNT(*) as cnt
             FROM replay_results
             WHERE experiment_id = ?
             GROUP BY variant, new_action
             ORDER BY variant, cnt DESC
-        """, (experiment_id,)).fetchall()
+        """,
+            (experiment_id,),
+        ).fetchall()
 
     # Build table: variant -> {action: count}
     action_dist: dict[str, dict[str, int]] = {}
@@ -124,23 +128,27 @@ def print_summary(repo, experiment_id: int) -> None:
 
     # Print header
     col_w = 14
-    header = f"{'Variant':<20}" + "".join(f"{a:>{col_w}}" for a in all_actions) + f"{'Total':>{col_w}}"
+    header = (
+        f"{'Variant':<20}" + "".join(f"{a:>{col_w}}" for a in all_actions) + f"{'Total':>{col_w}}"
+    )
     print(header)
     print("-" * len(header))
 
     for variant in sorted(action_dist):
         total = sum(action_dist[variant].values())
-        cols = "".join(
-            f"{action_dist[variant].get(a, 0):>{col_w}}" for a in all_actions
-        )
+        cols = "".join(f"{action_dist[variant].get(a, 0):>{col_w}}" for a in all_actions)
         print(f"{variant:<20}{cols}{total:>{col_w}}")
 
     # Per-variant stats from summary
     print("\n" + "-" * 72)
-    print(f"{'Variant':<20}{'Changed':>10}{'Improved':>10}{'Degraded':>10}{'Avg EV Δ':>12}{'Errors':>8}")
+    print(
+        f"{'Variant':<20}{'Changed':>10}{'Improved':>10}{'Degraded':>10}{'Avg EV Δ':>12}{'Errors':>8}"
+    )
     print("-" * 72)
     for variant, stats in sorted(summary.get("by_variant", {}).items()):
-        ev_delta = f"{stats['avg_ev_delta']:.3f}" if stats.get("avg_ev_delta") is not None else "N/A"
+        ev_delta = (
+            f"{stats['avg_ev_delta']:.3f}" if stats.get("avg_ev_delta") is not None else "N/A"
+        )
         print(
             f"{variant:<20}"
             f"{stats['actions_changed']:>10}"
@@ -160,11 +168,13 @@ def print_summary(repo, experiment_id: int) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     # 1. Query capture IDs
     logger.info(
         "Querying exp %d (%s) for 80%%+ equity checks...",
-        SOURCE_EXPERIMENT_ID, SOURCE_VARIANT,
+        SOURCE_EXPERIMENT_ID,
+        SOURCE_VARIANT,
     )
     capture_ids = query_capture_ids(DB_PATH)
     if not capture_ids:
@@ -202,8 +212,12 @@ def main():
         max_workers=3,
         progress_callback=progress,
     )
-    logger.info("Running %d captures × %d variants = %d replays...",
-                len(capture_ids), len(VARIANTS), len(capture_ids) * len(VARIANTS))
+    logger.info(
+        "Running %d captures × %d variants = %d replays...",
+        len(capture_ids),
+        len(VARIANTS),
+        len(capture_ids) * len(VARIANTS),
+    )
     runner.run_experiment(experiment_id)
 
     # 4. Print summary

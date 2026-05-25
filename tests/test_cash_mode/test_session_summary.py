@@ -17,7 +17,6 @@ import pytest
 
 from cash_mode.session_summary import summarize_cash_session
 
-
 HUMAN = "Hero"
 
 
@@ -58,7 +57,10 @@ def _hand(
         "hole_cards": {},
         "community_cards": [],
         "actions": actions,
-        "winners": [{"name": n, "amount_won": pot_size, "hand_name": None, "hand_rank": None} for n in winners],
+        "winners": [
+            {"name": n, "amount_won": pot_size, "hand_name": None, "hand_rank": None}
+            for n in winners
+        ],
         "pot_size": pot_size,
         "was_showdown": False,
     }
@@ -242,8 +244,8 @@ def test_staked_session_net_pnl_uses_player_take_home():
         fallback_hand_count=3,
         is_staked=True,
         sponsor_principal=500,  # sponsor put up $500
-        sponsor_repaid=850,     # sponsor pulled $850 off the top
-        player_take_home=350,   # player walks away with $350
+        sponsor_repaid=850,  # sponsor pulled $850 off the top
+        player_take_home=350,  # player walks away with $350
     )
     # Headline reflects player take-home, NOT cash_out - principal
     # (which would say +$700, double-counting the sponsor's recovery).

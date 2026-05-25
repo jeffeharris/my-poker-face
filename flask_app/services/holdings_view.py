@@ -94,7 +94,7 @@ def compute_holdings_snapshot(
     }
 
 
-MAX_SERIES = 12          # plotted-line cap; rest still appear in the holdings table
+MAX_SERIES = 12  # plotted-line cap; rest still appear in the holdings table
 MAX_POINTS_PER_SERIES = 400
 
 
@@ -129,7 +129,8 @@ def compute_holdings_history(
     since_iso = since.isoformat()
 
     entries = ledger_repo.non_bank_entries_since(
-        since_iso, sandbox_id=sandbox_id,
+        since_iso,
+        sandbox_id=sandbox_id,
     )
 
     series_by_entity: Dict[str, List[Dict[str, Any]]] = {}
@@ -160,11 +161,13 @@ def compute_holdings_history(
 
         new_total = running.get(entity, 0) + signed
         running[entity] = new_total
-        series_by_entity.setdefault(entity, []).append({
-            't': created_at,
-            'value': new_total,
-            'reason': entry['reason'],
-        })
+        series_by_entity.setdefault(entity, []).append(
+            {
+                't': created_at,
+                'value': new_total,
+                'reason': entry['reason'],
+            }
+        )
 
     # Flatten each series to `now` so the chart doesn't end at the
     # last event — feels broken otherwise when the latest activity was
@@ -172,11 +175,13 @@ def compute_holdings_history(
     end_iso = _normalize_to_utc_iso(now.isoformat())
     for entity, points in series_by_entity.items():
         if not points or points[-1]['t'] != end_iso:
-            points.append({
-                't': end_iso,
-                'value': running[entity],
-                'reason': 'now',
-            })
+            points.append(
+                {
+                    't': end_iso,
+                    'value': running[entity],
+                    'reason': 'now',
+                }
+            )
 
     # Resolve labels: AI personalities → display name, players → user
     # name / email. Done after the walk so we only look up entities
@@ -249,7 +254,8 @@ def _normalize_to_utc_iso(value: Optional[str]) -> Optional[str]:
 
 
 def _downsample(
-    points: List[Dict[str, Any]], target: int,
+    points: List[Dict[str, Any]],
+    target: int,
 ) -> List[Dict[str, Any]]:
     """Cap a time-ordered point list to `target` points, preserving shape.
 
@@ -311,9 +317,7 @@ def _collect_ai_rows(
     pairs: List[Tuple[str, str]] = []
     if sandbox_id is None:
         try:
-            pairs = list(
-                bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox()
-            )
+            pairs = list(bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox())
         except AttributeError:
             # Degraded fallback: list unique personality_ids without a
             # sandbox column; show them as cross-sandbox blanks.
@@ -342,41 +346,50 @@ def _collect_ai_rows(
                 stored = int(state.chips) if state else 0
             except Exception as e:
                 logger.warning(
-                    "holdings: load_ai_bankroll(%r, %r) failed: %s", pid, loadable_sid, e,
+                    "holdings: load_ai_bankroll(%r, %r) failed: %s",
+                    pid,
+                    loadable_sid,
+                    e,
                 )
         projected = stored
         if loadable_sid is not None:
             try:
                 projected = int(
                     bankroll_repo.load_ai_bankroll_current(
-                        pid, sandbox_id=loadable_sid, now=now,
-                    ) or stored
+                        pid,
+                        sandbox_id=loadable_sid,
+                        now=now,
+                    )
+                    or stored
                 )
             except Exception as e:
                 logger.warning(
                     "holdings: load_ai_bankroll_current(%r, %r) failed: %s",
-                    pid, loadable_sid, e,
+                    pid,
+                    loadable_sid,
+                    e,
                 )
 
         name = _resolve_personality_name(personality_repo, pid)
         pnl = _lookup_cash_pnl(cash_pnl_by_observer, pid, name)
-        rows.append({
-            'entity_id': f'ai:{pid}',
-            'kind': 'ai',
-            'id': pid,
-            'name': name,
-            'sandbox_id': sid or None,
-            'stored_chips': stored,
-            'projected_chips': projected,
-            'uncommitted_regen': projected - stored,
-            'last_regen_tick': (
-                state.last_regen_tick.isoformat()
-                if state and state.last_regen_tick else None
-            ),
-            'chips_won': pnl['chips_won'],
-            'chips_lost': pnl['chips_lost'],
-            'net_pnl': pnl['net_pnl'],
-        })
+        rows.append(
+            {
+                'entity_id': f'ai:{pid}',
+                'kind': 'ai',
+                'id': pid,
+                'name': name,
+                'sandbox_id': sid or None,
+                'stored_chips': stored,
+                'projected_chips': projected,
+                'uncommitted_regen': projected - stored,
+                'last_regen_tick': (
+                    state.last_regen_tick.isoformat() if state and state.last_regen_tick else None
+                ),
+                'chips_won': pnl['chips_won'],
+                'chips_lost': pnl['chips_lost'],
+                'net_pnl': pnl['net_pnl'],
+            }
+        )
     return rows
 
 
@@ -415,27 +428,33 @@ def _collect_player_rows(
         owner_name = owner_names.get(player_id)
         name = user_name or owner_name or player_id
         pnl = _lookup_cash_pnl(
-            cash_pnl_by_observer, player_id, user_name, owner_name,
+            cash_pnl_by_observer,
+            player_id,
+            user_name,
+            owner_name,
         )
-        out.append({
-            'entity_id': f'player:{player_id}',
-            'kind': 'player',
-            'id': player_id,
-            'name': name,
-            'sandbox_id': None,
-            'stored_chips': chips,
-            'projected_chips': chips,
-            'uncommitted_regen': 0,
-            'last_regen_tick': None,
-            'chips_won': pnl['chips_won'],
-            'chips_lost': pnl['chips_lost'],
-            'net_pnl': pnl['net_pnl'],
-        })
+        out.append(
+            {
+                'entity_id': f'player:{player_id}',
+                'kind': 'player',
+                'id': player_id,
+                'name': name,
+                'sandbox_id': None,
+                'stored_chips': chips,
+                'projected_chips': chips,
+                'uncommitted_regen': 0,
+                'last_regen_tick': None,
+                'chips_won': pnl['chips_won'],
+                'chips_lost': pnl['chips_lost'],
+                'net_pnl': pnl['net_pnl'],
+            }
+        )
     return out
 
 
 def _fetch_recent_owner_names(
-    db_path: str, player_ids: List[str],
+    db_path: str,
+    player_ids: List[str],
 ) -> Dict[str, str]:
     """Return `{owner_id: most_recent_owner_name}` for each id in scope.
 
@@ -521,13 +540,11 @@ def _resolve_entity_labels(
     labels: Dict[str, str] = {}
     for entity_id in entity_ids:
         if entity_id.startswith('ai:'):
-            pid = entity_id[len('ai:'):]
+            pid = entity_id[len('ai:') :]
             labels[entity_id] = _resolve_personality_name(personality_repo, pid)
         elif entity_id.startswith('player:'):
-            pid = entity_id[len('player:'):]
-            labels[entity_id] = (
-                _resolve_player_name(user_repo, pid) or pid
-            )
+            pid = entity_id[len('player:') :]
+            labels[entity_id] = _resolve_player_name(user_repo, pid) or pid
         else:
             labels[entity_id] = entity_id
     return labels

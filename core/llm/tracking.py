@@ -1,4 +1,5 @@
 """Usage tracking for LLM operations."""
+
 import json
 import logging
 import os
@@ -7,11 +8,10 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Optional, Dict, Tuple, List, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .response import LLMResponse, ImageResponse
 from .capture_config import should_capture_prompt
+from .response import ImageResponse, LLMResponse
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +49,21 @@ def get_capture_db_path() -> str:
 
     # Auto-detect based on environment
     from poker.db_utils import get_default_db_path
+
     return get_default_db_path()
 
 
 @dataclass
 class PricingEntry:
     """A cached pricing entry."""
+
     id: int
     cost: float
 
 
 class CallType(str, Enum):
     """Validated call types for usage tracking."""
+
     UNKNOWN = "unknown"  # Default when call_type not specified
     PLAYER_DECISION = "player_decision"
     COMMENTARY = "commentary"
@@ -122,6 +125,7 @@ class UsageTracker:
     def _get_default_db_path(self) -> str:
         """Get the default database path based on environment."""
         from poker.db_utils import get_default_db_path
+
         return get_default_db_path()
 
     def _ensure_table(self) -> None:
@@ -229,8 +233,7 @@ class UsageTracker:
     def _ensure_cache_fresh(self, conn: sqlite3.Connection) -> None:
         """Ensure pricing cache is loaded and not stale."""
         now = datetime.now(timezone.utc).timestamp()
-        if (self._cache_loaded_at is None or
-            now - self._cache_loaded_at > PRICING_CACHE_TTL):
+        if self._cache_loaded_at is None or now - self._cache_loaded_at > PRICING_CACHE_TTL:
             self._refresh_pricing_cache(conn)
 
     def invalidate_pricing_cache(self) -> None:
@@ -262,6 +265,7 @@ class UsageTracker:
     @dataclass
     class CostResult:
         """Result of cost calculation with pricing IDs for audit trail."""
+
         cost: float
         pricing_ids: Dict[str, int] = field(default_factory=dict)
 
@@ -290,8 +294,7 @@ class UsageTracker:
             pricing = self._get_sku_pricing(conn, provider, model, unit)
             if pricing is not None:
                 return self.CostResult(
-                    cost=response.image_count * pricing.cost,
-                    pricing_ids={"image": pricing.id}
+                    cost=response.image_count * pricing.cost, pricing_ids={"image": pricing.id}
                 )
         else:
             # Text pricing: look up input, output, and optionally cached/reasoning SKUs
@@ -307,7 +310,9 @@ class UsageTracker:
 
             # Get reasoning pricing (fallback to output rate if not specified)
             reasoning_pricing = self._get_sku_pricing(conn, provider, model, 'reasoning_tokens_1m')
-            reasoning_cost_per_m = reasoning_pricing.cost if reasoning_pricing else output_pricing.cost
+            reasoning_cost_per_m = (
+                reasoning_pricing.cost if reasoning_pricing else output_pricing.cost
+            )
 
             # Calculate cost
             uncached_input = response.input_tokens - response.cached_tokens
@@ -324,7 +329,7 @@ class UsageTracker:
 
             return self.CostResult(
                 cost=input_cost + cached_cost + output_cost + reasoning_cost,
-                pricing_ids=pricing_ids
+                pricing_ids=pricing_ids,
             )
 
         return None
@@ -352,7 +357,8 @@ class UsageTracker:
             estimated_cost = cost_result.cost if cost_result else None
             pricing_ids_json = json.dumps(cost_result.pricing_ids) if cost_result else None
 
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO api_usage (
                     created_at, game_id, owner_id, player_name, hand_number,
                     call_type, prompt_template, provider, model,
@@ -361,35 +367,37 @@ class UsageTracker:
                     finish_reason, error_code, error_message, request_id, message_count, system_prompt_tokens,
                     estimated_cost, pricing_ids
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                datetime.now(timezone.utc).isoformat(),
-                game_id,
-                owner_id,
-                player_name,
-                hand_number,
-                (call_type or CallType.UNKNOWN).value,
-                prompt_template,
-                response.provider,
-                response.model,
-                0 if is_image else response.input_tokens,
-                0 if is_image else response.output_tokens,
-                0 if is_image else response.cached_tokens,
-                0 if is_image else response.reasoning_tokens,
-                None if is_image else getattr(response, 'reasoning_effort', None),
-                None if is_image else getattr(response, 'max_tokens', None),
-                response.image_count if is_image else 0,
-                response.size if is_image else None,
-                int(response.latency_ms),
-                response.status,
-                None if is_image else getattr(response, 'finish_reason', None),
-                getattr(response, 'error_code', None),
-                getattr(response, 'error_message', None),
-                getattr(response, 'request_id', None),
-                message_count,
-                system_prompt_tokens,
-                estimated_cost,
-                pricing_ids_json,
-            ))
+            """,
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    game_id,
+                    owner_id,
+                    player_name,
+                    hand_number,
+                    (call_type or CallType.UNKNOWN).value,
+                    prompt_template,
+                    response.provider,
+                    response.model,
+                    0 if is_image else response.input_tokens,
+                    0 if is_image else response.output_tokens,
+                    0 if is_image else response.cached_tokens,
+                    0 if is_image else response.reasoning_tokens,
+                    None if is_image else getattr(response, 'reasoning_effort', None),
+                    None if is_image else getattr(response, 'max_tokens', None),
+                    response.image_count if is_image else 0,
+                    response.size if is_image else None,
+                    int(response.latency_ms),
+                    response.status,
+                    None if is_image else getattr(response, 'finish_reason', None),
+                    getattr(response, 'error_code', None),
+                    getattr(response, 'error_message', None),
+                    getattr(response, 'request_id', None),
+                    message_count,
+                    system_prompt_tokens,
+                    estimated_cost,
+                    pricing_ids_json,
+                ),
+            )
 
 
 def capture_prompt(
@@ -486,24 +494,49 @@ def capture_prompt(
 
         # Capture enricher-provided extra fields as JSON metadata
         _STANDARD_KEYS = {
-            'game_id', 'owner_id', 'player_name', 'hand_number', 'phase', 'call_type',
-            'system_prompt', 'user_message', 'ai_response',
-            'conversation_history', 'raw_api_response',
-            'provider', 'model', 'reasoning_effort',
-            'latency_ms', 'input_tokens', 'output_tokens',
+            'game_id',
+            'owner_id',
+            'player_name',
+            'hand_number',
+            'phase',
+            'call_type',
+            'system_prompt',
+            'user_message',
+            'ai_response',
+            'conversation_history',
+            'raw_api_response',
+            'provider',
+            'model',
+            'reasoning_effort',
+            'latency_ms',
+            'input_tokens',
+            'output_tokens',
             'original_request_id',
-            'pot_total', 'cost_to_call', 'pot_odds', 'player_stack',
-            'community_cards', 'player_hand', 'valid_actions',
-            'action_taken', 'raise_amount',
-            'parent_id', 'error_type', 'error_description', 'correction_attempt',
+            'pot_total',
+            'cost_to_call',
+            'pot_odds',
+            'player_stack',
+            'community_cards',
+            'player_hand',
+            'valid_actions',
+            'action_taken',
+            'raise_amount',
+            'parent_id',
+            'error_type',
+            'error_description',
+            'correction_attempt',
             'prompt_template',
         }
-        extra = {k: v for k, v in capture_data.items()
-                 if k not in _STANDARD_KEYS and not k.startswith('_')}
+        extra = {
+            k: v
+            for k, v in capture_data.items()
+            if k not in _STANDARD_KEYS and not k.startswith('_')
+        }
         metadata_json = json.dumps(extra, default=str) if extra else None
 
         with sqlite3.connect(db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO prompt_captures (
                     game_id, owner_id, player_name, hand_number, phase, call_type,
                     system_prompt, user_message, ai_response,
@@ -518,43 +551,55 @@ def capture_prompt(
                     prompt_template,
                     metadata_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                capture_data.get('game_id'),
-                capture_data.get('owner_id'),
-                capture_data.get('player_name'),
-                capture_data.get('hand_number'),
-                capture_data.get('phase'),
-                capture_data.get('call_type'),
-                capture_data.get('system_prompt'),
-                capture_data.get('user_message'),
-                capture_data.get('ai_response'),
-                json.dumps(capture_data.get('conversation_history')) if capture_data.get('conversation_history') else None,
-                json.dumps(capture_data.get('raw_api_response'), default=str) if capture_data.get('raw_api_response') else None,
-                capture_data.get('provider'),
-                capture_data.get('model'),
-                capture_data.get('reasoning_effort'),
-                capture_data.get('latency_ms'),
-                capture_data.get('input_tokens'),
-                capture_data.get('output_tokens'),
-                capture_data.get('original_request_id'),
-                # Enriched fields (may be None for non-game captures)
-                capture_data.get('pot_total'),
-                capture_data.get('cost_to_call'),
-                capture_data.get('pot_odds'),
-                capture_data.get('player_stack'),
-                json.dumps(capture_data.get('community_cards')) if capture_data.get('community_cards') else None,
-                json.dumps(capture_data.get('player_hand')) if capture_data.get('player_hand') else None,
-                json.dumps(capture_data.get('valid_actions')) if capture_data.get('valid_actions') else None,
-                capture_data.get('action_taken'),
-                capture_data.get('raise_amount'),
-                # Resilience fields (for error recovery tracking)
-                capture_data.get('parent_id'),
-                capture_data.get('error_type'),
-                capture_data.get('error_description'),
-                capture_data.get('correction_attempt', 0),
-                capture_data.get('prompt_template'),
-                metadata_json,
-            ))
+            """,
+                (
+                    capture_data.get('game_id'),
+                    capture_data.get('owner_id'),
+                    capture_data.get('player_name'),
+                    capture_data.get('hand_number'),
+                    capture_data.get('phase'),
+                    capture_data.get('call_type'),
+                    capture_data.get('system_prompt'),
+                    capture_data.get('user_message'),
+                    capture_data.get('ai_response'),
+                    json.dumps(capture_data.get('conversation_history'))
+                    if capture_data.get('conversation_history')
+                    else None,
+                    json.dumps(capture_data.get('raw_api_response'), default=str)
+                    if capture_data.get('raw_api_response')
+                    else None,
+                    capture_data.get('provider'),
+                    capture_data.get('model'),
+                    capture_data.get('reasoning_effort'),
+                    capture_data.get('latency_ms'),
+                    capture_data.get('input_tokens'),
+                    capture_data.get('output_tokens'),
+                    capture_data.get('original_request_id'),
+                    # Enriched fields (may be None for non-game captures)
+                    capture_data.get('pot_total'),
+                    capture_data.get('cost_to_call'),
+                    capture_data.get('pot_odds'),
+                    capture_data.get('player_stack'),
+                    json.dumps(capture_data.get('community_cards'))
+                    if capture_data.get('community_cards')
+                    else None,
+                    json.dumps(capture_data.get('player_hand'))
+                    if capture_data.get('player_hand')
+                    else None,
+                    json.dumps(capture_data.get('valid_actions'))
+                    if capture_data.get('valid_actions')
+                    else None,
+                    capture_data.get('action_taken'),
+                    capture_data.get('raise_amount'),
+                    # Resilience fields (for error recovery tracking)
+                    capture_data.get('parent_id'),
+                    capture_data.get('error_type'),
+                    capture_data.get('error_description'),
+                    capture_data.get('correction_attempt', 0),
+                    capture_data.get('prompt_template'),
+                    metadata_json,
+                ),
+            )
 
         capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -591,7 +636,14 @@ def update_prompt_capture(capture_id: int, **fields) -> bool:
         db_path = get_capture_db_path()
 
         # Build UPDATE statement for provided fields
-        allowed_fields = {'action_taken', 'raise_amount', 'parent_id', 'error_type', 'error_description', 'correction_attempt'}
+        allowed_fields = {
+            'action_taken',
+            'raise_amount',
+            'parent_id',
+            'error_type',
+            'error_description',
+            'correction_attempt',
+        }
         update_fields = {k: v for k, v in fields.items() if k in allowed_fields}
 
         if not update_fields:
@@ -661,8 +713,10 @@ def capture_image_prompt(
 
                 # Try to get image dimensions
                 try:
-                    from PIL import Image
                     import io
+
+                    from PIL import Image
+
                     img = Image.open(io.BytesIO(image_data))
                     image_width, image_height = img.size
                 except ImportError:
@@ -681,7 +735,8 @@ def capture_image_prompt(
         db_path = get_capture_db_path()
 
         with sqlite3.connect(db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO prompt_captures (
                     game_id, player_name, phase, call_type,
                     system_prompt, user_message, ai_response,
@@ -691,29 +746,31 @@ def capture_image_prompt(
                     target_personality, target_emotion, reference_image_id,
                     owner_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                game_id,
-                target_personality,  # Use as player_name for filtering
-                call_type.value,  # Use as phase for compatibility
-                call_type.value,
-                "(image generation)",  # system_prompt placeholder
-                prompt,  # user_message = the prompt
-                response.url or "",  # ai_response = the URL
-                response.provider,
-                response.model,
-                int(response.latency_ms) if response.latency_ms else None,
-                1,  # is_image_capture = True
-                prompt,
-                response.url,
-                image_data,
-                response.size,
-                image_width,
-                image_height,
-                target_personality,
-                target_emotion,
-                reference_image_id,
-                owner_id,
-            ))
+            """,
+                (
+                    game_id,
+                    target_personality,  # Use as player_name for filtering
+                    call_type.value,  # Use as phase for compatibility
+                    call_type.value,
+                    "(image generation)",  # system_prompt placeholder
+                    prompt,  # user_message = the prompt
+                    response.url or "",  # ai_response = the URL
+                    response.provider,
+                    response.model,
+                    int(response.latency_ms) if response.latency_ms else None,
+                    1,  # is_image_capture = True
+                    prompt,
+                    response.url,
+                    image_data,
+                    response.size,
+                    image_width,
+                    image_height,
+                    target_personality,
+                    target_emotion,
+                    reference_image_id,
+                    owner_id,
+                ),
+            )
 
             capture_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 

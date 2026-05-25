@@ -10,7 +10,7 @@ load_dotenv(override=True)
 # Environment detection
 flask_env = os.environ.get('FLASK_ENV', 'production')
 flask_debug = os.environ.get('FLASK_DEBUG', '0')
-is_development = (flask_env == 'development' or flask_debug == '1')
+is_development = flask_env == 'development' or flask_debug == '1'
 
 # AI Debug mode - enables LLM stats on player cards
 enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
@@ -70,24 +70,24 @@ GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))
 REDIS_URL = os.environ.get('REDIS_URL')
 
 # AI model configuration - import from centralized config
-from core.llm import ASSISTANT_MODEL, ASSISTANT_PROVIDER
-from core.llm.config import DEFAULT_MODEL, DEFAULT_PROVIDER, FAST_MODEL, FAST_PROVIDER, IMAGE_PROVIDER, IMAGE_MODEL
 
 # DB-backed LLM settings — canonical source is core.llm.settings.
 # Re-exported here for backwards compatibility with flask_app.routes etc.
-from core.llm.settings import (           # noqa: F401
+from core.llm.settings import (  # noqa: F401
     _get_config_persistence,
-    get_default_provider,
-    get_default_model,
-    get_fast_provider,
-    get_fast_model,
-    get_assistant_provider,
     get_assistant_model,
-    get_image_provider,
+    get_assistant_provider,
+    get_default_model,
+    get_default_provider,
+    get_fast_model,
+    get_fast_provider,
     get_image_model,
+    get_image_provider,
 )
 
 # Database path
-from poker.db_utils import get_default_db_path as get_db_path  # noqa: F401 — re-exported for route imports
+from poker.db_utils import (
+    get_default_db_path as get_db_path,  # noqa: F401 — re-exported for route imports
+)
 
 DB_PATH = get_db_path()

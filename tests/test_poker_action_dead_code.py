@@ -1,4 +1,5 @@
 """Test T1-01: Verify poker_action.py dead code was removed."""
+
 import importlib
 import os
 
@@ -24,6 +25,7 @@ def test_poker_package_imports_without_poker_action():
 def test_poker_player_options_type_annotation():
     """PokerPlayer.options should work with plain strings (no PlayerAction enum)."""
     from poker import PokerPlayer
+
     player = PokerPlayer(name="Test")
     player.options = ["fold", "check", "call"]
     assert player.options == ["fold", "check", "call"]

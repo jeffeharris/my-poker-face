@@ -1,15 +1,16 @@
 """Tests for preflop hand classification in controllers.py"""
 
 import unittest
+
 from poker.controllers import (
-    classify_preflop_hand,
-    _get_canonical_hand,
-    _get_hand_category,
-    _get_hand_percentile,
     PREMIUM_HANDS,
     TOP_10_HANDS,
     TOP_20_HANDS,
     TOP_35_HANDS,
+    _get_canonical_hand,
+    _get_hand_category,
+    _get_hand_percentile,
+    classify_preflop_hand,
 )
 
 
@@ -111,10 +112,7 @@ class TestHandPercentile(unittest.TestCase):
         """Top 10 hands should be identified."""
         for hand in ['TT', 'AKo', 'AQs', 'AJs', 'KQs']:
             result = _get_hand_percentile(hand)
-            self.assertTrue(
-                'Top 3%' in result or 'Top 10%' in result,
-                f"{hand} should be top 10%"
-            )
+            self.assertTrue('Top 3%' in result or 'Top 10%' in result, f"{hand} should be top 10%")
 
     def test_top_20_hands(self):
         """Top 20 hands should be identified."""
@@ -122,7 +120,7 @@ class TestHandPercentile(unittest.TestCase):
             result = _get_hand_percentile(hand)
             self.assertTrue(
                 'Top' in result and ('3%' in result or '10%' in result or '20%' in result),
-                f"{hand} should be top 20%"
+                f"{hand} should be top 20%",
             )
 
     def test_trash_hands(self):
@@ -131,7 +129,7 @@ class TestHandPercentile(unittest.TestCase):
             result = _get_hand_percentile(hand)
             self.assertTrue(
                 'Bottom' in result or 'Below average' in result,
-                f"{hand} should be bottom/below average"
+                f"{hand} should be bottom/below average",
             )
 
 

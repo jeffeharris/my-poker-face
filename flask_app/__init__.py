@@ -9,14 +9,14 @@ from flask import Flask, jsonify, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from . import extensions
 from .config import SECRET_KEY, is_development
 from .extensions import init_extensions, socketio
-from . import extensions
 
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
 
 # Quiet noisy third-party loggers
@@ -57,6 +57,7 @@ def recover_interrupted_experiments():
     """
     try:
         from .routes.experiment_routes import detect_orphaned_experiments
+
         detect_orphaned_experiments()
     except Exception as e:
         logger.error(f"Error recovering interrupted experiments on startup: {e}")
@@ -95,12 +96,14 @@ def create_app():
 
     # Start background cleanup timer (must be after all imports to avoid import lock deadlock)
     from .services.game_state_service import start_cleanup_timer
+
     start_cleanup_timer()
 
     # Start the realtime cash-mode world ticker (advances unseated tables
     # for active sandboxes; pushes lobby_tick / world_event over socket).
     # Idempotent across create_app() calls; no-op when disabled.
     from .services.ticker_service import start_world_ticker
+
     start_world_ticker(socketio)
 
     # Drop every in-flight cash session (memory + DB) and seed the
@@ -111,7 +114,9 @@ def create_app():
     # `cash-*` game row is safe.
     try:
         from cash_mode.lobby import kill_all_cash_sessions
+
         from .services import game_state_service
+
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
@@ -132,37 +137,51 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(429)
     def ratelimit_handler(e):
-        return jsonify({
-            'error': 'Rate limit exceeded',
-            'message': str(e.description),
-            'retry_after': e.retry_after if hasattr(e, 'retry_after') else None
-        }), 429
+        return jsonify(
+            {
+                'error': 'Rate limit exceeded',
+                'message': str(e.description),
+                'retry_after': e.retry_after if hasattr(e, 'retry_after') else None,
+            }
+        ), 429
 
     @app.errorhandler(500)
     def internal_error_handler(e):
         logger.error(f"Internal server error: {e}", exc_info=True)
-        return jsonify({
-            'error': 'Internal server error',
-            'message': 'An unexpected error occurred'
-        }), 500
+        return jsonify(
+            {'error': 'Internal server error', 'message': 'An unexpected error occurred'}
+        ), 500
 
     @app.errorhandler(Exception)
     def unhandled_exception_handler(e):
         logger.error(f"Unhandled exception: {e}", exc_info=True)
         if is_development:
-            return jsonify({
-                'error': type(e).__name__,
-                'message': str(e)
-            }), 500
-        return jsonify({
-            'error': 'Internal server error',
-            'message': 'An unexpected error occurred'
-        }), 500
+            return jsonify({'error': type(e).__name__, 'message': str(e)}), 500
+        return jsonify(
+            {'error': 'Internal server error', 'message': 'An unexpected error occurred'}
+        ), 500
 
 
 def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
-    from .routes import game_bp, debug_bp, personality_bp, image_bp, stats_bp, admin_dashboard_bp, prompt_debug_bp, experiment_bp, prompt_preset_bp, capture_label_bp, replay_experiment_bp, user_bp, coach_bp, cash_bp, chip_ledger_bp, character_bp
+    from .routes import (
+        admin_dashboard_bp,
+        capture_label_bp,
+        cash_bp,
+        character_bp,
+        chip_ledger_bp,
+        coach_bp,
+        debug_bp,
+        experiment_bp,
+        game_bp,
+        image_bp,
+        personality_bp,
+        prompt_debug_bp,
+        prompt_preset_bp,
+        replay_experiment_bp,
+        stats_bp,
+        user_bp,
+    )
 
     app.register_blueprint(game_bp)
     app.register_blueprint(debug_bp)
@@ -184,6 +203,7 @@ def register_blueprints(app: Flask) -> None:
     # Test helper endpoints — only available when ENABLE_TEST_ROUTES=true
     if os.environ.get('ENABLE_TEST_ROUTES', 'false').lower() == 'true':
         from .routes.test_routes import test_bp
+
         app.register_blueprint(test_bp)
         logger.info("Test helper endpoints registered (ENABLE_TEST_ROUTES=true)")
 
@@ -191,6 +211,7 @@ def register_blueprints(app: Flask) -> None:
 def register_socket_handlers() -> None:
     """Register SocketIO event handlers."""
     from .routes import register_socket_events
+
     register_socket_events(socketio)
 
 
@@ -208,17 +229,19 @@ def register_static_routes(app: Flask) -> None:
             if (static_path / 'index.html').exists():
                 return send_from_directory(str(static_path), 'index.html')
 
-        return jsonify({
-            'message': 'My Poker Face API',
-            'version': '1.0',
-            'frontend': 'React app not built',
-            'endpoints': {
-                'games': '/api/pokergame',
-                'new_game': '/api/pokergame/new/<num_players>',
-                'game_state': '/api/pokergame/<game_id>',
-                'health': '/health'
+        return jsonify(
+            {
+                'message': 'My Poker Face API',
+                'version': '1.0',
+                'frontend': 'React app not built',
+                'endpoints': {
+                    'games': '/api/pokergame',
+                    'new_game': '/api/pokergame/new/<num_players>',
+                    'game_state': '/api/pokergame/<game_id>',
+                    'health': '/health',
+                },
             }
-        })
+        )
 
     @app.route('/health')
     @extensions.limiter.exempt

@@ -8,14 +8,27 @@ from collections import defaultdict
 from typing import Dict, Optional
 
 from poker.hand_tiers import (
-    PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS,
+    PREMIUM_HANDS,
+    TOP_10_HANDS,
+    TOP_20_HANDS,
+    TOP_35_HANDS,
     is_hand_in_range,
 )
 
-
 RANK_VALUES = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
+    '2': 2,
+    '3': 3,
+    '4': 4,
+    '5': 5,
+    '6': 6,
+    '7': 7,
+    '8': 8,
+    '9': 9,
+    'T': 10,
+    'J': 11,
+    'Q': 12,
+    'K': 13,
+    'A': 14,
 }
 
 
@@ -60,8 +73,7 @@ def _has_real_draw(coaching_data: Dict) -> bool:
 
 
 def build_poker_context(
-    coaching_data: Dict,
-    range_targets: Optional[Dict[str, float]] = None
+    coaching_data: Dict, range_targets: Optional[Dict[str, float]] = None
 ) -> Optional[Dict]:
     """Build a standardised context dict from coaching_data.
 
@@ -109,6 +121,7 @@ def build_poker_context(
     personal_range_target = None
     if range_targets and canonical:
         from .range_targets import get_range_target
+
         personal_range_target = get_range_target(range_targets, position)
         is_in_personal_range = is_hand_in_range(canonical, personal_range_target)
 
@@ -118,8 +131,8 @@ def build_poker_context(
     hand_rank = coaching_data.get('hand_rank')
 
     is_strong_hand = hand_rank is not None and hand_rank <= 8  # Two pair or better
-    has_pair = hand_rank is not None and hand_rank <= 9        # One pair or better
-    has_draw = _has_real_draw(coaching_data)                     # Flush draw or straight draw (not just pair-outs)
+    has_pair = hand_rank is not None and hand_rank <= 9  # One pair or better
+    has_draw = _has_real_draw(coaching_data)  # Flush draw or straight draw (not just pair-outs)
     is_air = hand_rank is not None and hand_rank >= 10 and not has_draw  # High card, no draw
     can_check = cost_to_call == 0
 
@@ -142,9 +155,7 @@ def build_poker_context(
     _aggressive = {'raise', 'bet', 'all_in'}
     player_bet_flop = bool(_aggressive & set(player_actions_by_phase.get('FLOP', [])))
     opponent_bet_turn = len(opponent_bets_by_phase.get('TURN', [])) > 0
-    opponent_double_barrel = (
-        len(opponent_bets_by_phase.get('FLOP', [])) > 0 and opponent_bet_turn
-    )
+    opponent_double_barrel = len(opponent_bets_by_phase.get('FLOP', [])) > 0 and opponent_bet_turn
 
     # --- Equity fields ---
     equity = coaching_data.get('equity')

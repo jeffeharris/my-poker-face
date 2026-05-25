@@ -61,11 +61,7 @@ def transform_vs_open_to_isolate(
     out: Dict[str, StrategyProfile] = {}
     for key, profile in preflop_data.items():
         parts = key.split('|')  # scenario|position|opener|hand
-        if (
-            len(parts) == 4
-            and parts[0] == 'vs_open'
-            and parts[1] in positions
-        ):
+        if len(parts) == 4 and parts[0] == 'vs_open' and parts[1] in positions:
             probs = dict(profile.action_probabilities)
             call = probs.get('call', 0.0)
             if call >= min_call and raise_action in probs:

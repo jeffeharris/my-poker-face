@@ -49,7 +49,6 @@ override via a startup hook if/when we want runtime control.
 
 from __future__ import annotations
 
-
 # --- Faucet ---------------------------------------------------------------
 
 # Passive regen retired per CASH_MODE_SIDE_HUSTLE.md — the active side

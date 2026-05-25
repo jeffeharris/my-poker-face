@@ -14,7 +14,7 @@ import random
 from dataclasses import replace
 from typing import Dict, List
 
-from .bounded_options import BoundedOption, OptionProfile, STYLE_PROFILES
+from .bounded_options import BoundedOption
 
 # ============================================================
 # Nudge phrase dictionary
@@ -124,6 +124,7 @@ HEADS_UP_NUDGE_OVERRIDES: Dict[str, List[str]] = {
 # Nudge key classifier
 # ============================================================
 
+
 def _classify_nudge_key(option: BoundedOption) -> str:
     """Map a BoundedOption to a nudge category based on action, EV, and style_tag.
 
@@ -170,6 +171,7 @@ def _classify_nudge_key(option: BoundedOption) -> str:
 # ============================================================
 # Apply composed nudges
 # ============================================================
+
 
 def apply_composed_nudges(
     options: List[BoundedOption],

@@ -18,15 +18,15 @@ import pytest
 from poker.strategy.nodes import PreflopNode
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.strategy_table import (
+    DEPTH_CHART_BUCKETS,
     StrategyTable,
     load_depth_strategy_tables,
     nearest_depth_bucket,
-    DEPTH_CHART_BUCKETS,
 )
 from poker.tiered_bot_controller import TieredBotController
 
-
 # ── nearest_depth_bucket ─────────────────────────────────────────────────
+
 
 class TestNearestDepthBucket:
     def test_exact_buckets(self):
@@ -45,9 +45,9 @@ class TestNearestDepthBucket:
         assert nearest_depth_bucket(5) == 25
 
     def test_nearest_in_between(self):
-        assert nearest_depth_bucket(30) == 25   # |30-25|=5 < |30-50|=20
-        assert nearest_depth_bucket(45) == 50    # |45-50|=5 < |45-25|=20
-        assert nearest_depth_bucket(60) == 50    # |60-50|=10 < |60-100|=40
+        assert nearest_depth_bucket(30) == 25  # |30-25|=5 < |30-50|=20
+        assert nearest_depth_bucket(45) == 50  # |45-50|=5 < |45-25|=20
+        assert nearest_depth_bucket(60) == 50  # |60-50|=10 < |60-100|=40
 
     def test_tie_prefers_deeper(self):
         # Equidistant 37.5 between 25 and 50 → deeper (50): safer to flat
@@ -58,6 +58,7 @@ class TestNearestDepthBucket:
 
 
 # ── load_depth_strategy_tables ───────────────────────────────────────────
+
 
 class TestLoadDepthTables:
     def test_loads_shallow_charts(self):
@@ -76,6 +77,7 @@ class TestLoadDepthTables:
 
 
 # ── _select_preflop_table (direct unit) ──────────────────────────────────
+
 
 def _bare_controller(*, base, hu=None, depth=None):
     """Minimal controller carrying just the table attributes the selector reads."""
@@ -144,28 +146,45 @@ def _rfi_table(action):
 
 def _make_game_state(stack):
     from core.card import Card
+
     players = []
     for i in range(6):
-        players.append(SimpleNamespace(
-            name='Hero' if i == 0 else f'Opp{i}',
-            stack=stack, bet=0,
-            hand=(Card('A', 'h'), Card('A', 's')),
-            is_human=False, is_folded=False, is_all_in=False,
-            has_acted=False, last_action=None,
-        ))
+        players.append(
+            SimpleNamespace(
+                name='Hero' if i == 0 else f'Opp{i}',
+                stack=stack,
+                bet=0,
+                hand=(Card('A', 'h'), Card('A', 's')),
+                is_human=False,
+                is_folded=False,
+                is_all_in=False,
+                has_acted=False,
+                last_action=None,
+            )
+        )
     positions = {
-        'button': 'Hero', 'small_blind_player': 'Hero',
-        'big_blind_player': 'Opp1', 'under_the_gun': 'Opp2',
-        'middle_position_1': 'Opp3', 'cutoff': 'Opp4',
+        'button': 'Hero',
+        'small_blind_player': 'Hero',
+        'big_blind_player': 'Opp1',
+        'under_the_gun': 'Opp2',
+        'middle_position_1': 'Opp3',
+        'cutoff': 'Opp4',
     }
     # Hero is SB; mark blinds.
     players[0].bet = 50
     players[1].bet = 100
     return SimpleNamespace(
-        players=players, current_player_idx=0, current_player=players[0],
-        current_ante=100, highest_bet=100, last_raise_amount=100,
-        min_raise_amount=100, raises_this_round=0, community_cards=(),
-        pot={'total': 150}, table_positions=positions,
+        players=players,
+        current_player_idx=0,
+        current_player=players[0],
+        current_ante=100,
+        highest_bet=100,
+        last_raise_amount=100,
+        min_raise_amount=100,
+        raises_this_round=0,
+        community_cards=(),
+        pot={'total': 150},
+        table_positions=positions,
         current_player_options=['fold', 'call', 'raise', 'all_in'],
     )
 
@@ -200,15 +219,16 @@ class TestDepthRoutingE2E:
         depth = {50: _rfi_table(_T50_OPEN), 25: _rfi_table(_T25_OPEN)}
         c = _e2e_controller(_make_game_state(stack), _rfi_table(_BASE_OPEN), depth)
         return c._get_ai_decision(
-            message='', valid_actions=['fold', 'call', 'raise', 'all_in'],
+            message='',
+            valid_actions=['fold', 'call', 'raise', 'all_in'],
             call_amount=100,
         )['hand_strategy']
 
     def test_deep_stack_uses_base_chart(self):
-        assert _BASE_OPEN in self._decide(stack=10000)   # 100bb
+        assert _BASE_OPEN in self._decide(stack=10000)  # 100bb
 
     def test_50bb_uses_50_chart(self):
-        assert _T50_OPEN in self._decide(stack=5000)      # 50bb
+        assert _T50_OPEN in self._decide(stack=5000)  # 50bb
 
     def test_25bb_uses_25_chart(self):
-        assert _T25_OPEN in self._decide(stack=2500)      # 25bb
+        assert _T25_OPEN in self._decide(stack=2500)  # 25bb

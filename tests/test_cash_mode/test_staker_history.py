@@ -45,17 +45,16 @@ from cash_mode.staker_history import (
 )
 from cash_mode.stakes import (
     BORROWER_KIND_PERSONALITY,
-    STAKER_KIND_PERSONALITY,
     STAKE_FORMAT_PURE,
     STAKE_STATUS_ACTIVE,
     STAKE_STATUS_CARRY,
     STAKE_STATUS_DEFAULTED,
     STAKE_STATUS_SETTLED,
+    STAKER_KIND_PERSONALITY,
     Stake,
 )
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
-
 
 ANCHOR = datetime(2026, 5, 21, 12, 0, 0)
 
@@ -64,7 +63,6 @@ ANCHOR = datetime(2026, 5, 21, 12, 0, 0)
 
 
 class TestExcessPressure(unittest.TestCase):
-
     def test_zero_at_starting_bankroll(self):
         self.assertEqual(_excess_pressure(10_000, 10_000), 0.0)
 
@@ -92,7 +90,6 @@ class TestExcessPressure(unittest.TestCase):
 
 
 class TestBeliefScore(unittest.TestCase):
-
     def test_no_history_is_neutral(self):
         self.assertEqual(_belief_score(None), 0.0)
 
@@ -139,16 +136,19 @@ class TestBeliefScore(unittest.TestCase):
 
     def test_clamped_at_positive_bound(self):
         # 100 settled would overflow without the cap.
-        score = _belief_score(StakerHistoryStats(settled_count=100, carry_count=0, defaulted_count=0))
+        score = _belief_score(
+            StakerHistoryStats(settled_count=100, carry_count=0, defaulted_count=0)
+        )
         self.assertEqual(score, MAX_BELIEF_BONUS)
 
     def test_clamped_at_negative_bound(self):
-        score = _belief_score(StakerHistoryStats(settled_count=0, carry_count=0, defaulted_count=100))
+        score = _belief_score(
+            StakerHistoryStats(settled_count=0, carry_count=0, defaulted_count=100)
+        )
         self.assertEqual(score, -MAX_BELIEF_BONUS)
 
 
 class TestRelationshipWarmth(unittest.TestCase):
-
     def test_none_returns_baseline(self):
         self.assertEqual(_relationship_warmth(None), RELATIONSHIP_WARMTH_BASELINE)
 
@@ -177,7 +177,6 @@ class TestRelationshipWarmth(unittest.TestCase):
 
 
 class TestCandidateWeight(unittest.TestCase):
-
     def test_baseline_no_history_no_excess_neutral_axes(self):
         # Cold start with neutral axes: BASE + 0 (excess) + 0 (belief) + 0.3 (baseline).
         weight = candidate_weight(
@@ -283,63 +282,94 @@ def _stake(
 
 
 class TestAggregateHistoryForStaker:
-
     def test_empty_staker_returns_empty_dict(self, stake_repo):
         result = stake_repo.aggregate_history_for_staker("bezos")
         assert result == {}
 
     def test_active_stakes_are_excluded(self, stake_repo):
         # Active stakes don't have an outcome yet — should not be counted.
-        stake_repo.create_stake(_stake(
-            stake_id="s1", staker_id="bezos", borrower_id="hemingway",
-            status=STAKE_STATUS_ACTIVE,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s1",
+                staker_id="bezos",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_ACTIVE,
+            )
+        )
         result = stake_repo.aggregate_history_for_staker("bezos")
         assert result == {}
 
     def test_groups_by_borrower_and_status(self, stake_repo):
-        stake_repo.create_stake(_stake(
-            stake_id="s1", staker_id="bezos", borrower_id="hemingway",
-            status=STAKE_STATUS_SETTLED,
-        ))
-        stake_repo.create_stake(_stake(
-            stake_id="s2", staker_id="bezos", borrower_id="hemingway",
-            status=STAKE_STATUS_SETTLED,
-        ))
-        stake_repo.create_stake(_stake(
-            stake_id="s3", staker_id="bezos", borrower_id="hemingway",
-            status=STAKE_STATUS_CARRY,
-        ))
-        stake_repo.create_stake(_stake(
-            stake_id="s4", staker_id="bezos", borrower_id="napoleon",
-            status=STAKE_STATUS_DEFAULTED,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s1",
+                staker_id="bezos",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_SETTLED,
+            )
+        )
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s2",
+                staker_id="bezos",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_SETTLED,
+            )
+        )
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s3",
+                staker_id="bezos",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_CARRY,
+            )
+        )
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s4",
+                staker_id="bezos",
+                borrower_id="napoleon",
+                status=STAKE_STATUS_DEFAULTED,
+            )
+        )
         result = stake_repo.aggregate_history_for_staker("bezos")
         assert "hemingway" in result
         assert "napoleon" in result
         assert result["hemingway"] == StakerHistoryStats(
-            settled_count=2, carry_count=1, defaulted_count=0,
+            settled_count=2,
+            carry_count=1,
+            defaulted_count=0,
         )
         assert result["napoleon"] == StakerHistoryStats(
-            settled_count=0, carry_count=0, defaulted_count=1,
+            settled_count=0,
+            carry_count=0,
+            defaulted_count=1,
         )
 
     def test_other_stakers_history_excluded(self, stake_repo):
         # Napoleon staked Hemingway, but we're asking about bezos.
-        stake_repo.create_stake(_stake(
-            stake_id="s1", staker_id="napoleon", borrower_id="hemingway",
-            status=STAKE_STATUS_SETTLED,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s1",
+                staker_id="napoleon",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_SETTLED,
+            )
+        )
         result = stake_repo.aggregate_history_for_staker("bezos")
         assert result == {}
 
     def test_borrower_with_no_history_absent_from_dict(self, stake_repo):
         # Aggregation only returns borrowers we have history with —
         # callers handle absent keys as "no history" via .get(None).
-        stake_repo.create_stake(_stake(
-            stake_id="s1", staker_id="bezos", borrower_id="hemingway",
-            status=STAKE_STATUS_SETTLED,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                stake_id="s1",
+                staker_id="bezos",
+                borrower_id="hemingway",
+                status=STAKE_STATUS_SETTLED,
+            )
+        )
         result = stake_repo.aggregate_history_for_staker("bezos")
         assert "napoleon" not in result
         assert result.get("napoleon") is None

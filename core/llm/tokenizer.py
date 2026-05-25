@@ -1,4 +1,5 @@
 """Token counting utilities using tiktoken."""
+
 import logging
 from functools import lru_cache
 from typing import Optional
@@ -15,6 +16,7 @@ def _get_tiktoken():
     if _tiktoken is None:
         try:
             import tiktoken
+
             _tiktoken = tiktoken
         except ImportError:
             logger.warning("tiktoken not installed, token counting unavailable")

@@ -33,7 +33,6 @@ from cash_mode.stakes import (
 from flask_app import create_app
 from poker.repositories import create_repos
 
-
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
@@ -60,10 +59,12 @@ class _CutoverBase(unittest.TestCase):
         self.chip_ledger_repo = repos['chip_ledger_repo']
 
         from tests._sandbox_test_helper import pin_sandbox_for
+
         pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -76,7 +77,8 @@ class _CutoverBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -90,17 +92,23 @@ class _CutoverBase(unittest.TestCase):
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=10_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id="test-sandbox-1")
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=10_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         # Seed player bankroll below all $10 buy-in (sponsor-eligible at $10).
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=100,
-            starting_bankroll=100,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=100,
+                starting_bankroll=100,
+            )
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
@@ -135,8 +143,10 @@ class _CutoverBase(unittest.TestCase):
         can drive sponsor_and_sit + leave deterministically without
         a real engine."""
         from flask_app.routes import cash_routes
+
         return patch.object(
-            cash_routes, '_build_cash_game',
+            cash_routes,
+            '_build_cash_game',
             return_value=('cash-cutover-1', None),
         )
 

@@ -56,11 +56,13 @@ class TestEffectiveStackChips:
 
     def test_ignores_folded_opponents(self):
         hero = _player("hero", 5000)
-        state = _state([
-            hero,
-            _player("opp_big", 8000, is_folded=True),
-            _player("opp_small", 1500),
-        ])
+        state = _state(
+            [
+                hero,
+                _player("opp_big", 8000, is_folded=True),
+                _player("opp_small", 1500),
+            ]
+        )
         assert effective_stack_chips(state, hero) == 1500
 
     def test_no_active_opponents_returns_hero_stack(self):

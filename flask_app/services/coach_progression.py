@@ -11,13 +11,18 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from poker.coach_models import (
-    CoachingDecision, CoachingMode, GateProgress, PlayerSkillState,
-    SKILL_STATE_ORDER, SkillState,
+    SKILL_STATE_ORDER,
+    CoachingDecision,
+    CoachingMode,
+    GateProgress,
+    PlayerSkillState,
+    SkillState,
 )
-from .skill_definitions import ALL_GATES, ALL_SKILLS, get_skills_for_gate
-from .situation_classifier import SituationClassifier, SituationClassification
-from .skill_evaluator import SkillEvaluation, SkillEvaluator
+
 from .range_targets import DEFAULT_RANGE_TARGETS, expand_ranges_for_gate, get_expanded_ranges
+from .situation_classifier import SituationClassification, SituationClassifier
+from .skill_definitions import ALL_GATES, ALL_SKILLS, get_skills_for_gate
+from .skill_evaluator import SkillEvaluation, SkillEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +127,7 @@ class CoachProgressionService:
             initial_ranges = get_expanded_ranges(3)  # Gate 3 ranges
 
         self._coach_repo.save_coach_profile(
-            user_id, self_reported_level=level, effective_level=level,
-            range_targets=initial_ranges
+            user_id, self_reported_level=level, effective_level=level, range_targets=initial_ranges
         )
 
         now = datetime.now().isoformat()
@@ -154,8 +158,7 @@ class CoachProgressionService:
             self._coach_repo.save_gate_progress(
                 user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at=now)
             )
-            gate2_state = (SkillState.PRACTICING if level == 'experienced'
-                           else SkillState.INTRODUCED)
+            gate2_state = SkillState.PRACTICING if level == 'experienced' else SkillState.INTRODUCED
             for skill_def in get_skills_for_gate(2):
                 ss = PlayerSkillState(
                     skill_id=skill_def.skill_id,
@@ -197,8 +200,7 @@ class CoachProgressionService:
 
         # Update profile level and mark onboarding as completed
         self._coach_repo.save_coach_profile(
-            user_id, self_reported_level=level, effective_level=level,
-            onboarding_completed_at=now
+            user_id, self_reported_level=level, effective_level=level, onboarding_completed_at=now
         )
 
         now = datetime.now().isoformat()
@@ -226,7 +228,9 @@ class CoachProgressionService:
                 self._coach_repo.save_gate_progress(
                     user_id, GateProgress(gate_number=gate_num, unlocked=True, unlocked_at=now)
                 )
-                logger.info(f"Unlocked gate {gate_num} for user {user_id} via level update to {level}")
+                logger.info(
+                    f"Unlocked gate {gate_num} for user {user_id} via level update to {level}"
+                )
 
         # Initialize skills ONLY for newly unlocked gates (don't touch existing skills)
         for gate_num in gates_to_unlock:
@@ -252,8 +256,10 @@ class CoachProgressionService:
                         first_seen_at=now,
                     )
                     self._coach_repo.save_skill_state(user_id, ss)
-                    logger.info(f"Created new skill {skill_def.skill_id} for user {user_id} "
-                                f"(gate {gate_num}, state={initial_state.value})")
+                    logger.info(
+                        f"Created new skill {skill_def.skill_id} for user {user_id} "
+                        f"(gate {gate_num}, state={initial_state.value})"
+                    )
 
         return self.get_player_state(user_id)
 
@@ -282,7 +288,10 @@ class CoachProgressionService:
         unlocked = [g for g, gp in gate_progress.items() if gp.unlocked]
 
         classification = self._classifier.classify(
-            coaching_data, unlocked, skill_states, range_targets=range_targets,
+            coaching_data,
+            unlocked,
+            skill_states,
+            range_targets=range_targets,
         )
 
         if not classification.primary_skill:
@@ -308,10 +317,15 @@ class CoachProgressionService:
         skill_def = ALL_SKILLS.get(classification.primary_skill)
         if not skill_def:
             logger.warning("No skill definition found for '%s'", classification.primary_skill)
-        shorten = (session_memory.should_shorten(classification.primary_skill)
-                   if session_memory else False)
+        shorten = (
+            session_memory.should_shorten(classification.primary_skill) if session_memory else False
+        )
         prompt = self._build_coaching_prompt(
-            mode, classification, skill_def, primary_state, shorten=shorten,
+            mode,
+            classification,
+            skill_def,
+            primary_state,
+            shorten=shorten,
         )
 
         # Record that we're coaching this skill
@@ -450,24 +464,32 @@ class CoachProgressionService:
         elif current == SkillState.PRACTICING:
             if opps >= rules.min_opportunities and acc >= rules.advancement_threshold:
                 new_state = SkillState.RELIABLE
-                logger.info(f"Skill {skill_state.skill_id}: practicing -> reliable "
-                            f"(accuracy={acc:.2f}, opps={opps})")
+                logger.info(
+                    f"Skill {skill_state.skill_id}: practicing -> reliable "
+                    f"(accuracy={acc:.2f}, opps={opps})"
+                )
 
         elif current == SkillState.RELIABLE:
             if opps >= rules.automatic_min_opps and acc >= rules.automatic_threshold:
                 new_state = SkillState.AUTOMATIC
-                logger.info(f"Skill {skill_state.skill_id}: reliable -> automatic "
-                            f"(accuracy={acc:.2f}, opps={opps})")
+                logger.info(
+                    f"Skill {skill_state.skill_id}: reliable -> automatic "
+                    f"(accuracy={acc:.2f}, opps={opps})"
+                )
             elif opps >= rules.min_opportunities and acc < rules.regression_threshold:
                 new_state = SkillState.PRACTICING
-                logger.info(f"Skill {skill_state.skill_id}: reliable -> practicing "
-                            f"(regression, accuracy={acc:.2f})")
+                logger.info(
+                    f"Skill {skill_state.skill_id}: reliable -> practicing "
+                    f"(regression, accuracy={acc:.2f})"
+                )
 
         elif current == SkillState.AUTOMATIC:
             if opps >= rules.min_opportunities and acc < rules.automatic_regression:
                 new_state = SkillState.RELIABLE
-                logger.info(f"Skill {skill_state.skill_id}: automatic -> reliable "
-                            f"(regression, accuracy={acc:.2f})")
+                logger.info(
+                    f"Skill {skill_state.skill_id}: automatic -> reliable "
+                    f"(regression, accuracy={acc:.2f})"
+                )
 
         if new_state != current:
             return replace(skill_state, state=new_state)
@@ -495,10 +517,10 @@ class CoachProgressionService:
 
             # Count reliable skills in the previous gate
             reliable_count = sum(
-                1 for sid in prev_gate_def.skill_ids
-                if sid in skill_states and skill_states[sid].state in (
-                    SkillState.RELIABLE, SkillState.AUTOMATIC
-                )
+                1
+                for sid in prev_gate_def.skill_ids
+                if sid in skill_states
+                and skill_states[sid].state in (SkillState.RELIABLE, SkillState.AUTOMATIC)
             )
 
             if reliable_count >= prev_gate_def.required_reliable:
@@ -508,8 +530,10 @@ class CoachProgressionService:
                     unlocked_at=datetime.now().isoformat(),
                 )
                 self._coach_repo.save_gate_progress(user_id, new_gp)
-                logger.info(f"Gate {gate_num} unlocked for user {user_id} "
-                            f"(gate {prev_gate_num} has {reliable_count} reliable skills)")
+                logger.info(
+                    f"Gate {gate_num} unlocked for user {user_id} "
+                    f"(gate {prev_gate_num} has {reliable_count} reliable skills)"
+                )
 
                 # Initialize skills for the newly unlocked gate
                 now = datetime.now().isoformat()
@@ -527,7 +551,9 @@ class CoachProgressionService:
                 if current_ranges:
                     expanded_ranges = expand_ranges_for_gate(current_ranges, gate_num)
                     self._coach_repo.save_range_targets(user_id, expanded_ranges)
-                    logger.info(f"Range targets expanded for user {user_id} on gate {gate_num} unlock")
+                    logger.info(
+                        f"Range targets expanded for user {user_id} on gate {gate_num} unlock"
+                    )
                 else:
                     # Initialize range targets for existing users who don't have them yet
                     initialized_ranges = get_expanded_ranges(gate_num)
@@ -555,12 +581,15 @@ class CoachProgressionService:
         def all_at_or_below(skills, max_state):
             """Check if all skills with sufficient data are at or below max_state."""
             evaluated = [
-                skill_states[s.skill_id] for s in skills
+                skill_states[s.skill_id]
+                for s in skills
                 if s.skill_id in skill_states and skill_states[s.skill_id].total_opportunities >= 5
             ]
             if len(evaluated) < 2:
                 return False  # Not enough data to judge
-            return all(SKILL_STATE_ORDER[ss.state] <= SKILL_STATE_ORDER[max_state] for ss in evaluated)
+            return all(
+                SKILL_STATE_ORDER[ss.state] <= SKILL_STATE_ORDER[max_state] for ss in evaluated
+            )
 
         current_level = profile['effective_level']
 
@@ -568,7 +597,8 @@ class CoachProgressionService:
             # If gate 1 skills are all at practicing or below → beginner
             if all_at_or_below(gate1_skills, SkillState.PRACTICING):
                 self._coach_repo.save_coach_profile(
-                    user_id, self_reported_level=profile['self_reported_level'],
+                    user_id,
+                    self_reported_level=profile['self_reported_level'],
                     effective_level='beginner',
                 )
                 logger.info(f"Silent downgrade: {user_id} experienced -> beginner")
@@ -576,7 +606,8 @@ class CoachProgressionService:
             # If gate 2 skills are all at practicing or below → intermediate
             if all_at_or_below(gate2_skills, SkillState.PRACTICING):
                 self._coach_repo.save_coach_profile(
-                    user_id, self_reported_level=profile['self_reported_level'],
+                    user_id,
+                    self_reported_level=profile['self_reported_level'],
                     effective_level='intermediate',
                 )
                 logger.info(f"Silent downgrade: {user_id} experienced -> intermediate")
@@ -586,7 +617,8 @@ class CoachProgressionService:
             # If gate 1 skills are all at practicing or below → beginner
             if all_at_or_below(gate1_skills, SkillState.PRACTICING):
                 self._coach_repo.save_coach_profile(
-                    user_id, self_reported_level=profile['self_reported_level'],
+                    user_id,
+                    self_reported_level=profile['self_reported_level'],
                     effective_level='beginner',
                 )
                 logger.info(f"Silent downgrade: {user_id} intermediate -> beginner")
@@ -595,9 +627,9 @@ class CoachProgressionService:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _ensure_skills_for_unlocked_gates(self, user_id: str,
-                                            skill_states: dict,
-                                            gate_progress: dict) -> dict:
+    def _ensure_skills_for_unlocked_gates(
+        self, user_id: str, skill_states: dict, gate_progress: dict
+    ) -> dict:
         """Create missing skill rows for already-unlocked gates.
 
         Handles the case where new skills are added to an existing gate
@@ -626,8 +658,10 @@ class CoachProgressionService:
                     )
                     self._coach_repo.save_skill_state(user_id, ss)
                     skill_states[skill_def.skill_id] = ss
-                    logger.info(f"Initialized missing skill {skill_def.skill_id} "
-                                f"for user {user_id} (gate {gate_num}, state={initial_state.value})")
+                    logger.info(
+                        f"Initialized missing skill {skill_def.skill_id} "
+                        f"for user {user_id} (gate {gate_num}, state={initial_state.value})"
+                    )
 
         return skill_states
 

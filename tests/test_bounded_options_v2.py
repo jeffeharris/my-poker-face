@@ -6,33 +6,34 @@ math blocking overrides, and style profile differentiation.
 """
 
 import random
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from poker.bounded_options import (
-    BoundedOption,
-    OptionProfile,
-    EmotionalShift,
-    STYLE_PROFILES,
-    IMPAIRMENT_PROBABILITY,
     EMOTIONAL_DIRECTION,
+    IMPAIRMENT_PROBABILITY,
     NARRATIVE_FRAMING,
-    calculate_required_equity,
-    generate_bounded_options,
-    apply_emotional_window_shift,
-    get_emotional_shift,
-    format_options_for_prompt,
-    _should_block_fold,
-    _should_block_call,
+    STYLE_PROFILES,
+    BoundedOption,
+    EmotionalShift,
+    OptionProfile,
+    _apply_narrative_framing,
     _get_raise_options,
     _option_spectrum_position,
-    _apply_narrative_framing,
     _reapply_math_blocking,
+    _should_block_call,
+    _should_block_fold,
     _truncate_options,
+    apply_emotional_window_shift,
+    calculate_required_equity,
+    format_options_for_prompt,
+    generate_bounded_options,
+    get_emotional_shift,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _base_context(**overrides):
     """Build a standard context dict with sensible defaults."""
@@ -160,8 +161,10 @@ class TestCaseF2StrongFreeToAct:
         # Either CHECK is absent OR labeled as marginal (not neutral/+EV)
         check_opts = [o for o in options if o.action == 'check']
         if check_opts:
-            assert check_opts[0].ev_estimate in ('marginal', '-EV'), \
-                f"F2 OOP CHECK should be marginal, got {check_opts[0].ev_estimate}"
+            assert check_opts[0].ev_estimate in (
+                'marginal',
+                '-EV',
+            ), f"F2 OOP CHECK should be marginal, got {check_opts[0].ev_estimate}"
 
     def test_f2_oop_aggressive_profile_removes_check(self):
         """F2 OOP with TAG profile: CHECK should be removed or labeled negatively."""
@@ -198,7 +201,7 @@ class TestCaseF3DecentFreeToAct:
         for o in options:
             if o.action == 'raise' and o.ev_estimate == '-EV':
                 # Default profile shouldn't include -EV bluff raises
-                pytest.fail(f"Default F3 should not have -EV bluff raises")
+                pytest.fail("Default F3 should not have -EV bluff raises")
 
     def test_f3_lag_gets_bluff_raise(self):
         """F3 with LAG profile: bluff raise included."""
@@ -312,7 +315,10 @@ class TestCaseB3ProfitableFacingBet:
         ctx = _base_context(equity=0.35, pot_total=300, cost_to_call=100)
         options = generate_bounded_options(ctx)
         call_ev = _ev_for_action(options, 'call')
-        assert call_ev in ('+EV', 'marginal'), f"B3 call EV should be +EV or marginal, got {call_ev}"
+        assert call_ev in (
+            '+EV',
+            'marginal',
+        ), f"B3 call EV should be +EV or marginal, got {call_ev}"
 
     def test_b3_fold_available_but_negative(self):
         """B3 FOLD should be available but labeled negatively."""
@@ -431,16 +437,19 @@ class TestPositionAwareness:
         options = generate_bounded_options(ctx)
         check_opts = [o for o in options if o.action == 'check']
         if check_opts:
-            assert check_opts[0].ev_estimate in ('marginal', '-EV'), \
-                f"OOP strong CHECK should be marginal, got {check_opts[0].ev_estimate}"
+            assert check_opts[0].ev_estimate in (
+                'marginal',
+                '-EV',
+            ), f"OOP strong CHECK should be marginal, got {check_opts[0].ev_estimate}"
 
     def test_position_irrelevant_weak_hands(self):
         """Position should not affect weak hand options (CHECK always available)."""
         for position in ('button', 'small_blind'):
             ctx = _free_context(equity=0.20, position=position)
             options = generate_bounded_options(ctx)
-            assert _has_action(options, 'check'), \
-                f"Weak hand CHECK should be available regardless of position={position}"
+            assert _has_action(
+                options, 'check'
+            ), f"Weak hand CHECK should be available regardless of position={position}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -517,11 +526,10 @@ class TestStackDepthOverlay:
         actions = _actions(options)
         # Short stack monster should have ALL-IN or a max raise
         has_all_in = 'all_in' in actions
-        has_max_raise = any(
-            o.raise_to >= ctx['max_raise'] for o in options if o.action == 'raise'
-        )
-        assert has_all_in or has_max_raise, \
-            f"Short stack F1 should collapse to ALL-IN, got {actions}"
+        has_max_raise = any(o.raise_to >= ctx['max_raise'] for o in options if o.action == 'raise')
+        assert (
+            has_all_in or has_max_raise
+        ), f"Short stack F1 should collapse to ALL-IN, got {actions}"
 
     def test_short_stack_facing_bet_pushfold(self):
         """Short stack (<10 BB) + B1-B3: should collapse to ALL-IN or FOLD."""
@@ -580,22 +588,20 @@ class TestEmotionalWindowShiftMildTilt:
         # Get baseline options (no emotional state)
         baseline = generate_bounded_options(ctx)
         # Get tilted options
-        tilted = generate_bounded_options(
-            ctx, emotional_state='tilted', emotional_severity='mild'
-        )
+        tilted = generate_bounded_options(ctx, emotional_state='tilted', emotional_severity='mild')
         # Tilted should have >= baseline options (added aggressive)
-        assert len(tilted) >= len(baseline), \
-            f"Mild tilt should expand options: baseline={len(baseline)}, tilted={len(tilted)}"
+        assert len(tilted) >= len(
+            baseline
+        ), f"Mild tilt should expand options: baseline={len(baseline)}, tilted={len(tilted)}"
 
     def test_mild_tilt_does_not_remove_passive(self):
         """Mild tilt should NOT remove passive options (only extreme does)."""
         ctx = _free_context(equity=0.75)
-        tilted = generate_bounded_options(
-            ctx, emotional_state='tilted', emotional_severity='mild'
-        )
+        tilted = generate_bounded_options(ctx, emotional_state='tilted', emotional_severity='mild')
         # CHECK should still be available (only extreme removes it)
-        assert _has_action(tilted, 'check') or _has_action(tilted, 'call'), \
-            "Mild tilt should not remove passive options"
+        assert _has_action(tilted, 'check') or _has_action(
+            tilted, 'call'
+        ), "Mild tilt should not remove passive options"
 
 
 class TestEmotionalWindowShiftExtremeTilt:
@@ -619,8 +625,9 @@ class TestEmotionalWindowShiftExtremeTilt:
         # Extreme tilt removes passive end — CHECK should be gone (or FOLD for facing bet)
         baseline_passive = [o for o in baseline if o.action in ('check', 'fold')]
         extreme_passive = [o for o in extreme if o.action in ('check', 'fold')]
-        assert len(extreme_passive) < len(baseline_passive), \
-            "Extreme tilt should remove a passive option"
+        assert len(extreme_passive) < len(
+            baseline_passive
+        ), "Extreme tilt should remove a passive option"
 
 
 class TestEmotionalWindowShiftMildShaken:
@@ -629,12 +636,11 @@ class TestEmotionalWindowShiftMildShaken:
     def test_mild_shaken_adds_passive(self):
         """Mild shaken should add FOLD or CHECK where normally absent."""
         ctx = _base_context(equity=0.35, pot_total=200, cost_to_call=100)
-        shaken = generate_bounded_options(
-            ctx, emotional_state='shaken', emotional_severity='mild'
-        )
+        shaken = generate_bounded_options(ctx, emotional_state='shaken', emotional_severity='mild')
         # Should have passive options available
-        assert _has_action(shaken, 'fold') or _has_action(shaken, 'check'), \
-            "Mild shaken should have passive options"
+        assert _has_action(shaken, 'fold') or _has_action(
+            shaken, 'check'
+        ), "Mild shaken should have passive options"
 
 
 class TestEmotionalWindowShiftExtremeShaken:
@@ -651,11 +657,13 @@ class TestEmotionalWindowShiftExtremeShaken:
         shaken_raises = sorted(_raise_amounts(shaken))
         # Extreme shaken should have fewer/smaller raises
         if baseline_raises and shaken_raises:
-            assert max(shaken_raises) <= max(baseline_raises), \
-                "Extreme shaken should not have larger raises than baseline"
+            assert max(shaken_raises) <= max(
+                baseline_raises
+            ), "Extreme shaken should not have larger raises than baseline"
         # OR raises removed entirely
-        assert len(shaken_raises) <= len(baseline_raises), \
-            "Extreme shaken should have fewer raise options"
+        assert len(shaken_raises) <= len(
+            baseline_raises
+        ), "Extreme shaken should have fewer raise options"
 
 
 class TestEmotionalProbabilisticRoll:
@@ -714,11 +722,8 @@ class TestEmotionalProbabilisticRoll:
         """No emotional severity → always normal options."""
         ctx = _free_context(equity=0.75)
         baseline = generate_bounded_options(ctx)
-        options = generate_bounded_options(
-            ctx, emotional_state='tilted', emotional_severity='none'
-        )
-        assert _actions(options) == _actions(baseline), \
-            "No severity should produce normal options"
+        options = generate_bounded_options(ctx, emotional_state='tilted', emotional_severity='none')
+        assert _actions(options) == _actions(baseline), "No severity should produce normal options"
 
 
 class TestEmotionalNarrativeFraming:
@@ -773,14 +778,14 @@ class TestMathBlockingOverrides:
             ctx, emotional_state='tilted', emotional_severity='extreme'
         )
         # FOLD should still be blocked (monster hand)
-        assert not _has_action(options, 'fold'), \
-            "Tilt cannot override fold blocking for monsters"
+        assert not _has_action(options, 'fold'), "Tilt cannot override fold blocking for monsters"
 
     def test_shaken_cannot_remove_call_when_only_option(self):
         """Extreme shaken removes aggressive, but can't leave player with no action."""
         ctx = _base_context(
             equity=0.95,
-            min_raise=0, max_raise=0,  # Can't raise
+            min_raise=0,
+            max_raise=0,  # Can't raise
             valid_actions=['fold', 'call'],
         )
         options = generate_bounded_options(
@@ -790,8 +795,9 @@ class TestMathBlockingOverrides:
         assert len(options) >= 1, "Shaken can't leave player with no options"
         # If fold is blocked (monster), CALL must survive
         if not _has_action(options, 'fold'):
-            assert _has_action(options, 'call'), \
-                "Shaken can't remove CALL when it's the only non-fold option"
+            assert _has_action(
+                options, 'call'
+            ), "Shaken can't remove CALL when it's the only non-fold option"
 
     def test_tilt_cannot_override_call_blocking_dead_hand(self):
         """Tilt can't force a CALL for a dead hand (B6: <5% equity)."""
@@ -800,8 +806,7 @@ class TestMathBlockingOverrides:
             ctx, emotional_state='tilted', emotional_severity='extreme'
         )
         # CALL should still be blocked (drawing dead)
-        assert not _has_action(options, 'call'), \
-            "Tilt cannot override call blocking for dead hands"
+        assert not _has_action(options, 'call'), "Tilt cannot override call blocking for dead hands"
 
     def test_emotional_shift_then_math_blocking_order(self):
         """Emotional shift applied BEFORE math blocking (blocking is last gate)."""
@@ -812,8 +817,9 @@ class TestMathBlockingOverrides:
             ctx, emotional_state='shaken', emotional_severity='extreme'
         )
         # Monster should still have aggressive options despite being shaken
-        assert _has_action(options, 'call') or _has_action(options, 'raise'), \
-            "Math blocking preserves +EV options for monsters even when shaken"
+        assert _has_action(options, 'call') or _has_action(
+            options, 'raise'
+        ), "Math blocking preserves +EV options for monsters even when shaken"
 
     def test_always_at_least_one_option(self):
         """No combination of emotional state + blocking should produce zero options."""
@@ -824,8 +830,9 @@ class TestMathBlockingOverrides:
                     options = generate_bounded_options(
                         ctx, emotional_state=state, emotional_severity=severity
                     )
-                    assert len(options) >= 1, \
-                        f"Zero options for state={state}, severity={severity}, equity={equity}"
+                    assert (
+                        len(options) >= 1
+                    ), f"Zero options for state={state}, severity={severity}, equity={equity}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -938,7 +945,13 @@ class TestRegressionCompatibility:
 
     def test_all_style_profiles_exist(self):
         """All expected style profiles should be defined."""
-        expected = {'tight_passive', 'tight_aggressive', 'loose_passive', 'loose_aggressive', 'default'}
+        expected = {
+            'tight_passive',
+            'tight_aggressive',
+            'loose_passive',
+            'loose_aggressive',
+            'default',
+        }
         assert set(STYLE_PROFILES.keys()) >= expected
 
     def test_required_equity_calculation(self):
@@ -1167,8 +1180,9 @@ class TestApplyEmotionalWindowShiftDirect:
             if _actions(result) != _actions(baseline):
                 found_impaired = True
                 # Should have aggressive options
-                assert _has_action(result, 'raise') or _has_action(result, 'all_in'), \
-                    "Overconfident shift should preserve/add aggressive options"
+                assert _has_action(result, 'raise') or _has_action(
+                    result, 'all_in'
+                ), "Overconfident shift should preserve/add aggressive options"
                 break
         assert found_impaired, "Should find at least one impaired roll for extreme"
 
@@ -1446,17 +1460,15 @@ class TestGetEmotionalShiftWithPenalties:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # COMPOSED NUDGES
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 from poker.nudge_phrases import (
+    NUDGE_PHRASES,
     _classify_nudge_key,
     apply_composed_nudges,
-    NUDGE_PHRASES,
 )
 
 
@@ -1629,10 +1641,18 @@ class TestNudgePhraseCoverage:
     def test_default_has_all_12_keys(self):
         """Default profile must have all 12 nudge categories."""
         expected = {
-            'raise_value', 'raise_probe', 'raise_bluff',
-            'call_strong', 'call_close', 'call_light',
-            'check_slow', 'check_passive', 'check_free',
-            'fold_correct', 'fold_tough', 'all_in',
+            'raise_value',
+            'raise_probe',
+            'raise_bluff',
+            'call_strong',
+            'call_close',
+            'call_light',
+            'check_slow',
+            'check_passive',
+            'check_free',
+            'fold_correct',
+            'fold_tough',
+            'all_in',
         }
         assert set(NUDGE_PHRASES['default'].keys()) == expected
 
@@ -1643,8 +1663,7 @@ class TestNudgePhraseCoverage:
                 for phrase in phrases:
                     word_count = len(phrase.split())
                     assert word_count <= 10, (
-                        f"Phrase too long ({word_count} words) in "
-                        f"{profile}.{key}: '{phrase}'"
+                        f"Phrase too long ({word_count} words) in " f"{profile}.{key}: '{phrase}'"
                     )
 
     def test_all_phrases_non_empty(self):
@@ -1658,8 +1677,11 @@ class TestNudgePhraseCoverage:
     def test_all_five_profiles_present(self):
         """All five style profiles should be in NUDGE_PHRASES."""
         expected_profiles = {
-            'default', 'tight_aggressive', 'tight_passive',
-            'loose_aggressive', 'loose_passive',
+            'default',
+            'tight_aggressive',
+            'tight_passive',
+            'loose_aggressive',
+            'loose_passive',
         }
         assert set(NUDGE_PHRASES.keys()) == expected_profiles
 
@@ -1895,8 +1917,9 @@ class TestReraiseAwareness:
         # With 0.65 equity vs default raise_plus_ev=0.60, raises normally +EV
         # After demotion: +EV -> neutral
         for r in raises:
-            assert r.ev_estimate != '+EV', \
-                f"Raise should be demoted from +EV facing re-raise, got {r.ev_estimate}"
+            assert (
+                r.ev_estimate != '+EV'
+            ), f"Raise should be demoted from +EV facing re-raise, got {r.ev_estimate}"
 
     def test_call_ev_boosted_on_reraise(self):
         """Call EV boosted when raises_this_round >= 2."""
@@ -1910,8 +1933,9 @@ class TestReraiseAwareness:
         call_no = next((o for o in options_no_reraise if o.action == 'call'), None)
         call_re = next((o for o in options_reraise if o.action == 'call'), None)
         if call_no and call_re and call_no.ev_estimate == 'marginal':
-            assert call_re.ev_estimate == 'neutral', \
-                f"Marginal call should boost to neutral facing re-raise, got {call_re.ev_estimate}"
+            assert (
+                call_re.ev_estimate == 'neutral'
+            ), f"Marginal call should boost to neutral facing re-raise, got {call_re.ev_estimate}"
 
     def test_no_adjustment_on_first_raise(self):
         """No EV adjustment when raises_this_round < 2."""
@@ -1954,8 +1978,9 @@ class TestRaiseEscalationAnnotation:
         raises = [o for o in options if o.action == 'raise']
         assert len(raises) > 0, "Should have raise options"
         for r in raises:
-            assert '3bet:' in r.rationale, \
-                f"Raise rationale should start with '3bet:', got: {r.rationale}"
+            assert (
+                '3bet:' in r.rationale
+            ), f"Raise rationale should start with '3bet:', got: {r.rationale}"
 
     def test_4bet_annotation(self):
         """raises_this_round=2 → annotated as 4bet (T3-73 added the explicit
@@ -1965,8 +1990,9 @@ class TestRaiseEscalationAnnotation:
         raises = [o for o in options if o.action == 'raise']
         assert len(raises) > 0, "Should have raise options"
         for r in raises:
-            assert r.rationale.startswith('4bet:'), \
-                f"Raise rationale should start with '4bet:', got: {r.rationale}"
+            assert r.rationale.startswith(
+                '4bet:'
+            ), f"Raise rationale should start with '4bet:', got: {r.rationale}"
 
     def test_5bet_plus_annotation(self):
         """T3-73: raises_this_round >= 3 still produces '4bet+'."""
@@ -1975,8 +2001,9 @@ class TestRaiseEscalationAnnotation:
         raises = [o for o in options if o.action == 'raise']
         assert len(raises) > 0
         for r in raises:
-            assert r.rationale.startswith('4bet+:'), \
-                f"Raise rationale should start with '4bet+:', got: {r.rationale}"
+            assert r.rationale.startswith(
+                '4bet+:'
+            ), f"Raise rationale should start with '4bet+:', got: {r.rationale}"
 
     def test_no_annotation_when_opening(self):
         """When raises_this_round=0, no escalation annotation."""
@@ -1984,8 +2011,9 @@ class TestRaiseEscalationAnnotation:
         options = generate_bounded_options(ctx)
         raises = [o for o in options if o.action == 'raise']
         for r in raises:
-            assert '3bet' not in r.rationale and '4bet' not in r.rationale, \
-                f"Opening raises should not have escalation prefix: {r.rationale}"
+            assert (
+                '3bet' not in r.rationale and '4bet' not in r.rationale
+            ), f"Opening raises should not have escalation prefix: {r.rationale}"
 
     def test_annotation_only_on_raises(self):
         """Escalation annotation should not affect call/fold/check options."""
@@ -1993,8 +2021,9 @@ class TestRaiseEscalationAnnotation:
         options = generate_bounded_options(ctx)
         non_raises = [o for o in options if o.action != 'raise']
         for o in non_raises:
-            assert '3bet' not in o.rationale, \
-                f"Non-raise option should not have escalation prefix: {o.rationale}"
+            assert (
+                '3bet' not in o.rationale
+            ), f"Non-raise option should not have escalation prefix: {o.rationale}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2008,6 +2037,7 @@ class TestLagNudgeCallPhrases:
     def test_lag_call_strong_tactical(self):
         """call_strong phrases should reflect tactical calling."""
         from poker.nudge_phrases import NUDGE_PHRASES
+
         phrases = NUDGE_PHRASES['loose_aggressive']['call_strong']
         for p in phrases:
             assert 'trap' not in p.lower(), f"Should not mention trapping: {p}"
@@ -2016,6 +2046,7 @@ class TestLagNudgeCallPhrases:
     def test_lag_call_close_active(self):
         """call_close phrases should be active, not passive."""
         from poker.nudge_phrases import NUDGE_PHRASES
+
         phrases = NUDGE_PHRASES['loose_aggressive']['call_close']
         for p in phrases:
             assert 'fighting' not in p.lower(), f"Should not say 'fighting': {p}"
@@ -2023,9 +2054,10 @@ class TestLagNudgeCallPhrases:
     def test_lag_call_light_not_gamble(self):
         """call_light phrases should frame speculation actively."""
         from poker.nudge_phrases import NUDGE_PHRASES
+
         phrases = NUDGE_PHRASES['loose_aggressive']['call_light']
         for p in phrases:
-            assert p != "Gamble.", f"Should not be just 'Gamble.'"
+            assert p != "Gamble.", "Should not be just 'Gamble.'"
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from poker.repositories.schema_manager import SchemaManager, SCHEMA_VERSION
+from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
 @pytest.fixture
@@ -41,15 +41,21 @@ class TestV93Migration:
             assert _table_exists(conn, 'chip_ledger_entries')
             cols = _table_columns(conn, 'chip_ledger_entries')
             assert {
-                'entry_id', 'created_at', 'source', 'sink',
-                'amount', 'reason', 'context_json',
+                'entry_id',
+                'created_at',
+                'source',
+                'sink',
+                'amount',
+                'reason',
+                'context_json',
             }.issubset(cols)
 
     def test_indexes_created(self, tmp_db_path):
         SchemaManager(tmp_db_path).ensure_schema()
         with sqlite3.connect(tmp_db_path) as conn:
             idxs = {
-                row[0] for row in conn.execute(
+                row[0]
+                for row in conn.execute(
                     "SELECT name FROM sqlite_master "
                     "WHERE type='index' AND tbl_name='chip_ledger_entries'"
                 )
@@ -60,9 +66,7 @@ class TestV93Migration:
     def test_schema_version_bumped(self, tmp_db_path):
         SchemaManager(tmp_db_path).ensure_schema()
         with sqlite3.connect(tmp_db_path) as conn:
-            version = conn.execute(
-                "SELECT MAX(version) FROM schema_version"
-            ).fetchone()[0]
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
             assert version == SCHEMA_VERSION
             assert version >= 93
 
@@ -100,7 +104,5 @@ class TestV93Migration:
                 "(source, sink, amount, reason) VALUES (?, ?, ?, ?)",
                 ('player:x', 'central_bank', 0, 'forgive_balance'),
             )
-            count = conn.execute(
-                "SELECT COUNT(*) FROM chip_ledger_entries"
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM chip_ledger_entries").fetchone()[0]
             assert count == 1

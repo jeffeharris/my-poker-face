@@ -25,16 +25,20 @@ class TestOpponentModelIds:
 
     def test_init_with_explicit_ids(self):
         m = OpponentModel(
-            observer="Alice", opponent="Bob",
-            observer_id="alice", opponent_id="bob",
+            observer="Alice",
+            opponent="Bob",
+            observer_id="alice",
+            opponent_id="bob",
         )
         assert m.observer_id == "alice"
         assert m.opponent_id == "bob"
 
     def test_to_dict_includes_ids(self):
         m = OpponentModel(
-            observer="Alice", opponent="Bob",
-            observer_id="alice_v2", opponent_id="bob",
+            observer="Alice",
+            opponent="Bob",
+            observer_id="alice_v2",
+            opponent_id="bob",
         )
         d = m.to_dict()
         assert d["observer_id"] == "alice_v2"
@@ -48,8 +52,10 @@ class TestOpponentModelIds:
 
     def test_from_dict_round_trip(self):
         m = OpponentModel(
-            observer="Alice", opponent="Bob",
-            observer_id="alice", opponent_id="bob",
+            observer="Alice",
+            opponent="Bob",
+            observer_id="alice",
+            opponent_id="bob",
         )
         d = m.to_dict()
         restored = OpponentModel.from_dict(d)

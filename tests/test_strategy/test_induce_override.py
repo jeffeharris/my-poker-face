@@ -51,14 +51,15 @@ from poker.strategy.intervention_trace import (
 )
 from poker.strategy.strategy_profile import StrategyProfile
 
-
 # ── Fixtures ───────────────────────────────────────────────────────
+
 
 def _barreler_stats(**overrides) -> AggregatedOpponentStats:
     """ManiacBot-like opponent that passes the Phase B Item 2 gate."""
     base = dict(
         hands_observed=30,
-        vpip=0.80, pfr=0.80,
+        vpip=0.80,
+        pfr=0.80,
         aggression_factor=5.0,
         all_in_frequency=0.0,
         aggression_factor_postflop=4.0,
@@ -89,11 +90,13 @@ def _facing_bet_context() -> DecisionContext:
 
 
 def _facing_bet_strategy() -> StrategyProfile:
-    return StrategyProfile(action_probabilities={
-        'fold': 0.20,
-        'call': 0.50,
-        'raise_75': 0.30,
-    })
+    return StrategyProfile(
+        action_probabilities={
+            'fold': 0.20,
+            'call': 0.50,
+            'raise_75': 0.30,
+        }
+    )
 
 
 def _baseline_kwargs(**overrides):
@@ -118,6 +121,7 @@ def _baseline_kwargs(**overrides):
 
 # ── Gate: positive baseline ───────────────────────────────────────
 
+
 class TestGateBaseline:
     def test_baseline_scenario_fires(self):
         should_fire, reason = should_apply_induce_override(**_baseline_kwargs())
@@ -127,40 +131,31 @@ class TestGateBaseline:
 
 # ── Gate: each component blocks when violated ────────────────────
 
+
 class TestGateBlocks:
     def test_no_call_action_blocks(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(has_call=False)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(has_call=False))
         assert not should_fire
         assert reason == 'no_call_action'
 
     def test_no_fold_action_means_not_facing_bet(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(has_fold=False)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(has_fold=False))
         assert not should_fire
         assert reason == 'not_facing_bet'
 
     def test_facing_all_in_blocks(self):
         ctx = DecisionContext(facing_all_in=True)
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(decision_context=ctx)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(decision_context=ctx))
         assert not should_fire
         assert reason == 'facing_all_in'
 
     def test_river_street_blocks(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(street='river')
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(street='river'))
         assert not should_fire
         assert 'river' in reason
 
     def test_oop_blocks(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(position='OOP')
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(position='OOP'))
         assert not should_fire
         assert reason == 'oop_not_supported_phase_a'
 
@@ -197,24 +192,18 @@ class TestGateBlocks:
         assert 'nut_status' in reason
 
     def test_wet_board_blocks(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(danger_flag_count=2)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(danger_flag_count=2))
         assert not should_fire
         assert reason == 'board_too_dangerous'
 
     def test_psychology_suppression_blocks(self):
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(adaptation_bias=0.0)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(adaptation_bias=0.0))
         assert not should_fire
         assert reason == 'psychology_suppressed'
 
     def test_cold_start_hands_blocks(self):
         cold_stats = _barreler_stats(hands_observed=MIN_HANDS_OBSERVED - 1)
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(stats=cold_stats)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(stats=cold_stats))
         assert not should_fire
         assert reason == 'cold_start_hands'
 
@@ -222,9 +211,7 @@ class TestGateBlocks:
         cold_stats = _barreler_stats(
             barrel_opportunities=MIN_BARREL_OPPORTUNITIES - 1,
         )
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(stats=cold_stats)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(stats=cold_stats))
         assert not should_fire
         assert reason == 'cold_start_barrel_sample'
 
@@ -243,14 +230,12 @@ class TestGateBlocks:
         A player with low AF_pf but high barrel_frequency should now
         pass — Phase B reads the barrel signal directly."""
         stats = _barreler_stats(
-            aggression_factor_postflop=1.5,   # below Phase A threshold
-            cbet_attempt_rate=0.40,            # below Phase A threshold
-            barrel_frequency=0.90,             # above Phase B threshold
+            aggression_factor_postflop=1.5,  # below Phase A threshold
+            cbet_attempt_rate=0.40,  # below Phase A threshold
+            barrel_frequency=0.90,  # above Phase B threshold
             barrel_opportunities=20,
         )
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(stats=stats)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(stats=stats))
         assert should_fire
         assert reason == 'gate_pass'
 
@@ -260,14 +245,13 @@ class TestGateBlocks:
             aggression_factor=0.5,
             vpip_per_voluntary_opportunity=0.85,
         )
-        should_fire, reason = should_apply_induce_override(
-            **_baseline_kwargs(stats=station_stats)
-        )
+        should_fire, reason = should_apply_induce_override(**_baseline_kwargs(stats=station_stats))
         assert not should_fire
         assert reason == 'opponent_is_hyper_passive'
 
 
 # ── Phase B Item 3: strong_made inclusion ──────────────────────────
+
 
 class TestItem3StrongMade:
     """strong_made class is eligible with stricter texture + nut_status
@@ -361,6 +345,7 @@ class TestItem3StrongMade:
 
 # ── Confidence-scaled call probability ─────────────────────────────
 
+
 class TestCallProbability:
     def test_at_minimum_gate_yields_call_prob_min(self):
         stats = _barreler_stats(
@@ -402,6 +387,7 @@ class TestCallProbability:
 
 # ── Redistribution ─────────────────────────────────────────────────
 
+
 class TestRedistribution:
     def test_compute_strategy_call_plus_raise(self):
         before = _facing_bet_strategy()
@@ -413,10 +399,15 @@ class TestRedistribution:
         assert 'fold' not in after.action_probabilities
 
     def test_compute_strategy_multiple_raise_actions_split_evenly(self):
-        before = StrategyProfile(action_probabilities={
-            'fold': 0.10, 'call': 0.40,
-            'raise_50': 0.20, 'raise_75': 0.20, 'jam': 0.10,
-        })
+        before = StrategyProfile(
+            action_probabilities={
+                'fold': 0.10,
+                'call': 0.40,
+                'raise_50': 0.20,
+                'raise_75': 0.20,
+                'jam': 0.10,
+            }
+        )
         after = compute_induce_override_strategy(before, call_probability=0.70)
         assert after.action_probabilities['call'] == pytest.approx(0.70)
         # 0.30 split across 3 raise actions
@@ -455,6 +446,7 @@ class TestRedistribution:
 
 # ── Ablation ────────────────────────────────────────────────────────
 
+
 class TestAblation:
     def test_disabled_rule_short_circuits(self):
         strategy = _facing_bet_strategy()
@@ -463,13 +455,16 @@ class TestAblation:
         kwargs.pop('has_fold')
         disable_rules = frozenset({('induce_override', 'default')})
         new_strategy, trace = apply_induce_override(
-            strategy, disable_rules=disable_rules, **kwargs,
+            strategy,
+            disable_rules=disable_rules,
+            **kwargs,
         )
         assert not trace.fired
         assert new_strategy is strategy
 
 
 # ── Trace contents ─────────────────────────────────────────────────
+
 
 class TestTraceShape:
     def test_fired_trace_layer_and_operation(self):
@@ -499,9 +494,13 @@ class TestTraceShape:
         assert CALL_PROB_MIN <= inputs['call_probability'] <= CALL_PROB_MAX
 
     def test_fired_trace_action_changed_when_raise_was_primary(self):
-        strategy = StrategyProfile(action_probabilities={
-            'fold': 0.10, 'call': 0.30, 'raise_75': 0.60,
-        })
+        strategy = StrategyProfile(
+            action_probabilities={
+                'fold': 0.10,
+                'call': 0.30,
+                'raise_75': 0.60,
+            }
+        )
         kwargs = _baseline_kwargs()
         kwargs.pop('has_call')
         kwargs.pop('has_fold')
@@ -521,11 +520,13 @@ class TestTraceShape:
 
 # ── Phase B Item 4: open-spot IP induce ───────────────────────────
 
+
 def _trap_bait_stats(**overrides) -> AggregatedOpponentStats:
     """TrapBaitBot-like opponent that passes the Phase B Item 4 gate."""
     base = dict(
         hands_observed=30,
-        vpip=0.80, pfr=0.70,
+        vpip=0.80,
+        pfr=0.70,
         aggression_factor=4.0,
         all_in_frequency=0.0,
         aggression_factor_postflop=3.0,
@@ -549,11 +550,13 @@ def _trap_bait_stats(**overrides) -> AggregatedOpponentStats:
 
 def _open_spot_strategy() -> StrategyProfile:
     """Hero free to act, default strategy mixes check/bet (no fold)."""
-    return StrategyProfile(action_probabilities={
-        'check': 0.30,
-        'raise_50': 0.30,
-        'raise_75': 0.40,
-    })
+    return StrategyProfile(
+        action_probabilities={
+            'check': 0.30,
+            'raise_50': 0.30,
+            'raise_75': 0.40,
+        }
+    )
 
 
 def _open_spot_context() -> DecisionContext:
@@ -589,31 +592,23 @@ class TestOpenSpotGateBaseline:
 
 class TestOpenSpotGateBlocks:
     def test_no_check_blocks(self):
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(has_check=False)
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(has_check=False))
         assert not should_fire
         assert reason == 'no_check_action'
 
     def test_facing_bet_blocks_open_spot(self):
         # Open-spot branch defers to facing-bet branch when fold is offered.
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(has_fold=True)
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(has_fold=True))
         assert not should_fire
         assert reason == 'facing_bet_use_facing_branch'
 
     def test_oop_blocks_open_spot(self):
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(position='OOP')
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(position='OOP'))
         assert not should_fire
         assert reason == 'oop_not_supported_open_spot'
 
     def test_river_blocks(self):
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(street='river')
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(street='river'))
         assert not should_fire
         assert 'river' in reason
 
@@ -621,9 +616,7 @@ class TestOpenSpotGateBlocks:
         cold_stats = _trap_bait_stats(
             flop_check_barrel_opportunities=MIN_FLOP_CHECK_THEN_BARREL_OPPORTUNITIES - 1,
         )
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(stats=cold_stats)
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(stats=cold_stats))
         assert not should_fire
         assert reason == 'cold_start_flop_check_barrel_sample'
 
@@ -631,9 +624,7 @@ class TestOpenSpotGateBlocks:
         low_stats = _trap_bait_stats(
             flop_check_then_barrel_rate=MIN_FLOP_CHECK_THEN_BARREL_FREQUENCY - 0.01,
         )
-        should_fire, reason = should_apply_open_spot_induce(
-            **_open_spot_kwargs(stats=low_stats)
-        )
+        should_fire, reason = should_apply_open_spot_induce(**_open_spot_kwargs(stats=low_stats))
         assert not should_fire
         assert reason == 'flop_check_barrel_rate_below_threshold'
 
@@ -664,9 +655,7 @@ class TestOpenSpotRedistribution:
     def test_check_plus_raise(self):
         before = _open_spot_strategy()
         after = compute_open_spot_induce_strategy(before)
-        assert after.action_probabilities['check'] == pytest.approx(
-            OPEN_SPOT_CHECK_PROBABILITY
-        )
+        assert after.action_probabilities['check'] == pytest.approx(OPEN_SPOT_CHECK_PROBABILITY)
         # 0.30 split across raise_50 and raise_75 = 0.15 each
         assert after.action_probabilities['raise_50'] == pytest.approx(0.15)
         assert after.action_probabilities['raise_75'] == pytest.approx(0.15)
@@ -735,7 +724,9 @@ class TestOpenSpotApply:
         kwargs.pop('has_fold')
         disable_rules = frozenset({('induce_override', 'default')})
         new_strategy, trace = apply_induce_override(
-            strategy, disable_rules=disable_rules, **kwargs,
+            strategy,
+            disable_rules=disable_rules,
+            **kwargs,
         )
         assert not trace.fired
         assert new_strategy is strategy
@@ -743,12 +734,14 @@ class TestOpenSpotApply:
 
 # ── Phase B Item 5: OOP induce (trap-check + check-raise) ─────────
 
+
 def _cbet_spammer_stats(**overrides) -> AggregatedOpponentStats:
     """Maniac-like opponent that cbets often AND barrels — passes both
     Item 5 OOP gates."""
     base = dict(
         hands_observed=30,
-        vpip=0.80, pfr=0.80,
+        vpip=0.80,
+        pfr=0.80,
         aggression_factor=5.0,
         all_in_frequency=0.0,
         aggression_factor_postflop=4.0,
@@ -771,20 +764,24 @@ def _cbet_spammer_stats(**overrides) -> AggregatedOpponentStats:
 
 def _oop_open_spot_strategy() -> StrategyProfile:
     """Hero OOP free to act with strong hand — default has mixed check/bet."""
-    return StrategyProfile(action_probabilities={
-        'check': 0.30,
-        'raise_50': 0.30,
-        'raise_75': 0.40,
-    })
+    return StrategyProfile(
+        action_probabilities={
+            'check': 0.30,
+            'raise_50': 0.30,
+            'raise_75': 0.40,
+        }
+    )
 
 
 def _oop_facing_bet_strategy() -> StrategyProfile:
     """Hero OOP facing cbet with strong hand — default has mostly call."""
-    return StrategyProfile(action_probabilities={
-        'fold': 0.10,
-        'call': 0.60,
-        'raise_75': 0.30,
-    })
+    return StrategyProfile(
+        action_probabilities={
+            'fold': 0.10,
+            'call': 0.60,
+            'raise_75': 0.30,
+        }
+    )
 
 
 def _oop_open_spot_kwargs(**overrides):
@@ -829,30 +826,22 @@ def _oop_facing_bet_kwargs(**overrides):
 
 class TestOOPTrapCheckGate:
     def test_baseline_oop_open_spot_fires(self):
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs()
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs())
         assert should_fire
         assert reason == 'gate_pass'
 
     def test_no_check_blocks(self):
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(has_check=False)
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(has_check=False))
         assert not should_fire
         assert reason == 'no_check_action'
 
     def test_facing_bet_blocks_oop_trap_check(self):
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(has_fold=True)
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(has_fold=True))
         assert not should_fire
         assert reason == 'facing_bet_use_facing_branch'
 
     def test_ip_blocks_oop_trap_check(self):
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(position='IP')
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(position='IP'))
         assert not should_fire
         assert reason == 'ip_not_supported_oop_branch'
 
@@ -860,9 +849,7 @@ class TestOOPTrapCheckGate:
         cold = _cbet_spammer_stats(
             postflop_seen_as_pfr_count=MIN_POSTFLOP_SEEN_AS_PFR - 1,
         )
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(stats=cold)
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(stats=cold))
         assert not should_fire
         assert reason == 'cold_start_cbet_sample'
 
@@ -870,16 +857,12 @@ class TestOOPTrapCheckGate:
         low = _cbet_spammer_stats(
             cbet_attempt_rate=MIN_CBET_ATTEMPT_RATE - 0.01,
         )
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(stats=low)
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(stats=low))
         assert not should_fire
         assert reason == 'cbet_attempt_rate_below_threshold'
 
     def test_river_blocks(self):
-        should_fire, reason = should_apply_oop_trap_check(
-            **_oop_open_spot_kwargs(street='river')
-        )
+        should_fire, reason = should_apply_oop_trap_check(**_oop_open_spot_kwargs(street='river'))
         assert not should_fire
         assert 'river' in reason
 
@@ -888,9 +871,7 @@ class TestOOPTrapCheckRedistribution:
     def test_check_plus_raise_split(self):
         before = _oop_open_spot_strategy()
         after = compute_oop_trap_check_strategy(before)
-        assert after.action_probabilities['check'] == pytest.approx(
-            OOP_TRAP_CHECK_PROBABILITY
-        )
+        assert after.action_probabilities['check'] == pytest.approx(OOP_TRAP_CHECK_PROBABILITY)
         # 0.20 split across raise_50 and raise_75 = 0.10 each
         assert after.action_probabilities['raise_50'] == pytest.approx(0.10)
         assert after.action_probabilities['raise_75'] == pytest.approx(0.10)
@@ -903,31 +884,23 @@ class TestOOPTrapCheckRedistribution:
 
 class TestOOPCheckRaiseGate:
     def test_baseline_oop_facing_bet_fires(self):
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs()
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs())
         assert should_fire
         assert reason == 'gate_pass'
 
     def test_no_call_blocks(self):
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs(has_call=False)
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs(has_call=False))
         assert not should_fire
         assert reason == 'no_call_action'
 
     def test_no_fold_blocks(self):
         # not facing a bet
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs(has_fold=False)
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs(has_fold=False))
         assert not should_fire
         assert reason == 'not_facing_bet'
 
     def test_ip_blocks_check_raise(self):
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs(position='IP')
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs(position='IP'))
         assert not should_fire
         assert reason == 'ip_not_supported_oop_branch'
 
@@ -935,9 +908,7 @@ class TestOOPCheckRaiseGate:
         low = _cbet_spammer_stats(
             barrel_frequency=MIN_OOP_CHECK_RAISE_BARREL_FREQUENCY - 0.01,
         )
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs(stats=low)
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs(stats=low))
         assert not should_fire
         assert reason == 'barrel_frequency_below_threshold'
 
@@ -945,9 +916,7 @@ class TestOOPCheckRaiseGate:
         low = _cbet_spammer_stats(
             cbet_attempt_rate=MIN_CBET_ATTEMPT_RATE - 0.01,
         )
-        should_fire, reason = should_apply_oop_check_raise(
-            **_oop_facing_bet_kwargs(stats=low)
-        )
+        should_fire, reason = should_apply_oop_check_raise(**_oop_facing_bet_kwargs(stats=low))
         assert not should_fire
         assert reason == 'cbet_attempt_rate_below_threshold'
 
@@ -957,19 +926,22 @@ class TestOOPCheckRaiseRedistribution:
         before = _oop_facing_bet_strategy()
         after = compute_oop_check_raise_strategy(before)
         # 0.80 to the single raise action
-        assert after.action_probabilities['raise_75'] == pytest.approx(
-            OOP_CHECK_RAISE_PROBABILITY
-        )
+        assert after.action_probabilities['raise_75'] == pytest.approx(OOP_CHECK_RAISE_PROBABILITY)
         # 0.20 to call
         assert after.action_probabilities['call'] == pytest.approx(0.20)
         # fold dropped (we have a strong hand)
         assert 'fold' not in after.action_probabilities
 
     def test_multiple_raises_split_evenly(self):
-        before = StrategyProfile(action_probabilities={
-            'fold': 0.10, 'call': 0.50,
-            'raise_50': 0.20, 'raise_75': 0.15, 'jam': 0.05,
-        })
+        before = StrategyProfile(
+            action_probabilities={
+                'fold': 0.10,
+                'call': 0.50,
+                'raise_50': 0.20,
+                'raise_75': 0.15,
+                'jam': 0.05,
+            }
+        )
         after = compute_oop_check_raise_strategy(before)
         # 0.80 split across 3 raise actions ≈ 0.267 each
         for action in ('raise_50', 'raise_75', 'jam'):
@@ -1056,7 +1028,9 @@ class TestApplyOOPDispatch:
         kwargs.pop('has_fold')
         disable_rules = frozenset({('induce_override', 'default')})
         new_strategy, trace = apply_induce_override(
-            strategy, disable_rules=disable_rules, **kwargs,
+            strategy,
+            disable_rules=disable_rules,
+            **kwargs,
         )
         assert not trace.fired
         assert new_strategy is strategy

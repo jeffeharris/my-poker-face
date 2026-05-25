@@ -1,11 +1,11 @@
 """Message handling functions for the poker game."""
 
-import uuid
 import logging
+import uuid
 from datetime import datetime
 from typing import Optional
 
-from ..extensions import socketio, game_repo
+from ..extensions import game_repo, socketio
 from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 MAX_MESSAGES_IN_MEMORY = 200
 
 
-def format_action_message(player_name: str, action: str, amount: int = 0,
-                          highest_bet: int = 0) -> str:
+def format_action_message(
+    player_name: str, action: str, amount: int = 0, highest_bet: int = 0
+) -> str:
     """Format a player action into a human-readable message.
 
     Args:
@@ -44,8 +45,9 @@ def format_action_message(player_name: str, action: str, amount: int = 0,
         return f"{player_name} chose to {action}."
 
 
-def record_action_in_memory(game_data: dict, player_name: str, action: str,
-                            amount: int, game_state, state_machine) -> None:
+def record_action_in_memory(
+    game_data: dict, player_name: str, action: str, amount: int, game_state, state_machine
+) -> None:
     """Record a player action in the memory manager if available.
 
     Args:
@@ -61,15 +63,18 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
 
     memory_manager = game_data['memory_manager']
     pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-    phase = (state_machine.current_phase.name
-             if hasattr(state_machine.current_phase, 'name')
-             else str(state_machine.current_phase))
+    phase = (
+        state_machine.current_phase.name
+        if hasattr(state_machine.current_phase, 'name')
+        else str(state_machine.current_phase)
+    )
 
     # Get active players for c-bet tracking
-    active_players = [
-        p.name for p in game_state.players
-        if not p.is_folded
-    ] if hasattr(game_state, 'players') else None
+    active_players = (
+        [p.name for p in game_state.players if not p.is_folded]
+        if hasattr(game_state, 'players')
+        else None
+    )
 
     memory_manager.on_action(
         player_name=player_name,
@@ -77,15 +82,22 @@ def record_action_in_memory(game_data: dict, player_name: str, action: str,
         amount=amount,
         phase=phase,
         pot_total=pot_total,
-        active_players=active_players
+        active_players=active_players,
     )
 
 
-def send_message(game_id: str, sender: str, content: str, message_type: str,
-                 sleep: Optional[int] = None, action: Optional[str] = None,
-                 phase: Optional[str] = None, cards: Optional[list] = None,
-                 win_result: Optional[dict] = None,
-                 addressing: Optional[list] = None) -> None:
+def send_message(
+    game_id: str,
+    sender: str,
+    content: str,
+    message_type: str,
+    sleep: Optional[int] = None,
+    action: Optional[str] = None,
+    phase: Optional[str] = None,
+    cards: Optional[list] = None,
+    win_result: Optional[dict] = None,
+    addressing: Optional[list] = None,
+) -> None:
     """Send a message to the specified game chat.
 
     Args:
@@ -113,7 +125,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
         "sender": sender,
         "content": content,
         "timestamp": datetime.now().strftime("%H:%M %b %d %Y"),
-        "message_type": message_type
+        "message_type": message_type,
     }
 
     # Include action for AI messages (shown in floating bubble)
@@ -145,6 +157,7 @@ def send_message(game_id: str, sender: str, content: str, message_type: str,
 
     if sleep:
         from .. import config
+
         delay = sleep * config.ANIMATION_SPEED
         if delay > 0:
             socketio.sleep(delay)
@@ -166,7 +179,7 @@ def format_messages_for_api(messages: list) -> list:
             'sender': msg.get('sender', 'System'),
             'message': msg.get('content', msg.get('message', '')),
             'timestamp': msg.get('timestamp', datetime.now().isoformat()),
-            'type': msg.get('message_type', msg.get('type', 'system'))
+            'type': msg.get('message_type', msg.get('type', 'system')),
         }
         # Pass through optional structured fields
         if 'phase' in msg:

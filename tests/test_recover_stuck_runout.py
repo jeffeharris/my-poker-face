@@ -12,13 +12,14 @@ no buttons and the game freezes.
 animations and lands at the next stable point (showdown completes, a
 new hand begins).
 """
+
 import unittest
 from unittest.mock import MagicMock
 
-from poker.poker_game import initialize_game_state
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
 from flask_app.game_adapter import StateMachineAdapter
 from flask_app.handlers.game_handler import recover_stuck_runout
+from poker.poker_game import initialize_game_state
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
 
 
 def _stuck_runout_state_machine_at_river():
@@ -40,16 +41,17 @@ def _stuck_runout_state_machine_at_river():
         {'rank': '4', 'suit': 'Clubs', 'suit_symbol': '♣', 'value': 4},
         {'rank': '2', 'suit': 'Spades', 'suit_symbol': '♠', 'value': 2},
     ]
-    players = tuple([
-        gs.players[0].update(stack=10008, bet=7008),
-        gs.players[1].update(stack=0, bet=7008, is_all_in=True),
-        gs.players[2].update(stack=18936, bet=1800, is_folded=True),
-        gs.players[3].update(stack=13876, bet=0, is_folded=True),
-    ])
+    players = tuple(
+        [
+            gs.players[0].update(stack=10008, bet=7008),
+            gs.players[1].update(stack=0, bet=7008, is_all_in=True),
+            gs.players[2].update(stack=18936, bet=1800, is_folded=True),
+            gs.players[3].update(stack=13876, bet=0, is_folded=True),
+        ]
+    )
     gs = gs.update(
         players=players,
-        pot={'total': 15816, 'highest_bet': 7008,
-             'Jeff': 7008, 'Whoopi': 7008, 'Gordon': 1800},
+        pot={'total': 15816, 'highest_bet': 7008, 'Jeff': 7008, 'Whoopi': 7008, 'Gordon': 1800},
         community_cards=community,
         current_player_idx=0,
         current_ante=1800,
@@ -60,7 +62,6 @@ def _stuck_runout_state_machine_at_river():
 
 
 class TestRecoverStuckRunout(unittest.TestCase):
-
     def test_healthy_game_is_not_modified(self):
         """recover_stuck_runout returns False when run_it_out is unset."""
         gs = initialize_game_state(['Alice', 'Bob'])
@@ -103,8 +104,7 @@ class TestRecoverStuckRunout(unittest.TestCase):
         # Options should not be empty (the UI-clearing bug only fires
         # when run_it_out=True, which is now cleared)
         options = sm.game_state.current_player_options
-        self.assertTrue(len(options) > 0,
-                        f"Expected playable options, got {options}")
+        self.assertTrue(len(options) > 0, f"Expected playable options, got {options}")
 
     def test_safety_iteration_cap(self):
         """The recovery loop terminates even if run_it_out can't be cleared."""

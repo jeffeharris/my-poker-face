@@ -6,7 +6,7 @@ emotional state, and a deviation profile that caps how far the result can
 stray from the baseline.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -24,16 +24,25 @@ from .intervention_trace import (
 )
 from .strategy_profile import StrategyProfile
 
-
 # ── Action categorization ────────────────────────────────────────────────
 
 # Abstract actions that map to engine 'raise' or 'all_in'
-_RAISE_ACTIONS = frozenset({
-    # Preflop BB-relative and multiplier raises
-    'raise_2.5bb', 'raise_3bb', 'raise_3x', 'raise_4x', 'raise_2.2x',
-    # Postflop pot-relative bets and raises
-    'bet_33', 'bet_67', 'bet_100', 'raise_67', 'raise_150',
-})
+_RAISE_ACTIONS = frozenset(
+    {
+        # Preflop BB-relative and multiplier raises
+        'raise_2.5bb',
+        'raise_3bb',
+        'raise_3x',
+        'raise_4x',
+        'raise_2.2x',
+        # Postflop pot-relative bets and raises
+        'bet_33',
+        'bet_67',
+        'bet_100',
+        'raise_67',
+        'raise_150',
+    }
+)
 
 
 def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
@@ -68,6 +77,7 @@ def categorize_action(action: str) -> str:
 
 # ── Math helpers ─────────────────────────────────────────────────────────
 
+
 def _probs_to_logits(probs: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     return np.log(probs + eps)
 
@@ -98,6 +108,7 @@ _EMOTIONAL_DIRECTION = {
 
 
 # ── Trait offset computation ─────────────────────────────────────────────
+
 
 def compute_trait_offsets(
     actions: List[str],
@@ -171,6 +182,7 @@ def compute_trait_offsets(
 
 # ── Divergence clamping ──────────────────────────────────────────────────
 
+
 def _clip_and_normalize(
     probs: np.ndarray,
     base_probs: np.ndarray,
@@ -230,9 +242,7 @@ def clamp_divergence(
     for _ in range(32):
         mid = (lo + hi) / 2.0
         trial_probs = _softmax(base_logits + mid * offsets)
-        trial_probs = _clip_and_normalize(
-            trial_probs, base_probs, max_shift, eps
-        )
+        trial_probs = _clip_and_normalize(trial_probs, base_probs, max_shift, eps)
         trial_kl = _kl_divergence(trial_probs, base_probs, eps)
         if trial_kl > profile.max_kl:
             hi = mid
@@ -247,6 +257,7 @@ def clamp_divergence(
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
+
 
 def modify_strategy(
     base: StrategyProfile,
@@ -282,28 +293,30 @@ def modify_strategy(
     """
     if is_rule_disabled(disable_rules, 'personality', 'default'):
         return base, make_disabled_trace(
-            layer='personality', rule_id='default',
+            layer='personality',
+            rule_id='default',
             layer_order=layer_order_for('personality'),
         )
 
     eps = 1e-12
 
     all_actions = list(base.action_probabilities.keys())
-    base_probs_full = np.array(
-        [base.action_probabilities[a] for a in all_actions]
-    )
+    base_probs_full = np.array([base.action_probabilities[a] for a in all_actions])
 
     # Step 1: Identify supported actions (legal AND nonzero base prob)
-    supported_mask = np.array([
-        _is_action_legal(a, legal_actions) and (base.action_probabilities[a] > 0.0)
-        for a in all_actions
-    ])
+    supported_mask = np.array(
+        [
+            _is_action_legal(a, legal_actions) and (base.action_probabilities[a] > 0.0)
+            for a in all_actions
+        ]
+    )
 
     supported_indices = np.where(supported_mask)[0]
 
     if len(supported_indices) <= 1:
         return base, make_no_op_trace(
-            layer='personality', rule_id='default',
+            layer='personality',
+            rule_id='default',
             layer_order=layer_order_for('personality'),
             reason_code='single_supported_action',
         )
@@ -314,7 +327,8 @@ def modify_strategy(
     total = np.sum(supported_probs)
     if total < eps:
         return base, make_no_op_trace(
-            layer='personality', rule_id='default',
+            layer='personality',
+            rule_id='default',
             layer_order=layer_order_for('personality'),
             reason_code='zero_total_probability',
         )
@@ -324,9 +338,7 @@ def modify_strategy(
     base_logits = _probs_to_logits(supported_probs)
 
     # Step 4: Compute trait offsets
-    offsets = compute_trait_offsets(
-        supported_actions, anchors, emotional_state, deviation_profile
-    )
+    offsets = compute_trait_offsets(supported_actions, anchors, emotional_state, deviation_profile)
 
     # Step 5: Apply offsets -> softmax
     new_logits = base_logits + offsets
@@ -349,8 +361,10 @@ def modify_strategy(
 
     modified = StrategyProfile(action_probabilities=result)
     trace = _build_personality_trace(
-        base=base, modified=modified,
-        anchors=anchors, emotional_state=emotional_state,
+        base=base,
+        modified=modified,
+        anchors=anchors,
+        emotional_state=emotional_state,
         deviation_profile=deviation_profile,
     )
     return modified, trace
@@ -406,7 +420,8 @@ def _build_personality_trace(
 
     if not fired:
         return make_no_op_trace(
-            layer='personality', rule_id='default',
+            layer='personality',
+            rule_id='default',
             layer_order=layer_order_for('personality'),
             reason_code='no_distortion',
         )
@@ -443,9 +458,12 @@ def _build_personality_trace(
 
 # Archetype → max bluff-to-value ratio
 _BLUFF_RATIOS = {
-    'nit': 0.8, 'rock': 0.8, 'tag': 0.8,
+    'nit': 0.8,
+    'rock': 0.8,
+    'tag': 0.8,
     'calling_station': 1.0,
-    'lag': 1.2, 'maniac': 1.2,
+    'lag': 1.2,
+    'maniac': 1.2,
 }
 
 # Hand classes considered bluffs when betting/raising on the river
@@ -481,10 +499,7 @@ def apply_river_bluff_guardrail(
     probs = dict(strategy.action_probabilities)
 
     # Sum up all aggressive action probabilities
-    bet_freq = sum(
-        p for a, p in probs.items()
-        if categorize_action(a) == 'aggressive'
-    )
+    bet_freq = sum(p for a, p in probs.items() if categorize_action(a) == 'aggressive')
 
     if bet_freq <= max_bet_freq or bet_freq < 1e-12:
         return strategy

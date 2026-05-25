@@ -105,6 +105,7 @@ class TestListForOwner:
         # stable even on fast systems where two creates would land
         # in the same microsecond.
         import time
+
         time.sleep(0.01)
         b = repo.create("owner_alice", name="Second")
         listed = repo.list_for_owner("owner_alice")
@@ -138,6 +139,7 @@ class TestListAll:
     def test_returns_every_owner_in_creation_order(self, repo):
         a = repo.create("owner_alice", name="First")
         import time
+
         time.sleep(0.01)
         b = repo.create("owner_bob", name="Second")
         listed = repo.list_all()
@@ -188,7 +190,8 @@ class TestArchive:
 class TestResolver:
     def test_first_access_creates_default_sandbox(self, repo):
         sandbox_id = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         # The created sandbox is the only one owned by alice.
         owned = repo.list_for_owner("owner_alice")
@@ -198,10 +201,12 @@ class TestResolver:
 
     def test_second_access_returns_existing(self, repo):
         first = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         second = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         assert first == second
         # And no extra row created.
@@ -209,16 +214,19 @@ class TestResolver:
 
     def test_owner_scoped(self, repo):
         a = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         b = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_bob", sandbox_repo=repo,
+            "owner_bob",
+            sandbox_repo=repo,
         )
         assert a != b
 
     def test_cache_short_circuits_repo_after_warmup(self, repo, monkeypatch):
         sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
 
         # Replace `list_for_owner` so any cache-miss call would raise.
@@ -228,12 +236,14 @@ class TestResolver:
 
         monkeypatch.setattr(repo, "list_for_owner", boom)
         sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
 
     def test_invalidate_cache_forces_relookup(self, repo):
         first = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         sandbox_resolver.invalidate_cache_for_owner("owner_alice")
         # Archive the first sandbox, manually create a replacement,
@@ -242,6 +252,7 @@ class TestResolver:
         repo.archive(first)
         replacement = repo.create("owner_alice", name="My Casino")
         resolved = sandbox_resolver.resolve_default_sandbox_for(
-            "owner_alice", sandbox_repo=repo,
+            "owner_alice",
+            sandbox_repo=repo,
         )
         assert resolved == replacement.sandbox_id

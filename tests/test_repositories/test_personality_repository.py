@@ -1,6 +1,9 @@
 """Tests for PersonalityRepository."""
+
 import json
+
 import pytest
+
 from poker.repositories.personality_repository import PersonalityRepository
 
 
@@ -12,6 +15,7 @@ def repo(db_path):
 
 
 # --- Personality CRUD ---
+
 
 def test_save_and_load_personality(repo):
     config = {"play_style": "aggressive", "confidence": 0.8}
@@ -27,10 +31,7 @@ def test_load_personality_not_found(repo):
 
 
 def test_save_personality_with_elasticity_config(repo):
-    config = {
-        "play_style": "cautious",
-        "elasticity_config": {"pressure_sensitivity": 0.5}
-    }
+    config = {"play_style": "cautious", "elasticity_config": {"pressure_sensitivity": 0.5}}
     repo.save_personality("ElasticBot", config)
     loaded = repo.load_personality("ElasticBot")
     assert loaded is not None
@@ -90,10 +91,7 @@ def test_save_personality_upsert(repo):
 
 def test_seed_personalities_from_json(repo, tmp_path):
     json_data = {
-        "personalities": {
-            "Alice": {"play_style": "tight"},
-            "Bob": {"play_style": "loose"}
-        }
+        "personalities": {"Alice": {"play_style": "tight"}, "Bob": {"play_style": "loose"}}
     }
     json_file = tmp_path / "personalities.json"
     json_file.write_text(json.dumps(json_data))
@@ -110,10 +108,7 @@ def test_seed_personalities_skips_existing(repo, tmp_path):
     repo.save_personality("Alice", {"play_style": "original"})
 
     json_data = {
-        "personalities": {
-            "Alice": {"play_style": "new"},
-            "Charlie": {"play_style": "fresh"}
-        }
+        "personalities": {"Alice": {"play_style": "new"}, "Charlie": {"play_style": "fresh"}}
     }
     json_file = tmp_path / "personalities.json"
     json_file.write_text(json.dumps(json_data))
@@ -129,6 +124,7 @@ def test_seed_personalities_file_not_found(repo):
 
 
 # --- Avatar CRUD ---
+
 
 def test_save_and_load_avatar(repo):
     image_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
@@ -157,8 +153,9 @@ def test_load_avatar_with_metadata(repo):
 def test_save_and_load_full_avatar(repo):
     icon = b"\x89PNG_icon"
     full = b"\x89PNG_full_image_much_larger"
-    repo.save_avatar_image("FullBot", "angry", icon,
-                           full_image_data=full, full_width=512, full_height=512)
+    repo.save_avatar_image(
+        "FullBot", "angry", icon, full_image_data=full, full_width=512, full_height=512
+    )
 
     loaded_full = repo.load_full_avatar_image("FullBot", "angry")
     assert loaded_full == full
@@ -174,8 +171,14 @@ def test_has_full_avatar_image(repo):
     repo.save_avatar_image("PartialBot", "happy", b"\x00" * 10)
     assert repo.has_full_avatar_image("PartialBot", "happy") is False
 
-    repo.save_avatar_image("FullBot", "happy", b"\x00" * 10,
-                           full_image_data=b"\x00" * 20, full_width=512, full_height=512)
+    repo.save_avatar_image(
+        "FullBot",
+        "happy",
+        b"\x00" * 10,
+        full_image_data=b"\x00" * 20,
+        full_width=512,
+        full_height=512,
+    )
     assert repo.has_full_avatar_image("FullBot", "happy") is True
 
 
@@ -231,6 +234,7 @@ def test_get_avatar_stats(repo):
 
 
 # --- personality_id handling (v85 onward) ---
+
 
 class TestPersonalityIdSaveLoad:
     def test_save_generates_personality_id_from_name(self, repo):
@@ -366,15 +370,9 @@ class TestSeedFromJsonAlignsIds:
 
     def test_seed_preserves_existing_id_on_update(self, repo, tmp_path):
         # First seed assigns the id
-        repo.save_personality(
-            "Test Hero", {"play_style": "original"}, personality_id="original_id"
-        )
+        repo.save_personality("Test Hero", {"play_style": "original"}, personality_id="original_id")
         # JSON re-seed with overwrite=True provides a different id
-        seed_data = {
-            "personalities": {
-                "Test Hero": {"id": "new_id", "play_style": "updated"}
-            }
-        }
+        seed_data = {"personalities": {"Test Hero": {"id": "new_id", "play_style": "updated"}}}
         seed_file = tmp_path / "reseed.json"
         seed_file.write_text(json.dumps(seed_data))
 

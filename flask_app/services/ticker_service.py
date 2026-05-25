@@ -31,7 +31,7 @@ import logging
 import os
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,8 @@ def start_world_ticker(socketio) -> None:
         socketio.start_background_task(_run, socketio)
         logger.info(
             "[TICKER] world ticker started (tick=%.1fs budget=%.0fms)",
-            BASE_TICK_SECONDS, CYCLE_BUDGET_MS,
+            BASE_TICK_SECONDS,
+            CYCLE_BUDGET_MS,
         )
 
 
@@ -156,6 +157,7 @@ def _run_cycle(socketio) -> None:
 def _resolve_pace(owner_id: str) -> Tuple[float, int]:
     """Look up the owner's pace params, defaulting on any failure."""
     from flask_app import extensions
+
     repo = getattr(extensions, "user_prefs_repo", None)
     pace = _DEFAULT_PACE
     if repo is not None:
@@ -168,10 +170,10 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
 
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
+    from cash_mode.activity import recent_events, serialize_event
+    from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
     from flask_app.services import presence
-    from cash_mode.lobby import refresh_unseated_tables
-    from cash_mode.activity import recent_events, serialize_event
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
     if run_every > 1 and (_cycle % run_every) != 0:
@@ -202,7 +204,8 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # first so the client appends in chronological order).
     prev_marker = _last_marker.get(owner_id, "")
     fresh = [
-        e for e in recent_events(limit=WORLD_EVENT_LIMIT, sandbox_id=sandbox_id)
+        e
+        for e in recent_events(limit=WORLD_EVENT_LIMIT, sandbox_id=sandbox_id)
         if e.created_at > prev_marker
     ]
     if fresh:

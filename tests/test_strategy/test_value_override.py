@@ -3,10 +3,10 @@
 import pytest
 
 from poker.strategy.exploitation import (
-    AggregatedOpponentStats,
-    DecisionContext,
     GATING_FLOOR,
     MIN_HANDS_DEFAULT,
+    AggregatedOpponentStats,
+    DecisionContext,
 )
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.value_override import (
@@ -19,7 +19,8 @@ from poker.strategy.value_override import (
 def _maniac_stats(hands: int = 100) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.85, pfr=0.70,
+        vpip=0.85,
+        pfr=0.70,
         aggression_factor=8.0,
         all_in_frequency=0.45,
     )
@@ -28,13 +29,15 @@ def _maniac_stats(hands: int = 100) -> AggregatedOpponentStats:
 def _passive_stats(hands: int = 100) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.30, pfr=0.10,
+        vpip=0.30,
+        pfr=0.10,
         aggression_factor=1.0,
         all_in_frequency=0.0,
     )
 
 
 # ── should_apply_value_override ──────────────────────────────────────────
+
 
 class TestShouldApplyValueOverride:
     """Gating conditions for the value override."""
@@ -120,6 +123,7 @@ class TestShouldApplyValueOverride:
 
 # ── compute_value_override_strategy ──────────────────────────────────────
 
+
 class TestComputeValueOverrideFacingAllIn:
     """Facing-all-in → 100% call (or 100% jam if no call)."""
 
@@ -156,9 +160,13 @@ class TestComputeValueOverrideFacingBet:
     """Facing any non-all-in bet → 50% call, 50% raise-like."""
 
     def test_call_and_one_raise_split_evenly(self):
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.5, 'call': 0.3, 'raise_3bb': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.5,
+                'call': 0.3,
+                'raise_3bb': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
@@ -169,9 +177,14 @@ class TestComputeValueOverrideFacingBet:
         assert 'fold' not in result.action_probabilities
 
     def test_call_and_multiple_raises_split_evenly(self):
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.4, 'call': 0.2, 'raise_3bb': 0.2, 'raise_67': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.4,
+                'call': 0.2,
+                'raise_3bb': 0.2,
+                'raise_67': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
@@ -196,9 +209,12 @@ class TestComputeValueOverrideOpenSpot:
     """Open spot → raise-heavy, scaled by hand class."""
 
     def test_nuts_raises_95_percent(self):
-        s = StrategyProfile(action_probabilities={
-            'check': 0.5, 'bet_67': 0.5,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'check': 0.5,
+                'bet_67': 0.5,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
@@ -208,9 +224,12 @@ class TestComputeValueOverrideOpenSpot:
         assert result.action_probabilities['check'] == pytest.approx(0.05)
 
     def test_strong_made_raises_80_percent(self):
-        s = StrategyProfile(action_probabilities={
-            'check': 0.5, 'bet_67': 0.5,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'check': 0.5,
+                'bet_67': 0.5,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
@@ -220,9 +239,12 @@ class TestComputeValueOverrideOpenSpot:
         assert result.action_probabilities['check'] == pytest.approx(0.20)
 
     def test_strong_preflop_raises_90_percent(self):
-        s = StrategyProfile(action_probabilities={
-            'check': 0.5, 'raise_3bb': 0.5,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'check': 0.5,
+                'raise_3bb': 0.5,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=True),
@@ -232,9 +254,13 @@ class TestComputeValueOverrideOpenSpot:
         assert result.action_probabilities['check'] == pytest.approx(0.10)
 
     def test_multiple_raises_split_evenly(self):
-        s = StrategyProfile(action_probabilities={
-            'check': 0.5, 'bet_67': 0.3, 'bet_100': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'check': 0.5,
+                'bet_67': 0.3,
+                'bet_100': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=False),
@@ -247,9 +273,12 @@ class TestComputeValueOverrideOpenSpot:
 
     def test_call_used_when_no_check(self):
         """If 'check' isn't available but 'call' is, use call for passive mass."""
-        s = StrategyProfile(action_probabilities={
-            'call': 0.5, 'raise_3bb': 0.5,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'call': 0.5,
+                'raise_3bb': 0.5,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(is_preflop=True),
@@ -263,9 +292,13 @@ class TestComputeValueOverrideGeneral:
     """Cross-cutting invariants."""
 
     def test_renormalizes_to_one(self):
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.4, 'call': 0.4, 'raise_3bb': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.4,
+                'call': 0.4,
+                'raise_3bb': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
@@ -276,9 +309,13 @@ class TestComputeValueOverrideGeneral:
 
     def test_does_not_invent_new_actions(self):
         """Output dist only contains action labels from the input strategy."""
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.5, 'call': 0.3, 'raise_3bb': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.5,
+                'call': 0.3,
+                'raise_3bb': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
@@ -290,14 +327,19 @@ class TestComputeValueOverrideGeneral:
 
     def test_fold_excluded_from_override_output(self):
         """Strong hand vs aggressor never folds — fold mass is zero."""
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.8, 'call': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.8,
+                'call': 0.2,
+            }
+        )
         result, _trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
             hand_strength=HandStrengthClass.STRONG_MADE.value,
         )
         # No fold in output
-        assert 'fold' not in result.action_probabilities or \
-               result.action_probabilities.get('fold', 0.0) == 0.0
+        assert (
+            'fold' not in result.action_probabilities
+            or result.action_probabilities.get('fold', 0.0) == 0.0
+        )

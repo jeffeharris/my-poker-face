@@ -19,7 +19,7 @@ def test_short_stack_triggers_push():
         strategy=base,
         cost_to_call=200,
         pot_total=600,
-        player_stack=200,   # 2 BB
+        player_stack=200,  # 2 BB
         player_bet=100,
         big_blind=100,
         legal_actions=['fold', 'call', 'raise', 'all_in'],
@@ -58,9 +58,9 @@ def test_pot_committed_triggers_call():
         strategy=base,
         cost_to_call=100,
         pot_total=2000,
-        player_stack=200,    # already invested $500, only $200 left -> committed
+        player_stack=200,  # already invested $500, only $200 left -> committed
         player_bet=500,
-        big_blind=100,       # 2 BB left (also short, but pot_committed wins on order)
+        big_blind=100,  # 2 BB left (also short, but pot_committed wins on order)
         legal_actions=['fold', 'call'],
     )
     # short_stack triggers first per priority, fine — both rules want call.
@@ -78,8 +78,8 @@ def test_pot_committed_only():
         strategy=base,
         cost_to_call=100,
         pot_total=5000,
-        player_stack=400,        # 4 BB — above short_stack threshold (3)
-        player_bet=800,          # invested more than remaining stack
+        player_stack=400,  # 4 BB — above short_stack threshold (3)
+        player_bet=800,  # invested more than remaining stack
         big_blind=100,
         legal_actions=['fold', 'call'],
     )
@@ -95,7 +95,7 @@ def test_tiny_pot_odds_triggers_call():
     base = make_strategy({'fold': 0.85, 'call': 0.15})
     out, trace = apply_pot_odds_floor(
         strategy=base,
-        cost_to_call=200,        # 2 BB call into 5000 pot -> 200/5200 = ~3.8%, under 5%
+        cost_to_call=200,  # 2 BB call into 5000 pot -> 200/5200 = ~3.8%, under 5%
         pot_total=5000,
         player_stack=8000,
         player_bet=400,
@@ -116,8 +116,8 @@ def test_tiny_pot_odds_skipped_when_call_is_large_in_BB():
     base = make_strategy({'fold': 0.6, 'call': 0.4})
     out, trace = apply_pot_odds_floor(
         strategy=base,
-        cost_to_call=2000,       # 20 BB call — large in absolute terms
-        pot_total=80000,         # gives ~2.4% pot odds, but the call is huge
+        cost_to_call=2000,  # 20 BB call — large in absolute terms
+        pot_total=80000,  # gives ~2.4% pot odds, but the call is huge
         player_stack=15000,
         player_bet=500,
         big_blind=100,
@@ -132,7 +132,7 @@ def test_no_trigger_normal_spot():
     base = make_strategy({'fold': 0.5, 'call': 0.3, 'raise': 0.2})
     out, trace = apply_pot_odds_floor(
         strategy=base,
-        cost_to_call=500,        # 500 into 1000 -> 33% required equity
+        cost_to_call=500,  # 500 into 1000 -> 33% required equity
         pot_total=1000,
         player_stack=8000,
         player_bet=200,
@@ -151,7 +151,7 @@ def test_no_call_skips():
         strategy=base,
         cost_to_call=0,
         pot_total=1000,
-        player_stack=200,        # short stack but we're not facing a bet
+        player_stack=200,  # short stack but we're not facing a bet
         player_bet=0,
         big_blind=100,
         legal_actions=['check', 'raise'],
@@ -170,7 +170,7 @@ def test_no_call_action_skips():
         player_stack=200,
         player_bet=100,
         big_blind=100,
-        legal_actions=['fold', 'all_in'],     # no 'call'
+        legal_actions=['fold', 'all_in'],  # no 'call'
     )
     assert trace.fired is False
     assert out is base
@@ -201,7 +201,7 @@ def test_floor_is_deterministic_on_target():
 
 def test_probabilities_sum_to_one():
     """Mass conservation under override."""
-    base = make_strategy({'fold': 1.0})       # pure-fold pathological strategy
+    base = make_strategy({'fold': 1.0})  # pure-fold pathological strategy
     out, _ = apply_pot_odds_floor(
         strategy=base,
         cost_to_call=100,

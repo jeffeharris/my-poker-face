@@ -5,12 +5,13 @@ Uses eval7 for fast equity calculation to identify dramatic moments
 during showdowns and gameplay.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
-import logging
 
 try:
     import eval7
+
     EVAL7_AVAILABLE = True
 except ImportError:
     EVAL7_AVAILABLE = False
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EquityResult:
     """Equity calculation result for all players."""
+
     equities: Dict[str, float]  # player_name -> win probability (0-1)
     tie_probability: float
     sample_count: int
@@ -30,6 +32,7 @@ class EquityResult:
 @dataclass
 class SwingEvent:
     """Represents a dramatic equity swing."""
+
     player_name: str
     card_revealed: str
     equity_before: float
@@ -69,8 +72,8 @@ class EquityCalculator:
 
     # Thresholds for drama detection
     DRAMATIC_SWING_THRESHOLD = 0.25  # 25% equity change
-    NOTABLE_SWING_THRESHOLD = 0.15   # 15% equity change
-    CLOSE_EQUITY_THRESHOLD = 0.10    # Within 10% = close/tense
+    NOTABLE_SWING_THRESHOLD = 0.15  # 15% equity change
+    CLOSE_EQUITY_THRESHOLD = 0.10  # Within 10% = close/tense
 
     def __init__(self, monte_carlo_iterations: int = 10000):
         """
@@ -125,7 +128,7 @@ class EquityCalculator:
         self,
         players_hands: Dict[str, List],
         board: Optional[List] = None,
-        iterations: Optional[int] = None
+        iterations: Optional[int] = None,
     ) -> Optional[EquityResult]:
         """
         Calculate equity for all players given their hands and the board.
@@ -150,10 +153,7 @@ class EquityCalculator:
 
         try:
             # Parse all hands
-            parsed_hands = {
-                name: self._parse_cards(cards)
-                for name, cards in players_hands.items()
-            }
+            parsed_hands = {name: self._parse_cards(cards) for name, cards in players_hands.items()}
             parsed_board = self._parse_cards(board)
 
             player_names = list(parsed_hands.keys())
@@ -173,10 +173,7 @@ class EquityCalculator:
             return None
 
     def _calculate_exact_equity(
-        self,
-        player_names: List[str],
-        hands: List[List['eval7.Card']],
-        board: List['eval7.Card']
+        self, player_names: List[str], hands: List[List['eval7.Card']], board: List['eval7.Card']
     ) -> EquityResult:
         """Calculate exact equity when board is complete."""
         # Evaluate each hand
@@ -198,18 +195,14 @@ class EquityCalculator:
 
         tie_prob = 1.0 / len(winners) if len(winners) > 1 else 0.0
 
-        return EquityResult(
-            equities=equities,
-            tie_probability=tie_prob,
-            sample_count=1
-        )
+        return EquityResult(equities=equities, tie_probability=tie_prob, sample_count=1)
 
     def _calculate_monte_carlo_equity(
         self,
         player_names: List[str],
         hands: List[List['eval7.Card']],
         board: List['eval7.Card'],
-        iterations: int
+        iterations: int,
     ) -> EquityResult:
         """Calculate equity using Monte Carlo simulation.
 
@@ -233,6 +226,7 @@ class EquityCalculator:
         random_cards_needed = 2 * len(unknown_indices)
 
         import random
+
         for _ in range(iterations):
             # Sample board fills + random hole cards for unknown hands
             sampled = random.sample(deck, cards_needed + random_cards_needed)
@@ -242,7 +236,7 @@ class EquityCalculator:
             iter_hands = list(hands)
             for j, player_idx in enumerate(unknown_indices):
                 start = cards_needed + j * 2
-                iter_hands[player_idx] = sampled[start:start + 2]
+                iter_hands[player_idx] = sampled[start : start + 2]
 
             # Evaluate all hands
             scores = [eval7.evaluate(hand + full_board) for hand in iter_hands]
@@ -262,18 +256,14 @@ class EquityCalculator:
         equities = {name: count / iterations for name, count in wins.items()}
         tie_prob = ties / iterations
 
-        return EquityResult(
-            equities=equities,
-            tie_probability=tie_prob,
-            sample_count=iterations
-        )
+        return EquityResult(equities=equities, tie_probability=tie_prob, sample_count=iterations)
 
     def detect_swings(
         self,
         before: Dict[str, float],
         after: Dict[str, float],
         card_revealed: str = "",
-        threshold: float = None
+        threshold: float = None,
     ) -> List[SwingEvent]:
         """
         Detect equity swings between two states.
@@ -297,14 +287,16 @@ class EquityCalculator:
             delta = after[player] - before[player]
 
             if abs(delta) >= self.NOTABLE_SWING_THRESHOLD:
-                swings.append(SwingEvent(
-                    player_name=player,
-                    card_revealed=card_revealed,
-                    equity_before=before[player],
-                    equity_after=after[player],
-                    delta=delta,
-                    is_dramatic=abs(delta) >= threshold
-                ))
+                swings.append(
+                    SwingEvent(
+                        player_name=player,
+                        card_revealed=card_revealed,
+                        equity_before=before[player],
+                        equity_after=after[player],
+                        delta=delta,
+                        is_dramatic=abs(delta) >= threshold,
+                    )
+                )
 
         # Sort by absolute delta (biggest swings first)
         swings.sort(key=lambda s: abs(s.delta), reverse=True)
@@ -331,11 +323,7 @@ if __name__ == "__main__":
 
     # Test: AK vs QQ on a J-high board
     result = calc.calculate_equity(
-        players_hands={
-            'Batman': ['As', 'Kd'],
-            'Snoop': ['Qh', 'Qc']
-        },
-        board=['Jh', '2d', '5s']
+        players_hands={'Batman': ['As', 'Kd'], 'Snoop': ['Qh', 'Qc']}, board=['Jh', '2d', '5s']
     )
 
     if result:
@@ -345,11 +333,8 @@ if __name__ == "__main__":
 
         # Simulate turn card: Ah (helps Batman)
         result_after = calc.calculate_equity(
-            players_hands={
-                'Batman': ['As', 'Kd'],
-                'Snoop': ['Qh', 'Qc']
-            },
-            board=['Jh', '2d', '5s', 'Ah']
+            players_hands={'Batman': ['As', 'Kd'], 'Snoop': ['Qh', 'Qc']},
+            board=['Jh', '2d', '5s', 'Ah'],
         )
 
         if result_after:
@@ -357,11 +342,7 @@ if __name__ == "__main__":
             for player, eq in result_after.equities.items():
                 print(f"  {player}: {eq*100:.1f}%")
 
-            swings = calc.detect_swings(
-                result.equities,
-                result_after.equities,
-                card_revealed='Ah'
-            )
+            swings = calc.detect_swings(result.equities, result_after.equities, card_revealed='Ah')
 
             print("\nSwings detected:")
             for swing in swings:

@@ -13,8 +13,8 @@ LLM, no chip-state setup needed.
 from __future__ import annotations
 
 import json
-import sqlite3
 import random
+import sqlite3
 from datetime import datetime
 from unittest import mock
 
@@ -35,8 +35,10 @@ NOW = datetime(2026, 5, 25, 12, 0, 0)
 
 def _insert_personality(db_path: str, pid: str) -> None:
     knobs = {
-        "starting_bankroll": 50_000, "bankroll_rate": 50,
-        "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
+        "starting_bankroll": 50_000,
+        "bankroll_rate": 50,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10",
     }
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -54,12 +56,16 @@ def repos(tmp_path):
     for i in range(12):
         _insert_personality(db, f"p{i}")
     ensure_ai_bankrolls_seeded(
-        personality_repo=r["personality_repo"], bankroll_repo=r["bankroll_repo"],
-        sandbox_id=SBX, chip_ledger_repo=r["chip_ledger_repo"],
+        personality_repo=r["personality_repo"],
+        bankroll_repo=r["bankroll_repo"],
+        sandbox_id=SBX,
+        chip_ledger_repo=r["chip_ledger_repo"],
     )
     ensure_lobby_seeded(
-        cash_table_repo=r["cash_table_repo"], personality_repo=r["personality_repo"],
-        bankroll_repo=r["bankroll_repo"], sandbox_id=SBX,
+        cash_table_repo=r["cash_table_repo"],
+        personality_repo=r["personality_repo"],
+        bankroll_repo=r["bankroll_repo"],
+        sandbox_id=SBX,
     )
     yield r
     for repo in r.values():
@@ -70,11 +76,15 @@ def repos(tmp_path):
 def _run(repos, **kwargs):
     """Run one refresh with the two vice resolvers mocked; return
     (real_called, fake_called)."""
-    with mock.patch(
-        "cash_mode.ai_vice_spending.resolve_ai_vice_spending", return_value=[],
-    ) as m_real, mock.patch(
-        "cash_mode.closed_economy.resolve_closed_economy",
-    ) as m_fake:
+    with (
+        mock.patch(
+            "cash_mode.ai_vice_spending.resolve_ai_vice_spending",
+            return_value=[],
+        ) as m_real,
+        mock.patch(
+            "cash_mode.closed_economy.resolve_closed_economy",
+        ) as m_fake,
+    ):
         refresh_unseated_tables(
             cash_table_repo=repos["cash_table_repo"],
             personality_repo=repos["personality_repo"],
@@ -82,7 +92,9 @@ def _run(repos, **kwargs):
             chip_ledger_repo=repos["chip_ledger_repo"],
             vice_repo=repos["vice_state_repo"],
             side_hustle_repo=repos["side_hustle_state_repo"],
-            sandbox_id=SBX, now=NOW, rng=random.Random(1),
+            sandbox_id=SBX,
+            now=NOW,
+            rng=random.Random(1),
             **kwargs,
         )
     return m_real.called, m_fake.called

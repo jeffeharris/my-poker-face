@@ -93,10 +93,12 @@ def compute_audit(
 
     since_24h_iso = (now - timedelta(hours=24)).isoformat()
     creations_24h = ledger_repo.sum_creations_by_reason(
-        since_iso=since_24h_iso, sandbox_id=sandbox_id,
+        since_iso=since_24h_iso,
+        sandbox_id=sandbox_id,
     )
     destructions_24h = ledger_repo.sum_destructions_by_reason(
-        since_iso=since_24h_iso, sandbox_id=sandbox_id,
+        since_iso=since_24h_iso,
+        sandbox_id=sandbox_id,
     )
 
     # --- Actual totals ---
@@ -122,7 +124,8 @@ def compute_audit(
     ai_bankrolls_projected = _sum_ai_bankrolls_projected(bankroll_repo, now, sandbox_id)
     cash_table_seats_ai = _sum_cash_table_ai_seats(cash_table_repo, sandbox_id)
     live_session_ai_stacks, live_session_error = _sum_live_session_ai_stacks(
-        list_game_ids_fn, get_game_fn,
+        list_game_ids_fn,
+        get_game_fn,
     )
 
     actual_outstanding = (
@@ -150,18 +153,11 @@ def compute_audit(
         BANK_POOL_DEPOSIT_REASONS,
         BANK_POOL_DRAW_REASONS,
     )
-    deposits_total = sum(
-        destructions.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS
-    )
-    draws_total = sum(
-        creations.get(r, 0) for r in BANK_POOL_DRAW_REASONS
-    )
-    deposits_total_24h = sum(
-        destructions_24h.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS
-    )
-    draws_total_24h = sum(
-        creations_24h.get(r, 0) for r in BANK_POOL_DRAW_REASONS
-    )
+
+    deposits_total = sum(destructions.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS)
+    draws_total = sum(creations.get(r, 0) for r in BANK_POOL_DRAW_REASONS)
+    deposits_total_24h = sum(destructions_24h.get(r, 0) for r in BANK_POOL_DEPOSIT_REASONS)
+    draws_total_24h = sum(creations_24h.get(r, 0) for r in BANK_POOL_DRAW_REASONS)
     bank_pool = {
         'reserves': deposits_total - draws_total,
         'deposits_total': deposits_total,
@@ -212,7 +208,8 @@ def compute_audit(
 
 
 def _merge_reasons(
-    creations: Dict[str, int], destructions: Dict[str, int],
+    creations: Dict[str, int],
+    destructions: Dict[str, int],
 ) -> Dict[str, int]:
     """Per-reason signed totals: creations positive, destructions negative.
 
@@ -230,10 +227,9 @@ def _merge_reasons(
 
 def _sum_player_bankrolls(db_path: str) -> int:
     import sqlite3
+
     with sqlite3.connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(chips), 0) FROM player_bankroll_state"
-        ).fetchone()
+        row = conn.execute("SELECT COALESCE(SUM(chips), 0) FROM player_bankroll_state").fetchone()
         return int(row[0] or 0)
 
 
@@ -269,7 +265,9 @@ def _sum_ai_bankrolls_stored(bankroll_repo, sandbox_id: Optional[str]) -> int:
 
 
 def _sum_ai_bankrolls_projected(
-    bankroll_repo, now: datetime, sandbox_id: Optional[str],
+    bankroll_repo,
+    now: datetime,
+    sandbox_id: Optional[str],
 ) -> int:
     """Sum projected (regen-applied, cap-clamped) AI bankroll chips.
 
@@ -304,12 +302,16 @@ def _sum_ai_bankrolls_projected(
         for pid, sid in iter_pairs:
             try:
                 chips = bankroll_repo.load_ai_bankroll_current(
-                    pid, sandbox_id=sid, now=now,
+                    pid,
+                    sandbox_id=sid,
+                    now=now,
                 )
             except Exception as e:
                 logger.warning(
                     "chip-ledger audit: load_ai_bankroll_current(%r, sandbox=%r) failed: %s",
-                    pid, sid, e,
+                    pid,
+                    sid,
+                    e,
                 )
                 chips = 0
             total += int(chips or 0)
@@ -317,12 +319,16 @@ def _sum_ai_bankrolls_projected(
     for pid in bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id):
         try:
             chips = bankroll_repo.load_ai_bankroll_current(
-                pid, sandbox_id=sandbox_id, now=now,
+                pid,
+                sandbox_id=sandbox_id,
+                now=now,
             )
         except Exception as e:
             logger.warning(
                 "chip-ledger audit: load_ai_bankroll_current(%r, sandbox=%r) failed: %s",
-                pid, sandbox_id, e,
+                pid,
+                sandbox_id,
+                e,
             )
             chips = 0
         total += int(chips or 0)

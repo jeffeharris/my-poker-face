@@ -152,7 +152,6 @@ class TestBucketConsistencyAcrossPriceGrid:
             assert bucket is not None
             idx = self.BUCKET_ORDER.index(bucket)
             assert idx >= prev_idx, (
-                f'Non-monotonic at call={call}: bucket={bucket} '
-                f'after prev_idx={prev_idx}'
+                f'Non-monotonic at call={call}: bucket={bucket} ' f'after prev_idx={prev_idx}'
             )
             prev_idx = idx

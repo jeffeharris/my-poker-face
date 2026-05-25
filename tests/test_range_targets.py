@@ -3,10 +3,10 @@
 from flask_app.services.range_targets import (
     DEFAULT_RANGE_TARGETS,
     GATE_EXPANSIONS,
-    normalize_position,
-    get_range_target,
     expand_ranges_for_gate,
     get_expanded_ranges,
+    get_range_target,
+    normalize_position,
 )
 
 
@@ -237,7 +237,7 @@ class TestIntegrationWithHandTiers:
 
         # 87s is around top 20-25%
         gate1_btn = DEFAULT_RANGE_TARGETS['BTN']  # 25%
-        gate4_btn = GATE_EXPANSIONS[4]['BTN']     # 40%
+        gate4_btn = GATE_EXPANSIONS[4]['BTN']  # 40%
 
         # Should be outside range at gate 1 (25%), in range at gate 4 (40%)
         result_gate1 = is_hand_in_range('87s', gate1_btn)

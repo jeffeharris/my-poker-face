@@ -3,13 +3,14 @@
 Provides thread-local connection reuse and WAL mode configuration
 for all domain repositories.
 """
+
+import functools
+import logging
 import sqlite3
 import threading
-import logging
 import time
-import functools
 from contextlib import contextmanager
-from typing import TypeVar, Callable
+from typing import Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1) -> Callable[[F]
     Returns:
         Decorated function that retries on sqlite3.OperationalError with 'locked' message
     """
+
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -40,7 +42,7 @@ def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1) -> Callable[[F]
                     if 'locked' in error_msg or 'busy' in error_msg:
                         last_exception = e
                         if attempt < max_retries:
-                            delay = base_delay * (2 ** attempt)
+                            delay = base_delay * (2**attempt)
                             logger.warning(
                                 f"Database lock detected in {func.__name__}, "
                                 f"retry {attempt + 1}/{max_retries} after {delay:.2f}s"
@@ -51,7 +53,9 @@ def retry_on_lock(max_retries: int = 3, base_delay: float = 0.1) -> Callable[[F]
             # Exhausted retries
             logger.error(f"Database lock persisted after {max_retries} retries in {func.__name__}")
             raise last_exception
+
         return wrapper  # type: ignore
+
     return decorator
 
 

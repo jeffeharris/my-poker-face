@@ -25,10 +25,8 @@ from __future__ import annotations
 
 import threading
 from collections import deque
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from dataclasses import asdict, dataclass
 from typing import Deque, List, Optional
-
 
 # Event types kept as string constants rather than an enum so the
 # serialized shape is JSON-native — frontend reads `type: 'join'`
@@ -211,7 +209,9 @@ def record_event(event: LobbyEvent) -> None:
 
 
 def recent_events(
-    limit: int = 10, *, sandbox_id: Optional[str] = None,
+    limit: int = 10,
+    *,
+    sandbox_id: Optional[str] = None,
 ) -> List[LobbyEvent]:
     """Return up to `limit` most-recent events, newest first.
 
@@ -228,10 +228,7 @@ def recent_events(
         snapshot = list(_events)
     snapshot.reverse()
     if sandbox_id is not None:
-        snapshot = [
-            e for e in snapshot
-            if e.sandbox_id is None or e.sandbox_id == sandbox_id
-        ]
+        snapshot = [e for e in snapshot if e.sandbox_id is None or e.sandbox_id == sandbox_id]
     return snapshot[:limit]
 
 
@@ -265,14 +262,20 @@ def format_join_message(name: str, stake_label: str) -> str:
 
 
 def format_big_win_message(
-    winner: str, loser: str, stake_label: str, amount: int,
+    winner: str,
+    loser: str,
+    stake_label: str,
+    amount: int,
 ) -> str:
     """Phrasing for a fake-sim big-win event."""
     return f"{winner} won ${amount:,} off {loser} at {stake_label}"
 
 
 def format_big_loss_message(
-    loser: str, winner: str, stake_label: str, amount: int,
+    loser: str,
+    winner: str,
+    stake_label: str,
+    amount: int,
 ) -> str:
     """Phrasing for a fake-sim big-loss event (the loser's POV).
 
@@ -285,7 +288,9 @@ def format_big_loss_message(
 
 
 def format_all_in_message(
-    name: str, stake_label: str, opponent: Optional[str] = None,
+    name: str,
+    stake_label: str,
+    opponent: Optional[str] = None,
 ) -> str:
     """Phrasing for an all-in event at an unseated table.
 
@@ -318,25 +323,30 @@ def format_player_last_stand_message(stake_label: str) -> str:
 
 
 def format_ai_stake_message(
-    staker_name: str, borrower_name: str, stake_label: str, principal: int,
+    staker_name: str,
+    borrower_name: str,
+    stake_label: str,
+    principal: int,
 ) -> str:
     """Phrasing for an AI-to-AI stake creation."""
-    return (
-        f"{staker_name} staked {borrower_name} for ${principal:,} at {stake_label}"
-    )
+    return f"{staker_name} staked {borrower_name} for ${principal:,} at {stake_label}"
 
 
 def format_ai_default_message(
-    borrower_name: str, staker_name: str, stake_label: str, carry_amount: int,
+    borrower_name: str,
+    staker_name: str,
+    stake_label: str,
+    carry_amount: int,
 ) -> str:
     """Phrasing for an AI-to-AI stake carry — borrower busted owing."""
-    return (
-        f"{borrower_name} carried ${carry_amount:,} from {staker_name} at {stake_label}"
-    )
+    return f"{borrower_name} carried ${carry_amount:,} from {staker_name} at {stake_label}"
 
 
 def format_ai_explicit_default_message(
-    borrower_name: str, staker_name: str, stake_label: str, carry_amount: int,
+    borrower_name: str,
+    staker_name: str,
+    stake_label: str,
+    carry_amount: int,
 ) -> str:
     """Phrasing for an AI explicitly walking away from a carry.
 
@@ -345,37 +355,39 @@ def format_ai_explicit_default_message(
     just "they busted owing." The relationship-axis hit is meaningfully
     sharper (STAKE_DEFAULTED vs no-op for natural carry) and the
     in-game story benefits from the harder framing."""
-    return (
-        f"{borrower_name} burned ${carry_amount:,} owed to {staker_name} at {stake_label}"
-    )
+    return f"{borrower_name} burned ${carry_amount:,} owed to {staker_name} at {stake_label}"
 
 
 def format_ai_payoff_message(
-    borrower_name: str, staker_name: str, stake_label: str, amount: int,
+    borrower_name: str,
+    staker_name: str,
+    stake_label: str,
+    amount: int,
 ) -> str:
     """Phrasing for an AI voluntarily clearing a carry.
 
     Phase 4.5 Commit 3. Reads as the AI doing the right thing —
     bankroll → staker, status flips to settled, STAKE_REPAID fires."""
-    return (
-        f"{borrower_name} paid off ${amount:,} carry to {staker_name} at {stake_label}"
-    )
+    return f"{borrower_name} paid off ${amount:,} carry to {staker_name} at {stake_label}"
 
 
 def format_ai_forgiven_message(
-    staker_name: str, borrower_name: str, stake_label: str, amount: int,
+    staker_name: str,
+    borrower_name: str,
+    stake_label: str,
+    amount: int,
 ) -> str:
     """Phrasing for an AI staker forgiving an AI borrower's carry.
 
     Phase 4.5 Commit 4. The staker is the actor (they chose to
     forgive), so they lead the phrasing."""
-    return (
-        f"{staker_name} forgave {borrower_name}'s ${amount:,} carry at {stake_label}"
-    )
+    return f"{staker_name} forgave {borrower_name}'s ${amount:,} carry at {stake_label}"
 
 
 def format_ai_requests_forgiveness_message(
-    borrower_name: str, stake_label: str, amount: int,
+    borrower_name: str,
+    stake_label: str,
+    amount: int,
 ) -> str:
     """Phrasing for an AI asking the human staker for forgiveness.
 
@@ -383,9 +395,7 @@ def format_ai_requests_forgiveness_message(
     Phrased as a direct ask so the player notices the request needs
     their attention; the wallet badge + Forgiveness Requests section
     in the Net Worth Drawer carry the actual decision UI."""
-    return (
-        f"{borrower_name} is asking you to forgive their ${amount:,} {stake_label} carry"
-    )
+    return f"{borrower_name} is asking you to forgive their ${amount:,} {stake_label} carry"
 
 
 # Phase 4.5 ticker-throttle threshold for carry-resolution events
@@ -463,7 +473,9 @@ def format_hustle_end_message(name: str, paid_amount: int = 0) -> str:
 
 
 def format_burst_summary_message(
-    stake_label: str, hands: int, top_name: Optional[str] = None,
+    stake_label: str,
+    hands: int,
+    top_name: Optional[str] = None,
     top_net_delta: int = 0,
 ) -> str:
     """Phrasing for the catch-up burst summary event (Commit 5).

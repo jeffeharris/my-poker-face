@@ -19,7 +19,6 @@ Options:
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -27,8 +26,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.repositories import create_repos
 from poker.db_utils import get_default_db_path
+from poker.repositories import create_repos
 
 
 def get_default_images_dir() -> Path:
@@ -121,7 +120,7 @@ def import_avatars(personality_repo, images_dir: Path) -> dict:
                 emotion=emotion,
                 image_data=image_data,
                 width=256,
-                height=256
+                height=256,
             )
 
             stats['imported'] += 1
@@ -170,27 +169,31 @@ def verify_migration(personality_repo, images_dir: Path) -> None:
     if db_stats['total_images'] >= fs_count:
         print("\n✓ All filesystem images are in the database")
     else:
-        print(f"\n⚠ Some images may be missing from database ({fs_count - db_stats['total_images']})")
+        print(
+            f"\n⚠ Some images may be missing from database ({fs_count - db_stats['total_images']})"
+        )
 
 
 def main():
     parser = argparse.ArgumentParser(
         description='Migrate personalities and avatar images to SQLite database',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog=__doc__,
     )
-    parser.add_argument('--seed-only', action='store_true',
-                       help='Only seed personalities, skip avatar import')
-    parser.add_argument('--avatars-only', action='store_true',
-                       help='Only import avatars, skip personality seeding')
-    parser.add_argument('--verify', action='store_true',
-                       help='Verify migration without making changes')
-    parser.add_argument('--db-path', type=str, default=None,
-                       help='Path to database file')
-    parser.add_argument('--images-dir', type=str, default=None,
-                       help='Path to images directory')
-    parser.add_argument('--overwrite', action='store_true',
-                       help='Overwrite existing personalities in database')
+    parser.add_argument(
+        '--seed-only', action='store_true', help='Only seed personalities, skip avatar import'
+    )
+    parser.add_argument(
+        '--avatars-only', action='store_true', help='Only import avatars, skip personality seeding'
+    )
+    parser.add_argument(
+        '--verify', action='store_true', help='Verify migration without making changes'
+    )
+    parser.add_argument('--db-path', type=str, default=None, help='Path to database file')
+    parser.add_argument('--images-dir', type=str, default=None, help='Path to images directory')
+    parser.add_argument(
+        '--overwrite', action='store_true', help='Overwrite existing personalities in database'
+    )
 
     args = parser.parse_args()
 

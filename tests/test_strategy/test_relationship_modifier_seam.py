@@ -40,7 +40,7 @@ from poker.memory.relationship_modifier import (
 )
 from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
-from poker.strategy.exploitation import OpponentSpot, AggregatedOpponentStats
+from poker.strategy.exploitation import AggregatedOpponentStats, OpponentSpot
 
 
 def _make_spot(name: str, *, is_active: bool = True, is_all_in: bool = False):
@@ -108,7 +108,8 @@ class TestBackoutFlag:
     def test_flag_off_skips_modifier(self, controller, manager, repo):
         # Seed a rival relationship that would normally trigger
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.7, last_decay_tick=datetime.utcnow()),
         )
         controller.apply_relationship_modifier = False
@@ -194,7 +195,9 @@ class TestNoOpEarlyOuts:
     ):
         # Save a default-state row (all neutral axes)
         repo.save_relationship_state(
-            "alice_id", "bob_id", RelationshipState(),
+            "alice_id",
+            "bob_id",
+            RelationshipState(),
         )
         offsets = {'raise_3x': 0.3, 'fold': -0.2}
         result = controller._apply_relationship_modifier_to_offsets(
@@ -218,7 +221,8 @@ class TestRivalScaling:
     def test_high_heat_scales_positive_raise_offset(self, controller, manager, repo):
         # Alice has hot rivalry with Bob → bluff_freq_mult triggers
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.7, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': 0.3, 'fold': -0.2, 'call': 0.0}
@@ -240,7 +244,8 @@ class TestRivalScaling:
         # saying "raise LESS here" — the bluff_freq_mult shouldn't
         # amplify that, so we leave negative aggressive offsets alone.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.7, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': -0.1}
@@ -258,7 +263,8 @@ class TestRespectScaling:
         # Alice respects Bob → fold_to_pressure_mult triggers
         # (modifier scales the magnitude of the negative offset)
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(
                 respect=0.8,  # > 0.7 threshold
                 last_decay_tick=datetime.utcnow(),
@@ -286,11 +292,13 @@ class TestTargetSelection:
         # Both Bob and Carol have relationship state, but Bob is the
         # aggressor (primary_spot). Modifier should read alice→bob.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.7, last_decay_tick=datetime.utcnow()),
         )
         repo.save_relationship_state(
-            "alice_id", "carol_id",
+            "alice_id",
+            "carol_id",
             RelationshipState(heat=0.9, last_decay_tick=datetime.utcnow()),  # higher!
         )
         # Bob is aggressor; Carol has higher heat but isn't aggressor.
@@ -307,11 +315,13 @@ class TestTargetSelection:
     def test_heat_max_fallback_when_no_aggressor(self, controller, manager, repo):
         # No primary aggressor — heat-max wins. Carol has higher heat.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.3, last_decay_tick=datetime.utcnow()),
         )
         repo.save_relationship_state(
-            "alice_id", "carol_id",
+            "alice_id",
+            "carol_id",
             RelationshipState(heat=0.9, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': 0.3}
@@ -326,11 +336,13 @@ class TestTargetSelection:
     def test_all_in_excluded_from_heat_max(self, controller, manager, repo):
         # Carol is the heat-max but she's all-in → excluded; Bob wins.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.6, last_decay_tick=datetime.utcnow()),
         )
         repo.save_relationship_state(
-            "alice_id", "carol_id",
+            "alice_id",
+            "carol_id",
             RelationshipState(heat=0.9, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': 0.3}
@@ -348,11 +360,13 @@ class TestTargetSelection:
     def test_folded_excluded_from_heat_max(self, controller, manager, repo):
         # Carol is heat-max but inactive (folded) → excluded.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.6, last_decay_tick=datetime.utcnow()),
         )
         repo.save_relationship_state(
-            "alice_id", "carol_id",
+            "alice_id",
+            "carol_id",
             RelationshipState(heat=0.9, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': 0.3}
@@ -371,11 +385,13 @@ class TestTargetSelection:
         # Bob and Carol have identical (heat, respect). Tiebreaker
         # picks the smallest opp_id alphabetically: bob_id < carol_id.
         repo.save_relationship_state(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipState(heat=0.6, respect=0.6, last_decay_tick=datetime.utcnow()),
         )
         repo.save_relationship_state(
-            "alice_id", "carol_id",
+            "alice_id",
+            "carol_id",
             RelationshipState(heat=0.6, respect=0.6, last_decay_tick=datetime.utcnow()),
         )
         offsets = {'raise_3x': 0.3}
@@ -394,6 +410,7 @@ class TestTargetSelection:
 class TestAggressiveActionLabel:
     def test_raise_variants(self):
         from poker.tiered_bot_controller import TieredBotController
+
         cls = TieredBotController
         assert cls._is_aggressive_action_label('raise')
         assert cls._is_aggressive_action_label('raise_3x')
@@ -402,6 +419,7 @@ class TestAggressiveActionLabel:
 
     def test_bet_variants(self):
         from poker.tiered_bot_controller import TieredBotController
+
         cls = TieredBotController
         assert cls._is_aggressive_action_label('bet')
         assert cls._is_aggressive_action_label('bet_67')
@@ -409,12 +427,14 @@ class TestAggressiveActionLabel:
 
     def test_jam_and_all_in(self):
         from poker.tiered_bot_controller import TieredBotController
+
         cls = TieredBotController
         assert cls._is_aggressive_action_label('jam')
         assert cls._is_aggressive_action_label('all_in')
 
     def test_non_aggressive(self):
         from poker.tiered_bot_controller import TieredBotController
+
         cls = TieredBotController
         assert not cls._is_aggressive_action_label('call')
         assert not cls._is_aggressive_action_label('check')

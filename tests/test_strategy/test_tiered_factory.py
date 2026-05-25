@@ -1,6 +1,6 @@
 """Tests for the tiered bot factory used by Flask handlers."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from flask_app.handlers.tiered_factory import build_tiered_controller
 
@@ -50,6 +50,7 @@ def test_factory_attaches_expression_when_enabled(
     # Generator and call type assigned to the controller
     assert result.expression_generator is fake_expr
     from core.llm import CallType
+
     assert result._expression_call_type == CallType.COMMENTARY
 
 

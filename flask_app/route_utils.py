@@ -1,6 +1,7 @@
 """Shared utilities for Flask route blueprints."""
 
 from flask import Blueprint, request
+
 from poker.authorization import require_permission
 
 

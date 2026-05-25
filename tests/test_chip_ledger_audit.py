@@ -71,14 +71,14 @@ def repos(db_path, stake_repo):
 
 def _insert_personality(db_path: str, personality_id: str, *, cap=50_000, rate=500) -> None:
     knobs = {
-        "starting_bankroll": cap, "bankroll_rate": rate,
+        "starting_bankroll": cap,
+        "bankroll_rate": rate,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10",
     }
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
             (
                 f"Personality {personality_id}",
                 json.dumps({"bankroll_knobs": knobs}),
@@ -103,7 +103,9 @@ class TestComputeAudit:
         )
 
         assert data['ledger_totals'] == {
-            'chips_created': 0, 'chips_destroyed': 0, 'outstanding': 0,
+            'chips_created': 0,
+            'chips_destroyed': 0,
+            'outstanding': 0,
         }
         assert data['actual_totals']['actual_outstanding'] == 0
         assert data['drift'] == 0
@@ -135,54 +137,71 @@ class TestComputeAudit:
         assert data['by_reason']['cap_clamp'] == -50
 
     def test_actual_totals_sum_bankrolls_tables_and_loans(
-        self, repos, db_path, stake_repo,
+        self,
+        repos,
+        db_path,
+        stake_repo,
     ):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         # Player bankroll: 500 chips. Active house stake principal=200
         # (chips sit on a human session seat, captured by the stakes-
         # table sum the audit relies on for human borrowers).
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id='alice', chips=500, starting_bankroll=200,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id='alice',
+                chips=500,
+                starting_bankroll=200,
+            )
+        )
         anchor_dt = datetime(2026, 5, 18, 12, 0, 0)
-        stake_repo.create_stake(Stake(
-            stake_id='stake-alice-1',
-            session_id='cash-session-1',
-            staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE,
-            borrower_id='alice',
-            borrower_kind=BORROWER_KIND_HUMAN,
-            format=STAKE_FORMAT_HOUSE,
-            principal=200,
-            match_amount=0,
-            origination_fee=0,
-            cut=0.0,
-            status=STAKE_STATUS_ACTIVE,
-            carry_amount=0,
-            stake_tier='$2',
-            created_at=anchor_dt,
-        ))
+        stake_repo.create_stake(
+            Stake(
+                stake_id='stake-alice-1',
+                session_id='cash-session-1',
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                borrower_id='alice',
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_HOUSE,
+                principal=200,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.0,
+                status=STAKE_STATUS_ACTIVE,
+                carry_amount=0,
+                stake_tier='$2',
+                created_at=anchor_dt,
+            )
+        )
         # AI bankroll: 3000 chips, no elapsed time → projected = 3000.
         _insert_personality(db_path, "zeus")
         anchor = datetime(2026, 5, 18, 12, 0, 0)
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="zeus", chips=3000, last_regen_tick=anchor,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="zeus",
+                chips=3000,
+                last_regen_tick=anchor,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         # Cash table with 2 AI seats holding 100+200 chips.
-        cash_table_repo.save_table(CashTableState(
-            table_id='cash-table-2-001',
-            stake_label='$2',
-            seats=[
-                ai_slot('zeus', 100),
-                ai_slot('hera', 200),
-                open_slot(),
-                open_slot(),
-                open_slot(),
-                open_slot(),
-            ],
-            created_at=anchor,
-            last_activity_at=anchor,
-        ), sandbox_id="test-sandbox-1")
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-2-001',
+                stake_label='$2',
+                seats=[
+                    ai_slot('zeus', 100),
+                    ai_slot('hera', 200),
+                    open_slot(),
+                    open_slot(),
+                    open_slot(),
+                    open_slot(),
+                ],
+                created_at=anchor,
+                last_activity_at=anchor,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         data = compute_audit(
             ledger_repo=ledger_repo,
@@ -204,9 +223,13 @@ class TestComputeAudit:
     def test_drift_zero_when_ledger_matches_actual(self, repos, stake_repo, db_path):
         bankroll_repo, cash_table_repo, ledger_repo = repos
         # Seed: 200 chips created (player_seed), 200 in player bankroll.
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id='alice', chips=200, starting_bankroll=200,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id='alice',
+                chips=200,
+                starting_bankroll=200,
+            )
+        )
         ledger_repo.record('central_bank', 'player:alice', 200, 'player_seed')
 
         now = datetime(2026, 5, 18, 12, 0, 0)
@@ -227,9 +250,13 @@ class TestComputeAudit:
         negative — ledger says fewer outstanding than reality."""
         bankroll_repo, cash_table_repo, ledger_repo = repos
         # Player bankroll seeded silently — no ledger entry.
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id='alice', chips=200, starting_bankroll=200,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id='alice',
+                chips=200,
+                starting_bankroll=200,
+            )
+        )
 
         now = datetime(2026, 5, 18, 12, 0, 0)
         data = compute_audit(
@@ -283,8 +310,9 @@ class TestComputeAudit:
         bankroll_repo, cash_table_repo, ledger_repo = repos
         ledger_repo.record('central_bank', 'player:a', 200, 'house_stake_issue')
         ledger_repo.record('player:a', 'central_bank', 50, 'house_stake_settle')
-        ledger_repo.record('player:a', 'central_bank', 0, 'forgive_balance',
-                           context={'forgiven_principal': 150})
+        ledger_repo.record(
+            'player:a', 'central_bank', 0, 'forgive_balance', context={'forgiven_principal': 150}
+        )
 
         now = datetime(2026, 5, 18, 12, 0, 0)
         data = compute_audit(
@@ -308,8 +336,9 @@ class TestComputeAudit:
         can show the annotation occurred. Catches a future merge/SQL
         change that silently drops zero-amount destructions."""
         bankroll_repo, cash_table_repo, ledger_repo = repos
-        ledger_repo.record('player:a', 'central_bank', 0, 'forgive_balance',
-                           context={'forgiven_principal': 150})
+        ledger_repo.record(
+            'player:a', 'central_bank', 0, 'forgive_balance', context={'forgiven_principal': 150}
+        )
 
         now = datetime(2026, 5, 18, 12, 0, 0)
         data = compute_audit(
@@ -463,20 +492,31 @@ class TestPerSandboxAudit:
         bankroll_repo, cash_table_repo, ledger_repo = repos
         # Seed two sandboxes with distinct ledger entries.
         ledger_repo.record(
-            source='central_bank', sink='ai:zeus', amount=2000,
-            reason='ai_seed', sandbox_id='sb1',
+            source='central_bank',
+            sink='ai:zeus',
+            amount=2000,
+            reason='ai_seed',
+            sandbox_id='sb1',
         )
         ledger_repo.record(
-            source='central_bank', sink='ai:hera', amount=1500,
-            reason='ai_seed', sandbox_id='sb1',
+            source='central_bank',
+            sink='ai:hera',
+            amount=1500,
+            reason='ai_seed',
+            sandbox_id='sb1',
         )
         ledger_repo.record(
-            source='central_bank', sink='ai:ares', amount=800,
-            reason='ai_seed', sandbox_id='sb2',
+            source='central_bank',
+            sink='ai:ares',
+            amount=800,
+            reason='ai_seed',
+            sandbox_id='sb2',
         )
         # Pre-v103 legacy entry (sandbox_id=NULL): only appears in admin.
         ledger_repo.record(
-            source='central_bank', sink='ai:athena', amount=300,
+            source='central_bank',
+            sink='ai:athena',
+            amount=300,
             reason='ai_seed',
         )
 

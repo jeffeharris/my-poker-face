@@ -1,22 +1,23 @@
 """Unified LLM client with built-in tracking."""
+
+import logging
 import re
 import time
-import logging
-from typing import List, Dict, Optional, Any, Callable
+from typing import Any, Callable, Dict, List, Optional
 
-from .config import DEFAULT_MAX_TOKENS, AVAILABLE_PROVIDERS
-from .response import LLMResponse, ImageResponse
-from .tracking import UsageTracker, CallType, capture_prompt, capture_image_prompt
-from .providers.base import LLMProvider
-from .providers.openai import OpenAIProvider
-from .providers.groq import GroqProvider
+from .config import AVAILABLE_PROVIDERS, DEFAULT_MAX_TOKENS
 from .providers.anthropic import AnthropicProvider
+from .providers.base import LLMProvider
 from .providers.deepseek import DeepSeekProvider
-from .providers.mistral import MistralProvider
 from .providers.google import GoogleProvider
-from .providers.xai import XAIProvider
+from .providers.groq import GroqProvider
+from .providers.mistral import MistralProvider
+from .providers.openai import OpenAIProvider
 from .providers.pollinations import PollinationsProvider
 from .providers.runware import RunwareProvider
+from .providers.xai import XAIProvider
+from .response import ImageResponse, LLMResponse
+from .tracking import CallType, UsageTracker, capture_image_prompt, capture_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,9 @@ class LLMClient:
             "mistral": lambda: MistralProvider(model=model, reasoning_effort=reasoning_effort),
             "google": lambda: GoogleProvider(model=model, reasoning_effort=reasoning_effort),
             "xai": lambda: XAIProvider(model=model, reasoning_effort=reasoning_effort),
-            "pollinations": lambda: PollinationsProvider(model=model, reasoning_effort=reasoning_effort),
+            "pollinations": lambda: PollinationsProvider(
+                model=model, reasoning_effort=reasoning_effort
+            ),
             "runware": lambda: RunwareProvider(model=model, reasoning_effort=reasoning_effort),
         }
 
@@ -164,8 +167,10 @@ class LLMClient:
                         is_retryable, wait = self._provider.is_retryable_error(retry_err)
                         if not is_retryable or attempt >= max_retries:
                             raise  # non-retryable or final attempt — propagate
-                        wait = max(wait, min(2 ** attempt, 16))
-                        logger.warning(f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s: {retry_err}")
+                        wait = max(wait, min(2**attempt, 16))
+                        logger.warning(
+                            f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait}s: {retry_err}"
+                        )
                         time.sleep(wait)
 
                 assert raw_response is not None, "Retry loop completed without response"
@@ -214,11 +219,13 @@ class LLMClient:
                         tool_result = json_module.dumps({"error": str(e)})
 
                     # Add tool result message
-                    working_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_id,
-                        "content": tool_result,
-                    })
+                    working_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "content": tool_result,
+                        }
+                    )
 
                 # Continue loop to get the model's final response after tool execution
                 # Reset tool_choice to auto after first iteration to let model decide
@@ -275,7 +282,9 @@ class LLMClient:
                 latency_ms=latency_ms,
                 status="error",
                 error_code=type(e).__name__,
-                error_message=error_message[:1000] if error_message else None,  # Truncate to 1000 chars
+                error_message=error_message[:1000]
+                if error_message
+                else None,  # Truncate to 1000 chars
             )
 
         # Track usage

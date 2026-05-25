@@ -152,7 +152,8 @@ def settle_stake_on_leave(
         logger.warning(
             "[STAKE] settle_stake_on_leave stake_id=%r has non-active status %r; "
             "skipping settlement",
-            stake_id, stake.status,
+            stake_id,
+            stake.status,
         )
         return None
 
@@ -160,10 +161,7 @@ def settle_stake_on_leave(
     math = _compute_chip_flows(stake, chips_at_leave)
 
     # House-stake override: never carry; forgive instead.
-    if (
-        stake.staker_kind == STAKER_KIND_HOUSE
-        and math.new_status == STAKE_STATUS_CARRY
-    ):
+    if stake.staker_kind == STAKER_KIND_HOUSE and math.new_status == STAKE_STATUS_CARRY:
         # Preserve the forgiven_amount the kernel computed; flip the
         # row state so the audit's outstanding-house-stake math
         # ((house_stake_issue - house_stake_settle - forgive_balance.context.forgiven_principal))
@@ -214,7 +212,8 @@ def settle_stake_on_leave(
             logger.warning(
                 "[STAKE] update_payouts failed stake_id=%r: %s "
                 "(P&L history will show as unknown for this row)",
-                stake_id, exc,
+                stake_id,
+                exc,
             )
 
     return StakeSettlement(
@@ -252,12 +251,14 @@ def _emit_forgive_balance(
     ctx = {'site': 'settle_stake_on_leave', 'stake_id': stake.stake_id}
     if ledger_context:
         ctx.update(ledger_context)
-    ctx.update({
-        'principal': stake.principal,
-        'chips_at_leave': chips_at_leave,
-        'stake_tier': stake.stake_tier,
-        'sandbox_id': sandbox_id,
-    })
+    ctx.update(
+        {
+            'principal': stake.principal,
+            'chips_at_leave': chips_at_leave,
+            'stake_tier': stake.stake_tier,
+            'sandbox_id': sandbox_id,
+        }
+    )
     chip_ledger.record_forgive_balance(
         chip_ledger_repo,
         owner_id=stake.borrower_id,

@@ -15,51 +15,53 @@ Tests cover:
 import json
 import math
 import random
-import pytest
 from unittest.mock import MagicMock, patch
 
-from poker.playstyle_selector import (
-    PlaystyleState,
-    PlaystyleBriefing,
-    compute_playstyle_affinities,
-    compute_raw_affinity,
-    derive_primary_playstyle,
-    compute_identity_bias,
-    compute_exploit_scores,
-    compute_election_interval,
-    select_playstyle,
-    build_playstyle_briefing,
-    build_exploit_tips,
-    _select_biggest_threat,
-    _determine_engagement,
-    _detect_emotional_shock,
-    _softmax,
-    ZONE_CENTERS,
-    AFFINITY_SIGMA,
-    PRIMARY_STYLE_BONUS,
-    ADJACENT_STYLE_BONUS,
-    STYLE_ADJACENCY,
-    PLANNING_PROMPTS,
-)
-from poker.zone_detection import (
-    ZONE_GUARDED_CENTER,
-    ZONE_POKER_FACE_CENTER,
-    ZONE_COMMANDING_CENTER,
-    ZONE_AGGRO_CENTER,
-    ZoneEffects,
-    ZoneContext,
-)
+import pytest
+
 from poker.player_psychology import (
     PersonalityAnchors,
     PlayerPsychology,
-    compute_baseline_confidence,
     compute_baseline_composure,
+    compute_baseline_confidence,
+)
+from poker.playstyle_selector import (
+    ADJACENT_STYLE_BONUS,
+    AFFINITY_SIGMA,
+    PLANNING_PROMPTS,
+    PRIMARY_STYLE_BONUS,
+    STYLE_ADJACENCY,
+    ZONE_CENTERS,
+    PlaystyleBriefing,
+    PlaystyleState,
+    _detect_emotional_shock,
+    _determine_engagement,
+    _select_biggest_threat,
+    _softmax,
+    build_exploit_tips,
+    build_playstyle_briefing,
+    compute_election_interval,
+    compute_exploit_scores,
+    compute_identity_bias,
+    compute_playstyle_affinities,
+    compute_raw_affinity,
+    derive_primary_playstyle,
+    select_playstyle,
+)
+from poker.zone_detection import (
+    ZONE_AGGRO_CENTER,
+    ZONE_COMMANDING_CENTER,
+    ZONE_GUARDED_CENTER,
+    ZONE_POKER_FACE_CENTER,
+    ZoneContext,
+    ZoneEffects,
 )
 
 pytestmark = pytest.mark.slow
 
 
 # === HELPERS ===
+
 
 def make_anchors(**overrides):
     """Create PersonalityAnchors with defaults."""
@@ -110,6 +112,7 @@ def make_psychology(**anchor_overrides):
 
 # === TEST CLASSES ===
 
+
 class TestPlaystyleAffinities:
     """Tests for compute_playstyle_affinities()."""
 
@@ -119,7 +122,9 @@ class TestPlaystyleAffinities:
             for comp in [0.0, 0.1, 0.5, 0.9, 1.0]:
                 affinities = compute_playstyle_affinities(conf, comp)
                 for style, affinity in affinities.items():
-                    assert affinity > 0, f"Affinity for {style} at ({conf}, {comp}) should be positive"
+                    assert (
+                        affinity > 0
+                    ), f"Affinity for {style} at ({conf}, {comp}) should be positive"
 
     def test_normalized_sum(self):
         """Affinities should sum to 1.0."""
@@ -564,7 +569,9 @@ class TestSelectPlaystyle:
 
         result_high = select_playstyle(
             current_state=state,
-            confidence=0.5, composure=0.9, energy=0.9,
+            confidence=0.5,
+            composure=0.9,
+            energy=0.9,
             adaptation_bias=1.0,
             identity_biases=identity_biases,
             opponent_models={'V': model},
@@ -572,7 +579,9 @@ class TestSelectPlaystyle:
         )
         result_low = select_playstyle(
             current_state=state,
-            confidence=0.5, composure=0.1, energy=0.9,
+            confidence=0.5,
+            composure=0.1,
+            energy=0.9,
             adaptation_bias=1.0,
             identity_biases=identity_biases,
             opponent_models={'V': model},
@@ -593,7 +602,9 @@ class TestSelectPlaystyle:
 
         result = select_playstyle(
             current_state=state,
-            confidence=0.5, composure=0.7, energy=0.5,
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
             adaptation_bias=0.5,
             identity_biases=identity_biases,
             rng=self._make_rng(),
@@ -613,7 +624,9 @@ class TestSelectPlaystyle:
 
         result = select_playstyle(
             current_state=state,
-            confidence=0.5, composure=0.7, energy=0.5,
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
             adaptation_bias=0.5,  # -> interval = 4
             identity_biases=identity_biases,
             rng=self._make_rng(),
@@ -628,7 +641,9 @@ class TestSelectPlaystyle:
 
         result = select_playstyle(
             current_state=state,
-            confidence=0.5, composure=0.7, energy=0.5,
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
             adaptation_bias=0.5,
             identity_biases=identity_biases,
             rng=self._make_rng(),
@@ -871,7 +886,12 @@ class TestPlaystyleState:
             active_playstyle='aggro',
             primary_playstyle='poker_face',
             style_scores={'aggro': 0.8, 'poker_face': 0.5, 'commanding': 0.3, 'guarded': 0.2},
-            style_probabilities={'aggro': 0.5, 'poker_face': 0.25, 'commanding': 0.15, 'guarded': 0.10},
+            style_probabilities={
+                'aggro': 0.5,
+                'poker_face': 0.25,
+                'commanding': 0.15,
+                'guarded': 0.10,
+            },
             last_switch_hand=5,
             hands_in_current_style=3,
             hands_until_election=2,
@@ -1065,7 +1085,9 @@ class TestExploitTips:
 
     def test_commanding_loose_opponent(self):
         """Commanding gets wide value bet tip against loose opponents."""
-        threat = make_opponent_model(name='Maniac', vpip=0.55, aggression_factor=1.5, fold_to_cbet=0.4)
+        threat = make_opponent_model(
+            name='Maniac', vpip=0.55, aggression_factor=1.5, fold_to_cbet=0.4
+        )
         result = build_exploit_tips('commanding', 'medium', threat_model=threat)
         assert 'Maniac' in result
         assert 'too many hands' in result.lower()
@@ -1095,8 +1117,11 @@ class TestExploitTips:
         """Any style gets call-down tip against frequent bluffers."""
         # Use a style combo that won't match other rules first
         threat = make_opponent_model(
-            name='Bluffer', bluff_frequency=0.60,
-            aggression_factor=1.5, fold_to_cbet=0.4, vpip=0.35,
+            name='Bluffer',
+            bluff_frequency=0.60,
+            aggression_factor=1.5,
+            fold_to_cbet=0.4,
+            vpip=0.35,
         )
         result = build_exploit_tips('poker_face', 'medium', threat_model=threat)
         assert 'Bluffer' in result
@@ -1129,8 +1154,12 @@ class TestExploitTips:
     def test_planning_prompts_in_briefing(self):
         """Planning prompt appears in medium+ engagement briefing."""
         zone_effects = ZoneEffects(
-            sweet_spots={}, penalties={}, manifestation='balanced',
-            confidence=0.5, composure=0.7, energy=0.5,
+            sweet_spots={},
+            penalties={},
+            manifestation='balanced',
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
         )
         pm = MagicMock()
         pm.get_template.return_value = None
@@ -1148,8 +1177,12 @@ class TestExploitTips:
     def test_guarded_no_planning_prompt(self):
         """Guarded style has no planning prompt (reactive by nature)."""
         zone_effects = ZoneEffects(
-            sweet_spots={}, penalties={}, manifestation='balanced',
-            confidence=0.3, composure=0.7, energy=0.5,
+            sweet_spots={},
+            penalties={},
+            manifestation='balanced',
+            confidence=0.3,
+            composure=0.7,
+            energy=0.5,
         )
         pm = MagicMock()
         pm.get_template.return_value = None
@@ -1168,8 +1201,12 @@ class TestExploitTips:
     def test_exploit_tips_in_briefing(self):
         """Exploit tips appear in the full briefing output."""
         zone_effects = ZoneEffects(
-            sweet_spots={}, penalties={}, manifestation='balanced',
-            confidence=0.5, composure=0.7, energy=0.5,
+            sweet_spots={},
+            penalties={},
+            manifestation='balanced',
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
         )
         pm = MagicMock()
         pm.get_template.return_value = None
@@ -1193,8 +1230,12 @@ class TestExploitTips:
     def test_no_exploit_tips_at_basic(self):
         """No exploit tips at basic engagement even with models."""
         zone_effects = ZoneEffects(
-            sweet_spots={}, penalties={}, manifestation='balanced',
-            confidence=0.5, composure=0.7, energy=0.5,
+            sweet_spots={},
+            penalties={},
+            manifestation='balanced',
+            confidence=0.5,
+            composure=0.7,
+            energy=0.5,
         )
         pm = MagicMock()
         pm.get_template.return_value = None

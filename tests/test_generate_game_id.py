@@ -2,11 +2,13 @@
 
 Tests the actual production generate_game_id function from flask_app.routes.game_routes.
 """
-import re
+
 import os
+import re
 import tempfile
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 # Requires Flask app import for route module initialization.
 pytestmark = pytest.mark.flask
@@ -33,6 +35,7 @@ def generate_game_id():
     # Patch init_persistence to use our test DB repos
     def mock_init_persistence():
         import flask_app.extensions as ext
+
         ext.game_repo = repos['game_repo']
         ext.user_repo = repos['user_repo']
         ext.settings_repo = repos['settings_repo']
@@ -56,6 +59,7 @@ def generate_game_id():
 
     with app.app_context():
         from flask_app.routes.game_routes import generate_game_id as fn
+
         return fn
 
 

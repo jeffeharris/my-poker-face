@@ -1,5 +1,6 @@
 """Tests for T2-14: get_celebrities() should not mutate CELEBRITIES_LIST."""
-from poker.utils import get_celebrities, CELEBRITIES_LIST
+
+from poker.utils import CELEBRITIES_LIST, get_celebrities
 
 
 def test_shuffled_does_not_mutate_module_list():
@@ -8,9 +9,9 @@ def test_shuffled_does_not_mutate_module_list():
 
     get_celebrities(shuffled=True)
 
-    assert CELEBRITIES_LIST == original_order, (
-        "CELEBRITIES_LIST was mutated by get_celebrities(shuffled=True)"
-    )
+    assert (
+        CELEBRITIES_LIST == original_order
+    ), "CELEBRITIES_LIST was mutated by get_celebrities(shuffled=True)"
 
 
 def test_shuffled_returns_all_celebrities():

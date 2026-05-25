@@ -29,7 +29,6 @@ from cash_mode.sim_runner import (
 )
 from poker.repositories import create_repos
 
-
 # --- Fixtures -----------------------------------------------------------
 
 
@@ -112,6 +111,7 @@ class TestRunSimShape:
         metrics arrays must compare equal field-by-field. This is the
         guarantee that backs A/B comparisons across code revisions.
         """
+
         def _build(path_name: str):
             db_path = str(tmp_path / path_name)
             repos = create_repos(db_path)
@@ -148,7 +148,7 @@ class TestRunSimShape:
 
         # Aggregate scalars should match exactly across runs.
         assert len(r1.metrics) == len(r2.metrics)
-        for m1, m2 in zip(r1.metrics, r2.metrics):
+        for m1, m2 in zip(r1.metrics, r2.metrics, strict=False):
             assert m1.total_chips == m2.total_chips
             assert m1.ai_count == m2.ai_count
             assert m1.gini == m2.gini
@@ -170,8 +170,14 @@ class TestRunSimShape:
         s = result.summary
         # Just check the required keys exist; values are environment-dep.
         for key in (
-            'ticks_captured', 'wall_seconds', 'sandbox_id', 'rng_seed',
-            'gini_first', 'gini_final', 'ai_count_first', 'ai_count_final',
+            'ticks_captured',
+            'wall_seconds',
+            'sandbox_id',
+            'rng_seed',
+            'gini_first',
+            'gini_final',
+            'ai_count_first',
+            'ai_count_final',
             'max_abs_audit_drift',
         ):
             assert key in s, f"summary missing {key!r}"
@@ -302,16 +308,19 @@ class TestFlatten:
         # Aggregate keys present on every row
         for row in rows:
             for key in (
-                'tick', 'now', 'ai_count', 'total_chips', 'gini',
-                'active_stake_count', 'audit_drift',
+                'tick',
+                'now',
+                'ai_count',
+                'total_chips',
+                'gini',
+                'active_stake_count',
+                'audit_drift',
             ):
                 assert key in row
         # Decision columns appear (movement always produces at least
         # stay/forced_leave on some ticks). If no decisions fired,
         # the column set may be empty — accept that without failing.
-        decision_cols = [
-            k for k in rows[0].keys() if k.startswith('decisions__')
-        ]
+        decision_cols = [k for k in rows[0].keys() if k.startswith('decisions__')]
         # Reason-delta columns may or may not exist for movement-only.
         # The point of the test is just that the structure flattens.
         assert isinstance(decision_cols, list)

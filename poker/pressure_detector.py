@@ -5,10 +5,11 @@ This module detects game events that should trigger pressure changes
 in AI player personalities.
 """
 
-from typing import Dict, List, Optional, Tuple, Any, Set, TYPE_CHECKING
-from .poker_game import PokerGameState, Player
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+
 from .hand_evaluator import HandEvaluator
 from .moment_analyzer import MomentAnalyzer
+from .poker_game import PokerGameState
 
 if TYPE_CHECKING:
     from .equity_snapshot import HandEquityHistory
@@ -23,9 +24,9 @@ class PressureEventDetector:
     """
 
     # Cooldown thresholds
-    DISCIPLINED_FOLD_COOLDOWN = 2   # Max once per 2 hands per player
+    DISCIPLINED_FOLD_COOLDOWN = 2  # Max once per 2 hands per player
     SHORT_STACK_SURVIVAL_COOLDOWN = 5  # Max once per 5 hands per player
-    SHORT_STACK_SURVIVAL_HANDS = 3    # Must survive 3+ hands while short without all-in
+    SHORT_STACK_SURVIVAL_HANDS = 3  # Must survive 3+ hands while short without all-in
 
     # Self-reported bluff_likelihood >= this counts as "was bluffing"
     BLUFF_LIKELIHOOD_THRESHOLD = 50
@@ -42,9 +43,13 @@ class PressureEventDetector:
         self._short_stack_hands_survived: Dict[str, int] = {}
         # player_name -> hand_number of last short_stack_survival fire
         self._short_stack_survival_last_hand: Dict[str, int] = {}
-        
-    def _was_bluffing(self, player_name: str, hand_rank: int,
-                      player_bluff_likelihoods: Optional[Dict[str, int]] = None) -> bool:
+
+    def _was_bluffing(
+        self,
+        player_name: str,
+        hand_rank: int,
+        player_bluff_likelihoods: Optional[Dict[str, int]] = None,
+    ) -> bool:
         """Check if a player was bluffing via hand rank OR self-reported likelihood."""
         if hand_rank >= 9:  # One pair or high card
             return True
@@ -52,9 +57,12 @@ class PressureEventDetector:
             return player_bluff_likelihoods.get(player_name, 0) >= self.BLUFF_LIKELIHOOD_THRESHOLD
         return False
 
-    def detect_showdown_events(self, game_state: PokerGameState,
-                             winner_info: Dict[str, Any],
-                             player_bluff_likelihoods: Optional[Dict[str, int]] = None) -> List[Tuple[str, List[str]]]:
+    def detect_showdown_events(
+        self,
+        game_state: PokerGameState,
+        winner_info: Dict[str, Any],
+        player_bluff_likelihoods: Optional[Dict[str, int]] = None,
+    ) -> List[Tuple[str, List[str]]]:
         """
         Detect pressure events from showdown results.
 
@@ -65,7 +73,7 @@ class PressureEventDetector:
         Returns list of (event_name, affected_players) tuples.
         """
         events = []
-        
+
         # Extract winner details from pot_breakdown (split-pot support)
         winner_names = []
         pot_breakdown = winner_info.get('pot_breakdown', [])
@@ -80,7 +88,7 @@ class PressureEventDetector:
             winner_names = list(winnings.keys()) if winnings else []
 
         winner_name = winner_names[0] if winner_names else None
-        
+
         # Get hand rank from hand evaluation if available
         # Use winning_hand_values (numeric) for comparisons, not winning_hand (display strings)
         winner_hand = winner_info.get('winning_hand_values', winner_info.get('winning_hand', []))
@@ -90,19 +98,19 @@ class PressureEventDetector:
             first_val = winner_hand[0] if winner_hand else 0
             if isinstance(first_val, int) and first_val >= 14:  # Ace high or better
                 winner_hand_rank = 8 if len(set(winner_hand[:2])) > 1 else 7  # High card vs pair
-            
+
         pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
-        
+
         # Calculate pot size relative to stacks
         active_stacks = [p.stack for p in game_state.players if p.stack > 0]
         avg_stack = sum(active_stacks) / len(active_stacks) if active_stacks else 1000
-        
+
         # Use shared threshold from MomentAnalyzer (single source of truth)
         is_big_pot = MomentAnalyzer.is_big_pot(pot_total, 0, avg_stack)
-        
+
         # Get active players who showed cards
         active_players = [p for p in game_state.players if not p.is_folded]
-        
+
         # Detect successful bluff (weak hand wins big pot when everyone folds)
         # Priority system: only ONE win-type event per winner (successful_bluff > big_win > win)
         # Triggers on weak hand rank (pair or worse) OR self-reported bluff_likelihood >= 50
@@ -139,13 +147,15 @@ class PressureEventDetector:
                     events.append(("loss", losers))
 
         # Track heads-up record (when only 2 players have chips)
-        players_with_chips = [p for p in game_state.players if p.stack > 0 or p.name in winner_names]
+        players_with_chips = [
+            p for p in game_state.players if p.stack > 0 or p.name in winner_names
+        ]
         if len(players_with_chips) == 2 and winner_names:
             events.append(("headsup_win", winner_names))
             loser_names = [p.name for p in players_with_chips if p.name not in winner_names]
             if loser_names:
                 events.append(("headsup_loss", loser_names))
-        
+
         # Detect bad beat (strong hand loses)
         if len(active_players) > 1 and winner_names:
             # Find second-best hand
@@ -160,21 +170,21 @@ class PressureEventDetector:
                         else:
                             # Convert dict to Card object
                             from core.card import Card
+
                             player_cards.append(Card(card['rank'], card['suit']))
-                    
+
                     community_cards = []
                     for card in game_state.community_cards:
                         if hasattr(card, 'to_dict'):
                             community_cards.append(card)
                         else:
                             from core.card import Card
+
                             community_cards.append(Card(card['rank'], card['suit']))
-                    
-                    hand_result = HandEvaluator(
-                        player_cards + community_cards
-                    ).evaluate_hand()
+
+                    hand_result = HandEvaluator(player_cards + community_cards).evaluate_hand()
                     losers_with_hands.append((player.name, hand_result['hand_rank']))
-            
+
             if losers_with_hands:
                 # Sort by hand rank (lower is better)
                 losers_with_hands.sort(key=lambda x: x[1])
@@ -186,7 +196,8 @@ class PressureEventDetector:
 
                 # Bluff called: loser was bluffing (weak hand OR self-reported bluff_likelihood >= 50)
                 bluff_called_players = [
-                    name for name, rank in losers_with_hands
+                    name
+                    for name, rank in losers_with_hands
                     if self._was_bluffing(name, rank, player_bluff_likelihoods)
                 ]
                 if bluff_called_players:
@@ -194,25 +205,29 @@ class PressureEventDetector:
 
         return events
 
-    def detect_elimination_events(self, game_state: PokerGameState,
-                                eliminated_players: List[str]) -> List[Tuple[str, List[str]]]:
+    def detect_elimination_events(
+        self, game_state: PokerGameState, eliminated_players: List[str]
+    ) -> List[Tuple[str, List[str]]]:
         """Detect pressure events from player eliminations."""
         events = []
-        
+
         if eliminated_players:
             # Surviving players feel empowered
-            survivors = [p.name for p in game_state.players 
-                        if p.name not in eliminated_players and p.stack > 0]
+            survivors = [
+                p.name
+                for p in game_state.players
+                if p.name not in eliminated_players and p.stack > 0
+            ]
             for eliminated in eliminated_players:
                 events.append(("eliminated_opponent", survivors))
-        
+
         return events
 
     # Weighted-delta equity shock detection thresholds
-    EQUITY_SHOCK_THRESHOLD = 0.30      # Minimum weighted delta to trigger an event
-    BAD_BEAT_EQUITY_MIN = 0.80         # Loser had 80%+ equity at worst swing
-    COOLER_EQUITY_MIN = 0.60           # Loser had 60-80% equity at worst swing
-    POT_SIGNIFICANCE_MIN = 0.15        # Ignore swings in trivial pots
+    EQUITY_SHOCK_THRESHOLD = 0.30  # Minimum weighted delta to trigger an event
+    BAD_BEAT_EQUITY_MIN = 0.80  # Loser had 80%+ equity at worst swing
+    COOLER_EQUITY_MIN = 0.60  # Loser had 60-80% equity at worst swing
+    POT_SIGNIFICANCE_MIN = 0.15  # Ignore swings in trivial pots
 
     # Street weights (later streets feel worse)
     STREET_WEIGHTS = {
@@ -245,7 +260,6 @@ class PressureEventDetector:
         Returns:
             List of (event_name, [player_name]) tuples
         """
-        from .equity_snapshot import STREET_ORDER
 
         events = []
 
@@ -296,22 +310,24 @@ class PressureEventDetector:
             event = None
 
             # bad_beat: lost AND had 80%+ equity at worst swing AND big negative delta
-            if (player_lost
-                    and worst_swing_prev_equity >= self.BAD_BEAT_EQUITY_MIN
-                    and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+            if (
+                player_lost
+                and worst_swing_prev_equity >= self.BAD_BEAT_EQUITY_MIN
+                and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD
+            ):
                 event = 'bad_beat'
             # cooler: lost AND had 60-80% equity at worst swing AND big negative delta
-            elif (player_lost
-                  and self.COOLER_EQUITY_MIN <= worst_swing_prev_equity < self.BAD_BEAT_EQUITY_MIN
-                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+            elif (
+                player_lost
+                and self.COOLER_EQUITY_MIN <= worst_swing_prev_equity < self.BAD_BEAT_EQUITY_MIN
+                and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD
+            ):
                 event = 'cooler'
             # got_sucked_out: lost AND big negative delta (no equity constraint)
-            elif (player_lost
-                  and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD):
+            elif player_lost and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD:
                 event = 'got_sucked_out'
             # suckout: won AND big positive delta (they got lucky)
-            elif (player_won
-                  and max_positive_wd >= self.EQUITY_SHOCK_THRESHOLD):
+            elif player_won and max_positive_wd >= self.EQUITY_SHOCK_THRESHOLD:
                 event = 'suckout'
 
             if event:
@@ -351,9 +367,7 @@ class PressureEventDetector:
 
         # Disciplined fold: fold on turn/river with decent equity in a significant pot
         if action == 'fold':
-            fold_event = self._detect_disciplined_fold(
-                game_state, player_name, hand_number
-            )
+            fold_event = self._detect_disciplined_fold(game_state, player_name, hand_number)
             if fold_event:
                 events.append(fold_event)
 
@@ -389,9 +403,7 @@ class PressureEventDetector:
             return None
 
         # Must be facing a bet (cost to call > 0)
-        player = next(
-            (p for p in game_state.players if p.name == player_name), None
-        )
+        player = next((p for p in game_state.players if p.name == player_name), None)
         if not player:
             return None
 
@@ -420,9 +432,7 @@ class PressureEventDetector:
     # === Streak-based event detection ===
 
     def detect_streak_events(
-        self,
-        player_name: str,
-        session_stats: Dict[str, Any]
+        self, player_name: str, session_stats: Dict[str, Any]
     ) -> List[Tuple[str, List[str]]]:
         """Detect winning/losing streak events from session statistics.
 
@@ -450,7 +460,7 @@ class PressureEventDetector:
     # === Stack-based event detection ===
 
     # Stack event thresholds
-    SHORT_STACK_BB = 10      # Below 10 BB is short-stacked
+    SHORT_STACK_BB = 10  # Below 10 BB is short-stacked
     CRIPPLED_LOSS_PCT = 0.75  # Lost 75%+ of stack = crippled
 
     def detect_stack_events(
@@ -459,7 +469,7 @@ class PressureEventDetector:
         winner_names: List[str],
         hand_start_stacks: Dict[str, int],
         was_short_stack: Set[str],
-        big_blind: int = 100
+        big_blind: int = 100,
     ) -> Tuple[List[Tuple[str, List[str]]], Set[str]]:
         """Detect stack-based pressure events: crippled, short_stack.
 
@@ -486,8 +496,7 @@ class PressureEventDetector:
             current_stack = player.stack
 
             # Crippled: lost 75%+ of stack this hand (only for non-winners)
-            if (start_stack and start_stack > 0 and
-                    player.name not in winner_names):
+            if start_stack and start_stack > 0 and player.name not in winner_names:
                 loss_pct = (start_stack - current_stack) / start_stack
                 if loss_pct >= self.CRIPPLED_LOSS_PCT:
                     events.append(("crippled", [player.name]))
@@ -546,7 +555,9 @@ class PressureEventDetector:
 
     # === Disciplined fold equity calculation ===
 
-    def _calculate_fold_equity(self, hole_cards, community_cards, num_simulations: int = 200) -> Optional[float]:
+    def _calculate_fold_equity(
+        self, hole_cards, community_cards, num_simulations: int = 200
+    ) -> Optional[float]:
         """Quick equity estimate for disciplined fold detection.
 
         Uses eval7 Monte Carlo simulation against one random opponent.
@@ -554,6 +565,7 @@ class PressureEventDetector:
         """
         try:
             import eval7
+
             from .card_utils import normalize_card_string
         except ImportError:
             return None
@@ -630,4 +642,3 @@ class PressureEventDetector:
                     self._short_stack_hands_survived[player_name] = 0
 
         return events
-

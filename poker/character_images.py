@@ -8,18 +8,24 @@ Supports on-demand generation for personalities without existing images.
 
 import io
 import logging
-import os
 import threading
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 from PIL import Image, ImageDraw
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
-from core.llm.settings import get_default_model, get_default_provider, get_image_model, get_image_provider
+from core.llm.settings import (
+    get_default_model,
+    get_default_provider,
+    get_image_model,
+    get_image_provider,
+)
+
 from .image_prompt_config import ImagePromptConfig
 
 if TYPE_CHECKING:
@@ -34,8 +40,18 @@ GRID_DIR = GENERATED_IMAGES_DIR / "grid"
 ICONS_DIR = GRID_DIR / "icons"
 
 # Available emotions for avatars
-EMOTIONS = ["confident", "happy", "thinking", "nervous", "angry", "shocked",
-            "smug", "frustrated", "elated", "poker_face"]
+EMOTIONS = [
+    "confident",
+    "happy",
+    "thinking",
+    "nervous",
+    "angry",
+    "shocked",
+    "smug",
+    "frustrated",
+    "elated",
+    "poker_face",
+]
 
 # Icon size for processed images
 ICON_SIZE = 256
@@ -88,7 +104,9 @@ class CharacterImageService:
     Filesystem storage is only used as a fallback for migration of existing images.
     """
 
-    def __init__(self, personality_generator=None, personality_repo: Optional["PersonalityRepository"] = None):
+    def __init__(
+        self, personality_generator=None, personality_repo: Optional["PersonalityRepository"] = None
+    ):
         """Initialize the service.
 
         Args:
@@ -100,7 +118,8 @@ class CharacterImageService:
 
         # Initialize persistence if not provided
         if self._persistence is None:
-            from .repositories import SchemaManager, PersonalityRepository as PR
+            from .repositories import PersonalityRepository as PR, SchemaManager
+
             db_path = self._get_default_db_path()
             SchemaManager(db_path).ensure_schema()
             self._persistence = PR(db_path)
@@ -214,7 +233,9 @@ class CharacterImageService:
         """
         return self._persistence.load_full_avatar_image(personality_name, emotion)
 
-    def get_full_avatar_url(self, personality_name: str, emotion: str = "confident") -> Optional[str]:
+    def get_full_avatar_url(
+        self, personality_name: str, emotion: str = "confident"
+    ) -> Optional[str]:
         """Get the URL for a character's full uncropped avatar image.
 
         Args:
@@ -244,7 +265,7 @@ class CharacterImageService:
         game_id: Optional[str] = None,
         seed_image_url: Optional[str] = None,
         strength: float = 0.75,
-        reference_image_id: Optional[str] = None
+        reference_image_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Regenerate a single emotion image for a personality.
 
@@ -263,7 +284,7 @@ class CharacterImageService:
         if emotion not in EMOTIONS:
             return {
                 "success": False,
-                "error": f"Invalid emotion: {emotion}. Must be one of: {EMOTIONS}"
+                "error": f"Invalid emotion: {emotion}. Must be one of: {EMOTIONS}",
             }
 
         try:
@@ -280,12 +301,12 @@ class CharacterImageService:
                 game_id=game_id,
                 seed_image_url=seed_image_url,
                 strength=strength,
-                reference_image_id=reference_image_id
+                reference_image_id=reference_image_id,
             )
             self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
             return {
                 "success": True,
-                "message": f"Successfully regenerated {emotion} for {personality_name}"
+                "message": f"Successfully regenerated {emotion} for {personality_name}",
             }
         except Exception as e:
             logger.error(f"Failed to regenerate {personality_name} - {emotion}: {e}")
@@ -296,7 +317,7 @@ class CharacterImageService:
         personality_name: str,
         emotions: Optional[List[str]] = None,
         api_key: Optional[str] = None,
-        game_id: Optional[str] = None
+        game_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate images for a personality and save to database.
@@ -319,7 +340,7 @@ class CharacterImageService:
                 "error": f"Missing dependency: {e}",
                 "generated": 0,
                 "failed": 0,
-                "skipped": 0
+                "skipped": 0,
             }
 
         # Determine which emotions to generate
@@ -332,7 +353,7 @@ class CharacterImageService:
                 "message": "All images already exist",
                 "generated": 0,
                 "failed": 0,
-                "skipped": len(EMOTIONS)
+                "skipped": len(EMOTIONS),
             }
 
         # Initialize LLM client for tracked API calls
@@ -353,12 +374,16 @@ class CharacterImageService:
 
             # Add delay between requests to respect rate limits (skip first request)
             if needs_rate_limit and i > 0:
-                logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
+                logger.info(
+                    f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image"
+                )
                 time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
 
             try:
                 # Generate the image and get raw bytes
-                raw_image_bytes = self._generate_single_image(llm_client, personality_name, emotion, game_id=game_id)
+                raw_image_bytes = self._generate_single_image(
+                    llm_client, personality_name, emotion, game_id=game_id
+                )
 
                 # Process to circular icon and save to database
                 self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
@@ -380,11 +405,16 @@ class CharacterImageService:
             return self._personality_generator.get_avatar_description(personality_name)
         return None
 
-    def _generate_single_image(self, llm_client: LLMClient, personality_name: str, emotion: str,
-                                game_id: Optional[str] = None,
-                                seed_image_url: Optional[str] = None,
-                                strength: float = 0.75,
-                                reference_image_id: Optional[str] = None) -> bytes:
+    def _generate_single_image(
+        self,
+        llm_client: LLMClient,
+        personality_name: str,
+        emotion: str,
+        game_id: Optional[str] = None,
+        seed_image_url: Optional[str] = None,
+        strength: float = 0.75,
+        reference_image_id: Optional[str] = None,
+    ) -> bytes:
         """Generate a single image and return raw bytes.
 
         Uses ImagePromptConfig to assemble structured prompts from personality
@@ -437,10 +467,18 @@ class CharacterImageService:
                 negative_prompt=NEGATIVE_PROMPT,
             )
             if image_response.is_error:
-                if image_response.error_code == "content_policy_violation" and personality and self._personality_generator:
+                if (
+                    image_response.error_code == "content_policy_violation"
+                    and personality
+                    and self._personality_generator
+                ):
                     # Generate archetype-based visual identity and retry
-                    logger.info(f"Content policy blocked {personality_name}, generating archetype identity...")
-                    archetype = self._generate_archetype_identity(llm_client, personality_name, game_id=game_id)
+                    logger.info(
+                        f"Content policy blocked {personality_name}, generating archetype identity..."
+                    )
+                    archetype = self._generate_archetype_identity(
+                        llm_client, personality_name, game_id=game_id
+                    )
                     personality['visual_identity'] = archetype
                     self._personality_generator.personality_repo.save_personality(
                         personality_name, personality, source='updated'
@@ -465,10 +503,18 @@ class CharacterImageService:
                         negative_prompt=NEGATIVE_PROMPT,
                     )
                     if image_response.is_error:
-                        logger.error(f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}")
-                        raise Exception(f"Image generation failed for {personality_name} ({emotion}) after archetype fallback: {image_response.error_message or 'Unknown error'}")
+                        logger.error(
+                            f"Second attempt also failed for {personality_name}/{emotion}: {image_response.error_message}"
+                        )
+                        raise Exception(
+                            f"Image generation failed for {personality_name} ({emotion}) after archetype fallback: {image_response.error_message or 'Unknown error'}"
+                        )
                 else:
-                    raise Exception(image_response.error_message or image_response.error_code or "Image generation failed")
+                    raise Exception(
+                        image_response.error_message
+                        or image_response.error_code
+                        or "Image generation failed"
+                    )
             image_url = image_response.url
         except Exception:
             raise
@@ -477,17 +523,21 @@ class CharacterImageService:
         with urllib.request.urlopen(image_url) as response_data:
             image_bytes = response_data.read()
 
-        logger.debug(f"Downloaded image for {personality_name} - {emotion} ({len(image_bytes)} bytes)")
+        logger.debug(
+            f"Downloaded image for {personality_name} - {emotion} ({len(image_bytes)} bytes)"
+        )
         return image_bytes
 
-    def _generate_archetype_identity(self, llm_client: LLMClient, name: str,
-                                      game_id: Optional[str] = None) -> Dict[str, str]:
+    def _generate_archetype_identity(
+        self, llm_client: LLMClient, name: str, game_id: Optional[str] = None
+    ) -> Dict[str, str]:
         """Generate archetype-based visual identity for content policy workaround.
 
         When an image provider blocks a character name, this generates a
         description-based identity (appearance + apparel) without using the name.
         """
         import json
+
         logger.info(f"Generating archetype identity for {name}")
         prompt = (
             f"Create a visual description for a character inspired by {name}, "
@@ -521,7 +571,9 @@ class CharacterImageService:
             character=personality_name, emotion_detail=emotion_detail
         )
 
-    def _process_to_icon_and_save(self, personality_name: str, emotion: str, raw_image_bytes: bytes) -> bytes:
+    def _process_to_icon_and_save(
+        self, personality_name: str, emotion: str, raw_image_bytes: bytes
+    ) -> bytes:
         """Process raw image bytes to a circular icon and save both full and icon to database.
 
         Args:
@@ -540,7 +592,9 @@ class CharacterImageService:
         # If image is not square (can happen with img2img), resize to target size
         target_size = FULL_IMAGE_DIMENSIONS[0]  # 512
         if original_width != original_height or original_width != target_size:
-            logger.info(f"Resizing image from {original_width}x{original_height} to {target_size}x{target_size}")
+            logger.info(
+                f"Resizing image from {original_width}x{original_height} to {target_size}x{target_size}"
+            )
             # Center crop to square first if needed
             if original_width != original_height:
                 crop_size = min(original_width, original_height)
@@ -589,10 +643,12 @@ class CharacterImageService:
             height=ICON_SIZE,
             full_image_data=raw_image_bytes,
             full_width=full_width,
-            full_height=full_height
+            full_height=full_height,
         )
 
-        logger.debug(f"Saved icon ({len(icon_bytes)} bytes) and full image ({len(raw_image_bytes)} bytes) to database: {personality_name} - {emotion}")
+        logger.debug(
+            f"Saved icon ({len(icon_bytes)} bytes) and full image ({len(raw_image_bytes)} bytes) to database: {personality_name} - {emotion}"
+        )
         return icon_bytes
 
     def _process_to_icon(self, personality_name: str, emotion: str):
@@ -665,8 +721,7 @@ _service_lock = threading.Lock()
 
 
 def get_character_image_service(
-    personality_generator=None,
-    personality_repo: Optional["PersonalityRepository"] = None
+    personality_generator=None, personality_repo: Optional["PersonalityRepository"] = None
 ) -> CharacterImageService:
     """Get the singleton CharacterImageService instance.
 
@@ -685,8 +740,7 @@ def get_character_image_service(
 
 
 def init_character_image_service(
-    personality_generator=None,
-    personality_repo: Optional["PersonalityRepository"] = None
+    personality_generator=None, personality_repo: Optional["PersonalityRepository"] = None
 ) -> CharacterImageService:
     """Initialize the CharacterImageService with dependencies.
 
@@ -716,10 +770,12 @@ def generate_character_images(
     personality_name: str,
     emotions: Optional[List[str]] = None,
     api_key: Optional[str] = None,
-    game_id: Optional[str] = None
+    game_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Generate images for a personality and save to database."""
-    return get_character_image_service().generate_images(personality_name, emotions, api_key, game_id=game_id)
+    return get_character_image_service().generate_images(
+        personality_name, emotions, api_key, game_id=game_id
+    )
 
 
 def load_avatar_image(personality_name: str, emotion: str) -> Optional[bytes]:
@@ -743,7 +799,7 @@ def regenerate_avatar_emotion(
     game_id: Optional[str] = None,
     seed_image_url: Optional[str] = None,
     strength: float = 0.75,
-    reference_image_id: Optional[str] = None
+    reference_image_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Regenerate a single emotion image for a personality."""
     return get_character_image_service().regenerate_emotion(
@@ -752,7 +808,7 @@ def regenerate_avatar_emotion(
         game_id=game_id,
         seed_image_url=seed_image_url,
         strength=strength,
-        reference_image_id=reference_image_id
+        reference_image_id=reference_image_id,
     )
 
 

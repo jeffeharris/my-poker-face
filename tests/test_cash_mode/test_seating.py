@@ -25,9 +25,9 @@ from datetime import datetime, timedelta
 import pytest
 
 from cash_mode import (
+    PLAYER_SEAT_ID,
     AIBankrollState,
     BankrollKnobs,
-    PLAYER_SEAT_ID,
     CashTable,
     HandInProgressError,
     PlayerBankrollState,
@@ -43,7 +43,6 @@ from cash_mode import (
     sit_down_ai,
     top_up,
 )
-
 
 # --- Fixtures ---
 
@@ -237,7 +236,9 @@ class TestSitDownAI:
         _new_t, new_b = sit_down_ai(empty_table, 0, "napoleon", 500, ai, now=now)
         assert new_b.personality_id == "napoleon"
 
-    def test_ai_seat_id_can_coexist_with_player_seat(self, empty_table, player_bankroll, ai_bankroll, now):
+    def test_ai_seat_id_can_coexist_with_player_seat(
+        self, empty_table, player_bankroll, ai_bankroll, now
+    ):
         # Player sits at 0, AI sits at 1 — both seats occupied, both
         # stacks present in the stacks mapping. No interference.
         t, _ = sit_down(empty_table, 0, PLAYER_SEAT_ID, 500, player_bankroll)
@@ -301,7 +302,9 @@ class TestCashOutAISeat:
         # so we control the regen tick.
         one_day_ago = now - timedelta(days=1)
         ai = AIBankrollState(
-            "napoleon", chips=9_500, last_regen_tick=one_day_ago,
+            "napoleon",
+            chips=9_500,
+            last_regen_tick=one_day_ago,
         )
         t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 500)
         _new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
@@ -313,7 +316,9 @@ class TestCashOutAISeat:
         # that pushes bankroll above the target keeps the excess —
         # AIs can climb past their character's natural-wealth tier.
         ai = AIBankrollState(
-            "napoleon", chips=49_900, last_regen_tick=now,
+            "napoleon",
+            chips=49_900,
+            last_regen_tick=now,
         )
         t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 500)
         _new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
@@ -323,7 +328,9 @@ class TestCashOutAISeat:
         # Stack 0 at table: seat still clears, bankroll only refreshes
         # the regen tick (chips unchanged).
         ai = AIBankrollState(
-            "napoleon", chips=8_000, last_regen_tick=now,
+            "napoleon",
+            chips=8_000,
+            last_regen_tick=now,
         )
         t = empty_table.with_seat(1, "napoleon").with_stack("napoleon", 0)
         new_t, new_b = cash_out_ai_seat(t, "napoleon", ai, knobs, now=now)
@@ -594,7 +601,9 @@ class TestChipConservation:
         assert t3.seats == empty_table.seats
 
     def test_sit_win_then_leave_returns_winnings_to_bankroll(
-        self, empty_table, player_bankroll,
+        self,
+        empty_table,
+        player_bankroll,
     ):
         t1, b1 = sit_down(empty_table, 0, PLAYER_SEAT_ID, 500, player_bankroll)
         t2 = apply_settlement(t1, PLAYER_SEAT_ID, +300)  # won 300
@@ -635,16 +644,24 @@ class TestChipConservation:
 class TestCashTableInvariants:
     def test_init_fills_empty_seats_for_seat_count(self):
         t = CashTable(
-            table_id="t", stake_label="$10", big_blind=10,
-            min_buy_in=400, max_buy_in=1000, seat_count=6,
+            table_id="t",
+            stake_label="$10",
+            big_blind=10,
+            min_buy_in=400,
+            max_buy_in=1000,
+            seat_count=6,
         )
         assert t.seats == (None, None, None, None, None, None)
 
     def test_init_rejects_mismatched_seat_count(self):
         with pytest.raises(ValueError, match="seats length"):
             CashTable(
-                table_id="t", stake_label="$10", big_blind=10,
-                min_buy_in=400, max_buy_in=1000, seat_count=6,
+                table_id="t",
+                stake_label="$10",
+                big_blind=10,
+                min_buy_in=400,
+                max_buy_in=1000,
+                seat_count=6,
                 seats=(None, None),  # length 2, count 6
             )
 
@@ -672,8 +689,11 @@ class TestCashTableInvariants:
 
     def test_new_table_respects_custom_bb_multipliers(self):
         t = new_table(
-            table_id="t", stake_label="custom",
-            big_blind=20, min_buy_in_bb=20, max_buy_in_bb=200,
+            table_id="t",
+            stake_label="custom",
+            big_blind=20,
+            min_buy_in_bb=20,
+            max_buy_in_bb=200,
         )
         assert t.min_buy_in == 400
         assert t.max_buy_in == 4_000

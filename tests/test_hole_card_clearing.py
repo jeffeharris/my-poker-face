@@ -6,8 +6,8 @@ preserving other player attributes.
 
 import unittest
 
-from poker.poker_game import Player, PokerGameState
 from core.card import Card
+from poker.poker_game import Player, PokerGameState
 
 
 class TestHoleCardClearing(unittest.TestCase):
@@ -70,8 +70,9 @@ class TestHoleCardClearing(unittest.TestCase):
 
         # Original state should be unchanged
         for i, player in enumerate(game_state.players):
-            self.assertEqual(player.hand, original_hands[i],
-                           f"Original {player.name}'s hand should be unchanged")
+            self.assertEqual(
+                player.hand, original_hands[i], f"Original {player.name}'s hand should be unchanged"
+            )
 
         # Cleared state should have empty hands
         for player in cleared_game_state.players:
@@ -85,7 +86,7 @@ class TestHoleCardClearing(unittest.TestCase):
         cleared_game_state = game_state.update(players=cleared_players)
 
         # Check each player's other attributes are preserved
-        for orig, cleared in zip(game_state.players, cleared_game_state.players):
+        for orig, cleared in zip(game_state.players, cleared_game_state.players, strict=False):
             self.assertEqual(orig.name, cleared.name)
             self.assertEqual(orig.stack, cleared.stack)
             self.assertEqual(orig.is_human, cleared.is_human)

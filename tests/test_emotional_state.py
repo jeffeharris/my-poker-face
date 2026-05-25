@@ -8,24 +8,33 @@ import unittest
 from dataclasses import dataclass
 
 from poker.emotional_state import (
+    EMOTIONAL_NARRATION_SCHEMA,
+    EmotionalState,
+    _clamp,
+    blend_emotional_state,
     compute_baseline_mood,
     compute_reactive_spike,
-    blend_emotional_state,
-    EmotionalState,
-    EMOTIONAL_NARRATION_SCHEMA,
-    _clamp,
 )
 
 
 @dataclass
 class _MockTrait:
     """Minimal stand-in for ElasticTrait; only .value and .anchor are used."""
+
     value: float
     anchor: float
 
 
-def _make_traits(aggression=0.5, bluff=0.5, chat=0.5, emoji=0.3,
-                 agg_anchor=0.5, bluff_anchor=0.5, chat_anchor=0.5, emoji_anchor=0.3):
+def _make_traits(
+    aggression=0.5,
+    bluff=0.5,
+    chat=0.5,
+    emoji=0.3,
+    agg_anchor=0.5,
+    bluff_anchor=0.5,
+    chat_anchor=0.5,
+    emoji_anchor=0.3,
+):
     """Helper to build elastic traits dict for testing."""
     return {
         'aggression': _MockTrait(value=aggression, anchor=agg_anchor),
@@ -59,23 +68,25 @@ class TestComputeBaselineMood(unittest.TestCase):
     def test_winning_has_higher_valence_than_losing(self):
         """Winning session should have higher valence than losing."""
         winning = compute_baseline_mood(
-            _make_traits(aggression=0.7, bluff=0.7, chat=0.6, emoji=0.4))
-        losing = compute_baseline_mood(
-            _make_traits(aggression=0.3, bluff=0.3, chat=0.3, emoji=0.1))
+            _make_traits(aggression=0.7, bluff=0.7, chat=0.6, emoji=0.4)
+        )
+        losing = compute_baseline_mood(_make_traits(aggression=0.3, bluff=0.3, chat=0.3, emoji=0.1))
         self.assertGreater(winning['valence'], losing['valence'])
 
     def test_large_drift_reduces_control(self):
         """Big trait shifts from anchor should reduce sense of control."""
         neutral = compute_baseline_mood(_make_traits())
         drifted = compute_baseline_mood(
-            _make_traits(aggression=0.8, bluff=0.8, chat=0.8, emoji=0.6))
+            _make_traits(aggression=0.8, bluff=0.8, chat=0.8, emoji=0.6)
+        )
         self.assertGreater(neutral['control'], drifted['control'])
 
     def test_large_drift_increases_arousal(self):
         """Any big trait shift should increase arousal (more activated)."""
         neutral = compute_baseline_mood(_make_traits())
         drifted = compute_baseline_mood(
-            _make_traits(aggression=0.8, bluff=0.8, chat=0.8, emoji=0.6))
+            _make_traits(aggression=0.8, bluff=0.8, chat=0.8, emoji=0.6)
+        )
         self.assertGreater(drifted['arousal'], neutral['arousal'])
 
     def test_high_chattiness_reduces_focus(self):
@@ -232,14 +243,14 @@ class TestEmotionalStateDecay(unittest.TestCase):
         decayed = state.decay_toward_baseline(baseline, rate=0.5)
 
         self.assertLess(
-            abs(decayed.valence - baseline['valence']),
-            abs(state.valence - baseline['valence']))
+            abs(decayed.valence - baseline['valence']), abs(state.valence - baseline['valence'])
+        )
         self.assertLess(
-            abs(decayed.arousal - baseline['arousal']),
-            abs(state.arousal - baseline['arousal']))
+            abs(decayed.arousal - baseline['arousal']), abs(state.arousal - baseline['arousal'])
+        )
         self.assertLess(
-            abs(decayed.control - baseline['control']),
-            abs(state.control - baseline['control']))
+            abs(decayed.control - baseline['control']), abs(state.control - baseline['control'])
+        )
 
     def test_decay_converges_to_baseline(self):
         """Many decay steps should converge to the baseline."""
@@ -271,7 +282,8 @@ class TestEmotionalStateDecay(unittest.TestCase):
     def test_decay_preserves_narrative(self):
         """Decay should preserve narrative text until regenerated."""
         state = EmotionalState(
-            valence=-0.5, arousal=0.7, narrative="Still angry.", inner_voice="Ugh.")
+            valence=-0.5, arousal=0.7, narrative="Still angry.", inner_voice="Ugh."
+        )
         baseline = {'valence': 0.0, 'arousal': 0.4, 'control': 0.6, 'focus': 0.6}
         decayed = state.decay_toward_baseline(baseline, rate=0.5)
         self.assertEqual(decayed.narrative, "Still angry.")
@@ -357,8 +369,9 @@ class TestEndToEndEmotionalFlow(unittest.TestCase):
         spike = compute_reactive_spike('won', 800, tilt_level=0.0, big_blind=100)
         blended = blend_emotional_state(baseline, spike)
         state = EmotionalState(**blended)
-        self.assertIn(state.get_display_emotion(),
-                      ['elated', 'happy', 'confident', 'smug', 'shocked'])
+        self.assertIn(
+            state.get_display_emotion(), ['elated', 'happy', 'confident', 'smug', 'shocked']
+        )
 
     def test_losing_session_bad_beat_shows_angry_or_nervous(self):
         """Losing session + big loss + tilt should show angry or nervous."""
@@ -394,9 +407,7 @@ class TestEndToEndEmotionalFlow(unittest.TestCase):
 
         # Should converge to baseline-only emotion
         baseline_state = EmotionalState(**baseline)
-        self.assertEqual(
-            state.get_display_emotion(),
-            baseline_state.get_display_emotion())
+        self.assertEqual(state.get_display_emotion(), baseline_state.get_display_emotion())
 
 
 class TestNarrationSchema(unittest.TestCase):
@@ -418,10 +429,16 @@ class TestEmotionalStateSerialization(unittest.TestCase):
     def test_round_trip(self):
         """to_dict/from_dict should preserve all fields."""
         state = EmotionalState(
-            valence=-0.5, arousal=0.7, control=0.3, focus=0.4,
-            narrative="Frustrated.", inner_voice="Come on...",
-            generated_at_hand=5, source_events=['lost', 'bad_beat'],
-            used_fallback=False)
+            valence=-0.5,
+            arousal=0.7,
+            control=0.3,
+            focus=0.4,
+            narrative="Frustrated.",
+            inner_voice="Come on...",
+            generated_at_hand=5,
+            source_events=['lost', 'bad_beat'],
+            used_fallback=False,
+        )
         restored = EmotionalState.from_dict(state.to_dict())
         self.assertAlmostEqual(restored.valence, state.valence)
         self.assertAlmostEqual(restored.arousal, state.arousal)

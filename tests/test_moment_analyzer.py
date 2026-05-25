@@ -1,12 +1,12 @@
 """Tests for MomentAnalyzer drama detection system."""
 
-from poker.moment_analyzer import MomentAnalyzer, MomentAnalysis
+from poker.moment_analyzer import MomentAnalysis, MomentAnalyzer
 from poker.poker_game import Player, PokerGameState
-
 
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
 
 def make_player(name: str, stack: int, is_folded: bool = False) -> Player:
     """Create a simple player for testing."""
@@ -20,9 +20,7 @@ def make_player(name: str, stack: int, is_folded: bool = False) -> Player:
 
 
 def make_game_state(
-    players: list,
-    pot_total: int = 0,
-    community_cards: tuple = ()
+    players: list, pot_total: int = 0, community_cards: tuple = ()
 ) -> PokerGameState:
     """Create a minimal game state for testing."""
     return PokerGameState(
@@ -37,59 +35,54 @@ def make_game_state(
 # Factor Detection Tests
 # ============================================================================
 
+
 class TestIsAllInSituation:
     """Tests for is_all_in_situation factor detection."""
 
     def test_cost_exceeds_stack(self):
         """All-in when cost to call >= player stack."""
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=100,
-            cost_to_call=150,
-            big_blind=50
-        ) is True
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=100, cost_to_call=150, big_blind=50)
+            is True
+        )
 
     def test_cost_equals_stack(self):
         """All-in when cost to call equals player stack exactly."""
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=100,
-            cost_to_call=100,
-            big_blind=50
-        ) is True
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=100, cost_to_call=100, big_blind=50)
+            is True
+        )
 
     def test_short_stack_below_threshold(self):
         """All-in situation when stack < 3 BB (desperate)."""
         # Stack of 100 with BB of 50 = 2 BB < 3 BB threshold
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=100,
-            cost_to_call=0,
-            big_blind=50
-        ) is True
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=100, cost_to_call=0, big_blind=50)
+            is True
+        )
 
     def test_healthy_stack_not_all_in(self):
         """Not all-in with healthy stack and manageable cost."""
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=1000,
-            cost_to_call=100,
-            big_blind=50
-        ) is False
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=1000, cost_to_call=100, big_blind=50)
+            is False
+        )
 
     def test_exactly_three_bb(self):
         """Stack exactly at 3 BB is all-in (boundary - uses <=)."""
         # Stack of 150 with BB of 50 = 3 BB exactly -> still desperate
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=150,
-            cost_to_call=0,
-            big_blind=50
-        ) is True
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=150, cost_to_call=0, big_blind=50)
+            is True
+        )
 
     def test_above_three_bb(self):
         """Stack above 3 BB is not all-in."""
         # Stack of 151 with BB of 50 = 3.02 BB > 3 BB threshold
-        assert MomentAnalyzer.is_all_in_situation(
-            player_stack=151,
-            cost_to_call=0,
-            big_blind=50
-        ) is False
+        assert (
+            MomentAnalyzer.is_all_in_situation(player_stack=151, cost_to_call=0, big_blind=50)
+            is False
+        )
 
 
 class TestIsBigPot:
@@ -97,44 +90,24 @@ class TestIsBigPot:
 
     def test_pot_exceeds_half_player_stack(self):
         """Big pot when pot > 50% of player's stack."""
-        assert MomentAnalyzer.is_big_pot(
-            pot_total=600,
-            player_stack=1000,
-            avg_stack=1000
-        ) is True
+        assert MomentAnalyzer.is_big_pot(pot_total=600, player_stack=1000, avg_stack=1000) is True
 
     def test_pot_exactly_half_player_stack(self):
         """Not big pot when pot = 50% of player's stack (boundary)."""
-        assert MomentAnalyzer.is_big_pot(
-            pot_total=500,
-            player_stack=1000,
-            avg_stack=1000
-        ) is False
+        assert MomentAnalyzer.is_big_pot(pot_total=500, player_stack=1000, avg_stack=1000) is False
 
     def test_small_pot_relative_to_stack(self):
         """Not big pot when pot is small relative to stack."""
-        assert MomentAnalyzer.is_big_pot(
-            pot_total=100,
-            player_stack=1000,
-            avg_stack=1000
-        ) is False
+        assert MomentAnalyzer.is_big_pot(pot_total=100, player_stack=1000, avg_stack=1000) is False
 
     def test_uses_avg_stack_when_player_stack_zero(self):
         """Uses average stack when player stack is 0."""
         # Pot of 800 with avg_stack of 1000 -> 80% > 75% threshold
-        assert MomentAnalyzer.is_big_pot(
-            pot_total=800,
-            player_stack=0,
-            avg_stack=1000
-        ) is True
+        assert MomentAnalyzer.is_big_pot(pot_total=800, player_stack=0, avg_stack=1000) is True
 
     def test_avg_stack_boundary(self):
         """Not big pot when pot = 75% of avg stack (boundary)."""
-        assert MomentAnalyzer.is_big_pot(
-            pot_total=750,
-            player_stack=0,
-            avg_stack=1000
-        ) is False
+        assert MomentAnalyzer.is_big_pot(pot_total=750, player_stack=0, avg_stack=1000) is False
 
 
 class TestIsBigBet:
@@ -142,24 +115,15 @@ class TestIsBigBet:
 
     def test_bet_exceeds_10bb(self):
         """Big bet when cost > 10 BB."""
-        assert MomentAnalyzer.is_big_bet(
-            cost_to_call=600,
-            big_blind=50
-        ) is True
+        assert MomentAnalyzer.is_big_bet(cost_to_call=600, big_blind=50) is True
 
     def test_bet_exactly_10bb(self):
         """Not big bet when cost = 10 BB (boundary)."""
-        assert MomentAnalyzer.is_big_bet(
-            cost_to_call=500,
-            big_blind=50
-        ) is False
+        assert MomentAnalyzer.is_big_bet(cost_to_call=500, big_blind=50) is False
 
     def test_small_bet(self):
         """Not big bet for small cost to call."""
-        assert MomentAnalyzer.is_big_bet(
-            cost_to_call=100,
-            big_blind=50
-        ) is False
+        assert MomentAnalyzer.is_big_bet(cost_to_call=100, big_blind=50) is False
 
 
 class TestIsShowdown:
@@ -221,31 +185,19 @@ class TestIsHugeRaise:
 
     def test_raise_exceeds_3x_pot(self):
         """Huge raise when raise > 3x pot."""
-        assert MomentAnalyzer.is_huge_raise(
-            raise_amount=400,
-            pot_total=100
-        ) is True
+        assert MomentAnalyzer.is_huge_raise(raise_amount=400, pot_total=100) is True
 
     def test_raise_exactly_3x_pot(self):
         """Not huge raise when raise = 3x pot (boundary)."""
-        assert MomentAnalyzer.is_huge_raise(
-            raise_amount=300,
-            pot_total=100
-        ) is False
+        assert MomentAnalyzer.is_huge_raise(raise_amount=300, pot_total=100) is False
 
     def test_normal_raise(self):
         """Not huge raise for normal sized raise."""
-        assert MomentAnalyzer.is_huge_raise(
-            raise_amount=100,
-            pot_total=100
-        ) is False
+        assert MomentAnalyzer.is_huge_raise(raise_amount=100, pot_total=100) is False
 
     def test_zero_pot_not_huge(self):
         """Not huge raise when pot is 0."""
-        assert MomentAnalyzer.is_huge_raise(
-            raise_amount=1000,
-            pot_total=0
-        ) is False
+        assert MomentAnalyzer.is_huge_raise(raise_amount=1000, pot_total=0) is False
 
 
 class TestIsLateStage:
@@ -295,6 +247,7 @@ class TestIsLateStage:
 # Level Determination Tests
 # ============================================================================
 
+
 class TestDetermineLevel:
     """Tests for _determine_level() drama level calculation."""
 
@@ -312,7 +265,9 @@ class TestDetermineLevel:
 
     def test_high_stakes_three_factors(self):
         """High stakes level with 3 factors (not climactic)."""
-        assert MomentAnalyzer._determine_level(['big_bet', 'heads_up', 'huge_raise']) == 'high_stakes'
+        assert (
+            MomentAnalyzer._determine_level(['big_bet', 'heads_up', 'huge_raise']) == 'high_stakes'
+        )
 
     def test_climactic_all_in(self):
         """Climactic level when all_in factor present."""
@@ -336,16 +291,14 @@ class TestDetermineLevel:
 # Tone Determination Tests
 # ============================================================================
 
+
 class TestDetermineTone:
     """Tests for _determine_tone() emotional tone calculation."""
 
     def test_triumphant_climactic_strong_hand(self):
         """Triumphant tone in climactic moment with 70%+ equity."""
         tone = MomentAnalyzer._determine_tone(
-            level='climactic',
-            factors=['all_in'],
-            hand_equity=0.75,
-            is_short_stack=False
+            level='climactic', factors=['all_in'], hand_equity=0.75, is_short_stack=False
         )
         assert tone == 'triumphant'
 
@@ -355,17 +308,14 @@ class TestDetermineTone:
             level='high_stakes',
             factors=['big_bet', 'heads_up'],
             hand_equity=0.80,
-            is_short_stack=False
+            is_short_stack=False,
         )
         assert tone == 'confident'  # Falls through to confident
 
     def test_desperate_short_stack_weak_hand(self):
         """Desperate tone when short-stacked with weak hand (equity < 50%)."""
         tone = MomentAnalyzer._determine_tone(
-            level='notable',
-            factors=['big_bet'],
-            hand_equity=0.35,
-            is_short_stack=True
+            level='notable', factors=['big_bet'], hand_equity=0.35, is_short_stack=True
         )
         assert tone == 'desperate'
 
@@ -376,10 +326,7 @@ class TestDetermineTone:
         instead of showing confidence.
         """
         tone = MomentAnalyzer._determine_tone(
-            level='notable',
-            factors=['big_bet'],
-            hand_equity=0.60,
-            is_short_stack=True
+            level='notable', factors=['big_bet'], hand_equity=0.60, is_short_stack=True
         )
         assert tone == 'confident'
 
@@ -389,57 +336,42 @@ class TestDetermineTone:
             level='high_stakes',
             factors=['big_bet', 'heads_up'],
             hand_equity=0.25,
-            is_short_stack=False
+            is_short_stack=False,
         )
         assert tone == 'desperate'
 
     def test_confident_good_hand_notable(self):
         """Confident tone with 50%+ equity in notable+ moment."""
         tone = MomentAnalyzer._determine_tone(
-            level='notable',
-            factors=['big_bet'],
-            hand_equity=0.55,
-            is_short_stack=False
+            level='notable', factors=['big_bet'], hand_equity=0.55, is_short_stack=False
         )
         assert tone == 'confident'
 
     def test_neutral_routine_moment(self):
         """Neutral tone in routine moments."""
         tone = MomentAnalyzer._determine_tone(
-            level='routine',
-            factors=[],
-            hand_equity=0.60,
-            is_short_stack=False
+            level='routine', factors=[], hand_equity=0.60, is_short_stack=False
         )
         assert tone == 'neutral'
 
     def test_neutral_weak_hand_notable(self):
         """Neutral tone with weak hand in notable moment (not high enough stakes for desperate)."""
         tone = MomentAnalyzer._determine_tone(
-            level='notable',
-            factors=['big_bet'],
-            hand_equity=0.35,
-            is_short_stack=False
+            level='notable', factors=['big_bet'], hand_equity=0.35, is_short_stack=False
         )
         assert tone == 'neutral'
 
     def test_triumphant_boundary_70_equity(self):
         """Triumphant at exactly 70% equity boundary."""
         tone = MomentAnalyzer._determine_tone(
-            level='climactic',
-            factors=['all_in'],
-            hand_equity=0.70,
-            is_short_stack=False
+            level='climactic', factors=['all_in'], hand_equity=0.70, is_short_stack=False
         )
         assert tone == 'triumphant'
 
     def test_confident_boundary_50_equity(self):
         """Confident at exactly 50% equity boundary."""
         tone = MomentAnalyzer._determine_tone(
-            level='notable',
-            factors=['big_bet'],
-            hand_equity=0.50,
-            is_short_stack=False
+            level='notable', factors=['big_bet'], hand_equity=0.50, is_short_stack=False
         )
         assert tone == 'confident'
 
@@ -447,6 +379,7 @@ class TestDetermineTone:
 # ============================================================================
 # Integration Tests - Full analyze() Method
 # ============================================================================
+
 
 class TestAnalyzeIntegration:
     """Integration tests for the full analyze() method."""
@@ -470,7 +403,7 @@ class TestAnalyzeIntegration:
             cost_to_call=50,  # 1 BB - small
             big_blind=50,
             last_raise_amount=50,
-            hand_equity=0.5
+            hand_equity=0.5,
         )
 
         assert analysis.level == 'routine'
@@ -496,7 +429,7 @@ class TestAnalyzeIntegration:
             cost_to_call=500,  # All-in
             big_blind=50,
             last_raise_amount=500,
-            hand_equity=0.85  # Strong hand
+            hand_equity=0.85,  # Strong hand
         )
 
         assert analysis.level == 'climactic'
@@ -525,7 +458,7 @@ class TestAnalyzeIntegration:
             cost_to_call=600,  # 12 BB > 10 BB = big bet
             big_blind=50,
             last_raise_amount=600,
-            hand_equity=0.65
+            hand_equity=0.65,
         )
 
         assert analysis.level == 'high_stakes'
@@ -553,7 +486,7 @@ class TestAnalyzeIntegration:
             cost_to_call=100,  # Small bet
             big_blind=50,
             last_raise_amount=100,
-            hand_equity=0.40
+            hand_equity=0.40,
         )
 
         assert analysis.level == 'notable'
@@ -564,7 +497,7 @@ class TestAnalyzeIntegration:
     def test_late_stage_tournament(self):
         """Late stage tournament with shallow stacks."""
         players = [
-            make_player("Hero", 600),   # 12 BB
+            make_player("Hero", 600),  # 12 BB
             make_player("Villain", 700),  # 14 BB
         ]
         game_state = make_game_state(
@@ -579,7 +512,7 @@ class TestAnalyzeIntegration:
             cost_to_call=50,
             big_blind=50,
             last_raise_amount=50,
-            hand_equity=0.50
+            hand_equity=0.50,
         )
 
         # Avg stack = 650, BB = 50 -> 13 BB < 15 BB threshold

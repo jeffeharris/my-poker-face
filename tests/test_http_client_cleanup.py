@@ -1,4 +1,5 @@
 """Tests for T2-17: atexit cleanup of shared HTTP client."""
+
 import atexit
 import importlib
 from unittest.mock import patch
@@ -9,6 +10,7 @@ def test_atexit_cleanup_is_registered():
     with patch.object(atexit, 'register', wraps=atexit.register) as mock_register:
         # Re-import to trigger module-level atexit.register call
         import core.llm.providers.http_client as http_mod
+
         importlib.reload(http_mod)
 
         # Find the call that registered our cleanup function

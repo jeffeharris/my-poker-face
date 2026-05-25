@@ -106,7 +106,9 @@ class SandboxRepository(BaseRepository):
             )
         logger.info(
             "[SANDBOX] Created sandbox_id=%r for owner=%r (name=%r)",
-            sandbox_id, owner_id, name,
+            sandbox_id,
+            owner_id,
+            name,
         )
         return state
 
@@ -215,9 +217,7 @@ class SandboxRepository(BaseRepository):
 def _row_to_state(row) -> SandboxState:
     created_at = _parse_timestamp(row["created_at"])
     if created_at is None:
-        raise ValueError(
-            f"sandboxes row {row['sandbox_id']!r} has unparseable created_at"
-        )
+        raise ValueError(f"sandboxes row {row['sandbox_id']!r} has unparseable created_at")
     return SandboxState(
         sandbox_id=row["sandbox_id"],
         owner_id=row["owner_id"],

@@ -15,9 +15,9 @@ import random
 import pytest
 
 from poker.rule_strategies import (
-    FishLeak,
     POT_COMMITTED_THRESHOLD,
     SPITE_RAISE_PROBABILITY,
+    FishLeak,
     _strategy_fish,
 )
 
@@ -256,11 +256,13 @@ class TestSpiteRaisesWhenLosing:
 
     def test_raises_when_roll_succeeds(self):
         rng = random.Random()
+
         # Deterministically force the spite trigger by seeding so .random() < threshold
         # We pin via a stub instead — cleaner than picking a seed
         class _ForceRoll:
             def random(self_inner):
                 return 0.0  # always below SPITE_RAISE_PROBABILITY
+
         ctx = _fish_context(
             fish_leak=self.leak,
             is_losing_at_table=True,
@@ -274,6 +276,7 @@ class TestSpiteRaisesWhenLosing:
         class _NoRoll:
             def random(self_inner):
                 return 0.99  # always above threshold
+
         ctx = _fish_context(
             fish_leak=self.leak,
             is_losing_at_table=True,
@@ -285,6 +288,7 @@ class TestSpiteRaisesWhenLosing:
         class _ForceRoll:
             def random(self_inner):
                 return 0.0
+
         ctx = _fish_context(
             fish_leak=self.leak,
             is_losing_at_table=False,  # not losing

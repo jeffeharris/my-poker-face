@@ -31,9 +31,14 @@ from poker.strategy.strategy_profile import StrategyProfile
 class TestShortStackFireTrace:
     def test_short_depth_emits_clamp_trace(self):
         """8 BB stack → full suppression → medium-raise mass moved to jam."""
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.2, 'raise_3bb': 0.3, 'bet_67': 0.2,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.2,
+                'raise_3bb': 0.3,
+                'bet_67': 0.2,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,  # short
@@ -53,9 +58,13 @@ class TestShortStackFireTrace:
 
     def test_medium_depth_partial_suppression(self):
         """15 BB → 50% suppression — fire trace with smaller effect_size."""
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.4, 'raise_3bb': 0.3,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_3bb': 0.3,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=15.0,
@@ -66,9 +75,13 @@ class TestShortStackFireTrace:
         assert trace.inputs['suppression_factor'] == pytest.approx(0.5, abs=0.05)
 
     def test_redistributed_mass_recorded_in_extra(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.2, 'call': 0.2, 'raise_3bb': 0.6,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.2,
+                'call': 0.2,
+                'raise_3bb': 0.6,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,
@@ -79,9 +92,13 @@ class TestShortStackFireTrace:
         assert 'raise_3bb' in trace.extra['medium_raises_suppressed']
 
     def test_fallback_to_fold_when_no_jam_legal(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.4, 'raise_3bb': 0.3,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_3bb': 0.3,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,
@@ -93,9 +110,13 @@ class TestShortStackFireTrace:
 
 class TestShortStackNoOpPaths:
     def test_deep_stack_emits_no_op(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.4, 'raise_3bb': 0.3,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_3bb': 0.3,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=100.0,  # deep
@@ -105,9 +126,13 @@ class TestShortStackNoOpPaths:
         assert trace.reason_code == 'stack_deep'
 
     def test_no_medium_raises_emits_no_op(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.5, 'call': 0.4, 'jam': 0.1,  # only jam, no medium raises
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.5,
+                'call': 0.4,
+                'jam': 0.1,  # only jam, no medium raises
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,
@@ -119,9 +144,12 @@ class TestShortStackNoOpPaths:
     def test_no_legal_sink_emits_no_op(self):
         """Pathological: medium raises in strategy but neither jam nor
         fold is legal. Returns input unchanged with reason_code."""
-        base = StrategyProfile(action_probabilities={
-            'call': 0.5, 'raise_3bb': 0.5,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'call': 0.5,
+                'raise_3bb': 0.5,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,
@@ -133,9 +161,13 @@ class TestShortStackNoOpPaths:
 
 class TestShortStackTraceJsonRoundTrip:
     def test_fire_trace_round_trips(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.4, 'raise_3bb': 0.3,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_3bb': 0.3,
+            }
+        )
         _result, trace = apply_short_stack_heuristics(
             strategy=base,
             effective_stack_bb=8.0,

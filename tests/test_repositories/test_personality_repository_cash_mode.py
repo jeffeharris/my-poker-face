@@ -60,8 +60,11 @@ class TestListEligibleForCashMode:
     def test_excludes_private_when_no_user_id(self, db_path, repo):
         _insert(db_path, name="Public Pat", personality_id="public_pat")
         _insert(
-            db_path, name="Private Pete", personality_id="private_pete",
-            visibility="private", owner_id="user_42",
+            db_path,
+            name="Private Pete",
+            personality_id="private_pete",
+            visibility="private",
+            owner_id="user_42",
         )
         result = repo.list_eligible_for_cash_mode()
         ids = {r["personality_id"] for r in result}
@@ -70,12 +73,18 @@ class TestListEligibleForCashMode:
     def test_includes_user_private_when_user_id_passed(self, db_path, repo):
         _insert(db_path, name="Public Pat", personality_id="public_pat")
         _insert(
-            db_path, name="My Custom", personality_id="my_custom",
-            visibility="private", owner_id="user_42",
+            db_path,
+            name="My Custom",
+            personality_id="my_custom",
+            visibility="private",
+            owner_id="user_42",
         )
         _insert(
-            db_path, name="Other User's", personality_id="other_users",
-            visibility="private", owner_id="user_999",
+            db_path,
+            name="Other User's",
+            personality_id="other_users",
+            visibility="private",
+            owner_id="user_999",
         )
         result = repo.list_eligible_for_cash_mode(user_id="user_42")
         ids = {r["personality_id"] for r in result}
@@ -85,7 +94,9 @@ class TestListEligibleForCashMode:
     def test_excludes_disabled(self, db_path, repo):
         _insert(db_path, name="Public Pat", personality_id="public_pat")
         _insert(
-            db_path, name="Banned Bob", personality_id="banned_bob",
+            db_path,
+            name="Banned Bob",
+            personality_id="banned_bob",
             visibility="disabled",
         )
         result = repo.list_eligible_for_cash_mode()
@@ -96,8 +107,7 @@ class TestListEligibleForCashMode:
         # Insert a row with NULL personality_id (pre-v85 leftover state)
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, visibility) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, visibility) " "VALUES (?, ?, ?)",
                 ("No ID", "{}", "public"),
             )
             conn.commit()

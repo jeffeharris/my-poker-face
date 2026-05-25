@@ -27,8 +27,8 @@ import pytest
 from poker.strategy import phase_7_5_config as cfg
 from poker.strategy.exploitation import AggregatedOpponentStats
 from poker.strategy.intervention_trace import (
-    InterventionOperation,
     _LAYER_ORDER,
+    InterventionOperation,
     validate_trace,
 )
 from poker.strategy.strategy_profile import StrategyProfile
@@ -50,18 +50,18 @@ def reset_config():
 # Expected trace entries per postflop decision (post-Step-4).
 # Order matters for `layer_order` monotonicity.
 _EXPECTED_LAYERS = [
-    ('personality',          'default'),
-    ('exploitation',         'hyper_aggressive'),
-    ('exploitation',         'hyper_passive'),
-    ('exploitation',         'tight_nit'),
-    ('exploitation',         'high_fold_to_cbet'),
-    ('exploitation',         'multiway_cbet'),
-    ('value_vs_station',     'default'),
-    ('steal_pressure',       'default'),
+    ('personality', 'default'),
+    ('exploitation', 'hyper_aggressive'),
+    ('exploitation', 'hyper_passive'),
+    ('exploitation', 'tight_nit'),
+    ('exploitation', 'high_fold_to_cbet'),
+    ('exploitation', 'multiway_cbet'),
+    ('value_vs_station', 'default'),
+    ('steal_pressure', 'default'),
     ('strong_hand_override', 'default'),
     ('bluff_catch_override', 'default'),
-    ('short_stack',          'default'),
-    ('math_floor',           'default'),
+    ('short_stack', 'default'),
+    ('math_floor', 'default'),
 ]
 
 
@@ -88,9 +88,12 @@ class TestPostflopTraceSurface:
 
         # 1. exploitation (emits 8 traces — Plan §5 added bluff_reduction)
         modified, exploitation_traces = controller._apply_exploitation(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength=None,
         )
         controller._last_intervention_trace.extend(exploitation_traces)
@@ -98,18 +101,24 @@ class TestPostflopTraceSurface:
 
         # 2. value_override
         modified, vo_trace = controller._apply_value_override(
-            strategy=modified, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=modified,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
         controller._last_intervention_trace.append(vo_trace)
 
         # 3. bluff_catch_override
         modified, bc_trace = controller._apply_bluff_catch_override(
-            strategy=modified, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=modified,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
         controller._last_intervention_trace.append(bc_trace)
@@ -137,16 +146,22 @@ class TestPostflopTraceSurface:
 
         controller._last_intervention_trace = []
         modified, exploitation_traces = controller._apply_exploitation(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength=None,
         )
         controller._last_intervention_trace.extend(exploitation_traces)
         _, bc_trace = controller._apply_bluff_catch_override(
-            strategy=modified, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=modified,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
         controller._last_intervention_trace.append(bc_trace)
@@ -154,8 +169,7 @@ class TestPostflopTraceSurface:
         layer_orders = [t.layer_order for t in controller._last_intervention_trace]
         for i in range(1, len(layer_orders)):
             assert layer_orders[i] >= layer_orders[i - 1], (
-                f"layer_order decreased at index {i}: "
-                f"{layer_orders[i-1]} -> {layer_orders[i]}"
+                f"layer_order decreased at index {i}: " f"{layer_orders[i-1]} -> {layer_orders[i]}"
             )
 
 
@@ -167,14 +181,19 @@ class TestPriorActionSourceChain:
         per-layer test files; this test just verifies the helper
         composes correctly with a realistic trace list shape."""
         from dataclasses import replace
-        from poker.tiered_bot_controller import _fill_prior_action_source
+
         from poker.strategy.intervention_trace import (
-            InterventionOperation, InterventionTrace, make_no_op_trace,
+            InterventionOperation,
+            InterventionTrace,
+            make_no_op_trace,
         )
+        from poker.tiered_bot_controller import _fill_prior_action_source
 
         def fire_trace(layer: str, rule_id: str = 'default') -> InterventionTrace:
             return InterventionTrace(
-                layer=layer, rule_id=rule_id, layer_order=0,
+                layer=layer,
+                rule_id=rule_id,
+                layer_order=0,
                 fired=True,
                 operation=InterventionOperation.ADJUST.value,
                 effect='offsets_applied',
@@ -186,26 +205,36 @@ class TestPriorActionSourceChain:
             fire_trace('personality'),
             fire_trace('exploitation', 'hyper_aggressive'),
             make_no_op_trace(
-                layer='exploitation', rule_id='hyper_passive',
-                layer_order=1, reason_code='intensity_below_threshold',
+                layer='exploitation',
+                rule_id='hyper_passive',
+                layer_order=1,
+                reason_code='intensity_below_threshold',
             ),
             fire_trace('exploitation', 'tight_nit'),
             make_no_op_trace(
-                layer='exploitation', rule_id='high_fold_to_cbet',
-                layer_order=1, reason_code='intensity_below_threshold',
+                layer='exploitation',
+                rule_id='high_fold_to_cbet',
+                layer_order=1,
+                reason_code='intensity_below_threshold',
             ),
             make_no_op_trace(
-                layer='exploitation', rule_id='multiway_cbet',
-                layer_order=1, reason_code='intensity_below_threshold',
+                layer='exploitation',
+                rule_id='multiway_cbet',
+                layer_order=1,
+                reason_code='intensity_below_threshold',
             ),
             fire_trace('value_vs_station'),
             make_no_op_trace(
-                layer='steal_pressure', rule_id='default',
-                layer_order=1, reason_code='intensity_zero_or_gated',
+                layer='steal_pressure',
+                rule_id='default',
+                layer_order=1,
+                reason_code='intensity_zero_or_gated',
             ),
             make_no_op_trace(
-                layer='strong_hand_override', rule_id='default',
-                layer_order=2, reason_code='gate_rejected',
+                layer='strong_hand_override',
+                rule_id='default',
+                layer_order=2,
+                reason_code='gate_rejected',
             ),
         ]
         current = replace(
@@ -258,7 +287,5 @@ class TestSchemaConsistency:
         prev = -1
         for layer, _ in _EXPECTED_LAYERS:
             current = _LAYER_ORDER[layer]
-            assert current >= prev, (
-                f"Layer {layer!r} order {current} < previous {prev}"
-            )
+            assert current >= prev, f"Layer {layer!r} order {current} < previous {prev}"
             prev = current

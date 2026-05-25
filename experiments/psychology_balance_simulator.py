@@ -11,10 +11,10 @@ Key questions:
 """
 
 import random
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-from collections import Counter
 import statistics
+from collections import Counter
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -31,6 +31,7 @@ class EventProbabilities:
     The key insight: MOST hands should have NO psychological impact.
     Only significant events should move the axes.
     """
+
     # Probability of ANY event happening this hand
     event_probability: float = 0.15  # Only 15% of hands have notable events
 
@@ -61,6 +62,7 @@ class AggressiveEventProbabilities:
     More aggressive event model for testing - events happen more often.
     Use this to create more volatile games (for fun/testing).
     """
+
     event_probability: float = 0.30  # 30% of hands have events
 
     win_given_event: float = 0.25
@@ -82,6 +84,7 @@ class AggressiveEventProbabilities:
 @dataclass
 class ImpactValues:
     """Base impact values for events (before sensitivity scaling)."""
+
     # Wins
     win: Tuple[float, float] = (0.08, 0.05)  # (confidence, composure)
     big_win: Tuple[float, float] = (0.15, 0.10)
@@ -104,6 +107,7 @@ class ImpactValues:
 @dataclass
 class PlayerConfig:
     """Player personality configuration."""
+
     ego: float = 0.5  # Confidence sensitivity (0=stable, 1=brittle)
     poise: float = 0.7  # Composure resistance (0=volatile, 1=stable)
     recovery_rate: float = 0.15  # How fast axes return to baseline
@@ -153,23 +157,23 @@ def derive_baselines_summary(poise: float, ego: float) -> str:
 # Personality Archetypes for testing (with derived baselines)
 ARCHETYPES = {
     'poker_face': PlayerConfig(
-        ego=0.32,   # Low ego (0.25-0.40)
-        poise=0.77, # High poise (0.70-0.85)
+        ego=0.32,  # Low ego (0.25-0.40)
+        poise=0.77,  # High poise (0.70-0.85)
         recovery_rate=0.15,
     ),
     'commanding': PlayerConfig(
-        ego=0.80,   # High ego (0.70-0.90)
-        poise=0.72, # Medium-high poise (0.65-0.80)
+        ego=0.80,  # High ego (0.70-0.90)
+        poise=0.72,  # Medium-high poise (0.65-0.80)
         recovery_rate=0.15,
     ),
     'overheated': PlayerConfig(
-        ego=0.80,   # High ego (0.70-0.90)
-        poise=0.35, # Low poise (0.25-0.45)
+        ego=0.80,  # High ego (0.70-0.90)
+        poise=0.35,  # Low poise (0.25-0.45)
         recovery_rate=0.15,
     ),
     'guarded': PlayerConfig(
-        ego=0.40,   # Low-medium ego (0.30-0.50)
-        poise=0.72, # Medium-high poise (0.65-0.80)
+        ego=0.40,  # Low-medium ego (0.30-0.50)
+        poise=0.72,  # Medium-high poise (0.65-0.80)
         recovery_rate=0.15,
     ),
 }
@@ -178,6 +182,7 @@ ARCHETYPES = {
 @dataclass
 class SimulationResult:
     """Results from a simulation run."""
+
     composure_distribution: Dict[str, float]  # % in each band
     confidence_distribution: Dict[str, float]
     avg_tilt_duration: float  # Hands spent tilted after trigger
@@ -368,8 +373,13 @@ def simulate_session(
     confidence_bands = Counter(get_confidence_band(c) for c in confidence_history)
 
     total = len(composure_history)
-    composure_dist = {band: composure_bands.get(band, 0) / total * 100 for band in ['focused', 'alert', 'rattled', 'tilted']}
-    confidence_dist = {band: confidence_bands.get(band, 0) / total * 100 for band in ['high', 'neutral', 'low']}
+    composure_dist = {
+        band: composure_bands.get(band, 0) / total * 100
+        for band in ['focused', 'alert', 'rattled', 'tilted']
+    }
+    confidence_dist = {
+        band: confidence_bands.get(band, 0) / total * 100 for band in ['high', 'neutral', 'low']
+    }
 
     return SimulationResult(
         composure_distribution=composure_dist,
@@ -385,7 +395,9 @@ def simulate_session(
     )
 
 
-def _generate_single_event(events: EventProbabilities, impacts: ImpactValues) -> Tuple[float, float, bool]:
+def _generate_single_event(
+    events: EventProbabilities, impacts: ImpactValues
+) -> Tuple[float, float, bool]:
     """Generate a single event. Returns (conf_delta, comp_delta, is_loss)."""
     roll = random.random()
     cumulative = 0.0
@@ -457,8 +469,9 @@ def _generate_compounding_events(
 
         # 15% chance of big_win (compounds with win)
         if random.random() < 0.15:
-            result.append((impacts.big_win[0] - impacts.win[0],
-                          impacts.big_win[1] - impacts.win[1], False))
+            result.append(
+                (impacts.big_win[0] - impacts.win[0], impacts.big_win[1] - impacts.win[1], False)
+            )
 
         # 10% chance it was a successful bluff
         if random.random() < 0.10:
@@ -568,11 +581,21 @@ def run_parameter_sweep(
                         'recovery_rate': recovery,
                         'impact_multiplier': multiplier,
                         'poise': poise,
-                        'avg_focused': statistics.mean(r.composure_distribution['focused'] for r in run_results),
-                        'avg_alert': statistics.mean(r.composure_distribution['alert'] for r in run_results),
-                        'avg_rattled': statistics.mean(r.composure_distribution['rattled'] for r in run_results),
-                        'avg_tilted': statistics.mean(r.composure_distribution['tilted'] for r in run_results),
-                        'avg_tilt_duration': statistics.mean(r.avg_tilt_duration for r in run_results),
+                        'avg_focused': statistics.mean(
+                            r.composure_distribution['focused'] for r in run_results
+                        ),
+                        'avg_alert': statistics.mean(
+                            r.composure_distribution['alert'] for r in run_results
+                        ),
+                        'avg_rattled': statistics.mean(
+                            r.composure_distribution['rattled'] for r in run_results
+                        ),
+                        'avg_tilted': statistics.mean(
+                            r.composure_distribution['tilted'] for r in run_results
+                        ),
+                        'avg_tilt_duration': statistics.mean(
+                            r.avg_tilt_duration for r in run_results
+                        ),
                         'min_composure': min(r.min_composure for r in run_results),
                     }
 
@@ -581,13 +604,15 @@ def run_parameter_sweep(
 
 def print_results_table(results: Dict, target_tilted: Tuple[float, float] = (2, 7)):
     """Print results as a table, highlighting those meeting targets."""
-    print("\n" + "="*120)
+    print("\n" + "=" * 120)
     print("PARAMETER SWEEP RESULTS")
-    print("="*120)
+    print("=" * 120)
     print(f"Target: {target_tilted[0]}-{target_tilted[1]}% tilted time")
     print()
-    print(f"{'Config':<40} {'Focused':>8} {'Alert':>8} {'Rattled':>8} {'Tilted':>8} {'TiltDur':>8} {'MinComp':>8}")
-    print("-"*120)
+    print(
+        f"{'Config':<40} {'Focused':>8} {'Alert':>8} {'Rattled':>8} {'Tilted':>8} {'TiltDur':>8} {'MinComp':>8}"
+    )
+    print("-" * 120)
 
     # Sort by how close to target tilted %
     target_mid = (target_tilted[0] + target_tilted[1]) / 2
@@ -598,9 +623,11 @@ def print_results_table(results: Dict, target_tilted: Tuple[float, float] = (2, 
         meets_target = target_tilted[0] <= tilted <= target_tilted[1]
         marker = " ✓" if meets_target else ""
 
-        print(f"{key:<40} {data['avg_focused']:>7.1f}% {data['avg_alert']:>7.1f}% "
-              f"{data['avg_rattled']:>7.1f}% {tilted:>7.1f}% {data['avg_tilt_duration']:>7.1f}h "
-              f"{data['min_composure']:>7.2f}{marker}")
+        print(
+            f"{key:<40} {data['avg_focused']:>7.1f}% {data['avg_alert']:>7.1f}% "
+            f"{data['avg_rattled']:>7.1f}% {tilted:>7.1f}% {data['avg_tilt_duration']:>7.1f}h "
+            f"{data['min_composure']:>7.2f}{marker}"
+        )
 
 
 def visualize_single_run(result: SimulationResult, title: str = ""):
@@ -637,6 +664,7 @@ def visualize_single_run(result: SimulationResult, title: str = ""):
 
 # === POKER FACE ZONE ===
 
+
 @dataclass
 class PokerFaceZone:
     """
@@ -655,6 +683,7 @@ class PokerFaceZone:
     - r_comp: Larger for high poise (stable players hide more)
     - r_energy: Narrower for high expressiveness (expressive players show more)
     """
+
     center_confidence: float = 0.65
     center_composure: float = 0.75
     center_energy: float = 0.4
@@ -664,7 +693,9 @@ class PokerFaceZone:
     base_r_composure: float = 0.20
     base_r_energy: float = 0.30
 
-    def get_radii(self, risk_identity: float, poise: float, expressiveness: float) -> Tuple[float, float, float]:
+    def get_radii(
+        self, risk_identity: float, poise: float, expressiveness: float
+    ) -> Tuple[float, float, float]:
         """
         Calculate personality-adjusted radii.
 
@@ -696,9 +727,9 @@ class PokerFaceZone:
         r_conf, r_comp, r_energy = self.get_radii(risk_identity, poise, expressiveness)
 
         distance = (
-            ((confidence - self.center_confidence) / r_conf) ** 2 +
-            ((composure - self.center_composure) / r_comp) ** 2 +
-            ((energy - self.center_energy) / r_energy) ** 2
+            ((confidence - self.center_confidence) / r_conf) ** 2
+            + ((composure - self.center_composure) / r_comp) ** 2
+            + ((energy - self.center_energy) / r_energy) ** 2
         )
 
         return distance <= 1.0
@@ -760,7 +791,10 @@ def analyze_poker_face_coverage(
         quadrant_counts[quadrant] += 1
 
         visible = zone.get_visible_emotion(
-            conf, comp, energy, quadrant,
+            conf,
+            comp,
+            energy,
+            quadrant,
             risk_identity=player.ego,  # Using ego as proxy
             poise=player.poise,
             expressiveness=0.5,
@@ -781,7 +815,7 @@ if __name__ == '__main__':
     import sys
 
     print("Psychology System Balance Simulator")
-    print("="*80)
+    print("=" * 80)
     print("""
     FULL SYSTEM WITH ALL MECHANICS:
     1. Personality-specific baselines (derived from poise/ego)
@@ -798,9 +832,9 @@ if __name__ == '__main__':
     # =========================================================================
     # TEST FULL SYSTEM WITH ASYMMETRIC RECOVERY
     # =========================================================================
-    print("="*80)
+    print("=" * 80)
     print("FULL SYSTEM: Personality Baselines + Asymmetric Recovery")
-    print("="*80)
+    print("=" * 80)
     print("""
     Formulas:
     - baseline_composure = 0.45 + 0.40 × poise
@@ -826,10 +860,13 @@ if __name__ == '__main__':
         print(f"  Ego: {player.ego:.2f}")
         print(f"    → baseline_confidence: {baseline_conf:.2f}")
         print(f"    → confidence sensitivity: {conf_sens:.2f}")
-        print("="*80)
+        print("=" * 80)
 
         result = simulate_session(
-            500, player, events, impacts,
+            500,
+            player,
+            events,
+            impacts,
             seed=42,
             use_compounding=True,
             use_personality_baseline=True,
@@ -840,9 +877,9 @@ if __name__ == '__main__':
     # =========================================================================
     # COMPARE: Symmetric vs Asymmetric Recovery
     # =========================================================================
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("COMPARISON: Symmetric vs Asymmetric Recovery")
-    print("="*80)
+    print("=" * 80)
     print("""
     Symmetric: Same recovery rate whether above or below baseline
     Asymmetric: Below baseline = recovery affected by current state
@@ -852,7 +889,10 @@ if __name__ == '__main__':
     for archetype_name, player in ARCHETYPES.items():
         # Symmetric recovery
         result_symmetric = simulate_session(
-            500, player, events, impacts,
+            500,
+            player,
+            events,
+            impacts,
             seed=42,
             use_compounding=True,
             use_personality_baseline=True,
@@ -861,7 +901,10 @@ if __name__ == '__main__':
 
         # Asymmetric recovery
         result_asymmetric = simulate_session(
-            500, player, events, impacts,
+            500,
+            player,
+            events,
+            impacts,
             seed=42,
             use_compounding=True,
             use_personality_baseline=True,
@@ -870,23 +913,27 @@ if __name__ == '__main__':
 
         baseline = player.get_baseline_composure()
         print(f"\n{archetype_name.upper()} (baseline={baseline:.2f}):")
-        print(f"  Symmetric:   Focused={result_symmetric.composure_distribution['focused']:4.1f}%  "
-              f"Alert={result_symmetric.composure_distribution['alert']:4.1f}%  "
-              f"Rattled={result_symmetric.composure_distribution['rattled']:4.1f}%  "
-              f"Tilted={result_symmetric.composure_distribution['tilted']:4.1f}%  "
-              f"(tilt dur: {result_symmetric.avg_tilt_duration:.1f}h)")
-        print(f"  Asymmetric:  Focused={result_asymmetric.composure_distribution['focused']:4.1f}%  "
-              f"Alert={result_asymmetric.composure_distribution['alert']:4.1f}%  "
-              f"Rattled={result_asymmetric.composure_distribution['rattled']:4.1f}%  "
-              f"Tilted={result_asymmetric.composure_distribution['tilted']:4.1f}%  "
-              f"(tilt dur: {result_asymmetric.avg_tilt_duration:.1f}h)")
+        print(
+            f"  Symmetric:   Focused={result_symmetric.composure_distribution['focused']:4.1f}%  "
+            f"Alert={result_symmetric.composure_distribution['alert']:4.1f}%  "
+            f"Rattled={result_symmetric.composure_distribution['rattled']:4.1f}%  "
+            f"Tilted={result_symmetric.composure_distribution['tilted']:4.1f}%  "
+            f"(tilt dur: {result_symmetric.avg_tilt_duration:.1f}h)"
+        )
+        print(
+            f"  Asymmetric:  Focused={result_asymmetric.composure_distribution['focused']:4.1f}%  "
+            f"Alert={result_asymmetric.composure_distribution['alert']:4.1f}%  "
+            f"Rattled={result_asymmetric.composure_distribution['rattled']:4.1f}%  "
+            f"Tilted={result_asymmetric.composure_distribution['tilted']:4.1f}%  "
+            f"(tilt dur: {result_asymmetric.avg_tilt_duration:.1f}h)"
+        )
 
     # =========================================================================
     # TEST: Tilt Stickiness - How long does it take to escape tilt?
     # =========================================================================
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TILT STICKINESS: Simulating recovery from deep tilt")
-    print("="*80)
+    print("=" * 80)
     print("""
     Starting each archetype at composure=0.2 (deep tilt) and tracking recovery.
     With asymmetric recovery, high-composure recovery is penalized when tilted.
@@ -909,18 +956,22 @@ if __name__ == '__main__':
             composure = composure + (baseline_comp - composure) * effective_recovery
             hands_to_recover += 1
 
-        print(f"{archetype_name.upper()}: {hands_to_recover} hands to recover from 0.20 → {target:.2f} "
-              f"(base_r={base_recovery:.2f})")
+        print(
+            f"{archetype_name.upper()}: {hands_to_recover} hands to recover from 0.20 → {target:.2f} "
+            f"(base_r={base_recovery:.2f})"
+        )
 
     # =========================================================================
     # FINAL SUMMARY: All Archetypes with Full System
     # =========================================================================
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("FINAL SUMMARY: Full System (baselines + asymmetric recovery + compounding)")
-    print("="*80)
+    print("=" * 80)
 
-    print(f"\n{'Archetype':<12} {'Poise':>6} {'Base':>6} {'Rec':>6} "
-          f"{'Focused':>8} {'Alert':>8} {'Rattled':>8} {'Tilted':>8} {'TiltDur':>8}")
+    print(
+        f"\n{'Archetype':<12} {'Poise':>6} {'Base':>6} {'Rec':>6} "
+        f"{'Focused':>8} {'Alert':>8} {'Rattled':>8} {'Tilted':>8} {'TiltDur':>8}"
+    )
     print("-" * 90)
 
     for archetype_name, player in ARCHETYPES.items():
@@ -928,7 +979,10 @@ if __name__ == '__main__':
         base_recovery = 0.12 + 0.25 * (1 - player.poise)
 
         result = simulate_session(
-            500, player, events, impacts,
+            500,
+            player,
+            events,
+            impacts,
             seed=42,
             use_compounding=True,
             use_personality_baseline=True,
@@ -936,14 +990,16 @@ if __name__ == '__main__':
         )
 
         dist = result.composure_distribution
-        print(f"{archetype_name:<12} {player.poise:>6.2f} {baseline_comp:>6.2f} {base_recovery:>6.2f} "
-              f"{dist['focused']:>7.1f}% {dist['alert']:>7.1f}% "
-              f"{dist['rattled']:>7.1f}% {dist['tilted']:>7.1f}% "
-              f"{result.avg_tilt_duration:>7.1f}h")
+        print(
+            f"{archetype_name:<12} {player.poise:>6.2f} {baseline_comp:>6.2f} {base_recovery:>6.2f} "
+            f"{dist['focused']:>7.1f}% {dist['alert']:>7.1f}% "
+            f"{dist['rattled']:>7.1f}% {dist['tilted']:>7.1f}% "
+            f"{result.avg_tilt_duration:>7.1f}h"
+        )
 
     # Parameter sweep
     if '--sweep' in sys.argv:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("RUNNING PARAMETER SWEEP (this may take a moment)...")
         results = run_parameter_sweep(
             num_hands=500,
@@ -955,9 +1011,9 @@ if __name__ == '__main__':
         print_results_table(results, target_tilted=(2, 7))
 
     # Poker Face Zone analysis
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("POKER FACE ZONE ANALYSIS")
-    print("="*60)
+    print("=" * 60)
 
     zone_result = analyze_poker_face_coverage(10000)
     print(f"\nPoker Face Coverage: {zone_result['poker_face_coverage']:.1f}% of state space")

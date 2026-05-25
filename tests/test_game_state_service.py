@@ -46,9 +46,7 @@ class TestGameStateTTLEviction:
         game_state_service.get_game_lock("stale_game")  # create a lock too
 
         # Manually set last access to 3 hours ago
-        game_state_service.game_last_access["stale_game"] = (
-            datetime.now() - timedelta(hours=3)
-        )
+        game_state_service.game_last_access["stale_game"] = datetime.now() - timedelta(hours=3)
 
         # Trigger cleanup (in production, this is done by background timer)
         game_state_service._cleanup_stale_games()
@@ -87,9 +85,7 @@ class TestGameStateTTLEviction:
     def test_get_game_returns_none_for_evicted(self):
         """Evicted game returns None, enabling lazy reload from DB."""
         game_state_service.set_game("evicted", {"data": "gone"})
-        game_state_service.game_last_access["evicted"] = (
-            datetime.now() - timedelta(hours=3)
-        )
+        game_state_service.game_last_access["evicted"] = datetime.now() - timedelta(hours=3)
 
         # Trigger cleanup (in production, this is done by background timer)
         game_state_service._cleanup_stale_games()
@@ -101,9 +97,7 @@ class TestGameStateTTLEviction:
         """Multiple stale games are all evicted in one cleanup pass."""
         for i in range(5):
             game_state_service.set_game(f"stale_{i}", {"data": i})
-            game_state_service.game_last_access[f"stale_{i}"] = (
-                datetime.now() - timedelta(hours=3)
-            )
+            game_state_service.game_last_access[f"stale_{i}"] = datetime.now() - timedelta(hours=3)
 
         game_state_service.set_game("fresh", {"data": "new"})
 

@@ -2,12 +2,13 @@
 
 Covers CRUD operations on the prompt_presets table.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import json
 import logging
-from typing import Optional, List, Dict, Any
+import sqlite3
+from typing import Any, Dict, List, Optional
 
 from poker.repositories.base_repository import BaseRepository
 
@@ -38,7 +39,7 @@ class PromptPresetRepository(BaseRepository):
         description: Optional[str] = None,
         prompt_config: Optional[Dict[str, Any]] = None,
         guidance_injection: Optional[str] = None,
-        owner_id: Optional[str] = None
+        owner_id: Optional[str] = None,
     ) -> int:
         """Create a new prompt preset.
 
@@ -57,16 +58,19 @@ class PromptPresetRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     INSERT INTO prompt_presets (name, description, prompt_config, guidance_injection, owner_id)
                     VALUES (?, ?, ?, ?, ?)
-                """, (
-                    name,
-                    description,
-                    json.dumps(prompt_config) if prompt_config else None,
-                    guidance_injection,
-                    owner_id
-                ))
+                """,
+                    (
+                        name,
+                        description,
+                        json.dumps(prompt_config) if prompt_config else None,
+                        guidance_injection,
+                        owner_id,
+                    ),
+                )
                 preset_id = cursor.lastrowid
                 logger.info(f"Created prompt preset '{name}' with ID {preset_id}")
                 return preset_id
@@ -83,13 +87,15 @@ class PromptPresetRepository(BaseRepository):
             Preset data as dict, or None if not found
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, description, prompt_config, guidance_injection,
                        owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE id = ?
-            """, (preset_id,))
+            """,
+                (preset_id,),
+            )
             row = cursor.fetchone()
             return self._preset_row_to_dict(row) if row else None
 
@@ -103,20 +109,20 @@ class PromptPresetRepository(BaseRepository):
             Preset data as dict, or None if not found
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, description, prompt_config, guidance_injection,
                        owner_id, is_system, created_at, updated_at
                 FROM prompt_presets
                 WHERE name = ?
-            """, (name,))
+            """,
+                (name,),
+            )
             row = cursor.fetchone()
             return self._preset_row_to_dict(row) if row else None
 
     def list_prompt_presets(
-        self,
-        owner_id: Optional[str] = None,
-        limit: int = 100
+        self, owner_id: Optional[str] = None, limit: int = 100
     ) -> List[Dict[str, Any]]:
         """List all prompt presets.
 
@@ -128,28 +134,33 @@ class PromptPresetRepository(BaseRepository):
             List of preset data dicts
         """
         with self._get_connection() as conn:
-
             if owner_id:
                 # Include system presets for all users, plus user's own presets.
                 # `is_system = TRUE` already covers seeded presets; the prior
                 # `OR owner_id IS NULL` clause leaked admin-created or
                 # manually-seeded non-system presets to every authenticated user.
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT id, name, description, prompt_config, guidance_injection,
                            owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
                     WHERE owner_id = ? OR is_system = TRUE
                     ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
-                """, (owner_id, limit))
+                """,
+                    (owner_id, limit),
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT id, name, description, prompt_config, guidance_injection,
                            owner_id, is_system, created_at, updated_at
                     FROM prompt_presets
                     ORDER BY is_system DESC, updated_at DESC
                     LIMIT ?
-                """, (limit,))
+                """,
+                    (limit,),
+                )
 
             return [self._preset_row_to_dict(row) for row in cursor.fetchall()]
 
@@ -159,7 +170,7 @@ class PromptPresetRepository(BaseRepository):
         name: Optional[str] = None,
         description: Optional[str] = None,
         prompt_config: Optional[Dict[str, Any]] = None,
-        guidance_injection: Optional[str] = None
+        guidance_injection: Optional[str] = None,
     ) -> bool:
         """Update a prompt preset.
 
@@ -201,8 +212,7 @@ class PromptPresetRepository(BaseRepository):
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute(
-                    f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ?",
-                    params
+                    f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ?", params
                 )
                 if cursor.rowcount > 0:
                     logger.info(f"Updated prompt preset ID {preset_id}")
@@ -218,7 +228,7 @@ class PromptPresetRepository(BaseRepository):
         name: Optional[str] = None,
         description: Optional[str] = None,
         prompt_config: Optional[Dict[str, Any]] = None,
-        guidance_injection: Optional[str] = None
+        guidance_injection: Optional[str] = None,
     ) -> bool:
         """Update a prompt preset owned by a specific user.
 
@@ -262,7 +272,7 @@ class PromptPresetRepository(BaseRepository):
             with self._get_connection() as conn:
                 cursor = conn.execute(
                     f"UPDATE prompt_presets SET {', '.join(updates)} WHERE id = ? AND owner_id = ?",
-                    params
+                    params,
                 )
                 if cursor.rowcount > 0:
                     logger.info(f"Updated prompt preset ID {preset_id} for owner {owner_id}")
@@ -282,10 +292,7 @@ class PromptPresetRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM prompt_presets WHERE id = ?",
-                    (preset_id,)
-                )
+                cursor = conn.execute("DELETE FROM prompt_presets WHERE id = ?", (preset_id,))
                 if cursor.rowcount > 0:
                     logger.info(f"Deleted prompt preset ID {preset_id}")
                     return True
@@ -308,7 +315,7 @@ class PromptPresetRepository(BaseRepository):
             with self._get_connection() as conn:
                 cursor = conn.execute(
                     "DELETE FROM prompt_presets WHERE id = ? AND owner_id = ?",
-                    (preset_id, owner_id)
+                    (preset_id, owner_id),
                 )
                 if cursor.rowcount > 0:
                     logger.info(f"Deleted prompt preset ID {preset_id} for owner {owner_id}")

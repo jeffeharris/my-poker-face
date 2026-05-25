@@ -38,7 +38,7 @@ the decision-side modifier read the same situation the same way.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, List, Optional
 
 from .relationship_modifier import (
     HEAT_RIVAL_THRESHOLD,
@@ -68,16 +68,13 @@ def _classify(state) -> Optional[str]:
     """
     if state.heat > HEAT_RIVAL_THRESHOLD:
         return "rival"
-    if (
-        state.respect > RESPECT_HIGH_THRESHOLD
-        and state.likability > LIKABILITY_HIGH_THRESHOLD
-    ):
+    if state.respect > RESPECT_HIGH_THRESHOLD and state.likability > LIKABILITY_HIGH_THRESHOLD:
         return "friendly"
     return None
 
 
 def _format_memorable_lines(
-    manager: "OpponentModelManager",
+    manager: OpponentModelManager,
     observer_name: str,
     opponent_name: str,
     max_hands: int,
@@ -110,7 +107,7 @@ def build_relationship_context(
     *,
     observer_name: str,
     opponents: Iterable[str],
-    opponent_model_manager: "OpponentModelManager",
+    opponent_model_manager: OpponentModelManager,
     now: Optional[datetime] = None,
     max_memorable_per_opponent: int = DEFAULT_MAX_MEMORABLE_PER_OPPONENT,
 ) -> str:

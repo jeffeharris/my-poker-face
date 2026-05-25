@@ -7,11 +7,15 @@ Run with: python -m experiments.phase8_tone_framing_demo
 """
 
 import sys
+
 sys.path.insert(0, '.')
 
 from poker.player_psychology import (
-    build_zone_guidance, get_zone_effects, ZoneContext,
-    ENERGY_MANIFESTATION_LABELS, PlayerPsychology
+    ENERGY_MANIFESTATION_LABELS,
+    PlayerPsychology,
+    ZoneContext,
+    build_zone_guidance,
+    get_zone_effects,
 )
 from poker.prompt_manager import PromptManager
 
@@ -50,15 +54,12 @@ def demo_zone_templates():
         (0.52, 0.72, 0.2, 'poker_face', 'Measured'),
         (0.52, 0.72, 0.5, 'poker_face', ''),
         (0.52, 0.72, 0.8, 'poker_face', 'Running hot'),
-
         # Guarded zone
         (0.28, 0.72, 0.2, 'guarded', 'Measured'),
         (0.28, 0.72, 0.8, 'guarded', 'Alert'),
-
         # Commanding zone
         (0.78, 0.78, 0.2, 'commanding', 'Composed'),
         (0.78, 0.78, 0.8, 'commanding', 'Dominant'),
-
         # Aggro zone
         (0.68, 0.48, 0.2, 'aggro', 'Watchful'),
         (0.68, 0.48, 0.8, 'aggro', 'Hunting'),
@@ -95,7 +96,7 @@ def demo_zone_templates():
             else:
                 print(f"\n  [WARN] Label '{expected_label}' NOT found in header!")
         else:
-            print(f"\n  [OK] No energy label (balanced)")
+            print("\n  [OK] No energy label (balanced)")
 
 
 def demo_blended_zones():
@@ -188,10 +189,18 @@ def demo_all_templates_exist():
 
     # Expected templates
     base_templates = [
-        'zone_poker_face_gto', 'zone_poker_face_balance', 'zone_poker_face_equity',
-        'zone_guarded_trap', 'zone_guarded_patience', 'zone_guarded_control',
-        'zone_commanding_value', 'zone_commanding_pressure', 'zone_commanding_initiative',
-        'zone_aggro_awareness', 'zone_aggro_analyze', 'zone_aggro_target',
+        'zone_poker_face_gto',
+        'zone_poker_face_balance',
+        'zone_poker_face_equity',
+        'zone_guarded_trap',
+        'zone_guarded_patience',
+        'zone_guarded_control',
+        'zone_commanding_value',
+        'zone_commanding_pressure',
+        'zone_commanding_initiative',
+        'zone_aggro_awareness',
+        'zone_aggro_analyze',
+        'zone_aggro_target',
     ]
 
     print()

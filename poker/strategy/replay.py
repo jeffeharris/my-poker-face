@@ -56,10 +56,8 @@ from .short_stack import apply_short_stack_heuristics
 from .strategy_profile import StrategyProfile
 from .value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
-    HandStrengthClass,
     compute_bluff_catch_strategy,
     compute_value_override_strategy,
-    should_apply_bluff_catch_override,
     should_apply_value_override,
 )
 
@@ -230,15 +228,26 @@ def _reconstruct_anchors(payload):
         return None
     try:
         from poker.psychology_model import PersonalityAnchors
+
         # Use the real class so any future invariants are checked.
-        return PersonalityAnchors(**{
-            k: v for k, v in payload.items()
-            if k in {
-                'baseline_aggression', 'baseline_looseness', 'ego',
-                'poise', 'expressiveness', 'risk_identity', 'adaptation_bias',
-                'baseline_energy', 'recovery_rate',
+        return PersonalityAnchors(
+            **{
+                k: v
+                for k, v in payload.items()
+                if k
+                in {
+                    'baseline_aggression',
+                    'baseline_looseness',
+                    'ego',
+                    'poise',
+                    'expressiveness',
+                    'risk_identity',
+                    'adaptation_bias',
+                    'baseline_energy',
+                    'recovery_rate',
+                }
             }
-        })
+        )
     except Exception:
         # Fall back to a duck type so replay doesn't fail outright.
         return SimpleNamespace(**payload)
@@ -265,10 +274,9 @@ def _reconstruct_decision_context(payload):
     if not payload or not isinstance(payload, dict):
         return None
     try:
-        return DecisionContext(**{
-            k: v for k, v in payload.items()
-            if k in DecisionContext.__dataclass_fields__
-        })
+        return DecisionContext(
+            **{k: v for k, v in payload.items() if k in DecisionContext.__dataclass_fields__}
+        )
     except (TypeError, ValueError):
         return None
 
@@ -277,9 +285,12 @@ def _reconstruct_stats(payload):
     if not payload or not isinstance(payload, dict):
         return None
     try:
-        return AggregatedOpponentStats(**{
-            k: v for k, v in payload.items()
-            if k in AggregatedOpponentStats.__dataclass_fields__
-        })
+        return AggregatedOpponentStats(
+            **{
+                k: v
+                for k, v in payload.items()
+                if k in AggregatedOpponentStats.__dataclass_fields__
+            }
+        )
     except (TypeError, ValueError):
         return None

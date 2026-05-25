@@ -1,5 +1,7 @@
 """Tests for DecisionAnalysisRepository."""
+
 import pytest
+
 from poker.repositories.decision_analysis_repository import DecisionAnalysisRepository
 from poker.repositories.prompt_capture_repository import PromptCaptureRepository
 
@@ -91,10 +93,16 @@ class TestDecisionAnalysis:
         assert result['total'] == 1
 
     def test_get_decision_analysis_stats(self, repo):
-        repo.save_decision_analysis(self._make_analysis(
-            decision_quality='correct', action_taken='call', ev_lost=0.0, equity=0.6))
-        repo.save_decision_analysis(self._make_analysis(
-            decision_quality='mistake', action_taken='fold', ev_lost=2.5, equity=0.3))
+        repo.save_decision_analysis(
+            self._make_analysis(
+                decision_quality='correct', action_taken='call', ev_lost=0.0, equity=0.6
+            )
+        )
+        repo.save_decision_analysis(
+            self._make_analysis(
+                decision_quality='mistake', action_taken='fold', ev_lost=2.5, equity=0.3
+            )
+        )
 
         stats = repo.get_decision_analysis_stats()
         assert stats['total'] == 2

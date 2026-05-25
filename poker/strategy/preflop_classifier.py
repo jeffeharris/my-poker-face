@@ -14,7 +14,6 @@ from typing import Tuple
 
 from .nodes import PreflopNode
 
-
 # ── Position label mappings ────────────────────────────────────────────
 
 # Maps the internal table_positions keys → 6-max labels.
@@ -56,6 +55,7 @@ def get_6max_position(game_state, player_idx: int) -> str:
 
 
 # ── Scenario classification ────────────────────────────────────────────
+
 
 def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
     """Classify the preflop scenario for the current acting player.
@@ -109,6 +109,7 @@ def _find_raiser_position(game_state) -> str:
 
 
 # ── Node builder ───────────────────────────────────────────────────────
+
 
 def build_preflop_node(game_state, player_idx: int, canonical_hand: str) -> PreflopNode:
     """Compose a full PreflopNode from the live game state.

@@ -11,18 +11,28 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from .nodes import PreflopNode, PostflopNode
+from .nodes import PostflopNode, PreflopNode
 from .strategy_profile import StrategyProfile
 
 logger = logging.getLogger(__name__)
 
 # Abstract actions that correspond to a game-engine "raise" or "all_in"
-_RAISE_ACTIONS = frozenset({
-    # Preflop BB-relative and multiplier raises
-    'raise_2.5bb', 'raise_3bb', 'raise_3x', 'raise_4x', 'raise_2.2x',
-    # Postflop pot-relative bets and raises
-    'bet_33', 'bet_67', 'bet_100', 'raise_67', 'raise_150',
-})
+_RAISE_ACTIONS = frozenset(
+    {
+        # Preflop BB-relative and multiplier raises
+        'raise_2.5bb',
+        'raise_3bb',
+        'raise_3x',
+        'raise_4x',
+        'raise_2.2x',
+        # Postflop pot-relative bets and raises
+        'bet_33',
+        'bet_67',
+        'bet_100',
+        'raise_67',
+        'raise_150',
+    }
+)
 _JAM_ACTION = 'jam'
 
 
@@ -42,7 +52,8 @@ def _is_action_legal(action: str, legal_actions: List[str]) -> bool:
 
 
 def _mask_and_renormalize(
-    profile: StrategyProfile, legal_actions: List[str],
+    profile: StrategyProfile,
+    legal_actions: List[str],
 ) -> Optional[StrategyProfile]:
     """Remove illegal actions from a profile and renormalize.
 
@@ -68,7 +79,8 @@ def _conservative_default(legal_actions: List[str]) -> StrategyProfile:
 
 
 def _postflop_conservative_default(
-    facing_action: str, legal_actions: List[str],
+    facing_action: str,
+    legal_actions: List[str],
 ) -> StrategyProfile:
     """Context-aware conservative default for postflop (from arch doc)."""
     if facing_action == 'unopened':
@@ -82,9 +94,7 @@ def _postflop_conservative_default(
             probs['call'] = 0.3
         if probs:
             total = sum(probs.values())
-            return StrategyProfile(
-                action_probabilities={a: p / total for a, p in probs.items()}
-            )
+            return StrategyProfile(action_probabilities={a: p / total for a, p in probs.items()})
     elif facing_action == 'facing_raise':
         probs = {}
         if 'fold' in legal_actions:
@@ -93,9 +103,7 @@ def _postflop_conservative_default(
             probs['call'] = 0.2
         if probs:
             total = sum(probs.values())
-            return StrategyProfile(
-                action_probabilities={a: p / total for a, p in probs.items()}
-            )
+            return StrategyProfile(action_probabilities={a: p / total for a, p in probs.items()})
     # Ultimate fallback
     return _conservative_default(legal_actions)
 
@@ -128,7 +136,9 @@ class StrategyTable:
         return self._preflop.get(node.key)
 
     def lookup_with_fallback(
-        self, node: PreflopNode, legal_actions: List[str],
+        self,
+        node: PreflopNode,
+        legal_actions: List[str],
     ) -> StrategyProfile:
         """Look up strategy with legal action masking and fallback.
 
@@ -150,7 +160,9 @@ class StrategyTable:
         return self._postflop.get(node.key)
 
     def lookup_postflop_with_fallback(
-        self, node: PostflopNode, legal_actions: List[str],
+        self,
+        node: PostflopNode,
+        legal_actions: List[str],
     ) -> StrategyProfile:
         """Look up postflop strategy with texture-neighbor fallback.
 
@@ -229,8 +241,10 @@ def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:
     for position, hands in data.get('rfi', {}).items():
         for hand, actions in hands.items():
             node = PreflopNode(
-                hand=hand, position=position,
-                scenario='rfi', opener_position='',
+                hand=hand,
+                position=position,
+                scenario='rfi',
+                opener_position='',
             )
             result[node.key] = StrategyProfile(action_probabilities=dict(actions))
 
@@ -240,8 +254,10 @@ def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:
             position, opener_position = _parse_position_matchup(matchup)
             for hand, actions in hands.items():
                 node = PreflopNode(
-                    hand=hand, position=position,
-                    scenario=scenario, opener_position=opener_position,
+                    hand=hand,
+                    position=position,
+                    scenario=scenario,
+                    opener_position=opener_position,
                 )
                 result[node.key] = StrategyProfile(action_probabilities=dict(actions))
 
@@ -344,9 +360,7 @@ def load_depth_strategy_tables() -> Dict[int, "StrategyTable"]:
             continue
         with open(path) as f:
             preflop_raw = json.load(f)
-        tables[depth] = StrategyTable(
-            _parse_json_to_preflop_data(preflop_raw), postflop_data={}
-        )
+        tables[depth] = StrategyTable(_parse_json_to_preflop_data(preflop_raw), postflop_data={})
     return tables
 
 

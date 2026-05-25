@@ -10,6 +10,7 @@ This test:
 3. Analyzes whether decisions differ with/without history
 4. Evaluates what's valuable vs wasteful in history
 """
+
 import json
 import os
 import sys
@@ -22,14 +23,15 @@ from unittest.mock import MagicMock, patch
 # Ensure poker module is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.llm.conversation import ConversationMemory
 from core.llm.assistant import Assistant
+from core.llm.conversation import ConversationMemory
 from poker.config import AI_MAX_MEMORY_LENGTH, MEMORY_TRIM_KEEP_EXCHANGES
 
 
 @dataclass
 class TokenAnalysis:
     """Results of token count analysis."""
+
     system_prompt_tokens: int
     history_tokens: int
     current_prompt_tokens: int
@@ -76,7 +78,7 @@ def analyze_message_tokens(messages: List[Dict]) -> TokenAnalysis:
         history_tokens=history_tokens,
         current_prompt_tokens=current_tokens,
         total_tokens=system_tokens + history_tokens + current_tokens,
-        message_count=len(messages)
+        message_count=len(messages),
     )
 
 
@@ -131,7 +133,6 @@ POT ODDS: You're getting 1.5:1 odds ($15 pot / $10 to call). You only need 40% e
 You must select from these options: ['fold', 'call', 'raise']
 Your table position: ['UTG']
 What is your move, Batman?""",
-
             # Flop prompt - includes accumulated table chatter
             """Persona: Batman
 Your Cards: ['Ah', 'Kh']
@@ -160,7 +161,6 @@ You can check for free - no cost to see more cards.
 You must select from these options: ['check', 'raise']
 Your table position: ['UTG']
 What is your move, Batman?""",
-
             # Turn prompt
             """Persona: Batman
 Your Cards: ['Ah', 'Kh']
@@ -189,7 +189,6 @@ You can check for free - no cost to see more cards.
 You must select from these options: ['check', 'raise']
 Your table position: ['UTG']
 What is your move, Batman?""",
-
             # River prompt
             """Persona: Batman
 Your Cards: ['Ah', 'Kh']
@@ -216,19 +215,19 @@ You can check for free - no cost to see more cards.
 
 You must select from these options: ['check', 'raise']
 Your table position: ['UTG']
-What is your move, Batman?"""
+What is your move, Batman?""",
         ]
 
         self.sample_ai_responses = [
             '{"action": "raise", "raise_to": 30, "inner_monologue": "Premium hand in early position. Time to build a pot.", "dramatic_sequence": ["The night is young, Joker."]}',
             '{"action": "raise", "raise_to": 100, "inner_monologue": "Flopped a flush draw with two overs. Very strong.", "dramatic_sequence": ["*narrows eyes*", "I see the fear in your eyes."]}',
             '{"action": "raise", "raise_to": 300, "inner_monologue": "Made the flush. Time to extract maximum value.", "dramatic_sequence": ["*leans forward*", "Justice comes for everyone, Joker."]}',
-            '{"action": "check", "raise_to": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "dramatic_sequence": ["*silent stare*"]}'
+            '{"action": "check", "raise_to": 0, "inner_monologue": "Already have the nuts. Let him bet into me.", "dramatic_sequence": ["*silent stare*"]}',
         ]
 
     def test_current_config_values(self):
         """Verify current configuration settings."""
-        print(f"\n=== Current Memory Configuration ===")
+        print("\n=== Current Memory Configuration ===")
         print(f"AI_MAX_MEMORY_LENGTH: {AI_MAX_MEMORY_LENGTH}")
         print(f"MEMORY_TRIM_KEEP_EXCHANGES: {MEMORY_TRIM_KEEP_EXCHANGES}")
         print(f"Max messages after trim: {MEMORY_TRIM_KEEP_EXCHANGES * 2}")
@@ -240,13 +239,14 @@ What is your move, Batman?"""
     def test_token_accumulation_over_hand(self):
         """Measure how tokens accumulate during a single hand."""
         memory = ConversationMemory(
-            system_prompt=self.sample_system_prompt,
-            max_messages=AI_MAX_MEMORY_LENGTH
+            system_prompt=self.sample_system_prompt, max_messages=AI_MAX_MEMORY_LENGTH
         )
 
         print("\n=== Token Accumulation Over Single Hand ===")
 
-        for i, (prompt, response) in enumerate(zip(self.sample_decision_prompts, self.sample_ai_responses)):
+        for i, (prompt, response) in enumerate(
+            zip(self.sample_decision_prompts, self.sample_ai_responses, strict=False)
+        ):
             # Add messages like the real system does
             memory.add_user(prompt)
             messages = memory.get_messages()
@@ -255,7 +255,9 @@ What is your move, Batman?"""
             print(f"\nTurn {i+1} ({['PRE_FLOP', 'FLOP', 'TURN', 'RIVER'][i]}):")
             print(f"  Messages: {analysis.message_count}")
             print(f"  System prompt: ~{analysis.system_prompt_tokens} tokens")
-            print(f"  History: ~{analysis.history_tokens} tokens ({analysis.history_percentage:.1f}%)")
+            print(
+                f"  History: ~{analysis.history_tokens} tokens ({analysis.history_percentage:.1f}%)"
+            )
             print(f"  Current prompt: ~{analysis.current_prompt_tokens} tokens")
             print(f"  TOTAL: ~{analysis.total_tokens} tokens")
 
@@ -265,13 +267,18 @@ What is your move, Batman?"""
         # Final analysis
         final_messages = memory.get_messages()
         final_analysis = analyze_message_tokens(final_messages)
-        print(f"\n=== End of Hand Summary ===")
+        print("\n=== End of Hand Summary ===")
         print(f"Total messages: {final_analysis.message_count}")
-        print(f"History tokens: ~{final_analysis.history_tokens} ({final_analysis.history_percentage:.1f}% of total)")
+        print(
+            f"History tokens: ~{final_analysis.history_tokens} ({final_analysis.history_percentage:.1f}% of total)"
+        )
 
         # History should be significant portion by end of hand
-        self.assertGreater(final_analysis.history_percentage, 50,
-                          "By end of hand, history should be >50% of tokens")
+        self.assertGreater(
+            final_analysis.history_percentage,
+            50,
+            "By end of hand, history should be >50% of tokens",
+        )
 
     def test_table_chatter_in_current_prompt_vs_history(self):
         """Show that table chatter is ALREADY in current prompt via Recent Actions."""
@@ -283,7 +290,10 @@ What is your move, Batman?"""
         print("Table chatter in CURRENT prompt (Recent Actions):")
         # Extract Recent Actions section
         import re
-        recent_actions_match = re.search(r'Recent Actions:\n(.*?)\n\nPot Total', river_prompt, re.DOTALL)
+
+        recent_actions_match = re.search(
+            r'Recent Actions:\n(.*?)\n\nPot Total', river_prompt, re.DOTALL
+        )
         if recent_actions_match:
             for line in recent_actions_match.group(1).strip().split('\n'):
                 if ':' in line and '"' in line:
@@ -292,7 +302,9 @@ What is your move, Batman?"""
         print("\nTable chatter in HISTORY (duplicated in old prompts):")
         # The PRE_FLOP prompt had its own Recent Actions
         preflop_prompt = self.sample_decision_prompts[0]
-        recent_actions_match = re.search(r'Recent Actions:\n(.*?)\n\nPot Total', preflop_prompt, re.DOTALL)
+        recent_actions_match = re.search(
+            r'Recent Actions:\n(.*?)\n\nPot Total', preflop_prompt, re.DOTALL
+        )
         if recent_actions_match:
             for line in recent_actions_match.group(1).strip().split('\n'):
                 print(f"  {line.strip()}")
@@ -305,12 +317,13 @@ What is your move, Batman?"""
     def test_history_contains_outdated_game_state(self):
         """Demonstrate that history contains outdated/conflicting game state."""
         memory = ConversationMemory(
-            system_prompt=self.sample_system_prompt,
-            max_messages=AI_MAX_MEMORY_LENGTH
+            system_prompt=self.sample_system_prompt, max_messages=AI_MAX_MEMORY_LENGTH
         )
 
         # Simulate a full hand
-        for prompt, response in zip(self.sample_decision_prompts, self.sample_ai_responses):
+        for prompt, response in zip(
+            self.sample_decision_prompts, self.sample_ai_responses, strict=False
+        ):
             memory.add_user(prompt)
             memory.add_assistant(response)
 
@@ -334,6 +347,7 @@ What is your move, Batman?"""
                 # Extract key info
                 if 'Community Cards:' in content:
                     import re
+
                     cc_match = re.search(r'Community Cards: \[(.*?)\]', content)
                     pot_match = re.search(r'Pot Total: \$(\d+)', content)
                     round_match = re.search(r'Current Round: (\w+)', content)
@@ -343,7 +357,7 @@ What is your move, Batman?"""
                         'round': round_match.group(1) if round_match else 'unknown',
                         'community_cards': cc_match.group(1) if cc_match else '',
                         'pot': pot_match.group(1) if pot_match else '0',
-                        'stack': stack_match.group(1) if stack_match else '0'
+                        'stack': stack_match.group(1) if stack_match else '0',
                     }
                     outdated_states.append(state)
 
@@ -356,8 +370,9 @@ What is your move, Batman?"""
         print("The most recent is correct, but older ones could confuse the model.")
 
         # There should be multiple outdated states in history
-        self.assertGreater(len(outdated_states), 1,
-                          "Should have multiple outdated game states in history")
+        self.assertGreater(
+            len(outdated_states), 1, "Should have multiple outdated game states in history"
+        )
 
     def test_compare_with_without_history(self):
         """Compare token counts with and without history."""
@@ -365,12 +380,13 @@ What is your move, Batman?"""
 
         # With full history (current behavior)
         memory_with_history = ConversationMemory(
-            system_prompt=self.sample_system_prompt,
-            max_messages=AI_MAX_MEMORY_LENGTH
+            system_prompt=self.sample_system_prompt, max_messages=AI_MAX_MEMORY_LENGTH
         )
 
         # Simulate full hand
-        for prompt, response in zip(self.sample_decision_prompts[:-1], self.sample_ai_responses[:-1]):
+        for prompt, response in zip(
+            self.sample_decision_prompts[:-1], self.sample_ai_responses[:-1], strict=False
+        ):
             memory_with_history.add_user(prompt)
             memory_with_history.add_assistant(response)
 
@@ -381,19 +397,18 @@ What is your move, Batman?"""
 
         # Without history (just system + current)
         memory_without_history = ConversationMemory(
-            system_prompt=self.sample_system_prompt,
-            max_messages=AI_MAX_MEMORY_LENGTH
+            system_prompt=self.sample_system_prompt, max_messages=AI_MAX_MEMORY_LENGTH
         )
         memory_without_history.add_user(self.sample_decision_prompts[-1])
         messages_without = memory_without_history.get_messages()
         analysis_without = analyze_message_tokens(messages_without)
 
-        print(f"\nWith History:")
+        print("\nWith History:")
         print(f"  Messages: {analysis_with.message_count}")
         print(f"  Total tokens: ~{analysis_with.total_tokens}")
         print(f"  History tokens: ~{analysis_with.history_tokens}")
 
-        print(f"\nWithout History:")
+        print("\nWithout History:")
         print(f"  Messages: {analysis_without.message_count}")
         print(f"  Total tokens: ~{analysis_without.total_tokens}")
         print(f"  History tokens: ~{analysis_without.history_tokens}")
@@ -401,18 +416,17 @@ What is your move, Batman?"""
         token_savings = analysis_with.total_tokens - analysis_without.total_tokens
         savings_pct = (token_savings / analysis_with.total_tokens) * 100
 
-        print(f"\n=== Potential Savings ===")
+        print("\n=== Potential Savings ===")
         print(f"Token reduction: ~{token_savings} tokens ({savings_pct:.1f}%)")
-        print(f"Cost reduction: Proportional to token savings")
-        print(f"Latency reduction: Proportional to token savings")
+        print("Cost reduction: Proportional to token savings")
+        print("Latency reduction: Proportional to token savings")
 
         self.assertGreater(token_savings, 0, "Should save tokens without history")
 
     def test_memory_trimming_between_hands(self):
         """Test how memory trimming affects token counts between hands."""
         memory = ConversationMemory(
-            system_prompt=self.sample_system_prompt,
-            max_messages=AI_MAX_MEMORY_LENGTH
+            system_prompt=self.sample_system_prompt, max_messages=AI_MAX_MEMORY_LENGTH
         )
 
         print("\n=== Memory Trimming Between Hands ===")
@@ -421,20 +435,26 @@ What is your move, Batman?"""
         for hand_num in range(2):
             print(f"\n--- Hand {hand_num + 1} ---")
 
-            for i, (prompt, response) in enumerate(zip(self.sample_decision_prompts, self.sample_ai_responses)):
+            for i, (prompt, response) in enumerate(
+                zip(self.sample_decision_prompts, self.sample_ai_responses, strict=False)
+            ):
                 memory.add_user(prompt)
                 memory.add_assistant(response)
 
             messages = memory.get_messages()
             analysis = analyze_message_tokens(messages)
-            print(f"After hand {hand_num + 1}: {analysis.message_count} messages, ~{analysis.total_tokens} tokens")
+            print(
+                f"After hand {hand_num + 1}: {analysis.message_count} messages, ~{analysis.total_tokens} tokens"
+            )
 
             # Simulate between-hand trimming
             if hand_num == 0:
                 memory.trim_to_exchanges(MEMORY_TRIM_KEEP_EXCHANGES)
                 trimmed_messages = memory.get_messages()
                 trimmed_analysis = analyze_message_tokens(trimmed_messages)
-                print(f"After trim: {trimmed_analysis.message_count} messages, ~{trimmed_analysis.total_tokens} tokens")
+                print(
+                    f"After trim: {trimmed_analysis.message_count} messages, ~{trimmed_analysis.total_tokens} tokens"
+                )
 
         # Even after trimming, we carry forward old (potentially irrelevant) context
         final_messages = memory.get_messages()
@@ -481,7 +501,9 @@ What is your move, Batman?"""
         print("\nRECOMMENDATION:")
         print("  Clear conversation memory each turn.")
         print("  Table chatter is preserved via game_messages → Recent Actions.")
-        print("  AI's own trash talk continuity can come from 'Recent Actions' showing its past statements.")
+        print(
+            "  AI's own trash talk continuity can come from 'Recent Actions' showing its past statements."
+        )
 
 
 class TestAlternativeApproaches(unittest.TestCase):

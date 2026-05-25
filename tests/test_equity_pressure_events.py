@@ -6,11 +6,12 @@ weighted-delta equity shock detection in PressureDetector.
 """
 
 import unittest
-from poker.equity_snapshot import EquitySnapshot, HandEquityHistory, STREET_ORDER
+
+from poker.equity_snapshot import STREET_ORDER, EquitySnapshot, HandEquityHistory
 from poker.equity_tracker import EquityTracker
-from poker.pressure_detector import PressureEventDetector
-from poker.poker_game import PokerGameState, Player, initialize_game_state
 from poker.memory.hand_history import HandInProgress
+from poker.poker_game import Player, PokerGameState, initialize_game_state
+from poker.pressure_detector import PressureEventDetector
 
 
 class TestEquitySnapshot(unittest.TestCase):
@@ -87,8 +88,12 @@ class TestHandEquityHistory(unittest.TestCase):
             EquitySnapshot("Batman", "TURN", 0.70, ("Ah", "Kd"), ("Qs", "7d", "2c", "As"), True),
             EquitySnapshot("Joker", "TURN", 0.30, ("Qh", "Qc"), ("Qs", "7d", "2c", "As"), True),
             # River: Joker catches a queen (quads!), wins
-            EquitySnapshot("Batman", "RIVER", 0.0, ("Ah", "Kd"), ("Qs", "7d", "2c", "As", "Qd"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Qs", "7d", "2c", "As", "Qd"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("Ah", "Kd"), ("Qs", "7d", "2c", "As", "Qd"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Qs", "7d", "2c", "As", "Qd"), True
+            ),
         )
 
         self.history = HandEquityHistory(
@@ -100,15 +105,9 @@ class TestHandEquityHistory(unittest.TestCase):
 
     def test_get_player_equity(self):
         """Test getting equity for a specific player at a specific street."""
-        self.assertAlmostEqual(
-            self.history.get_player_equity("Batman", "PRE_FLOP"), 0.65
-        )
-        self.assertAlmostEqual(
-            self.history.get_player_equity("Joker", "FLOP"), 0.75
-        )
-        self.assertIsNone(
-            self.history.get_player_equity("Unknown", "FLOP")
-        )
+        self.assertAlmostEqual(self.history.get_player_equity("Batman", "PRE_FLOP"), 0.65)
+        self.assertAlmostEqual(self.history.get_player_equity("Joker", "FLOP"), 0.75)
+        self.assertIsNone(self.history.get_player_equity("Unknown", "FLOP"))
 
     def test_get_street_equities(self):
         """Test getting all player equities at a street."""
@@ -232,13 +231,19 @@ class TestEquityShockDetection(unittest.TestCase):
             EquitySnapshot("Joker", "FLOP", 0.15, ("Qh", "Jc"), ("Ac", "Kd", "2h"), True),
             EquitySnapshot("Batman", "TURN", 0.85, ("As", "Ah"), ("Ac", "Kd", "2h", "3c"), True),
             EquitySnapshot("Joker", "TURN", 0.15, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "3c", "Td"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c", "Td"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "3c", "Td"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c", "Td"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -254,13 +259,19 @@ class TestEquityShockDetection(unittest.TestCase):
             EquitySnapshot("Joker", "FLOP", 0.45, ("6h", "7h"), ("Kc", "5d", "2h"), True),
             EquitySnapshot("Batman", "TURN", 0.50, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc"), True),
             EquitySnapshot("Joker", "TURN", 0.50, ("6h", "7h"), ("Kc", "5d", "2h", "Jc"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc", "8h"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("6h", "7h"), ("Kc", "5d", "2h", "Jc", "8h"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("Ks", "Kd"), ("Kc", "5d", "2h", "Jc", "8h"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("6h", "7h"), ("Kc", "5d", "2h", "Jc", "8h"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -274,13 +285,19 @@ class TestEquityShockDetection(unittest.TestCase):
             EquitySnapshot("Joker", "FLOP", 0.20, ("3h", "4h"), ("Ad", "Kc", "2h"), True),
             EquitySnapshot("Batman", "TURN", 0.85, ("As", "Ks"), ("Ad", "Kc", "2h", "7c"), True),
             EquitySnapshot("Joker", "TURN", 0.15, ("3h", "4h"), ("Ad", "Kc", "2h", "7c"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("As", "Ks"), ("Ad", "Kc", "2h", "7c", "5h"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("3h", "4h"), ("Ad", "Kc", "2h", "7c", "5h"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("As", "Ks"), ("Ad", "Kc", "2h", "7c", "5h"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("3h", "4h"), ("Ad", "Kc", "2h", "7c", "5h"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -292,14 +309,20 @@ class TestEquityShockDetection(unittest.TestCase):
         snapshots = (
             EquitySnapshot("Batman", "FLOP", 0.85, ("As", "Ah"), ("Ac", "Kd", "2h"), True),
             EquitySnapshot("Joker", "FLOP", 0.15, ("Qh", "Jc"), ("Ac", "Kd", "2h"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "Td", "9s"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "Td", "9s"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "Td", "9s"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "Td", "9s"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         # Tiny pot (100 chips) vs large stacks (10000)
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=100,
+            history,
+            winner_names=["Joker"],
+            pot_size=100,
             hand_start_stacks={"Batman": 10000, "Joker": 10000},
         )
 
@@ -323,8 +346,12 @@ class TestEquityShockDetection(unittest.TestCase):
         river_snapshots = (
             EquitySnapshot("Batman", "TURN", 0.80, ("As", "Ah"), ("Kc", "7d", "2c", "3c"), True),
             EquitySnapshot("Joker", "TURN", 0.20, ("4h", "5h"), ("Kc", "7d", "2c", "3c"), True),
-            EquitySnapshot("Batman", "RIVER", 0.20, ("As", "Ah"), ("Kc", "7d", "2c", "3c", "6h"), True),
-            EquitySnapshot("Joker", "RIVER", 0.80, ("4h", "5h"), ("Kc", "7d", "2c", "3c", "6h"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.20, ("As", "Ah"), ("Kc", "7d", "2c", "3c", "6h"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 0.80, ("4h", "5h"), ("Kc", "7d", "2c", "3c", "6h"), True
+            ),
         )
         river_history = HandEquityHistory(None, "test", 1, river_snapshots)
 
@@ -356,13 +383,19 @@ class TestEquityShockDetection(unittest.TestCase):
             EquitySnapshot("Joker", "FLOP", 0.15, ("Qh", "Qc"), ("Ac", "Ks", "2c"), True),
             EquitySnapshot("Batman", "TURN", 0.90, ("Ah", "Kd"), ("Ac", "Ks", "2c", "3d"), True),
             EquitySnapshot("Joker", "TURN", 0.10, ("Qh", "Qc"), ("Ac", "Ks", "2c", "3d"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("Ah", "Kd"), ("Ac", "Ks", "2c", "3d", "Qd"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Ac", "Ks", "2c", "3d", "Qd"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("Ah", "Kd"), ("Ac", "Ks", "2c", "3d", "Qd"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Ac", "Ks", "2c", "3d", "Qd"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -379,13 +412,19 @@ class TestEquityShockDetection(unittest.TestCase):
         snapshots = (
             EquitySnapshot("Batman", "TURN", 0.85, ("As", "Ah"), ("Ac", "Kd", "2h", "3c"), True),
             EquitySnapshot("Joker", "TURN", 0.15, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "3c", "Td"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c", "Td"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("As", "Ah"), ("Ac", "Kd", "2h", "3c", "Td"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Jc"), ("Ac", "Kd", "2h", "3c", "Td"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -399,7 +438,9 @@ class TestEquityShockDetection(unittest.TestCase):
         empty_history = HandEquityHistory.empty("test", 1)
 
         events = self.detector.detect_equity_shock_events(
-            empty_history, winner_names=["Joker"], pot_size=2000,
+            empty_history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 
@@ -413,13 +454,19 @@ class TestEquityShockDetection(unittest.TestCase):
             EquitySnapshot("Joker", "FLOP", 0.35, ("Qh", "Qc"), ("Kc", "Qd", "2h"), True),
             EquitySnapshot("Batman", "TURN", 0.70, ("Ks", "Kd"), ("Kc", "Qd", "2h", "3c"), True),
             EquitySnapshot("Joker", "TURN", 0.30, ("Qh", "Qc"), ("Kc", "Qd", "2h", "3c"), True),
-            EquitySnapshot("Batman", "RIVER", 0.0, ("Ks", "Kd"), ("Kc", "Qd", "2h", "3c", "Qs"), True),
-            EquitySnapshot("Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Kc", "Qd", "2h", "3c", "Qs"), True),
+            EquitySnapshot(
+                "Batman", "RIVER", 0.0, ("Ks", "Kd"), ("Kc", "Qd", "2h", "3c", "Qs"), True
+            ),
+            EquitySnapshot(
+                "Joker", "RIVER", 1.0, ("Qh", "Qc"), ("Kc", "Qd", "2h", "3c", "Qs"), True
+            ),
         )
         history = HandEquityHistory(None, "test", 1, snapshots)
 
         events = self.detector.detect_equity_shock_events(
-            history, winner_names=["Joker"], pot_size=2000,
+            history,
+            winner_names=["Joker"],
+            pot_size=2000,
             hand_start_stacks={"Batman": 1000, "Joker": 1000},
         )
 

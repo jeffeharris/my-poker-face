@@ -84,7 +84,7 @@ def run_comparison(quick: bool = True):
             "total_hands": sum(r.hands_played for r in results),
             "winners": {r.winner: 1 for r in results},
             "decision_quality": [r.decision_stats for r in results if r.decision_stats],
-        }
+        },
     }
 
     results_dir = project_root / "experiments" / "results"

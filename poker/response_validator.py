@@ -2,9 +2,10 @@
 Response validation for AI poker players.
 Ensures responses meet required format and context-appropriate fields.
 """
-from typing import Dict, List, Optional
+
 import logging
 import re
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def llm_normalize_beats(
         return beats
     try:
         import json as _json
+
         from core.llm.tracking import CallType
 
         prompt = (
@@ -107,7 +109,10 @@ def llm_normalize_beats(
 
         response = llm_client.complete(
             messages=[
-                {"role": "system", "content": "You are a precise text-formatting tool. Output only valid JSON."},
+                {
+                    "role": "system",
+                    "content": "You are a precise text-formatting tool. Output only valid JSON.",
+                },
                 {"role": "user", "content": prompt},
             ],
             json_format=True,
@@ -117,6 +122,7 @@ def llm_normalize_beats(
             prompt_template='beat_normalizer',
         )
         import json as _json2
+
         data = _json2.loads(response.content)
         cleaned = data.get('beats', None) if isinstance(data, dict) else None
         if not isinstance(cleaned, list):
@@ -165,7 +171,7 @@ def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
             if before:
                 normalized.append(before)
             normalized.append(action)
-            remaining = remaining[idx + len(action):]
+            remaining = remaining[idx + len(action) :]
 
         # Any trailing text after the last action is speech
         trailing = _clean_speech(remaining)
@@ -177,22 +183,24 @@ def normalize_dramatic_sequence(beats: List[str]) -> List[str]:
 
 class ResponseValidator:
     """Validates AI player responses according to game context."""
-    
+
     # Fields that are always required
     ALWAYS_REQUIRED = {"action", "inner_monologue"}
-    
+
     # Fields required conditionally
     CONDITIONALLY_REQUIRED = {
         "bet_sizing": lambda response: response.get("action") in ["raise"],
         "raise_to": lambda response: response.get("action") in ["raise", "all-in"],
-        "hand_strategy": lambda context: context.get("hand_action_count", 0) == 1
+        "hand_strategy": lambda context: context.get("hand_action_count", 0) == 1,
     }
-    
+
     # Fields that can be present but should be validated
     # Organized by phase: Think → Decide → React
     OPTIONAL_FIELDS = {
         # Thinking
-        "player_observations", "hand_strength", "bluff_likelihood",
+        "player_observations",
+        "hand_strength",
+        "bluff_likelihood",
         # Decision
         "bet_sizing",
         # Reaction
@@ -200,52 +208,65 @@ class ResponseValidator:
         # Legacy fields (accepted but ignored)
         "decision",
         # Legacy thinking fields (accepted but no longer prompted)
-        "situation_read", "chasing", "odds_assessment",
-        "bet_strategy", "decision_reasoning",
-        "play_style", "new_confidence", "new_attitude"
+        "situation_read",
+        "chasing",
+        "odds_assessment",
+        "bet_strategy",
+        "decision_reasoning",
+        "play_style",
+        "new_confidence",
+        "new_attitude",
     }
-    
+
     def __init__(self):
         self.errors = []
         self.warnings = []
-    
+
     def validate(self, response: Dict, context: Optional[Dict] = None) -> bool:
         """
         Validate a response against requirements.
-        
+
         Args:
             response: The AI's response dictionary
             context: Optional context (e.g., hand_action_count, should_speak)
-            
+
         Returns:
             bool: True if valid, False otherwise
         """
         self.errors = []
         self.warnings = []
         context = context or {}
-        
+
         # Check always required fields
         for field in self.ALWAYS_REQUIRED:
             if field not in response:
                 self.errors.append(f"Missing required field: {field}")
-        
+
         # Check conditionally required fields
         for field, condition in self.CONDITIONALLY_REQUIRED.items():
             if field == "bet_sizing" and condition(response):
                 if field not in response:
-                    self.errors.append(f"Missing required field: {field} (required when action is raise)")
+                    self.errors.append(
+                        f"Missing required field: {field} (required when action is raise)"
+                    )
             elif field == "raise_to" and condition(response):
                 if field not in response:
-                    self.errors.append(f"Missing required field: {field} (required when action is raise/all-in)")
+                    self.errors.append(
+                        f"Missing required field: {field} (required when action is raise/all-in)"
+                    )
             elif field == "hand_strategy" and condition(context):
                 if field not in response:
-                    self.errors.append(f"Missing required field: {field} (required on first action of hand)")
-        
+                    self.errors.append(
+                        f"Missing required field: {field} (required on first action of hand)"
+                    )
+
         # Validate action is from valid options
         if "action" in response and context.get("valid_actions"):
             if response["action"] not in context["valid_actions"]:
-                self.errors.append(f"Invalid action: {response['action']}. Must be one of: {context['valid_actions']}")
-        
+                self.errors.append(
+                    f"Invalid action: {response['action']}. Must be one of: {context['valid_actions']}"
+                )
+
         # Validate and normalize raise_to to int if present
         if "raise_to" in response:
             try:
@@ -255,40 +276,40 @@ class ResponseValidator:
                     self.errors.append("raise_to must be non-negative")
             except (ValueError, TypeError):
                 self.errors.append("raise_to must be a number")
-        
+
         # Check for unknown fields
         all_known_fields = (
-            self.ALWAYS_REQUIRED | 
-            set(self.CONDITIONALLY_REQUIRED.keys()) | 
-            self.OPTIONAL_FIELDS
+            self.ALWAYS_REQUIRED | set(self.CONDITIONALLY_REQUIRED.keys()) | self.OPTIONAL_FIELDS
         )
         unknown_fields = set(response.keys()) - all_known_fields
         if unknown_fields:
             self.warnings.append(f"Unknown fields will be ignored: {unknown_fields}")
-        
+
         # Context-based validation
         if context.get("should_speak") == False:
             if "dramatic_sequence" in response:
-                self.warnings.append("dramatic_sequence included but player shouldn't speak (will be removed)")
-        
+                self.warnings.append(
+                    "dramatic_sequence included but player shouldn't speak (will be removed)"
+                )
+
         return len(self.errors) == 0
-    
+
     def get_errors(self) -> List[str]:
         """Get validation errors."""
         return self.errors.copy()
-    
+
     def get_warnings(self) -> List[str]:
         """Get validation warnings."""
         return self.warnings.copy()
-    
+
     def clean_response(self, response: Dict, context: Optional[Dict] = None) -> Dict:
         """
         Clean a response by removing inappropriate fields based on context.
-        
+
         Args:
             response: The AI's response dictionary
             context: Optional context (e.g., should_speak)
-            
+
         Returns:
             Dict: Cleaned response
         """
@@ -305,10 +326,9 @@ class ResponseValidator:
         if should_speak == False:
             if should_gesture and isinstance(cleaned.get("dramatic_sequence"), list):
                 cleaned["dramatic_sequence"] = [
-                    b for b in cleaned["dramatic_sequence"]
-                    if isinstance(b, str)
-                    and b.strip().startswith('*')
-                    and b.strip().endswith('*')
+                    b
+                    for b in cleaned["dramatic_sequence"]
+                    if isinstance(b, str) and b.strip().startswith('*') and b.strip().endswith('*')
                 ]
                 logger.debug("Stripped speech beats — gesture-only mode")
             else:
@@ -324,15 +344,15 @@ class ResponseValidator:
                 cleaned['dramatic_sequence'] = normalize_dramatic_sequence([ds])
 
         return cleaned
-    
+
     @staticmethod
     def get_required_fields_message(context: Optional[Dict] = None) -> str:
         """
         Get a human-readable message about required fields.
-        
+
         Args:
             context: Optional context to determine conditional requirements
-            
+
         Returns:
             str: Message describing required fields
         """
@@ -340,14 +360,14 @@ class ResponseValidator:
         messages = [
             "Required fields:",
             "- action (from your available options)",
-            "- inner_monologue (your private thoughts)"
+            "- inner_monologue (your private thoughts)",
         ]
-        
+
         if context.get("hand_action_count", 0) == 1:
             messages.append("- hand_strategy (your approach for this entire hand)")
-        
+
         messages.append("\nConditionally required:")
         messages.append("- bet_sizing (if you raise: name your sizing strategy)")
         messages.append("- raise_to (if you raise or go all-in)")
-        
+
         return "\n".join(messages)

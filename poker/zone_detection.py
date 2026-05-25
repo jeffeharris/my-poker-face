@@ -9,12 +9,12 @@ import logging
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List, Tuple
+
+# Type hint for forward reference to PromptManager
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .zone_config import get_zone_param
 
-# Type hint for forward reference to PromptManager
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .prompt_manager import PromptManager
 
@@ -52,6 +52,7 @@ ENERGY_HIGH_THRESHOLD = 0.65
 
 # === ZONE STRATEGY SYSTEM ===
 
+
 @dataclass(frozen=True)
 class ZoneStrategy:
     """
@@ -60,11 +61,12 @@ class ZoneStrategy:
     Each zone has multiple strategies that can be selected based on
     zone strength and available context.
     """
-    name: str                    # e.g., "gto_focus"
-    weight: float                # Selection probability (normalized)
-    template_key: str            # Key in decision.yaml
-    requires: List[str]          # Required context keys
-    min_strength: float = 0.25   # Minimum zone strength to activate
+
+    name: str  # e.g., "gto_focus"
+    weight: float  # Selection probability (normalized)
+    template_key: str  # Key in decision.yaml
+    requires: List[str]  # Required context keys
+    min_strength: float = 0.25  # Minimum zone strength to activate
 
 
 @dataclass
@@ -74,19 +76,20 @@ class ZoneContext:
 
     Provides information needed to render zone templates.
     """
+
     # Available for all zones
-    opponent_stats: Optional[str] = None          # Summary of opponent tendencies
+    opponent_stats: Optional[str] = None  # Summary of opponent tendencies
     opponent_displayed_emotion: Optional[str] = None
 
     # Poker Face specific
-    equity_vs_ranges: Optional[str] = None        # "Your equity: 58% vs their range"
+    equity_vs_ranges: Optional[str] = None  # "Your equity: 58% vs their range"
 
     # Aggro specific
-    opponent_analysis: Optional[str] = None       # "They fold to river bets 70%"
-    weak_player_note: Optional[str] = None        # "Player X seems rattled"
+    opponent_analysis: Optional[str] = None  # "They fold to river bets 70%"
+    weak_player_note: Optional[str] = None  # "Player X seems rattled"
 
     # Commanding specific
-    leverage_note: Optional[str] = None           # Stack-to-pot ratio context
+    leverage_note: Optional[str] = None  # Stack-to-pot ratio context
 
     def has(self, key: str) -> bool:
         """Check if context key is available (not None)."""
@@ -109,7 +112,9 @@ ZONE_STRATEGIES: Dict[str, List[ZoneStrategy]] = {
     'poker_face': [
         ZoneStrategy('gto_focus', 0.4, 'zone_poker_face_gto', requires=[]),
         ZoneStrategy('balance_reminder', 0.3, 'zone_poker_face_balance', requires=[]),
-        ZoneStrategy('equity_analysis', 0.3, 'zone_poker_face_equity', requires=['equity_vs_ranges']),
+        ZoneStrategy(
+            'equity_analysis', 0.3, 'zone_poker_face_equity', requires=['equity_vs_ranges']
+        ),
     ],
     'guarded': [
         ZoneStrategy('trap_opportunity', 0.4, 'zone_guarded_trap', requires=[]),
@@ -118,7 +123,9 @@ ZONE_STRATEGIES: Dict[str, List[ZoneStrategy]] = {
     ],
     'commanding': [
         ZoneStrategy('value_extraction', 0.4, 'zone_commanding_value', requires=[]),
-        ZoneStrategy('pressure_point', 0.3, 'zone_commanding_pressure', requires=['opponent_stats']),
+        ZoneStrategy(
+            'pressure_point', 0.3, 'zone_commanding_pressure', requires=['opponent_stats']
+        ),
         ZoneStrategy('initiative', 0.3, 'zone_commanding_initiative', requires=[]),
     ],
     'aggro': [
@@ -155,6 +162,7 @@ ENERGY_MANIFESTATION_LABELS = {
 
 # === ZONE EFFECTS ===
 
+
 @dataclass(frozen=True)
 class ZoneEffects:
     """
@@ -164,6 +172,7 @@ class ZoneEffects:
     - Sweet spots: mutually exclusive zones (normalized to sum=1.0)
     - Penalties: stackable edge effects (raw strengths, can exceed 1.0 when stacked)
     """
+
     sweet_spots: Dict[str, float] = field(default_factory=dict)
     penalties: Dict[str, float] = field(default_factory=dict)
     manifestation: str = 'balanced'
@@ -213,6 +222,7 @@ class ZoneEffects:
 
 # === ZONE DETECTION FUNCTIONS ===
 
+
 def _calculate_sweet_spot_strength(
     confidence: float,
     composure: float,
@@ -227,9 +237,7 @@ def _calculate_sweet_spot_strength(
     - Between inner_radius and radius: linear falloff from 1.0 to 0.0
     - Outside radius: 0.0
     """
-    distance = math.sqrt(
-        (confidence - center[0]) ** 2 + (composure - center[1]) ** 2
-    )
+    distance = math.sqrt((confidence - center[0]) ** 2 + (composure - center[1]) ** 2)
 
     if distance >= radius:
         return 0.0
@@ -350,8 +358,7 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
     total_strength = sum(raw_sweet_spots.values())
     if total_strength > 0:
         normalized_sweet_spots = {
-            zone: strength / total_strength
-            for zone, strength in raw_sweet_spots.items()
+            zone: strength / total_strength for zone, strength in raw_sweet_spots.items()
         }
 
     penalties = _detect_penalty_zones(confidence, composure)
@@ -368,6 +375,7 @@ def get_zone_effects(confidence: float, composure: float, energy: float) -> Zone
 
 
 # === ZONE STRATEGY SELECTION ===
+
 
 def select_zone_strategy(
     zone_name: str,
@@ -400,9 +408,7 @@ def select_zone_strategy(
 
 
 def build_zone_guidance(
-    zone_strengths: Dict[str, Any],
-    context: ZoneContext,
-    prompt_manager: 'PromptManager'
+    zone_strengths: Dict[str, Any], context: ZoneContext, prompt_manager: 'PromptManager'
 ) -> str:
     """
     Build zone guidance string from zone strengths and context.

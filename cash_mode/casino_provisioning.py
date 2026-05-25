@@ -31,18 +31,16 @@ from cash_mode.bankroll import (
     debit_bankroll_for_seat,
 )
 from cash_mode.closed_economy import (
-    CASINO_TIER_STAKE_LABELS,
     compute_bank_pool_reserves,
     list_hungry_grinders,
 )
 from cash_mode.stakes_ladder import (
-    STAKES_LADDER,
     STAKES_ORDER,
     table_buy_in_window,
 )
 from cash_mode.tables import (
-    CashTableState,
     TABLE_SEAT_COUNT,
+    CashTableState,
     ai_slot_fish,
     open_slot,
 )
@@ -126,7 +124,9 @@ def enter_closing(
     if cash_table_repo is None:
         return
     cash_table_repo.set_closing_countdown(
-        table_id, sandbox_id=sandbox_id, countdown=countdown,
+        table_id,
+        sandbox_id=sandbox_id,
+        countdown=countdown,
     )
 
 
@@ -134,24 +134,34 @@ def is_closing(cash_table_repo, sandbox_id: str, table_id: str) -> bool:
     """True iff this casino is currently in closing state."""
     if cash_table_repo is None:
         return False
-    return cash_table_repo.get_closing_countdown(
-        table_id, sandbox_id=sandbox_id,
-    ) is not None
+    return (
+        cash_table_repo.get_closing_countdown(
+            table_id,
+            sandbox_id=sandbox_id,
+        )
+        is not None
+    )
 
 
 def get_closing_countdown(
-    cash_table_repo, sandbox_id: str, table_id: str,
+    cash_table_repo,
+    sandbox_id: str,
+    table_id: str,
 ) -> Optional[int]:
     """Hands remaining for a closing casino, or None if not closing."""
     if cash_table_repo is None:
         return None
     return cash_table_repo.get_closing_countdown(
-        table_id, sandbox_id=sandbox_id,
+        table_id,
+        sandbox_id=sandbox_id,
     )
 
 
 def decrement_closing_hands(
-    cash_table_repo, sandbox_id: str, table_id: str, count: int = 1,
+    cash_table_repo,
+    sandbox_id: str,
+    table_id: str,
+    count: int = 1,
 ) -> Optional[int]:
     """Tick down the closing countdown. Returns the new count, or None
     if the casino isn't in closing state.
@@ -164,19 +174,24 @@ def decrement_closing_hands(
     if cash_table_repo is None:
         return None
     current = cash_table_repo.get_closing_countdown(
-        table_id, sandbox_id=sandbox_id,
+        table_id,
+        sandbox_id=sandbox_id,
     )
     if current is None:
         return None
     new_count = max(0, current - count)
     cash_table_repo.set_closing_countdown(
-        table_id, sandbox_id=sandbox_id, countdown=new_count,
+        table_id,
+        sandbox_id=sandbox_id,
+        countdown=new_count,
     )
     return new_count
 
 
 def clear_closing(
-    cash_table_repo, sandbox_id: str, table_id: str,
+    cash_table_repo,
+    sandbox_id: str,
+    table_id: str,
 ) -> None:
     """Reset the countdown to NULL ('active' state). Used when an
     actual delete fires (defensive — the delete removes the row) or
@@ -184,7 +199,9 @@ def clear_closing(
     if cash_table_repo is None:
         return
     cash_table_repo.set_closing_countdown(
-        table_id, sandbox_id=sandbox_id, countdown=None,
+        table_id,
+        sandbox_id=sandbox_id,
+        countdown=None,
     )
 
 
@@ -194,6 +211,7 @@ def clear_closing(
 @dataclass(frozen=True)
 class CasinoSpawn:
     """A full casino spawn event (new table + initial fish lineup)."""
+
     table_id: str
     stake_label: str
     fish_seated: List[str]
@@ -203,6 +221,7 @@ class CasinoSpawn:
 @dataclass(frozen=True)
 class CasinoRefill:
     """An incremental refill at an active casino (one fish, one open seat)."""
+
     table_id: str
     stake_label: str
     fish_id: str
@@ -212,6 +231,7 @@ class CasinoRefill:
 @dataclass(frozen=True)
 class CasinoTeardown:
     """A casino teardown event."""
+
     table_id: str
     stake_label: str
     reason: str
@@ -220,6 +240,7 @@ class CasinoTeardown:
 @dataclass(frozen=True)
 class CasinoProvisioningBatch:
     """Result of one provisioning tick."""
+
     spawns: List[CasinoSpawn] = field(default_factory=list)
     refills: List[CasinoRefill] = field(default_factory=list)
     teardowns: List[CasinoTeardown] = field(default_factory=list)
@@ -288,9 +309,7 @@ def _reclaim_zombie_casino_seats(
             # Old-model fish seat: holds a fish persona but was placed
             # without the `archetype='fish'` stamp. A stamped fish seat
             # (the healthy case) is skipped here.
-            unstamped_fish = (
-                pid in fish_ids and slot.get('archetype') != 'fish'
-            )
+            unstamped_fish = pid in fish_ids and slot.get('archetype') != 'fish'
             if not unresolved and not unstamped_fish:
                 continue
             reason = 'unresolved_personality' if unresolved else 'unstamped_fish_seat'
@@ -313,8 +332,11 @@ def _reclaim_zombie_casino_seats(
                 except Exception as exc:
                     row_id = None
                     logger.warning(
-                        "[CASH][CASINO] zombie seat-return raised for %s/%s "
-                        "(%d chips): %s", table.table_id, pid, chips, exc,
+                        "[CASH][CASINO] zombie seat-return raised for %s/%s " "(%d chips): %s",
+                        table.table_id,
+                        pid,
+                        chips,
+                        exc,
                     )
                 if row_id is None:
                     # Return failed — leave the seat to retry next resolve
@@ -322,7 +344,9 @@ def _reclaim_zombie_casino_seats(
                     logger.warning(
                         "[CASH][CASINO] zombie reclaim deferred for %s/%s "
                         "(%d chips, seat-return failed)",
-                        table.table_id, pid, chips,
+                        table.table_id,
+                        pid,
+                        chips,
                     )
                     continue
             new_seats[idx] = open_slot()
@@ -330,7 +354,10 @@ def _reclaim_zombie_casino_seats(
             reclaimed += 1
             logger.info(
                 "[CASH][CASINO] reclaimed stale seat %s/%s (%s, %d chips -> pool)",
-                table.table_id, pid, reason, chips,
+                table.table_id,
+                pid,
+                reason,
+                chips,
             )
         if changed:
             updated = CashTableState(
@@ -349,13 +376,16 @@ def _reclaim_zombie_casino_seats(
             except Exception as exc:
                 logger.warning(
                     "[CASH][CASINO] zombie reclaim save_table failed for %s: %s",
-                    table.table_id, exc,
+                    table.table_id,
+                    exc,
                 )
     return reclaimed
 
 
 def _existing_casinos_by_stake(
-    cash_table_repo, *, sandbox_id: str,
+    cash_table_repo,
+    *,
+    sandbox_id: str,
 ) -> Dict[str, List[CashTableState]]:
     """Group active casino tables by stake_label."""
     by_stake: Dict[str, List[CashTableState]] = {}
@@ -437,9 +467,10 @@ def _return_seat_residuals_to_pool(
                 # committed, so don't claim it succeeded.
                 total_stranded += chips
                 logger.warning(
-                    "[CASH][CASINO] casino_seat_return rejected for %s/%s "
-                    "(%d chips stranded)",
-                    table.table_id, pid, chips,
+                    "[CASH][CASINO] casino_seat_return rejected for %s/%s " "(%d chips stranded)",
+                    table.table_id,
+                    pid,
+                    chips,
                 )
             else:
                 total_returned += chips
@@ -448,7 +479,10 @@ def _return_seat_residuals_to_pool(
             logger.warning(
                 "[CASH][CASINO] casino_seat_return write failed for "
                 "%s/%s (%d chips stranded): %s",
-                table.table_id, pid, chips, exc,
+                table.table_id,
+                pid,
+                chips,
+                exc,
             )
     return total_returned, total_stranded
 
@@ -475,7 +509,8 @@ def _fish_prefund(
     the table's max buy-in. `whale=True` produces a much deeper stack.
     """
     lo, hi = (
-        (WHALE_PREFUND_MIN_MULT, WHALE_PREFUND_MAX_MULT) if whale
+        (WHALE_PREFUND_MIN_MULT, WHALE_PREFUND_MAX_MULT)
+        if whale
         else (FISH_PREFUND_MIN_MULT, FISH_PREFUND_MAX_MULT)
     )
     return int(table_max_buy_in * rng.uniform(lo, hi))
@@ -579,14 +614,17 @@ def _drain_fish_bankroll_to_pool(
         )
         if row_id is None:
             logger.warning(
-                "[CASH][CASINO] fish bankroll drain rejected for %s "
-                "(%d chips stranded)", personality_id, chips,
+                "[CASH][CASINO] fish bankroll drain rejected for %s " "(%d chips stranded)",
+                personality_id,
+                chips,
             )
             return 0, chips
     except Exception as exc:
         logger.warning(
-            "[CASH][CASINO] fish bankroll drain failed for %s "
-            "(%d chips stranded): %s", personality_id, chips, exc,
+            "[CASH][CASINO] fish bankroll drain failed for %s " "(%d chips stranded): %s",
+            personality_id,
+            chips,
+            exc,
         )
         return 0, chips
     bankroll_repo.save_ai_bankroll(
@@ -613,8 +651,7 @@ def _count_seated_fish(table: CashTableState) -> int:
     all. ``_reclaim_zombie_casino_seats`` clears those un-stamped seats.
     """
     return sum(
-        1 for slot in table.seats
-        if slot.get('kind') == 'ai' and slot.get('archetype') == 'fish'
+        1 for slot in table.seats if slot.get('kind') == 'ai' and slot.get('archetype') == 'fish'
     )
 
 
@@ -677,14 +714,25 @@ def _refill_one_fish(
     # so any pending regen commits via `ai_regen` (no clamp leak). For
     # fish this is a no-op — `bankroll_rate=0` means projected == stored —
     # but keeping the call shape uniform with other call sites.
-    if debit_bankroll_for_seat(
-        bankroll_repo, pid, fish_buy_in, sandbox_id=sandbox_id,
-        chip_ledger_repo=chip_ledger_repo, now=now,
-    ) is None:
+    if (
+        debit_bankroll_for_seat(
+            bankroll_repo,
+            pid,
+            fish_buy_in,
+            sandbox_id=sandbox_id,
+            chip_ledger_repo=chip_ledger_repo,
+            now=now,
+        )
+        is None
+    ):
         # Shouldn't happen post-prefund; unwind the prefund to the pool.
         _drain_fish_bankroll_to_pool(
-            bankroll_repo, chip_ledger_repo, personality_id=pid,
-            sandbox_id=sandbox_id, now=now, reason_detail='refill_buyin_failed',
+            bankroll_repo,
+            chip_ledger_repo,
+            personality_id=pid,
+            sandbox_id=sandbox_id,
+            now=now,
+            reason_detail='refill_buyin_failed',
         )
         return None
 
@@ -710,7 +758,8 @@ def _refill_one_fish(
     except Exception as exc:
         logger.warning(
             "[CASH][CASINO] refill save_table failed for %s: %s",
-            table.table_id, exc,
+            table.table_id,
+            exc,
         )
         # Unwind: prefund drew chips from the pool into the fish bankroll,
         # and debit_bankroll_for_seat moved part of that to the in-memory
@@ -720,9 +769,12 @@ def _refill_one_fish(
         # backing them (positive audit drift = +fish_buy_in). Returning
         # the full bankroll to the pool restores conservation.
         _drain_fish_bankroll_to_pool(
-            bankroll_repo, chip_ledger_repo,
-            personality_id=pid, sandbox_id=sandbox_id,
-            now=now, reason_detail='refill_save_failed',
+            bankroll_repo,
+            chip_ledger_repo,
+            personality_id=pid,
+            sandbox_id=sandbox_id,
+            now=now,
+            reason_detail='refill_save_failed',
         )
         return None
     already_seated.add(pid)
@@ -766,7 +818,8 @@ def _shed_excess_fish(
         if is_closing(cash_table_repo, sandbox_id, table.table_id):
             continue
         fish_idx = [
-            i for i, s in enumerate(table.seats)
+            i
+            for i, s in enumerate(table.seats)
             if s.get('kind') == 'ai' and s.get('archetype') == 'fish'
         ]
         excess = len(fish_idx) - CASINO_FISH_MAX
@@ -794,8 +847,11 @@ def _shed_excess_fish(
                     )
                 except Exception as exc:
                     logger.warning(
-                        "[CASH][CASINO] shed seat-return raised for %s/%s "
-                        "(%d chips): %s", table.table_id, pid, chips, exc,
+                        "[CASH][CASINO] shed seat-return raised for %s/%s " "(%d chips): %s",
+                        table.table_id,
+                        pid,
+                        chips,
+                        exc,
                     )
                     continue
                 if row_id is None:
@@ -821,7 +877,8 @@ def _shed_excess_fish(
             except Exception as exc:
                 logger.warning(
                     "[CASH][CASINO] shed save_table failed for %s: %s",
-                    table.table_id, exc,
+                    table.table_id,
+                    exc,
                 )
     return shed
 
@@ -902,7 +959,8 @@ def resolve_casino_provisioning(
         if reclaimed:
             logger.info(
                 "[CASH][CASINO] reclaimed %d zombie seat(s) in sandbox %s",
-                reclaimed, sandbox_id,
+                reclaimed,
+                sandbox_id,
             )
     except Exception as exc:
         logger.warning("[CASH][CASINO] zombie-seat reclaim failed: %s", exc)
@@ -913,12 +971,16 @@ def resolve_casino_provisioning(
     # returns to the pool on this same resolve.
     try:
         shed = _shed_excess_fish(
-            cash_table_repo, chip_ledger_repo, sandbox_id=sandbox_id, now=now,
+            cash_table_repo,
+            chip_ledger_repo,
+            sandbox_id=sandbox_id,
+            now=now,
         )
         if shed:
             logger.info(
                 "[CASH][CASINO] shed %d over-cap fish seat(s) in sandbox %s",
-                shed, sandbox_id,
+                shed,
+                sandbox_id,
             )
     except Exception as exc:
         logger.warning("[CASH][CASINO] excess-fish shed failed: %s", exc)
@@ -943,8 +1005,12 @@ def resolve_casino_provisioning(
     for pid in sorted(fish_ids - already_seated):
         if _load_ai_chips(bankroll_repo, pid, sandbox_id) > 0:
             _drain_fish_bankroll_to_pool(
-                bankroll_repo, chip_ledger_repo, personality_id=pid,
-                sandbox_id=sandbox_id, now=now, reason_detail='fish_left_casino',
+                bankroll_repo,
+                chip_ledger_repo,
+                personality_id=pid,
+                sandbox_id=sandbox_id,
+                now=now,
+                reason_detail='fish_left_casino',
             )
 
     by_stake = _existing_casinos_by_stake(cash_table_repo, sandbox_id=sandbox_id)
@@ -978,7 +1044,9 @@ def resolve_casino_provisioning(
                 batch.refills.append(refill)
                 logger.info(
                     "[CASH][CASINO] refill %s: +%s (%d chips drawn from pool)",
-                    table.table_id, refill.fish_id, refill.bank_pool_drawn,
+                    table.table_id,
+                    refill.fish_id,
+                    refill.bank_pool_drawn,
                 )
 
     if batch.refills:
@@ -1016,38 +1084,47 @@ def resolve_casino_provisioning(
                     bankroll_stranded = 0
                     for pid in fish_pids:
                         _, stranded = _drain_fish_bankroll_to_pool(
-                            bankroll_repo, chip_ledger_repo,
-                            personality_id=pid, sandbox_id=sandbox_id,
-                            now=now, reason_detail='casino_closing_elapsed',
+                            bankroll_repo,
+                            chip_ledger_repo,
+                            personality_id=pid,
+                            sandbox_id=sandbox_id,
+                            now=now,
+                            reason_detail='casino_closing_elapsed',
                         )
                         bankroll_stranded += stranded
                     if seat_stranded or bankroll_stranded:
                         logger.warning(
                             "[CASH][CASINO] teardown ABORTED for %s: chips stranded "
                             "(seat=%d bankroll=%d); retrying next tick.",
-                            table.table_id, seat_stranded, bankroll_stranded,
+                            table.table_id,
+                            seat_stranded,
+                            bankroll_stranded,
                         )
                         continue
                     try:
                         cash_table_repo.delete_table(table.table_id, sandbox_id=sandbox_id)
                         clear_closing(cash_table_repo, sandbox_id, table.table_id)
-                        batch.teardowns.append(CasinoTeardown(
-                            table_id=table.table_id,
-                            stake_label=stake_label,
-                            reason='closing_countdown_elapsed',
-                        ))
+                        batch.teardowns.append(
+                            CasinoTeardown(
+                                table_id=table.table_id,
+                                stake_label=stake_label,
+                                reason='closing_countdown_elapsed',
+                            )
+                        )
                         by_stake[stake_label] = [
                             t for t in tables_here if t.table_id != table.table_id
                         ]
                         logger.info(
                             "[CASH][CASINO] teardown %s: closing elapsed "
                             "(returned %d seat chips to pool)",
-                            table.table_id, seat_returned,
+                            table.table_id,
+                            seat_returned,
                         )
                     except Exception as exc:
                         logger.warning(
                             "[CASH][CASINO] teardown failed for %s: %s",
-                            table.table_id, exc,
+                            table.table_id,
+                            exc,
                         )
                 continue
 
@@ -1057,15 +1134,20 @@ def resolve_casino_provisioning(
                 continue
             if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) >= fish_buy_in:
                 continue
-            enter_closing(cash_table_repo, sandbox_id, table.table_id, CASINO_CLOSING_HAND_COUNTDOWN)
-            batch.teardowns.append(CasinoTeardown(
-                table_id=table.table_id,
-                stake_label=stake_label,
-                reason=f'closing_announced_{CASINO_CLOSING_HAND_COUNTDOWN}_hands',
-            ))
+            enter_closing(
+                cash_table_repo, sandbox_id, table.table_id, CASINO_CLOSING_HAND_COUNTDOWN
+            )
+            batch.teardowns.append(
+                CasinoTeardown(
+                    table_id=table.table_id,
+                    stake_label=stake_label,
+                    reason=f'closing_announced_{CASINO_CLOSING_HAND_COUNTDOWN}_hands',
+                )
+            )
             logger.info(
                 "[CASH][CASINO] %s entering closing state (%d hands)",
-                table.table_id, CASINO_CLOSING_HAND_COUNTDOWN,
+                table.table_id,
+                CASINO_CLOSING_HAND_COUNTDOWN,
             )
 
     # --- Pass 3: spawn ---------------------------------------------------
@@ -1101,13 +1183,16 @@ def resolve_casino_provisioning(
         seats = [open_slot() for _ in range(TABLE_SEAT_COUNT)]
         seeded: List[str] = []
         total_drawn = 0
-        for pid, seat_idx in zip(chosen, seat_positions):
+        for pid, seat_idx in zip(chosen, seat_positions, strict=False):
             if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < fish_buy_in:
                 break
             drawn = _prefund_fish_from_pool(
-                bankroll_repo, chip_ledger_repo,
-                personality_id=pid, target_chips=_fish_prefund(max_buy_in, rng),
-                sandbox_id=sandbox_id, now=now,
+                bankroll_repo,
+                chip_ledger_repo,
+                personality_id=pid,
+                target_chips=_fish_prefund(max_buy_in, rng),
+                sandbox_id=sandbox_id,
+                now=now,
                 context={'site': 'casino_spawn', 'stake_label': stake_label},
             )
             if drawn <= 0:
@@ -1120,8 +1205,12 @@ def resolve_casino_provisioning(
             # Not a viable lineup — return everything drawn and skip.
             for pid in seeded:
                 _drain_fish_bankroll_to_pool(
-                    bankroll_repo, chip_ledger_repo, personality_id=pid,
-                    sandbox_id=sandbox_id, now=now, reason_detail='spawn_aborted',
+                    bankroll_repo,
+                    chip_ledger_repo,
+                    personality_id=pid,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                    reason_detail='spawn_aborted',
                 )
             continue
 
@@ -1141,8 +1230,12 @@ def resolve_casino_provisioning(
             logger.warning("[CASH][CASINO] spawn save_table failed for %s: %s", table_id, exc)
             for pid in seeded:
                 _drain_fish_bankroll_to_pool(
-                    bankroll_repo, chip_ledger_repo, personality_id=pid,
-                    sandbox_id=sandbox_id, now=now, reason_detail='spawn_save_failed',
+                    bankroll_repo,
+                    chip_ledger_repo,
+                    personality_id=pid,
+                    sandbox_id=sandbox_id,
+                    now=now,
+                    reason_detail='spawn_save_failed',
                 )
             continue
 
@@ -1150,22 +1243,31 @@ def resolve_casino_provisioning(
         # buy-in from its (prefunded) bankroll so bankroll + seat == prefund.
         for pid in seeded:
             debit_bankroll_for_seat(
-                bankroll_repo, pid, fish_buy_in, sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo, now=now,
+                bankroll_repo,
+                pid,
+                fish_buy_in,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
             )
             already_seated.add(pid)
 
         clear_closing(cash_table_repo, sandbox_id, table_id)
-        batch.spawns.append(CasinoSpawn(
-            table_id=table_id,
-            stake_label=stake_label,
-            fish_seated=seeded,
-            bank_pool_drawn=total_drawn,
-        ))
+        batch.spawns.append(
+            CasinoSpawn(
+                table_id=table_id,
+                stake_label=stake_label,
+                fish_seated=seeded,
+                bank_pool_drawn=total_drawn,
+            )
+        )
         by_stake_after_teardown.setdefault(stake_label, []).append(new_state)
         logger.info(
             "[CASH][CASINO] spawn %s (%s): %d fish, %d chips drawn from pool",
-            table_id, stake_label, len(seeded), total_drawn,
+            table_id,
+            stake_label,
+            len(seeded),
+            total_drawn,
         )
 
     return batch

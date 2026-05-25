@@ -40,25 +40,29 @@ class FishLeak(str, Enum):
 
     Spec: docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md
     """
-    CALLS_DOWN_TOP_PAIR      = "calls_down_top_pair"      # large bets: top pair or better → call
-    CHASES_ANY_DRAW          = "chases_any_draw"          # medium bets: FD/OESD → call
-    DOESNT_BELIEVE_BIG_BETS  = "doesnt_believe_big_bets"  # large bets: weakened threshold
-    LIMPS_EVERY_HAND         = "limps_every_hand"         # preflop: never folds
-    POT_COMMITTED_EARLY      = "pot_committed_early"      # once ≥30% in, can't fold
-    OVERVALUES_FACE_CARDS    = "overvalues_face_cards"    # medium bets: any face card → call
-    CALLS_RIVER_LIGHT        = "calls_river_light"        # river specifically: weak call threshold
-    SPITE_RAISES_WHEN_LOSING = "spite_raises_when_losing" # losing at table: random min-raise bluffs
+
+    CALLS_DOWN_TOP_PAIR = "calls_down_top_pair"  # large bets: top pair or better → call
+    CHASES_ANY_DRAW = "chases_any_draw"  # medium bets: FD/OESD → call
+    DOESNT_BELIEVE_BIG_BETS = "doesnt_believe_big_bets"  # large bets: weakened threshold
+    LIMPS_EVERY_HAND = "limps_every_hand"  # preflop: never folds
+    POT_COMMITTED_EARLY = "pot_committed_early"  # once ≥30% in, can't fold
+    OVERVALUES_FACE_CARDS = "overvalues_face_cards"  # medium bets: any face card → call
+    CALLS_RIVER_LIGHT = "calls_river_light"  # river specifically: weak call threshold
+    SPITE_RAISES_WHEN_LOSING = (
+        "spite_raises_when_losing"  # losing at table: random min-raise bluffs
+    )
 
 
 # Tunables for leak triggers. Held as module-level so unit tests can
 # patch them without monkey-patching the strategy function itself.
-POT_COMMITTED_THRESHOLD = 0.30          # fraction-of-starting-stack invested this hand
-SPITE_RAISE_PROBABILITY = 0.08          # per-decision chance to spite-raise when losing
+POT_COMMITTED_THRESHOLD = 0.30  # fraction-of-starting-stack invested this hand
+SPITE_RAISE_PROBABILITY = 0.08  # per-decision chance to spite-raise when losing
 
 
 @dataclass(frozen=True)
 class RuleConfig:
     """Configuration for rule-based decision making."""
+
     strategy: str = "always_fold"  # Built-in strategy name
     rules: tuple = field(default_factory=tuple)  # Custom rules for "custom" strategy
     raise_size: str = "min"  # Default raise sizing: "min", "pot", "half_pot", "all_in"
@@ -83,6 +87,7 @@ class RuleConfig:
 # ============================================================================
 # Built-in Strategies
 # ============================================================================
+
 
 def _strategy_always_fold(context: Dict) -> Dict:
     """Fold everything except free checks."""
@@ -347,12 +352,7 @@ def _strategy_trap_bait(context: Dict) -> Dict:
 
     is_oop_blind = position == 'big_blind_player'
 
-    if (
-        phase == 'FLOP'
-        and is_oop_blind
-        and cost == 0
-        and 'check' in valid
-    ):
+    if phase == 'FLOP' and is_oop_blind and cost == 0 and 'check' in valid:
         if _TRAP_BAIT_RNG.random() < _TRAP_BAIT_FLOP_CHECK_PROB:
             return {'action': 'check', 'raise_to': 0}
 
@@ -461,7 +461,7 @@ def _strategy_case_based(context: Dict) -> Dict:
     # Calculate adjustments based on opponent tendencies
     # Only adapt if we have enough observations (5+ hands)
     bluff_adjust = 1.0  # Multiplier for bluff frequency
-    call_adjust = 0.0   # Additive adjustment to equity threshold
+    call_adjust = 0.0  # Additive adjustment to equity threshold
 
     if opp_hands >= 5:
         # Adjust bluff threshold based on opponent fold rate
@@ -585,10 +585,7 @@ def _strategy_case_based(context: Dict) -> Dict:
         # Bluff more vs folders, less vs calling stations
         should_bluff_river = pos == 'late' and phase == 'RIVER' and bluff_adjust >= 1.0
         should_bluff_earlier = (
-            pos == 'late' and
-            phase in ['FLOP', 'TURN'] and
-            equity > 0.15 and
-            bluff_adjust >= 0.75
+            pos == 'late' and phase in ['FLOP', 'TURN'] and equity > 0.15 and bluff_adjust >= 0.75
         )
 
         if should_bluff_river:
@@ -667,11 +664,7 @@ def _strategy_fish(context: Dict) -> Dict:
         if leak == FishLeak.LIMPS_EVERY_HAND and street == 'preflop':
             return {'action': 'check', 'raise_to': 0}
 
-        if (
-            canonical in TOP_10_HANDS
-            and equity >= 0.70
-            and 'raise' in context['valid_actions']
-        ):
+        if canonical in TOP_10_HANDS and equity >= 0.70 and 'raise' in context['valid_actions']:
             return {'action': 'raise', 'raise_to': context['min_raise']}
         return {'action': 'check', 'raise_to': 0}
 
@@ -691,24 +684,17 @@ def _strategy_fish(context: Dict) -> Dict:
 
     if cost_in_bb <= 8:
         is_pair = context.get('is_pair', False)
-        is_suited_or_broadway = (
-            canonical in TOP_35_HANDS
-            or context.get('is_suited', False)
-        )
+        is_suited_or_broadway = canonical in TOP_35_HANDS or context.get('is_suited', False)
 
         # --- CHASES_ANY_DRAW: any FD / OESD → call ----------------------
         if leak == FishLeak.CHASES_ANY_DRAW and (
-            context.get('has_flush_draw', False)
-            or context.get('has_oesd', False)
+            context.get('has_flush_draw', False) or context.get('has_oesd', False)
         ):
             if 'call' in context['valid_actions']:
                 return {'action': 'call', 'raise_to': 0}
 
         # --- OVERVALUES_FACE_CARDS: any J/Q/K/A in hole → call --------
-        if (
-            leak == FishLeak.OVERVALUES_FACE_CARDS
-            and context.get('has_face_card', False)
-        ):
+        if leak == FishLeak.OVERVALUES_FACE_CARDS and context.get('has_face_card', False):
             if 'call' in context['valid_actions']:
                 return {'action': 'call', 'raise_to': 0}
 
@@ -719,10 +705,7 @@ def _strategy_fish(context: Dict) -> Dict:
 
     # Large bet (> 8 BB)
     # --- CALLS_DOWN_TOP_PAIR: any top pair or better → call ----------
-    if (
-        leak == FishLeak.CALLS_DOWN_TOP_PAIR
-        and context.get('has_top_pair_or_better', False)
-    ):
+    if leak == FishLeak.CALLS_DOWN_TOP_PAIR and context.get('has_top_pair_or_better', False):
         if 'call' in context['valid_actions']:
             return {'action': 'call', 'raise_to': 0}
 
@@ -730,11 +713,7 @@ def _strategy_fish(context: Dict) -> Dict:
     # Hero-calls with TOP_45 or any pair or equity >= 0.40. Tourist
     # "can't be bluffed" — they pay off legitimate value bets too.
     if leak == FishLeak.DOESNT_BELIEVE_BIG_BETS:
-        if (
-            canonical in TOP_45_HANDS
-            or context.get('is_pair', False)
-            or equity >= 0.40
-        ):
+        if canonical in TOP_45_HANDS or context.get('is_pair', False) or equity >= 0.40:
             if 'call' in context['valid_actions']:
                 return {'action': 'call', 'raise_to': 0}
 
@@ -770,6 +749,7 @@ BUILT_IN_STRATEGIES = {
 # ============================================================================
 # Custom Rule Evaluation
 # ============================================================================
+
 
 def _evaluate_condition(condition: str, context: Dict) -> bool:
     """

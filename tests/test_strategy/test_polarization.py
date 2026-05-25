@@ -17,13 +17,13 @@ These tests exercise:
 import pytest
 
 from poker.strategy.exploitation import (
-    AggregatedOpponentStats,
-    DecisionContext,
     MAX_L1_SHIFT_BY_RULE,
     MIN_SAMPLE_FOR_GATE,
-    OpponentSpot,
     POLARIZATION_HIGH,
     POLARIZATION_LOW,
+    AggregatedOpponentStats,
+    DecisionContext,
+    OpponentSpot,
     aggregate_from_spots,
     compute_aggression_polarization,
     compute_exploitation_offsets,
@@ -40,7 +40,8 @@ def _polarized_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.75, pfr=0.05,
+        vpip=0.75,
+        pfr=0.05,
         vpip_per_voluntary_opportunity=0.85,
         pfr_per_open_opportunity=0.05,
         preflop_voluntary_opportunities=hands,
@@ -63,7 +64,8 @@ def _noisy_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.75, pfr=0.05,
+        vpip=0.75,
+        pfr=0.05,
         vpip_per_voluntary_opportunity=0.85,
         pfr_per_open_opportunity=0.05,
         preflop_voluntary_opportunities=hands,
@@ -85,7 +87,8 @@ def _undersampled_station_stats(hands: int = 100) -> AggregatedOpponentStats:
     """
     return AggregatedOpponentStats(
         hands_observed=hands,
-        vpip=0.75, pfr=0.05,
+        vpip=0.75,
+        pfr=0.05,
         vpip_per_voluntary_opportunity=0.85,
         pfr_per_open_opportunity=0.05,
         preflop_voluntary_opportunities=hands,
@@ -158,7 +161,8 @@ class TestHyperPassiveGate:
 
     def test_polarized_station_suppresses_fold_reduction(self):
         offsets = compute_exploitation_offsets(
-            _polarized_station_stats(), adaptation_bias=0.85,
+            _polarized_station_stats(),
+            adaptation_bias=0.85,
             decision_context=self._context(),
             available_actions=['fold', 'call', 'raise_67'],
         )
@@ -169,7 +173,8 @@ class TestHyperPassiveGate:
 
     def test_noisy_station_keeps_fold_reduction(self):
         offsets = compute_exploitation_offsets(
-            _noisy_station_stats(), adaptation_bias=0.85,
+            _noisy_station_stats(),
+            adaptation_bias=0.85,
             decision_context=self._context(),
             available_actions=['fold', 'call', 'raise_67'],
         )
@@ -180,7 +185,8 @@ class TestHyperPassiveGate:
     def test_undersampled_keeps_fold_reduction(self):
         """Below MIN_SAMPLE_FOR_GATE the gate stays inactive."""
         offsets = compute_exploitation_offsets(
-            _undersampled_station_stats(), adaptation_bias=0.85,
+            _undersampled_station_stats(),
+            adaptation_bias=0.85,
             decision_context=self._context(),
             available_actions=['fold', 'call', 'raise_67'],
         )
@@ -189,13 +195,13 @@ class TestHyperPassiveGate:
 
     def _hyper_passive_inputs(self, stats):
         _offsets, traces = compute_exploitation_offsets_with_traces(
-            stats, adaptation_bias=0.85,
+            stats,
+            adaptation_bias=0.85,
             decision_context=self._context(),
             available_actions=['fold', 'call', 'raise_67'],
         )
         hp_trace = next(
-            t for t in traces
-            if t.layer == 'exploitation' and t.rule_id == 'hyper_passive'
+            t for t in traces if t.layer == 'exploitation' and t.rule_id == 'hyper_passive'
         )
         return hp_trace.inputs
 
@@ -220,12 +226,10 @@ class TestHyperPassiveGate:
         """
         # Saturate the value-extraction half with many raise actions
         # to push the rule's L1 above its 0.80 budget.
-        actions = (
-            ['fold', 'call']
-            + [f'raise_{i}' for i in range(20)]
-        )
+        actions = ['fold', 'call'] + [f'raise_{i}' for i in range(20)]
         offsets = compute_exploitation_offsets(
-            _polarized_station_stats(), adaptation_bias=0.85,
+            _polarized_station_stats(),
+            adaptation_bias=0.85,
             decision_context=self._context(),
             available_actions=actions,
         )
@@ -234,10 +238,7 @@ class TestHyperPassiveGate:
         # Only raise_* actions and possibly fold contribute. Fold is
         # zero in the polarized branch, so the only L1 mass is the
         # raise stack.
-        raise_l1 = sum(
-            abs(v) for k, v in offsets.items()
-            if k.startswith('raise_')
-        )
+        raise_l1 = sum(abs(v) for k, v in offsets.items() if k.startswith('raise_'))
         assert raise_l1 <= budget + 1e-6
 
 
@@ -246,9 +247,13 @@ class TestAggregateFromSpotsEquityWeighting:
     and MIN-aggregates the per-bucket sample counters."""
 
     def _spot(
-        self, name: str, committed: int,
-        eq_raising: float, eq_calling: float,
-        n_raising: int, n_calling: int,
+        self,
+        name: str,
+        committed: int,
+        eq_raising: float,
+        eq_calling: float,
+        n_raising: int,
+        n_calling: int,
     ) -> OpponentSpot:
         return OpponentSpot(
             name=name,

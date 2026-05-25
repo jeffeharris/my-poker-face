@@ -21,12 +21,12 @@ from enum import Enum
 import pytest
 
 from poker.strategy.intervention_trace import (
-    InterventionOperation,
-    InterventionTrace,
-    TRACE_SCHEMA_VERSION,
     _LAYER_NAMES,
     _LAYER_ORDER,
     _RULE_IDS_BY_LAYER,
+    TRACE_SCHEMA_VERSION,
+    InterventionOperation,
+    InterventionTrace,
     amount_bucket,
     l1_distance,
     make_no_op_trace,
@@ -35,7 +35,6 @@ from poker.strategy.intervention_trace import (
     trace_to_json_dict,
     validate_trace,
 )
-
 
 # ── Canonical layer / rule_id allowlist ──────────────────────────────────
 
@@ -51,8 +50,7 @@ class TestLayerNames:
     def test_every_layer_has_at_least_one_rule_id(self):
         for layer in _LAYER_NAMES:
             assert layer in _RULE_IDS_BY_LAYER, (
-                f"_LAYER_NAMES has {layer!r} with no rule_ids defined "
-                "in _RULE_IDS_BY_LAYER"
+                f"_LAYER_NAMES has {layer!r} with no rule_ids defined " "in _RULE_IDS_BY_LAYER"
             )
             assert len(_RULE_IDS_BY_LAYER[layer]) >= 1
 
@@ -89,7 +87,8 @@ class TestValidateTrace:
 
     def test_rejects_unknown_rule_id_for_layer(self):
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='hyper_aggressive',
+            layer='bluff_catch_override',
+            rule_id='hyper_aggressive',
         )
         with pytest.raises(ValueError, match='not valid for layer'):
             validate_trace(trace)
@@ -109,16 +108,20 @@ class TestValidateTrace:
 
     def test_fired_true_must_not_be_no_op(self):
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='default',
-            fired=True, operation=InterventionOperation.NO_OP.value,
+            layer='bluff_catch_override',
+            rule_id='default',
+            fired=True,
+            operation=InterventionOperation.NO_OP.value,
         )
         with pytest.raises(ValueError, match="fired=True with operation='no_op'"):
             validate_trace(trace)
 
     def test_fired_false_must_be_no_op(self):
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='default',
-            fired=False, operation=InterventionOperation.ADJUST.value,
+            layer='bluff_catch_override',
+            rule_id='default',
+            fired=False,
+            operation=InterventionOperation.ADJUST.value,
         )
         with pytest.raises(ValueError, match="fired=False with"):
             validate_trace(trace)
@@ -180,7 +183,8 @@ class TestJsonRoundTrip:
             FOO = 'foo'
 
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='default',
+            layer='bluff_catch_override',
+            rule_id='default',
             inputs={'tier': _DummyEnum.FOO},
         )
         payload = trace_to_json_dict(trace)
@@ -195,7 +199,8 @@ class TestJsonRoundTrip:
             count: int
 
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='default',
+            layer='bluff_catch_override',
+            rule_id='default',
             extra={'detail': _Nested(label='abc', count=3)},
         )
         payload = trace_to_json_dict(trace)
@@ -204,7 +209,8 @@ class TestJsonRoundTrip:
 
     def test_safe_serializes_non_finite_floats_as_null(self):
         trace = InterventionTrace(
-            layer='bluff_catch_override', rule_id='default',
+            layer='bluff_catch_override',
+            rule_id='default',
             inputs={'unbounded': float('inf'), 'undefined': float('nan')},
         )
         payload = trace_to_json_dict(trace)
@@ -247,8 +253,11 @@ class TestPureHelpers:
 
     def test_summarize_strategy_caps_to_top_n(self):
         probs = {
-            'fold': 0.4, 'call': 0.3, 'raise_2.5': 0.2,
-            'raise_4': 0.05, 'raise_6': 0.05,
+            'fold': 0.4,
+            'call': 0.3,
+            'raise_2.5': 0.2,
+            'raise_4': 0.05,
+            'raise_6': 0.05,
         }
         summary = summarize_strategy(probs, top_n=3)
         assert set(summary.keys()) == {'fold', 'call', 'raise_2.5'}

@@ -24,14 +24,20 @@ from poker.memory.relationship_events import RelationshipEvent
 
 def _player(name: str, stack: int = 1000) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position="BTN", is_human=False,
+        name=name,
+        starting_stack=stack,
+        position="BTN",
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="FLOP", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -93,9 +99,14 @@ class TestStrongFoldShownFires:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -126,9 +137,14 @@ class TestStrongFoldShownDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -155,9 +171,14 @@ class TestStrongFoldShownDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=100),
                 _action("bob", "check", 0, phase="RIVER", pot_after=100),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=100, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=100,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -184,9 +205,14 @@ class TestStrongFoldShownDoesNotFire:
                 _action("alice", "raise", 300, phase="FLOP", pot_after=400),
                 _action("bob", "fold", 0, phase="FLOP", pot_after=400),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=400, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=400,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             was_showdown=False,
         )
 

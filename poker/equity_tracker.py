@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Optional, Set
 
 from .equity_calculator import EquityCalculator
-from .equity_snapshot import EquitySnapshot, HandEquityHistory, STREET_ORDER
+from .equity_snapshot import STREET_ORDER, EquitySnapshot, HandEquityHistory
 from .memory.hand_history import HandInProgress, RecordedHand
 
 logger = logging.getLogger(__name__)
@@ -162,9 +162,7 @@ class EquityTracker:
 
         # Get active players (not folded)
         active_hole_cards = {
-            name: cards
-            for name, cards in hole_cards.items()
-            if name not in folded_at_street
+            name: cards for name, cards in hole_cards.items() if name not in folded_at_street
         }
 
         # Calculate equity for active players
@@ -192,21 +190,21 @@ class EquityTracker:
             was_active = player_name not in folded_at_street
             equity = active_equities.get(player_name, 0.0)
 
-            snapshots.append(EquitySnapshot(
-                player_name=player_name,
-                street=street,
-                equity=equity,
-                hole_cards=tuple(cards),
-                board_cards=tuple(board_cards),
-                was_active=was_active,
-                sample_count=iterations if len(board_cards) < 5 else None,
-            ))
+            snapshots.append(
+                EquitySnapshot(
+                    player_name=player_name,
+                    street=street,
+                    equity=equity,
+                    hole_cards=tuple(cards),
+                    board_cards=tuple(board_cards),
+                    was_active=was_active,
+                    sample_count=iterations if len(board_cards) < 5 else None,
+                )
+            )
 
         return snapshots
 
-    def _get_board_cards_at_street(
-        self, hand: HandInProgress, street: str
-    ) -> List[str]:
+    def _get_board_cards_at_street(self, hand: HandInProgress, street: str) -> List[str]:
         """Get cumulative board cards at a specific street from HandInProgress."""
         if street == 'PRE_FLOP':
             return []
@@ -243,9 +241,7 @@ class EquityTracker:
             return community_cards[:5] if len(community_cards) >= 5 else []
         return []
 
-    def _get_folded_players_by_street(
-        self, hand: HandInProgress
-    ) -> Dict[str, Set[str]]:
+    def _get_folded_players_by_street(self, hand: HandInProgress) -> Dict[str, Set[str]]:
         """
         Track which players had folded by each street.
 
@@ -275,9 +271,7 @@ class EquityTracker:
 
         return folded_by_street
 
-    def _get_folded_from_actions(
-        self, recorded_hand: RecordedHand
-    ) -> Dict[str, Set[str]]:
+    def _get_folded_from_actions(self, recorded_hand: RecordedHand) -> Dict[str, Set[str]]:
         """
         Track which players had folded by each street from RecordedHand.
 

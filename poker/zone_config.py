@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,15 @@ def _load_zone_params() -> Dict[str, Any]:
 
     try:
         if Path(config_path).exists():
-            with open(config_path, 'r') as f:
+            with open(config_path) as f:
                 loaded = json.load(f)
                 # Merge loaded values into defaults
-                for category in ['penalty_thresholds', 'zone_radii', 'recovery', 'energy_thresholds']:
+                for category in [
+                    'penalty_thresholds',
+                    'zone_radii',
+                    'recovery',
+                    'energy_thresholds',
+                ]:
                     if category in loaded:
                         defaults[category].update(loaded[category])
                 logger.debug(f"Loaded zone parameters from {config_path}")
@@ -167,7 +172,6 @@ EVENT_SEVERITY = {
     'not_in_hand': 'minor',
     'disciplined_fold': 'minor',
     'short_stack_survival': 'minor',
-
     # Normal events (floor=0.30) - standard gameplay, default
     'big_win': 'normal',
     'big_loss': 'normal',
@@ -178,7 +182,6 @@ EVENT_SEVERITY = {
     'losing_streak': 'normal',
     'headsup_win': 'normal',
     'headsup_loss': 'normal',
-
     # Major events (floor=0.40) - high impact, dramatic moments
     'bad_beat': 'major',
     'got_sucked_out': 'major',

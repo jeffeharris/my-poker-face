@@ -56,10 +56,7 @@ def _parse_timestamp(value) -> Optional[datetime]:
 
 
 def _has_column(conn, table_name: str, column_name: str) -> bool:
-    return any(
-        row[1] == column_name
-        for row in conn.execute(f"PRAGMA table_info({table_name})")
-    )
+    return any(row[1] == column_name for row in conn.execute(f"PRAGMA table_info({table_name})"))
 
 
 class CashTableRepository(BaseRepository):
@@ -143,7 +140,9 @@ class CashTableRepository(BaseRepository):
                 extra_ins_vals.append(state.closing_hand_countdown)
             extra_set_clause = (", " + ", ".join(extra_set_cols)) if extra_set_cols else ""
             extra_ins_col_clause = (", " + ", ".join(extra_ins_cols)) if extra_ins_cols else ""
-            extra_ins_qmark_clause = (", " + ", ".join("?" * len(extra_ins_cols))) if extra_ins_cols else ""
+            extra_ins_qmark_clause = (
+                (", " + ", ".join("?" * len(extra_ins_cols))) if extra_ins_cols else ""
+            )
 
             if existing:
                 if scoped:
@@ -155,10 +154,13 @@ class CashTableRepository(BaseRepository):
                         WHERE table_id = ? AND sandbox_id = ?
                         """,
                         (
-                            state.stake_label, seats_blob, int(state.dealer_idx),
+                            state.stake_label,
+                            seats_blob,
+                            int(state.dealer_idx),
                             now.isoformat(),
                             *extra_set_vals,
-                            state.table_id, sandbox_id,
+                            state.table_id,
+                            sandbox_id,
                         ),
                     )
                 else:
@@ -170,7 +172,9 @@ class CashTableRepository(BaseRepository):
                         WHERE table_id = ?
                         """,
                         (
-                            state.stake_label, seats_blob, int(state.dealer_idx),
+                            state.stake_label,
+                            seats_blob,
+                            int(state.dealer_idx),
                             now.isoformat(),
                             *extra_set_vals,
                             state.table_id,
@@ -187,8 +191,11 @@ class CashTableRepository(BaseRepository):
                             VALUES (?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
-                                state.table_id, sandbox_id, state.stake_label,
-                                seats_blob, int(state.dealer_idx),
+                                state.table_id,
+                                sandbox_id,
+                                state.stake_label,
+                                seats_blob,
+                                int(state.dealer_idx),
                                 now.isoformat(),
                                 *extra_ins_vals,
                             ),
@@ -202,8 +209,11 @@ class CashTableRepository(BaseRepository):
                             VALUES (?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
-                                state.table_id, state.stake_label, seats_blob,
-                                int(state.dealer_idx), now.isoformat(),
+                                state.table_id,
+                                state.stake_label,
+                                seats_blob,
+                                int(state.dealer_idx),
+                                now.isoformat(),
                                 *extra_ins_vals,
                             ),
                         )
@@ -217,8 +227,12 @@ class CashTableRepository(BaseRepository):
                             VALUES (?, ?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
-                                state.table_id, sandbox_id, state.stake_label,
-                                seats_blob, int(state.dealer_idx), created_iso,
+                                state.table_id,
+                                sandbox_id,
+                                state.stake_label,
+                                seats_blob,
+                                int(state.dealer_idx),
+                                created_iso,
                                 now.isoformat(),
                                 *extra_ins_vals,
                             ),
@@ -232,8 +246,11 @@ class CashTableRepository(BaseRepository):
                             VALUES (?, ?, ?, ?, ?, ?{extra_ins_qmark_clause})
                             """,
                             (
-                                state.table_id, state.stake_label, seats_blob,
-                                int(state.dealer_idx), created_iso,
+                                state.table_id,
+                                state.stake_label,
+                                seats_blob,
+                                int(state.dealer_idx),
+                                created_iso,
                                 now.isoformat(),
                                 *extra_ins_vals,
                             ),
@@ -298,9 +315,7 @@ class CashTableRepository(BaseRepository):
             scoped = _has_column(conn, "cash_tables", "sandbox_id")
             if scoped:
                 if not sandbox_id:
-                    raise ValueError(
-                        "sandbox_id is required for cash_tables writes"
-                    )
+                    raise ValueError("sandbox_id is required for cash_tables writes")
                 cursor = conn.execute(
                     "UPDATE cash_tables SET closing_hand_countdown = ? "
                     "WHERE table_id = ? AND sandbox_id = ?",
@@ -308,8 +323,7 @@ class CashTableRepository(BaseRepository):
                 )
             else:
                 cursor = conn.execute(
-                    "UPDATE cash_tables SET closing_hand_countdown = ? "
-                    "WHERE table_id = ?",
+                    "UPDATE cash_tables SET closing_hand_countdown = ? " "WHERE table_id = ?",
                     (countdown, table_id),
                 )
             return cursor.rowcount > 0
@@ -336,8 +350,7 @@ class CashTableRepository(BaseRepository):
                 ).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT closing_hand_countdown FROM cash_tables "
-                    "WHERE table_id = ?",
+                    "SELECT closing_hand_countdown FROM cash_tables " "WHERE table_id = ?",
                     (table_id,),
                 ).fetchone()
             if not row:
@@ -452,8 +465,10 @@ class CashTableRepository(BaseRepository):
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     (
-                        entry.personality_id, sandbox_id,
-                        entry.left_at.isoformat(), entry.reason,
+                        entry.personality_id,
+                        sandbox_id,
+                        entry.left_at.isoformat(),
+                        entry.reason,
                         entry.target_stake,
                     ),
                 )
@@ -609,9 +624,7 @@ def _row_to_idle(row) -> IdlePoolEntry:
     # `left_at` is NOT NULL in the schema, so a None here would mean
     # a malformed row — surface it loudly rather than silently lying.
     if left_at is None:
-        raise ValueError(
-            f"cash_idle_pool row {row['personality_id']!r} has unparseable left_at"
-        )
+        raise ValueError(f"cash_idle_pool row {row['personality_id']!r} has unparseable left_at")
     return IdlePoolEntry(
         personality_id=row["personality_id"],
         left_at=left_at,

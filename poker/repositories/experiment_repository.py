@@ -3,11 +3,12 @@
 Prompt captures, decision analysis, prompt presets, capture labels, and replay
 experiments have been extracted to their own focused repositories.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from poker.repositories.game_repository import GameRepository
@@ -52,21 +53,26 @@ class ExperimentRepository(BaseRepository):
             raise ValueError("Experiment name is required")
 
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO experiments (name, description, hypothesis, tags, notes, config_json, parent_experiment_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                name,
-                config.get('description'),
-                config.get('hypothesis'),
-                json.dumps(config.get('tags', [])),
-                config.get('notes'),
-                json.dumps(config),
-                parent_experiment_id,
-            ))
+            """,
+                (
+                    name,
+                    config.get('description'),
+                    config.get('hypothesis'),
+                    json.dumps(config.get('tags', [])),
+                    config.get('notes'),
+                    json.dumps(config),
+                    parent_experiment_id,
+                ),
+            )
             experiment_id = cursor.lastrowid
-            logger.info(f"Created experiment '{name}' with id {experiment_id}" +
-                       (f" (parent: {parent_experiment_id})" if parent_experiment_id else ""))
+            logger.info(
+                f"Created experiment '{name}' with id {experiment_id}"
+                + (f" (parent: {parent_experiment_id})" if parent_experiment_id else "")
+            )
             return experiment_id
 
     def link_game_to_experiment(
@@ -75,7 +81,7 @@ class ExperimentRepository(BaseRepository):
         game_id: str,
         variant: Optional[str] = None,
         variant_config: Optional[Dict] = None,
-        tournament_number: Optional[int] = None
+        tournament_number: Optional[int] = None,
     ) -> int:
         """Link a game to an experiment.
 
@@ -90,16 +96,19 @@ class ExperimentRepository(BaseRepository):
             The experiment_games record ID
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO experiment_games (experiment_id, game_id, variant, variant_config_json, tournament_number)
                 VALUES (?, ?, ?, ?, ?)
-            """, (
-                experiment_id,
-                game_id,
-                variant,
-                json.dumps(variant_config) if variant_config else None,
-                tournament_number,
-            ))
+            """,
+                (
+                    experiment_id,
+                    game_id,
+                    variant,
+                    json.dumps(variant_config) if variant_config else None,
+                    tournament_number,
+                ),
+            )
             return cursor.lastrowid
 
     def complete_experiment(self, experiment_id: int, summary: Optional[Dict] = None) -> None:
@@ -110,13 +119,16 @@ class ExperimentRepository(BaseRepository):
             summary: Optional summary dictionary with aggregated results
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE experiments
                 SET status = 'completed',
                     completed_at = CURRENT_TIMESTAMP,
                     summary_json = ?
                 WHERE id = ?
-            """, (json.dumps(summary) if summary else None, experiment_id))
+            """,
+                (json.dumps(summary) if summary else None, experiment_id),
+            )
             logger.info(f"Completed experiment {experiment_id}")
 
     def get_experiment(self, experiment_id: int) -> Optional[Dict]:
@@ -129,11 +141,14 @@ class ExperimentRepository(BaseRepository):
             Dictionary with experiment details or None if not found
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, description, hypothesis, tags, notes, config_json,
                        status, created_at, completed_at, summary_json, parent_experiment_id
                 FROM experiments WHERE id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -179,13 +194,16 @@ class ExperimentRepository(BaseRepository):
             List of dictionaries with game link details
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
                        eg.tournament_number, eg.created_at
                 FROM experiment_games eg
                 WHERE eg.experiment_id = ?
                 ORDER BY eg.tournament_number, eg.created_at
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             return [
                 {
@@ -206,10 +224,13 @@ class ExperimentRepository(BaseRepository):
             Dict with id, variant, variant_config, tournament_number, or None.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, variant, variant_config_json, tournament_number
                 FROM experiment_games WHERE game_id = ? AND experiment_id = ?
-            """, (game_id, experiment_id))
+            """,
+                (game_id, experiment_id),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -225,7 +246,7 @@ class ExperimentRepository(BaseRepository):
         game_id: str,
         state: str,
         api_call_started: bool = False,
-        process_id: Optional[int] = None
+        process_id: Optional[int] = None,
     ) -> None:
         """Update heartbeat for an experiment game.
 
@@ -237,28 +258,30 @@ class ExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             if api_call_started:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE experiment_games
                     SET state = ?,
                         last_heartbeat_at = CURRENT_TIMESTAMP,
                         last_api_call_started_at = CURRENT_TIMESTAMP,
                         process_id = COALESCE(?, process_id)
                     WHERE game_id = ?
-                """, (state, process_id, game_id))
+                """,
+                    (state, process_id, game_id),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE experiment_games
                     SET state = ?,
                         last_heartbeat_at = CURRENT_TIMESTAMP,
                         process_id = COALESCE(?, process_id)
                     WHERE game_id = ?
-                """, (state, process_id, game_id))
+                """,
+                    (state, process_id, game_id),
+                )
 
-    def get_stalled_variants(
-        self,
-        experiment_id: int,
-        threshold_minutes: int = 5
-    ) -> List[Dict]:
+    def get_stalled_variants(self, experiment_id: int, threshold_minutes: int = 5) -> List[Dict]:
         """Get variants that appear to be stalled.
 
         A variant is considered stalled if:
@@ -274,7 +297,8 @@ class ExperimentRepository(BaseRepository):
             List of stalled variant records
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT eg.id, eg.game_id, eg.variant, eg.variant_config_json,
                        eg.tournament_number, eg.state, eg.last_heartbeat_at,
                        eg.last_api_call_started_at, eg.process_id, eg.resume_lock_acquired_at
@@ -293,7 +317,9 @@ class ExperimentRepository(BaseRepository):
                       WHERE tr.game_id = eg.game_id
                   )
                 ORDER BY eg.last_heartbeat_at
-            """, (experiment_id, -threshold_minutes, -threshold_minutes))
+            """,
+                (experiment_id, -threshold_minutes, -threshold_minutes),
+            )
 
             return [
                 {
@@ -327,13 +353,16 @@ class ExperimentRepository(BaseRepository):
             True if lock was acquired, False if already locked
         """
         with self._get_connection() as conn:
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                   AND (resume_lock_acquired_at IS NULL
                        OR resume_lock_acquired_at < datetime('now', '-{self.RESUME_LOCK_TIMEOUT_MINUTES} minutes'))
-            """, (experiment_game_id,))
+            """,
+                (experiment_game_id,),
+            )
             return cursor.rowcount == 1
 
     def release_resume_lock(self, game_id: str) -> None:
@@ -343,11 +372,14 @@ class ExperimentRepository(BaseRepository):
             game_id: The game_id to release lock for
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = NULL
                 WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
     def release_resume_lock_by_id(self, experiment_game_id: int) -> None:
         """Release the resume lock by experiment_games.id.
@@ -356,11 +388,14 @@ class ExperimentRepository(BaseRepository):
             experiment_game_id: The experiment_games.id to release lock for
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE experiment_games
                 SET resume_lock_acquired_at = NULL
                 WHERE id = ?
-            """, (experiment_game_id,))
+            """,
+                (experiment_game_id,),
+            )
 
     def check_resume_lock_superseded(self, game_id: str) -> bool:
         """Check if this process has been superseded by a resume.
@@ -375,11 +410,14 @@ class ExperimentRepository(BaseRepository):
             True if superseded (should exit), False otherwise
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT resume_lock_acquired_at, last_heartbeat_at
                 FROM experiment_games
                 WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return False
@@ -394,9 +432,7 @@ class ExperimentRepository(BaseRepository):
             return resume_lock > last_heartbeat
 
     def get_experiment_decision_stats(
-        self,
-        experiment_id: int,
-        variant: Optional[str] = None
+        self, experiment_id: int, variant: Optional[str] = None
     ) -> Dict:
         """Get aggregated decision analysis stats for an experiment.
 
@@ -415,7 +451,8 @@ class ExperimentRepository(BaseRepository):
                 params.append(variant)
 
             # Aggregate stats
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
@@ -429,7 +466,9 @@ class ExperimentRepository(BaseRepository):
                 FROM player_decision_analysis pda
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ? {variant_clause}
-            """, params)
+            """,
+                params,
+            )
 
             row = cursor.fetchone()
             total = row[0] or 0
@@ -447,12 +486,17 @@ class ExperimentRepository(BaseRepository):
                 'menu_compliance': {
                     'total': menu_total,
                     'correct': row[7] or 0,
-                    'compliance_pct': round((row[7] or 0) * 100 / menu_total, 1) if menu_total else None,
-                } if menu_total > 0 else None,
+                    'compliance_pct': round((row[7] or 0) * 100 / menu_total, 1)
+                    if menu_total
+                    else None,
+                }
+                if menu_total > 0
+                else None,
             }
 
             # Stats by player
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT
                     pda.player_name,
                     COUNT(*) as total,
@@ -465,7 +509,9 @@ class ExperimentRepository(BaseRepository):
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ? {variant_clause}
                 GROUP BY pda.player_name
-            """, params)
+            """,
+                params,
+            )
 
             result['by_player'] = {}
             for row in cursor.fetchall():
@@ -476,7 +522,9 @@ class ExperimentRepository(BaseRepository):
                     'correct_pct': round((row[2] or 0) * 100 / row[1], 1) if row[1] else 0,
                     'avg_ev_lost': round(row[3] or 0, 2),
                     'quality_score': round(row[4], 1) if row[4] is not None else None,
-                    'menu_compliance_pct': round((row[5] or 0) * 100 / p_menu_total, 1) if p_menu_total else None,
+                    'menu_compliance_pct': round((row[5] or 0) * 100 / p_menu_total, 1)
+                    if p_menu_total
+                    else None,
                 }
 
             return result
@@ -486,7 +534,7 @@ class ExperimentRepository(BaseRepository):
         status: Optional[str] = None,
         include_archived: bool = False,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[Dict]:
         """List experiments with optional status filter.
 
@@ -514,7 +562,8 @@ class ExperimentRepository(BaseRepository):
 
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT
                     e.id, e.name, e.description, e.hypothesis,
                     e.tags, e.status, e.created_at, e.completed_at,
@@ -524,7 +573,9 @@ class ExperimentRepository(BaseRepository):
                 {where_clause}
                 ORDER BY e.created_at DESC
                 LIMIT ? OFFSET ?
-            """, params + [limit, offset])
+            """,
+                params + [limit, offset],
+            )
 
             experiments = []
             for row in cursor.fetchall():
@@ -543,29 +594,28 @@ class ExperimentRepository(BaseRepository):
                 else:
                     total_expected = num_tournaments
 
-                experiments.append({
-                    'id': row[0],
-                    'name': row[1],
-                    'description': row[2],
-                    'hypothesis': row[3],
-                    'tags': json.loads(row[4]) if row[4] else [],
-                    'status': row[5],
-                    'created_at': row[6],
-                    'completed_at': row[7],
-                    'games_count': row[10],
-                    'num_tournaments': total_expected,
-                    'model': config.get('model'),
-                    'provider': config.get('provider'),
-                    'summary': summary,
-                })
+                experiments.append(
+                    {
+                        'id': row[0],
+                        'name': row[1],
+                        'description': row[2],
+                        'hypothesis': row[3],
+                        'tags': json.loads(row[4]) if row[4] else [],
+                        'status': row[5],
+                        'created_at': row[6],
+                        'completed_at': row[7],
+                        'games_count': row[10],
+                        'num_tournaments': total_expected,
+                        'model': config.get('model'),
+                        'provider': config.get('provider'),
+                        'summary': summary,
+                    }
+                )
 
             return experiments
 
     def update_experiment_status(
-        self,
-        experiment_id: int,
-        status: str,
-        error_message: Optional[str] = None
+        self, experiment_id: int, status: str, error_message: Optional[str] = None
     ) -> None:
         """Update experiment status.
 
@@ -580,24 +630,33 @@ class ExperimentRepository(BaseRepository):
 
         with self._get_connection() as conn:
             if status == 'completed':
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE experiments
                     SET status = ?, completed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (status, experiment_id))
+                """,
+                    (status, experiment_id),
+                )
             elif status == 'failed' and error_message:
                 # Store error in notes field
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE experiments
                     SET status = ?, notes = COALESCE(notes || '\n', '') || ?
                     WHERE id = ?
-                """, (status, f"Error: {error_message}", experiment_id))
+                """,
+                    (status, f"Error: {error_message}", experiment_id),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE experiments
                     SET status = ?
                     WHERE id = ?
-                """, (status, experiment_id))
+                """,
+                    (status, experiment_id),
+                )
             logger.info(f"Updated experiment {experiment_id} status to {status}")
 
     def update_experiment_tags(self, experiment_id: int, tags: List[str]) -> None:
@@ -609,8 +668,7 @@ class ExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             conn.execute(
-                "UPDATE experiments SET tags = ? WHERE id = ?",
-                (json.dumps(tags), experiment_id)
+                "UPDATE experiments SET tags = ? WHERE id = ?", (json.dumps(tags), experiment_id)
             )
             logger.info(f"Updated experiment {experiment_id} tags to {tags}")
 
@@ -647,15 +705,17 @@ class ExperimentRepository(BaseRepository):
             List of dicts with game info for incomplete tournaments
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT eg.game_id, eg.variant, eg.variant_config_json, eg.tournament_number
                 FROM experiment_games eg
                 LEFT JOIN tournament_results tr ON eg.game_id = tr.game_id
                 WHERE eg.experiment_id = ?
                 AND tr.id IS NULL
                 ORDER BY eg.tournament_number
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             incomplete = []
             for row in cursor.fetchall():
@@ -666,12 +726,14 @@ class ExperimentRepository(BaseRepository):
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-                incomplete.append({
-                    'game_id': row['game_id'],
-                    'variant': row['variant'],
-                    'variant_config': variant_config,
-                    'tournament_number': row['tournament_number'],
-                })
+                incomplete.append(
+                    {
+                        'game_id': row['game_id'],
+                        'variant': row['variant'],
+                        'variant_config': variant_config,
+                        'tournament_number': row['tournament_number'],
+                    }
+                )
 
             return incomplete
 
@@ -683,7 +745,7 @@ class ExperimentRepository(BaseRepository):
         owner_id: str,
         messages: List[Dict],
         config_snapshot: Dict,
-        config_versions: Optional[List[Dict]] = None
+        config_versions: Optional[List[Dict]] = None,
     ) -> None:
         """Save or update a chat session.
 
@@ -695,7 +757,8 @@ class ExperimentRepository(BaseRepository):
             config_versions: List of config version snapshots
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO experiment_chat_sessions (id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
@@ -703,17 +766,21 @@ class ExperimentRepository(BaseRepository):
                     config_snapshot_json = excluded.config_snapshot_json,
                     config_versions_json = excluded.config_versions_json,
                     updated_at = CURRENT_TIMESTAMP
-            """, (
-                session_id,
-                owner_id,
-                json.dumps(messages),
-                json.dumps(config_snapshot),
-                json.dumps(config_versions) if config_versions else None,
-            ))
+            """,
+                (
+                    session_id,
+                    owner_id,
+                    json.dumps(messages),
+                    json.dumps(config_snapshot),
+                    json.dumps(config_versions) if config_versions else None,
+                ),
+            )
             logger.debug(f"Saved chat session {session_id} for owner {owner_id}")
 
     def get_chat_session(
-        self, session_id: str, expected_owner_id: Optional[str] = None,
+        self,
+        session_id: str,
+        expected_owner_id: Optional[str] = None,
     ) -> Optional[Dict]:
         """Get a chat session by its ID.
 
@@ -737,12 +804,14 @@ class ExperimentRepository(BaseRepository):
             Dict with session data or None if not found / wrong owner.
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, owner_id, messages_json, config_snapshot_json, config_versions_json, updated_at
                 FROM experiment_chat_sessions
                 WHERE id = ?
-            """, (session_id,))
+            """,
+                (session_id,),
+            )
             row = cursor.fetchone()
 
             if not row:
@@ -752,15 +821,21 @@ class ExperimentRepository(BaseRepository):
                 logger.warning(
                     "get_chat_session: owner mismatch (session=%s "
                     "expected=%s found=%s) — denying read",
-                    session_id, expected_owner_id, row['owner_id'],
+                    session_id,
+                    expected_owner_id,
+                    row['owner_id'],
                 )
                 return None
 
             return {
                 'session_id': row['id'],
                 'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
-                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
-                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'config': json.loads(row['config_snapshot_json'])
+                if row['config_snapshot_json']
+                else {},
+                'config_versions': json.loads(row['config_versions_json'])
+                if row['config_versions_json']
+                else None,
                 'updated_at': row['updated_at'],
             }
 
@@ -774,14 +849,16 @@ class ExperimentRepository(BaseRepository):
             Dict with session data or None if no session exists
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, messages_json, config_snapshot_json, config_versions_json, updated_at
                 FROM experiment_chat_sessions
                 WHERE owner_id = ? AND is_archived = 0
                 ORDER BY updated_at DESC
                 LIMIT 1
-            """, (owner_id,))
+            """,
+                (owner_id,),
+            )
             row = cursor.fetchone()
 
             if not row:
@@ -790,13 +867,19 @@ class ExperimentRepository(BaseRepository):
             return {
                 'session_id': row['id'],
                 'messages': json.loads(row['messages_json']) if row['messages_json'] else [],
-                'config': json.loads(row['config_snapshot_json']) if row['config_snapshot_json'] else {},
-                'config_versions': json.loads(row['config_versions_json']) if row['config_versions_json'] else None,
+                'config': json.loads(row['config_snapshot_json'])
+                if row['config_snapshot_json']
+                else {},
+                'config_versions': json.loads(row['config_versions_json'])
+                if row['config_versions_json']
+                else None,
                 'updated_at': row['updated_at'],
             }
 
     def archive_chat_session(
-        self, session_id: str, expected_owner_id: Optional[str] = None,
+        self,
+        session_id: str,
+        expected_owner_id: Optional[str] = None,
     ) -> bool:
         """Archive a chat session so it won't be returned by get_latest_chat_session.
 
@@ -817,7 +900,7 @@ class ExperimentRepository(BaseRepository):
                 cursor = conn.execute(
                     "UPDATE experiment_chat_sessions SET is_archived = 1, "
                     "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (session_id,)
+                    (session_id,),
                 )
             else:
                 cursor = conn.execute(
@@ -833,7 +916,8 @@ class ExperimentRepository(BaseRepository):
                 logger.warning(
                     "archive_chat_session: no-op (session=%s expected_owner=%s) "
                     "— either missing or owner mismatch",
-                    session_id, expected_owner_id,
+                    session_id,
+                    expected_owner_id,
                 )
             return archived
 
@@ -861,9 +945,11 @@ class ExperimentRepository(BaseRepository):
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET design_chat_json = ? WHERE id = ?",
-                (json.dumps(chat_history), experiment_id)
+                (json.dumps(chat_history), experiment_id),
             )
-            logger.info(f"Saved design chat ({len(chat_history)} messages) to experiment {experiment_id}")
+            logger.info(
+                f"Saved design chat ({len(chat_history)} messages) to experiment {experiment_id}"
+            )
 
     def get_experiment_design_chat(self, experiment_id: int) -> Optional[List[Dict]]:
         """Get the design chat history for an experiment.
@@ -876,8 +962,7 @@ class ExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT design_chat_json FROM experiments WHERE id = ?",
-                (experiment_id,)
+                "SELECT design_chat_json FROM experiments WHERE id = ?", (experiment_id,)
             )
             row = cursor.fetchone()
             if row and row[0]:
@@ -896,9 +981,11 @@ class ExperimentRepository(BaseRepository):
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET assistant_chat_json = ? WHERE id = ?",
-                (json.dumps(chat_history), experiment_id)
+                (json.dumps(chat_history), experiment_id),
             )
-            logger.debug(f"Saved assistant chat ({len(chat_history)} messages) to experiment {experiment_id}")
+            logger.debug(
+                f"Saved assistant chat ({len(chat_history)} messages) to experiment {experiment_id}"
+            )
 
     def get_experiment_assistant_chat(self, experiment_id: int) -> Optional[List[Dict]]:
         """Get the assistant chat history for an experiment.
@@ -911,8 +998,7 @@ class ExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT assistant_chat_json FROM experiments WHERE id = ?",
-                (experiment_id,)
+                "SELECT assistant_chat_json FROM experiments WHERE id = ?", (experiment_id,)
             )
             row = cursor.fetchone()
             if row and row[0]:
@@ -937,14 +1023,18 @@ class ExperimentRepository(BaseRepository):
         """Load controller state for a player. Delegates to GameRepository."""
         return self._game_repo.load_controller_state(game_id, player_name)
 
-    def _compute_latency_metrics(self, conn, experiment_id: int,
-                                 variant_clause: str, variant_params: list) -> Optional[Dict]:
+    def _compute_latency_metrics(
+        self, conn, experiment_id: int, variant_clause: str, variant_params: list
+    ) -> Optional[Dict]:
         """Compute latency percentile metrics for an experiment variant."""
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT au.latency_ms FROM api_usage au
             JOIN experiment_games eg ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause} AND au.latency_ms IS NOT NULL
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         latencies = [row[0] for row in cursor.fetchall()]
 
         if not latencies:
@@ -958,10 +1048,12 @@ class ExperimentRepository(BaseRepository):
             '_raw_latencies': latencies,
         }
 
-    def _compute_decision_quality(self, conn, experiment_id: int,
-                                   variant_clause: str, variant_params: list) -> Optional[Dict]:
+    def _compute_decision_quality(
+        self, conn, experiment_id: int, variant_clause: str, variant_params: list
+    ) -> Optional[Dict]:
         """Compute decision quality metrics for an experiment variant."""
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN pda.decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
@@ -973,7 +1065,9 @@ class ExperimentRepository(BaseRepository):
             FROM player_decision_analysis pda
             JOIN experiment_games eg ON pda.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         row = cursor.fetchone()
         total = row[0] or 0
 
@@ -992,11 +1086,18 @@ class ExperimentRepository(BaseRepository):
             result['menu_compliance_pct'] = round((row[5] or 0) * 100 / menu_total, 1)
         return result
 
-    def _compute_progress_metrics(self, conn, experiment_id: int,
-                                   variant_clause: str, variant_params: list,
-                                   max_hands: int, num_tournaments: int) -> Dict:
+    def _compute_progress_metrics(
+        self,
+        conn,
+        experiment_id: int,
+        variant_clause: str,
+        variant_params: list,
+        max_hands: int,
+        num_tournaments: int,
+    ) -> Dict:
         """Compute progress metrics for an experiment variant."""
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 eg.game_id,
                 COALESCE(MAX(au.hand_number), 0) as max_hand
@@ -1004,7 +1105,9 @@ class ExperimentRepository(BaseRepository):
             LEFT JOIN api_usage au ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
             GROUP BY eg.game_id
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         games_data = cursor.fetchall()
         games_count = len(games_data)
         current_hands = sum(min(row[1], max_hands) for row in games_data)
@@ -1015,13 +1118,17 @@ class ExperimentRepository(BaseRepository):
             'max_hands': variant_max_hands,
             'games_count': games_count,
             'games_expected': num_tournaments,
-            'progress_pct': round(current_hands * 100 / variant_max_hands, 1) if variant_max_hands else 0,
+            'progress_pct': round(current_hands * 100 / variant_max_hands, 1)
+            if variant_max_hands
+            else 0,
         }
 
-    def _compute_cost_metrics(self, conn, experiment_id: int,
-                               variant_clause: str, variant_params: list) -> Dict:
+    def _compute_cost_metrics(
+        self, conn, experiment_id: int, variant_clause: str, variant_params: list
+    ) -> Dict:
         """Compute cost metrics for an experiment variant."""
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 COALESCE(SUM(au.estimated_cost), 0) as total_cost,
                 COUNT(*) as total_calls,
@@ -1029,10 +1136,13 @@ class ExperimentRepository(BaseRepository):
             FROM api_usage au
             JOIN experiment_games eg ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         cost_row = cursor.fetchone()
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 au.provider || '/' || au.model as model_key,
                 SUM(au.estimated_cost) as cost,
@@ -1041,23 +1151,31 @@ class ExperimentRepository(BaseRepository):
             JOIN experiment_games eg ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause} AND au.estimated_cost IS NOT NULL
             GROUP BY au.provider, au.model
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         by_model = {row[0]: {'cost': row[1], 'calls': row[2]} for row in cursor.fetchall()}
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT AVG(au.estimated_cost), COUNT(*)
             FROM api_usage au
             JOIN experiment_games eg ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause} AND au.call_type = 'player_decision'
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         decision_cost_row = cursor.fetchone()
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT COUNT(DISTINCT au.game_id || '-' || au.hand_number) as total_hands
             FROM api_usage au
             JOIN experiment_games eg ON au.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause} AND au.hand_number IS NOT NULL
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         total_hands = cursor.fetchone()[0] or 1
 
         return {
@@ -1065,18 +1183,22 @@ class ExperimentRepository(BaseRepository):
             'total_calls': cost_row[1] or 0,
             'avg_cost_per_call': round(cost_row[2] or 0, 8),
             'by_model': by_model,
-            'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8) if decision_cost_row[0] else 0,
+            'avg_cost_per_decision': round(decision_cost_row[0] or 0, 8)
+            if decision_cost_row[0]
+            else 0,
             'total_decisions': decision_cost_row[1] or 0,
             'cost_per_hand': round((cost_row[0] or 0) / total_hands, 6),
             'total_hands': total_hands,
         }
 
-    def _compute_quality_indicators(self, conn, experiment_id: int,
-                                     variant_clause: str, variant_params: list) -> Optional[Dict]:
+    def _compute_quality_indicators(
+        self, conn, experiment_id: int, variant_clause: str, variant_params: list
+    ) -> Optional[Dict]:
         """Compute quality indicators for an experiment variant."""
         from poker.quality_metrics import compute_allin_categorizations
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
                 SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
@@ -1085,13 +1207,16 @@ class ExperimentRepository(BaseRepository):
             FROM player_decision_analysis pda
             JOIN experiment_games eg ON pda.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         qi_row = cursor.fetchone()
 
         if not qi_row or qi_row[3] == 0:
             return None
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT pc.stack_bb, pc.ai_response, pda.equity
             FROM prompt_captures pc
             JOIN experiment_games eg ON pc.game_id = eg.game_id
@@ -1102,10 +1227,13 @@ class ExperimentRepository(BaseRepository):
                 AND pc.phase = pda.phase
             WHERE eg.experiment_id = ? {variant_clause}
               AND pc.action_taken = 'all_in'
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         suspicious_allins, marginal_allins = compute_allin_categorizations(cursor.fetchall())
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT
                 SUM(COALESCE(ts.times_eliminated, 0)) as total_eliminations,
                 SUM(COALESCE(ts.all_in_wins, 0)) as total_all_in_wins,
@@ -1113,7 +1241,9 @@ class ExperimentRepository(BaseRepository):
             FROM tournament_standings ts
             JOIN experiment_games eg ON ts.game_id = eg.game_id
             WHERE eg.experiment_id = ? {variant_clause}
-        """, [experiment_id] + variant_params)
+        """,
+            [experiment_id] + variant_params,
+        )
         survival_row = cursor.fetchone()
 
         fold_mistakes = qi_row[0] or 0
@@ -1126,7 +1256,9 @@ class ExperimentRepository(BaseRepository):
             'suspicious_allins': suspicious_allins,
             'marginal_allins': marginal_allins,
             'fold_mistakes': fold_mistakes,
-            'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1) if total_folds > 0 else 0,
+            'fold_mistake_rate': round(fold_mistakes * 100 / total_folds, 1)
+            if total_folds > 0
+            else 0,
             'total_all_ins': qi_row[1] or 0,
             'total_folds': total_folds,
             'total_decisions': qi_row[3],
@@ -1134,12 +1266,18 @@ class ExperimentRepository(BaseRepository):
 
         # Include survival metrics only for per-variant (has tournament_standings data)
         if survival_row:
-            result.update({
-                'total_eliminations': survival_row[0] or 0,
-                'all_in_wins': total_all_in_wins,
-                'all_in_losses': total_all_in_losses,
-                'all_in_survival_rate': round(total_all_in_wins * 100 / total_all_in_showdowns, 1) if total_all_in_showdowns > 0 else None,
-            })
+            result.update(
+                {
+                    'total_eliminations': survival_row[0] or 0,
+                    'all_in_wins': total_all_in_wins,
+                    'all_in_losses': total_all_in_losses,
+                    'all_in_survival_rate': round(
+                        total_all_in_wins * 100 / total_all_in_showdowns, 1
+                    )
+                    if total_all_in_showdowns > 0
+                    else None,
+                }
+            )
 
         return result
 
@@ -1163,17 +1301,20 @@ class ExperimentRepository(BaseRepository):
             result = {'by_variant': {}, 'overall': None}
 
             # Get all variants for this experiment from actual games
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT DISTINCT variant FROM experiment_games
                 WHERE experiment_id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             variant_labels = [row[0] for row in cursor.fetchall()]
 
             # If no games yet, create placeholder entries from config
             if not variant_labels:
                 if control is not None:
                     variant_labels = [control.get('label', 'Control')]
-                    for v in (variants or []):
+                    for v in variants or []:
                         variant_labels.append(v.get('label', 'Variant'))
                 else:
                     variant_labels = [None]
@@ -1190,31 +1331,43 @@ class ExperimentRepository(BaseRepository):
                     variant_clause = "AND eg.variant = ?"
                     variant_params = [variant]
 
-                latency = self._compute_latency_metrics(conn, experiment_id, variant_clause, variant_params)
+                latency = self._compute_latency_metrics(
+                    conn, experiment_id, variant_clause, variant_params
+                )
                 if latency:
                     all_latencies.extend(latency.pop('_raw_latencies'))
 
                 progress = self._compute_progress_metrics(
-                    conn, experiment_id, variant_clause, variant_params, max_hands, num_tournaments)
+                    conn, experiment_id, variant_clause, variant_params, max_hands, num_tournaments
+                )
 
                 result['by_variant'][variant_key] = {
                     'latency_metrics': latency,
-                    'decision_quality': self._compute_decision_quality(conn, experiment_id, variant_clause, variant_params),
+                    'decision_quality': self._compute_decision_quality(
+                        conn, experiment_id, variant_clause, variant_params
+                    ),
                     'progress': progress,
-                    'cost_metrics': self._compute_cost_metrics(conn, experiment_id, variant_clause, variant_params),
-                    'quality_indicators': self._compute_quality_indicators(conn, experiment_id, variant_clause, variant_params),
+                    'cost_metrics': self._compute_cost_metrics(
+                        conn, experiment_id, variant_clause, variant_params
+                    ),
+                    'quality_indicators': self._compute_quality_indicators(
+                        conn, experiment_id, variant_clause, variant_params
+                    ),
                 }
 
             # Compute overall stats
             no_filter = ""
             no_params = []
 
-            overall_latency = self._compute_latency_metrics(conn, experiment_id, no_filter, no_params)
+            overall_latency = self._compute_latency_metrics(
+                conn, experiment_id, no_filter, no_params
+            )
             if overall_latency:
                 overall_latency.pop('_raw_latencies')
 
             overall_progress = self._compute_progress_metrics(
-                conn, experiment_id, no_filter, no_params, max_hands, num_tournaments)
+                conn, experiment_id, no_filter, no_params, max_hands, num_tournaments
+            )
             # Overall progress aggregates all variants, so recalculate max_hands
             num_variant_configs = (1 + len(variants or [])) if control is not None else 1
             overall_max = num_variant_configs * num_tournaments * max_hands
@@ -1227,10 +1380,16 @@ class ExperimentRepository(BaseRepository):
 
             result['overall'] = {
                 'latency_metrics': overall_latency,
-                'decision_quality': self._compute_decision_quality(conn, experiment_id, no_filter, no_params),
+                'decision_quality': self._compute_decision_quality(
+                    conn, experiment_id, no_filter, no_params
+                ),
                 'progress': overall_progress_result,
-                'cost_metrics': self._compute_cost_metrics(conn, experiment_id, no_filter, no_params),
-                'quality_indicators': self._compute_quality_indicators(conn, experiment_id, no_filter, no_params),
+                'cost_metrics': self._compute_cost_metrics(
+                    conn, experiment_id, no_filter, no_params
+                ),
+                'quality_indicators': self._compute_quality_indicators(
+                    conn, experiment_id, no_filter, no_params
+                ),
             }
 
             return result
@@ -1248,15 +1407,17 @@ class ExperimentRepository(BaseRepository):
             List of dictionaries with game snapshots
         """
         with self._get_connection() as conn:
-
             # Get all games for this experiment (stable order by game_id)
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT eg.game_id, eg.variant, g.game_state_json, g.phase, g.updated_at
                 FROM experiment_games eg
                 JOIN games g ON eg.game_id = g.game_id
                 WHERE eg.experiment_id = ?
                 ORDER BY eg.game_id
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             games = []
             for row in cursor.fetchall():
@@ -1285,7 +1446,8 @@ class ExperimentRepository(BaseRepository):
                 emotional_data = self._load_all_emotional_states(game_id)
 
                 # Load LLM debug info from most recent api_usage records per player
-                llm_debug_cursor = conn.execute("""
+                llm_debug_cursor = conn.execute(
+                    """
                     SELECT player_name, provider, model, reasoning_effort,
                            COUNT(*) as total_calls,
                            AVG(latency_ms) as avg_latency_ms,
@@ -1293,7 +1455,9 @@ class ExperimentRepository(BaseRepository):
                     FROM api_usage
                     WHERE game_id = ?
                     GROUP BY player_name
-                """, (game_id,))
+                """,
+                    (game_id,),
+                )
                 llm_debug_by_player = {}
                 for llm_row in llm_debug_cursor.fetchall():
                     if llm_row['player_name']:
@@ -1322,51 +1486,59 @@ class ExperimentRepository(BaseRepository):
                         'narrative': emo_state.get('narrative', ''),
                         'inner_voice': emo_state.get('inner_voice', ''),
                         # Convert tilt_level from 0.0-1.0 to 0-100 percentage
-                        'tilt_level': round((tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100),
-                        'tilt_category': tilt_state.get('category', 'none') if tilt_state else 'none',
+                        'tilt_level': round(
+                            (tilt_state.get('tilt_level', 0) if tilt_state else 0) * 100
+                        ),
+                        'tilt_category': tilt_state.get('category', 'none')
+                        if tilt_state
+                        else 'none',
                         'tilt_source': tilt_state.get('source', '') if tilt_state else '',
                     }
 
-                    players.append({
-                        'name': player_name,
-                        'stack': p.get('stack', 0),
-                        'bet': p.get('bet', 0),
-                        'hole_cards': p.get('hand', []),  # Always show cards in monitoring mode
-                        'is_folded': p.get('is_folded', False),
-                        'is_all_in': p.get('is_all_in', False),
-                        'is_current': idx == current_player_idx,
-                        'is_eliminated': p.get('stack', 0) == 0,
-                        'seat_index': idx,  # Fixed seat position for monitoring
-                        'psychology': psychology,
-                        'llm_debug': llm_debug_by_player.get(player_name, {}),
-                    })
+                    players.append(
+                        {
+                            'name': player_name,
+                            'stack': p.get('stack', 0),
+                            'bet': p.get('bet', 0),
+                            'hole_cards': p.get('hand', []),  # Always show cards in monitoring mode
+                            'is_folded': p.get('is_folded', False),
+                            'is_all_in': p.get('is_all_in', False),
+                            'is_current': idx == current_player_idx,
+                            'is_eliminated': p.get('stack', 0) == 0,
+                            'seat_index': idx,  # Fixed seat position for monitoring
+                            'psychology': psychology,
+                            'llm_debug': llm_debug_by_player.get(player_name, {}),
+                        }
+                    )
 
                 # Get hand number from api_usage (most recent)
-                hand_cursor = conn.execute("""
+                hand_cursor = conn.execute(
+                    """
                     SELECT MAX(hand_number) as hand_number
                     FROM api_usage WHERE game_id = ?
-                """, (game_id,))
+                """,
+                    (game_id,),
+                )
                 hand_row = hand_cursor.fetchone()
                 hand_number = hand_row['hand_number'] if hand_row and hand_row['hand_number'] else 1
 
-                games.append({
-                    'game_id': game_id,
-                    'variant': variant,
-                    'phase': phase,
-                    'hand_number': hand_number,
-                    'pot': pot_total,
-                    'community_cards': community_cards,
-                    'players': players,
-                    'total_seats': len(players),  # Fixed seat count for positioning
-                })
+                games.append(
+                    {
+                        'game_id': game_id,
+                        'variant': variant,
+                        'phase': phase,
+                        'hand_number': hand_number,
+                        'pot': pot_total,
+                        'community_cards': community_cards,
+                        'players': players,
+                        'total_seats': len(players),  # Fixed seat count for positioning
+                    }
+                )
 
             return games
 
     def get_experiment_player_detail(
-        self,
-        experiment_id: int,
-        game_id: str,
-        player_name: str
+        self, experiment_id: int, game_id: str, player_name: str
     ) -> Optional[Dict]:
         """Get detailed player info for the drill-down panel.
 
@@ -1379,12 +1551,14 @@ class ExperimentRepository(BaseRepository):
             Dictionary with detailed player info or None if not found
         """
         with self._get_connection() as conn:
-
             # Verify game belongs to experiment and get variant config
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT eg.id, eg.variant_config_json FROM experiment_games eg
                 WHERE eg.experiment_id = ? AND eg.game_id = ?
-            """, (experiment_id, game_id))
+            """,
+                (experiment_id, game_id),
+            )
             eg_row = cursor.fetchone()
             if not eg_row:
                 return None
@@ -1399,10 +1573,7 @@ class ExperimentRepository(BaseRepository):
             psychology_enabled = variant_config.get('enable_psychology', False)
 
             # Load game state for player info
-            cursor = conn.execute(
-                "SELECT game_state_json FROM games WHERE game_id = ?",
-                (game_id,)
-            )
+            cursor = conn.execute("SELECT game_state_json FROM games WHERE game_id = ?", (game_id,))
             row = cursor.fetchone()
             if not row:
                 return None
@@ -1437,7 +1608,8 @@ class ExperimentRepository(BaseRepository):
             }
 
             # Get LLM debug info
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT provider, model, reasoning_effort,
                        COUNT(*) as total_calls,
                        AVG(latency_ms) as avg_latency_ms,
@@ -1445,24 +1617,37 @@ class ExperimentRepository(BaseRepository):
                 FROM api_usage
                 WHERE game_id = ? AND player_name = ?
                 GROUP BY provider, model
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
             llm_row = cursor.fetchone()
 
             llm_debug = {}
             if llm_row:
                 # Also get percentile latencies
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT latency_ms FROM api_usage
                     WHERE game_id = ? AND player_name = ? AND latency_ms IS NOT NULL
                     ORDER BY latency_ms
-                """, (game_id, player_name))
+                """,
+                    (game_id, player_name),
+                )
                 latencies = [r['latency_ms'] for r in cursor.fetchall()]
 
                 p95 = 0
                 p99 = 0
                 if latencies:
-                    p95 = round(float(np.percentile(latencies, 95)), 2) if len(latencies) >= 5 else max(latencies)
-                    p99 = round(float(np.percentile(latencies, 99)), 2) if len(latencies) >= 10 else max(latencies)
+                    p95 = (
+                        round(float(np.percentile(latencies, 95)), 2)
+                        if len(latencies) >= 5
+                        else max(latencies)
+                    )
+                    p99 = (
+                        round(float(np.percentile(latencies, 99)), 2)
+                        if len(latencies) >= 10
+                        else max(latencies)
+                    )
 
                 llm_debug = {
                     'provider': llm_row['provider'],
@@ -1476,13 +1661,16 @@ class ExperimentRepository(BaseRepository):
                 }
 
             # Get play style from opponent models (observed by any player)
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT hands_observed, vpip, pfr, aggression_factor
                 FROM opponent_models
                 WHERE game_id = ? AND opponent_name = ?
                 ORDER BY hands_observed DESC
                 LIMIT 1
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
             opp_row = cursor.fetchone()
 
             play_style = {}
@@ -1517,13 +1705,16 @@ class ExperimentRepository(BaseRepository):
                 }
 
             # Get recent decisions
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT hand_number, phase, action_taken, decision_quality, ev_lost
                 FROM player_decision_analysis
                 WHERE game_id = ? AND player_name = ?
                 ORDER BY created_at DESC
                 LIMIT 5
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
 
             recent_decisions = [
                 {
@@ -1560,7 +1751,8 @@ class ExperimentRepository(BaseRepository):
             Empty dict if no data found.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT COUNT(*) as total,
                     SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct,
                     SUM(CASE WHEN decision_quality = 'marginal' THEN 1 ELSE 0 END) as marginal,
@@ -1570,7 +1762,9 @@ class ExperimentRepository(BaseRepository):
                     SUM(CASE WHEN menu_picked_best = 1 THEN 1 ELSE 0 END) as menu_correct,
                     COUNT(CASE WHEN menu_picked_best IS NOT NULL THEN 1 END) as menu_total
                 FROM player_decision_analysis WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             row = cursor.fetchone()
             if not row or row['total'] == 0:
@@ -1583,7 +1777,9 @@ class ExperimentRepository(BaseRepository):
                 'marginal': row['marginal'],
                 'mistake': row['mistake'],
                 'avg_ev_lost': row['avg_ev_lost'],
-                'quality_score': round(row['avg_quality_score'], 1) if row['avg_quality_score'] is not None else None,
+                'quality_score': round(row['avg_quality_score'], 1)
+                if row['avg_quality_score'] is not None
+                else None,
             }
             if menu_total > 0:
                 result['menu_compliance'] = {
@@ -1602,9 +1798,12 @@ class ExperimentRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT players_json, winners_json FROM hand_history WHERE game_id = ?
-                """, (game_id,))
+                """,
+                    (game_id,),
+                )
 
                 outcomes: Dict[str, Dict[str, int]] = {}
                 for row in cursor.fetchall():
@@ -1616,14 +1815,18 @@ class ExperimentRepository(BaseRepository):
 
                     # Count hands played
                     for player in players:
-                        name = player if isinstance(player, str) else player.get('name', str(player))
+                        name = (
+                            player if isinstance(player, str) else player.get('name', str(player))
+                        )
                         if name not in outcomes:
                             outcomes[name] = {'hands_played': 0, 'hands_won': 0}
                         outcomes[name]['hands_played'] += 1
 
                     # Count hands won
                     for winner in winners:
-                        name = winner if isinstance(winner, str) else winner.get('name', str(winner))
+                        name = (
+                            winner if isinstance(winner, str) else winner.get('name', str(winner))
+                        )
                         if name not in outcomes:
                             outcomes[name] = {'hands_played': 0, 'hands_won': 0}
                         outcomes[name]['hands_won'] += 1
@@ -1653,10 +1856,13 @@ class ExperimentRepository(BaseRepository):
 
         placeholders = ','.join('?' for _ in game_ids)
         with self._get_connection() as conn:
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT latency_ms FROM api_usage
                 WHERE game_id IN ({placeholders}) AND latency_ms IS NOT NULL
-            """, game_ids)
+            """,
+                game_ids,
+            )
 
             latencies = [row['latency_ms'] for row in cursor.fetchall()]
             if not latencies:
@@ -1668,7 +1874,7 @@ class ExperimentRepository(BaseRepository):
                 'p50_ms': float(np_local.percentile(arr, 50)),
                 'p95_ms': float(np_local.percentile(arr, 95)),
                 'p99_ms': float(np_local.percentile(arr, 99)),
-                'count': len(latencies)
+                'count': len(latencies),
             }
 
     def get_error_stats(self, game_ids: list) -> Optional[dict]:
@@ -1685,11 +1891,14 @@ class ExperimentRepository(BaseRepository):
 
         placeholders = ','.join('?' for _ in game_ids)
         with self._get_connection() as conn:
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT COUNT(*) as total,
                     SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
                 FROM api_usage WHERE game_id IN ({placeholders})
-            """, game_ids)
+            """,
+                game_ids,
+            )
 
             row = cursor.fetchone()
             if not row or row['total'] == 0:
@@ -1699,22 +1908,24 @@ class ExperimentRepository(BaseRepository):
             error_count = row['errors'] or 0
 
             # Get error type breakdown
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT COALESCE(error_type, 'unknown') as error_type, COUNT(*) as cnt
                 FROM api_usage WHERE game_id IN ({placeholders}) AND status = 'error'
                 GROUP BY error_type ORDER BY cnt DESC
-            """, game_ids)
+            """,
+                game_ids,
+            )
 
             error_types = [
-                {'error_type': r['error_type'], 'count': r['cnt']}
-                for r in cursor.fetchall()
+                {'error_type': r['error_type'], 'count': r['cnt']} for r in cursor.fetchall()
             ]
 
             return {
                 'total_calls': total_calls,
                 'error_count': error_count,
                 'error_rate': error_count / total_calls if total_calls > 0 else 0.0,
-                'error_types': error_types
+                'error_types': error_types,
             }
 
     def get_quality_metrics(self, experiment_id: str) -> Optional[dict]:
@@ -1726,7 +1937,8 @@ class ExperimentRepository(BaseRepository):
             Dict with quality indicators, or None if no data.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     SUM(CASE WHEN action_taken = 'fold' AND decision_quality = 'mistake' THEN 1 ELSE 0 END) as fold_mistakes,
                     SUM(CASE WHEN action_taken = 'all_in' THEN 1 ELSE 0 END) as total_all_ins,
@@ -1735,23 +1947,32 @@ class ExperimentRepository(BaseRepository):
                 FROM player_decision_analysis pda
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             row = cursor.fetchone()
             if not row or row['total_decisions'] == 0:
                 return None
 
             # Get all-in rows for categorization
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT pda.action_taken, pda.hand_strength, pda.equity, pda.bluff_likelihood,
                        pda.player_name, pda.game_id
                 FROM player_decision_analysis pda
                 JOIN experiment_games eg ON pda.game_id = eg.game_id
                 WHERE eg.experiment_id = ? AND pda.action_taken = 'all_in'
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             allin_rows = [dict(r) for r in cursor.fetchall()]
 
-            from poker.quality_metrics import compute_allin_categorizations, build_quality_indicators
+            from poker.quality_metrics import (
+                build_quality_indicators,
+                compute_allin_categorizations,
+            )
+
             categorizations = compute_allin_categorizations(allin_rows)
             return build_quality_indicators(row, categorizations)

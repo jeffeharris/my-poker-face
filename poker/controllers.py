@@ -1,50 +1,54 @@
 import json
+import logging
 import random
 from collections import deque
 from datetime import datetime
-from typing import List, Optional, Dict, Tuple
-import logging
+from typing import Dict, List, Optional, Tuple
 
 from core.card import Card, CardRenderer
-from .poker_game import Player
-from .poker_state_machine import PokerStateMachine
-from .poker_player import AIPokerPlayer
-from .utils import prepare_ui_data
-from .prompt_manager import PromptManager
-from .moment_analyzer import MomentAnalyzer
-from .chattiness_manager import ChattinessManager
-from .response_validator import ResponseValidator
-from .config import MIN_RAISE, BIG_POT_THRESHOLD, MEMORY_CONTEXT_TOKENS, OPPONENT_SUMMARY_TOKENS, is_development_mode
-from .prompt_config import PromptConfig
+
 from .ai_resilience import (
-    with_ai_fallback,
-    expects_json,
-    parse_json_response,
-    validate_ai_response,
-    get_fallback_chat_response,
     AIFallbackStrategy,
     AIResponseError,
     DecisionErrorType,
+    FallbackActionSelector,
     classify_response_error,
     describe_response_error,
-    FallbackActionSelector,
+    parse_json_response,
+    validate_ai_response,
 )
-from .player_psychology import PlayerPsychology, ZoneContext, build_zone_guidance, build_playstyle_briefing
+from .card_utils import card_to_string, normalize_card_string
+from .chattiness_manager import ChattinessManager
+from .config import (
+    BIG_POT_THRESHOLD,
+    MEMORY_CONTEXT_TOKENS,
+    MIN_RAISE,
+    OPPONENT_SUMMARY_TOKENS,
+    is_development_mode,
+)
+from .decision_analyzer import calculate_max_winnable
 from .hand_narrator import narrate_hand_breakdown
-from .memory.commentary_generator import DecisionPlan
-from .minimal_prompt import (
-    get_position_abbrev,
-    to_bb,
-)
 from .hand_ranges import (
+    EquityConfig,
     build_opponent_info,
     calculate_equity_vs_ranges,
     format_opponent_stats,
-    EquityConfig,
 )
-from .decision_analyzer import calculate_max_winnable
-from .card_utils import normalize_card_string, card_to_string
+from .memory.commentary_generator import DecisionPlan
+from .moment_analyzer import MomentAnalyzer
+from .player_psychology import (
+    PlayerPsychology,
+    ZoneContext,
+    build_playstyle_briefing,
+)
+from .poker_game import Player
+from .poker_player import AIPokerPlayer
+from .poker_state_machine import PokerStateMachine
+from .prompt_config import PromptConfig
+from .prompt_manager import PromptManager
 from .range_guidance import classify_preflop_hand_for_player
+from .response_validator import ResponseValidator
+from .utils import prepare_ui_data
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,7 @@ def _serialize_intervention_trace(traces, *, player_name: str) -> Optional[str]:
         return None
     try:
         from .strategy.intervention_trace import trace_to_json_dict
+
         return json.dumps([trace_to_json_dict(t) for t in traces])
     except Exception as e:  # noqa: BLE001 — observability degradation by design
         logger.warning(
@@ -89,13 +94,11 @@ def _serialize_pipeline_snapshot(snapshot, *, player_name: str) -> Optional[str]
         return None
     try:
         from .strategy.intervention_trace import _safe_serialize
+
         # _safe_serialize handles enums, dataclasses, non-finite floats.
         return json.dumps(_safe_serialize(snapshot))
     except Exception as e:  # noqa: BLE001 — observability degradation
-        logger.warning(
-            f"[PIPELINE_SNAPSHOT] {player_name}: failed to serialize "
-            f"snapshot: {e}"
-        )
+        logger.warning(f"[PIPELINE_SNAPSHOT] {player_name}: failed to serialize " f"snapshot: {e}")
         return None
 
 
@@ -178,10 +181,7 @@ def _is_allin_action(line_lower: str) -> bool:
 
 
 def _process_preflop_lines(
-    lines: List[str],
-    opponent_lower: str,
-    opponent_name: str,
-    bb_player: Optional[str]
+    lines: List[str], opponent_lower: str, opponent_name: str, bb_player: Optional[str]
 ) -> Optional[str]:
     """
     Process preflop lines and extract opponent's action.
@@ -321,9 +321,12 @@ def evaluate_hand_strength(hole_cards: List[str], community_cards: List[str]) ->
         return None
 
 
-def calculate_quick_equity(hole_cards: List[str], community_cards: List[str],
-                           num_simulations: int = 300,
-                           num_opponents: int = 1) -> Optional[float]:
+def calculate_quick_equity(
+    hole_cards: List[str],
+    community_cards: List[str],
+    num_simulations: int = 300,
+    num_opponents: int = 1,
+) -> Optional[float]:
     """
     Calculate quick equity estimate against random opponent hands.
 
@@ -528,7 +531,9 @@ def classify_preflop_hand_with_range(
         if not canonical:
             return None
         result = classify_preflop_hand_for_player(
-            canonical, psychology.effective_looseness, game_position,
+            canonical,
+            psychology.effective_looseness,
+            game_position,
             num_opponents=num_opponents,
         )
         return result if result else classify_preflop_hand(hole_cards)
@@ -614,13 +619,21 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
     return "\n".join(parts)
 
 
-
 class AIPlayerController:
-    def __init__(self, player_name, state_machine=None, llm_config=None,
-                 session_memory=None, opponent_model_manager=None,
-                 game_id=None, owner_id=None, debug_capture=False,
-                 capture_label_repo=None, decision_analysis_repo=None,
-                 prompt_config=None):
+    def __init__(
+        self,
+        player_name,
+        state_machine=None,
+        llm_config=None,
+        session_memory=None,
+        opponent_model_manager=None,
+        game_id=None,
+        owner_id=None,
+        debug_capture=False,
+        capture_label_repo=None,
+        decision_analysis_repo=None,
+        prompt_config=None,
+    ):
         self.player_name = player_name
         self.state_machine = state_machine
         self.llm_config = llm_config or {}
@@ -629,10 +642,7 @@ class AIPlayerController:
         self._capture_label_repo = capture_label_repo
         self._decision_analysis_repo = decision_analysis_repo
         self.ai_player = AIPokerPlayer(
-            player_name,
-            llm_config=self.llm_config,
-            game_id=game_id,
-            owner_id=owner_id
+            player_name, llm_config=self.llm_config, game_id=game_id, owner_id=owner_id
         )
         self.assistant = self.ai_player.assistant
         self.prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
@@ -682,7 +692,7 @@ class AIPlayerController:
 
         # Max self-reported bluff_likelihood across all actions this hand (0-100)
         self._hand_max_bluff_likelihood: int = 0
-        
+
     def get_current_personality_traits(self):
         """Get current trait values from psychology (elastic personality)."""
         return self.psychology.traits
@@ -785,15 +795,14 @@ class AIPlayerController:
             return client
         try:
             from core.llm import LLMClient
-            from core.llm.settings import get_fast_provider, get_fast_model
+            from core.llm.settings import get_fast_model, get_fast_provider
+
             client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
             )
         except Exception as e:
-            logger.warning(
-                f"[CLEANUP_CLIENT] Falling back to decision client: {e}"
-            )
+            logger.warning(f"[CLEANUP_CLIENT] Falling back to decision client: {e}")
             client = getattr(self.assistant, '_client', None) or self.assistant
         self._cleanup_client_cache = client
         return client
@@ -832,9 +841,7 @@ class AIPlayerController:
         # Speech roll — chattiness trait × situation
         try:
             traits = self.get_current_personality_traits() or {}
-            chattiness = float(traits.get(
-                'table_talk', traits.get('chattiness', 0.5)
-            ))
+            chattiness = float(traits.get('table_talk', traits.get('chattiness', 0.5)))
         except Exception:
             chattiness = 0.5
 
@@ -846,13 +853,15 @@ class AIPlayerController:
             ctx['big_pot'] = True
 
         try:
-            should_speak = bool(self.chattiness_manager.should_speak(
-                self.player_name, chattiness, ctx,
-            ))
-        except Exception as e:
-            logger.debug(
-                f"[NARRATION] {self.player_name}: speech roll failed safely: {e}"
+            should_speak = bool(
+                self.chattiness_manager.should_speak(
+                    self.player_name,
+                    chattiness,
+                    ctx,
+                )
             )
+        except Exception as e:
+            logger.debug(f"[NARRATION] {self.player_name}: speech roll failed safely: {e}")
             should_speak = True
 
         # Gesture roll — psychology.energy × drama-level boost. Independent
@@ -868,7 +877,7 @@ class AIPlayerController:
         try:
             psy = getattr(self, 'psychology', None)
             energy = float(getattr(psy, 'energy', 0.5)) if psy else 0.5
-            probability = 0.15 + (energy ** 1.5) * 0.50
+            probability = 0.15 + (energy**1.5) * 0.50
             if drama_level == 'climactic':
                 probability += 0.30
             elif drama_level == 'high_stakes':
@@ -876,9 +885,7 @@ class AIPlayerController:
             probability = max(0.0, min(1.0, probability))
             should_gesture = random.random() < probability
         except Exception as e:
-            logger.debug(
-                f"[NARRATION] {self.player_name}: gesture roll failed safely: {e}"
-            )
+            logger.debug(f"[NARRATION] {self.player_name}: gesture roll failed safely: {e}")
             should_gesture = True
 
         logger.debug(
@@ -952,9 +959,7 @@ class AIPlayerController:
         # Save original messages before summarizing (for address detection)
         original_messages = game_messages
 
-        game_messages = summarize_messages(
-            game_messages,
-            self.player_name)
+        game_messages = summarize_messages(game_messages, self.player_name)
 
         # Always convert messages to BB format
         big_blind = game_state.current_ante or 100
@@ -967,7 +972,8 @@ class AIPlayerController:
         current_traits = self.get_current_personality_traits()
         table_talk = current_traits.get('table_talk', current_traits.get('chattiness', 0.5))
         gate = self.compute_narration_gate(
-            game_state, game_messages=original_messages,
+            game_state,
+            game_messages=original_messages,
         )
         should_speak = gate.should_speak
         should_gesture = gate.should_gesture
@@ -982,7 +988,8 @@ class AIPlayerController:
             include_hand_strength=self.prompt_config.hand_strength,
             psychology=self.psychology,
             range_guidance=self.prompt_config.range_guidance,
-            include_persona=self.prompt_config.include_personality)
+            include_persona=self.prompt_config.include_personality,
+        )
 
         # Get valid actions early so we can include in guidance
         player_options = game_state.current_player_options
@@ -991,7 +998,7 @@ class AIPlayerController:
         memory_context = self._build_memory_context(
             game_state,
             include_session=self.prompt_config.session_memory,
-            include_opponents=self.prompt_config.opponent_intel
+            include_opponents=self.prompt_config.opponent_intel,
         )
         if memory_context:
             message = memory_context + "\n\n" + message
@@ -999,7 +1006,10 @@ class AIPlayerController:
         # Add chattiness guidance to message (if enabled)
         if self.prompt_config.chattiness:
             chattiness_guidance = self._build_chattiness_guidance(
-                table_talk, should_speak, speaking_context, player_options,
+                table_talk,
+                should_speak,
+                speaking_context,
+                player_options,
                 should_gesture=should_gesture,
             )
             message = message + "\n\n" + chattiness_guidance
@@ -1048,7 +1058,9 @@ class AIPlayerController:
 
         # Apply guidance injection (for experiments - extra instructions appended to prompt)
         if self.prompt_config.guidance_injection:
-            message = message + "\n\n" + "ADDITIONAL GUIDANCE:\n" + self.prompt_config.guidance_injection
+            message = (
+                message + "\n\n" + "ADDITIONAL GUIDANCE:\n" + self.prompt_config.guidance_injection
+            )
 
         logger.debug(f"[AI_DECISION] Prompt:\n{message}")
 
@@ -1062,9 +1074,12 @@ class AIPlayerController:
         # max_raise_to: capped by largest opponent stack (no point raising beyond what they can match)
         highest_bet = game_state.highest_bet
         max_opponent_stack = max(
-            (p.stack for p in game_state.players
-             if not p.is_folded and not p.is_all_in and p.name != game_state.current_player.name),
-            default=0
+            (
+                p.stack
+                for p in game_state.players
+                if not p.is_folded and not p.is_all_in and p.name != game_state.current_player.name
+            ),
+            default=0,
         )
         max_raise_by = min(player_stack, max_opponent_stack)
         max_raise_to = highest_bet + max_raise_by
@@ -1082,13 +1097,12 @@ class AIPlayerController:
             should_speak=should_speak,
             big_blind=game_state.current_ante or 100,
         )
-        
+
         # Clean response based on narration gate. should_gesture lets a
         # silent character keep *action* beats when not speaking; both
         # False strips dramatic_sequence entirely.
         cleaned_response = self.response_validator.clean_response(
-            response_dict,
-            {'should_speak': should_speak, 'should_gesture': should_gesture}
+            response_dict, {'should_speak': should_speak, 'should_gesture': should_gesture}
         )
 
         # LLM-based beat cleanup — shared with the tiered/sharp path.
@@ -1098,8 +1112,10 @@ class AIPlayerController:
         seq = cleaned_response.get('dramatic_sequence')
         if seq:
             from .response_validator import (
-                needs_llm_normalization, llm_normalize_beats,
+                llm_normalize_beats,
+                needs_llm_normalization,
             )
+
             if needs_llm_normalization(seq):
                 cleaned_response['dramatic_sequence'] = llm_normalize_beats(
                     seq,
@@ -1116,7 +1132,11 @@ class AIPlayerController:
         # Capture DecisionPlan for reflection system (if enabled)
         if self.prompt_config.strategic_reflection:
             # Convert PokerPhase enum to string for JSON serialization
-            phase_str = self.state_machine.phase.name if hasattr(self.state_machine.phase, 'name') else str(self.state_machine.phase)
+            phase_str = (
+                self.state_machine.phase.name
+                if hasattr(self.state_machine.phase, 'name')
+                else str(self.state_machine.phase)
+            )
             plan = DecisionPlan(
                 hand_number=self.current_hand_number or 0,
                 phase=phase_str,
@@ -1126,7 +1146,7 @@ class AIPlayerController:
                 action=response_dict.get('action', ''),
                 amount=response_dict.get('raise_to', 0),
                 pot_size=game_state.pot.get('total', 0),
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
             self._current_hand_plans.append(plan)
 
@@ -1170,8 +1190,11 @@ class AIPlayerController:
         final_capture_id = [None]
         capture_enrichment = [None]
 
-        def make_enricher(parent_id=None, error_type=None, correction_attempt=0, drama_context=None):
+        def make_enricher(
+            parent_id=None, error_type=None, correction_attempt=0, drama_context=None
+        ):
             """Create an enricher callback with resilience and drama context fields."""
+
             def enrich_capture(capture_data: Dict) -> Dict:
                 player = game_state.current_player
                 cost_to_call = context.get('call_amount', 0)
@@ -1196,10 +1219,14 @@ class AIPlayerController:
                     )
                     effective_pot = min(max_winnable, pot_total)
                     effective_call = min(cost_to_call, player_stack)
-                    effective_pot_odds = effective_pot / effective_call if effective_call > 0 else None
+                    effective_pot_odds = (
+                        effective_pot / effective_call if effective_call > 0 else None
+                    )
 
                 enrichment = {
-                    'phase': self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                    'phase': self.state_machine.current_phase.name
+                    if self.state_machine.current_phase
+                    else None,
                     'pot_total': pot_total,
                     'cost_to_call': cost_to_call,
                     'pot_odds': pot_total / cost_to_call if cost_to_call > 0 else None,
@@ -1207,8 +1234,12 @@ class AIPlayerController:
                     'max_winnable': max_winnable,
                     'player_stack': player_stack,
                     'stack_bb': round(stack_bb, 2) if stack_bb is not None else None,
-                    'already_bet_bb': round(already_bet_bb, 2) if already_bet_bb is not None else None,
-                    'community_cards': [str(c) for c in game_state.community_cards] if game_state.community_cards else [],
+                    'already_bet_bb': round(already_bet_bb, 2)
+                    if already_bet_bb is not None
+                    else None,
+                    'community_cards': [str(c) for c in game_state.community_cards]
+                    if game_state.community_cards
+                    else [],
                     'player_hand': [str(c) for c in player.hand] if player.hand else [],
                     'valid_actions': valid_actions,
                     'prompt_config': self.prompt_config.to_dict() if self.prompt_config else None,
@@ -1223,6 +1254,7 @@ class AIPlayerController:
                 capture_data.update(enrichment)
                 capture_enrichment[0] = enrichment
                 return capture_data
+
             return enrich_capture
 
         # ========== Personality toggle ==========
@@ -1276,20 +1308,26 @@ class AIPlayerController:
 
             # ========== ATTEMPT 2: Recovery if needed ==========
             if error_type is not None:
-                logger.warning(f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery")
+                logger.warning(
+                    f"[RESILIENCE] {self.player_name}: Error detected ({error_type.value}), attempting recovery"
+                )
 
                 # Generate error description for logging and correction prompt
                 if error_type == DecisionErrorType.MALFORMED_JSON:
-                    error_description = "Could not parse JSON response. Please respond with valid JSON."
+                    error_description = (
+                        "Could not parse JSON response. Please respond with valid JSON."
+                    )
                 else:
-                    error_description = describe_response_error(error_type, response_dict, valid_actions)
+                    error_description = describe_response_error(
+                        error_type, response_dict, valid_actions
+                    )
 
                 # Mark original capture with error
                 if parent_capture_id[0]:
                     update_prompt_capture(
                         parent_capture_id[0],
                         error_type=error_type.value,
-                        error_description=error_description
+                        error_description=error_description,
                     )
 
                 try:
@@ -1297,7 +1335,9 @@ class AIPlayerController:
                     if error_type == DecisionErrorType.MALFORMED_JSON:
                         # Full retry with same prompt
                         recovery_prompt = decision_prompt
-                        logger.info(f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON")
+                        logger.info(
+                            f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON"
+                        )
                     else:
                         # Targeted correction prompt
                         recovery_prompt = self.prompt_manager.render_correction_prompt(
@@ -1306,7 +1346,9 @@ class AIPlayerController:
                             valid_actions=valid_actions,
                             context=context,
                         )
-                        logger.info(f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}")
+                        logger.info(
+                            f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}"
+                        )
 
                     # Make recovery call
                     correction_response = self.assistant.chat_full(
@@ -1318,7 +1360,7 @@ class AIPlayerController:
                             parent_id=parent_capture_id[0],
                             error_type=error_type.value,
                             correction_attempt=1,
-                            drama_context=drama_context
+                            drama_context=drama_context,
                         ),
                     )
                     self._last_llm_response = correction_response
@@ -1335,12 +1377,12 @@ class AIPlayerController:
                         # Clear error from parent since recovery succeeded
                         if parent_capture_id[0]:
                             update_prompt_capture(
-                                parent_capture_id[0],
-                                error_type=None,
-                                error_description=None
+                                parent_capture_id[0], error_type=None, error_description=None
                             )
                     else:
-                        logger.warning(f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})")
+                        logger.warning(
+                            f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})"
+                        )
                         # Record the correction's actual error details
                         if final_capture_id[0]:
                             if correction_error == DecisionErrorType.MALFORMED_JSON:
@@ -1352,7 +1394,7 @@ class AIPlayerController:
                             update_prompt_capture(
                                 final_capture_id[0],
                                 error_type=correction_error.value,
-                                error_description=correction_error_description
+                                error_description=correction_error_description,
                             )
 
                 except Exception as e:
@@ -1390,13 +1432,17 @@ class AIPlayerController:
             if final_capture_id[0]:
                 action = response_dict.get('action')
                 raise_amount = response_dict.get('raise_to') if action == 'raise' else None
-                update_prompt_capture(final_capture_id[0], action_taken=action, raise_amount=raise_amount)
+                update_prompt_capture(
+                    final_capture_id[0], action_taken=action, raise_amount=raise_amount
+                )
 
                 # Compute and store auto-labels
                 if self._capture_label_repo and capture_enrichment[0]:
                     label_data = capture_enrichment[0].copy()
                     label_data['action_taken'] = action
-                    self._capture_label_repo.compute_and_store_auto_labels(final_capture_id[0], label_data)
+                    self._capture_label_repo.compute_and_store_auto_labels(
+                        final_capture_id[0], label_data
+                    )
 
             return response_dict
 
@@ -1442,7 +1488,7 @@ class AIPlayerController:
                         'required_equity': round(required_equity, 1),
                         'already_bet_bb': round(already_bet_bb, 1),
                         'stack_bb': round(stack_bb, 1),
-                        'cost_to_call_bb': round(cost_to_call_bb, 1)
+                        'cost_to_call_bb': round(cost_to_call_bb, 1),
                     }
 
             if stack_bb < 3:
@@ -1453,11 +1499,12 @@ class AIPlayerController:
                 community_cards = [card_to_string(c) for c in game_state.community_cards]
 
                 # Count opponents still in hand for accurate multi-way equity
-                num_opponents = len([
-                    p for p in game_state.players
-                    if not p.is_folded and p.name != player.name
-                ])
-                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+                num_opponents = len(
+                    [p for p in game_state.players if not p.is_folded and p.name != player.name]
+                )
+                equity = calculate_quick_equity(
+                    hole_cards, community_cards, num_opponents=num_opponents
+                )
                 if equity is not None:
                     hand_equity = equity  # Store for drama detection
                     is_tilted = False
@@ -1467,21 +1514,25 @@ class AIPlayerController:
 
                     if equity >= 0.80:
                         hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
+                        hand_name = (
+                            hand_strength.split(' - ')[0] if hand_strength else 'a strong hand'
+                        )
                         made_hand_info = {
                             'hand_name': hand_name,
                             'equity': round(equity * 100),
                             'is_tilted': is_tilted,
-                            'tier': 'strong'
+                            'tier': 'strong',
                         }
                     elif equity >= 0.65:
                         hand_strength = evaluate_hand_strength(hole_cards, community_cards)
-                        hand_name = hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
+                        hand_name = (
+                            hand_strength.split(' - ')[0] if hand_strength else 'a decent hand'
+                        )
                         made_hand_info = {
                             'hand_name': hand_name,
                             'equity': round(equity * 100),
                             'is_tilted': is_tilted,
-                            'tier': 'moderate'
+                            'tier': 'moderate',
                         }
 
             # Drama level for response intensity calibration
@@ -1491,12 +1542,12 @@ class AIPlayerController:
                 cost_to_call=cost_to_call,
                 big_blind=big_blind,
                 last_raise_amount=game_state.last_raise_amount,
-                hand_equity=hand_equity
+                hand_equity=hand_equity,
             )
             drama_context = {
                 'level': analysis.level,
                 'factors': analysis.factors,
-                'tone': analysis.tone
+                'tone': analysis.tone,
             }
 
         # Calculate equity verdict if enabled (GTO foundation - always show the math)
@@ -1512,14 +1563,15 @@ class AIPlayerController:
 
             # Get opponents still in hand (needed for accurate multi-way equity)
             opponents_in_hand = [
-                p for p in game_state.players
-                if not p.is_folded and p.name != player.name
+                p for p in game_state.players if not p.is_folded and p.name != player.name
             ]
             num_opponents = len(opponents_in_hand)
 
             # Calculate equity (post-flop) or use preflop estimates
             if community_cards:
-                equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+                equity = calculate_quick_equity(
+                    hole_cards, community_cards, num_opponents=num_opponents
+                )
             else:
                 # Preflop: use hand ranking as rough equity estimate
                 # These estimates are for heads-up; adjust for multi-way
@@ -1536,7 +1588,9 @@ class AIPlayerController:
                     base_equity = 0.40  # Below average ~40% equity
                 # Rough multi-way adjustment: equity decreases with more opponents
                 # Simplified model: equity^(num_opponents) gives approximate multi-way equity
-                equity = base_equity ** max(1, num_opponents * 0.7) if num_opponents > 1 else base_equity
+                equity = (
+                    base_equity ** max(1, num_opponents * 0.7) if num_opponents > 1 else base_equity
+                )
 
             if equity is not None:
                 equity_pct = round(equity * 100)
@@ -1558,23 +1612,30 @@ class AIPlayerController:
                             # Get observed stats from opponent model manager
                             opp_model_data = None
                             if self.opponent_model_manager:
-                                opp_model = self.opponent_model_manager.get_model(self.player_name, opp.name)
+                                opp_model = self.opponent_model_manager.get_model(
+                                    self.player_name, opp.name
+                                )
                                 if opp_model and opp_model.tendencies:
                                     opp_model_data = opp_model.tendencies.to_dict()
 
-                            opponent_infos.append(build_opponent_info(
-                                name=opp.name,
-                                position=opp_position,
-                                opponent_model=opp_model_data,
-                            ))
+                            opponent_infos.append(
+                                build_opponent_info(
+                                    name=opp.name,
+                                    position=opp_position,
+                                    opponent_model=opp_model_data,
+                                )
+                            )
 
                         # Calculate equity vs ranges (use config setting for range mode)
                         equity_config = EquityConfig(
                             use_enhanced_ranges=self.prompt_config.use_enhanced_ranges
                         )
                         equity_vs_ranges = calculate_equity_vs_ranges(
-                            hole_cards, community_cards, opponent_infos,
-                            iterations=300, config=equity_config
+                            hole_cards,
+                            community_cards,
+                            opponent_infos,
+                            iterations=300,
+                            config=equity_config,
                         )
                         if equity_vs_ranges is not None:
                             equity_ranges_pct = round(equity_vs_ranges * 100)
@@ -1611,7 +1672,9 @@ class AIPlayerController:
 
                 equity_verdict_info = {
                     'equity_random': equity_pct,
-                    'equity_ranges': equity_ranges_pct if equity_ranges_pct is not None else equity_pct,
+                    'equity_ranges': equity_ranges_pct
+                    if equity_ranges_pct is not None
+                    else equity_pct,
                     'required_equity': round(required_equity, 1),
                     'verdict': verdict,
                     'pot_odds': round(pot_odds, 1),
@@ -1653,6 +1716,7 @@ class AIPlayerController:
         expression_guidance = None
         if self.prompt_config.expression_filtering and self.psychology:
             from .expression_filter import get_expression_guidance
+
             expression_guidance = get_expression_guidance(
                 expressiveness=self.psychology.anchors.expressiveness,
                 energy=self.psychology.energy,
@@ -1666,7 +1730,9 @@ class AIPlayerController:
             # 1. Get opponent models
             opponent_models = {}
             if self.opponent_model_manager:
-                opponent_models = self.opponent_model_manager.get_all_models_for_observer(self.player_name)
+                opponent_models = self.opponent_model_manager.get_all_models_for_observer(
+                    self.player_name
+                )
 
             # 2. Select playstyle
             playstyle_state = self.psychology.update_playstyle(
@@ -1677,8 +1743,7 @@ class AIPlayerController:
             # 3. Build briefing with curated stats + framing + suppression flags
             focal_opponent = None
             active_opponents = [
-                p for p in game_state.players
-                if not p.is_folded and p.name != player.name
+                p for p in game_state.players if not p.is_folded and p.name != player.name
             ]
             if active_opponents:
                 focal_opponent = active_opponents[0]
@@ -1694,7 +1759,12 @@ class AIPlayerController:
             threat_model = None
             if opponent_models:
                 from .playstyle_selector import _select_biggest_threat
-                nemesis = self.psychology.composure_state.nemesis if self.psychology.composure_state else None
+
+                nemesis = (
+                    self.psychology.composure_state.nemesis
+                    if self.psychology.composure_state
+                    else None
+                )
                 threat_model = _select_biggest_threat(opponent_models, nemesis)
                 if threat_model:
                     threat_name = threat_model.opponent
@@ -1703,14 +1773,22 @@ class AIPlayerController:
             # Get focal opponent model for exploit tips
             focal_opp_model = None
             if self.opponent_model_manager and focal_opponent:
-                focal_opp_model = self.opponent_model_manager.get_model(self.player_name, focal_opponent.name)
+                focal_opp_model = self.opponent_model_manager.get_model(
+                    self.player_name, focal_opponent.name
+                )
                 # Avoid duplicate if focal is the same as threat
-                if focal_opp_model and threat_model and focal_opp_model.opponent == threat_model.opponent:
+                if (
+                    focal_opp_model
+                    and threat_model
+                    and focal_opp_model.opponent == threat_model.opponent
+                ):
                     focal_opp_model = None
 
             # Suppress opponent emotion display for poker_face at full engagement
-            if (playstyle_state.active_playstyle == 'poker_face'
-                    and playstyle_state.engagement == 'full'):
+            if (
+                playstyle_state.active_playstyle == 'poker_face'
+                and playstyle_state.engagement == 'full'
+            ):
                 zone_context.opponent_displayed_emotion = None
 
             playstyle_briefing = build_playstyle_briefing(
@@ -1739,7 +1817,9 @@ class AIPlayerController:
 
         # Suppress drama context in prompt when using simple response format
         # (still return full drama_context in tuple for capture enrichment)
-        prompt_drama_context = None if self.prompt_config.use_simple_response_format else drama_context
+        prompt_drama_context = (
+            None if self.prompt_config.use_simple_response_format else drama_context
+        )
 
         # Use the prompt manager for the decision prompt (respecting prompt_config toggles)
         prompt = self.prompt_manager.render_decision_prompt(
@@ -1763,7 +1843,10 @@ class AIPlayerController:
         return (prompt, drama_context)
 
     def _append_relationship_context_if_enabled(
-        self, prompt: str, game_state, player,
+        self,
+        prompt: str,
+        game_state,
+        player,
     ) -> str:
         """Append a relationship-context block to a decision prompt.
 
@@ -1785,9 +1868,9 @@ class AIPlayerController:
         if self.opponent_model_manager is None:
             return prompt
         from .memory.relationship_prompt import build_relationship_context
+
         active_opponent_names = [
-            p.name for p in game_state.players
-            if not p.is_folded and p.name != player.name
+            p.name for p in game_state.players if not p.is_folded and p.name != player.name
         ]
         rel_block = build_relationship_context(
             observer_name=self.player_name,
@@ -1845,7 +1928,9 @@ class AIPlayerController:
             dollar_value = round(bb_value * big_blind)
             response_dict['_raise_to_bb'] = bb_value  # Store original BB for tracking
             response_dict['raise_to'] = dollar_value
-            logger.debug(f"[BB_CONVERSION] {self.player_name} raise_to: {bb_value} BB → ${dollar_value}")
+            logger.debug(
+                f"[BB_CONVERSION] {self.player_name} raise_to: {bb_value} BB → ${dollar_value}"
+            )
 
         # Fix raise with 0 amount - fallback to min raise
         # Note: The resilience layer should have already asked the AI to fix this,
@@ -1855,7 +1940,9 @@ class AIPlayerController:
             min_raise_to = context.get('min_raise', game_state.highest_bet + MIN_RAISE)
             response_dict['raise_to'] = min_raise_to
             response_dict['raise_amount_corrected'] = True
-            logger.warning(f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}")
+            logger.warning(
+                f"[RAISE_CORRECTION] {self.player_name} raise with 0, defaulting to ${min_raise_to}"
+            )
 
         # Validate action is in valid_actions
         if valid_actions and response_dict.get('action') not in valid_actions:
@@ -1898,13 +1985,16 @@ class AIPlayerController:
             player = game_state.current_player
 
             # Get cards in format equity calculator understands
-            community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+            community_cards = (
+                [card_to_string(c) for c in game_state.community_cards]
+                if game_state.community_cards
+                else []
+            )
             player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
 
             # Count opponents still in hand
             opponents_in_hand = [
-                p for p in game_state.players
-                if not p.is_folded and p.name != player.name
+                p for p in game_state.players if not p.is_folded and p.name != player.name
             ]
             num_opponents = len(opponents_in_hand)
 
@@ -1913,17 +2003,24 @@ class AIPlayerController:
             position_by_name = {name: pos for pos, name in table_positions.items()}
             player_position = position_by_name.get(self.player_name)
             opponent_positions = [
-                position_by_name.get(p.name, "button")  # Default to button (widest range) if unknown
+                position_by_name.get(
+                    p.name, "button"
+                )  # Default to button (widest range) if unknown
                 for p in opponents_in_hand
             ]
 
             # Build OpponentInfo objects with observed stats, personality data, and action context
             from .hand_ranges import build_opponent_info
+
             opponent_infos = []
 
             # Get game messages for action extraction
             game_messages = getattr(self, '_current_game_messages', None)
-            current_phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+            current_phase = (
+                self.state_machine.current_phase.name
+                if self.state_machine.current_phase
+                else 'PRE_FLOP'
+            )
 
             for opp in opponents_in_hand:
                 opp_position = position_by_name.get(opp.name, "button")
@@ -1946,13 +2043,15 @@ class AIPlayerController:
                         opp.name, game_messages, current_phase
                     )
 
-                opponent_infos.append(build_opponent_info(
-                    name=opp.name,
-                    position=opp_position,
-                    opponent_model=opp_model_data,
-                    preflop_action=preflop_action,
-                    postflop_aggression=postflop_aggression,
-                ))
+                opponent_infos.append(
+                    build_opponent_info(
+                        name=opp.name,
+                        position=opp_position,
+                        opponent_model=opp_model_data,
+                        preflop_action=preflop_action,
+                        postflop_aggression=postflop_aggression,
+                    )
+                )
 
             # Get request_id from last LLM response
             llm_response = getattr(self, '_last_llm_response', None)
@@ -1998,9 +2097,15 @@ class AIPlayerController:
                 # Zone effects instrumentation (Phase 10)
                 instr = getattr(psych, '_last_zone_effects_instrumentation', None)
                 if instr:
-                    snapshot['zone_intrusive_thoughts_injected'] = instr.get('intrusive_thoughts_injected')
-                    snapshot['zone_intrusive_thoughts_json'] = json.dumps(instr.get('intrusive_thoughts', []))
-                    snapshot['zone_penalty_strategy_applied'] = instr.get('penalty_strategy_applied')
+                    snapshot['zone_intrusive_thoughts_injected'] = instr.get(
+                        'intrusive_thoughts_injected'
+                    )
+                    snapshot['zone_intrusive_thoughts_json'] = json.dumps(
+                        instr.get('intrusive_thoughts', [])
+                    )
+                    snapshot['zone_penalty_strategy_applied'] = instr.get(
+                        'penalty_strategy_applied'
+                    )
                     snapshot['zone_info_degraded'] = instr.get('info_degraded')
                     snapshot['zone_strategy_selected'] = instr.get('strategy_selected')
 
@@ -2021,7 +2126,9 @@ class AIPlayerController:
                 game_id=self.game_id,
                 player_name=self.player_name,
                 hand_number=self.current_hand_number,
-                phase=self.state_machine.current_phase.name if self.state_machine.current_phase else None,
+                phase=self.state_machine.current_phase.name
+                if self.state_machine.current_phase
+                else None,
                 player_hand=player_hand,
                 community_cards=community_cards,
                 pot_total=game_state.pot.get('total', 0),
@@ -2065,7 +2172,11 @@ class AIPlayerController:
 
             self._decision_analysis_repo.save_decision_analysis(analysis)
             equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
-            menu_str = f", menu_best={analysis.menu_picked_best}" if analysis.menu_picked_best is not None else ""
+            menu_str = (
+                f", menu_best={analysis.menu_picked_best}"
+                if analysis.menu_picked_best is not None
+                else ""
+            )
             logger.debug(
                 f"[DECISION_ANALYSIS] {self.player_name}: {analysis.decision_quality} "
                 f"(equity={equity_str}, ev_lost={analysis.ev_lost:.0f}{menu_str})"
@@ -2074,10 +2185,7 @@ class AIPlayerController:
             logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision: {e}")
 
     def _extract_opponent_preflop_action(
-        self,
-        opponent_name: str,
-        game_messages,
-        game_state
+        self, opponent_name: str, game_messages, game_state
     ) -> Optional[str]:
         """
         Extract what preflop action an opponent took this hand.
@@ -2110,20 +2218,12 @@ class AIPlayerController:
 
         # Process lines, accumulating state as (raise_count, opponent_action)
         # Using reduce-like iteration but keeping it readable
-        state = _process_preflop_lines(
-            preflop_lines,
-            opponent_lower,
-            opponent_name,
-            bb_player
-        )
+        state = _process_preflop_lines(preflop_lines, opponent_lower, opponent_name, bb_player)
 
         return state
 
     def _extract_opponent_postflop_aggression(
-        self,
-        opponent_name: str,
-        game_messages,
-        current_phase: str
+        self, opponent_name: str, game_messages, current_phase: str
     ) -> Optional[str]:
         """
         Extract opponent's postflop aggression in current street.
@@ -2146,14 +2246,12 @@ class AIPlayerController:
         # Get lines from current street for the opponent
         street_lines = _get_street_lines(lines, current_phase)
         opponent_lower = opponent_name.lower()
-        opponent_lines = [
-            line for line in street_lines
-            if opponent_lower in line.lower()
-        ]
+        opponent_lines = [line for line in street_lines if opponent_lower in line.lower()]
 
         # Classify each line's aggression and find the highest priority action
         actions = [
-            action for line in opponent_lines
+            action
+            for line in opponent_lines
             if (action := _classify_aggression(line.lower())) is not None
         ]
 
@@ -2189,8 +2287,9 @@ class AIPlayerController:
 
         return context
 
-    def _build_memory_context(self, game_state, include_session: bool = True,
-                               include_opponents: bool = True) -> str:
+    def _build_memory_context(
+        self, game_state, include_session: bool = True, include_opponents: bool = True
+    ) -> str:
         """
         Build context from session memory and opponent models for injection into prompts.
 
@@ -2211,8 +2310,7 @@ class AIPlayerController:
         if include_opponents and self.opponent_model_manager:
             # Get active opponents
             opponents = [
-                p.name for p in game_state.players
-                if p.name != self.player_name and not p.is_folded
+                p.name for p in game_state.players if p.name != self.player_name and not p.is_folded
             ]
             opponent_ctx = self.opponent_model_manager.get_table_summary(
                 self.player_name, opponents, OPPONENT_SUMMARY_TOKENS
@@ -2228,6 +2326,7 @@ class AIPlayerController:
             # its dramatic_sequence or ignore them — they're "extra info,"
             # not strategy directives.
             from .memory.opponent_model import format_opponent_observations
+
             facing_opponent = self._infer_facing_opponent(game_state, opponents)
             obs_pairs = self.opponent_model_manager.select_opponent_observations(
                 self.player_name,
@@ -2269,10 +2368,14 @@ class AIPlayerController:
         except Exception:
             return None
 
-
-    def _build_chattiness_guidance(self, chattiness: float, should_speak: bool,
-                                  speaking_context: Dict, valid_actions: List[str],
-                                  should_gesture: bool = True) -> str:
+    def _build_chattiness_guidance(
+        self,
+        chattiness: float,
+        should_speak: bool,
+        speaking_context: Dict,
+        valid_actions: List[str],
+        should_gesture: bool = True,
+    ) -> str:
         """Build guidance for AI about speaking + gesturing behavior.
 
         Three modes:
@@ -2284,9 +2387,7 @@ class AIPlayerController:
 
         if should_speak:
             guidance += "You feel inclined to say something this turn.\n"
-            style = self.chattiness_manager.suggest_speaking_style(
-                self.player_name, chattiness
-            )
+            style = self.chattiness_manager.suggest_speaking_style(self.player_name, chattiness)
             guidance += f"Speaking style: {style}\n"
         elif should_gesture:
             guidance += "You don't feel like talking this turn — no speech.\n"
@@ -2353,12 +2454,16 @@ class AIPlayerController:
                 if tendencies.bluff_frequency > 0.4:
                     analysis_parts.append(f"bluffs {tendencies.bluff_frequency:.0%}")
                 if analysis_parts:
-                    context.opponent_analysis = f"{focal_opponent.name}: {', '.join(analysis_parts)}"
+                    context.opponent_analysis = (
+                        f"{focal_opponent.name}: {', '.join(analysis_parts)}"
+                    )
 
         # Check for weak player based on displayed emotion
         if context.opponent_displayed_emotion in ['nervous', 'shaken', 'panicking', 'shocked']:
             if focal_opponent:
-                context.weak_player_note = f"{focal_opponent.name} appears {context.opponent_displayed_emotion}"
+                context.weak_player_note = (
+                    f"{focal_opponent.name} appears {context.opponent_displayed_emotion}"
+                )
 
         # Add equity vs ranges if available (stored during equity calculation)
         if hasattr(self, '_equity_info') and self._equity_info:
@@ -2375,7 +2480,11 @@ def human_player_action(ui_data: dict, player_options: List[str]) -> Dict:
     # Get user choice
     player_choice = None
     while player_choice not in player_options:
-        player_choice = input(f"{ui_data['player_name']}, what would you like to do? ").lower().replace("-","_")
+        player_choice = (
+            input(f"{ui_data['player_name']}, what would you like to do? ")
+            .lower()
+            .replace("-", "_")
+        )
         if player_choice in ["all-in", "allin", "all in"]:
             player_choice = "all_in"
         if player_choice not in player_options:
@@ -2412,7 +2521,8 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     try:
         # Render the player's cards using the CardRenderer.
         rendered_hole_cards = CardRenderer().render_hole_cards(
-            [ensure_card(c) for c in player_hand])
+            [ensure_card(c) for c in player_hand]
+        )
     except (ValueError, TypeError, KeyError) as e:
         print(f"{player_name} has no cards.")
         raise ValueError('Missing cards. Please check your hand.') from e
@@ -2420,7 +2530,8 @@ def display_player_turn_update(ui_data, player_options: Optional[List] = None) -
     # Display information to the user
     if len(ui_data['community_cards']) > 0:
         rendered_community_cards = CardRenderer().render_cards(
-            [ensure_card(c) for c in ui_data['community_cards']])
+            [ensure_card(c) for c in ui_data['community_cards']]
+        )
         print(f"\nCommunity Cards:\n{rendered_community_cards}")
 
     print(f"Your Hand:\n{rendered_hole_cards}")
@@ -2436,7 +2547,10 @@ def _ensure_card(c):
 
 
 def build_base_game_state(
-    game_state, player: Player, phase, messages,
+    game_state,
+    player: Player,
+    phase,
+    messages,
     include_hand_strength: bool = True,
     psychology: 'PlayerPsychology' = None,
     range_guidance: bool = False,
@@ -2464,7 +2578,9 @@ def build_base_game_state(
     current_round = phase
     community_cards = [str(_ensure_card(c)) for c in game_state.community_cards]
     player_money = player.stack
-    player_positions = [position for position, name in table_positions.items() if name == player.name]
+    player_positions = [
+        position for position, name in table_positions.items() if name == player.name
+    ]
     hole_cards = [str(_ensure_card(c)) for c in player.hand]
     current_pot = game_state.pot['total']
     current_bet = game_state.current_player.bet
@@ -2480,14 +2596,17 @@ def build_base_game_state(
         if community_cards:
             hand_strength = evaluate_hand_strength(hole_cards, community_cards)
             # Extract strength tier (e.g., "Strong" from "Two Pair - Strong")
-            strength_tier = hand_strength.split(' - ')[1] if hand_strength and ' - ' in hand_strength else None
+            strength_tier = (
+                hand_strength.split(' - ')[1] if hand_strength and ' - ' in hand_strength else None
+            )
 
             # Try detailed breakdown (merges strength tier into header)
             try:
                 hole_card_objects = [_ensure_card(c) for c in player.hand]
                 community_card_objects = [_ensure_card(c) for c in game_state.community_cards]
                 breakdown = narrate_hand_breakdown(
-                    hole_card_objects, community_card_objects,
+                    hole_card_objects,
+                    community_card_objects,
                     strength_tier=strength_tier,
                 )
                 if breakdown:
@@ -2502,12 +2621,13 @@ def build_base_game_state(
             # Pre-flop: range-aware classification if psychology available
             hand_strength = None
             if range_guidance and psychology and player_positions:
-                num_opponents = len([
-                    p for p in game_state.players
-                    if not p.is_folded and p.name != player.name
-                ])
+                num_opponents = len(
+                    [p for p in game_state.players if not p.is_folded and p.name != player.name]
+                )
                 hand_strength = classify_preflop_hand_with_range(
-                    hole_cards, psychology, player_positions[0],
+                    hole_cards,
+                    psychology,
+                    player_positions[0],
                     num_opponents=num_opponents,
                 )
             if not hand_strength:
@@ -2523,12 +2643,14 @@ def build_base_game_state(
     )
 
     # Format opponent status in BB
-    opponent_status = ''.join([
-        f'{p.name} has {_format_money(p.stack, big_blind, True)}'
-        + (' and they have folded' if p.is_folded else '')
-        + '.\n'
-        for p in game_state.players
-    ])
+    opponent_status = ''.join(
+        [
+            f'{p.name} has {_format_money(p.stack, big_blind, True)}'
+            + (' and they have folded' if p.is_folded else '')
+            + '.\n'
+            for p in game_state.players
+        ]
+    )
 
     hand_state = (
         f"Current Round: {current_round}\n"
@@ -2550,9 +2672,12 @@ def build_base_game_state(
     # Calculate raise TO bounds for the prompt (opponent-aware)
     highest_bet = game_state.highest_bet
     max_opponent_stack = max(
-        (p.stack for p in game_state.players
-         if not p.is_folded and not p.is_all_in and p.name != player.name),
-        default=0
+        (
+            p.stack
+            for p in game_state.players
+            if not p.is_folded and not p.is_all_in and p.name != player.name
+        ),
+        default=0,
     )
     max_raise_by = min(player_money, max_opponent_stack)
     max_raise_to = highest_bet + max_raise_by
@@ -2567,16 +2692,24 @@ def build_base_game_state(
             sizing_hint = " Standard open: 2.5-3x BB. 3-bet (re-raise): 8-12 BB total."
         else:
             pot_fmt = _format_money(current_pot, big_blind, True)
-            sizing_hint = f" Size relative to the pot ({pot_fmt}): half-pot to two-thirds pot is standard."
+            sizing_hint = (
+                f" Size relative to the pot ({pot_fmt}): half-pot to two-thirds pot is standard."
+            )
         raise_guidance = f"If raising, set raise_to between {min_raise_to_fmt} and {max_raise_to_fmt} (the total bet, not the increment).{sizing_hint}\n"
 
-    hand_update_message = persona_state + hand_state + pot_state + "\n" + (
-        f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
-        f"You cannot bet more than you have, {stack_limit}.\n"
-        f"{raise_guidance}"
-        f"You must select from these options: {player_options}\n"
-        f"Your table position: {player_positions}\n"
-        f"What is your move{', ' + persona if include_persona else ''}?\n\n"
+    hand_update_message = (
+        persona_state
+        + hand_state
+        + pot_state
+        + "\n"
+        + (
+            f"NOTE: All amounts are in Big Blinds (BB). When raising, set raise_to to BB amount (e.g., raise_to=8 means 8 BB).\n"
+            f"You cannot bet more than you have, {stack_limit}.\n"
+            f"{raise_guidance}"
+            f"You must select from these options: {player_options}\n"
+            f"Your table position: {player_positions}\n"
+            f"What is your move{', ' + persona if include_persona else ''}?\n\n"
+        )
     )
 
     return hand_update_message

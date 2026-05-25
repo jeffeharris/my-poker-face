@@ -23,20 +23,30 @@ from poker.strategy.deviation_profiles import select_deviation_profile
 def _stoic_anchors() -> PersonalityAnchors:
     """High poise + high recovery_rate → drift_strength near zero."""
     return PersonalityAnchors(
-        baseline_aggression=0.7, baseline_looseness=0.35,
-        ego=0.5, poise=0.95, expressiveness=0.4,
-        risk_identity=0.5, adaptation_bias=0.5,
-        baseline_energy=0.5, recovery_rate=0.85,
+        baseline_aggression=0.7,
+        baseline_looseness=0.35,
+        ego=0.5,
+        poise=0.95,
+        expressiveness=0.4,
+        risk_identity=0.5,
+        adaptation_bias=0.5,
+        baseline_energy=0.5,
+        recovery_rate=0.85,
     )
 
 
 def _chaotic_anchors() -> PersonalityAnchors:
     """Low poise + low recovery_rate → high drift_strength."""
     return PersonalityAnchors(
-        baseline_aggression=0.8, baseline_looseness=0.7,
-        ego=0.7, poise=0.3, expressiveness=0.7,
-        risk_identity=0.6, adaptation_bias=0.5,
-        baseline_energy=0.7, recovery_rate=0.1,
+        baseline_aggression=0.8,
+        baseline_looseness=0.7,
+        ego=0.7,
+        poise=0.3,
+        expressiveness=0.7,
+        risk_identity=0.6,
+        adaptation_bias=0.5,
+        baseline_energy=0.7,
+        recovery_rate=0.1,
     )
 
 
@@ -47,10 +57,15 @@ def _just_above_floor_anchors() -> PersonalityAnchors:
     but barely.
     """
     return PersonalityAnchors(
-        baseline_aggression=0.5, baseline_looseness=0.4,
-        ego=0.5, poise=0.85, expressiveness=0.5,
-        risk_identity=0.5, adaptation_bias=0.5,
-        baseline_energy=0.5, recovery_rate=0.6,
+        baseline_aggression=0.5,
+        baseline_looseness=0.4,
+        ego=0.5,
+        poise=0.85,
+        expressiveness=0.5,
+        risk_identity=0.5,
+        adaptation_bias=0.5,
+        baseline_energy=0.5,
+        recovery_rate=0.6,
     )
 
 
@@ -71,8 +86,7 @@ class TestDriftStrengthGate:
         # At least one anchor should have moved (cumulative miss is
         # astronomically unlikely at chaotic sigma).
         moved = any(
-            abs(getattr(result, name) - getattr(anchors, name)) > 1e-9
-            for name in DRIFT_BASE_SIGMA
+            abs(getattr(result, name) - getattr(anchors, name)) > 1e-9 for name in DRIFT_BASE_SIGMA
         )
         assert moved, "Chaotic anchors should drift on at least one axis"
 
@@ -90,12 +104,9 @@ class TestDriftStrengthGate:
         )
         result = apply_session_drift(above, random.Random(42))
         moved = any(
-            abs(getattr(result, name) - getattr(above, name)) > 1e-9
-            for name in DRIFT_BASE_SIGMA
+            abs(getattr(result, name) - getattr(above, name)) > 1e-9 for name in DRIFT_BASE_SIGMA
         )
-        assert moved, (
-            f"drift_strength={drift_strength:.4f} above floor should drift"
-        )
+        assert moved, f"drift_strength={drift_strength:.4f} above floor should drift"
 
 
 class TestSourceAnchorsHeldConstant:
@@ -143,15 +154,18 @@ class TestArchetypeStability:
         """TAG at aggression=0.7, looseness=0.35 — well clear of both
         thresholds. Drift envelope easily safe."""
         chaotic_tag = PersonalityAnchors(
-            baseline_aggression=0.7, baseline_looseness=0.35,
-            ego=0.5, poise=0.4, expressiveness=0.6,
-            risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.7,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.4,
+            expressiveness=0.6,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         original = select_deviation_profile(chaotic_tag)
-        drifted = select_deviation_profile(
-            apply_session_drift(chaotic_tag, random.Random(seed))
-        )
+        drifted = select_deviation_profile(apply_session_drift(chaotic_tag, random.Random(seed)))
         assert drifted is original, f"seed {seed}: TAG drifted out"
 
     @pytest.mark.parametrize("seed", list(range(50)))
@@ -160,15 +174,18 @@ class TestArchetypeStability:
         Nit would have low poise (Nits have poise=0.9 in the sim's
         archetypes — not chaotic; we construct an artificial one)."""
         chaotic_nit = PersonalityAnchors(
-            baseline_aggression=0.15, baseline_looseness=0.15,
-            ego=0.3, poise=0.4, expressiveness=0.3,
-            risk_identity=0.3, adaptation_bias=0.3,
-            baseline_energy=0.3, recovery_rate=0.15,
+            baseline_aggression=0.15,
+            baseline_looseness=0.15,
+            ego=0.3,
+            poise=0.4,
+            expressiveness=0.3,
+            risk_identity=0.3,
+            adaptation_bias=0.3,
+            baseline_energy=0.3,
+            recovery_rate=0.15,
         )
         original = select_deviation_profile(chaotic_nit)
-        drifted = select_deviation_profile(
-            apply_session_drift(chaotic_nit, random.Random(seed))
-        )
+        drifted = select_deviation_profile(apply_session_drift(chaotic_nit, random.Random(seed)))
         assert drifted is original, f"seed {seed}: Nit drifted out"
 
 
@@ -178,10 +195,15 @@ class TestClampAndRange:
     def test_extreme_anchor_clamps_high(self):
         """Anchor at 0.99 with high sigma must stay <= 1.0 after drift."""
         anchors = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5,
-            ego=0.5, poise=0.1, expressiveness=0.99,
-            risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.99, recovery_rate=0.1,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.1,
+            expressiveness=0.99,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.99,
+            recovery_rate=0.1,
         )
         # drift_strength = 0.9 * 0.9 = 0.81 → very high noise
         # expressiveness sigma = 0.10 * 0.81 = 0.081. Run many samples to
@@ -190,9 +212,7 @@ class TestClampAndRange:
             result = apply_session_drift(anchors, random.Random(seed))
             for name in DRIFT_BASE_SIGMA:
                 v = getattr(result, name)
-                assert 0.0 <= v <= 1.0, (
-                    f"seed {seed}: {name} = {v} (out of [0,1])"
-                )
+                assert 0.0 <= v <= 1.0, f"seed {seed}: {name} = {v} (out of [0,1])"
 
 
 class TestDeterminism:
@@ -210,8 +230,7 @@ class TestDeterminism:
         # At least one anchor moves between seeds (probability of all 7
         # collisions at gaussian noise is ~0).
         differ = any(
-            getattr(result_a, name) != getattr(result_b, name)
-            for name in DRIFT_BASE_SIGMA
+            getattr(result_a, name) != getattr(result_b, name) for name in DRIFT_BASE_SIGMA
         )
         assert differ, "Different seeds produced identical drift"
 
@@ -225,10 +244,15 @@ class TestDriftMagnitude:
         should be approximately sigma_base * drift_strength = 0.0085.
         Allow a generous 2x band to absorb sampling noise."""
         lag = PersonalityAnchors(
-            baseline_aggression=0.8, baseline_looseness=0.7,
-            ego=0.6, poise=0.5, expressiveness=0.6,
-            risk_identity=0.6, adaptation_bias=0.5,
-            baseline_energy=0.7, recovery_rate=0.15,
+            baseline_aggression=0.8,
+            baseline_looseness=0.7,
+            ego=0.6,
+            poise=0.5,
+            expressiveness=0.6,
+            risk_identity=0.6,
+            adaptation_bias=0.5,
+            baseline_energy=0.7,
+            recovery_rate=0.15,
         )
         agg_samples = []
         for seed in range(500):
@@ -236,16 +260,17 @@ class TestDriftMagnitude:
             agg_samples.append(r.baseline_aggression)
         mean = sum(agg_samples) / len(agg_samples)
         var = sum((x - mean) ** 2 for x in agg_samples) / len(agg_samples)
-        std = var ** 0.5
+        std = var**0.5
         expected_sigma = 0.02 * 0.425  # 0.0085
         # 2x band on either side
-        assert expected_sigma * 0.5 < std < expected_sigma * 2.0, (
-            f"LAG baseline_aggression std = {std:.4f}, expected ~{expected_sigma:.4f}"
-        )
+        assert (
+            expected_sigma * 0.5 < std < expected_sigma * 2.0
+        ), f"LAG baseline_aggression std = {std:.4f}, expected ~{expected_sigma:.4f}"
 
     def test_maniac_drift_envelope_wider_than_lag(self):
         """Maniac (poise 0.3, recovery 0.1) → drift_strength = 0.63.
         Should produce wider drift than LAG (drift_strength = 0.425)."""
+
         def std_of_aggression(anchors):
             samples = [
                 apply_session_drift(anchors, random.Random(seed)).baseline_aggression
@@ -253,13 +278,18 @@ class TestDriftMagnitude:
             ]
             mean = sum(samples) / len(samples)
             var = sum((x - mean) ** 2 for x in samples) / len(samples)
-            return var ** 0.5
+            return var**0.5
 
         lag = PersonalityAnchors(
-            baseline_aggression=0.8, baseline_looseness=0.7,
-            ego=0.6, poise=0.5, expressiveness=0.6,
-            risk_identity=0.6, adaptation_bias=0.5,
-            baseline_energy=0.7, recovery_rate=0.15,
+            baseline_aggression=0.8,
+            baseline_looseness=0.7,
+            ego=0.6,
+            poise=0.5,
+            expressiveness=0.6,
+            risk_identity=0.6,
+            adaptation_bias=0.5,
+            baseline_energy=0.7,
+            recovery_rate=0.15,
         )
         # Maniac uses 0.85/0.85 for the aggression/looseness so that
         # `select_deviation_profile` routes to the maniac profile from
@@ -267,9 +297,14 @@ class TestDriftMagnitude:
         # check, we need numbers that won't bump into the [0,1] clamp.
         # Use a "maniac-like" instance away from the clamp boundary.
         maniac_like = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5,
-            ego=0.7, poise=0.3, expressiveness=0.8,
-            risk_identity=0.8, adaptation_bias=0.3,
-            baseline_energy=0.8, recovery_rate=0.1,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
         )
         assert std_of_aggression(maniac_like) > std_of_aggression(lag)

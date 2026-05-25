@@ -127,14 +127,12 @@ def allocate_chip_flow(pots: List[PotShare]) -> List[ChipFlow]:
                     key = (winner, loser)
                     accum[key] = accum.get(key, 0) + chips
 
-    return [
-        ChipFlow(winner=w, loser=l, chips=c)
-        for (w, l), c in accum.items()
-    ]
+    return [ChipFlow(winner=w, loser=l, chips=c) for (w, l), c in accum.items()]
 
 
 def _proportional_int_split(
-    total: int, weights: Dict[str, int],
+    total: int,
+    weights: Dict[str, int],
 ) -> Dict[str, int]:
     """Largest-remainder split of `total` units across weighted keys.
 

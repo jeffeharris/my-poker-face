@@ -6,8 +6,7 @@ and the probabilistic injection function.
 """
 
 import random
-from typing import Dict, Optional
-
+from typing import Optional
 
 # === INTRUSIVE THOUGHTS ===
 

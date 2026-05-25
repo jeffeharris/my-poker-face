@@ -9,14 +9,18 @@ from poker.strategy.exploitation import (
     select_primary_aggressor,
 )
 
-
 # ── Fixtures ────────────────────────────────────────────────────────────
+
 
 def _stats(**kwargs) -> AggregatedOpponentStats:
     base = dict(
-        hands_observed=50, vpip=0.5, pfr=0.25,
-        aggression_factor=1.5, all_in_frequency=0.05,
-        fold_to_cbet=0.5, cbet_faced_count=0,
+        hands_observed=50,
+        vpip=0.5,
+        pfr=0.25,
+        aggression_factor=1.5,
+        all_in_frequency=0.05,
+        fold_to_cbet=0.5,
+        cbet_faced_count=0,
     )
     base.update(kwargs)
     return AggregatedOpponentStats(**base)
@@ -49,6 +53,7 @@ def _spot(
 
 # ── aggregate_from_spots: behavior parity with aggregate_active_opponents ─
 
+
 class TestAggregateFromSpotsEmpty:
     def test_empty_spots_returns_zero_init(self):
         result = aggregate_from_spots([])
@@ -69,9 +74,13 @@ class TestAggregateFromSpotsEmpty:
 class TestAggregateFromSpotsSingle:
     def test_single_active_opponent_returns_their_stats(self):
         stats = _stats(
-            hands_observed=42, vpip=0.33, pfr=0.18,
-            aggression_factor=2.5, all_in_frequency=0.08,
-            fold_to_cbet=0.75, cbet_faced_count=12,
+            hands_observed=42,
+            vpip=0.33,
+            pfr=0.18,
+            aggression_factor=2.5,
+            all_in_frequency=0.08,
+            fold_to_cbet=0.75,
+            cbet_faced_count=12,
         )
         result = aggregate_from_spots([_spot('Bob', stats=stats)])
         assert result.hands_observed == 42
@@ -85,7 +94,8 @@ class TestAggregateFromSpotsSingle:
     def test_folded_opponents_ignored(self):
         active = _spot('Alive', stats=_stats(hands_observed=42, vpip=0.7))
         folded = _spot(
-            'Folded', is_active=False,
+            'Folded',
+            is_active=False,
             stats=_stats(hands_observed=100, vpip=0.1),
         )
         result = aggregate_from_spots([active, folded])
@@ -98,25 +108,39 @@ class TestAggregateFromSpots60Rule:
     def test_dominant_opponent_returns_their_stats(self):
         spots = [
             _spot(
-                'Dom', current_bet=700, committed_this_hand=700,
+                'Dom',
+                current_bet=700,
+                committed_this_hand=700,
                 stats=_stats(
-                    hands_observed=120, vpip=0.85, pfr=0.55,
-                    aggression_factor=4.5, all_in_frequency=0.4,
-                    fold_to_cbet=0.30, cbet_faced_count=18,
+                    hands_observed=120,
+                    vpip=0.85,
+                    pfr=0.55,
+                    aggression_factor=4.5,
+                    all_in_frequency=0.4,
+                    fold_to_cbet=0.30,
+                    cbet_faced_count=18,
                 ),
             ),
             _spot(
-                'B', current_bet=200, committed_this_hand=200,
+                'B',
+                current_bet=200,
+                committed_this_hand=200,
                 stats=_stats(
-                    hands_observed=80, vpip=0.20,
-                    fold_to_cbet=0.60, cbet_faced_count=8,
+                    hands_observed=80,
+                    vpip=0.20,
+                    fold_to_cbet=0.60,
+                    cbet_faced_count=8,
                 ),
             ),
             _spot(
-                'C', current_bet=100, committed_this_hand=100,
+                'C',
+                current_bet=100,
+                committed_this_hand=100,
                 stats=_stats(
-                    hands_observed=60, vpip=0.30,
-                    fold_to_cbet=0.55, cbet_faced_count=5,
+                    hands_observed=60,
+                    vpip=0.30,
+                    fold_to_cbet=0.55,
+                    cbet_faced_count=5,
                 ),
             ),
         ]
@@ -132,38 +156,49 @@ class TestAggregateFromSpots60Rule:
         # Stakes: A=500, B=300, C=200 → weights 0.5, 0.3, 0.2.
         spots = [
             _spot(
-                'A', committed_this_hand=500,
+                'A',
+                committed_this_hand=500,
                 stats=_stats(
-                    hands_observed=100, vpip=0.6, pfr=0.30,
-                    aggression_factor=3.0, all_in_frequency=0.2,
-                    fold_to_cbet=0.4, cbet_faced_count=10,
+                    hands_observed=100,
+                    vpip=0.6,
+                    pfr=0.30,
+                    aggression_factor=3.0,
+                    all_in_frequency=0.2,
+                    fold_to_cbet=0.4,
+                    cbet_faced_count=10,
                 ),
             ),
             _spot(
-                'B', committed_this_hand=300,
+                'B',
+                committed_this_hand=300,
                 stats=_stats(
-                    hands_observed=100, vpip=0.3, pfr=0.15,
-                    aggression_factor=1.5, all_in_frequency=0.05,
-                    fold_to_cbet=0.7, cbet_faced_count=12,
+                    hands_observed=100,
+                    vpip=0.3,
+                    pfr=0.15,
+                    aggression_factor=1.5,
+                    all_in_frequency=0.05,
+                    fold_to_cbet=0.7,
+                    cbet_faced_count=12,
                 ),
             ),
             _spot(
-                'C', committed_this_hand=200,
+                'C',
+                committed_this_hand=200,
                 stats=_stats(
-                    hands_observed=100, vpip=0.3, pfr=0.15,
-                    aggression_factor=1.5, all_in_frequency=0.05,
-                    fold_to_cbet=0.6, cbet_faced_count=8,
+                    hands_observed=100,
+                    vpip=0.3,
+                    pfr=0.15,
+                    aggression_factor=1.5,
+                    all_in_frequency=0.05,
+                    fold_to_cbet=0.6,
+                    cbet_faced_count=8,
                 ),
             ),
         ]
         result = aggregate_from_spots(spots)
         assert result.vpip == pytest.approx(0.5 * 0.6 + 0.3 * 0.3 + 0.2 * 0.3)
-        assert result.aggression_factor == pytest.approx(
-            0.5 * 3.0 + 0.3 * 1.5 + 0.2 * 1.5
-        )
-        assert result.fold_to_cbet == pytest.approx(
-            0.5 * 0.4 + 0.3 * 0.7 + 0.2 * 0.6
-        )
+        assert result.aggression_factor == pytest.approx(0.5 * 3.0 + 0.3 * 1.5 + 0.2 * 1.5)
+        assert result.fold_to_cbet == pytest.approx(0.5 * 0.4 + 0.3 * 0.7 + 0.2 * 0.6)
         # hands_observed and cbet_faced_count use MIN
         assert result.hands_observed == 100
         assert result.cbet_faced_count == 8
@@ -217,8 +252,8 @@ class TestAggregateFromSpots60Rule:
         # weighted-path code under test rather than the dominant cliff.
         spots = [
             _spot('Station', committed_this_hand=550, stats=station_stats),
-            _spot('TAG1',    committed_this_hand=225, stats=tag_stats),
-            _spot('TAG2',    committed_this_hand=225, stats=tag_stats),
+            _spot('TAG1', committed_this_hand=225, stats=tag_stats),
+            _spot('TAG2', committed_this_hand=225, stats=tag_stats),
         ]
         result = aggregate_from_spots(spots)
         # Equal-weight would be (0.98 + 0.20 + 0.20)/3 = 0.46.
@@ -226,12 +261,11 @@ class TestAggregateFromSpots60Rule:
         assert result.vpip_per_voluntary_opportunity == pytest.approx(
             0.55 * 0.98 + 0.225 * 0.20 + 0.225 * 0.20
         )
-        assert result.aggression_factor == pytest.approx(
-            0.55 * 0.5 + 0.225 * 2.5 + 0.225 * 2.5
-        )
+        assert result.aggression_factor == pytest.approx(0.55 * 0.5 + 0.225 * 2.5 + 0.225 * 2.5)
 
 
 # ── select_primary_aggressor ────────────────────────────────────────────
+
 
 class TestSelectPrimaryAggressor:
     def test_strictly_highest_returns_that_spot(self):
@@ -240,8 +274,9 @@ class TestSelectPrimaryAggressor:
             _spot('B', current_bet=100),
             _spot('C', current_bet=100),
         ]
-        result = select_primary_aggressor(spots, highest_current_bet=300,
-                                          recent_aggressor_name=None)
+        result = select_primary_aggressor(
+            spots, highest_current_bet=300, recent_aggressor_name=None
+        )
         assert result is not None
         assert result.name == 'A'
 
@@ -359,12 +394,20 @@ class TestComputeMultiwayCbetIntensity:
 
     def test_one_foldy_one_partial_returns_min(self):
         """Mixed sample sizes → take the smaller intensity."""
-        full = _spot('Full', stats=_foldy_stats(
-            fold_to_cbet=0.85, cbet_faced_count=10,
-        ))
-        partial = _spot('Partial', stats=_foldy_stats(
-            fold_to_cbet=0.85, cbet_faced_count=7,  # ramp = 0.5 confidence
-        ))
+        full = _spot(
+            'Full',
+            stats=_foldy_stats(
+                fold_to_cbet=0.85,
+                cbet_faced_count=10,
+            ),
+        )
+        partial = _spot(
+            'Partial',
+            stats=_foldy_stats(
+                fold_to_cbet=0.85,
+                cbet_faced_count=7,  # ramp = 0.5 confidence
+            ),
+        )
         result = compute_multiway_cbet_intensity([full, partial])
         assert result == pytest.approx(0.5, rel=1e-6)
 
@@ -402,7 +445,10 @@ class TestComputeMultiwayCbetIntensity:
         """An all-in player can't fold — pure bluff EV collapses."""
         foldy = _spot('Foldy', stats=_foldy_stats())
         all_in = _spot(
-            'AllIn', stats=_foldy_stats(), is_all_in=True, stack=0,
+            'AllIn',
+            stats=_foldy_stats(),
+            is_all_in=True,
+            stack=0,
         )
         assert compute_multiway_cbet_intensity([foldy, all_in]) == 0.0
 
@@ -411,7 +457,8 @@ class TestComputeMultiwayCbetIntensity:
         a = _spot('A', stats=_foldy_stats())
         b = _spot('B', stats=_foldy_stats())
         folded_station = _spot(
-            'FoldedStation', is_active=False,
+            'FoldedStation',
+            is_active=False,
             stats=_foldy_stats(fold_to_cbet=0.10),
         )
         # The station is inactive, so 2 active foldy opponents fire.
@@ -429,7 +476,8 @@ from poker.strategy.exploitation import (
 class TestMultiwayCbetOffsets:
     def test_fires_in_multiway_flop_aggressor_spot(self):
         ctx = DecisionContext(
-            is_flop_as_preflop_aggressor=True, active_opponent_count=2,
+            is_flop_as_preflop_aggressor=True,
+            active_opponent_count=2,
         )
         offsets = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
@@ -444,7 +492,8 @@ class TestMultiwayCbetOffsets:
 
     def test_zero_intensity_does_not_fire(self):
         ctx = DecisionContext(
-            is_flop_as_preflop_aggressor=True, active_opponent_count=3,
+            is_flop_as_preflop_aggressor=True,
+            active_opponent_count=3,
         )
         offsets = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
@@ -459,7 +508,8 @@ class TestMultiwayCbetOffsets:
         """multiway_cbet_intensity must be ignored when active_opponent_count == 1
         (the HU rule handles those spots from aggregate stats)."""
         ctx = DecisionContext(
-            is_flop_as_preflop_aggressor=True, active_opponent_count=1,
+            is_flop_as_preflop_aggressor=True,
+            active_opponent_count=1,
         )
         offsets = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
@@ -475,7 +525,8 @@ class TestMultiwayCbetOffsets:
     def test_does_not_fire_outside_c_bet_spot(self):
         """is_flop_as_preflop_aggressor=False suppresses the rule."""
         ctx = DecisionContext(
-            is_flop_as_preflop_aggressor=False, active_opponent_count=3,
+            is_flop_as_preflop_aggressor=False,
+            active_opponent_count=3,
         )
         offsets = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
@@ -489,17 +540,20 @@ class TestMultiwayCbetOffsets:
     def test_partial_intensity_scales_offsets(self):
         """Half intensity → half offset magnitude."""
         ctx = DecisionContext(
-            is_flop_as_preflop_aggressor=True, active_opponent_count=2,
+            is_flop_as_preflop_aggressor=True,
+            active_opponent_count=2,
         )
         full = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
-            adaptation_bias=0.85, decision_context=ctx,
+            adaptation_bias=0.85,
+            decision_context=ctx,
             available_actions=['check', 'bet_33'],
             multiway_cbet_intensity=1.0,
         )
         half = compute_exploitation_offsets(
             stats=AggregatedOpponentStats(hands_observed=100),
-            adaptation_bias=0.85, decision_context=ctx,
+            adaptation_bias=0.85,
+            decision_context=ctx,
             available_actions=['check', 'bet_33'],
             multiway_cbet_intensity=0.5,
         )

@@ -1,14 +1,15 @@
 """OpenAI provider implementation."""
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai import OpenAI
 
+from ..config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, IMAGE_MODEL
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MODEL, IMAGE_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING_EFFORT
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ class OpenAIProvider(LLMProvider):
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,  # JSON string
-                }
+                },
             }
             for tc in tool_calls
         ]

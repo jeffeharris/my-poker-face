@@ -34,8 +34,8 @@ from poker.memory.opponent_model import (
     OpponentTendencies,
 )
 
-
 # ── CbetDetector ──────────────────────────────────────────────────────────
+
 
 class TestPfrAttemptEvents:
     def test_no_event_before_flop(self):
@@ -48,24 +48,21 @@ class TestPfrAttemptEvents:
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'bet', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         assert d.consume_pfr_attempt_events() == [('Hero', True)]
 
     def test_pfr_checks_flop_emits_attempted_false(self):
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'check', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'check', 'FLOP', active_players=['Hero', 'Villain'])
         assert d.consume_pfr_attempt_events() == [('Hero', False)]
 
     def test_pfr_all_in_on_flop_counts_as_attempted(self):
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'all_in', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'all_in', 'FLOP', active_players=['Hero', 'Villain'])
         assert d.consume_pfr_attempt_events() == [('Hero', True)]
 
     def test_donk_bet_into_pfr_does_not_emit(self):
@@ -75,8 +72,7 @@ class TestPfrAttemptEvents:
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Villain', 'bet', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Villain', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         d.record_action('Hero', 'call', 'FLOP')
         assert d.consume_pfr_attempt_events() == []
 
@@ -88,8 +84,7 @@ class TestPfrAttemptEvents:
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'check', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'check', 'FLOP', active_players=['Hero', 'Villain'])
         d.record_action('Villain', 'bet', 'FLOP')
         d.record_action('Hero', 'call', 'FLOP')
         assert d.consume_pfr_attempt_events() == [('Hero', False)]
@@ -100,8 +95,7 @@ class TestPfrAttemptEvents:
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'bet', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         # Consume the first event
         assert d.consume_pfr_attempt_events() == [('Hero', True)]
         # Villain check-raises, PFR re-raises — no second event.
@@ -114,28 +108,26 @@ class TestPfrAttemptEvents:
         d = CbetDetector()
         d.record_action('Hero', 'call', 'PRE_FLOP')
         d.record_action('Villain', 'check', 'PRE_FLOP')
-        d.record_action('Hero', 'bet', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         assert d.consume_pfr_attempt_events() == []
 
     def test_reset_for_new_hand_clears_state(self):
         d = CbetDetector()
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'bet', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         d.consume_pfr_attempt_events()  # drain
 
         d.reset_for_new_hand()
         # New hand, same setup → event should fire fresh.
         d.record_action('Hero', 'raise', 'PRE_FLOP')
         d.record_action('Villain', 'call', 'PRE_FLOP')
-        d.record_action('Hero', 'check', 'FLOP',
-                         active_players=['Hero', 'Villain'])
+        d.record_action('Hero', 'check', 'FLOP', active_players=['Hero', 'Villain'])
         assert d.consume_pfr_attempt_events() == [('Hero', False)]
 
 
 # ── OpponentTendencies counters ───────────────────────────────────────────
+
 
 class TestCbetAttemptCounters:
     def test_default_is_neutral_prior(self):
@@ -199,6 +191,7 @@ class TestCbetAttemptCounters:
 
 # ── OpponentModel wrapper ────────────────────────────────────────────────
 
+
 class TestOpponentModelObserveCbetAttempt:
     def test_wrapper_delegates_to_tendencies(self):
         m = OpponentModel(observer='Hero', opponent='Villain')
@@ -210,6 +203,7 @@ class TestOpponentModelObserveCbetAttempt:
 
 
 # ── MemoryManager integration ────────────────────────────────────────────
+
 
 class TestMemoryManagerIntegration:
     """End-to-end: when a player raises preflop and acts on the flop,
@@ -226,14 +220,10 @@ class TestMemoryManagerIntegration:
 
         # PFR raises, callers come along, PFR c-bets flop
         actives = ['Hero', 'Villain', 'Bystander']
-        mgr.on_action('Hero', 'raise', 100, 'PRE_FLOP', 150,
-                       active_players=actives)
-        mgr.on_action('Villain', 'call', 100, 'PRE_FLOP', 250,
-                       active_players=actives)
-        mgr.on_action('Bystander', 'call', 100, 'PRE_FLOP', 350,
-                       active_players=actives)
-        mgr.on_action('Hero', 'bet', 200, 'FLOP', 550,
-                       active_players=actives)
+        mgr.on_action('Hero', 'raise', 100, 'PRE_FLOP', 150, active_players=actives)
+        mgr.on_action('Villain', 'call', 100, 'PRE_FLOP', 250, active_players=actives)
+        mgr.on_action('Bystander', 'call', 100, 'PRE_FLOP', 350, active_players=actives)
+        mgr.on_action('Hero', 'bet', 200, 'FLOP', 550, active_players=actives)
 
         # Every non-Hero observer's model of Hero should record the attempt
         for observer in ('Villain', 'Bystander'):

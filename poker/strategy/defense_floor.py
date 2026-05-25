@@ -64,7 +64,6 @@ from .intervention_trace import (
 )
 from .strategy_profile import StrategyProfile
 
-
 # ── Matrix tunables ────────────────────────────────────────────────
 
 # Row 3: "strongly prefer continue" — near/actual nuts at ≤45% req
@@ -97,9 +96,13 @@ _ROW_MEDIUM_CLASSES = frozenset({'medium_made', 'strong_made', 'nuts'})
 # Board-only danger flags that count for the dampener. Hand-specific
 # flags are already absorbed into nut_status; including them here
 # would double-count.
-_BOARD_DANGER_FLAGS = frozenset({
-    PAIRED_BOARD, FOUR_STRAIGHT_BOARD, FOUR_FLUSH_BOARD,
-})
+_BOARD_DANGER_FLAGS = frozenset(
+    {
+        PAIRED_BOARD,
+        FOUR_STRAIGHT_BOARD,
+        FOUR_FLUSH_BOARD,
+    }
+)
 
 # Multiplicative dampener: each board danger flag reduces magnitude
 # by 15%, never below 40% of the un-dampened floor.
@@ -124,18 +127,12 @@ def _floor_target_call_prob(
         return 0.0
 
     # Row 3: strongly prefer continue
-    if (
-        required_equity <= ROW_STRONG_MAX_REQ
-        and nut_status in (NUT_NEAR, NUT_ACTUAL)
-    ):
+    if required_equity <= ROW_STRONG_MAX_REQ and nut_status in (NUT_NEAR, NUT_ACTUAL):
         return FLOOR_TARGET_STRONG
 
     # Row 4: keep call alive — strong+ class OR non_nut_strong
     if required_equity <= ROW_KEEP_ALIVE_STRONG_MAX_REQ:
-        if (
-            hand_class in _ROW_STRONG_CLASSES
-            or nut_status == NUT_NON_NUT_STRONG
-        ):
+        if hand_class in _ROW_STRONG_CLASSES or nut_status == NUT_NON_NUT_STRONG:
             return FLOOR_TARGET_KEEP_ALIVE
 
     # Row 5: keep call alive — medium+ at cheap prices
@@ -240,12 +237,8 @@ def _build_fire_trace(
             primary_action(strategy_before.action_probabilities)
             != primary_action(strategy_after.action_probabilities)
         ),
-        primary_action_before=primary_action(
-            strategy_before.action_probabilities
-        ),
-        primary_action_after=primary_action(
-            strategy_after.action_probabilities
-        ),
+        primary_action_before=primary_action(strategy_before.action_probabilities),
+        primary_action_after=primary_action(strategy_after.action_probabilities),
         reason_code=f'matrix_row_{matrix_row}',
         rationale=(
             f'price-sensitive defense floor: row={matrix_row} '
@@ -279,16 +272,10 @@ def _matrix_row_label(
     """
     if hand_class in {'air', 'air_no_draw', 'air_strong_draw'} or nut_status == NUT_BLUFF_CATCHER:
         return None
-    if (
-        required_equity <= ROW_STRONG_MAX_REQ
-        and nut_status in (NUT_NEAR, NUT_ACTUAL)
-    ):
+    if required_equity <= ROW_STRONG_MAX_REQ and nut_status in (NUT_NEAR, NUT_ACTUAL):
         return 'strong'
     if required_equity <= ROW_KEEP_ALIVE_STRONG_MAX_REQ:
-        if (
-            hand_class in _ROW_STRONG_CLASSES
-            or nut_status == NUT_NON_NUT_STRONG
-        ):
+        if hand_class in _ROW_STRONG_CLASSES or nut_status == NUT_NON_NUT_STRONG:
             return 'keep_alive_strong'
     if required_equity <= ROW_KEEP_ALIVE_MEDIUM_MAX_REQ:
         if hand_class in _ROW_MEDIUM_CLASSES:
@@ -332,20 +319,23 @@ def apply_defense_floor(
     """
     if is_rule_disabled(disable_rules, 'defense_floor', 'default'):
         return strategy, make_disabled_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
         )
 
     if not facing_bet:
         return strategy, make_no_op_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
             reason_code='no_bet_to_face',
         )
 
     if prior_layer_fired:
         return strategy, make_no_op_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
             reason_code='prior_override_active',
         )
@@ -353,7 +343,8 @@ def apply_defense_floor(
     target = _floor_target_call_prob(hand_class, nut_status, required_equity)
     if target <= 0.0:
         return strategy, make_no_op_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
             reason_code='no_eligible_row',
         )
@@ -361,18 +352,23 @@ def apply_defense_floor(
     current_call = strategy.action_probabilities.get('call', 0.0)
     if 'call' not in strategy.action_probabilities:
         return strategy, make_no_op_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
             reason_code='call_action_unavailable',
         )
 
     dampened_target = _apply_danger_dampener(
-        target, current_call, danger_flags, disable_rules=disable_rules,
+        target,
+        current_call,
+        danger_flags,
+        disable_rules=disable_rules,
     )
 
     if current_call >= dampened_target:
         return strategy, make_no_op_trace(
-            layer='defense_floor', rule_id='default',
+            layer='defense_floor',
+            rule_id='default',
             layer_order=layer_order_for('defense_floor'),
             reason_code='already_above_floor',
         )

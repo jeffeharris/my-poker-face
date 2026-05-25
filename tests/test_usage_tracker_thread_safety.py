@@ -1,4 +1,5 @@
 """Tests for UsageTracker thread-safe singleton (T2-18)."""
+
 import threading
 from unittest.mock import patch
 

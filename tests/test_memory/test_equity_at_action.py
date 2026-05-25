@@ -56,7 +56,9 @@ class TestUpdateEquityAtAction:
         t = OpponentTendencies()
         t.update_equity_at_action('bet', -0.1)
         t.update_equity_at_action('bet', 1.5)
-        t.update_equity_at_action('raise', float('nan'))  # NaN: NaN > 1 evaluates False, NaN <= 1 also False
+        t.update_equity_at_action(
+            'raise', float('nan')
+        )  # NaN: NaN > 1 evaluates False, NaN <= 1 also False
         # Implementation uses 0.0 <= x <= 1.0 — NaN comparisons return False
         # so NaN is silently dropped, same as out-of-range numbers.
         assert t._equity_betting_count == 0
@@ -145,14 +147,15 @@ class TestShowdownReplay:
     """
 
     def test_showdown_records_equity_for_postflop_actions(self):
+        from poker.memory.hand_history import PlayerHandInfo, RecordedAction, RecordedHand
         from poker.memory.memory_manager import AIMemoryManager
-        from poker.memory.hand_history import RecordedHand, RecordedAction, PlayerHandInfo
 
         mgr = AIMemoryManager(game_id="test_game", db_path=None)
         mgr.initialize_for_player("Alice")
         mgr.initialize_for_player("Bob")
 
         from datetime import datetime
+
         # Construct a recorded hand where Bob raises on a wet flop with
         # a strong hand (set on a low board → very high equity).
         recorded = RecordedHand(
@@ -165,21 +168,37 @@ class TestShowdownReplay:
             ),
             hole_cards={
                 "Alice": ["7h", "2d"],  # garbage
-                "Bob": ["Kh", "Kd"],    # pocket kings
+                "Bob": ["Kh", "Kd"],  # pocket kings
             },
             community_cards=("3s", "8c", "Kc", "2h", "9d"),
             actions=(
-                RecordedAction(player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200),
-                RecordedAction(player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200),
+                RecordedAction(
+                    player_name="Alice", action="call", amount=100, phase="PRE_FLOP", pot_after=200
+                ),
+                RecordedAction(
+                    player_name="Bob", action="check", amount=0, phase="PRE_FLOP", pot_after=200
+                ),
                 # Flop: K83 — Bob has top set
-                RecordedAction(player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350),
-                RecordedAction(player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500),
+                RecordedAction(
+                    player_name="Bob", action="bet", amount=150, phase="FLOP", pot_after=350
+                ),
+                RecordedAction(
+                    player_name="Alice", action="call", amount=150, phase="FLOP", pot_after=500
+                ),
                 # Turn: K832 — Bob still nuts
-                RecordedAction(player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800),
-                RecordedAction(player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100),
+                RecordedAction(
+                    player_name="Bob", action="bet", amount=300, phase="TURN", pot_after=800
+                ),
+                RecordedAction(
+                    player_name="Alice", action="call", amount=300, phase="TURN", pot_after=1100
+                ),
                 # River
-                RecordedAction(player_name="Bob", action="check", amount=0, phase="RIVER", pot_after=1100),
-                RecordedAction(player_name="Alice", action="check", amount=0, phase="RIVER", pot_after=1100),
+                RecordedAction(
+                    player_name="Bob", action="check", amount=0, phase="RIVER", pot_after=1100
+                ),
+                RecordedAction(
+                    player_name="Alice", action="check", amount=0, phase="RIVER", pot_after=1100
+                ),
             ),
             winners=(),  # not used by the replay path
             pot_size=1100,
@@ -217,14 +236,15 @@ class TestShowdownReplay:
         )
 
     def test_showdown_with_folded_players_skips_them(self):
+        from poker.memory.hand_history import PlayerHandInfo, RecordedAction, RecordedHand
         from poker.memory.memory_manager import AIMemoryManager
-        from poker.memory.hand_history import RecordedHand, RecordedAction, PlayerHandInfo
 
         mgr = AIMemoryManager(game_id="test_game", db_path=None)
         mgr.initialize_for_player("Alice")
         mgr.initialize_for_player("Bob")
 
         from datetime import datetime
+
         recorded = RecordedHand(
             game_id="test_game",
             hand_number=1,
@@ -236,8 +256,12 @@ class TestShowdownReplay:
             hole_cards={"Alice": ["Ah", "As"]},  # Bob folded, cards unknown
             community_cards=("3s", "8c", "Kc"),
             actions=(
-                RecordedAction(player_name="Alice", action="raise", amount=300, phase="PRE_FLOP", pot_after=400),
-                RecordedAction(player_name="Bob", action="fold", amount=0, phase="PRE_FLOP", pot_after=400),
+                RecordedAction(
+                    player_name="Alice", action="raise", amount=300, phase="PRE_FLOP", pot_after=400
+                ),
+                RecordedAction(
+                    player_name="Bob", action="fold", amount=0, phase="PRE_FLOP", pot_after=400
+                ),
             ),
             winners=(),
             pot_size=400,

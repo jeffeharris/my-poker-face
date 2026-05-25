@@ -37,10 +37,12 @@ def _patch_client_raises(exc: Exception):
 
 
 def test_happy_path_returns_narration_and_duration():
-    content = json.dumps({
-        "narration": "Napoleon took a consulting gig restructuring a vineyard",
-        "duration": "long",
-    })
+    content = json.dumps(
+        {
+            "narration": "Napoleon took a consulting gig restructuring a vineyard",
+            "duration": "long",
+        }
+    )
     with _patch_client(content):
         narration, bucket = narrate_side_hustle("napoleon", 2500)
     assert narration == "Napoleon took a consulting gig restructuring a vineyard"

@@ -31,9 +31,8 @@ a game.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
-
 
 NARRATION_MAX_FACTS = 3
 
@@ -46,27 +45,29 @@ class NarrationFact:
     hidden-card knowledge, no `confidence` values that could be
     misread as emotional certainty.
     """
-    observation: str         # "Opponent has been jamming postflop a lot"
-    why_it_matters: str      # "Their bet range is mostly bluffs here"
-    decision_taken: str      # "I'm calling instead of folding"
-    action_intent: str       # 'value_bet' / 'bluff' / 'bluff_catch' /
-                             # 'pot_control' / 'protection' / 'steal' /
-                             # 'induce' / 'give_up'
-    intensity_bucket: str    # 'subtle' / 'noticeable' / 'strong'
-    certainty_bucket: str    # 'tentative' / 'confident' / 'sure'
-    importance: float        # 0-1 ranking score for top-N selection;
-                             # never exposed to LLM directly
-    layer: str = ''          # debug only — not sent to LLM
-    rule_id: str = ''        # debug only — not sent to LLM
+
+    observation: str  # "Opponent has been jamming postflop a lot"
+    why_it_matters: str  # "Their bet range is mostly bluffs here"
+    decision_taken: str  # "I'm calling instead of folding"
+    action_intent: str  # 'value_bet' / 'bluff' / 'bluff_catch' /
+    # 'pot_control' / 'protection' / 'steal' /
+    # 'induce' / 'give_up'
+    intensity_bucket: str  # 'subtle' / 'noticeable' / 'strong'
+    certainty_bucket: str  # 'tentative' / 'confident' / 'sure'
+    importance: float  # 0-1 ranking score for top-N selection;
+    # never exposed to LLM directly
+    layer: str = ''  # debug only — not sent to LLM
+    rule_id: str = ''  # debug only — not sent to LLM
 
 
 @dataclass(frozen=True)
 class NarrationContext:
     """Decision-level context the LLM needs alongside the facts."""
-    street: str              # 'preflop' / 'flop' / 'turn' / 'river'
-    position_context: str    # 'in_position' / 'out_of_position' /
-                             # 'big_blind' / 'small_blind' / 'button'
-    risk_posture: str        # 'conservative' / 'balanced' / 'aggressive'
+
+    street: str  # 'preflop' / 'flop' / 'turn' / 'river'
+    position_context: str  # 'in_position' / 'out_of_position' /
+    # 'big_blind' / 'small_blind' / 'button'
+    risk_posture: str  # 'conservative' / 'balanced' / 'aggressive'
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class NarrationFacts:
     the max intensity_bucket across surfaced facts. `suppressed_facts_count`
     is a debug counter — NOT included in the LLM prompt.
     """
+
     facts: List[NarrationFact]
     primary_factor: Optional[NarrationFact]
     context: NarrationContext
@@ -90,17 +92,19 @@ class NarrationFacts:
 # math_floor are intentionally absent — they're mechanical, not
 # narratable observations. (Math floor in particular is "I have to
 # call by the math" — that's a thought, not a poker read.)
-NARRATION_ALLOWLIST: frozenset = frozenset({
-    ('exploitation', 'hyper_aggressive'),
-    ('exploitation', 'hyper_passive'),
-    ('exploitation', 'tight_nit'),
-    ('exploitation', 'high_fold_to_cbet'),
-    ('exploitation', 'multiway_cbet'),
-    ('strong_hand_override', 'default'),
-    ('bluff_catch_override', 'default'),
-    ('value_vs_station', 'default'),
-    ('steal_pressure', 'default'),
-})
+NARRATION_ALLOWLIST: frozenset = frozenset(
+    {
+        ('exploitation', 'hyper_aggressive'),
+        ('exploitation', 'hyper_passive'),
+        ('exploitation', 'tight_nit'),
+        ('exploitation', 'high_fold_to_cbet'),
+        ('exploitation', 'multiway_cbet'),
+        ('strong_hand_override', 'default'),
+        ('bluff_catch_override', 'default'),
+        ('value_vs_station', 'default'),
+        ('steal_pressure', 'default'),
+    }
+)
 
 
 # Maps stable reason_codes to player-facing observation templates.
@@ -127,19 +131,16 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
         "Opponent's been betting a lot postflop",
         "Their bet-to-check ratio is high",
     ),
-
     # ── Exploitation: hyper_passive ──
     'station_value_extract': (
         "Opponent's a call station",
         "I can value-bet thinner against them",
     ),
-
     # ── Exploitation: tight_nit ──
     'nit_steal_open': (
         "Opponent's been folding a lot preflop",
         "Wider open should print here",
     ),
-
     # ── Exploitation: cbet rules ──
     'hu_cbet_exploit': (
         "Opponent's folding too often to c-bets",
@@ -149,7 +150,6 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
         "Everyone's been folding to c-bets in multiway pots",
         "Smaller sizing keeps them honest",
     ),
-
     # ── strong_hand_override branches ──
     'facing_all_in_call': (
         "I've got a strong hand",
@@ -183,7 +183,6 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
         "I've got a premium preflop hand",
         "Standard open for value",
     ),
-
     # ── bluff_catch_override branches ──
     'medium_made_vs_extreme_facing_bet': (
         "I have showdown value against an over-aggressor",
@@ -193,7 +192,6 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
         "Marginal hand, but they bluff this size a lot",
         "Pot odds work against their wide range",
     ),
-
     # ── Phase 8 ──
     'strong_hand_vs_station': (
         "Calling station with my strong hand",
@@ -209,15 +207,15 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
 # Hand-curated narrative priority per (layer, rule_id). Used as one
 # dimension in _score_fact_importance. Higher = more narratable.
 LAYER_RULE_NARRATIVE_WEIGHT: Dict[Tuple[str, str], float] = {
-    ('bluff_catch_override',     'default'):           1.0,
-    ('strong_hand_override',     'default'):           1.0,
-    ('exploitation',             'hyper_aggressive'):  0.8,
-    ('exploitation',             'tight_nit'):         0.6,
-    ('exploitation',             'hyper_passive'):     0.5,
-    ('exploitation',             'high_fold_to_cbet'): 0.8,
-    ('exploitation',             'multiway_cbet'):     0.6,
-    ('value_vs_station',         'default'):           0.7,
-    ('steal_pressure',           'default'):           0.7,
+    ('bluff_catch_override', 'default'): 1.0,
+    ('strong_hand_override', 'default'): 1.0,
+    ('exploitation', 'hyper_aggressive'): 0.8,
+    ('exploitation', 'tight_nit'): 0.6,
+    ('exploitation', 'hyper_passive'): 0.5,
+    ('exploitation', 'high_fold_to_cbet'): 0.8,
+    ('exploitation', 'multiway_cbet'): 0.6,
+    ('value_vs_station', 'default'): 0.7,
+    ('steal_pressure', 'default'): 0.7,
 }
 
 
@@ -226,15 +224,15 @@ LAYER_RULE_NARRATIVE_WEIGHT: Dict[Tuple[str, str], float] = {
 # overrides for special cases (e.g. value_override on a strong hand
 # becomes `value_bet` regardless of layer).
 LAYER_RULE_ACTION_INTENT: Dict[Tuple[str, str], str] = {
-    ('exploitation',           'hyper_aggressive'):  'bluff_catch',
-    ('exploitation',           'hyper_passive'):     'value_bet',
-    ('exploitation',           'tight_nit'):         'steal',
-    ('exploitation',           'high_fold_to_cbet'): 'bluff',
-    ('exploitation',           'multiway_cbet'):     'bluff',
-    ('strong_hand_override',   'default'):           'value_bet',
-    ('bluff_catch_override',   'default'):           'bluff_catch',
-    ('value_vs_station',       'default'):           'value_bet',
-    ('steal_pressure',         'default'):           'steal',
+    ('exploitation', 'hyper_aggressive'): 'bluff_catch',
+    ('exploitation', 'hyper_passive'): 'value_bet',
+    ('exploitation', 'tight_nit'): 'steal',
+    ('exploitation', 'high_fold_to_cbet'): 'bluff',
+    ('exploitation', 'multiway_cbet'): 'bluff',
+    ('strong_hand_override', 'default'): 'value_bet',
+    ('bluff_catch_override', 'default'): 'bluff_catch',
+    ('value_vs_station', 'default'): 'value_bet',
+    ('steal_pressure', 'default'): 'steal',
 }
 
 
@@ -350,7 +348,7 @@ def _layer_was_overridden(
     if trace_index >= len(all_traces) - 1:
         return False
     candidate_source = f"{all_traces[trace_index].layer}.{all_traces[trace_index].rule_id}"
-    for later in all_traces[trace_index + 1:]:
+    for later in all_traces[trace_index + 1 :]:
         if (
             getattr(later, 'replaced_prior_action', False)
             and getattr(later, 'prior_action_source', '') == candidate_source
@@ -386,17 +384,17 @@ def _score_fact_importance(
     Returns float in [0, 1].
     """
     op_score = {
-        'override': 1.0, 'veto': 1.0,
-        'clamp': 0.7, 'adjust': 0.5,
-        'suggest': 0.2, 'no_op': 0.0,
+        'override': 1.0,
+        'veto': 1.0,
+        'clamp': 0.7,
+        'adjust': 0.5,
+        'suggest': 0.2,
+        'no_op': 0.0,
     }.get(getattr(trace, 'operation', 'no_op'), 0.0)
 
     if getattr(trace, 'action_changed', False):
         act_score = 1.0
-    elif (
-        getattr(trace, 'amount_bucket_before', '')
-        != getattr(trace, 'amount_bucket_after', '')
-    ):
+    elif getattr(trace, 'amount_bucket_before', '') != getattr(trace, 'amount_bucket_after', ''):
         act_score = 0.5
     else:
         act_score = 0.0
@@ -410,7 +408,10 @@ def _score_fact_importance(
         cert_score = 0.3
 
     street_score = {
-        'river': 1.0, 'turn': 0.7, 'flop': 0.5, 'preflop': 0.3,
+        'river': 1.0,
+        'turn': 0.7,
+        'flop': 0.5,
+        'preflop': 0.3,
     }.get(getattr(decision_context, 'street', '') or '', 0.5)
 
     layer_order = int(getattr(trace, 'layer_order', 0) or 0)
@@ -484,32 +485,32 @@ def traces_to_narration_facts(
 
         overridden = _layer_was_overridden(idx, traces_list)
         importance = _score_fact_importance(
-            trace, decision_context, overridden,
+            trace,
+            decision_context,
+            overridden,
         )
 
         action_intent = LAYER_RULE_ACTION_INTENT.get(key, 'unknown')
-        intensity = _intensity_bucket(
-            float(getattr(trace, 'effect_size', 0.0) or 0.0)
-        )
-        certainty = _certainty_bucket(
-            float(getattr(trace, 'confidence', 0.0) or 0.0)
-        )
+        intensity = _intensity_bucket(float(getattr(trace, 'effect_size', 0.0) or 0.0))
+        certainty = _certainty_bucket(float(getattr(trace, 'confidence', 0.0) or 0.0))
         decision_taken = _decision_taken_phrase(
             getattr(trace, 'primary_action_after', ''),
             getattr(trace, 'action_changed', False),
         )
 
-        candidates.append(NarrationFact(
-            observation=observation,
-            why_it_matters=why,
-            decision_taken=decision_taken,
-            action_intent=action_intent,
-            intensity_bucket=intensity,
-            certainty_bucket=certainty,
-            importance=importance,
-            layer=key[0],
-            rule_id=key[1],
-        ))
+        candidates.append(
+            NarrationFact(
+                observation=observation,
+                why_it_matters=why,
+                decision_taken=decision_taken,
+                action_intent=action_intent,
+                intensity_bucket=intensity,
+                certainty_bucket=certainty,
+                importance=importance,
+                layer=key[0],
+                rule_id=key[1],
+            )
+        )
 
     # Sort by importance descending; ties broken by layer_order desc
     # (later layers preferred — they had the final say).
@@ -548,9 +549,13 @@ def traces_to_narration_facts(
 # Allowlisted input fields that can appear in the LLM prompt. Keeps
 # opponent-model internals (e.g. raw stat values) out of player-facing
 # narration.
-NARRATION_INPUT_ALLOWLIST: frozenset = frozenset({
-    'street', 'position_context', 'risk_posture',
-})
+NARRATION_INPUT_ALLOWLIST: frozenset = frozenset(
+    {
+        'street',
+        'position_context',
+        'risk_posture',
+    }
+)
 
 
 def render_narration_prompt(facts: NarrationFacts) -> str:
@@ -572,9 +577,7 @@ def render_narration_prompt(facts: NarrationFacts) -> str:
     lines.append("WHAT YOU DECIDED:")
     if facts.primary_factor:
         lines.append(f"- {facts.primary_factor.decision_taken}")
-        lines.append(
-            f"- Why: {facts.primary_factor.why_it_matters}"
-        )
+        lines.append(f"- Why: {facts.primary_factor.why_it_matters}")
     lines.append(f"- Intensity: {facts.summary_intensity}")
     lines.append("")
     lines.append(

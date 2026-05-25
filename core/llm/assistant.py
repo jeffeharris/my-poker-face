@@ -1,5 +1,6 @@
 """High-level assistant with conversation memory."""
-from typing import Optional, Dict, Any, Callable
+
+from typing import Any, Callable, Dict, Optional
 
 from .client import LLMClient
 from .conversation import ConversationMemory
@@ -166,7 +167,9 @@ class Assistant:
         messages = self._memory.get_messages()
         message_count = len(messages)
         system_prompt = self._memory.system_prompt
-        system_prompt_tokens = count_tokens(system_prompt, self._client.model) if system_prompt else 0
+        system_prompt_tokens = (
+            count_tokens(system_prompt, self._client.model) if system_prompt else 0
+        )
 
         # Merge context: explicit params override defaults
         context = {

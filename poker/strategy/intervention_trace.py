@@ -26,8 +26,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
-
+from typing import Any, Dict, Mapping, Optional
 
 TRACE_SCHEMA_VERSION = 1
 
@@ -54,6 +53,7 @@ class InterventionOperation(str, Enum):
     Invariant (enforced in tests): `operation == OVERRIDE` implies
     `replaced_prior_action == True`.
     """
+
     NO_OP = 'no_op'
     SUGGEST = 'suggest'
     ADJUST = 'adjust'
@@ -62,37 +62,44 @@ class InterventionOperation(str, Enum):
     VETO = 'veto'
 
 
-_LAYER_NAMES = frozenset({
-    'personality',
-    'exploitation',
-    'induce_override',        # Phase A / Phase B (Items 2-5)
-    'strong_hand_override',
-    'bluff_catch_override',
-    'multistreet_context',   # STRUCTURAL_PASSIVITY_PLAN.md
-    'defense_floor',         # Plan §2
-    'short_stack',
-    'math_floor',
-    'value_vs_station',      # Phase 8
-    'steal_pressure',        # Phase 8
-    'bluff_reduction',       # Plan §5
-})
+_LAYER_NAMES = frozenset(
+    {
+        'personality',
+        'exploitation',
+        'induce_override',  # Phase A / Phase B (Items 2-5)
+        'strong_hand_override',
+        'bluff_catch_override',
+        'multistreet_context',  # STRUCTURAL_PASSIVITY_PLAN.md
+        'defense_floor',  # Plan §2
+        'short_stack',
+        'math_floor',
+        'value_vs_station',  # Phase 8
+        'steal_pressure',  # Phase 8
+        'bluff_reduction',  # Plan §5
+    }
+)
 
 _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
-    'personality':            frozenset({'default'}),
-    'exploitation':           frozenset({
-        'hyper_aggressive', 'hyper_passive', 'tight_nit',
-        'high_fold_to_cbet', 'multiway_cbet',
-    }),
-    'induce_override':        frozenset({'default'}),
-    'strong_hand_override':   frozenset({'default'}),
-    'bluff_catch_override':   frozenset({'default'}),
-    'multistreet_context':    frozenset({'default', 'barrel', 'fold_barrel'}),
-    'defense_floor':          frozenset({'default'}),
-    'short_stack':            frozenset({'default'}),
-    'math_floor':             frozenset({'default'}),
-    'value_vs_station':       frozenset({'default'}),
-    'steal_pressure':         frozenset({'default'}),
-    'bluff_reduction':        frozenset({'default'}),
+    'personality': frozenset({'default'}),
+    'exploitation': frozenset(
+        {
+            'hyper_aggressive',
+            'hyper_passive',
+            'tight_nit',
+            'high_fold_to_cbet',
+            'multiway_cbet',
+        }
+    ),
+    'induce_override': frozenset({'default'}),
+    'strong_hand_override': frozenset({'default'}),
+    'bluff_catch_override': frozenset({'default'}),
+    'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel'}),
+    'defense_floor': frozenset({'default'}),
+    'short_stack': frozenset({'default'}),
+    'math_floor': frozenset({'default'}),
+    'value_vs_station': frozenset({'default'}),
+    'steal_pressure': frozenset({'default'}),
+    'bluff_reduction': frozenset({'default'}),
 }
 
 
@@ -106,18 +113,18 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
 # Promoting this to a single source of truth (was previously hard-coded
 # at each layer migration site) prevents drift as more layers migrate.
 _LAYER_ORDER: Dict[str, int] = {
-    'personality':           0,
-    'exploitation':          1,
-    'value_vs_station':      1,  # Phase 8: feeds exploitation
-    'steal_pressure':        1,  # Phase 8: feeds exploitation
-    'bluff_reduction':       1,  # Plan §5: air-vs-station mirror of value_vs_station
-    'induce_override':       2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
-    'strong_hand_override':  2,
-    'bluff_catch_override':  3,
-    'multistreet_context':   4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
-    'defense_floor':         4,  # Plan §2: price-sensitive call floor
-    'short_stack':           5,
-    'math_floor':            6,
+    'personality': 0,
+    'exploitation': 1,
+    'value_vs_station': 1,  # Phase 8: feeds exploitation
+    'steal_pressure': 1,  # Phase 8: feeds exploitation
+    'bluff_reduction': 1,  # Plan §5: air-vs-station mirror of value_vs_station
+    'induce_override': 2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
+    'strong_hand_override': 2,
+    'bluff_catch_override': 3,
+    'multistreet_context': 4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
+    'defense_floor': 4,  # Plan §2: price-sensitive call floor
+    'short_stack': 5,
+    'math_floor': 6,
 }
 MAX_LAYER_ORDER = max(_LAYER_ORDER.values())
 
@@ -125,9 +132,7 @@ MAX_LAYER_ORDER = max(_LAYER_ORDER.values())
 def layer_order_for(layer: str) -> int:
     """Canonical pipeline ordinal for `layer`. Raises on unknown layer."""
     if layer not in _LAYER_ORDER:
-        raise ValueError(
-            f"Unknown layer {layer!r}; expected one of {sorted(_LAYER_ORDER)}"
-        )
+        raise ValueError(f"Unknown layer {layer!r}; expected one of {sorted(_LAYER_ORDER)}")
     return _LAYER_ORDER[layer]
 
 
@@ -321,9 +326,7 @@ def validate_trace(trace: InterventionTrace) -> None:
     builds. Production callers can skip this.
     """
     if trace.layer not in _LAYER_NAMES:
-        raise ValueError(
-            f"Trace.layer={trace.layer!r} not in canonical _LAYER_NAMES"
-        )
+        raise ValueError(f"Trace.layer={trace.layer!r} not in canonical _LAYER_NAMES")
     valid_rules = _RULE_IDS_BY_LAYER.get(trace.layer, frozenset())
     if trace.rule_id not in valid_rules:
         raise ValueError(
@@ -333,13 +336,10 @@ def validate_trace(trace: InterventionTrace) -> None:
     if trace.operation == InterventionOperation.OVERRIDE.value:
         if not trace.replaced_prior_action:
             raise ValueError(
-                "Invariant violated: operation=='override' requires "
-                "replaced_prior_action=True"
+                "Invariant violated: operation=='override' requires " "replaced_prior_action=True"
             )
     if trace.fired and trace.operation == InterventionOperation.NO_OP.value:
-        raise ValueError(
-            "Inconsistent trace: fired=True with operation='no_op'"
-        )
+        raise ValueError("Inconsistent trace: fired=True with operation='no_op'")
     if not trace.fired and trace.operation != InterventionOperation.NO_OP.value:
         raise ValueError(
             f"Inconsistent trace: fired=False with "

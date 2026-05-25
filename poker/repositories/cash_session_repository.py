@@ -55,42 +55,24 @@ def _row_to_session(row) -> CashSession:
         sponsor_principal=int(row["sponsor_principal"]),
         cash_table_id=row["cash_table_id"],
         cash_seat_index=(
-            int(row["cash_seat_index"])
-            if row["cash_seat_index"] is not None
-            else None
+            int(row["cash_seat_index"]) if row["cash_seat_index"] is not None else None
         ),
         started_at=_parse_timestamp(row["started_at"]),
         ended_at=_parse_timestamp(row["ended_at"]),
         final_chips_at_table=(
-            int(row["final_chips_at_table"])
-            if row["final_chips_at_table"] is not None
-            else None
+            int(row["final_chips_at_table"]) if row["final_chips_at_table"] is not None else None
         ),
         sponsor_repaid=int(row["sponsor_repaid"] or 0),
         player_take_home=(
-            int(row["player_take_home"])
-            if row["player_take_home"] is not None
-            else None
+            int(row["player_take_home"]) if row["player_take_home"] is not None else None
         ),
-        hands_played=(
-            int(row["hands_played"])
-            if row["hands_played"] is not None
-            else None
-        ),
-        hands_won=(
-            int(row["hands_won"])
-            if row["hands_won"] is not None
-            else None
-        ),
+        hands_played=(int(row["hands_played"]) if row["hands_played"] is not None else None),
+        hands_won=(int(row["hands_won"]) if row["hands_won"] is not None else None),
         biggest_pot_won=(
-            int(row["biggest_pot_won"])
-            if row["biggest_pot_won"] is not None
-            else None
+            int(row["biggest_pot_won"]) if row["biggest_pot_won"] is not None else None
         ),
         duration_seconds=(
-            int(row["duration_seconds"])
-            if row["duration_seconds"] is not None
-            else None
+            int(row["duration_seconds"]) if row["duration_seconds"] is not None else None
         ),
         closed_status=row["closed_status"],
     )
@@ -179,7 +161,10 @@ class CashSessionRepository(BaseRepository):
             return _row_to_session(row)
 
     def list_for_owner(
-        self, owner_id: str, *, limit: int = 50,
+        self,
+        owner_id: str,
+        *,
+        limit: int = 50,
     ) -> List[CashSession]:
         """Owner's recent sessions, newest first.
 

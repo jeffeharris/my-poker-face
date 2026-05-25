@@ -11,22 +11,22 @@ enriches coaching data with skill-aware progression context.
 import logging
 from typing import Any, Dict, List, Optional
 
-from poker.hand_evaluator import HandEvaluator
-from poker.hand_ranges import OpponentInfo
-from poker.decision_analyzer import DecisionAnalyzer
+from poker.card_utils import card_to_string
 from poker.controllers import (
-    classify_preflop_hand,
-    _parse_game_messages,
     _get_preflop_lines,
     _get_street_lines,
+    _parse_game_messages,
     _process_preflop_lines,
+    classify_preflop_hand,
 )
-from poker.card_utils import card_to_string
+from poker.decision_analyzer import DecisionAnalyzer
+from poker.hand_evaluator import HandEvaluator
+from poker.hand_ranges import OpponentInfo
 
-from ..services import game_state_service
 from ..extensions import game_repo
-from .skill_definitions import ALL_SKILLS
+from ..services import game_state_service
 from .coach_progression import CoachProgressionService
+from .skill_definitions import ALL_SKILLS
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,9 @@ def _get_position_label(game_state, player_idx: int) -> str:
     return "Unknown"
 
 
-def _compute_equity(player_hand: List[str], community: List[str],
-                    opponent_infos: Optional[List] = None) -> Optional[float]:
+def _compute_equity(
+    player_hand: List[str], community: List[str], opponent_infos: Optional[List] = None
+) -> Optional[float]:
     """Compute player equity against opponent ranges via DecisionAnalyzer.
 
     Uses opponent stats/ranges when available, falls back to vs-random.
@@ -102,14 +103,18 @@ def _compute_outs(player_hand: List[str], community: List[str]) -> Optional[Dict
             else:
                 # For incomplete boards, evaluate current made hand
                 # by considering the best among random completions
-                current_score = eval7.evaluate(hero_cards + board_cards + deck[:5 - len(board_cards)])
+                current_score = eval7.evaluate(
+                    hero_cards + board_cards + deck[: 5 - len(board_cards)]
+                )
 
             outs = []
             for card in deck:
                 test_board = board_cards + [card]
                 if len(test_board) < 5:
                     remaining = [c for c in deck if c != card]
-                    test_score = eval7.evaluate(hero_cards + test_board + remaining[:5 - len(test_board)])
+                    test_score = eval7.evaluate(
+                        hero_cards + test_board + remaining[: 5 - len(test_board)]
+                    )
                 else:
                     test_score = eval7.evaluate(hero_cards + test_board[:5])
 
@@ -186,16 +191,14 @@ def _position_label_to_key(position_label: str) -> str:
     }
     result = mapping.get(position_label)
     if result is None:
-        logger.warning(f"Unknown position label '{position_label}', defaulting to 'button'", exc_info=True)
+        logger.warning(
+            f"Unknown position label '{position_label}', defaulting to 'button'", exc_info=True
+        )
         return 'button'
     return result
 
 
-def _extract_preflop_action(
-    opponent_name: str,
-    game_messages: list,
-    game_state
-) -> Optional[str]:
+def _extract_preflop_action(opponent_name: str, game_messages: list, game_state) -> Optional[str]:
     """
     Extract what preflop action an opponent took this hand.
 
@@ -218,18 +221,11 @@ def _extract_preflop_action(
     # Filter to preflop lines only
     preflop_lines = _get_preflop_lines(lines)
 
-    return _process_preflop_lines(
-        preflop_lines,
-        opponent_lower,
-        opponent_name,
-        bb_player
-    )
+    return _process_preflop_lines(preflop_lines, opponent_lower, opponent_name, bb_player)
 
 
 def _extract_postflop_aggression(
-    opponent_name: str,
-    game_messages: list,
-    current_phase: str
+    opponent_name: str, game_messages: list, current_phase: str
 ) -> Optional[str]:
     """
     Extract what postflop aggression an opponent showed this hand.
@@ -281,10 +277,7 @@ def _extract_postflop_aggression(
 
 
 def _build_opponent_infos(
-    game_data: dict,
-    game_state,
-    human_name: str,
-    user_id: Optional[str] = None
+    game_data: dict, game_state, human_name: str, user_id: Optional[str] = None
 ) -> List[OpponentInfo]:
     """Build OpponentInfo objects for active opponents (for range-based equity).
 
@@ -330,9 +323,7 @@ def _build_opponent_infos(
 
         # Extract preflop action for range narrowing
         if game_messages:
-            info.preflop_action = _extract_preflop_action(
-                player.name, game_messages, game_state
-            )
+            info.preflop_action = _extract_preflop_action(player.name, game_messages, game_state)
 
         # Extract postflop aggression for board-connection weighted sampling
         if game_messages and current_phase != 'PRE_FLOP':
@@ -374,7 +365,7 @@ def _get_style_label(vpip: float, aggression: float) -> str:
 
     Uses same thresholds as OpponentTendencies.get_play_style_label().
     """
-    from poker.archetypes import VPIP_TIGHT, AF_AGGRESSIVE
+    from poker.archetypes import AF_AGGRESSIVE, VPIP_TIGHT
 
     is_tight = vpip < VPIP_TIGHT
     is_aggressive = aggression > AF_AGGRESSIVE
@@ -425,6 +416,7 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
             logger.warning(f"Failed to load historical opponent data: {e}")
 
     from poker.hand_ranges import EquityConfig
+
     min_hands = EquityConfig().min_hands_for_stats
 
     memory_manager = game_data.get('memory_manager')
@@ -465,15 +457,19 @@ def _get_opponent_stats(game_data: dict, human_name: str, user_id: str = None) -
                 try:
                     model = omm.models[human_name][player.name]
                     tendencies = model.tendencies
-                    opp_data.update({
-                        'vpip': round(tendencies.vpip, 2),
-                        'pfr': round(tendencies.pfr, 2),
-                        'aggression': round(tendencies.aggression_factor, 1),
-                        'style': tendencies.get_play_style_label(),
-                        'hands_observed': tendencies.hands_observed,
-                    })
+                    opp_data.update(
+                        {
+                            'vpip': round(tendencies.vpip, 2),
+                            'pfr': round(tendencies.pfr, 2),
+                            'aggression': round(tendencies.aggression_factor, 1),
+                            'style': tendencies.get_play_style_label(),
+                            'hands_observed': tendencies.hands_observed,
+                        }
+                    )
                 except (AttributeError, KeyError) as e:
-                    logger.warning(f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}")
+                    logger.warning(
+                        f"_get_opponent_stats: failed to get tendencies for {player.name}: {e}"
+                    )
 
             # Add historical data when available AND has enough samples
             # to render meaningful stats — empty placeholders coach prompts
@@ -551,10 +547,7 @@ def _get_available_actions(game_state, player, cost_to_call: int) -> List[str]:
     actions = []
 
     # Count active opponents (not folded, not the player)
-    active_opponents = [
-        p for p in game_state.players
-        if not p.is_folded and p.name != player.name
-    ]
+    active_opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
 
     # Check if all opponents are all-in
     all_opponents_all_in = all(p.stack == 0 for p in active_opponents)
@@ -616,10 +609,13 @@ def _get_position_context(position: str, phase: str) -> str:
     return ""
 
 
-def compute_coaching_data(game_id: str, player_name: str,
-                          game_data: Optional[Dict] = None,
-                          game_state_override=None,
-                          user_id: str = None) -> Optional[Dict]:
+def compute_coaching_data(
+    game_id: str,
+    player_name: str,
+    game_data: Optional[Dict] = None,
+    game_state_override=None,
+    user_id: str = None,
+) -> Optional[Dict]:
     """Compute all coaching statistics for the given player.
 
     Args:
@@ -638,7 +634,9 @@ def compute_coaching_data(game_id: str, player_name: str,
         return None
 
     state_machine = game_data['state_machine']
-    game_state = game_state_override if game_state_override is not None else state_machine.game_state
+    game_state = (
+        game_state_override if game_state_override is not None else state_machine.game_state
+    )
 
     # Find the human player
     player_info = game_state.get_player_by_name(player_name)
@@ -663,7 +661,8 @@ def compute_coaching_data(game_id: str, player_name: str,
     # Stack-depth signals — effective stack and SPR are what bots and
     # serious players actually reason from postflop. The coach was
     # missing them; surface them so advice can reference depth properly.
-    from poker.stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+    from poker.stack_utils import effective_stack_bb, effective_stack_chips, spr as compute_spr
+
     bb = game_state.current_ante or 0
     eff_stack = effective_stack_chips(game_state, player)
     eff_stack_bb = effective_stack_bb(game_state, player, big_blind=bb if bb > 0 else None)
@@ -747,7 +746,9 @@ def compute_coaching_data(game_id: str, player_name: str,
 
     # Optimal action recommendation
     if equity is not None:
-        num_opponents = len([p for p in game_state.players if not p.is_folded and p.name != player_name])
+        num_opponents = len(
+            [p for p in game_state.players if not p.is_folded and p.name != player_name]
+        )
         required_equity = result['required_equity'] or 0.0
         ev_call = result['ev_call'] or 0.0
 
@@ -793,6 +794,7 @@ def compute_coaching_data(game_id: str, player_name: str,
     if community_strs:
         try:
             from poker.board_analyzer import analyze_board_texture
+
             board_texture = analyze_board_texture(community_strs)
             result['board_texture'] = board_texture
         except Exception as e:
@@ -801,7 +803,8 @@ def compute_coaching_data(game_id: str, player_name: str,
     # Opponent ranges summary (for coach to explain equity vs ranges)
     if opponent_infos:
         try:
-            from poker.hand_ranges import get_opponent_range, EquityConfig
+            from poker.hand_ranges import EquityConfig, get_opponent_range
+
             config = EquityConfig()
             opponent_ranges = {}
             for opp_info in opponent_infos:
@@ -819,6 +822,7 @@ def compute_coaching_data(game_id: str, player_name: str,
     if hand_strs and len(hand_strs) == 2:
         try:
             from poker.hand_ranges import is_hand_in_standard_range
+
             position_key = _position_label_to_key(position)
             range_analysis = is_hand_in_standard_range(hand_strs[0], hand_strs[1], position_key)
             result['player_range_analysis'] = range_analysis

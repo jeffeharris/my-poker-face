@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +71,16 @@ def resolve_default_sandbox_for(
             sandbox_id = existing[0].sandbox_id
             logger.debug(
                 "[SANDBOX] resolver hit existing sandbox %r for owner %r",
-                sandbox_id, owner_id,
+                sandbox_id,
+                owner_id,
             )
         else:
             state = sandbox_repo.create(owner_id, name=default_name)
             sandbox_id = state.sandbox_id
             logger.info(
                 "[SANDBOX] resolver created default sandbox %r for owner %r",
-                sandbox_id, owner_id,
+                sandbox_id,
+                owner_id,
             )
 
         _cache[owner_id] = sandbox_id

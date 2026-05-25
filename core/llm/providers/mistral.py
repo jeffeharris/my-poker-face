@@ -3,16 +3,17 @@
 Mistral offers high-quality European AI models with competitive pricing.
 Uses OpenAI-compatible API.
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai import OpenAI
 
+from ..config import DEFAULT_MAX_TOKENS, MISTRAL_DEFAULT_MODEL
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, MISTRAL_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +178,7 @@ class MistralProvider(LLMProvider):
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,
-                }
+                },
             }
             for tc in tool_calls
         ]

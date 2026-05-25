@@ -23,14 +23,14 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import (
-    Stake,
     STAKE_STATUS_ACTIVE,
     STAKE_STATUS_CARRY,
     STAKE_STATUS_DEFAULTED,
     STAKE_STATUS_SETTLED,
+    Stake,
 )
-from cash_mode.staker_history import StakerHistoryStats
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -134,9 +134,7 @@ class StakeRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "UPDATE stakes "
-                "SET staker_payout = ?, borrower_payout = ? "
-                "WHERE stake_id = ?",
+                "UPDATE stakes " "SET staker_payout = ?, borrower_payout = ? " "WHERE stake_id = ?",
                 (int(staker_payout), int(borrower_payout), stake_id),
             )
             return cursor.rowcount > 0
@@ -193,7 +191,9 @@ class StakeRepository(BaseRepository):
             return _row_to_stake(row)
 
     def load_active_for_borrower(
-        self, borrower_id: str, borrower_kind: str,
+        self,
+        borrower_id: str,
+        borrower_kind: str,
     ) -> Optional[Stake]:
         """Load the borrower's single active stake, or None.
 
@@ -256,7 +256,9 @@ class StakeRepository(BaseRepository):
             return [_row_to_stake(r) for r in rows]
 
     def list_carries_for_borrower(
-        self, borrower_id: str, borrower_kind: str,
+        self,
+        borrower_id: str,
+        borrower_kind: str,
     ) -> List[Stake]:
         """Return every active carry row for a borrower.
 
@@ -394,8 +396,11 @@ class StakeRepository(BaseRepository):
             return [_row_to_stake(r) for r in rows]
 
     def update_status(
-        self, stake_id: str, status: str,
-        *, settled_at: Optional[datetime] = None,
+        self,
+        stake_id: str,
+        status: str,
+        *,
+        settled_at: Optional[datetime] = None,
     ) -> bool:
         """Transition a stake to a new status, optionally stamping
         `settled_at`.
@@ -410,8 +415,7 @@ class StakeRepository(BaseRepository):
         with self._get_connection() as conn:
             if settled_at is not None:
                 cursor = conn.execute(
-                    "UPDATE stakes SET status = ?, settled_at = ? "
-                    "WHERE stake_id = ?",
+                    "UPDATE stakes SET status = ?, settled_at = ? " "WHERE stake_id = ?",
                     (status, settled_at.isoformat(), stake_id),
                 )
             else:
@@ -479,7 +483,8 @@ class StakeRepository(BaseRepository):
             return [row[0] for row in rows if row[0]]
 
     def aggregate_history_for_staker(
-        self, staker_id: str,
+        self,
+        staker_id: str,
     ) -> Dict[str, StakerHistoryStats]:
         """Return per-borrower outcome counts for every borrower this
         staker has interacted with.
@@ -524,7 +529,9 @@ class StakeRepository(BaseRepository):
         }
 
     def mark_forgiveness_asked(
-        self, stake_id: str, asked_at: datetime,
+        self,
+        stake_id: str,
+        asked_at: datetime,
     ) -> bool:
         """Stamp the most-recent forgiveness-ask timestamp on a stake.
 
@@ -538,14 +545,15 @@ class StakeRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "UPDATE stakes SET forgiveness_last_asked = ? "
-                "WHERE stake_id = ?",
+                "UPDATE stakes SET forgiveness_last_asked = ? " "WHERE stake_id = ?",
                 (asked_at.isoformat(), stake_id),
             )
             return cursor.rowcount > 0
 
     def update_pending_forgiveness_ask(
-        self, stake_id: str, asked_at: Optional[datetime],
+        self,
+        stake_id: str,
+        asked_at: Optional[datetime],
     ) -> bool:
         """Set or clear the pending-forgiveness-ask timestamp.
 
@@ -560,14 +568,14 @@ class StakeRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "UPDATE stakes SET pending_forgiveness_ask = ? "
-                "WHERE stake_id = ?",
+                "UPDATE stakes SET pending_forgiveness_ask = ? " "WHERE stake_id = ?",
                 (asked_at.isoformat() if asked_at is not None else None, stake_id),
             )
             return cursor.rowcount > 0
 
     def list_pending_forgiveness_for_staker(
-        self, staker_id: str,
+        self,
+        staker_id: str,
     ) -> List[Stake]:
         """Return carry rows where this human staker has a pending ask.
 
@@ -606,9 +614,7 @@ def _row_to_stake(row) -> Stake:
     if created_at is None:
         # `created_at` is NOT NULL in schema, so a None here means a
         # malformed row — surface loudly rather than silently lying.
-        raise ValueError(
-            f"stakes row {row['stake_id']!r} has unparseable created_at"
-        )
+        raise ValueError(f"stakes row {row['stake_id']!r} has unparseable created_at")
     return Stake(
         stake_id=row["stake_id"],
         session_id=row["session_id"],
@@ -628,13 +634,9 @@ def _row_to_stake(row) -> Stake:
         settled_at=_parse_timestamp(row["settled_at"]),
         forgiveness_last_asked=_parse_timestamp(row["forgiveness_last_asked"]),
         pending_forgiveness_ask=_parse_timestamp(row["pending_forgiveness_ask"]),
-        staker_payout=(
-            int(row["staker_payout"])
-            if row["staker_payout"] is not None else None
-        ),
+        staker_payout=(int(row["staker_payout"]) if row["staker_payout"] is not None else None),
         borrower_payout=(
-            int(row["borrower_payout"])
-            if row["borrower_payout"] is not None else None
+            int(row["borrower_payout"]) if row["borrower_payout"] is not None else None
         ),
         table_id=row["table_id"],
     )

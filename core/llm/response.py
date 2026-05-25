@@ -1,4 +1,5 @@
 """Response dataclasses for LLM operations."""
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -6,6 +7,7 @@ from typing import Any, Dict, List, Optional
 @dataclass
 class LLMResponse:
     """Response from a text completion request."""
+
     content: str
     model: str
     provider: str
@@ -44,6 +46,7 @@ class LLMResponse:
 @dataclass
 class ImageResponse:
     """Response from an image generation request."""
+
     url: str
     model: str
     provider: str

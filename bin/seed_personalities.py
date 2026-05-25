@@ -100,36 +100,28 @@ def seed_personalities(force: bool = False) -> dict:
 
     print()
     print("=" * 50)
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Added:   {added}")
     print(f"  Updated: {updated}")
     print(f"  Skipped: {skipped} (already existed)")
     print(f"  Total in database: {len(final)}")
     print("=" * 50)
 
-    return {
-        'added': added,
-        'updated': updated,
-        'skipped': skipped,
-        'total': len(final)
-    }
+    return {'added': added, 'updated': updated, 'skipped': skipped, 'total': len(final)}
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description='Seed personalities from JSON file into database'
+    parser = argparse.ArgumentParser(description='Seed personalities from JSON file into database')
+    parser.add_argument(
+        '--force',
+        '-f',
+        action='store_true',
+        help='Update existing personalities to match JSON file',
     )
     parser.add_argument(
-        '--force', '-f',
-        action='store_true',
-        help='Update existing personalities to match JSON file'
-    )
-    parser.add_argument(
-        '--check', '-c',
-        action='store_true',
-        help='Only check counts, do not modify database'
+        '--check', '-c', action='store_true', help='Only check counts, do not modify database'
     )
 
     args = parser.parse_args()

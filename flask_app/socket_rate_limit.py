@@ -33,6 +33,7 @@ def socket_rate_limit(max_calls: int, window_seconds: int):
     Drops events that exceed the limit, logs a warning, and emits
     a 'rate_limited' event back to the client.
     """
+
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -60,17 +61,26 @@ def socket_rate_limit(max_calls: int, window_seconds: int):
                     _call_log[key] = active
                     logger.warning(
                         "Socket rate limit exceeded: event=%s user=%s (%d/%d in %ds)",
-                        event_name, user_id, len(active), max_calls, window_seconds
+                        event_name,
+                        user_id,
+                        len(active),
+                        max_calls,
+                        window_seconds,
                     )
-                    emit('rate_limited', {
-                        'event': event_name,
-                        'message': 'Too many requests, please wait a moment.',
-                    })
+                    emit(
+                        'rate_limited',
+                        {
+                            'event': event_name,
+                            'message': 'Too many requests, please wait a moment.',
+                        },
+                    )
                     return None
 
                 active.append(now)
                 _call_log[key] = active
 
             return fn(*args, **kwargs)
+
         return wrapper
+
     return decorator

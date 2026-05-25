@@ -52,11 +52,14 @@ def _stub_personality_generator():
         'default_confidence': 'steady',
         'default_attitude': 'friendly',
         'personality_traits': {
-            'bluff_tendency': 0.3, 'aggression': 0.5,
-            'chattiness': 0.5, 'emoji_usage': 0.2,
+            'bluff_tendency': 0.3,
+            'aggression': 0.5,
+            'chattiness': 0.5,
+            'emoji_usage': 0.2,
         },
     }
     return stub
+
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
@@ -79,7 +82,10 @@ class TestFFControllerBuilder(unittest.TestCase):
         game_data: dict = {'owner_id': 'u1'}
 
         controller = _get_or_build_ff_controller(
-            game_data, 'Villain', state_machine, 'g-1',
+            game_data,
+            'Villain',
+            state_machine,
+            'g-1',
         )
 
         # Tiered class, but expression layer (the LLM call) explicitly off.
@@ -108,6 +114,7 @@ class TestFFAwareSleep(unittest.TestCase):
     def setUp(self):
         # game_state_service is module-bound — set/reset a game directly.
         from flask_app.services import game_state_service
+
         self._service = game_state_service
         self._service.set_game('ff-sleep-test', {'fast_forward': False})
 
@@ -153,19 +160,32 @@ class TestHandBoundaryReset(unittest.TestCase):
     def _build_game_state(self):
         from core.card import Card
         from poker.poker_game import Player, PokerGameState
+
         alice = Player(
-            name='Alice', stack=970, is_human=True, bet=30,
-            hand=(Card('A', 'Spades'), Card('K', 'Hearts')), is_folded=False,
+            name='Alice',
+            stack=970,
+            is_human=True,
+            bet=30,
+            hand=(Card('A', 'Spades'), Card('K', 'Hearts')),
+            is_folded=False,
         )
         bob = Player(
-            name='Bob', stack=970, is_human=False, bet=30,
-            hand=(Card('2', 'Clubs'), Card('3', 'Diamonds')), is_folded=False,
+            name='Bob',
+            stack=970,
+            is_human=False,
+            bet=30,
+            hand=(Card('2', 'Clubs'), Card('3', 'Diamonds')),
+            is_folded=False,
         )
         return PokerGameState(
-            deck=(), players=(alice, bob),
+            deck=(),
+            players=(alice, bob),
             community_cards=(
-                Card('7', 'Diamonds'), Card('8', 'Clubs'), Card('9', 'Spades'),
-                Card('Q', 'Hearts'), Card('2', 'Spades'),
+                Card('7', 'Diamonds'),
+                Card('8', 'Clubs'),
+                Card('9', 'Spades'),
+                Card('Q', 'Hearts'),
+                Card('2', 'Spades'),
             ),
             pot={'total': 60, 'Alice': 30, 'Bob': 30},
             current_ante=10,
@@ -197,32 +217,46 @@ class TestHandBoundaryReset(unittest.TestCase):
         }
 
         patches = [
-            patch.object(game_handler, 'socketio', MagicMock(
-                emit=MagicMock(), start_background_task=MagicMock(),
-                sleep=MagicMock(),
-            )),
+            patch.object(
+                game_handler,
+                'socketio',
+                MagicMock(
+                    emit=MagicMock(),
+                    start_background_task=MagicMock(),
+                    sleep=MagicMock(),
+                ),
+            ),
             patch.object(game_handler, 'send_message', MagicMock()),
             patch.object(game_handler, 'hand_history_repo', MagicMock()),
             patch.object(game_handler, 'game_repo', MagicMock()),
             patch.object(game_handler, 'event_repository', MagicMock()),
             patch.object(game_handler, 'coach_repo', MagicMock()),
-            patch.object(game_handler, 'handle_eliminations',
-                         MagicMock(return_value=False)),
-            patch.object(game_handler, 'check_tournament_complete',
-                         MagicMock(return_value=False)),
+            patch.object(game_handler, 'handle_eliminations', MagicMock(return_value=False)),
+            patch.object(game_handler, 'check_tournament_complete', MagicMock(return_value=False)),
             patch.object(game_handler, 'update_and_emit_game_state', MagicMock()),
             patch.object(game_handler.game_state_service, 'set_game', MagicMock()),
-            patch.object(game_handler.game_state_service, 'get_game_owner_info',
-                         MagicMock(return_value=('', ''))),
-            patch.object(game_handler, 'config', MagicMock(
-                ENABLE_AI_COMMENTARY=False, ANIMATION_SPEED=0,
-            )),
+            patch.object(
+                game_handler.game_state_service,
+                'get_game_owner_info',
+                MagicMock(return_value=('', '')),
+            ),
+            patch.object(
+                game_handler,
+                'config',
+                MagicMock(
+                    ENABLE_AI_COMMENTARY=False,
+                    ANIMATION_SPEED=0,
+                ),
+            ),
         ]
         for p in patches:
             p.start()
         try:
             game_handler.handle_evaluating_hand_phase(
-                game_id, game_data, state_machine, game_state,
+                game_id,
+                game_data,
+                state_machine,
+                game_state,
             )
         finally:
             for p in patches:
@@ -248,14 +282,27 @@ class _FastForwardRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo',
-                'decision_analysis_repo', 'prompt_preset_repo',
-                'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
                 'stake_repo',
             ):
                 if key in repos:
@@ -281,7 +328,8 @@ class _FastForwardRouteBase(unittest.TestCase):
         user = {'id': 'u1', 'name': 'Tester', 'tracking_id': None}
         auth_stub = MagicMock(get_current_user=MagicMock(return_value=user))
         self._auth_patcher = patch(
-            'flask_app.routes.game_routes.auth_manager', auth_stub,
+            'flask_app.routes.game_routes.auth_manager',
+            auth_stub,
         )
         self._auth_patcher.start()
         self._authz_patcher = patch(
@@ -299,13 +347,17 @@ class _FastForwardRouteBase(unittest.TestCase):
         # progress_game aren't exercised here; we only care that the
         # endpoint flips the flag.
         from flask_app.services import game_state_service
+
         self._service = game_state_service
-        self._service.set_game('test-game', {
-            'owner_id': 'u1',
-            'state_machine': MagicMock(),
-            'messages': [],
-            'ai_controllers': {},
-        })
+        self._service.set_game(
+            'test-game',
+            {
+                'owner_id': 'u1',
+                'state_machine': MagicMock(),
+                'messages': [],
+                'ai_controllers': {},
+            },
+        )
 
         # Don't actually drive the game loop from the endpoint — we just
         # want to inspect the flag after the call.
@@ -336,7 +388,8 @@ class TestFastForwardEndpoint(_FastForwardRouteBase):
         # First enable, then disable.
         self.client.post('/api/game/test-game/fast-forward', json={'enabled': True})
         resp = self.client.post(
-            '/api/game/test-game/fast-forward', json={'enabled': False},
+            '/api/game/test-game/fast-forward',
+            json={'enabled': False},
         )
         assert resp.status_code == 200
         assert resp.get_json()['fast_forward'] is False
@@ -344,7 +397,8 @@ class TestFastForwardEndpoint(_FastForwardRouteBase):
 
     def test_rejects_non_bool_enabled(self):
         resp = self.client.post(
-            '/api/game/test-game/fast-forward', json={'enabled': 'yes'},
+            '/api/game/test-game/fast-forward',
+            json={'enabled': 'yes'},
         )
         assert resp.status_code == 400
 

@@ -38,7 +38,7 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from cash_mode.stakes import (
@@ -46,7 +46,6 @@ from cash_mode.stakes import (
     STAKE_STATUS_DEFAULTED,
     STAKE_STATUS_SETTLED,
     STAKER_KIND_HUMAN,
-    STAKER_KIND_PERSONALITY,
     Stake,
 )
 
@@ -138,7 +137,6 @@ pressure (already on bad terms — less reputation to lose)."""
 # floor). Re-import here so existing references keep working without
 # every caller knowing the canonical home.
 from cash_mode.activity import AI_CARRY_TICKER_THRESHOLD  # noqa: F401, E402
-
 
 # --- Result dataclasses ---
 
@@ -382,6 +380,7 @@ def _min_tier_buy_in_buffer() -> int:
     time.
     """
     from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
+
     if not STAKES_ORDER:
         return 0
     _, min_buy_in, _ = table_buy_in_window(STAKES_ORDER[0])
@@ -450,9 +449,7 @@ def _payoff_payment_amount(
     if max_affordable < PAYOFF_MIN_PAYMENT:
         return 0
     e = max(0.0, min(1.0, payoff_eagerness))
-    fraction = PAYOFF_MIN_EAGERNESS_FRACTION + e * (
-        1.0 - PAYOFF_MIN_EAGERNESS_FRACTION
-    )
+    fraction = PAYOFF_MIN_EAGERNESS_FRACTION + e * (1.0 - PAYOFF_MIN_EAGERNESS_FRACTION)
     desired = int(max_affordable * fraction)
     payment = min(carry_amount, desired)
     # Round payment down to the minimum so we don't accidentally
@@ -542,6 +539,7 @@ def try_ai_voluntary_payoff(
     # field. Mirrors the shape of `credit_ai_cash_out` so the two
     # surfaces stay calibrated against the same audit semantics.
     from cash_mode.bankroll import AIBankrollState, credit_ai_cash_out, project_bankroll
+
     stored = bankroll_repo.load_ai_bankroll(personality_id, sandbox_id=sandbox_id)
     if stored is None:
         # No bankroll row — can't pay from nothing. The seed path
@@ -550,7 +548,10 @@ def try_ai_voluntary_payoff(
         return None
     knobs = bankroll_repo.load_personality_knobs(personality_id)
     projected = project_bankroll(
-        stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        stored,
+        knobs.starting_bankroll,
+        knobs.bankroll_rate,
+        now,
     )
 
     target = carries[0]  # oldest first — repo returns ASC by created_at
@@ -579,7 +580,8 @@ def try_ai_voluntary_payoff(
     except Exception as exc:
         logger.warning(
             "[CASH][AI_PAYOFF] borrower profile load failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
 
@@ -595,9 +597,10 @@ def try_ai_voluntary_payoff(
                 heat = float(getattr(rel, 'heat', 0.0))
         except Exception as exc:
             logger.debug(
-                "[CASH][AI_PAYOFF] relationship load failed staker=%r "
-                "borrower=%r: %s",
-                target.staker_id, personality_id, exc,
+                "[CASH][AI_PAYOFF] relationship load failed staker=%r " "borrower=%r: %s",
+                target.staker_id,
+                personality_id,
+                exc,
             )
 
     # Target tier for the hold_pull wealth calc — what tier they're
@@ -608,6 +611,7 @@ def try_ai_voluntary_payoff(
     # collapses to pure pay_pull weighted by eagerness.
     try:
         from cash_mode.stakes_ladder import table_buy_in_window
+
         _, target_min_buy_in, _ = table_buy_in_window(target.stake_tier)
     except (KeyError, Exception):
         target_min_buy_in = 0
@@ -616,7 +620,8 @@ def try_ai_voluntary_payoff(
     wealth_gap = _wealth_gap_factor(projected, target_min_buy_in)
     pay = _pay_pull(age_factor=age_factor, heat=heat)
     hold = _hold_pull(
-        aspiration_bias=profile.aspiration_bias, wealth_gap=wealth_gap,
+        aspiration_bias=profile.aspiration_bias,
+        wealth_gap=wealth_gap,
     )
     score = _payoff_score(
         payoff_eagerness=profile.payoff_eagerness,
@@ -646,6 +651,7 @@ def try_ai_voluntary_payoff(
     human_staker_bankroll = None
     if target.staker_kind == STAKER_KIND_HUMAN:
         from cash_mode.bankroll import PlayerBankrollState  # noqa: F401
+
         human_staker_bankroll = bankroll_repo.load_player_bankroll(
             target.staker_id,
         )
@@ -653,7 +659,8 @@ def try_ai_voluntary_payoff(
             logger.warning(
                 "[CASH][AI_PAYOFF] human staker bankroll missing — skipping "
                 "payoff staker=%r stake=%r",
-                target.staker_id, target.stake_id,
+                target.staker_id,
+                target.stake_id,
             )
             return None
 
@@ -673,6 +680,7 @@ def try_ai_voluntary_payoff(
     )
     if chip_ledger_repo is not None and projected > stored.chips:
         from core.economy import ledger as chip_ledger
+
         chip_ledger.record_ai_regen(
             chip_ledger_repo,
             personality_id=personality_id,
@@ -691,6 +699,7 @@ def try_ai_voluntary_payoff(
         # would write into a phantom AI bankroll keyed by the human's
         # owner_id (the bug the v110 routing fix addresses).
         from cash_mode.bankroll import PlayerBankrollState
+
         bankroll_repo.save_player_bankroll(
             PlayerBankrollState(
                 player_id=human_staker_bankroll.player_id,
@@ -700,7 +709,9 @@ def try_ai_voluntary_payoff(
         )
     else:
         credit_ai_cash_out(
-            bankroll_repo, target.staker_id, payment,
+            bankroll_repo,
+            target.staker_id,
+            payment,
             sandbox_id=sandbox_id,
             now=now,
             chip_ledger_repo=chip_ledger_repo,
@@ -720,13 +731,16 @@ def try_ai_voluntary_payoff(
     if clears_carry:
         stake_repo.update_carry_amount(target.stake_id, 0)
         stake_repo.update_status(
-            target.stake_id, STAKE_STATUS_SETTLED, settled_at=now,
+            target.stake_id,
+            STAKE_STATUS_SETTLED,
+            settled_at=now,
         )
         if target.pending_forgiveness_ask is not None:
             stake_repo.update_pending_forgiveness_ask(target.stake_id, None)
     else:
         stake_repo.update_carry_amount(
-            target.stake_id, carry_amount - payment,
+            target.stake_id,
+            carry_amount - payment,
         )
 
     # v106 payout accounting — partial payments accumulate too so
@@ -749,6 +763,7 @@ def try_ai_voluntary_payoff(
         try:
             from poker.memory import OpponentModelManager
             from poker.memory.relationship_events import RelationshipEvent
+
             if relationship_repo is not None:
                 mgr = OpponentModelManager(relationship_repo=relationship_repo)
                 mgr.record_event(
@@ -759,14 +774,17 @@ def try_ai_voluntary_payoff(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_PAYOFF] STAKE_REPAID failed stake=%r: %s",
-                target.stake_id, exc,
+                target.stake_id,
+                exc,
             )
 
     logger.info(
         "[STAKE][AI_PAYOFF] %r paid %d to %r stake_id=%r (%s)",
-        personality_id, payment, target.staker_id, target.stake_id,
-        'cleared' if clears_carry else
-        f'partial; ${carry_amount - payment} remaining',
+        personality_id,
+        payment,
+        target.staker_id,
+        target.stake_id,
+        'cleared' if clears_carry else f'partial; ${carry_amount - payment} remaining',
     )
 
     return CarryResolutionResult(
@@ -809,7 +827,9 @@ def try_ai_forgiveness_ask(
         return None
 
     bankroll_chips_opt = bankroll_repo.load_ai_bankroll_current(
-        personality_id, sandbox_id=sandbox_id, now=now,
+        personality_id,
+        sandbox_id=sandbox_id,
+        now=now,
     )
     bankroll_chips = int(bankroll_chips_opt) if bankroll_chips_opt is not None else 0
     total_carries = _carries_sum(carries)
@@ -842,7 +862,8 @@ def try_ai_forgiveness_ask(
     if human_staker_pending is not None:
         carry_amount = int(human_staker_pending.carry_amount)
         stake_repo.update_pending_forgiveness_ask(
-            human_staker_pending.stake_id, now,
+            human_staker_pending.stake_id,
+            now,
         )
         # Stamp the rate-limit so we don't re-surface the same ask
         # next tick if the player takes a few days to decide.
@@ -850,7 +871,9 @@ def try_ai_forgiveness_ask(
         logger.info(
             "[STAKE][AI_FORGIVENESS_REQUEST] %r requests forgiveness from "
             "human staker %r carry=%d stake_id=%r",
-            personality_id, human_staker_pending.staker_id, carry_amount,
+            personality_id,
+            human_staker_pending.staker_id,
+            carry_amount,
             human_staker_pending.stake_id,
         )
         return CarryResolutionResult(
@@ -873,7 +896,9 @@ def try_ai_forgiveness_ask(
         if _within_rate_limit(c, now, FORGIVENESS_RATE_LIMIT_SECONDS):
             continue
         rel = relationship_repo.load_relationship_state(
-            observer_id=c.staker_id, opponent_id=personality_id, now=now,
+            observer_id=c.staker_id,
+            opponent_id=personality_id,
+            now=now,
         )
         likability = rel.likability if rel is not None else 0.5
         respect = rel.respect if rel is not None else 0.5
@@ -888,7 +913,9 @@ def try_ai_forgiveness_ask(
     eligible.sort(key=lambda t: t[1], reverse=True)
     target, likability, respect, heat = eligible[0]
     score = _forgiveness_score(
-        likability=likability, respect=respect, heat=heat,
+        likability=likability,
+        respect=respect,
+        heat=heat,
     )
     granted = score > FORGIVENESS_THRESHOLD
 
@@ -897,6 +924,7 @@ def try_ai_forgiveness_ask(
 
     from poker.memory import OpponentModelManager
     from poker.memory.relationship_events import RelationshipEvent
+
     mgr = OpponentModelManager(relationship_repo=relationship_repo)
 
     if granted:
@@ -912,12 +940,16 @@ def try_ai_forgiveness_ask(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_FORGIVENESS] STAKE_FORGIVEN failed stake=%r: %s",
-                target.stake_id, exc,
+                target.stake_id,
+                exc,
             )
         logger.info(
             "[STAKE][AI_FORGIVENESS] %r forgave %r carry=%d stake_id=%r score=%.3f",
-            target.staker_id, personality_id, carry_amount,
-            target.stake_id, score,
+            target.staker_id,
+            personality_id,
+            carry_amount,
+            target.stake_id,
+            score,
         )
         return CarryResolutionResult(
             kind='forgiven',
@@ -938,11 +970,15 @@ def try_ai_forgiveness_ask(
     except Exception as exc:
         logger.warning(
             "[CASH][AI_FORGIVENESS] STAKE_FORGIVENESS_REFUSED failed stake=%r: %s",
-            target.stake_id, exc,
+            target.stake_id,
+            exc,
         )
     logger.info(
         "[STAKE][AI_FORGIVENESS] %r refused %r stake_id=%r score=%.3f",
-        target.staker_id, personality_id, target.stake_id, score,
+        target.staker_id,
+        personality_id,
+        target.stake_id,
+        score,
     )
     return CarryResolutionResult(
         kind='forgiveness_refused',
@@ -989,7 +1025,9 @@ def try_ai_explicit_default(
         return None
 
     bankroll_chips_opt = bankroll_repo.load_ai_bankroll_current(
-        personality_id, sandbox_id=sandbox_id, now=now,
+        personality_id,
+        sandbox_id=sandbox_id,
+        now=now,
     )
     bankroll_chips = int(bankroll_chips_opt) if bankroll_chips_opt is not None else 0
     total_carries = _carries_sum(carries)
@@ -1006,7 +1044,9 @@ def try_ai_explicit_default(
         if c.staker_id is None:
             continue
         rel = relationship_repo.load_relationship_state(
-            observer_id=c.staker_id, opponent_id=personality_id, now=now,
+            observer_id=c.staker_id,
+            opponent_id=personality_id,
+            now=now,
         )
         respect = rel.respect if rel is not None else 0.5
         heat = rel.heat if rel is not None else 0.0
@@ -1044,7 +1084,9 @@ def try_ai_explicit_default(
         former_carry = int(target.carry_amount)
         stake_repo.update_carry_amount(target.stake_id, 0)
         stake_repo.update_status(
-            target.stake_id, STAKE_STATUS_DEFAULTED, settled_at=now,
+            target.stake_id,
+            STAKE_STATUS_DEFAULTED,
+            settled_at=now,
         )
         # Clear any pending player-forgiveness ask — the AI walked
         # away from the debt; the request is moot.
@@ -1054,6 +1096,7 @@ def try_ai_explicit_default(
         try:
             from poker.memory import OpponentModelManager
             from poker.memory.relationship_events import RelationshipEvent
+
             mgr = OpponentModelManager(relationship_repo=relationship_repo)
             mgr.record_event(
                 actor_id=target.staker_id,
@@ -1063,13 +1106,17 @@ def try_ai_explicit_default(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_DEFAULT] STAKE_DEFAULTED failed stake=%r: %s",
-                target.stake_id, exc,
+                target.stake_id,
+                exc,
             )
 
         logger.info(
             "[STAKE][AI_DEFAULT] %r burned %r former_carry=%d stake_id=%r pressure=%.3f",
-            personality_id, target.staker_id, former_carry,
-            target.stake_id, pressure,
+            personality_id,
+            target.staker_id,
+            former_carry,
+            target.stake_id,
+            pressure,
         )
         return CarryResolutionResult(
             kind='default',
@@ -1145,6 +1192,7 @@ def resolve_ai_carries(
 
     # Convert rows to Stake objects via the repo's helper.
     from poker.repositories.stake_repository import _row_to_stake
+
     by_borrower: Dict[str, List[Stake]] = {}
     for row in rows:
         stake = _row_to_stake(row)
@@ -1174,7 +1222,8 @@ def resolve_ai_carries(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_CARRY] try_ai_voluntary_payoff(%r) failed: %s",
-                borrower_id, exc,
+                borrower_id,
+                exc,
             )
             result = None
         if result is not None:
@@ -1197,7 +1246,8 @@ def resolve_ai_carries(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_CARRY] try_ai_forgiveness_ask(%r) failed: %s",
-                borrower_id, exc,
+                borrower_id,
+                exc,
             )
             result = None
         if result is not None:
@@ -1220,7 +1270,8 @@ def resolve_ai_carries(
         except Exception as exc:
             logger.warning(
                 "[CASH][AI_CARRY] try_ai_explicit_default(%r) failed: %s",
-                borrower_id, exc,
+                borrower_id,
+                exc,
             )
             result = None
         if result is not None:

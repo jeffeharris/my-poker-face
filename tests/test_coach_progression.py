@@ -3,14 +3,15 @@
 import os
 import tempfile
 import unittest
+
 import pytest
 
-from poker.repositories import create_repos
-from poker.coach_models import GateProgress, PlayerSkillState, SkillState
-from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
 from flask_app.services.situation_classifier import SituationClassification
+from flask_app.services.skill_definitions import ALL_SKILLS
 from flask_app.services.skill_evaluator import SkillEvaluation
+from poker.coach_models import GateProgress, PlayerSkillState, SkillState
+from poker.repositories import create_repos
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
@@ -67,9 +68,7 @@ class TestCoachProgressionWithDB(unittest.TestCase):
         }
 
         for _ in range(3):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -96,9 +95,7 @@ class TestCoachProgressionWithDB(unittest.TestCase):
         # Need 12+ opportunities with >= 75% accuracy
         # Do 12 correct actions (100% accuracy)
         for _ in range(12):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -123,18 +120,14 @@ class TestCoachProgressionWithDB(unittest.TestCase):
 
         # First advance to reliable (12 correct)
         for _ in range(12):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         self.assertEqual(state['skill_states']['fold_trash_hands'].state, SkillState.RELIABLE)
 
         # Now do many incorrect actions to trigger regression
         for _ in range(15):
-            self.service.evaluate_and_update(
-                self.user_id, 'call', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'call', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -217,8 +210,10 @@ class TestCoachingDecision(unittest.TestCase):
             'pot_total': 30,
         }
         decision = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
         )
         self.assertEqual(decision.mode.value, 'learn')
         self.assertIsNotNone(decision.primary_skill_id)
@@ -234,8 +229,10 @@ class TestCoachingDecision(unittest.TestCase):
             'pot_total': 100,
         }
         decision = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
         )
         self.assertEqual(decision.mode.value, 'silent')
 
@@ -278,9 +275,7 @@ class TestSlidingWindow(unittest.TestCase):
 
         # Do 25 correct actions
         for _ in range(25):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -310,9 +305,7 @@ class TestSlidingWindow(unittest.TestCase):
 
         # Do 20 correct actions — should completely replace the window
         for _ in range(20):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -337,9 +330,7 @@ class TestSlidingWindow(unittest.TestCase):
         classification = self._make_classification()
         coaching_data = self._make_coaching_data()
 
-        self.service.evaluate_and_update(
-            self.user_id, 'fold', coaching_data, classification
-        )
+        self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -372,9 +363,7 @@ class TestSlidingWindow(unittest.TestCase):
         coaching_data = self._make_coaching_data()
 
         # One correct action: drops oldest False, adds True → 11/20
-        self.service.evaluate_and_update(
-            self.user_id, 'fold', coaching_data, classification
-        )
+        self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -462,7 +451,7 @@ class TestGateUnlock(unittest.TestCase):
                 skill_id=skill_id,
                 state=SkillState.RELIABLE,
                 total_opportunities=12,
-                total_correct=9,   # Exactly 75% (the advancement threshold)
+                total_correct=9,  # Exactly 75% (the advancement threshold)
                 window_opportunities=12,
                 window_correct=9,
             )
@@ -503,9 +492,7 @@ class TestGateUnlock(unittest.TestCase):
 
         # This 12th correct should advance fold_trash to reliable,
         # but gate unlock should NOT happen yet
-        self.service.evaluate_and_update(
-            self.user_id, 'fold', coaching_data, classification
-        )
+        self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
@@ -536,9 +523,7 @@ class TestGateUnlock(unittest.TestCase):
             'cost_to_call': 0,
             'pot_total': 30,
         }
-        self.service.evaluate_and_update(
-            self.user_id, 'fold', coaching_data, classification
-        )
+        self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
         gate_progress = self.coach_repo.load_gate_progress(self.user_id)
         self.assertNotIn(2, gate_progress)
 
@@ -627,17 +612,23 @@ class TestSessionMemoryCadence(unittest.TestCase):
         mem = SessionMemory()
         # First call should coach
         d1 = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
-            session_memory=mem, hand_number=1,
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
+            session_memory=mem,
+            hand_number=1,
         )
         self.assertNotEqual(d1.mode.value, 'silent')
 
         # Second call same hand — primary skill was already coached
         d2 = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
-            session_memory=mem, hand_number=1,
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
+            session_memory=mem,
+            hand_number=1,
         )
         # Should be silent since the primary was already coached this hand
         self.assertEqual(d2.mode.value, 'silent')
@@ -663,9 +654,12 @@ class TestSessionMemoryCadence(unittest.TestCase):
 
         mem = SessionMemory()
         decision = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
-            session_memory=mem, hand_number=1,
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
+            session_memory=mem,
+            hand_number=1,
         )
         self.assertEqual(decision.mode.value, 'silent')
 
@@ -687,9 +681,12 @@ class TestSessionMemoryCadence(unittest.TestCase):
 
         mem.new_hand(4)
         decision = self.service.get_coaching_decision(
-            self.user_id, coaching_data,
-            state['skill_states'], state['gate_progress'],
-            session_memory=mem, hand_number=4,
+            self.user_id,
+            coaching_data,
+            state['skill_states'],
+            state['gate_progress'],
+            session_memory=mem,
+            hand_number=4,
         )
         if decision.mode.value != 'silent':
             self.assertIn('BREVITY', decision.coaching_prompt)
@@ -910,6 +907,7 @@ class TestGateUnlockChain(unittest.TestCase):
         self._set_skills_reliable(['flop_connection', 'bet_when_strong'])
         # Must also unlock gate 2 first
         from poker.coach_models import GateProgress
+
         self.coach_repo.save_gate_progress(
             self.user_id, GateProgress(gate_number=2, unlocked=True, unlocked_at='now')
         )
@@ -950,6 +948,7 @@ class TestSkillVersioning(unittest.TestCase):
         user2 = 'test_versioning_user2'
         self.coach_repo.save_coach_profile(user2, 'experienced', 'experienced')
         from poker.coach_models import GateProgress
+
         self.coach_repo.save_gate_progress(
             user2, GateProgress(gate_number=1, unlocked=True, unlocked_at='now')
         )
@@ -971,6 +970,7 @@ class TestSkillVersioning(unittest.TestCase):
         user = 'test_passed_gate_user'
         self.coach_repo.save_coach_profile(user, 'experienced', 'experienced')
         from poker.coach_models import GateProgress
+
         # Gates 1, 2, 3 unlocked; gate 3 is "passed" because gate 4 is also unlocked
         for g in (1, 2, 3, 4):
             self.coach_repo.save_gate_progress(
@@ -1013,6 +1013,7 @@ class TestPracticingModeSplit(unittest.TestCase):
         self.coach_repo.save_skill_state(self.user_id, ss)
 
         from poker.coach_models import CoachingMode
+
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.LEARN)
 
@@ -1024,6 +1025,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             window_correct=6,  # 60% accuracy
         )
         from poker.coach_models import CoachingMode
+
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.COMPETE)
 
@@ -1035,6 +1037,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             window_correct=8,  # 80% accuracy
         )
         from poker.coach_models import CoachingMode
+
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.COMPETE)
 
@@ -1044,6 +1047,7 @@ class TestPracticingModeSplit(unittest.TestCase):
             state=SkillState.INTRODUCED,
         )
         from poker.coach_models import CoachingMode
+
         mode = self.service._determine_mode(ss)
         self.assertEqual(mode, CoachingMode.LEARN)
 
@@ -1054,12 +1058,18 @@ class TestSessionMemoryHandEvaluations(unittest.TestCase):
     def test_record_and_retrieve(self):
         mem = SessionMemory()
         ev1 = SkillEvaluation(
-            skill_id='fold_trash_hands', action_taken='fold',
-            evaluation='correct', confidence=1.0, reasoning='Good fold',
+            skill_id='fold_trash_hands',
+            action_taken='fold',
+            evaluation='correct',
+            confidence=1.0,
+            reasoning='Good fold',
         )
         ev2 = SkillEvaluation(
-            skill_id='position_matters', action_taken='call',
-            evaluation='incorrect', confidence=0.8, reasoning='Bad call',
+            skill_id='position_matters',
+            action_taken='call',
+            evaluation='incorrect',
+            confidence=0.8,
+            reasoning='Bad call',
         )
         mem.record_hand_evaluation(1, ev1)
         mem.record_hand_evaluation(1, ev2)
@@ -1073,8 +1083,11 @@ class TestSessionMemoryHandEvaluations(unittest.TestCase):
     def test_not_applicable_filtered(self):
         mem = SessionMemory()
         ev = SkillEvaluation(
-            skill_id='fold_trash_hands', action_taken='fold',
-            evaluation='not_applicable', confidence=1.0, reasoning='N/A',
+            skill_id='fold_trash_hands',
+            action_taken='fold',
+            evaluation='not_applicable',
+            confidence=1.0,
+            reasoning='N/A',
         )
         mem.record_hand_evaluation(1, ev)
         evals = mem.get_hand_evaluations(1)
@@ -1088,12 +1101,18 @@ class TestSessionMemoryHandEvaluations(unittest.TestCase):
     def test_multiple_hands_independent(self):
         mem = SessionMemory()
         ev1 = SkillEvaluation(
-            skill_id='fold_trash_hands', action_taken='fold',
-            evaluation='correct', confidence=1.0, reasoning='Good',
+            skill_id='fold_trash_hands',
+            action_taken='fold',
+            evaluation='correct',
+            confidence=1.0,
+            reasoning='Good',
         )
         ev2 = SkillEvaluation(
-            skill_id='position_matters', action_taken='call',
-            evaluation='incorrect', confidence=0.8, reasoning='Bad',
+            skill_id='position_matters',
+            action_taken='call',
+            evaluation='incorrect',
+            confidence=0.8,
+            reasoning='Bad',
         )
         mem.record_hand_evaluation(1, ev1)
         mem.record_hand_evaluation(2, ev2)
@@ -1173,9 +1192,7 @@ class TestMarginalNeutrality(unittest.TestCase):
 
         # Do 3 correct to get to practicing
         for _ in range(3):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
         state_before = self.service.get_player_state(self.user_id)
         ss_before = state_before['skill_states']['fold_trash_hands']
@@ -1183,9 +1200,7 @@ class TestMarginalNeutrality(unittest.TestCase):
 
         # Now do 5 marginal (check) evaluations
         for _ in range(5):
-            self.service.evaluate_and_update(
-                self.user_id, 'check', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'check', coaching_data, classification)
 
         state_after = self.service.get_player_state(self.user_id)
         ss_after = state_after['skill_states']['fold_trash_hands']
@@ -1216,9 +1231,7 @@ class TestMarginalNeutrality(unittest.TestCase):
         # Alternate: correct, marginal, correct, marginal, ...
         for i in range(24):
             action = 'fold' if i % 2 == 0 else 'check'
-            self.service.evaluate_and_update(
-                self.user_id, action, coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, action, coaching_data, classification)
 
         state = self.service.get_player_state(self.user_id)
         ss = state['skill_states']['fold_trash_hands']
@@ -1307,8 +1320,9 @@ class TestOverlapEvaluation(unittest.TestCase):
 
         # Both should be correct
         for ev in evaluations:
-            self.assertEqual(ev.evaluation, 'correct',
-                             f'{ev.skill_id} expected correct, got {ev.evaluation}')
+            self.assertEqual(
+                ev.evaluation, 'correct', f'{ev.skill_id} expected correct, got {ev.evaluation}'
+            )
 
         # Both should have recorded opportunities
         state = self.service.get_player_state(self.user_id)
@@ -1397,9 +1411,7 @@ class TestUpdatePlayerLevel(unittest.TestCase):
             'pot_total': 30,
         }
         for _ in range(num_correct):
-            self.service.evaluate_and_update(
-                self.user_id, 'fold', coaching_data, classification
-            )
+            self.service.evaluate_and_update(self.user_id, 'fold', coaching_data, classification)
 
     def test_creates_skills_for_new_user(self):
         """New user via update_player_level gets appropriate skills."""
@@ -1524,7 +1536,11 @@ class TestUpdatePlayerLevel(unittest.TestCase):
         self.service.initialize_player(self.user_id, 'beginner')
 
         # Advance all Gate 1 skills to different states
-        for skill_id, total in [('fold_trash_hands', 5), ('position_matters', 8), ('raise_or_fold', 12)]:
+        for skill_id, total in [
+            ('fold_trash_hands', 5),
+            ('position_matters', 8),
+            ('raise_or_fold', 12),
+        ]:
             self._advance_skill(skill_id, total)
 
         before = self.service.get_player_state(self.user_id)
@@ -1539,7 +1555,7 @@ class TestUpdatePlayerLevel(unittest.TestCase):
             self.assertEqual(
                 after['skill_states'][skill_id].total_opportunities,
                 before['skill_states'][skill_id].total_opportunities,
-                f"{skill_id} opportunities changed"
+                f"{skill_id} opportunities changed",
             )
 
     def test_intermediate_to_experienced_preserves_gates(self):
@@ -1611,7 +1627,7 @@ class TestUpdatePlayerLevel(unittest.TestCase):
 
         self.assertEqual(
             before['skill_states']['fold_trash_hands'].total_opportunities,
-            after['skill_states']['fold_trash_hands'].total_opportunities
+            after['skill_states']['fold_trash_hands'].total_opportunities,
         )
 
     def test_sets_onboarding_completed(self):

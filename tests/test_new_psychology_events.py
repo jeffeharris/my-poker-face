@@ -5,10 +5,11 @@ and short_stack_survival.
 
 import unittest
 from unittest.mock import patch
-from poker.pressure_detector import PressureEventDetector
-from poker.player_psychology import PlayerPsychology
-from poker.poker_game import PokerGameState, Player
+
 from core.card import Card
+from poker.player_psychology import PlayerPsychology
+from poker.poker_game import Player, PokerGameState
+from poker.pressure_detector import PressureEventDetector
 
 
 class TestCardDead5Modified(unittest.TestCase):
@@ -17,9 +18,15 @@ class TestCardDead5Modified(unittest.TestCase):
     def _make_psych(self, ego=0.5, poise=0.5):
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': ego,
-                'poise': poise, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': ego,
+                'poise': poise,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         return PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -67,9 +74,15 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
     def setUp(self):
         self.detector = PressureEventDetector()
 
-    def _make_game_state(self, community_cards=None, pot_total=500,
-                         player_stack=1000, player_bet=100, opponent_bet=200,
-                         player_hand=None):
+    def _make_game_state(
+        self,
+        community_cards=None,
+        pot_total=500,
+        player_stack=1000,
+        player_bet=100,
+        opponent_bet=200,
+        player_hand=None,
+    ):
         """Create a game state for testing fold detection.
 
         highest_bet is derived from player bets (it's a property on PokerGameState).
@@ -78,20 +91,28 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         if community_cards is None:
             # Turn: 4 community cards
             community_cards = (
-                Card('A', 'hearts'), Card('K', 'hearts'),
-                Card('Q', 'spades'), Card('7', 'diamonds'),
+                Card('A', 'hearts'),
+                Card('K', 'hearts'),
+                Card('Q', 'spades'),
+                Card('7', 'diamonds'),
             )
         if player_hand is None:
             # Decent hand: pair of jacks
             player_hand = (Card('J', 'hearts'), Card('J', 'diamonds'))
 
         player = Player(
-            name='TestPlayer', stack=player_stack, is_human=False,
-            hand=player_hand, bet=player_bet,
+            name='TestPlayer',
+            stack=player_stack,
+            is_human=False,
+            hand=player_hand,
+            bet=player_bet,
         )
         opponent = Player(
-            name='Opponent', stack=1000, is_human=False,
-            hand=(Card('2', 'clubs'), Card('3', 'clubs')), bet=opponent_bet,
+            name='Opponent',
+            stack=1000,
+            is_human=False,
+            hand=(Card('2', 'clubs'), Card('3', 'clubs')),
+            bet=opponent_bet,
         )
 
         return PokerGameState(
@@ -107,9 +128,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         """Disciplined fold fires when folding on turn with decent equity in significant pot."""
         game_state = self._make_game_state()
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertIn('disciplined_fold', event_names)
@@ -118,14 +137,15 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
     def test_disciplined_fold_detected_on_river(self, mock_equity):
         """Disciplined fold fires on river too."""
         community_cards = (
-            Card('A', 'hearts'), Card('K', 'hearts'),
-            Card('Q', 'spades'), Card('7', 'diamonds'), Card('2', 'clubs'),
+            Card('A', 'hearts'),
+            Card('K', 'hearts'),
+            Card('Q', 'spades'),
+            Card('7', 'diamonds'),
+            Card('2', 'clubs'),
         )
         game_state = self._make_game_state(community_cards=community_cards)
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertIn('disciplined_fold', event_names)
@@ -135,9 +155,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         """Disciplined fold does NOT fire preflop (no community cards)."""
         game_state = self._make_game_state(community_cards=())
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -146,13 +164,13 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
     def test_no_disciplined_fold_on_flop(self, mock_equity):
         """Disciplined fold does NOT fire on flop (only 3 community cards)."""
         community_cards = (
-            Card('A', 'hearts'), Card('K', 'hearts'), Card('Q', 'spades'),
+            Card('A', 'hearts'),
+            Card('K', 'hearts'),
+            Card('Q', 'spades'),
         )
         game_state = self._make_game_state(community_cards=community_cards)
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -162,9 +180,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         """No disciplined fold when equity is below threshold (< 0.25)."""
         game_state = self._make_game_state()
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -175,9 +191,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         # pot_total=100, player_stack=1000 => pot_significance = 0.1 < 0.15
         game_state = self._make_game_state(pot_total=100)
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -187,9 +201,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         """No disciplined fold when there's no bet to call (checking is free)."""
         game_state = self._make_game_state(opponent_bet=100, player_bet=100)
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'fold', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'fold', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -227,9 +239,7 @@ class TestDisciplinedFoldDetection(unittest.TestCase):
         """Disciplined fold only fires on fold action."""
         game_state = self._make_game_state()
 
-        events = self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'call', hand_number=5
-        )
+        events = self.detector.detect_action_events(game_state, 'TestPlayer', 'call', hand_number=5)
 
         event_names = [e[0] for e in events]
         self.assertNotIn('disciplined_fold', event_names)
@@ -241,9 +251,15 @@ class TestDisciplinedFoldPsychology(unittest.TestCase):
     def _make_psych(self, ego=0.5, poise=0.5):
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': ego,
-                'poise': poise, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': ego,
+                'poise': poise,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         return PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -349,9 +365,7 @@ class TestShortStackSurvivalDetection(unittest.TestCase):
             players=(Player(name='TestPlayer', stack=0, is_human=False),),
             deck=(),
         )
-        self.detector.detect_action_events(
-            game_state, 'TestPlayer', 'all_in', hand_number=2
-        )
+        self.detector.detect_action_events(game_state, 'TestPlayer', 'all_in', hand_number=2)
 
         # Counter should be reset - need 3 more hands
         self.detector.detect_short_stack_survival_events(short_stack, hand_number=3)
@@ -382,9 +396,15 @@ class TestShortStackSurvivalPsychology(unittest.TestCase):
     def _make_psych(self, ego=0.5, poise=0.5):
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': ego,
-                'poise': poise, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': ego,
+                'poise': poise,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         return PlayerPsychology.from_personality_config('TestPlayer', config)

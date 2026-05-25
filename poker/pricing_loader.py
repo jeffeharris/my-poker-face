@@ -11,7 +11,6 @@ valid_from per SKU is used for cost calculations (waterfall lookup).
 """
 
 import logging
-import os
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -41,7 +40,7 @@ def load_pricing_yaml(config_path: str) -> dict:
         Parsed YAML as dict, or empty dict on error
     """
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         logger.warning(f"Pricing config not found: {config_path}")
@@ -65,12 +64,14 @@ def sku_exists(conn: sqlite3.Connection, provider: str, model: str, unit: str) -
     """
     cursor = conn.execute(
         "SELECT 1 FROM model_pricing WHERE provider = ? AND model = ? AND unit = ? LIMIT 1",
-        (provider, model, unit)
+        (provider, model, unit),
     )
     return cursor.fetchone() is not None
 
 
-def insert_pricing(conn: sqlite3.Connection, provider: str, model: str, unit: str, cost: float) -> bool:
+def insert_pricing(
+    conn: sqlite3.Connection, provider: str, model: str, unit: str, cost: float
+) -> bool:
     """Insert a new pricing entry with NULL valid_from (base price).
 
     Args:
@@ -89,7 +90,7 @@ def insert_pricing(conn: sqlite3.Connection, provider: str, model: str, unit: st
             INSERT INTO model_pricing (provider, model, unit, cost, valid_from, valid_until)
             VALUES (?, ?, ?, ?, NULL, NULL)
             """,
-            (provider, model, unit, cost)
+            (provider, model, unit, cost),
         )
         return True
     except sqlite3.IntegrityError:
@@ -99,10 +100,7 @@ def insert_pricing(conn: sqlite3.Connection, provider: str, model: str, unit: st
 
 
 def sync_model_metadata(
-    conn: sqlite3.Connection,
-    provider: str,
-    model: str,
-    model_data: dict
+    conn: sqlite3.Connection, provider: str, model: str, model_data: dict
 ) -> bool:
     """Sync model metadata (capabilities, display_name) to enabled_models table.
 
@@ -156,7 +154,7 @@ def sync_model_metadata(
             SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
             WHERE provider = ? AND model = ?
             """,
-            values
+            values,
         )
         return cursor.rowcount > 0
     except sqlite3.Error as e:
@@ -165,8 +163,7 @@ def sync_model_metadata(
 
 
 def sync_pricing_from_yaml(
-    db_path: Optional[str] = None,
-    config_path: Optional[str] = None
+    db_path: Optional[str] = None, config_path: Optional[str] = None
 ) -> dict:
     """Seed pricing from YAML if SKU doesn't exist in DB.
 
@@ -250,6 +247,7 @@ def sync_pricing_from_yaml(
     if stats["seeded"] > 0:
         try:
             from core.llm.tracking import UsageTracker
+
             UsageTracker.get_default().invalidate_pricing_cache()
             logger.info(f"Invalidated pricing cache after seeding {stats['seeded']} entries")
         except ImportError:
@@ -266,10 +264,7 @@ def sync_pricing_from_yaml(
     return stats
 
 
-def sync_enabled_models(
-    db_path: Optional[str] = None,
-    config_path: Optional[str] = None
-) -> dict:
+def sync_enabled_models(db_path: Optional[str] = None, config_path: Optional[str] = None) -> dict:
     """Sync enabled_models table with PROVIDER_MODELS config.
 
     Ensures all models in PROVIDER_MODELS exist in enabled_models table.
@@ -284,7 +279,7 @@ def sync_enabled_models(
     Returns:
         Dict with stats: {"added": N, "skipped": M, "errors": E}
     """
-    from core.llm import PROVIDER_MODELS, PROVIDER_CAPABILITIES
+    from core.llm import PROVIDER_CAPABILITIES, PROVIDER_MODELS
 
     db_path = db_path or get_default_db_path()
     config_path = config_path or get_default_config_path()
@@ -326,8 +321,12 @@ def sync_enabled_models(
 
                     # Get metadata from pricing.yaml if available
                     model_data = pricing_providers.get(provider, {}).get(model, {})
-                    caps = model_data.get('capabilities', {}) if isinstance(model_data, dict) else {}
-                    display_name = model_data.get('display_name') if isinstance(model_data, dict) else None
+                    caps = (
+                        model_data.get('capabilities', {}) if isinstance(model_data, dict) else {}
+                    )
+                    display_name = (
+                        model_data.get('display_name') if isinstance(model_data, dict) else None
+                    )
 
                     # Determine capability values
                     supports_reasoning = 1 if caps.get('reasoning', False) else 0
@@ -338,25 +337,48 @@ def sync_enabled_models(
                     # For text models without explicit caps, default json to provider capability
                     if not is_image_only and not caps:
                         supports_json = 1 if provider_caps.get('supports_json_mode', True) else 0
-                        supports_reasoning = 1 if provider_caps.get('supports_reasoning', False) else 0
+                        supports_reasoning = (
+                            1 if provider_caps.get('supports_reasoning', False) else 0
+                        )
 
                     try:
                         if has_img2img:
-                            conn.execute("""
+                            conn.execute(
+                                """
                                 INSERT INTO enabled_models
                                 (provider, model, display_name, enabled, user_enabled, supports_reasoning,
                                  supports_json_mode, supports_image_gen, supports_img2img, sort_order)
                                 VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
-                            """, (provider, model, display_name, supports_reasoning, supports_json,
-                                  supports_image_gen, supports_img2img, sort_order))
+                            """,
+                                (
+                                    provider,
+                                    model,
+                                    display_name,
+                                    supports_reasoning,
+                                    supports_json,
+                                    supports_image_gen,
+                                    supports_img2img,
+                                    sort_order,
+                                ),
+                            )
                         else:
-                            conn.execute("""
+                            conn.execute(
+                                """
                                 INSERT INTO enabled_models
                                 (provider, model, display_name, enabled, user_enabled, supports_reasoning,
                                  supports_json_mode, supports_image_gen, sort_order)
                                 VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?)
-                            """, (provider, model, display_name, supports_reasoning, supports_json,
-                                  supports_image_gen, sort_order))
+                            """,
+                                (
+                                    provider,
+                                    model,
+                                    display_name,
+                                    supports_reasoning,
+                                    supports_json,
+                                    supports_image_gen,
+                                    sort_order,
+                                ),
+                            )
 
                         stats["added"] += 1
                         logger.debug(f"Added model: {provider}/{model}")
@@ -383,6 +405,7 @@ def sync_enabled_models(
 if __name__ == '__main__':
     # Allow running directly for testing
     import sys
+
     logging.basicConfig(level=logging.DEBUG)
 
     db = sys.argv[1] if len(sys.argv) > 1 else None

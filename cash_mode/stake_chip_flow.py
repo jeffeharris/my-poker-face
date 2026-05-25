@@ -39,6 +39,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from cash_mode.stake_settlement import StakeSettlement
 from cash_mode.stakes import (
     STAKE_FORMAT_MATCH_SHARE,
     STAKE_FORMAT_PURE,
@@ -47,7 +48,6 @@ from cash_mode.stakes import (
     STAKER_KIND_PERSONALITY,
     Stake,
 )
-from cash_mode.stake_settlement import StakeSettlement
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # Stake creation
 DIRECTION_STAKER_TO_BORROWER_SEAT = "staker_to_borrower_seat"
 DIRECTION_BORROWER_BANKROLL_TO_SEAT = "borrower_bankroll_to_seat"  # match_share
-DIRECTION_HOUSE_TO_BORROWER_SEAT = "house_to_borrower_seat"        # fires house_stake_issue
+DIRECTION_HOUSE_TO_BORROWER_SEAT = "house_to_borrower_seat"  # fires house_stake_issue
 DIRECTION_BORROWER_TO_STAKER_BANKROLL = "borrower_to_staker_bankroll"  # origination_fee
 
 # Stake settlement
@@ -121,43 +121,49 @@ def build_stake_creation_flows(stake: Stake) -> List[StakeChipFlow]:
     }
 
     if stake.staker_kind == STAKER_KIND_HOUSE:
-        flows.append(StakeChipFlow(
-            direction=DIRECTION_HOUSE_TO_BORROWER_SEAT,
-            staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE,
-            borrower_id=stake.borrower_id,
-            borrower_kind=stake.borrower_kind,
-            amount=stake.principal,
-            context=common_ctx,
-        ))
+        flows.append(
+            StakeChipFlow(
+                direction=DIRECTION_HOUSE_TO_BORROWER_SEAT,
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                borrower_id=stake.borrower_id,
+                borrower_kind=stake.borrower_kind,
+                amount=stake.principal,
+                context=common_ctx,
+            )
+        )
     elif stake.staker_kind in (STAKER_KIND_PERSONALITY, STAKER_KIND_HUMAN):
         if stake.staker_id is None:
             raise ValueError(
                 f"stake {stake.stake_id!r} has staker_kind={stake.staker_kind!r} "
                 "but staker_id is NULL"
             )
-        flows.append(StakeChipFlow(
-            direction=DIRECTION_STAKER_TO_BORROWER_SEAT,
-            staker_id=stake.staker_id,
-            staker_kind=stake.staker_kind,
-            borrower_id=stake.borrower_id,
-            borrower_kind=stake.borrower_kind,
-            amount=stake.principal,
-            context=common_ctx,
-        ))
+        flows.append(
+            StakeChipFlow(
+                direction=DIRECTION_STAKER_TO_BORROWER_SEAT,
+                staker_id=stake.staker_id,
+                staker_kind=stake.staker_kind,
+                borrower_id=stake.borrower_id,
+                borrower_kind=stake.borrower_kind,
+                amount=stake.principal,
+                context=common_ctx,
+            )
+        )
     else:
         raise ValueError(f"unknown staker_kind {stake.staker_kind!r}")
 
     if stake.format == STAKE_FORMAT_MATCH_SHARE and stake.match_amount > 0:
-        flows.append(StakeChipFlow(
-            direction=DIRECTION_BORROWER_BANKROLL_TO_SEAT,
-            staker_id=stake.staker_id,
-            staker_kind=stake.staker_kind,
-            borrower_id=stake.borrower_id,
-            borrower_kind=stake.borrower_kind,
-            amount=stake.match_amount,
-            context=common_ctx,
-        ))
+        flows.append(
+            StakeChipFlow(
+                direction=DIRECTION_BORROWER_BANKROLL_TO_SEAT,
+                staker_id=stake.staker_id,
+                staker_kind=stake.staker_kind,
+                borrower_id=stake.borrower_id,
+                borrower_kind=stake.borrower_kind,
+                amount=stake.match_amount,
+                context=common_ctx,
+            )
+        )
 
     if stake.format == STAKE_FORMAT_PURE and stake.origination_fee > 0:
         if stake.staker_id is None:
@@ -169,15 +175,17 @@ def build_stake_creation_flows(stake: Stake) -> List[StakeChipFlow]:
                 f"stake {stake.stake_id!r} is a house stake with non-zero "
                 "origination_fee; house stakes can't take origination fees"
             )
-        flows.append(StakeChipFlow(
-            direction=DIRECTION_BORROWER_TO_STAKER_BANKROLL,
-            staker_id=stake.staker_id,
-            staker_kind=stake.staker_kind,
-            borrower_id=stake.borrower_id,
-            borrower_kind=stake.borrower_kind,
-            amount=stake.origination_fee,
-            context=common_ctx,
-        ))
+        flows.append(
+            StakeChipFlow(
+                direction=DIRECTION_BORROWER_TO_STAKER_BANKROLL,
+                staker_id=stake.staker_id,
+                staker_kind=stake.staker_kind,
+                borrower_id=stake.borrower_id,
+                borrower_kind=stake.borrower_kind,
+                amount=stake.origination_fee,
+                context=common_ctx,
+            )
+        )
 
     return flows
 
@@ -208,35 +216,41 @@ def build_stake_settlement_flows(
 
     if settlement.staker_total > 0:
         if settlement.staker_kind == STAKER_KIND_HOUSE:
-            flows.append(StakeChipFlow(
-                direction=DIRECTION_BORROWER_SEAT_TO_HOUSE,
-                staker_id=None,
-                staker_kind=STAKER_KIND_HOUSE,
-                borrower_id=settlement.borrower_id,
-                borrower_kind=settlement.borrower_kind,
-                amount=settlement.staker_total,
-                context=common_ctx,
-            ))
+            flows.append(
+                StakeChipFlow(
+                    direction=DIRECTION_BORROWER_SEAT_TO_HOUSE,
+                    staker_id=None,
+                    staker_kind=STAKER_KIND_HOUSE,
+                    borrower_id=settlement.borrower_id,
+                    borrower_kind=settlement.borrower_kind,
+                    amount=settlement.staker_total,
+                    context=common_ctx,
+                )
+            )
         else:
-            flows.append(StakeChipFlow(
-                direction=DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+            flows.append(
+                StakeChipFlow(
+                    direction=DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
+                    staker_id=settlement.staker_id,
+                    staker_kind=settlement.staker_kind,
+                    borrower_id=settlement.borrower_id,
+                    borrower_kind=settlement.borrower_kind,
+                    amount=settlement.staker_total,
+                    context=common_ctx,
+                )
+            )
+
+    if settlement.borrower_total > 0:
+        flows.append(
+            StakeChipFlow(
+                direction=DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
                 staker_id=settlement.staker_id,
                 staker_kind=settlement.staker_kind,
                 borrower_id=settlement.borrower_id,
                 borrower_kind=settlement.borrower_kind,
-                amount=settlement.staker_total,
+                amount=settlement.borrower_total,
                 context=common_ctx,
-            ))
-
-    if settlement.borrower_total > 0:
-        flows.append(StakeChipFlow(
-            direction=DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
-            staker_id=settlement.staker_id,
-            staker_kind=settlement.staker_kind,
-            borrower_id=settlement.borrower_id,
-            borrower_kind=settlement.borrower_kind,
-            amount=settlement.borrower_total,
-            context=common_ctx,
-        ))
+            )
+        )
 
     return flows

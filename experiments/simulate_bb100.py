@@ -29,26 +29,31 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from tqdm import tqdm
 except ImportError:
+
     def tqdm(it, **kwargs):
         return it
 
-from poker.poker_game import (
-    PokerGameState, Player, create_deck,
-    play_turn, advance_to_next_active_player,
-)
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.psychology_model import PersonalityAnchors
-from poker.strategy.strategy_table import (
-    load_strategy_table,
-    load_hu_strategy_table,
-    load_depth_strategy_tables,
-    StrategyTable,
-)
-from poker.strategy.deviation_profiles import DEVIATION_PROFILES
-from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
-from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
-from poker.memory.opponent_model import OpponentModelManager
+
 from poker.memory.cbet_detector import CbetDetector
+from poker.memory.opponent_model import OpponentModelManager
+from poker.poker_game import (
+    Player,
+    PokerGameState,
+    advance_to_next_active_player,
+    create_deck,
+    play_turn,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.psychology_model import PersonalityAnchors
+from poker.rule_based_controller import CHAOS_BOTS, RuleBasedController, RuleConfig
+from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+from poker.strategy.strategy_table import (
+    StrategyTable,
+    load_depth_strategy_tables,
+    load_hu_strategy_table,
+    load_strategy_table,
+)
+from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)
 
@@ -58,55 +63,85 @@ ARCHETYPES = {
     'Rock': {
         'profile': 'rock',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.3, baseline_looseness=0.25,
-            ego=0.3, poise=0.8, expressiveness=0.3,
-            risk_identity=0.3, adaptation_bias=0.3,
-            baseline_energy=0.4, recovery_rate=0.2,
+            baseline_aggression=0.3,
+            baseline_looseness=0.25,
+            ego=0.3,
+            poise=0.8,
+            expressiveness=0.3,
+            risk_identity=0.3,
+            adaptation_bias=0.3,
+            baseline_energy=0.4,
+            recovery_rate=0.2,
         ),
     },
     'TAG': {
         'profile': 'tag',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.7, baseline_looseness=0.35,
-            ego=0.5, poise=0.7, expressiveness=0.4,
-            risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.7,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.4,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         ),
     },
     'LAG': {
         'profile': 'lag',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.8, baseline_looseness=0.7,
-            ego=0.6, poise=0.5, expressiveness=0.6,
-            risk_identity=0.6, adaptation_bias=0.5,
-            baseline_energy=0.7, recovery_rate=0.15,
+            baseline_aggression=0.8,
+            baseline_looseness=0.7,
+            ego=0.6,
+            poise=0.5,
+            expressiveness=0.6,
+            risk_identity=0.6,
+            adaptation_bias=0.5,
+            baseline_energy=0.7,
+            recovery_rate=0.15,
         ),
     },
     'Calling Station': {
         'profile': 'calling_station',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.3, baseline_looseness=0.75,
-            ego=0.4, poise=0.5, expressiveness=0.5,
-            risk_identity=0.4, adaptation_bias=0.3,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         ),
     },
     'Maniac': {
         'profile': 'maniac',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.9, baseline_looseness=0.85,
-            ego=0.7, poise=0.3, expressiveness=0.8,
-            risk_identity=0.8, adaptation_bias=0.3,
-            baseline_energy=0.8, recovery_rate=0.1,
+            baseline_aggression=0.9,
+            baseline_looseness=0.85,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
         ),
     },
     'Nit': {
         'profile': 'nit',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.15, baseline_looseness=0.15,
-            ego=0.2, poise=0.9, expressiveness=0.2,
-            risk_identity=0.2, adaptation_bias=0.3,
-            baseline_energy=0.3, recovery_rate=0.2,
+            baseline_aggression=0.15,
+            baseline_looseness=0.15,
+            ego=0.2,
+            poise=0.9,
+            expressiveness=0.2,
+            risk_identity=0.2,
+            adaptation_bias=0.3,
+            baseline_energy=0.3,
+            recovery_rate=0.2,
         ),
     },
     # Layer-1-only reference bot. Selectable as opponent for EV-ordering validation.
@@ -149,9 +184,7 @@ TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
 MAX_ACTIONS_PER_HAND = 100
 
 
-def apply_adaptation_bias_override(
-    config: dict, bias: Optional[float]
-) -> dict:
+def apply_adaptation_bias_override(config: dict, bias: Optional[float]) -> dict:
     """Return a config with adaptation_bias overridden in its anchors.
 
     Returns the original config unchanged if bias is None or the config
@@ -169,9 +202,11 @@ def apply_adaptation_bias_override(
 
 # ── Data structures ──────────────────────────────────────────────────────────
 
+
 @dataclass
 class MatchupStats:
     """Statistics for one archetype matchup."""
+
     bb100: float
     ci_lo: float
     ci_hi: float
@@ -238,10 +273,13 @@ def make_controller(
     if archetype_config.get('kind') == 'rule_bot':
         strategy = archetype_config['strategy']
         rule_config = CHAOS_BOTS.get(strategy) or RuleConfig(
-            strategy=strategy, name=name,
+            strategy=strategy,
+            name=name,
         )
         return RuleBasedController(
-            player_name=name, state_machine=sm, config=rule_config,
+            player_name=name,
+            state_machine=sm,
+            config=rule_config,
         )
 
     # Tiered path: solver baselines + personality distortion
@@ -271,9 +309,7 @@ def make_controller(
     controller.debug_logging = False
     controller.rng = random.Random(rng_seed)
     controller.skip_personality_distortion = is_baseline
-    controller._deviation_profile = (
-        None if is_baseline else DEVIATION_PROFILES[profile_key]
-    )
+    controller._deviation_profile = None if is_baseline else DEVIATION_PROFILES[profile_key]
     # Track B Phase 2 seam: sims don't populate relationship_states,
     # so the modifier seam has nothing to read. Default `False` here
     # (rather than mirroring TieredBotController.__init__'s `True`)
@@ -307,6 +343,7 @@ def make_controller(
 
 # ── Game state factory ───────────────────────────────────────────────────────
 
+
 def make_game_state(
     player_names: List[str],
     big_blind: int = 100,
@@ -315,10 +352,7 @@ def make_game_state(
     seed: Optional[int] = None,
 ) -> PokerGameState:
     """Create a fresh heads-up game state for one hand."""
-    players = tuple(
-        Player(name=n, stack=starting_stack, is_human=False)
-        for n in player_names
-    )
+    players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     return PokerGameState(
         players=players,
         deck=create_deck(shuffled=True, random_seed=seed),
@@ -329,6 +363,7 @@ def make_game_state(
 
 
 # ── Hand runner ──────────────────────────────────────────────────────────────
+
 
 def _ensure_sim_game_row(decision_analysis_repo, game_id: str) -> None:
     """Phase 7.6 Step 7: insert a games table row for the sim matchup.
@@ -351,9 +386,7 @@ def _ensure_sim_game_row(decision_analysis_repo, game_id: str) -> None:
             )
             conn.commit()
     except Exception as e:  # noqa: BLE001 — observability degradation
-        logger.warning(
-            f"[SIM_PERSIST] Failed to insert games row for {game_id}: {e}"
-        )
+        logger.warning(f"[SIM_PERSIST] Failed to insert games row for {game_id}: {e}")
 
 
 def _persist_hero_decision(
@@ -403,8 +436,7 @@ def _persist_hero_decision(
         repo.save_decision_analysis(analysis)
     except Exception as e:  # noqa: BLE001 — observability degradation
         logger.warning(
-            f"[SIM_PERSIST] {hero_controller.player_name}: failed to "
-            f"persist decision: {e}"
+            f"[SIM_PERSIST] {hero_controller.player_name}: failed to " f"persist decision: {e}"
         )
 
 
@@ -444,13 +476,10 @@ def _record_sim_equity_at_actions(
     model, which feeds tiered-bot exploitation logic, which affects
     hero decisions, which affects game outcomes).
     """
-    from poker.decision_analyzer import DecisionAnalyzer
     from poker.card_utils import card_to_string
+    from poker.decision_analyzer import DecisionAnalyzer
 
-    revealed = [
-        p for p in game_state.players
-        if not getattr(p, 'is_folded', False)
-    ]
+    revealed = [p for p in game_state.players if not getattr(p, 'is_folded', False)]
     if not revealed:
         return
 
@@ -494,7 +523,8 @@ def _record_sim_equity_at_actions(
             # _record_showdown_equity_at_actions convention.
             num_opp = max(1, n_revealed - 1)
             per_action_seed = (
-                None if equity_seed is None
+                None
+                if equity_seed is None
                 else equity_seed + action_idx * 1_000_003  # arbitrary prime stride
             )
             action_idx += 1
@@ -618,8 +648,7 @@ def run_hand(
 
         if verbose:
             logger.info(
-                f"  {current_player.name}: {action}"
-                f"{f' to {raise_to}' if raise_to else ''}"
+                f"  {current_player.name}: {action}" f"{f' to {raise_to}' if raise_to else ''}"
             )
 
         # Polarization Phase A: capture board snapshot at action time
@@ -633,28 +662,29 @@ def run_hand(
         ):
             try:
                 from poker.card_utils import card_to_string
-                board_snapshot = tuple(
-                    card_to_string(c) for c in gs.community_cards
-                )
+
+                board_snapshot = tuple(card_to_string(c) for c in gs.community_cards)
             except Exception:
                 board_snapshot = ()
-            action_log.append(
-                (current_player.name, action, phase_name, board_snapshot)
-            )
+            action_log.append((current_player.name, action, phase_name, board_snapshot))
 
         # Snapshot active players BEFORE play_turn — CbetDetector needs
         # the pre-fold view to seed its facing-set on flop c-bets.
-        active_players_snapshot = [
-            p.name for p in gs.players if not getattr(p, 'is_folded', False)
-        ]
+        active_players_snapshot = [p.name for p in gs.players if not getattr(p, 'is_folded', False)]
 
         # Compute was_facing_bet BEFORE cbet_detector updates (mirror
         # AIMemoryManager.on_action). Required for opportunity-normalized
         # VPIP/PFR counters preflop and AF-postflop axes postflop.
         if phase_name in ('FLOP', 'TURN', 'RIVER'):
-            recent_postflop = getattr(
-                hero_controller, '_sim_recent_aggressor', None,
-            ) if hero_controller is not None else None
+            recent_postflop = (
+                getattr(
+                    hero_controller,
+                    '_sim_recent_aggressor',
+                    None,
+                )
+                if hero_controller is not None
+                else None
+            )
             was_facing_bet_snapshot = (
                 recent_postflop is not None
                 and recent_postflop != current_player.name
@@ -663,8 +693,7 @@ def run_hand(
         elif phase_name == 'PRE_FLOP':
             prior_raiser = cbet_detector.preflop_aggressor
             was_facing_bet_snapshot = (
-                prior_raiser is not None
-                and prior_raiser != current_player.name
+                prior_raiser is not None and prior_raiser != current_player.name
             )
         else:
             was_facing_bet_snapshot = None
@@ -696,8 +725,10 @@ def run_hand(
         # them as c-bet aggressor) but produce no self-observation.
         if opponent_manager is not None and hero_name is not None:
             cbet_responses = cbet_detector.record_action(
-                player_name=current_player.name, action=action,
-                phase=phase_name, active_players=active_players_snapshot,
+                player_name=current_player.name,
+                action=action,
+                phase=phase_name,
+                active_players=active_players_snapshot,
             )
             for opp_name, folded in cbet_responses:
                 if opp_name == hero_name:
@@ -722,10 +753,7 @@ def run_hand(
             if sim_current_street != phase_name:
                 hero_controller._sim_recent_aggressor = None
                 sim_current_street = phase_name
-            if (
-                phase_name in ('FLOP', 'TURN', 'RIVER')
-                and action in ('bet', 'raise', 'all_in')
-            ):
+            if phase_name in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
                 hero_controller._sim_recent_aggressor = current_player.name
                 # Multi-street layer: split hero's own line from opponents'.
                 if current_player.name == hero_name:
@@ -748,18 +776,20 @@ def run_hand(
     if opponent_manager is not None and hero_name is not None and action_log:
         try:
             _record_sim_equity_at_actions(
-                sm.game_state, action_log, opponent_manager, hero_name,
+                sm.game_state,
+                action_log,
+                opponent_manager,
+                hero_name,
                 equity_seed=equity_seed,
             )
         except Exception as e:
-            logger.warning(
-                f"Phase A sim equity recording failed: {e}"
-            )
+            logger.warning(f"Phase A sim equity recording failed: {e}")
 
     return {p.name: p.stack for p in sm.game_state.players}
 
 
 # ── Matchup runner ───────────────────────────────────────────────────────────
+
 
 def run_matchup(
     archetype_a: str,
@@ -793,13 +823,12 @@ def run_matchup(
     session, not per-hand. Default off so the post-patch baselines
     measured for the Phase B gate stay reproducible.
     """
-    config_a = apply_adaptation_bias_override(
-        ARCHETYPES[archetype_a], hero_adaptation_bias
-    )
+    config_a = apply_adaptation_bias_override(ARCHETYPES[archetype_a], hero_adaptation_bias)
     config_b = ARCHETYPES[archetype_b]
 
     if enable_session_drift:
         from poker.psychology_model import apply_session_drift
+
         # Stable per-matchup seeds for drift — derived from base_seed so
         # the same matchup with the same base_seed produces identical
         # drift, even across separate invocations. Mixed with two
@@ -815,12 +844,12 @@ def run_matchup(
         # already a shallow copy, but the symmetry is cheap.
         config_a = dict(config_a)
         config_b = dict(config_b)
-        for cfg, drift_seed in ((config_a, drift_seed_a),
-                                (config_b, drift_seed_b)):
+        for cfg, drift_seed in ((config_a, drift_seed_a), (config_b, drift_seed_b)):
             anchors = cfg.get('anchors')
             if anchors is not None:
                 cfg['anchors'] = apply_session_drift(
-                    anchors, random.Random(drift_seed),
+                    anchors,
+                    random.Random(drift_seed),
                 )
 
     name_a = 'P1'
@@ -838,7 +867,9 @@ def run_matchup(
     if decision_analysis_repo is not None and game_id is not None:
         _ensure_sim_game_row(decision_analysis_repo, game_id)
 
-    for hand_num in tqdm(range(n_hands), desc=f"  {archetype_a} vs {archetype_b}", leave=False, file=sys.stderr):
+    for hand_num in tqdm(
+        range(n_hands), desc=f"  {archetype_a} vs {archetype_b}", leave=False, file=sys.stderr
+    ):
         hand_seed = base_seed + hand_num
         dealer_idx = hand_num % 2  # alternate button for fairness
 
@@ -870,23 +901,36 @@ def run_matchup(
         sm.current_hand_seed = hand_seed
 
         ctrl_a = make_controller(
-            name_a, config_a, strategy_table, sm, rng_seed=hand_seed,
+            name_a,
+            config_a,
+            strategy_table,
+            sm,
+            rng_seed=hand_seed,
             decision_analysis_repo=decision_analysis_repo,
             disable_rules=disable_rules,
             game_id=game_id,
         )
         ctrl_b = make_controller(
-            name_b, config_b, strategy_table, sm, rng_seed=hand_seed + 1_000_000,
+            name_b,
+            config_b,
+            strategy_table,
+            sm,
+            rng_seed=hand_seed + 1_000_000,
         )
 
         # Attach the shared manager to the hero controller for this hand.
         ctrl_a.opponent_model_manager = opponent_manager
         opponent_manager.record_hand_dealt(
-            observer=name_a, opponents=[name_b], hand_number=hand_num,
+            observer=name_a,
+            opponents=[name_b],
+            hand_number=hand_num,
         )
 
         final_stacks = run_hand(
-            sm, [ctrl_a, ctrl_b], big_blind, verbose=verbose,
+            sm,
+            [ctrl_a, ctrl_b],
+            big_blind,
+            verbose=verbose,
             opponent_manager=opponent_manager,
             hero_name=name_a,
             hand_number=hand_num,
@@ -903,6 +947,7 @@ def run_matchup(
 
 
 # ── 6-max matchup runner ─────────────────────────────────────────────────────
+
 
 def _make_seat_names(opponents: List[str]) -> List[str]:
     """Build readable, unique seat names for opponents.
@@ -952,9 +997,7 @@ def run_6max_matchup(
     if opponents is None:
         opponents = ['Baseline'] * 5
     elif len(opponents) != 5:
-        raise ValueError(
-            f"opponents must have 5 entries, got {len(opponents)}"
-        )
+        raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
 
     # Disambiguate hero from any opponent that happens to share the archetype name
     hero_name = archetype if archetype not in opponents else f"{archetype}_hero"
@@ -964,9 +1007,7 @@ def run_6max_matchup(
     archetype_seat = hero_name
     all_names = [archetype_seat] + opponent_seats
 
-    config_arch = apply_adaptation_bias_override(
-        ARCHETYPES[archetype], hero_adaptation_bias
-    )
+    config_arch = apply_adaptation_bias_override(ARCHETYPES[archetype], hero_adaptation_bias)
     opp_configs = [ARCHETYPES[o] for o in opponents]
     opp_desc = '+'.join(opponents) if len(set(opponents)) > 1 else f'5x {opponents[0]}'
     deltas: List[float] = []
@@ -979,7 +1020,8 @@ def run_6max_matchup(
     for hand_num in tqdm(
         range(n_hands),
         desc=f"  {archetype} vs {opp_desc} (6-max)",
-        leave=False, file=sys.stderr,
+        leave=False,
+        file=sys.stderr,
     ):
         hand_seed = base_seed + hand_num
         dealer_idx = hand_num % 6  # rotate button through all 6 seats
@@ -998,15 +1040,21 @@ def run_6max_matchup(
 
         controllers = [
             make_controller(
-                archetype_seat, config_arch, strategy_table, sm,
+                archetype_seat,
+                config_arch,
+                strategy_table,
+                sm,
                 rng_seed=hand_seed,
                 disable_rules=disable_rules,  # hero only — ablation target
             )
         ]
-        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
+        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
             controllers.append(
                 make_controller(
-                    seat, cfg, strategy_table, sm,
+                    seat,
+                    cfg,
+                    strategy_table,
+                    sm,
                     rng_seed=hand_seed + 1_000_000 * (i + 1),
                 )
             )
@@ -1020,7 +1068,10 @@ def run_6max_matchup(
         )
 
         final_stacks = run_hand(
-            sm, controllers, big_blind, verbose=verbose,
+            sm,
+            controllers,
+            big_blind,
+            verbose=verbose,
             opponent_manager=opponent_manager,
             hero_name=archetype_seat,
             hand_number=hand_num,
@@ -1043,7 +1094,7 @@ def run_all_6max_vs_baseline(
 ):
     """Run each archetype vs 5 baselines at 6-max."""
     print(f"\nBB/100 Simulation: 6-MAX, {n_hands} hands per archetype, seed={seed}")
-    print(f"Format: 1 archetype + 5 Baselines, dealer rotates")
+    print("Format: 1 archetype + 5 Baselines, dealer rotates")
     print(f"Stack: {starting_stack}, BB: {big_blind}")
     print("=" * 67)
 
@@ -1057,9 +1108,13 @@ def run_all_6max_vs_baseline(
 
     for name in test_archetypes:
         deltas = run_6max_matchup(
-            name, n_hands, strategy_table,
-            big_blind=big_blind, starting_stack=starting_stack,
-            base_seed=seed, verbose=verbose,
+            name,
+            n_hands,
+            strategy_table,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            base_seed=seed,
+            verbose=verbose,
             hero_adaptation_bias=hero_adaptation_bias,
         )
         results[name] = compute_stats(deltas, big_blind)
@@ -1106,8 +1161,7 @@ def run_all_6max_vs_rules(
 
     # Test all tiered archetypes (not the rule_bots themselves)
     test_archetypes = [
-        n for n, cfg in ARCHETYPES.items()
-        if cfg.get('kind') != 'rule_bot' and n != 'Baseline'
+        n for n, cfg in ARCHETYPES.items() if cfg.get('kind') != 'rule_bot' and n != 'Baseline'
     ]
     # Include Baseline as a sanity reference
     test_archetypes.append('Baseline')
@@ -1115,9 +1169,13 @@ def run_all_6max_vs_rules(
     results: Dict[str, MatchupStats] = {}
     for name in test_archetypes:
         deltas = run_6max_matchup(
-            name, n_hands, strategy_table,
-            big_blind=big_blind, starting_stack=starting_stack,
-            base_seed=seed, verbose=verbose,
+            name,
+            n_hands,
+            strategy_table,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            base_seed=seed,
+            verbose=verbose,
             opponents=opponents,
             hero_adaptation_bias=hero_adaptation_bias,
             disable_rules=disable_rules,
@@ -1137,6 +1195,7 @@ def run_all_6max_vs_rules(
 
 
 # ── Statistics ───────────────────────────────────────────────────────────────
+
 
 def compute_stats(deltas: List[float], big_blind: int) -> MatchupStats:
     """Compute bb/100 with 95% confidence interval."""
@@ -1162,6 +1221,7 @@ def compute_stats(deltas: List[float], big_blind: int) -> MatchupStats:
 
 
 # ── Reporting ────────────────────────────────────────────────────────────────
+
 
 def print_results(results: Dict[str, MatchupStats], opponent_label: str = 'TAG'):
     """Print formatted results table."""
@@ -1276,6 +1336,7 @@ def print_ordering_check(results: Dict[str, MatchupStats]):
 
 # ── Top-level runners ────────────────────────────────────────────────────────
 
+
 def run_all_vs_tag(
     n_hands: int,
     strategy_table: StrategyTable,
@@ -1307,13 +1368,17 @@ def run_all_vs_tag(
     for name in ARCHETYPES:
         # Phase 7.6 Step 7: per-matchup game_id for trace persistence.
         matchup_game_id = (
-            f'{game_id_prefix}_{name}_vs_{opponent}'
-            if game_id_prefix is not None else None
+            f'{game_id_prefix}_{name}_vs_{opponent}' if game_id_prefix is not None else None
         )
         deltas = run_matchup(
-            name, opponent, n_hands, strategy_table,
-            big_blind=big_blind, starting_stack=starting_stack,
-            base_seed=seed, verbose=verbose,
+            name,
+            opponent,
+            n_hands,
+            strategy_table,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            base_seed=seed,
+            verbose=verbose,
             hero_adaptation_bias=hero_adaptation_bias,
             decision_analysis_repo=decision_analysis_repo,
             disable_rules=disable_rules,
@@ -1353,9 +1418,14 @@ def run_round_robin(
 
     for a, b in tqdm(pairings, desc="Matchups", file=sys.stderr):
         deltas_a = run_matchup(
-            a, b, n_hands, strategy_table,
-            big_blind=big_blind, starting_stack=starting_stack,
-            base_seed=seed, verbose=verbose,
+            a,
+            b,
+            n_hands,
+            strategy_table,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            base_seed=seed,
+            verbose=verbose,
         )
         # A's deltas
         all_deltas[a].extend(deltas_a)
@@ -1363,10 +1433,7 @@ def run_round_robin(
         all_deltas[b].extend([-d for d in deltas_a])
 
     # Compute aggregate stats per archetype
-    results = {
-        name: compute_stats(deltas, big_blind)
-        for name, deltas in all_deltas.items()
-    }
+    results = {name: compute_stats(deltas, big_blind) for name, deltas in all_deltas.items()}
 
     print(f"\n{'Archetype':<25} {'bb/100':>8} {'95% CI':>22} {'Hands':>8}")
     print("-" * 67)
@@ -1379,56 +1446,75 @@ def run_round_robin(
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description='Measure bb/100 win rates for tiered bot archetypes',
     )
     parser.add_argument(
-        '--hands', type=int, default=1000,
+        '--hands',
+        type=int,
+        default=1000,
         help='Hands per matchup (default: 1000)',
     )
     parser.add_argument(
-        '--seed', type=int, default=42,
+        '--seed',
+        type=int,
+        default=42,
         help='RNG seed (default: 42)',
     )
     parser.add_argument(
-        '--big-blind', type=int, default=100,
+        '--big-blind',
+        type=int,
+        default=100,
         help='Big blind size (default: 100)',
     )
     parser.add_argument(
-        '--stack', type=int, default=10000,
+        '--stack',
+        type=int,
+        default=10000,
         help='Starting stack (default: 10000)',
     )
     parser.add_argument(
-        '--round-robin', action='store_true',
+        '--round-robin',
+        action='store_true',
         help='Run all 15 pairings instead of just vs TAG',
     )
     parser.add_argument(
-        '--six-max', action='store_true',
+        '--six-max',
+        action='store_true',
         help='Run 6-max: 1 archetype + 5 BaselineSolverBots per matchup',
     )
     parser.add_argument(
-        '--six-max-vs-rules', action='store_true',
+        '--six-max-vs-rules',
+        action='store_true',
         help='Run 6-max vs a mix of 5 rule_bots (GTO-Lite, ABCBot, CaseBot, CallStation, ManiacBot)',
     )
     parser.add_argument(
-        '--opponents', type=str, default=None,
+        '--opponents',
+        type=str,
+        default=None,
         help='Comma-separated list of 5 ARCHETYPES keys to override the default '
-             'rule_bot mix when using --six-max-vs-rules. Example: '
-             '"CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"',
+        'rule_bot mix when using --six-max-vs-rules. Example: '
+        '"CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"',
     )
     parser.add_argument(
-        '--opponent', type=str, default='TAG',
+        '--opponent',
+        type=str,
+        default='TAG',
         help='Baseline opponent for vs-all mode (default: TAG)',
     )
     parser.add_argument(
-        '--adaptation-bias', type=float, default=None,
+        '--adaptation-bias',
+        type=float,
+        default=None,
         help='Override adaptation_bias on the hero archetype anchors '
-             '(Phase 6 validation: use 0.05 for no-exploit floor, 0.85 '
-             'for full exploitation). Applies only to 6-max modes.',
+        '(Phase 6 validation: use 0.05 for no-exploit floor, 0.85 '
+        'for full exploitation). Applies only to 6-max modes.',
     )
     parser.add_argument(
-        '--verbose', action='store_true',
+        '--verbose',
+        action='store_true',
         help='Per-hand action logging',
     )
     # Phase 7.6 Step 7: persistence + ablation hooks. When --db is
@@ -1437,56 +1523,70 @@ def main():
     # making the data consumable by analyze_intervention_traces.py
     # (Modes 1/3/4 in particular).
     parser.add_argument(
-        '--db', type=str, default=None,
+        '--db',
+        type=str,
+        default=None,
         help='Phase 7.6: path to poker_games.db. When provided, hero '
-             'decisions persist intervention_trace_json + '
-             'strategy_pipeline_snapshot_json for analyze_intervention_'
-             'traces.py consumption. Default: no persistence.',
+        'decisions persist intervention_trace_json + '
+        'strategy_pipeline_snapshot_json for analyze_intervention_'
+        'traces.py consumption. Default: no persistence.',
     )
     parser.add_argument(
-        '--game-id-prefix', type=str, default=None,
+        '--game-id-prefix',
+        type=str,
+        default=None,
         help='Phase 7.6: game_id prefix for persisted matchups. Each '
-             'matchup gets f"{prefix}_{hero}_vs_{opponent}". Defaults '
-             'to f"sim_seed{seed}".',
+        'matchup gets f"{prefix}_{hero}_vs_{opponent}". Defaults '
+        'to f"sim_seed{seed}".',
     )
     parser.add_argument(
-        '--disable-rule', type=str, action='append', default=None,
+        '--disable-rule',
+        type=str,
+        action='append',
+        default=None,
         help='Phase 7.6: ablate a rule in the hero strategy pipeline. '
-             'Format: "layer.rule_id" (e.g. "bluff_catch_override.default"). '
-             'Repeatable for multi-rule ablation. Has no effect without '
-             '--db (the persisted traces are the only way to see the '
-             'effect downstream).',
+        'Format: "layer.rule_id" (e.g. "bluff_catch_override.default"). '
+        'Repeatable for multi-rule ablation. Has no effect without '
+        '--db (the persisted traces are the only way to see the '
+        'effect downstream).',
     )
     parser.add_argument(
-        '--enable-session-drift', action='store_true',
+        '--enable-session-drift',
+        action='store_true',
         help='Perturb each archetype\'s anchors once per matchup via '
-             'apply_session_drift (drift_strength derived from poise + '
-             'recovery_rate). Off by default so post-patch baseline '
-             'measurements stay reproducible. Stoic archetypes (high '
-             'poise + recovery_rate, e.g. Nit) drift very little; '
-             'volatile ones (Maniac, LAG) drift visibly.',
+        'apply_session_drift (drift_strength derived from poise + '
+        'recovery_rate). Off by default so post-patch baseline '
+        'measurements stay reproducible. Stoic archetypes (high '
+        'poise + recovery_rate, e.g. Nit) drift very little; '
+        'volatile ones (Maniac, LAG) drift visibly.',
     )
     parser.add_argument(
-        '--clone-opponent', type=str, action='append', default=None,
+        '--clone-opponent',
+        type=str,
+        action='append',
+        default=None,
         metavar='PLAYER_NAME',
         help='Derive a CloneProfile from opponent_models for the named '
-             'human/AI player and register it as an opponent archetype '
-             '"<PLAYER_NAME>_clone". Repeatable. Reference the clone via '
-             '--opponents (e.g. --clone-opponent Jeff --opponents '
-             '"Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot"). Requires the '
-             'player to have ≥20 hands_observed in opponent_models.',
+        'human/AI player and register it as an opponent archetype '
+        '"<PLAYER_NAME>_clone". Repeatable. Reference the clone via '
+        '--opponents (e.g. --clone-opponent Jeff --opponents '
+        '"Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot"). Requires the '
+        'player to have ≥20 hands_observed in opponent_models.',
     )
     parser.add_argument(
-        '--clone-profile', type=str, action='append', default=None,
+        '--clone-profile',
+        type=str,
+        action='append',
+        default=None,
         metavar='PROFILE_JSON',
         help='Load a frozen CloneProfile from a JSON file (produced by '
-             'human_clone.dump_profile_to_file, e.g. '
-             'experiments/clone_profiles/jeff.json) and register it as '
-             'archetype "<source_player>_clone". Repeatable. Unlike '
-             '--clone-opponent this needs no DB — the snapshot is fully '
-             'portable across checkouts/machines. Reference via --opponents '
-             '(e.g. --clone-profile experiments/clone_profiles/jeff.json '
-             '--opponents "Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot").',
+        'human_clone.dump_profile_to_file, e.g. '
+        'experiments/clone_profiles/jeff.json) and register it as '
+        'archetype "<source_player>_clone". Repeatable. Unlike '
+        '--clone-opponent this needs no DB — the snapshot is fully '
+        'portable across checkouts/machines. Reference via --opponents '
+        '(e.g. --clone-profile experiments/clone_profiles/jeff.json '
+        '--opponents "Jeff_clone,CaseBot,CaseBot,CaseBot,CaseBot").',
     )
     args = parser.parse_args()
 
@@ -1496,8 +1596,10 @@ def main():
     # --clone-opponent name should stop the run, not produce a misleading
     # "opponent not found" downstream.
     if args.clone_opponent:
-        from poker.human_clone import derive_profile_from_db, register_clone_strategy
         import os as _os
+
+        from poker.human_clone import derive_profile_from_db, register_clone_strategy
+
         clone_db = args.db or (
             '/app/data/poker_games.db'
             if _os.path.exists('/app/data/poker_games.db')
@@ -1523,6 +1625,7 @@ def main():
     # portable file instead of the local DB, so this works on any checkout.
     if args.clone_profile:
         from poker.human_clone import load_profile_from_file, register_clone_strategy
+
         for profile_path in args.clone_profile:
             profile = load_profile_from_file(profile_path)
             player_name = profile.source_player
@@ -1573,6 +1676,7 @@ def main():
             DecisionAnalysisRepository,
         )
         from poker.repositories.schema_manager import SchemaManager
+
         # Ensure schema is up to date (creates DB if missing).
         SchemaManager(args.db).ensure_schema()
         decision_analysis_repo = DecisionAnalysisRepository(args.db)
@@ -1605,27 +1709,43 @@ def main():
                 print(f"--opponents must have 5 entries, got {len(custom_opp)}")
                 sys.exit(1)
         run_all_6max_vs_rules(
-            args.hands, strategy_table, args.big_blind,
-            args.stack, args.seed, verbose=args.verbose,
+            args.hands,
+            strategy_table,
+            args.big_blind,
+            args.stack,
+            args.seed,
+            verbose=args.verbose,
             opponents=custom_opp,
             hero_adaptation_bias=args.adaptation_bias,
             disable_rules=disable_rules,
         )
     elif args.six_max:
         run_all_6max_vs_baseline(
-            args.hands, strategy_table, args.big_blind,
-            args.stack, args.seed, verbose=args.verbose,
+            args.hands,
+            strategy_table,
+            args.big_blind,
+            args.stack,
+            args.seed,
+            verbose=args.verbose,
             hero_adaptation_bias=args.adaptation_bias,
         )
     elif args.round_robin:
         run_round_robin(
-            args.hands, strategy_table, args.big_blind,
-            args.stack, args.seed, verbose=args.verbose,
+            args.hands,
+            strategy_table,
+            args.big_blind,
+            args.stack,
+            args.seed,
+            verbose=args.verbose,
         )
     else:
         run_all_vs_tag(
-            args.hands, strategy_table, args.big_blind,
-            args.stack, args.seed, verbose=args.verbose,
+            args.hands,
+            strategy_table,
+            args.big_blind,
+            args.stack,
+            args.seed,
+            verbose=args.verbose,
             opponent=args.opponent,
             hero_adaptation_bias=args.adaptation_bias,
             decision_analysis_repo=decision_analysis_repo,

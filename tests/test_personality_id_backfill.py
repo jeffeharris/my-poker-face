@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PERSONALITIES_PATH = REPO_ROOT / "poker" / "personalities.json"
 SCRIPT_PATH = REPO_ROOT / "scripts" / "backfill_personality_ids.py"
@@ -123,9 +122,7 @@ class TestRosterInvariants:
             assert isinstance(entry["id"], str), f"{name} id is not a string"
             assert entry["id"], f"{name} has empty id"
 
-    def test_ids_match_slugify_or_have_versioned_suffix(
-        self, personalities_data, backfill
-    ):
+    def test_ids_match_slugify_or_have_versioned_suffix(self, personalities_data, backfill):
         """Every id is either slugify(name) or slugify(name)_v<N>. This
         catches accidental hand-edits that diverge from the deterministic
         scheme — if a personality is renamed, the id is supposed to stay
@@ -143,9 +140,9 @@ class TestRosterInvariants:
             # underscores, no leading/trailing underscores, non-empty).
             assert id_ == id_.lower(), f"{name}: id {id_!r} is not lowercase"
             assert id_.strip("_") == id_, f"{name}: id {id_!r} has edge underscores"
-            assert id_.replace("_", "").isalnum() or id_.isalnum(), (
-                f"{name}: id {id_!r} has unexpected characters"
-            )
+            assert (
+                id_.replace("_", "").isalnum() or id_.isalnum()
+            ), f"{name}: id {id_!r} has unexpected characters"
 
 
 class TestConsistencyWithSharedModule:
@@ -158,9 +155,10 @@ class TestConsistencyWithSharedModule:
     @pytest.fixture(scope="class")
     def shared_module(self):
         from poker.personality_id import (
-            slugify_personality_name,
             assign_unique_personality_id,
+            slugify_personality_name,
         )
+
         return slugify_personality_name, assign_unique_personality_id
 
     def test_slugify_matches_shared_module(self, backfill, shared_module):
@@ -184,9 +182,9 @@ class TestConsistencyWithSharedModule:
             "MixedCASE Name 42",
         ]
         for case in cases:
-            assert backfill.slugify(case) == shared_slugify(case), (
-                f"Script slugify and shared module diverge on {case!r}"
-            )
+            assert backfill.slugify(case) == shared_slugify(
+                case
+            ), f"Script slugify and shared module diverge on {case!r}"
 
     def test_assign_unique_id_matches_shared_module(self, backfill, shared_module):
         _, shared_assign = shared_module
@@ -211,9 +209,7 @@ class TestBackfillIdempotence:
         assert assigned == 0
         assert skipped == len(data["personalities"])
         # Round-trip should produce byte-identical JSON
-        assert json.dumps(updated, sort_keys=True) == json.dumps(
-            personalities_data, sort_keys=True
-        )
+        assert json.dumps(updated, sort_keys=True) == json.dumps(personalities_data, sort_keys=True)
 
     def test_new_personality_gets_id(self, backfill):
         data = {
@@ -226,9 +222,7 @@ class TestBackfillIdempotence:
         assert assigned == 1
         assert skipped == 1
         assert updated["personalities"]["Test Hero"]["id"] == "test_hero"
-        assert (
-            updated["personalities"]["Existing Personality"]["id"] == "existing_personality"
-        )
+        assert updated["personalities"]["Existing Personality"]["id"] == "existing_personality"
 
     def test_collision_with_existing_id_gets_versioned_suffix(self, backfill):
         data = {

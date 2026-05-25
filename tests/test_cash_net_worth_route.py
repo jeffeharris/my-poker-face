@@ -48,7 +48,6 @@ from flask_app import create_app
 from poker.repositories import create_repos
 from tests._sandbox_test_helper import TEST_SANDBOX_ID, pin_sandbox_for
 
-
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
@@ -80,6 +79,7 @@ class _NetWorthRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -97,17 +97,22 @@ class _NetWorthRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
             },
         )
         # Napoleon needs a bankroll row for credit_ai_cash_out to land.
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=5_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id=self.sandbox_id)
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=5_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=self.sandbox_id,
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
@@ -130,11 +135,13 @@ class _NetWorthRouteBase(unittest.TestCase):
         self._auth_patcher.start()
 
         # Seed a baseline bankroll for the player.
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=5_000,
-            starting_bankroll=5_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=5_000,
+                starting_bankroll=5_000,
+            )
+        )
 
     def tearDown(self):
         self._authz_patcher.stop()
@@ -192,8 +199,14 @@ class TestNetWorthShape(_NetWorthRouteBase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         for key in (
-            'bankroll', 'tier_stake_label', 'tier_status', 'carry_cap',
-            'payables', 'receivables', 'net_worth', 'available',
+            'bankroll',
+            'tier_stake_label',
+            'tier_status',
+            'carry_cap',
+            'payables',
+            'receivables',
+            'net_worth',
+            'available',
         ):
             self.assertIn(key, payload)
         self.assertEqual(payload['bankroll'], 5_000)
@@ -262,8 +275,11 @@ class TestNetWorthPayables(_NetWorthRouteBase):
         # House carries shouldn't exist post-settlement; the route
         # defensively skips them rather than crashing on NULL staker_id.
         self._seed_carry(
-            stake_id='stk-house', staker_kind=STAKER_KIND_HOUSE,
-            format=STAKE_FORMAT_HOUSE, staker_id=None, carry_amount=100,
+            stake_id='stk-house',
+            staker_kind=STAKER_KIND_HOUSE,
+            format=STAKE_FORMAT_HOUSE,
+            staker_id=None,
+            carry_amount=100,
         )
 
         response = self.client.get('/api/cash/net-worth')
@@ -274,7 +290,9 @@ class TestNetWorthPayables(_NetWorthRouteBase):
         # A carry that belongs to another player must not leak into
         # this player's net worth.
         self._seed_carry(
-            stake_id='stk-other', borrower_id=OTHER_PLAYER_ID, carry_amount=999,
+            stake_id='stk-other',
+            borrower_id=OTHER_PLAYER_ID,
+            carry_amount=999,
         )
 
         response = self.client.get('/api/cash/net-worth')
@@ -348,14 +366,16 @@ class TestPayoffSuccess(_NetWorthRouteBase):
         # regen rate is 0. After payoff, projected stays at 5_000 and
         # the +500 credit lands → 5_500.
         before = self.bankroll_repo.load_ai_bankroll(
-            self.napoleon_id, sandbox_id=self.sandbox_id,
+            self.napoleon_id,
+            sandbox_id=self.sandbox_id,
         )
         self.assertEqual(before.chips, 5_000)
 
         self.client.post('/api/cash/stakes/stk-carry-1/payoff')
 
         after = self.bankroll_repo.load_ai_bankroll(
-            self.napoleon_id, sandbox_id=self.sandbox_id,
+            self.napoleon_id,
+            sandbox_id=self.sandbox_id,
         )
         self.assertEqual(after.chips, 5_500)
 
@@ -368,7 +388,8 @@ class TestPayoffSuccess(_NetWorthRouteBase):
         self.client.post('/api/cash/stakes/stk-carry-1/payoff')
 
         state = self.relationship_repo.load_relationship_state(
-            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+            observer_id=self.napoleon_id,
+            opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state)
         self.assertGreater(state.respect, 0.5)
@@ -406,8 +427,10 @@ class TestPayoffRejections(_NetWorthRouteBase):
     def test_house_carry_rejected_with_400(self):
         # House carries shouldn't reach this route; defensive guard.
         self._seed_carry(
-            stake_id='stk-house', staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE, format=STAKE_FORMAT_HOUSE,
+            stake_id='stk-house',
+            staker_id=None,
+            staker_kind=STAKER_KIND_HOUSE,
+            format=STAKE_FORMAT_HOUSE,
         )
         response = self.client.post('/api/cash/stakes/stk-house/payoff')
         self.assertEqual(response.status_code, 400)
@@ -489,15 +512,29 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo',
-                'decision_analysis_repo', 'prompt_preset_repo',
-                'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo', 'sandbox_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
+                'stake_repo',
+                'sandbox_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -510,16 +547,21 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=10_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id=self.sandbox_id)
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=10_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=self.sandbox_id,
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
@@ -540,11 +582,13 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
         )
         self._auth_patcher.start()
 
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=5_000,
-            starting_bankroll=5_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=5_000,
+                starting_bankroll=5_000,
+            )
+        )
 
     def tearDown(self):
         self._authz_patcher.stop()
@@ -555,33 +599,32 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
             pass
 
     def _seed_carry(self, *, carry_amount: int = 250) -> None:
-        self.stake_repo.create_stake(Stake(
-            stake_id='stk-carry-lobby',
-            session_id='sess-lobby',
-            staker_id=self.napoleon_id,
-            staker_kind=STAKER_KIND_PERSONALITY,
-            borrower_id=PLAYER_OWNER_ID,
-            borrower_kind=BORROWER_KIND_HUMAN,
-            format=STAKE_FORMAT_PURE,
-            principal=400,
-            match_amount=0,
-            origination_fee=0,
-            cut=0.20,
-            status=STAKE_STATUS_CARRY,
-            carry_amount=carry_amount,
-            stake_tier='$10',
-            created_at=ANCHOR,
-            settled_at=ANCHOR,
-        ))
+        self.stake_repo.create_stake(
+            Stake(
+                stake_id='stk-carry-lobby',
+                session_id='sess-lobby',
+                staker_id=self.napoleon_id,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=PLAYER_OWNER_ID,
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_PURE,
+                principal=400,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.20,
+                status=STAKE_STATUS_CARRY,
+                carry_amount=carry_amount,
+                stake_tier='$10',
+                created_at=ANCHOR,
+                settled_at=ANCHOR,
+            )
+        )
 
     def _find_napoleon_seat(self, data):
         # The auto-seeded lobby places Napoleon somewhere — scan all tables.
         for t in data['tables']:
             for seat in t['seats']:
-                if (
-                    seat.get('kind') == 'ai'
-                    and seat.get('personality_id') == self.napoleon_id
-                ):
+                if seat.get('kind') == 'ai' and seat.get('personality_id') == self.napoleon_id:
                     return seat
         return None
 
@@ -605,24 +648,46 @@ class TestLobbyCarryAnnotation(unittest.TestCase):
 
     def test_carries_aggregate_across_sessions(self):
         # Multiple carries to the same staker → annotation is the sum.
-        self.stake_repo.create_stake(Stake(
-            stake_id='stk-a', session_id='sess-a',
-            staker_id=self.napoleon_id, staker_kind=STAKER_KIND_PERSONALITY,
-            borrower_id=PLAYER_OWNER_ID, borrower_kind=BORROWER_KIND_HUMAN,
-            format=STAKE_FORMAT_PURE, principal=400, match_amount=0,
-            origination_fee=0, cut=0.20, status=STAKE_STATUS_CARRY,
-            carry_amount=100, stake_tier='$10',
-            created_at=ANCHOR, settled_at=ANCHOR,
-        ))
-        self.stake_repo.create_stake(Stake(
-            stake_id='stk-b', session_id='sess-b',
-            staker_id=self.napoleon_id, staker_kind=STAKER_KIND_PERSONALITY,
-            borrower_id=PLAYER_OWNER_ID, borrower_kind=BORROWER_KIND_HUMAN,
-            format=STAKE_FORMAT_PURE, principal=400, match_amount=0,
-            origination_fee=0, cut=0.20, status=STAKE_STATUS_CARRY,
-            carry_amount=200, stake_tier='$10',
-            created_at=ANCHOR, settled_at=ANCHOR,
-        ))
+        self.stake_repo.create_stake(
+            Stake(
+                stake_id='stk-a',
+                session_id='sess-a',
+                staker_id=self.napoleon_id,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=PLAYER_OWNER_ID,
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_PURE,
+                principal=400,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.20,
+                status=STAKE_STATUS_CARRY,
+                carry_amount=100,
+                stake_tier='$10',
+                created_at=ANCHOR,
+                settled_at=ANCHOR,
+            )
+        )
+        self.stake_repo.create_stake(
+            Stake(
+                stake_id='stk-b',
+                session_id='sess-b',
+                staker_id=self.napoleon_id,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=PLAYER_OWNER_ID,
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_PURE,
+                principal=400,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.20,
+                status=STAKE_STATUS_CARRY,
+                carry_amount=200,
+                stake_tier='$10',
+                created_at=ANCHOR,
+                settled_at=ANCHOR,
+            )
+        )
 
         response = self.client.get('/api/cash/lobby')
         data = response.get_json()

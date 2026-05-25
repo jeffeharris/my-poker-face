@@ -2,11 +2,20 @@ import logging
 import random
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
-from .poker_game import PokerGameState, setup_hand, set_betting_round_start_player, reset_player_action_flags, \
-    are_pot_contributions_valid, deal_community_cards, determine_winner, reset_game_state_for_new_hand, \
-    award_pot_winnings, create_deck
+from .poker_game import (
+    PokerGameState,
+    are_pot_contributions_valid,
+    award_pot_winnings,
+    create_deck,
+    deal_community_cards,
+    determine_winner,
+    reset_game_state_for_new_hand,
+    reset_player_action_flags,
+    set_betting_round_start_player,
+    setup_hand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +24,7 @@ class PokerPhase(Enum):
     """
     An enum class that represents different phases of the poker game.
     """
+
     INITIALIZING_GAME = auto()
     INITIALIZING_HAND = auto()
     HAND_INITIALIZED = auto()
@@ -55,16 +65,20 @@ class PokerPhase(Enum):
 # New Immutable Data Structures
 # ============================================================================
 
+
 @dataclass(frozen=True)
 class BlindConfig:
     """Immutable blind escalation configuration."""
+
     growth: float = 2.0  # multiplier for blind increase
     hands_per_level: int = 5  # hands between increases
     max_blind: int = 0  # 0 = no limit
 
+
 @dataclass(frozen=True)
 class StateMachineStats:
     """Immutable statistics tracking for the state machine."""
+
     hand_count: int = 0
 
     def increment_hand_count(self) -> 'StateMachineStats':
@@ -78,6 +92,7 @@ class ImmutableStateMachine:
     Immutable state machine state.
     All fields are read-only and updates create new instances.
     """
+
     game_state: PokerGameState
     phase: PokerPhase
     stats: StateMachineStats = field(default_factory=StateMachineStats)
@@ -93,19 +108,19 @@ class ImmutableStateMachine:
     # of the state machine itself reads `.snapshots`; it's a dev-time
     # debugging aid. Default True preserves existing behavior.
     record_snapshots: bool = True
-    
+
     def with_game_state(self, game_state: PokerGameState) -> 'ImmutableStateMachine':
         """Return new state with updated game state."""
         return replace(self, game_state=game_state)
-    
+
     def with_phase(self, phase: PokerPhase) -> 'ImmutableStateMachine':
         """Return new state with updated phase."""
         return replace(self, phase=phase)
-    
+
     def with_stats(self, stats: StateMachineStats) -> 'ImmutableStateMachine':
         """Return new state with updated stats."""
         return replace(self, stats=stats)
-    
+
     def add_snapshot(self) -> 'ImmutableStateMachine':
         """Return new state with current game state added to snapshots."""
         new_snapshots = self.snapshots + (self.game_state,)
@@ -114,12 +129,12 @@ class ImmutableStateMachine:
     def with_hand_seed(self, seed: Optional[int], provided: bool = True) -> 'ImmutableStateMachine':
         """Return new state with updated hand seed."""
         return replace(self, current_hand_seed=seed, hand_seed_provided=provided)
-    
+
     @property
     def current_phase(self) -> PokerPhase:
         """Get the current phase."""
         return self.phase
-    
+
     @property
     def awaiting_action(self) -> bool:
         """Check if game is awaiting player action."""
@@ -130,12 +145,13 @@ class ImmutableStateMachine:
 # Pure State Transition Functions
 # ============================================================================
 
+
 def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
     """
     Pure function to determine the next phase based on current state.
     """
     current_phase = state.phase
-    
+
     def next_betting_round_phase() -> PokerPhase:
         num_cards_dealt = len(state.game_state.community_cards)
         # What is the next phase of the game based on the number of community cards currently dealt
@@ -143,14 +159,16 @@ def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
             0: PokerPhase.PRE_FLOP,
             3: PokerPhase.FLOP,
             4: PokerPhase.TURN,
-            5: PokerPhase.RIVER
+            5: PokerPhase.RIVER,
         }
         # Handle unexpected card counts (corrupted state) - default to HAND_OVER to reset
         if num_cards_dealt not in num_cards_dealt_to_next_phase:
-            logger.warning(f"[RESTORE] Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER")
+            logger.warning(
+                f"[RESTORE] Unexpected community card count: {num_cards_dealt}, resetting to HAND_OVER"
+            )
             return PokerPhase.HAND_OVER
         return num_cards_dealt_to_next_phase[num_cards_dealt]
-    
+
     next_phase_map = {
         PokerPhase.INITIALIZING_GAME: PokerPhase.INITIALIZING_HAND,
         PokerPhase.INITIALIZING_HAND: PokerPhase.PRE_FLOP,
@@ -162,9 +180,9 @@ def get_next_phase(state: ImmutableStateMachine) -> PokerPhase:
         PokerPhase.RIVER: PokerPhase.EVALUATING_HAND,
         PokerPhase.SHOWDOWN: PokerPhase.EVALUATING_HAND,
         PokerPhase.EVALUATING_HAND: PokerPhase.HAND_OVER,
-        PokerPhase.HAND_OVER: PokerPhase.INITIALIZING_HAND
+        PokerPhase.HAND_OVER: PokerPhase.INITIALIZING_HAND,
     }
-    
+
     return next_phase_map[current_phase]
 
 
@@ -191,22 +209,20 @@ def initialize_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
             deck=create_deck(shuffled=True, random_seed=hand_seed),
             discard_pile=tuple(),
             community_cards=tuple(),
-            newly_dealt_count=0
+            newly_dealt_count=0,
         )
-        seeded_state = state.with_game_state(seeded_game_state).with_hand_seed(hand_seed, provided=False)
+        seeded_state = state.with_game_state(seeded_game_state).with_hand_seed(
+            hand_seed, provided=False
+        )
 
     new_game_state = setup_hand(seeded_state.game_state)
     new_game_state_with_start_player = set_betting_round_start_player(game_state=new_game_state)
     # If no active players (all-in or folded), skip to showdown
     if new_game_state_with_start_player is None:
-        return (seeded_state
-                .with_game_state(new_game_state)
-                .with_phase(PokerPhase.SHOWDOWN))
+        return seeded_state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset raise counter for the pre-flop betting round
     new_game_state = new_game_state_with_start_player.update(raises_this_round=0)
-    return (seeded_state
-            .with_game_state(new_game_state)
-            .with_phase(get_next_phase(state)))
+    return seeded_state.with_game_state(new_game_state).with_phase(get_next_phase(state))
 
 
 def initialize_betting_round_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
@@ -230,20 +246,16 @@ def initialize_betting_round_transition(state: ImmutableStateMachine) -> Immutab
             # phase (FLOP/TURN/RIVER) with run_it_out flag so the game handler deals
             # remaining community cards with delays
             new_game_state = new_game_state.update(awaiting_action=True, run_it_out=True)
-            return (state
-                    .with_game_state(new_game_state)
-                    .with_phase(get_next_phase(state)))
+            return state.with_game_state(new_game_state).with_phase(get_next_phase(state))
         return state.with_game_state(new_game_state).with_phase(PokerPhase.SHOWDOWN)
     # Reset minimum raise to big blind at the start of each betting round (standard poker rules)
     # Also clear run_it_out flag and raise counter to ensure fresh state
     new_game_state = new_game_state_with_start_player.update(
         last_raise_amount=new_game_state_with_start_player.current_ante,
         run_it_out=False,
-        raises_this_round=0
+        raises_this_round=0,
     )
-    return (state
-            .with_game_state(new_game_state)
-            .with_phase(get_next_phase(state)))
+    return state.with_game_state(new_game_state).with_phase(get_next_phase(state))
 
 
 def run_betting_round_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
@@ -285,9 +297,7 @@ def run_betting_round_transition(state: ImmutableStateMachine) -> ImmutableState
 def deal_cards_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
     """Pure function for DEALING_CARDS phase transition."""
     new_game_state = deal_community_cards(state.game_state)
-    return (state
-            .with_game_state(new_game_state)
-            .with_phase(get_next_phase(state)))
+    return state.with_game_state(new_game_state).with_phase(get_next_phase(state))
 
 
 def showdown_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
@@ -300,12 +310,10 @@ def evaluating_hand_transition(state: ImmutableStateMachine) -> ImmutableStateMa
     """Pure function for EVALUATING_HAND phase transition."""
     winner_info = determine_winner(state.game_state)
     new_game_state = award_pot_winnings(state.game_state, winner_info)
-    
+
     if winner_info:
-        return (state
-                .with_game_state(new_game_state)
-                .with_phase(get_next_phase(state)))
-    
+        return state.with_game_state(new_game_state).with_phase(get_next_phase(state))
+
     return state.with_game_state(new_game_state)
 
 
@@ -326,11 +334,12 @@ def hand_over_transition(state: ImmutableStateMachine) -> ImmutableStateMachine:
             new_ante = min(new_ante, blind_cfg.max_blind)
         new_game_state = new_game_state.update(current_ante=new_ante, last_raise_amount=new_ante)
 
-    return (state
-            .with_game_state(new_game_state)
-            .with_stats(new_stats)
-            .with_hand_seed(hand_seed, provided=False)
-            .with_phase(get_next_phase(state)))
+    return (
+        state.with_game_state(new_game_state)
+        .with_stats(new_stats)
+        .with_hand_seed(hand_seed, provided=False)
+        .with_phase(get_next_phase(state))
+    )
 
 
 def advance_state_pure(state: ImmutableStateMachine) -> ImmutableStateMachine:
@@ -343,7 +352,7 @@ def advance_state_pure(state: ImmutableStateMachine) -> ImmutableStateMachine:
     # thousands of hands).
     if state.record_snapshots:
         state = state.add_snapshot()
-    
+
     # Map phases to their transition functions
     phase_transitions = {
         PokerPhase.INITIALIZING_GAME: initialize_game_transition,
@@ -358,11 +367,11 @@ def advance_state_pure(state: ImmutableStateMachine) -> ImmutableStateMachine:
         PokerPhase.EVALUATING_HAND: evaluating_hand_transition,
         PokerPhase.HAND_OVER: hand_over_transition,
     }
-    
+
     transition_fn = phase_transitions.get(state.phase)
     if not transition_fn:
         raise Exception(f"Invalid game phase: {state.phase}")
-    
+
     return transition_fn(state)
 
 
@@ -370,16 +379,20 @@ def advance_state_pure(state: ImmutableStateMachine) -> ImmutableStateMachine:
 # Existing PokerStateMachine (will be refactored to use immutable internals)
 # ============================================================================
 
+
 class PokerStateMachine:
     """
     Immutable poker state machine.
     All methods that modify state return a new instance.
     """
 
-    def __init__(self, game_state: PokerGameState,
-                 _internal_state: Optional[ImmutableStateMachine] = None,
-                 blind_config: Optional[dict] = None,
-                 record_snapshots: bool = True):
+    def __init__(
+        self,
+        game_state: PokerGameState,
+        _internal_state: Optional[ImmutableStateMachine] = None,
+        blind_config: Optional[dict] = None,
+        record_snapshots: bool = True,
+    ):
         """
         Initialize state machine.
 
@@ -400,7 +413,7 @@ class PokerStateMachine:
                 bc = BlindConfig(
                     growth=blind_config.get('growth', 2.0),
                     hands_per_level=blind_config.get('hands_per_level', 5),
-                    max_blind=blind_config.get('max_blind', 0)
+                    max_blind=blind_config.get('max_blind', 0),
                 )
             else:
                 bc = BlindConfig()
@@ -413,10 +426,14 @@ class PokerStateMachine:
             )
 
     @classmethod
-    def from_saved_state(cls, game_state: PokerGameState, phase: PokerPhase,
-                         blind_config: Optional[dict] = None,
-                         hand_count: int = 0,
-                         record_snapshots: bool = True) -> 'PokerStateMachine':
+    def from_saved_state(
+        cls,
+        game_state: PokerGameState,
+        phase: PokerPhase,
+        blind_config: Optional[dict] = None,
+        hand_count: int = 0,
+        record_snapshots: bool = True,
+    ) -> 'PokerStateMachine':
         """Create a state machine from a saved game state with a specific phase.
 
         `hand_count` should be the count from the prior session — without it,
@@ -430,12 +447,14 @@ class PokerStateMachine:
             bc = BlindConfig(
                 growth=blind_config.get('growth', 2.0),
                 hands_per_level=blind_config.get('hands_per_level', 5),
-                max_blind=blind_config.get('max_blind', 0)
+                max_blind=blind_config.get('max_blind', 0),
             )
         else:
             bc = BlindConfig()
         internal = ImmutableStateMachine(
-            game_state=game_state, phase=phase, blind_config=bc,
+            game_state=game_state,
+            phase=phase,
+            blind_config=bc,
             stats=StateMachineStats(hand_count=hand_count),
             record_snapshots=record_snapshots,
         )
@@ -444,37 +463,37 @@ class PokerStateMachine:
     # ========================================================================
     # Read-only properties
     # ========================================================================
-    
+
     @property
     def game_state(self) -> PokerGameState:
         """Get current game state (read-only)."""
         return self._state.game_state
-    
+
     @property
     def phase(self) -> PokerPhase:
         """Get current phase (read-only)."""
         return self._state.phase
-    
+
     @property
     def current_phase(self) -> PokerPhase:
         """Alias for phase property."""
         return self._state.phase
-    
+
     @property
     def snapshots(self) -> List[PokerGameState]:
         """Get snapshots as list (read-only)."""
         return list(self._state.snapshots)
-    
+
     @property
     def stats(self) -> dict:
         """Get stats as dict (read-only)."""
         return {'hand_count': self._state.stats.hand_count}
-    
+
     @property
     def next_phase(self) -> PokerPhase:
         """Get next phase."""
         return get_next_phase(self._state)
-    
+
     @property
     def awaiting_action(self) -> bool:
         """Check if awaiting player action."""
@@ -488,7 +507,7 @@ class PokerStateMachine:
     # ========================================================================
     # Immutable update methods (return new instances)
     # ========================================================================
-    
+
     def advance(self) -> 'PokerStateMachine':
         """
         Advance state machine by one step.
@@ -497,30 +516,24 @@ class PokerStateMachine:
         new_internal_state = advance_state_pure(self._state)
         return PokerStateMachine(
             game_state=None,  # Not used when _internal_state is provided
-            _internal_state=new_internal_state
+            _internal_state=new_internal_state,
         )
-    
+
     def with_game_state(self, game_state: PokerGameState) -> 'PokerStateMachine':
         """
         Create new state machine with updated game state.
         Returns a new PokerStateMachine instance.
         """
         new_internal_state = self._state.with_game_state(game_state)
-        return PokerStateMachine(
-            game_state=None,
-            _internal_state=new_internal_state
-        )
-    
+        return PokerStateMachine(game_state=None, _internal_state=new_internal_state)
+
     def with_phase(self, phase: PokerPhase) -> 'PokerStateMachine':
         """
         Create new state machine with updated phase.
         Returns a new PokerStateMachine instance.
         """
         new_internal_state = self._state.with_phase(phase)
-        return PokerStateMachine(
-            game_state=None,
-            _internal_state=new_internal_state
-        )
+        return PokerStateMachine(game_state=None, _internal_state=new_internal_state)
 
     # ========================================================================
     # Mutable-style compatibility methods (for Flask integration)
@@ -577,7 +590,7 @@ class PokerStateMachine:
                 )
                 break
         return self
-    
+
     def run_until(self, phases: List[PokerPhase]) -> 'PokerStateMachine':
         """
         Run until one of the specified phases or player action (mutable-style).
@@ -588,19 +601,19 @@ class PokerStateMachine:
             if self.awaiting_action:
                 break
         return self
-    
+
     # ========================================================================
     # Serialization support for persistence
     # ========================================================================
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for persistence."""
         return {
             'phase': self.phase.name,
             'game_state': self.game_state.to_dict(),
-            'stats': self.stats
+            'stats': self.stats,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> 'PokerStateMachine':
         """Create from dictionary (for loading from persistence)."""

@@ -97,17 +97,11 @@ def sit_down(
     if table.is_seated(seat_id):
         raise SeatingError(f"{seat_id!r} is already seated at this table")
     if buy_in < table.min_buy_in:
-        raise SeatingError(
-            f"buy_in {buy_in} below table min_buy_in {table.min_buy_in}"
-        )
+        raise SeatingError(f"buy_in {buy_in} below table min_buy_in {table.min_buy_in}")
     if buy_in > table.max_buy_in:
-        raise SeatingError(
-            f"buy_in {buy_in} exceeds table max_buy_in {table.max_buy_in}"
-        )
+        raise SeatingError(f"buy_in {buy_in} exceeds table max_buy_in {table.max_buy_in}")
     if bankroll.chips < buy_in:
-        raise SeatingError(
-            f"bankroll {bankroll.chips} insufficient for buy_in {buy_in}"
-        )
+        raise SeatingError(f"bankroll {bankroll.chips} insufficient for buy_in {buy_in}")
 
     new_table = table.with_seat(seat_index, seat_id).with_stack(seat_id, buy_in)
     new_bankroll = PlayerBankrollState(
@@ -165,31 +159,17 @@ def sit_down_ai(
     if seat_index < 0 or seat_index >= table.seat_count:
         raise SeatingError(f"seat_index {seat_index} out of range")
     if table.seats[seat_index] is not None:
-        raise SeatingError(
-            f"seat {seat_index} is occupied by {table.seats[seat_index]!r}"
-        )
+        raise SeatingError(f"seat {seat_index} is occupied by {table.seats[seat_index]!r}")
     if table.is_seated(personality_id):
-        raise SeatingError(
-            f"{personality_id!r} is already seated at this table"
-        )
+        raise SeatingError(f"{personality_id!r} is already seated at this table")
     if buy_in < table.min_buy_in:
-        raise SeatingError(
-            f"buy_in {buy_in} below table min_buy_in {table.min_buy_in}"
-        )
+        raise SeatingError(f"buy_in {buy_in} below table min_buy_in {table.min_buy_in}")
     if buy_in > table.max_buy_in:
-        raise SeatingError(
-            f"buy_in {buy_in} exceeds table max_buy_in {table.max_buy_in}"
-        )
+        raise SeatingError(f"buy_in {buy_in} exceeds table max_buy_in {table.max_buy_in}")
     if ai_bankroll.chips < buy_in:
-        raise SeatingError(
-            f"AI bankroll {ai_bankroll.chips} insufficient for buy_in {buy_in}"
-        )
+        raise SeatingError(f"AI bankroll {ai_bankroll.chips} insufficient for buy_in {buy_in}")
 
-    new_table = (
-        table
-        .with_seat(seat_index, personality_id)
-        .with_stack(personality_id, buy_in)
-    )
+    new_table = table.with_seat(seat_index, personality_id).with_stack(personality_id, buy_in)
     new_bankroll = AIBankrollState(
         personality_id=ai_bankroll.personality_id,
         chips=ai_bankroll.chips - buy_in,
@@ -244,7 +224,10 @@ def cash_out_ai_seat(
 
     chips_at_table = table.stack_of(personality_id)
     projected = project_bankroll(
-        ai_bankroll, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        ai_bankroll,
+        knobs.starting_bankroll,
+        knobs.bankroll_rate,
+        now,
     )
     new_chips = projected + chips_at_table
 

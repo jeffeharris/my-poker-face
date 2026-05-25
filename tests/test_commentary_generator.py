@@ -1,18 +1,15 @@
 """Tests for CommentaryGenerator drama analysis and formatting."""
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from poker.memory.commentary_generator import CommentaryGenerator
-from poker.memory.hand_history import RecordedHand, RecordedAction, PlayerHandInfo, WinnerInfo
+from poker.memory.hand_history import PlayerHandInfo, RecordedAction, RecordedHand, WinnerInfo
 
 
 def make_hand(
-    actions=(),
-    was_showdown=False,
-    pot_size=100,
-    winners=(),
-    players=None
+    actions=(), was_showdown=False, pot_size=100, winners=(), players=None
 ) -> RecordedHand:
     """Create a minimal RecordedHand for testing."""
     if players is None:

@@ -29,7 +29,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -38,30 +38,28 @@ from typing import Dict, List, Optional, Tuple
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from poker.poker_game import (
-    setup_hand,
-    reset_game_state_for_new_hand,
-    play_turn,
-    advance_to_next_active_player,
-    determine_winner,
-    award_pot_winnings,
-    create_deck,
-)
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from core.llm import CallType, LLMClient
+from experiments.pause_coordinator import PauseCoordinator
+from flask_app.config import get_assistant_model, get_assistant_provider
 from poker.controllers import AIPlayerController
-from poker.rule_based_controller import RuleBasedController, RuleConfig, CHAOS_BOTS
 from poker.hybrid_ai_controller import HybridAIController
 from poker.lean_bounded_controller import LeanBoundedController
-from poker.repositories import create_repos
 from poker.memory.memory_manager import AIMemoryManager
-from poker.utils import get_celebrities
-from poker.prompt_config import PromptConfig
+from poker.poker_game import (
+    advance_to_next_active_player,
+    award_pot_winnings,
+    create_deck,
+    determine_winner,
+    play_turn,
+    reset_game_state_for_new_hand,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.pressure_detector import PressureEventDetector
-from poker.moment_analyzer import MomentAnalyzer
-from poker.psychology_pipeline import PsychologyPipeline, PsychologyContext
-from experiments.pause_coordinator import PauseCoordinator
-from core.llm import LLMClient, CallType
-from flask_app.config import get_assistant_model, get_assistant_provider
+from poker.prompt_config import PromptConfig
+from poker.psychology_pipeline import PsychologyContext, PsychologyPipeline
+from poker.repositories import create_repos
+from poker.rule_based_controller import CHAOS_BOTS, RuleBasedController, RuleConfig
+from poker.utils import get_celebrities
 
 
 def make_experiment_owner_id(experiment_name: str) -> str:
@@ -106,6 +104,7 @@ class HandResult:
     - 'end': Tournament should end (only 1 player with chips before hand started)
     - 'reset_needed': Only 1 player with chips after hand (may need stack reset)
     """
+
     status: str
     all_in_winners: List[str] = field(default_factory=list)
 
@@ -134,7 +133,7 @@ class HandResult:
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(levelname)s - %(message)s',
     )
 logger = logging.getLogger(__name__)
 
@@ -142,6 +141,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TournamentResult:
     """Results from a single tournament."""
+
     experiment_name: str
     tournament_id: str
     start_time: str
@@ -160,12 +160,15 @@ class TournamentResult:
     round_winners: List[str] = field(default_factory=list)  # Winners of each "round" before reset
     total_resets: int = 0  # How many times stacks were reset
     # Detailed elimination tracking (new)
-    eliminations: List[Dict] = field(default_factory=list)  # [{player_name, hand_number, round_number}]
+    eliminations: List[Dict] = field(
+        default_factory=list
+    )  # [{player_name, hand_number, round_number}]
 
 
 @dataclass
 class ControlConfig:
     """Control (baseline) configuration for A/B testing."""
+
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
@@ -174,7 +177,9 @@ class ControlConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
-    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
+    enable_playstyle: Optional[bool] = (
+        None  # None=inherit from enable_psychology, True/False=override
+    )
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # 'minimal', 'low', 'medium', 'high'
 
@@ -182,6 +187,7 @@ class ControlConfig:
 @dataclass
 class VariantConfig:
     """Variant configuration that overrides control for A/B testing."""
+
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
@@ -191,7 +197,9 @@ class VariantConfig:
     prompt_preset_id: Optional[int] = None  # Load prompt config from saved preset
     guidance_injection: Optional[str] = None  # Extra text appended to decision prompts
     enable_psychology: bool = False  # Enable tilt + emotional state generation
-    enable_playstyle: Optional[bool] = None  # None=inherit from enable_psychology, True/False=override
+    enable_playstyle: Optional[bool] = (
+        None  # None=inherit from enable_psychology, True/False=override
+    )
     enable_commentary: bool = False  # Enable commentary generation
     reasoning_effort: Optional[str] = None  # Inherits from control if None
 
@@ -199,6 +207,7 @@ class VariantConfig:
 @dataclass
 class ExperimentConfig:
     """Configuration for an experiment run."""
+
     name: str
     description: str = ""
     hypothesis: str = ""
@@ -225,7 +234,9 @@ class ExperimentConfig:
     # Seating order
     shuffle_seating: bool = False  # Randomize player order per tournament to remove position bias
     # Rule-based bot support (chaos monkeys)
-    player_types: Optional[Dict[str, Dict]] = None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
+    player_types: Optional[Dict[str, Dict]] = (
+        None  # {player_name: {"type": "rule_bot", "strategy": "always_fold"}}
+    )
 
     def __post_init__(self):
         """Validate control/variants structure."""
@@ -239,7 +250,9 @@ class ExperimentConfig:
             # Validate game_mode in control
             control_game_mode = self.control.get('game_mode')
             if control_game_mode and control_game_mode not in VALID_GAME_MODES:
-                raise ValueError(f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro, competitive")
+                raise ValueError(
+                    f"Invalid control game_mode: {control_game_mode}. Valid: casual, standard, pro, competitive"
+                )
 
         if self.variants is not None:
             if not isinstance(self.variants, list):
@@ -252,7 +265,9 @@ class ExperimentConfig:
                 # Validate game_mode in variant
                 variant_game_mode = v.get('game_mode')
                 if variant_game_mode and variant_game_mode not in VALID_GAME_MODES:
-                    raise ValueError(f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro, competitive")
+                    raise ValueError(
+                        f"Invalid variants[{i}] game_mode: {variant_game_mode}. Valid: casual, standard, pro, competitive"
+                    )
 
     def get_variant_configs(self) -> List[Tuple[str, Dict]]:
         """
@@ -268,18 +283,23 @@ class ExperimentConfig:
         """
         # Legacy mode: no control/variants defined
         if self.control is None:
-            return [(None, {
-                'model': self.model,
-                'provider': self.provider,
-            })]
+            return [
+                (
+                    None,
+                    {
+                        'model': self.model,
+                        'provider': self.provider,
+                    },
+                )
+            ]
 
         # A/B testing mode: control + variants
         result = []
 
         # Control is always first - always uses experiment-level model/provider
         control_config = {
-            'model': self.model,      # Always use experiment-level
-            'provider': self.provider, # Always use experiment-level
+            'model': self.model,  # Always use experiment-level
+            'provider': self.provider,  # Always use experiment-level
             'game_mode': self.control.get('game_mode'),
             'prompt_config': self.control.get('prompt_config'),
             'enable_psychology': self.control.get('enable_psychology', False),
@@ -297,34 +317,52 @@ class ExperimentConfig:
         result.append((control_label, control_config))
 
         # Add variants (inherit model/provider from experiment, other settings from control)
-        for variant in (self.variants or []):
+        for variant in self.variants or []:
             variant_config = {
                 # Model/provider inherit from experiment-level, not control
                 'model': variant.get('model') or self.model,
                 'provider': variant.get('provider') or self.provider,
                 # Game mode - use variant's or inherit from control
-                'game_mode': variant.get('game_mode') if 'game_mode' in variant else control_config.get('game_mode'),
+                'game_mode': variant.get('game_mode')
+                if 'game_mode' in variant
+                else control_config.get('game_mode'),
                 # Use explicit None check - empty dict {} is a valid config
-                'prompt_config': variant.get('prompt_config') if 'prompt_config' in variant else control_config.get('prompt_config'),
+                'prompt_config': variant.get('prompt_config')
+                if 'prompt_config' in variant
+                else control_config.get('prompt_config'),
                 # Psychology flags - inherit from control if not specified
-                'enable_psychology': variant.get('enable_psychology', control_config.get('enable_psychology', False)),
-                'enable_playstyle': variant.get('enable_playstyle') if 'enable_playstyle' in variant else control_config.get('enable_playstyle'),
-                'enable_commentary': variant.get('enable_commentary', control_config.get('enable_commentary', False)),
+                'enable_psychology': variant.get(
+                    'enable_psychology', control_config.get('enable_psychology', False)
+                ),
+                'enable_playstyle': variant.get('enable_playstyle')
+                if 'enable_playstyle' in variant
+                else control_config.get('enable_playstyle'),
+                'enable_commentary': variant.get(
+                    'enable_commentary', control_config.get('enable_commentary', False)
+                ),
                 # Reasoning effort - inherit from control if not specified
-                'reasoning_effort': variant.get('reasoning_effort') if 'reasoning_effort' in variant else control_config.get('reasoning_effort'),
+                'reasoning_effort': variant.get('reasoning_effort')
+                if 'reasoning_effort' in variant
+                else control_config.get('reasoning_effort'),
                 # New fields - personality is variant-specific (not inherited)
                 'personality': variant.get('personality'),
                 # Prompt preset ID - use variant's or inherit from control
-                'prompt_preset_id': variant.get('prompt_preset_id') if 'prompt_preset_id' in variant else control_config.get('prompt_preset_id'),
+                'prompt_preset_id': variant.get('prompt_preset_id')
+                if 'prompt_preset_id' in variant
+                else control_config.get('prompt_preset_id'),
                 # Guidance injection - use variant's or inherit from control
-                'guidance_injection': variant.get('guidance_injection') if 'guidance_injection' in variant else control_config.get('guidance_injection'),
+                'guidance_injection': variant.get('guidance_injection')
+                if 'guidance_injection' in variant
+                else control_config.get('guidance_injection'),
                 # player_types lets variants swap controller types
                 # (rule_bot strategy, tiered disable_rules ablation, etc.)
                 # per arm. Falls back to control's player_types if the
                 # variant doesn't specify its own — that way an ablation
                 # matrix can share the baseline controller setup and only
                 # tweak disable_rules per variant.
-                'player_types': variant.get('player_types') if 'player_types' in variant else control_config.get('player_types'),
+                'player_types': variant.get('player_types')
+                if 'player_types' in variant
+                else control_config.get('player_types'),
             }
             variant_label = variant.get('label', f'Variant {len(result)}')
             result.append((variant_label, variant_config))
@@ -344,6 +382,7 @@ class RateLimitState:
     When any worker detects a rate limit, all workers back off using exponential
     backoff (30s -> 60s -> 120s -> 240s max). Successful API calls reduce pressure.
     """
+
     is_rate_limited: bool = False
     rate_limit_until: Optional[datetime] = None
     consecutive_rate_limits: int = 0
@@ -373,8 +412,7 @@ class RateLimitState:
             self.consecutive_rate_limits += 1
             # Exponential backoff: 30s, 60s, 120s, 240s max
             actual_backoff = min(
-                base_backoff_seconds * (2 ** (self.consecutive_rate_limits - 1)),
-                240.0
+                base_backoff_seconds * (2 ** (self.consecutive_rate_limits - 1)), 240.0
             )
             self.is_rate_limited = True
             self.rate_limit_until = datetime.now() + timedelta(seconds=actual_backoff)
@@ -393,6 +431,7 @@ class RateLimitState:
 @dataclass
 class TournamentTask:
     """A tournament to be executed by a parallel worker."""
+
     tournament_id: str
     tournament_number: int  # Global sequence number across all variants
     variant_label: Optional[str]
@@ -402,6 +441,7 @@ class TournamentTask:
 @dataclass
 class TournamentOutcome:
     """Result of a tournament execution attempt (success or failure)."""
+
     task: TournamentTask
     result: Optional[TournamentResult] = None
     error: Optional[str] = None
@@ -458,9 +498,7 @@ class TournamentWorker:
 
             # Create thread-local runner instance
             runner = AITournamentRunner(
-                self.config,
-                db_path=self.db_path,
-                pause_coordinator=self.pause_coordinator
+                self.config, db_path=self.db_path, pause_coordinator=self.pause_coordinator
             )
             runner.experiment_id = self.experiment_id
 
@@ -538,14 +576,12 @@ class TournamentWorker:
 
             # Check if rate limit error and signal coordinator
             if "rate limit" in error_msg.lower() or "429" in error_msg:
-                self.rate_limit_state.signal_rate_limit(
-                    self.config.rate_limit_backoff_seconds
-                )
+                self.rate_limit_state.signal_rate_limit(self.config.rate_limit_backoff_seconds)
 
             logger.error(
                 f"Tournament {task.tournament_id} failed after {duration:.1f}s: "
                 f"{error_type}: {error_msg}",
-                exc_info=True
+                exc_info=True,
             )
 
             return TournamentOutcome(
@@ -568,7 +604,7 @@ class AITournamentRunner:
         self,
         config: ExperimentConfig,
         db_path: Optional[str] = None,
-        pause_coordinator: Optional[PauseCoordinator] = None
+        pause_coordinator: Optional[PauseCoordinator] = None,
     ):
         self.config = config
         self.pause_coordinator = pause_coordinator
@@ -670,7 +706,7 @@ class AITournamentRunner:
         player_configs = {}  # {player_name: {game_mode: ..., llm_config: ..., prompt_config: ...}}
 
         if self.config.personalities:
-            for p in self.config.personalities[:self.config.num_players]:
+            for p in self.config.personalities[: self.config.num_players]:
                 if isinstance(p, str):
                     player_names.append(p)
                 elif isinstance(p, dict):
@@ -689,7 +725,11 @@ class AITournamentRunner:
                             player_configs[name] = config
         else:
             # Random selection from available personalities
-            available = self.all_personalities if isinstance(self.all_personalities, list) else list(self.all_personalities.keys())
+            available = (
+                self.all_personalities
+                if isinstance(self.all_personalities, list)
+                else list(self.all_personalities.keys())
+            )
             if self.config.random_seed:
                 random.seed(self.config.random_seed)
             player_names = random.sample(available, min(self.config.num_players, len(available)))
@@ -697,10 +737,7 @@ class AITournamentRunner:
         return player_names, player_configs
 
     def create_game(
-        self,
-        tournament_id: str,
-        variant_config: Optional[Dict] = None,
-        tournament_number: int = 1
+        self, tournament_id: str, variant_config: Optional[Dict] = None, tournament_number: int = 1
     ) -> Tuple[PokerStateMachine, Dict[str, AIPlayerController], AIMemoryManager]:
         """Create a new game with AI players only.
 
@@ -724,7 +761,9 @@ class AITournamentRunner:
 
         logger.info(f"Tournament {tournament_id}: Players = {player_names}")
         if per_player_configs:
-            logger.info(f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}")
+            logger.info(
+                f"Tournament {tournament_id}: Per-player configs = {list(per_player_configs.keys())}"
+            )
 
         # Create all-AI game state directly (bypassing initialize_game_state which adds a human)
         from poker.poker_game import Player, PokerGameState
@@ -749,7 +788,7 @@ class AITournamentRunner:
             players=ai_players,
             deck=initial_deck,
             current_ante=self.config.big_blind,
-            last_raise_amount=self.config.big_blind
+            last_raise_amount=self.config.big_blind,
         )
 
         # Create state machine
@@ -761,12 +800,14 @@ class AITournamentRunner:
 
         # Create memory manager for hand tracking
         # Pass commentary_enabled from variant config (defaults to False for experiments)
-        commentary_enabled = variant_config.get('enable_commentary', False) if variant_config else False
+        commentary_enabled = (
+            variant_config.get('enable_commentary', False) if variant_config else False
+        )
         memory_manager = AIMemoryManager(
             game_id=tournament_id,
             db_path=self.db_path,
             owner_id=self._owner_id,
-            commentary_enabled=commentary_enabled
+            commentary_enabled=commentary_enabled,
         )
         # Set persistence so hand history is saved to database
         memory_manager.set_hand_history_repo(self.hand_history_repo)
@@ -775,7 +816,8 @@ class AITournamentRunner:
         # games — `cash_mode=False` keeps `cash_pair_stats` empty
         # (PnL is meaningless when chips reset).
         memory_manager.set_relationship_repo(
-            self.relationship_repo, cash_mode=False,
+            self.relationship_repo,
+            cash_mode=False,
         )
 
         # Determine LLM config: use variant_config if provided, else use experiment defaults
@@ -820,7 +862,9 @@ class AITournamentRunner:
                     guidance_injection = preset['guidance_injection']
             else:
                 prompt_config = base_config
-                logger.warning(f"Prompt preset {prompt_preset_id} not found, using game_mode/defaults")
+                logger.warning(
+                    f"Prompt preset {prompt_preset_id} not found, using game_mode/defaults"
+                )
         else:
             prompt_config = base_config
 
@@ -831,7 +875,9 @@ class AITournamentRunner:
             prompt_config = PromptConfig(guidance_injection=guidance_injection)
 
         # Apply enable_playstyle toggle (controls zone_benefits on prompt_config)
-        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+        enable_psychology = (
+            variant_config.get('enable_psychology', False) if variant_config else False
+        )
         enable_playstyle = variant_config.get('enable_playstyle') if variant_config else None
         if enable_playstyle is None:
             enable_playstyle = enable_psychology  # Inherit from psychology flag
@@ -869,9 +915,13 @@ class AITournamentRunner:
 
                 # Apply guidance injection if set at variant level
                 if guidance_injection:
-                    player_prompt_config = player_prompt_config.copy(guidance_injection=guidance_injection)
+                    player_prompt_config = player_prompt_config.copy(
+                        guidance_injection=guidance_injection
+                    )
 
-                logger.debug(f"Player {player.name} using custom config: game_mode={player_cfg.get('game_mode')}")
+                logger.debug(
+                    f"Player {player.name} using custom config: game_mode={player_cfg.get('game_mode')}"
+                )
             else:
                 player_prompt_config = prompt_config
 
@@ -941,11 +991,12 @@ class AITournamentRunner:
             elif player_type == 'tiered':
                 # Tiered bot: solver baselines + personality distortion, no LLM decisions.
                 # Optionally wires the Layer 3 expression generator for in-character narration.
-                from poker.tiered_bot_controller import TieredBotController
                 from poker.strategy.strategy_table import (
-                    load_strategy_table, load_hu_strategy_table,
                     load_depth_strategy_tables,
+                    load_hu_strategy_table,
+                    load_strategy_table,
                 )
+                from poker.tiered_bot_controller import TieredBotController
 
                 strategy_table = load_strategy_table()
                 hu_strategy_table = load_hu_strategy_table()
@@ -963,13 +1014,15 @@ class AITournamentRunner:
                     decision_analysis_repo=self.decision_analysis_repo,
                     debug_logging=player_type_config.get('debug_logging', False),
                     skip_personality_distortion=player_type_config.get(
-                        'skip_personality_distortion', False,
+                        'skip_personality_distortion',
+                        False,
                     ),
                 )
 
                 if player_type_config.get('expression', True):
+                    from core.llm import CallType, LLMClient
                     from poker.strategy.expression_generator import ExpressionGenerator
-                    from core.llm import LLMClient, CallType
+
                     llm_client = LLMClient(
                         provider=player_llm_config.get('provider', 'openai'),
                         model=player_llm_config.get('model'),
@@ -980,13 +1033,11 @@ class AITournamentRunner:
                     )
                     controller._expression_call_type = CallType.COMMENTARY
                     logger.info(
-                        f"Player {player.name} using TieredBotController "
-                        f"with expression layer"
+                        f"Player {player.name} using TieredBotController " f"with expression layer"
                     )
                 else:
                     logger.info(
-                        f"Player {player.name} using TieredBotController "
-                        f"(expression disabled)"
+                        f"Player {player.name} using TieredBotController " f"(expression disabled)"
                     )
             else:
                 # Use standard AI controller
@@ -1026,9 +1077,7 @@ class AITournamentRunner:
             # ignored for non-tiered controllers (no disable_rules attr).
             disable_rules_cfg = player_type_config.get('disable_rules')
             if disable_rules_cfg and hasattr(controller, 'disable_rules'):
-                controller.disable_rules = frozenset(
-                    tuple(pair) for pair in disable_rules_cfg
-                )
+                controller.disable_rules = frozenset(tuple(pair) for pair in disable_rules_cfg)
 
         return state_machine, controllers, memory_manager
 
@@ -1086,13 +1135,16 @@ class AITournamentRunner:
         result = pipeline.process_hand(ctx)
         return result.current_short_stack
 
-    def run_hand(self, state_machine: PokerStateMachine,
-                 controllers: Dict[str, AIPlayerController],
-                 memory_manager: AIMemoryManager,
-                 hand_number: int,
-                 tournament_id: Optional[str] = None,
-                 variant_config: Optional[Dict] = None,
-                 tournament_number: int = 1) -> HandResult:
+    def run_hand(
+        self,
+        state_machine: PokerStateMachine,
+        controllers: Dict[str, AIPlayerController],
+        memory_manager: AIMemoryManager,
+        hand_number: int,
+        tournament_id: Optional[str] = None,
+        variant_config: Optional[Dict] = None,
+        tournament_number: int = 1,
+    ) -> HandResult:
         """
         Run a single hand to completion.
 
@@ -1123,7 +1175,9 @@ class AITournamentRunner:
         # Formula: base_seed + (tournament_number * 1000) + hand_number
         # This ensures the same deck order for the same hand_number across variants
         if self.config.random_seed is not None:
-            state_machine.current_hand_seed = self.config.random_seed + (tournament_number * 1000) + hand_number
+            state_machine.current_hand_seed = (
+                self.config.random_seed + (tournament_number * 1000) + hand_number
+            )
 
         # Set hand number on all controllers for decision analysis
         for controller in controllers.values():
@@ -1153,9 +1207,7 @@ class AITournamentRunner:
             # Record hand start AFTER first advance deals cards (hole_cards now available)
             if not hand_start_recorded:
                 memory_manager.on_hand_start(
-                    game_state,
-                    hand_number,
-                    deck_seed=state_machine.current_hand_seed
+                    game_state, hand_number, deck_seed=state_machine.current_hand_seed
                 )
                 memory_manager.record_blinds(game_state)
                 hand_start_stacks = {p.name: p.stack for p in game_state.players}
@@ -1177,7 +1229,9 @@ class AITournamentRunner:
                 game_state = game_state.update(awaiting_action=False, run_it_out=False)
                 state_machine.game_state = game_state
                 state_machine.update_phase(next_phase)
-                logger.debug(f"Run-it-out: advancing from {current_phase.name} to {next_phase.name}")
+                logger.debug(
+                    f"Run-it-out: advancing from {current_phase.name} to {next_phase.name}"
+                )
                 continue  # Re-evaluate after phase change
 
             # Check if awaiting action
@@ -1188,7 +1242,9 @@ class AITournamentRunner:
                 if current_player and current_player.name == last_player_name:
                     same_player_count += 1
                     if same_player_count > 5:
-                        logger.warning(f"Stuck loop detected: {current_player.name} asked {same_player_count} times, forcing hand end")
+                        logger.warning(
+                            f"Stuck loop detected: {current_player.name} asked {same_player_count} times, forcing hand end"
+                        )
                         break
                 else:
                     same_player_count = 0
@@ -1201,30 +1257,43 @@ class AITournamentRunner:
                         # Update heartbeat before API call
                         if tournament_id and self.experiment_id:
                             self.experiment_repo.update_experiment_game_heartbeat(
-                                tournament_id, 'calling_api', api_call_started=True,
-                                process_id=os.getpid()
+                                tournament_id,
+                                'calling_api',
+                                api_call_started=True,
+                                process_id=os.getpid(),
                             )
 
                         # Add phase marker to action log when street changes
                         # Use "HOLE_CARDS" instead of "PRE_FLOP" to avoid
                         # _get_street_lines matching 'flop' inside 'pre_flop'
-                        phase_name = state_machine.current_phase.name if state_machine.current_phase else 'PRE_FLOP'
+                        phase_name = (
+                            state_machine.current_phase.name
+                            if state_machine.current_phase
+                            else 'PRE_FLOP'
+                        )
                         if phase_name != current_logged_phase:
                             marker = 'HOLE_CARDS' if phase_name == 'PRE_FLOP' else phase_name
                             hand_action_log.append(f"--- {marker} ---")
                             current_logged_phase = phase_name
 
                         # Get AI decision
-                        pre_decision_energy = controller.psychology.energy if hasattr(controller, 'psychology') and controller.psychology else None
+                        pre_decision_energy = (
+                            controller.psychology.energy
+                            if hasattr(controller, 'psychology') and controller.psychology
+                            else None
+                        )
                         start_time = time.time()
                         response = controller.decide_action(hand_action_log)
                         latency = (time.time() - start_time) * 1000
 
                         # Log energy events from on_action_taken (consecutive folds)
-                        if (self.pressure_event_repo and tournament_id
-                                and hasattr(controller, 'last_energy_events')
-                                and controller.last_energy_events
-                                and pre_decision_energy is not None):
+                        if (
+                            self.pressure_event_repo
+                            and tournament_id
+                            and hasattr(controller, 'last_energy_events')
+                            and controller.last_energy_events
+                            and pre_decision_energy is not None
+                        ):
                             energy_delta = controller.psychology.energy - pre_decision_energy
                             for evt_name in controller.last_energy_events:
                                 self.pressure_event_repo.save_event(
@@ -1251,7 +1320,9 @@ class AITournamentRunner:
                         action = response.get('action', 'fold')
                         amount = response.get('raise_to', 0)
 
-                        logger.debug(f"  {current_player.name}: {action} {amount if amount else ''}")
+                        logger.debug(
+                            f"  {current_player.name}: {action} {amount if amount else ''}"
+                        )
 
                         # Log action for lean prompt context
                         if action == 'raise' and amount:
@@ -1271,8 +1342,7 @@ class AITournamentRunner:
 
                         # Record action for opponent modeling
                         active_player_names = [
-                            p.name for p in game_state.players
-                            if not p.is_folded and p.stack > 0
+                            p.name for p in game_state.players if not p.is_folded and p.stack > 0
                         ]
                         memory_manager.on_action(
                             player_name=current_player.name,
@@ -1280,7 +1350,7 @@ class AITournamentRunner:
                             amount=amount,
                             phase=state_machine.current_phase.name,
                             pot_total=game_state.pot['total'],
-                            active_players=active_player_names
+                            active_players=active_player_names,
                         )
 
                         advanced_state = advance_to_next_active_player(game_state)
@@ -1290,11 +1360,20 @@ class AITournamentRunner:
                         state_machine.game_state = game_state  # Use property setter
 
                         # Detect action-based energy events (all_in_moment, heads_up)
-                        enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
+                        enable_psychology = (
+                            variant_config.get('enable_psychology', False)
+                            if variant_config
+                            else False
+                        )
                         if enable_psychology:
                             action_events = self.pressure_detector.detect_action_events(
-                                game_state, current_player.name, action, amount,
-                                hand_number=getattr(memory_manager, 'hand_count', 0) if memory_manager else 0,
+                                game_state,
+                                current_player.name,
+                                action,
+                                amount,
+                                hand_number=getattr(memory_manager, 'hand_count', 0)
+                                if memory_manager
+                                else 0,
                             )
                             for event_name, affected_players in action_events:
                                 for pname in affected_players:
@@ -1311,9 +1390,15 @@ class AITournamentRunner:
                                                 event_type=event_name,
                                                 hand_number=getattr(ctrl, 'current_hand_number', 0),
                                                 details={
-                                                    'conf_delta': round(ctrl.psychology.confidence - c_before, 6),
-                                                    'comp_delta': round(ctrl.psychology.composure - m_before, 6),
-                                                    'energy_delta': round(ctrl.psychology.energy - e_before, 6),
+                                                    'conf_delta': round(
+                                                        ctrl.psychology.confidence - c_before, 6
+                                                    ),
+                                                    'comp_delta': round(
+                                                        ctrl.psychology.composure - m_before, 6
+                                                    ),
+                                                    'energy_delta': round(
+                                                        ctrl.psychology.energy - e_before, 6
+                                                    ),
                                                 },
                                             )
 
@@ -1321,8 +1406,7 @@ class AITournamentRunner:
                         if tournament_id and self.experiment_id:
                             try:
                                 self.game_repo.save_game(
-                                    tournament_id, state_machine,
-                                    self._owner_id
+                                    tournament_id, state_machine, self._owner_id
                                 )
                                 # Save AI conversation history for each controller
                                 for player_name, ctrl in controllers.items():
@@ -1339,13 +1423,15 @@ class AITournamentRunner:
                             return HandResult(status="paused", all_in_winners=[])
 
                     except Exception as e:
-                        logger.warning(f"AI error for {current_player.name}: {e}, defaulting to fold", exc_info=True)
+                        logger.warning(
+                            f"AI error for {current_player.name}: {e}, defaulting to fold",
+                            exc_info=True,
+                        )
                         game_state = play_turn(game_state, 'fold', 0)
 
                         # Record fallback fold action
                         active_player_names = [
-                            p.name for p in game_state.players
-                            if not p.is_folded and p.stack > 0
+                            p.name for p in game_state.players if not p.is_folded and p.stack > 0
                         ]
                         memory_manager.on_action(
                             player_name=current_player.name,
@@ -1353,7 +1439,7 @@ class AITournamentRunner:
                             amount=0,
                             phase=state_machine.current_phase.name,
                             pot_total=game_state.pot['total'],
-                            active_players=active_player_names
+                            active_players=active_player_names,
                         )
 
                         advanced_state = advance_to_next_active_player(game_state)
@@ -1382,8 +1468,12 @@ class AITournamentRunner:
 
             # Calculate equity history BEFORE on_hand_complete clears current_hand
             equity_history = None
-            enable_psychology = variant_config.get('enable_psychology', False) if variant_config else False
-            enable_telemetry = variant_config.get('enable_telemetry', True) if variant_config else True
+            enable_psychology = (
+                variant_config.get('enable_psychology', False) if variant_config else False
+            )
+            enable_telemetry = (
+                variant_config.get('enable_telemetry', True) if variant_config else True
+            )
             if enable_psychology or enable_telemetry:
                 hand_in_progress = memory_manager.hand_recorder.current_hand
                 if hand_in_progress and hand_in_progress.hole_cards and hand_start_stacks:
@@ -1412,8 +1502,11 @@ class AITournamentRunner:
                         hand_in_progress.hole_cards.pop(name, None)
                     try:
                         from poker.equity_tracker import EquityTracker
+
                         equity_tracker = EquityTracker()
-                        equity_history = equity_tracker.calculate_hand_equity_history(hand_in_progress)
+                        equity_history = equity_tracker.calculate_hand_equity_history(
+                            hand_in_progress
+                        )
                     except Exception as e:
                         logger.warning(f"Equity calculation failed: {e}")
                     finally:
@@ -1436,8 +1529,9 @@ class AITournamentRunner:
             # Save equity history to database for telemetry/analytics
             if equity_history and equity_history.snapshots:
                 try:
-                    from poker.repositories.hand_equity_repository import HandEquityRepository
                     from poker.equity_snapshot import HandEquityHistory
+                    from poker.repositories.hand_equity_repository import HandEquityRepository
+
                     equity_repo = HandEquityRepository(self.db_path)
                     hand_history_id = self.hand_history_repo.get_hand_history_id(
                         tournament_id, equity_history.hand_number
@@ -1458,12 +1552,18 @@ class AITournamentRunner:
                     logger.warning(f"Failed to save equity history for hand {hand_number}: {e}")
 
             # Post-hand psychological processing (if enabled)
-            enable_commentary = variant_config.get('enable_commentary', False) if variant_config else False
+            enable_commentary = (
+                variant_config.get('enable_commentary', False) if variant_config else False
+            )
 
             if enable_psychology:
                 was_short = getattr(self, '_was_short_stack', None)
                 current_short = self._process_psychology(
-                    game_state, controllers, winner_info, winner_names, hand_number,
+                    game_state,
+                    controllers,
+                    winner_info,
+                    winner_names,
+                    hand_number,
                     game_id=tournament_id,
                     hand_start_stacks=hand_start_stacks,
                     was_short_stack=was_short,
@@ -1515,7 +1615,7 @@ class AITournamentRunner:
         tournament_id: str,
         variant_label: Optional[str] = None,
         variant_config: Optional[Dict] = None,
-        tournament_number: int = 1
+        tournament_number: int = 1,
     ) -> TournamentResult:
         """Run a complete tournament to conclusion.
 
@@ -1532,7 +1632,9 @@ class AITournamentRunner:
         # Reset per-tournament psychology tracking
         self._was_short_stack = None
 
-        state_machine, controllers, memory_manager = self.create_game(tournament_id, variant_config, tournament_number)
+        state_machine, controllers, memory_manager = self.create_game(
+            tournament_id, variant_config, tournament_number
+        )
 
         # Store original players for reset scenarios (before any eliminations)
         original_players = state_machine.game_state.players
@@ -1567,18 +1669,25 @@ class AITournamentRunner:
             hand_number += 1
 
             hand_result = self.run_hand(
-                state_machine, controllers, memory_manager, hand_number,
+                state_machine,
+                controllers,
+                memory_manager,
+                hand_number,
                 tournament_id=tournament_id,
                 variant_config=variant_config,
-                tournament_number=tournament_number
+                tournament_number=tournament_number,
             )
 
             # Save game state for live monitoring (every hand)
             self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
 
             # Check if we've been superseded by a resume operation
-            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(tournament_id):
-                logger.info(f"Tournament {tournament_id} superseded by resume operation, exiting gracefully")
+            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(
+                tournament_id
+            ):
+                logger.info(
+                    f"Tournament {tournament_id} superseded by resume operation, exiting gracefully"
+                )
                 raise TournamentSupersededException(tournament_id)
 
             # Periodic heartbeat every 5 hands
@@ -1594,11 +1703,13 @@ class AITournamentRunner:
             # Track all-in outcomes: players who were eliminated lost their all-in
             for name in eliminated:
                 elimination_order.append(name)  # Legacy tracking
-                all_eliminations.append({
-                    'player_name': name,
-                    'hand_number': hand_number,
-                    'round_number': current_round,
-                })
+                all_eliminations.append(
+                    {
+                        'player_name': name,
+                        'hand_number': hand_number,
+                        'round_number': current_round,
+                    }
+                )
                 # Getting eliminated means losing an all-in (or final chips)
                 all_in_outcomes[name]['losses'] += 1
                 logger.info(f"  Eliminated: {name} (hand {hand_number}, round {current_round})")
@@ -1621,7 +1732,9 @@ class AITournamentRunner:
 
                     # Reset ALL original players (not just remaining ones)
                     reset_players = tuple(
-                        player.update(stack=self.config.starting_stack, is_folded=False, is_all_in=False)
+                        player.update(
+                            stack=self.config.starting_stack, is_folded=False, is_all_in=False
+                        )
                         for player in original_players
                     )
                     game_state = game_state.update(players=reset_players)
@@ -1678,7 +1791,7 @@ class AITournamentRunner:
                 for p in state_machine.game_state.players
             ],
             key=lambda x: x["stack"],
-            reverse=True
+            reverse=True,
         )
         winner = final_standings[0]["name"] if final_standings else "Unknown"
 
@@ -1752,7 +1865,9 @@ class AITournamentRunner:
 
         variant_info = f" [{variant_label}]" if variant_label else ""
         resets_info = f", Resets = {total_resets}" if total_resets > 0 else ""
-        logger.info(f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}{resets_info}")
+        logger.info(
+            f"Tournament {tournament_id}{variant_info} complete: Winner = {winner}, Hands = {hand_number}{resets_info}"
+        )
         return result
 
     def _continue_tournament(
@@ -1784,7 +1899,9 @@ class AITournamentRunner:
         """
         start_time = datetime.now()
         variant_info = f" [{variant_label}]" if variant_label else ""
-        logger.info(f"Continuing tournament {tournament_id}{variant_info} from hand {starting_hand}")
+        logger.info(
+            f"Continuing tournament {tournament_id}{variant_info} from hand {starting_hand}"
+        )
 
         # Store original players for reset scenarios
         original_players = state_machine.game_state.players
@@ -1811,17 +1928,22 @@ class AITournamentRunner:
             hand_number += 1
 
             hand_result = self.run_hand(
-                state_machine, controllers, memory_manager, hand_number,
+                state_machine,
+                controllers,
+                memory_manager,
+                hand_number,
                 tournament_id=tournament_id,
                 variant_config=variant_config,
-                tournament_number=1  # Resume doesn't track tournament_number
+                tournament_number=1,  # Resume doesn't track tournament_number
             )
 
             # Save game state for live monitoring
             self.game_repo.save_game(tournament_id, state_machine, self._owner_id)
 
             # Check for superseded
-            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(tournament_id):
+            if self.experiment_id and self.experiment_repo.check_resume_lock_superseded(
+                tournament_id
+            ):
                 logger.info(f"Tournament {tournament_id} superseded by resume operation")
                 raise TournamentSupersededException(tournament_id)
 
@@ -1837,11 +1959,13 @@ class AITournamentRunner:
 
             for name in eliminated:
                 elimination_order.append(name)
-                all_eliminations.append({
-                    'player_name': name,
-                    'hand_number': hand_number,
-                    'round_number': current_round,
-                })
+                all_eliminations.append(
+                    {
+                        'player_name': name,
+                        'hand_number': hand_number,
+                        'round_number': current_round,
+                    }
+                )
                 all_in_outcomes[name]['losses'] += 1
                 logger.info(f"  Eliminated: {name} (hand {hand_number})")
 
@@ -1859,7 +1983,9 @@ class AITournamentRunner:
                     logger.info(f"Round {total_resets}: {winner.name} wins. Resetting stacks.")
 
                     reset_players = tuple(
-                        player.update(stack=self.config.starting_stack, is_folded=False, is_all_in=False)
+                        player.update(
+                            stack=self.config.starting_stack, is_folded=False, is_all_in=False
+                        )
                         for player in original_players
                     )
                     game_state = game_state.update(players=reset_players)
@@ -1903,7 +2029,7 @@ class AITournamentRunner:
                 for p in game_state.players
             ],
             key=lambda x: x["stack"],
-            reverse=True
+            reverse=True,
         )
         winner = final_standings[0]["name"] if final_standings else "Unknown"
 
@@ -1946,7 +2072,9 @@ class AITournamentRunner:
             self.experiment_repo.update_experiment_game_heartbeat(tournament_id, 'idle')
             self.experiment_repo.release_resume_lock(tournament_id)
 
-        logger.info(f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}")
+        logger.info(
+            f"Tournament {tournament_id} complete: Winner = {winner}, Hands = {hand_number}"
+        )
         return result
 
     def _get_decision_stats(self, game_id: str) -> Dict:
@@ -2021,7 +2149,9 @@ class AITournamentRunner:
             logger.info(f"Using pre-created experiment record with id {self.experiment_id}")
 
         if is_ab_test:
-            logger.info(f"Running A/B test with {len(variant_configs)} variants: {[v[0] for v in variant_configs]}")
+            logger.info(
+                f"Running A/B test with {len(variant_configs)} variants: {[v[0] for v in variant_configs]}"
+            )
 
         # Build task queue
         tasks = self._build_task_queue(variant_configs)
@@ -2042,10 +2172,13 @@ class AITournamentRunner:
                     error_summary = "; ".join(error_msgs[:3])  # First 3 errors
                     if len(error_msgs) > 3:
                         error_summary += f" (and {len(error_msgs) - 3} more)"
-                    logger.error(f"All {len(failed)} tournaments failed, marking experiment as failed")
+                    logger.error(
+                        f"All {len(failed)} tournaments failed, marking experiment as failed"
+                    )
                     self.experiment_repo.update_experiment_status(
-                        self.experiment_id, 'failed',
-                        f"All {len(failed)} tournaments failed: {error_summary}"
+                        self.experiment_id,
+                        'failed',
+                        f"All {len(failed)} tournaments failed: {error_summary}",
                     )
                 else:
                     summary = self._compute_experiment_summary(results, failed)
@@ -2058,8 +2191,7 @@ class AITournamentRunner:
         return results
 
     def _build_task_queue(
-        self,
-        variant_configs: List[Tuple[Optional[str], Dict]]
+        self, variant_configs: List[Tuple[Optional[str], Dict]]
     ) -> List[TournamentTask]:
         """Build queue of tournament tasks for execution.
 
@@ -2084,21 +2216,24 @@ class AITournamentRunner:
                 global_tournament_num += 1
 
                 # Create unique tournament ID including variant label if present
-                variant_suffix = f"_{variant_label.lower().replace(' ', '_')}" if variant_label else ""
+                variant_suffix = (
+                    f"_{variant_label.lower().replace(' ', '_')}" if variant_label else ""
+                )
                 tournament_id = f"exp_{self.config.name}_{base_timestamp}{variant_suffix}_{global_tournament_num}"
 
-                tasks.append(TournamentTask(
-                    tournament_id=tournament_id,
-                    tournament_number=global_tournament_num,
-                    variant_label=variant_label,
-                    variant_config=variant_config,
-                ))
+                tasks.append(
+                    TournamentTask(
+                        tournament_id=tournament_id,
+                        tournament_number=global_tournament_num,
+                        variant_label=variant_label,
+                        variant_config=variant_config,
+                    )
+                )
 
         return tasks
 
     def _run_sequential(
-        self,
-        tasks: List[TournamentTask]
+        self, tasks: List[TournamentTask]
     ) -> Tuple[List[TournamentResult], List[TournamentOutcome]]:
         """Run tournaments sequentially (original behavior).
 
@@ -2140,7 +2275,7 @@ class AITournamentRunner:
                     task.tournament_id,
                     task.variant_label,
                     task.variant_config,
-                    task.tournament_number
+                    task.tournament_number,
                 )
                 results.append(result)
 
@@ -2154,12 +2289,14 @@ class AITournamentRunner:
                     f"Tournament {task.tournament_id} paused at hand {e.hand_number}, "
                     f"stopping experiment"
                 )
-                failed.append(TournamentOutcome(
-                    task=task,
-                    error=str(e),
-                    error_type='TournamentPausedException',
-                    duration_seconds=duration,
-                ))
+                failed.append(
+                    TournamentOutcome(
+                        task=task,
+                        error=str(e),
+                        error_type='TournamentPausedException',
+                        duration_seconds=duration,
+                    )
+                )
                 # Break out of the loop - don't process remaining tournaments
                 break
 
@@ -2170,22 +2307,25 @@ class AITournamentRunner:
 
                 logger.error(
                     f"Tournament {task.tournament_id} failed: {error_type}: {error_msg}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
-                failed.append(TournamentOutcome(
-                    task=task,
-                    error=error_msg,
-                    error_type=error_type,
-                    duration_seconds=duration,
-                ))
+                failed.append(
+                    TournamentOutcome(
+                        task=task,
+                        error=error_msg,
+                        error_type=error_type,
+                        duration_seconds=duration,
+                    )
+                )
 
-        logger.info(f"Sequential execution complete: {len(results)} succeeded, {len(failed)} failed")
+        logger.info(
+            f"Sequential execution complete: {len(results)} succeeded, {len(failed)} failed"
+        )
         return results, failed
 
     def _run_parallel(
-        self,
-        tasks: List[TournamentTask]
+        self, tasks: List[TournamentTask]
     ) -> Tuple[List[TournamentResult], List[TournamentOutcome]]:
         """Run tournaments in parallel using ThreadPoolExecutor.
 
@@ -2239,36 +2379,30 @@ class AITournamentRunner:
                         )
                     else:
                         failed.append(outcome)
-                        logger.warning(
-                            f"Tournament {task.tournament_id} failed: {outcome.error}"
-                        )
+                        logger.warning(f"Tournament {task.tournament_id} failed: {outcome.error}")
 
                         # If this was a pause, stop waiting for other workers
                         # They'll detect the pause flag at their next checkpoint
                         if outcome.error_type == 'TournamentPausedException':
-                            logger.info(
-                                "Pause detected, not waiting for remaining workers"
-                            )
+                            logger.info("Pause detected, not waiting for remaining workers")
                             break
                 except Exception as e:
                     logger.error(
                         f"Unexpected error collecting result for {task.tournament_id}: {e}"
                     )
-                    failed.append(TournamentOutcome(
-                        task=task,
-                        error=str(e),
-                        error_type=type(e).__name__,
-                    ))
+                    failed.append(
+                        TournamentOutcome(
+                            task=task,
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+                    )
 
-        logger.info(
-            f"Parallel execution complete: {len(results)} succeeded, {len(failed)} failed"
-        )
+        logger.info(f"Parallel execution complete: {len(results)} succeeded, {len(failed)} failed")
         return results, failed
 
     def _compute_experiment_summary(
-        self,
-        results: List[TournamentResult],
-        failed: Optional[List[TournamentOutcome]] = None
+        self, results: List[TournamentResult], failed: Optional[List[TournamentOutcome]] = None
     ) -> Dict:
         """Compute aggregated summary for the experiment.
 
@@ -2334,7 +2468,9 @@ class AITournamentRunner:
                 total_correct += r.decision_stats.get('correct', 0)
                 total_mistakes += r.decision_stats.get('mistake', 0)
                 total_marginal += r.decision_stats.get('marginal', 0)
-                total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get(
+                    'total', 0
+                )
                 qs = r.decision_stats.get('quality_score')
                 if qs is not None:
                     quality_score_sum += qs * r.decision_stats.get('total', 0)
@@ -2362,8 +2498,12 @@ class AITournamentRunner:
                 'correct_pct': round(total_correct * 100 / total_decisions, 1),
                 'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                 'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
-                'quality_score': round(quality_score_sum / quality_score_count, 1) if quality_score_count else None,
-                'menu_compliance_pct': round(menu_correct_total * 100 / menu_total, 1) if menu_total else None,
+                'quality_score': round(quality_score_sum / quality_score_count, 1)
+                if quality_score_count
+                else None,
+                'menu_compliance_pct': round(menu_correct_total * 100 / menu_total, 1)
+                if menu_total
+                else None,
             }
 
         # Compute per-variant stats for A/B testing experiments
@@ -2385,9 +2525,11 @@ class AITournamentRunner:
                 for f in failed
             ]
             summary['total_failed'] = len(failed)
-            summary['success_rate'] = round(
-                len(results) * 100 / (len(results) + len(failed)), 1
-            ) if (results or failed) else 0
+            summary['success_rate'] = (
+                round(len(results) * 100 / (len(results) + len(failed)), 1)
+                if (results or failed)
+                else 0
+            )
 
         # Compute quality indicators (degenerate play detection)
         if self.experiment_id:
@@ -2443,7 +2585,9 @@ class AITournamentRunner:
                     total_correct += r.decision_stats.get('correct', 0)
                     total_mistakes += r.decision_stats.get('mistake', 0)
                     total_marginal += r.decision_stats.get('marginal', 0)
-                    total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get('total', 0)
+                    total_ev_lost += r.decision_stats.get('avg_ev_lost', 0) * r.decision_stats.get(
+                        'total', 0
+                    )
                     qs = r.decision_stats.get('quality_score')
                     if qs is not None:
                         v_qs_sum += qs * r.decision_stats.get('total', 0)
@@ -2458,7 +2602,9 @@ class AITournamentRunner:
                 'total_hands': total_hands,
                 'total_api_calls': total_api_calls,
                 'total_duration_seconds': total_duration,
-                'avg_hands_per_tournament': round(total_hands / len(variant_results), 1) if variant_results else 0,
+                'avg_hands_per_tournament': round(total_hands / len(variant_results), 1)
+                if variant_results
+                else 0,
                 'winners': winners,
                 'model_config': variant_results[0].model_config if variant_results else {},
             }
@@ -2473,7 +2619,9 @@ class AITournamentRunner:
                     'mistake_pct': round(total_mistakes * 100 / total_decisions, 1),
                     'avg_ev_lost': round(total_ev_lost / total_decisions, 2),
                     'quality_score': round(v_qs_sum / v_qs_count, 1) if v_qs_count else None,
-                    'menu_compliance_pct': round(v_menu_correct * 100 / v_menu_total, 1) if v_menu_total else None,
+                    'menu_compliance_pct': round(v_menu_correct * 100 / v_menu_total, 1)
+                    if v_menu_total
+                    else None,
                 }
 
             # Add latency metrics from database for this variant
@@ -2550,9 +2698,7 @@ class AITournamentRunner:
             return None
 
     def _generate_ai_interpretation(
-        self,
-        summary: Dict,
-        failed: Optional[List[TournamentOutcome]] = None
+        self, summary: Dict, failed: Optional[List[TournamentOutcome]] = None
     ) -> Dict:
         """Generate AI interpretation of experiment results.
 
@@ -2587,7 +2733,9 @@ class AITournamentRunner:
             # Build design context from conversation history if available
             design_conversation = config.get('design_conversation', [])
             if design_conversation:
-                design_context = "Below is the conversation where you helped design this experiment:"
+                design_context = (
+                    "Below is the conversation where you helped design this experiment:"
+                )
             else:
                 design_context = "No design conversation was recorded for this experiment."
 
@@ -2675,7 +2823,9 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
                         'avg_latency_ms': v.get('latency_metrics', {}).get('avg_ms'),
                         'p95_latency_ms': v.get('latency_metrics', {}).get('p95_ms'),
                         'total_cost': v.get('cost_metrics', {}).get('total_cost'),
-                        'avg_cost_per_decision': v.get('cost_metrics', {}).get('avg_cost_per_decision'),
+                        'avg_cost_per_decision': v.get('cost_metrics', {}).get(
+                            'avg_cost_per_decision'
+                        ),
                     }
                 results_context['results']['per_variant_stats'] = per_variant
             elif summary.get('variants'):
@@ -2698,10 +2848,12 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
                     messages.append(msg)
 
             # Add final user message with results
-            messages.append({
-                "role": "user",
-                "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results."
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results.",
+                }
+            )
 
             # Make LLM call
             client = LLMClient(model=get_assistant_model(), provider=get_assistant_provider())
@@ -2791,20 +2943,26 @@ def print_summary(results: List[TournamentResult]):
         total_mistakes = sum(s.get('mistake', 0) for s in decision_stats)
 
         if total_decisions > 0:
-            print(f"\nDecision Quality:")
+            print("\nDecision Quality:")
             print(f"  Total decisions: {total_decisions}")
             print(f"  Correct: {total_correct} ({total_correct*100/total_decisions:.1f}%)")
             print(f"  Mistakes: {total_mistakes} ({total_mistakes*100/total_decisions:.1f}%)")
             # Quality score (composite)
-            quality_scores = [s.get('quality_score') for s in decision_stats if s.get('quality_score') is not None]
+            quality_scores = [
+                s.get('quality_score') for s in decision_stats if s.get('quality_score') is not None
+            ]
             if quality_scores:
                 avg_qs = sum(quality_scores) / len(quality_scores)
                 print(f"  Quality Score: {avg_qs:.1f}/100")
             # Menu compliance
             menu_totals = sum(s.get('menu_compliance', {}).get('total', 0) for s in decision_stats)
-            menu_correct = sum(s.get('menu_compliance', {}).get('correct', 0) for s in decision_stats)
+            menu_correct = sum(
+                s.get('menu_compliance', {}).get('correct', 0) for s in decision_stats
+            )
             if menu_totals > 0:
-                print(f"  Menu Compliance: {menu_correct*100/menu_totals:.1f}% ({menu_correct}/{menu_totals})")
+                print(
+                    f"  Menu Compliance: {menu_correct*100/menu_totals:.1f}% ({menu_correct}/{menu_totals})"
+                )
 
     print("=" * 60)
 
@@ -2829,22 +2987,23 @@ def main():
 
     # Parallel execution options
     parser.add_argument(
-        "--parallel", "-P",
+        "--parallel",
+        "-P",
         type=int,
         default=1,
-        help="Number of tournaments to run in parallel (default: 1 = sequential)"
+        help="Number of tournaments to run in parallel (default: 1 = sequential)",
     )
     parser.add_argument(
         "--stagger-delay",
         type=float,
         default=0.0,
-        help="Seconds to wait between starting parallel workers (default: 0)"
+        help="Seconds to wait between starting parallel workers (default: 0)",
     )
     parser.add_argument(
         "--rate-limit-backoff",
         type=float,
         default=30.0,
-        help="Base backoff seconds when rate limited (default: 30)"
+        help="Base backoff seconds when rate limited (default: 30)",
     )
 
     args = parser.parse_args()

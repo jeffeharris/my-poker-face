@@ -1,6 +1,7 @@
 """Conversation memory management."""
-from typing import List, Dict, Any
+
 from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -58,7 +59,7 @@ class ConversationMemory:
     def _trim(self) -> None:
         """Trim messages to stay within max_messages limit."""
         if len(self._messages) > self.max_messages:
-            self._messages = self._messages[-self.max_messages:]
+            self._messages = self._messages[-self.max_messages :]
 
     def __len__(self) -> int:
         """Return number of messages in memory."""

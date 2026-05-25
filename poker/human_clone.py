@@ -62,21 +62,22 @@ class CloneProfile:
     calling station who never barrels turn, a sticky caller who goes to
     showdown 50%+ of hands seen).
     """
+
     source_player: str
     hands_observed: int
-    vpip: float                # 0.0–1.0; fraction of hands voluntarily entered
-    pfr: float                 # 0.0–1.0; fraction of hands preflop-raised
-    aggression_factor: float   # (raises+bets) / calls postflop
-    fold_to_cbet: float        # 0.0–1.0; fold rate vs continuation bets
-    bluff_frequency: float = 0.30   # 0.0–1.0; declared bluff rate
+    vpip: float  # 0.0–1.0; fraction of hands voluntarily entered
+    pfr: float  # 0.0–1.0; fraction of hands preflop-raised
+    aggression_factor: float  # (raises+bets) / calls postflop
+    fold_to_cbet: float  # 0.0–1.0; fold rate vs continuation bets
+    bluff_frequency: float = 0.30  # 0.0–1.0; declared bluff rate
     showdown_win_rate: float = 0.50
 
     # ── V2 (hand_history mining; None when not enough data) ──
-    wtsd: Optional[float] = None         # went-to-showdown rate (saw river / saw flop)
+    wtsd: Optional[float] = None  # went-to-showdown rate (saw river / saw flop)
     threebet_rate: Optional[float] = None  # preflop 3bets per facing-raise opportunity
-    flop_af: Optional[float] = None      # flop-only aggression factor
-    turn_af: Optional[float] = None      # turn-only aggression factor
-    river_af: Optional[float] = None     # river-only aggression factor
+    flop_af: Optional[float] = None  # flop-only aggression factor
+    turn_af: Optional[float] = None  # turn-only aggression factor
+    river_af: Optional[float] = None  # river-only aggression factor
 
     @property
     def display_name(self) -> str:
@@ -106,8 +107,7 @@ def _mine_hand_history(db_path: str, player_name: str) -> Dict[str, Optional[flo
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.execute(
-            "SELECT actions_json FROM hand_history "
-            "WHERE players_json LIKE ?",
+            "SELECT actions_json FROM hand_history " "WHERE players_json LIKE ?",
             (f'%"{player_name}"%',),
         )
         all_actions = [json.loads(r[0]) for r in cur if r[0]]
@@ -182,7 +182,9 @@ def _mine_hand_history(db_path: str, player_name: str) -> Dict[str, Optional[flo
 
 
 def derive_profile_from_db(
-    db_path: str, player_name: str, min_hands: int = 20,
+    db_path: str,
+    player_name: str,
+    min_hands: int = 20,
 ) -> CloneProfile:
     """Build a CloneProfile from `opponent_models` aggregated across observers.
 
@@ -209,9 +211,7 @@ def derive_profile_from_db(
         conn.close()
 
     if not rows:
-        raise ValueError(
-            f"No opponent_models rows for player_name={player_name!r}"
-        )
+        raise ValueError(f"No opponent_models rows for player_name={player_name!r}")
 
     # Weighted aggregation
     total_hands = sum(r[0] for r in rows)
@@ -396,7 +396,11 @@ def build_clone_strategy(profile: CloneProfile):
         max_raise = context.get('max_raise', 0) or 0
 
         def _raise():
-            size = max(min_raise, min(int(pot * 0.67) or min_raise, max_raise)) if max_raise else min_raise
+            size = (
+                max(min_raise, min(int(pot * 0.67) or min_raise, max_raise))
+                if max_raise
+                else min_raise
+            )
             return {'action': 'raise', 'raise_to': size}
 
         def _call():
@@ -424,7 +428,9 @@ def build_clone_strategy(profile: CloneProfile):
         # ── POSTFLOP ──────────────────────────────────────────────────
         # Per-street raise rate replaces single AF when V2 fields present.
         street_rate = {
-            'FLOP': flop_raise_rate, 'TURN': turn_raise_rate, 'RIVER': river_raise_rate,
+            'FLOP': flop_raise_rate,
+            'TURN': turn_raise_rate,
+            'RIVER': river_raise_rate,
         }.get(phase, af_raise_rate)
 
         # Free to act: aggression-driven betting on equity.
@@ -464,5 +470,6 @@ def register_clone_strategy(name: str, profile: CloneProfile) -> str:
     name silently overwrites — convenient for iterative tuning runs.
     """
     from .rule_strategies import BUILT_IN_STRATEGIES
+
     BUILT_IN_STRATEGIES[name] = build_clone_strategy(profile)
     return name

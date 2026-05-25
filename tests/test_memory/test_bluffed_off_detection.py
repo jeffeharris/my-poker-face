@@ -25,14 +25,20 @@ from poker.memory.relationship_events import RelationshipEvent
 
 def _player(name: str, stack: int = 1000) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position="BTN", is_human=False,
+        name=name,
+        starting_stack=stack,
+        position="BTN",
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="FLOP", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -98,16 +104,18 @@ class TestBluffedOffFires:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert len(bluffed_off) == 1
         e = bluffed_off[0]
         assert e.actor_id == "carol"
@@ -133,16 +141,18 @@ class TestBluffedOffFires:
                 _action("alice", "check", 0, phase="RIVER", pot_after=350),
                 _action("bob", "check", 0, phase="RIVER", pot_after=350),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=350, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=350,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=350,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert len(bluffed_off) == 1
         assert bluffed_off[0].actor_id == "carol"
         assert bluffed_off[0].target_id == "bob"
@@ -167,16 +177,18 @@ class TestBluffedOffFires:
                 _action("alice", "check", 0, phase="RIVER", pot_after=400),
                 _action("bob", "check", 0, phase="RIVER", pot_after=400),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=400, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=400,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=400,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert len(bluffed_off) == 1
         # Attribution to most recent aggressor (bob), not original
         # bettor (alice).
@@ -194,16 +206,19 @@ class TestBluffedOffDoesNotFire:
                 _action("carol", "fold", 0, phase="FLOP", pot_after=100),
                 _action("alice", "fold", 0, phase="FLOP", pot_after=100),
             ],
-            winners=[WinnerInfo(
-                name="bob", amount_won=100, hand_name=None, hand_rank=None,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="bob",
+                    amount_won=100,
+                    hand_name=None,
+                    hand_rank=None,
+                )
+            ],
             pot_size=100,
             was_showdown=False,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
     def test_folder_actually_behind_no_emit(self):
@@ -212,8 +227,8 @@ class TestBluffedOffDoesNotFire:
         hand = _build(
             hole_cards={
                 "alice": HOLE_SHOWDOWN_WINNER,
-                "bob": HOLE_STRONG,    # bob's "bet" was a value bet
-                "carol": HOLE_BLUFF,   # carol's cards: weak
+                "bob": HOLE_STRONG,  # bob's "bet" was a value bet
+                "carol": HOLE_BLUFF,  # carol's cards: weak
             },
             community=COMMUNITY,
             actions=[
@@ -223,16 +238,18 @@ class TestBluffedOffDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
     def test_preflop_fold_skipped(self):
@@ -255,16 +272,18 @@ class TestBluffedOffDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
     def test_folder_cards_missing_skipped(self):
@@ -284,16 +303,18 @@ class TestBluffedOffDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
     def test_bettor_also_folded_no_visibility(self):
@@ -319,16 +340,18 @@ class TestBluffedOffDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=500),
                 _action("dave", "check", 0, phase="RIVER", pot_after=500),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=500, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=500,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=500,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
     def test_fold_to_check_no_emit(self):
@@ -351,15 +374,18 @@ class TestBluffedOffDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=50),
                 _action("bob", "check", 0, phase="RIVER", pot_after=50),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=50, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=50,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=50,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        bluffed_off = [
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        ]
+        bluffed_off = [e for e in events if e.event is RelationshipEvent.BLUFFED_OFF]
         assert bluffed_off == []
 
 
@@ -379,18 +405,20 @@ class TestBluffedOffDedupAndIds:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         detector = HandOutcomeDetector()
         first = detector.detect_events(hand)
         second = detector.detect_events(hand)
-        assert any(
-            e.event is RelationshipEvent.BLUFFED_OFF for e in first
-        )
+        assert any(e.event is RelationshipEvent.BLUFFED_OFF for e in first)
         assert second == []
 
     def test_ids_resolved_from_registry(self):
@@ -408,18 +436,22 @@ class TestBluffedOffDedupAndIds:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair",
-                hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         registry = {
-            "alice": "alice_v1", "bob": "bob_v1", "carol": "carol_v1",
+            "alice": "alice_v1",
+            "bob": "bob_v1",
+            "carol": "carol_v1",
         }
         events = HandOutcomeDetector(registry).detect_events(hand)
-        bo = next(
-            e for e in events if e.event is RelationshipEvent.BLUFFED_OFF
-        )
+        bo = next(e for e in events if e.event is RelationshipEvent.BLUFFED_OFF)
         assert bo.actor_id == "carol_v1"
         assert bo.target_id == "bob_v1"

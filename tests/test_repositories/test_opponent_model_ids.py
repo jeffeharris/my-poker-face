@@ -22,6 +22,7 @@ def shared_db_path(tmp_path_factory):
     all 86 migrations per test exhausts the backend container's
     memory)."""
     from poker.repositories.schema_manager import SchemaManager
+
     path = str(tmp_path_factory.mktemp("opp_model_ids") / "test.db")
     SchemaManager(path).ensure_schema()
     return path
@@ -31,7 +32,9 @@ def shared_db_path(tmp_path_factory):
 def repo(shared_db_path):
     """Per-test repo with clean opponent_models / games rows."""
     import sqlite3
+
     from poker.repositories.game_repository import GameRepository
+
     # Wipe between tests — fixture scope is per-test but the DB is shared
     conn = sqlite3.connect(shared_db_path)
     conn.execute("DELETE FROM opponent_models")
@@ -49,6 +52,7 @@ def game_id(shared_db_path):
     """A game_id string. opponent_models has no FK constraint on games,
     so a stub games row is just defensive in case one's added later."""
     import sqlite3
+
     gid = "test_game_opp_ids"
     conn = sqlite3.connect(shared_db_path)
     conn.execute(
@@ -63,8 +67,9 @@ def game_id(shared_db_path):
 def _seed_opponent_models(db_path: str, game_id: str, rows):
     """Insert rows directly into opponent_models for legacy-row scenarios."""
     import sqlite3
+
     conn = sqlite3.connect(db_path)
-    for (observer_name, opponent_name, observer_id, opponent_id) in rows:
+    for observer_name, opponent_name, observer_id, opponent_id in rows:
         conn.execute(
             "INSERT INTO opponent_models "
             "(game_id, observer_name, opponent_name, observer_id, opponent_id, "
@@ -88,6 +93,7 @@ class TestSaveOpponentModelsWithIds:
 
         # Verify direct DB state
         import sqlite3
+
         conn = sqlite3.connect(shared_db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
@@ -104,7 +110,7 @@ class TestSaveOpponentModelsWithIds:
         """If a model is in the manager without per-row ids set but the
         manager has the name in its name_to_id registry, save_opponent_models
         should still write the ids."""
-        from poker.memory.opponent_model import OpponentModelManager, OpponentModel
+        from poker.memory.opponent_model import OpponentModel, OpponentModelManager
 
         mgr = OpponentModelManager()
         # Create model first, register id second — model itself has no
@@ -116,6 +122,7 @@ class TestSaveOpponentModelsWithIds:
         repo.save_opponent_models(game_id, mgr)
 
         import sqlite3
+
         conn = sqlite3.connect(shared_db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
@@ -129,26 +136,38 @@ class TestSaveOpponentModelsWithIds:
 
 class TestLoadOpponentModelsWithIds:
     def test_load_returns_ids_in_model_data(self, repo, game_id, shared_db_path):
-        _seed_opponent_models(shared_db_path, game_id, [
-            ("Alice", "Bob", "alice_id", "bob_id"),
-        ])
+        _seed_opponent_models(
+            shared_db_path,
+            game_id,
+            [
+                ("Alice", "Bob", "alice_id", "bob_id"),
+            ],
+        )
         result = repo.load_opponent_models(game_id)
         assert result["Alice"]["Bob"]["observer_id"] == "alice_id"
         assert result["Alice"]["Bob"]["opponent_id"] == "bob_id"
 
     def test_load_returns_none_ids_for_legacy_rows(self, repo, game_id, shared_db_path):
-        _seed_opponent_models(shared_db_path, game_id, [
-            ("Guest_42", "Bob", None, None),
-        ])
+        _seed_opponent_models(
+            shared_db_path,
+            game_id,
+            [
+                ("Guest_42", "Bob", None, None),
+            ],
+        )
         result = repo.load_opponent_models(game_id)
         assert result["Guest_42"]["Bob"]["observer_id"] is None
         assert result["Guest_42"]["Bob"]["opponent_id"] is None
 
     def test_load_builds_name_to_id_sidecar(self, repo, game_id, shared_db_path):
-        _seed_opponent_models(shared_db_path, game_id, [
-            ("Alice", "Bob", "alice_id", "bob_id"),
-            ("Carol", "Bob", "carol_id", "bob_id"),
-        ])
+        _seed_opponent_models(
+            shared_db_path,
+            game_id,
+            [
+                ("Alice", "Bob", "alice_id", "bob_id"),
+                ("Carol", "Bob", "carol_id", "bob_id"),
+            ],
+        )
         result = repo.load_opponent_models(game_id)
         assert "__name_to_id__" in result
         sidecar = result["__name_to_id__"]
@@ -157,9 +176,13 @@ class TestLoadOpponentModelsWithIds:
         assert sidecar["Carol"] == "carol_id"
 
     def test_load_omits_sidecar_when_no_ids_present(self, repo, game_id, shared_db_path):
-        _seed_opponent_models(shared_db_path, game_id, [
-            ("Guest_A", "Guest_B", None, None),
-        ])
+        _seed_opponent_models(
+            shared_db_path,
+            game_id,
+            [
+                ("Guest_A", "Guest_B", None, None),
+            ],
+        )
         result = repo.load_opponent_models(game_id)
         # No ids → no sidecar
         assert "__name_to_id__" not in result

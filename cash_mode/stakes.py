@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-
 # --- Enumerations as string literals ---
 #
 # These are typed as `str` rather than `Enum` because the values

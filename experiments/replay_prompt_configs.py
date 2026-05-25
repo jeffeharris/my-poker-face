@@ -13,20 +13,16 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Dict, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 from poker.prompt_config import PromptConfig
-from poker.prompt_manager import PromptManager
-
 
 # Define prompt config variants to test
 PROMPT_CONFIGS = {
     "full": PromptConfig(),  # Current default - everything enabled
-
     "minimal": PromptConfig(
         include_personality=False,
         use_simple_response_format=True,
@@ -41,7 +37,6 @@ PROMPT_CONFIGS = {
         expression_filtering=False,
         zone_benefits=False,
     ),
-
     "math_focused": PromptConfig(
         gto_equity=True,
         gto_verdict=True,
@@ -51,7 +46,6 @@ PROMPT_CONFIGS = {
         mind_games=False,
         chattiness=False,
     ),
-
     "personality_simple": PromptConfig(
         include_personality=True,  # Keep personality
         use_simple_response_format=True,  # But simple response
@@ -70,7 +64,8 @@ def get_hybrid_captures(db_path: str, limit: int = 50, preflop_only: bool = Fals
 
         phase_filter = "AND phase = 'PRE_FLOP'" if preflop_only else ""
 
-        cursor = conn.execute(f'''
+        cursor = conn.execute(
+            f'''
             SELECT
                 id, game_id, player_name, hand_number, phase,
                 player_hand, community_cards, pot_total, cost_to_call,
@@ -84,7 +79,9 @@ def get_hybrid_captures(db_path: str, limit: int = 50, preflop_only: bool = Fals
               {phase_filter}
             ORDER BY RANDOM()
             LIMIT ?
-        ''', (limit,))
+        ''',
+            (limit,),
+        )
 
         return [dict(row) for row in cursor.fetchall()]
 
@@ -136,28 +133,29 @@ def replay_with_config(capture: Dict, config_name: str, config: PromptConfig) ->
             idx = user_message.find("Respond with JSON:")
             end_idx = user_message.find("}", idx) + 1
             if end_idx > idx:
-                user_message = user_message[:idx] + '''Respond with JSON:
+                user_message = (
+                    user_message[:idx]
+                    + '''Respond with JSON:
 {
   "action": "<your action>",
   "raise_to": <BB amount if raising>
-}''' + user_message[end_idx:]
+}'''
+                    + user_message[end_idx:]
+                )
 
     # Create LLM client
     client = LLMClient(
-        provider=capture.get('provider', 'openai'),
-        model=capture.get('model', 'gpt-4o-mini')
+        provider=capture.get('provider', 'openai'), model=capture.get('model', 'gpt-4o-mini')
     )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message}
+        {"role": "user", "content": user_message},
     ]
 
     try:
         response = client.complete(
-            messages=messages,
-            json_format=True,
-            call_type=CallType.DEBUG_REPLAY
+            messages=messages, json_format=True, call_type=CallType.DEBUG_REPLAY
         )
 
         result = json.loads(response.content)
@@ -165,14 +163,10 @@ def replay_with_config(capture: Dict, config_name: str, config: PromptConfig) ->
             "action": result.get("action") or result.get("choice"),
             "raise_to": result.get("raise_to"),
             "inner_monologue": result.get("inner_monologue", ""),
-            "success": True
+            "success": True,
         }
     except Exception as e:
-        return {
-            "action": None,
-            "error": str(e),
-            "success": False
-        }
+        return {"action": None, "error": str(e), "success": False}
 
 
 def run_experiment(db_path: str, limit: int, preflop_only: bool, configs_to_test: List[str]):
@@ -206,7 +200,9 @@ def run_experiment(db_path: str, limit: int, preflop_only: bool, configs_to_test
 
             # Track results
             results[config_name]["total"] += 1
-            results[config_name]["actions"][action] = results[config_name]["actions"].get(action, 0) + 1
+            results[config_name]["actions"][action] = (
+                results[config_name]["actions"].get(action, 0) + 1
+            )
 
             if config_name != "original" and action != capture['action_taken']:
                 results[config_name]["changes"] += 1
@@ -223,7 +219,9 @@ def run_experiment(db_path: str, limit: int, preflop_only: bool, configs_to_test
         print(f"\n{config_name.upper()}:")
         print(f"  Actions: {r['actions']}")
         if config_name != "original":
-            print(f"  Changed from original: {r['changes']}/{r['total']} ({100*r['changes']/r['total']:.1f}%)")
+            print(
+                f"  Changed from original: {r['changes']}/{r['total']} ({100*r['changes']/r['total']:.1f}%)"
+            )
 
         # Calculate VPIP proxy (non-fold actions)
         total = r['total']
@@ -233,14 +231,19 @@ def run_experiment(db_path: str, limit: int, preflop_only: bool, configs_to_test
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Replay hybrid captures with different prompt configs")
+    parser = argparse.ArgumentParser(
+        description="Replay hybrid captures with different prompt configs"
+    )
     parser.add_argument("--limit", type=int, default=20, help="Number of captures to replay")
     parser.add_argument("--preflop-only", action="store_true", help="Only test preflop decisions")
     parser.add_argument("--db", default="/app/data/poker_games.db", help="Database path")
-    parser.add_argument("--configs", nargs="+",
-                        default=["original", "full", "minimal", "math_focused"],
-                        choices=["original", "full", "minimal", "math_focused", "personality_simple"],
-                        help="Configs to test")
+    parser.add_argument(
+        "--configs",
+        nargs="+",
+        default=["original", "full", "minimal", "math_focused"],
+        choices=["original", "full", "minimal", "math_focused", "personality_simple"],
+        help="Configs to test",
+    )
 
     args = parser.parse_args()
 

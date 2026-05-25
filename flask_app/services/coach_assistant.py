@@ -10,9 +10,10 @@ from collections import defaultdict
 from typing import Dict, List, Optional, TypedDict
 
 from core.llm.assistant import Assistant
+from core.llm.settings import get_default_model, get_default_provider
 from core.llm.tracking import CallType
-from core.llm.settings import get_default_provider, get_default_model
-from poker.hand_narrator import format_action_phrase, abbreviate_position
+from poker.hand_narrator import abbreviate_position, format_action_phrase
+
 from .skill_definitions import get_skill_by_id
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ _MODE_PROMPTS = {
 
 class CoachResponse(TypedDict, total=False):
     """Structured coach response with advice and optional action recommendation."""
+
     advice: str
     action: Optional[str]  # 'fold', 'check', 'call', 'raise', or None
     raise_to: Optional[int]
@@ -131,7 +133,9 @@ def _normalize_action(action: Optional[str], available_actions: List[str]) -> Op
         return normalized
 
     # Action not available - return None to fall back to GTO
-    logger.warning(f"Coach suggested unavailable action '{action}' (normalized: '{normalized}'), ignoring")
+    logger.warning(
+        f"Coach suggested unavailable action '{action}' (normalized: '{normalized}'), ignoring"
+    )
     return None
 
 
@@ -176,8 +180,14 @@ def _parse_coach_response(response: str, coaching_data: Dict) -> CoachResponse:
 class CoachAssistant:
     """LLM-powered poker coaching assistant."""
 
-    def __init__(self, game_id: str, owner_id: str, player_name: str = '',
-                 mode: str = '', skill_context: str = ''):
+    def __init__(
+        self,
+        game_id: str,
+        owner_id: str,
+        player_name: str = '',
+        mode: str = '',
+        skill_context: str = '',
+    ):
         self.mode = mode
         system_prompt = COACH_SYSTEM_PROMPT
         if player_name:
@@ -442,7 +452,9 @@ def _format_stats_for_prompt(data: Dict) -> str:
         if skill_desc:
             lines.append(f"Concept: {skill_desc}")
         if skill_state:
-            lines.append(f"Player level: {skill_state} ({accuracy:.0%} accuracy, {opps} opportunities)")
+            lines.append(
+                f"Player level: {skill_state} ({accuracy:.0%} accuracy, {opps} opportunities)"
+            )
         if coaching_mode:
             mode_labels = {
                 'learn': 'Teaching — explain the concept using this hand',
@@ -505,10 +517,7 @@ def _format_hand_timeline(
         # Action wording (raise-TO semantics, "You" substitution) is
         # delegated to the shared helper in poker.hand_narrator so the
         # coach, post-round chat, and post-hand recap all agree.
-        action_lines = [
-            format_action_phrase(a, perspective=player_name)
-            for a in phase_actions
-        ]
+        action_lines = [format_action_phrase(a, perspective=player_name) for a in phase_actions]
         indented = "\n".join(f"    {line}" for line in action_lines)
         parts.append(f"  {header}:\n{indented}")
 
@@ -529,7 +538,8 @@ def get_or_create_coach_with_mode(
 
     owner_id = game_data.get('owner_id', '')
     coach = CoachAssistant(
-        game_id, owner_id,
+        game_id,
+        owner_id,
         player_name=player_name,
         mode=mode,
         skill_context=skill_context,

@@ -264,11 +264,15 @@ def resolve_ai_side_hustle(
     for pid in candidates:
         try:
             current = bankroll_repo.load_ai_bankroll_current(
-                pid, sandbox_id=sandbox_id, now=now,
+                pid,
+                sandbox_id=sandbox_id,
+                now=now,
             )
         except Exception as exc:
             logger.warning(
-                "[HUSTLE] load_ai_bankroll_current failed pid=%r: %s", pid, exc,
+                "[HUSTLE] load_ai_bankroll_current failed pid=%r: %s",
+                pid,
+                exc,
             )
             continue
         if current is None:
@@ -277,7 +281,9 @@ def resolve_ai_side_hustle(
             knobs = bankroll_repo.load_personality_knobs(pid)
         except Exception as exc:
             logger.warning(
-                "[HUSTLE] load_personality_knobs failed pid=%r: %s", pid, exc,
+                "[HUSTLE] load_personality_knobs failed pid=%r: %s",
+                pid,
+                exc,
             )
             continue
         starting = knobs.starting_bankroll
@@ -299,7 +305,9 @@ def resolve_ai_side_hustle(
             narration, duration_bucket = narrate_fn(pid, amount)
         except Exception as exc:
             logger.warning(
-                "[HUSTLE] narrate_fn failed pid=%r: %s; using fallback", pid, exc,
+                "[HUSTLE] narrate_fn failed pid=%r: %s; using fallback",
+                pid,
+                exc,
             )
             narration, duration_bucket = _templated_narrate_fn(pid, amount)
         if duration_bucket not in DURATION_RANGES:
@@ -360,9 +368,11 @@ def tick_side_hustle_expirations(
     # Live pool depth, decremented across this tick's payouts so we never
     # draw more than the pool holds in aggregate.
     from cash_mode.closed_economy import compute_bank_pool_reserves
+
     try:
         remaining_pool = compute_bank_pool_reserves(
-            chip_ledger_repo, sandbox_id=sandbox_id,
+            chip_ledger_repo,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning("[HUSTLE] compute_bank_pool_reserves failed: %s", exc)
@@ -382,7 +392,9 @@ def tick_side_hustle_expirations(
             removed = side_hustle_repo.delete(h.personality_id, sandbox_id=sandbox_id)
         except Exception as exc:
             logger.warning(
-                "[HUSTLE] delete failed pid=%r: %s", h.personality_id, exc,
+                "[HUSTLE] delete failed pid=%r: %s",
+                h.personality_id,
+                exc,
             )
             continue
         if not removed:
@@ -417,16 +429,18 @@ def tick_side_hustle_expirations(
                 sandbox_id=sandbox_id,
             )
 
-        out.append(HustleEndResult(
-            personality_id=h.personality_id,
-            started_at=h.started_at,
-            ends_at=h.ends_at,
-            target_amount=target,
-            paid_amount=paid,
-            duration_bucket=h.duration_bucket,
-            narration=h.narration,
-            energy_applied=energy_applied,
-        ))
+        out.append(
+            HustleEndResult(
+                personality_id=h.personality_id,
+                started_at=h.started_at,
+                ends_at=h.ends_at,
+                target_amount=target,
+                paid_amount=paid,
+                duration_bucket=h.duration_bucket,
+                narration=h.narration,
+                energy_applied=energy_applied,
+            )
+        )
 
     return out
 
@@ -448,26 +462,33 @@ def _commit_hustle_start(
 ) -> Optional[HustleStartResult]:
     """Insert the state row. No chips move — the payout lands at expiry."""
     from poker.repositories.side_hustle_state_repository import SideHustleState
+
     try:
-        side_hustle_repo.insert_side_hustle_state(SideHustleState(
-            personality_id=personality_id,
-            sandbox_id=sandbox_id,
-            started_at=started_at,
-            ends_at=ends_at,
-            amount=amount,
-            duration_bucket=duration_bucket,
-            narration=narration,
-        ))
+        side_hustle_repo.insert_side_hustle_state(
+            SideHustleState(
+                personality_id=personality_id,
+                sandbox_id=sandbox_id,
+                started_at=started_at,
+                ends_at=ends_at,
+                amount=amount,
+                duration_bucket=duration_bucket,
+                narration=narration,
+            )
+        )
     except Exception as exc:
         logger.warning(
             "[HUSTLE] insert_side_hustle_state failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
 
     logger.info(
         "[HUSTLE] started pid=%r target=%d bucket=%s ends=%s",
-        personality_id, amount, duration_bucket, ends_at.isoformat(),
+        personality_id,
+        amount,
+        duration_bucket,
+        ends_at.isoformat(),
     )
     return HustleStartResult(
         personality_id=personality_id,
@@ -508,18 +529,22 @@ def _credit_hustle_payout(
 
     try:
         stored = bankroll_repo.load_ai_bankroll(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
-            "[HUSTLE] load_ai_bankroll failed pid=%r: %s", personality_id, exc,
+            "[HUSTLE] load_ai_bankroll failed pid=%r: %s",
+            personality_id,
+            exc,
         )
         return 0
     if stored is None:
         # No bankroll row to credit into — shouldn't happen (the AI was
         # playing/idle), defensive skip.
         logger.warning(
-            "[HUSTLE] no bankroll row for pid=%r; skipping payout", personality_id,
+            "[HUSTLE] no bankroll row for pid=%r; skipping payout",
+            personality_id,
         )
         return 0
 
@@ -535,7 +560,9 @@ def _credit_hustle_payout(
         )
     except Exception as exc:
         logger.warning(
-            "[HUSTLE] save_ai_bankroll failed pid=%r: %s", personality_id, exc,
+            "[HUSTLE] save_ai_bankroll failed pid=%r: %s",
+            personality_id,
+            exc,
         )
         return 0
 
@@ -555,7 +582,9 @@ def _credit_hustle_payout(
         )
 
     logger.info(
-        "[HUSTLE] paid pid=%r payout=%d", personality_id, payout,
+        "[HUSTLE] paid pid=%r payout=%d",
+        personality_id,
+        payout,
     )
     return int(payout)
 
@@ -575,14 +604,17 @@ def _apply_energy_drain(
     *down* (the grind is tiring) rather than toward baseline.
     """
     import json
+
     try:
         blob = bankroll_repo.load_emotional_state_json(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
             "[HUSTLE] load_emotional_state_json failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return False
     if not blob:
@@ -599,12 +631,15 @@ def _apply_energy_drain(
 
     try:
         bankroll_repo.save_emotional_state_json(
-            personality_id, json.dumps(data), sandbox_id=sandbox_id,
+            personality_id,
+            json.dumps(data),
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
             "[HUSTLE] save_emotional_state_json failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return False
     return True

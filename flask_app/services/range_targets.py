@@ -12,12 +12,12 @@ logger = logging.getLogger(__name__)
 # Default ranges for complete beginners (Gate 1)
 # These are intentionally tight to teach discipline first
 DEFAULT_RANGE_TARGETS: Dict[str, float] = {
-    'UTG': 0.08,       # Top 8% - very tight early position
-    'UTG+1': 0.10,     # Top 10%
-    'MP': 0.12,        # Top 12%
-    'CO': 0.18,        # Top 18% - opening up in late position
-    'BTN': 0.25,       # Top 25% - widest from button
-    'BB': 0.20,        # Top 20% - defending big blind
+    'UTG': 0.08,  # Top 8% - very tight early position
+    'UTG+1': 0.10,  # Top 10%
+    'MP': 0.12,  # Top 12%
+    'CO': 0.18,  # Top 18% - opening up in late position
+    'BTN': 0.25,  # Top 25% - widest from button
+    'BB': 0.20,  # Top 20% - defending big blind
 }
 
 # Range expansions when gates unlock

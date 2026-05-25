@@ -67,15 +67,15 @@ def repos(db_path):
 
 def _seed_personalities(db_path: str, pids: list[str]) -> None:
     knobs = {
-        "starting_bankroll": 50_000, "bankroll_rate": 500,
+        "starting_bankroll": 50_000,
+        "bankroll_rate": 500,
         "buy_in_multiplier": 1.0,
         "stake_comfort_zone": "$10",
     }
     with sqlite3.connect(db_path) as conn:
         for pid in pids:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 (pid.title(), json.dumps({"bankroll_knobs": knobs}), pid),
             )
         conn.commit()
@@ -110,9 +110,14 @@ def test_lobby_seed_preserves_drift(repos):
     pids = ['zeus', 'hera', 'ares', 'athena', 'apollo']
     _seed_personalities(db_path, pids)
     for pid in pids:
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=pid, chips=5_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=pid,
+                chips=5_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
     # Run v94 seed manually — it normally fires during ensure_schema,
     # but tests new ai_bankroll rows were added after that. Re-run is
@@ -124,10 +129,10 @@ def test_lobby_seed_preserves_drift(repos):
         sm._migrate_v94_seed_pre_ledger_universe(conn)
         conn.commit()
 
-    before = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
-    assert before['drift'] == 0, (
-        f"baseline drift should be 0 after v94 seed, got {before['drift']}"
+    before = _audit_drift(
+        db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now
     )
+    assert before['drift'] == 0, f"baseline drift should be 0 after v94 seed, got {before['drift']}"
 
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
@@ -160,9 +165,14 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
 
     _seed_personalities(db_path, ['zeus', 'hera'])
     for pid in ['zeus', 'hera']:
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=pid, chips=5_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=pid,
+                chips=5_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
     with sqlite3.connect(db_path) as conn:
         conn.execute("DELETE FROM chip_ledger_entries")
         sm = SchemaManager.__new__(SchemaManager)
@@ -185,7 +195,9 @@ def test_lobby_reseed_is_idempotent_for_drift(repos):
         now=now,
         sandbox_id="test-sandbox-1",
     )
-    second = _audit_drift(db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now)
+    second = _audit_drift(
+        db_path, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, now
+    )
 
     assert first['drift'] == second['drift']
     assert (

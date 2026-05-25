@@ -15,9 +15,9 @@ import pytest
 
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
-    CashTableState,
     OPEN_SEATS,
     TABLE_SEAT_COUNT,
+    CashTableState,
     ai_slot,
     human_slot,
     open_slot,
@@ -32,12 +32,16 @@ class TestSlotConstructors:
 
     def test_ai_slot(self):
         assert ai_slot("napoleon", 1240) == {
-            "kind": "ai", "personality_id": "napoleon", "chips": 1240,
+            "kind": "ai",
+            "personality_id": "napoleon",
+            "chips": 1240,
         }
 
     def test_human_slot(self):
         assert human_slot("user-123", 500) == {
-            "kind": "human", "personality_id": "user-123", "chips": 500,
+            "kind": "human",
+            "personality_id": "user-123",
+            "chips": 500,
         }
 
 
@@ -95,7 +99,8 @@ class TestValidation:
     def test_wrong_length_seats_rejected(self):
         with pytest.raises(ValueError, match="seats length"):
             CashTableState(
-                table_id="t1", stake_label="$10",
+                table_id="t1",
+                stake_label="$10",
                 seats=[open_slot(), open_slot()],  # 2 slots
             )
 

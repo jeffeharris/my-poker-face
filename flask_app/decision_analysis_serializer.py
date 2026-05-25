@@ -37,7 +37,9 @@ def _parse_json_field(
     except (TypeError, json.JSONDecodeError) as e:
         logger.warning(
             "[decision_analysis] malformed %s in row id=%s: %s",
-            src_key, row.get('id'), e,
+            src_key,
+            row.get('id'),
+            e,
         )
         row[dest_key] = None
         row.pop(src_key, None)
@@ -45,7 +47,9 @@ def _parse_json_field(
     if not isinstance(parsed, expected_type):
         logger.warning(
             "[decision_analysis] expected %s for %s in row id=%s, got %s",
-            expected_type.__name__, src_key, row.get('id'),
+            expected_type.__name__,
+            src_key,
+            row.get('id'),
             type(parsed).__name__,
         )
         row[dest_key] = None

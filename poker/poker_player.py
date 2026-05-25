@@ -1,17 +1,17 @@
 import json
 import logging
 import random
-from typing import List, Dict, Optional
-from pathlib import Path
+from typing import Dict, List, Optional
 
 from core.card import Card, CardSet
 
 logger = logging.getLogger(__name__)
-from core.llm import Assistant, LLMClient, CallType
+from core.llm import Assistant, CallType, LLMClient
 from core.llm.settings import get_default_model, get_default_provider
-from .prompt_manager import PromptManager, RESPONSE_FORMAT, PERSONA_EXAMPLES
-from .personality_generator import PersonalityGenerator
+
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
+from .personality_generator import PersonalityGenerator
+from .prompt_manager import PERSONA_EXAMPLES, RESPONSE_FORMAT, PromptManager
 
 
 class PokerPlayer:
@@ -37,15 +37,12 @@ class PokerPlayer:
             "money": self.money,
             "cards": self.cards.to_dict(),
             "options": self.options,
-            "folded": self.folded
+            "folded": self.folded,
         }
 
     @classmethod
     def from_dict(cls, player_dict: Dict):
-        player = cls(
-            name = player_dict["name"],
-            starting_money=player_dict["money"]
-        )
+        player = cls(name=player_dict["name"], starting_money=player_dict["money"])
         cards_list = Card.list_from_dict_list(player_dict["cards"])
         player.cards = CardSet()
         player.cards.add_cards(cards_list)
@@ -75,7 +72,7 @@ class PokerPlayer:
             "player_money": self.money,
             "player_cards": self.cards,
             "player_options": self.options,
-            "has_folded": self.folded
+            "has_folded": self.folded,
         }
 
     def get_for_pot(self, amount):
@@ -108,8 +105,9 @@ class AIPokerPlayer(PokerPlayer):
     # Shared personality generator instance
     _personality_generator = None
 
-    def __init__(self, name="AI Player", starting_money=10000, llm_config=None,
-                 game_id=None, owner_id=None):
+    def __init__(
+        self, name="AI Player", starting_money=10000, llm_config=None, game_id=None, owner_id=None
+    ):
         super().__init__(name, starting_money=starting_money)
         self.prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
         self.personality_config = self._load_personality_config()
@@ -119,6 +117,7 @@ class AIPokerPlayer(PokerPlayer):
         # Store and extract LLM configuration
         self.llm_config = llm_config or {}
         from core.llm.config import DEFAULT_REASONING_EFFORT
+
         provider = self.llm_config.get("provider", "openai")
         model = self.llm_config.get("model")  # Let provider use its default if None
         reasoning_effort = self.llm_config.get("reasoning_effort", DEFAULT_REASONING_EFFORT)
@@ -135,7 +134,7 @@ class AIPokerPlayer(PokerPlayer):
             call_type=CallType.PLAYER_DECISION,
             player_name=name,
             game_id=game_id,
-            owner_id=owner_id
+            owner_id=owner_id,
         )
 
         # Hand strategy persistence
@@ -156,8 +155,12 @@ class AIPokerPlayer(PokerPlayer):
             "game_id": self.game_id if hasattr(self, 'game_id') else None,
             "owner_id": self.owner_id if hasattr(self, 'owner_id') else None,
             "assistant": self.assistant.to_dict() if self.assistant else None,
-            "current_hand_strategy": self.current_hand_strategy if hasattr(self, 'current_hand_strategy') else None,
-            "hand_action_count": self.hand_action_count if hasattr(self, 'hand_action_count') else 0
+            "current_hand_strategy": self.current_hand_strategy
+            if hasattr(self, 'current_hand_strategy')
+            else None,
+            "hand_action_count": self.hand_action_count
+            if hasattr(self, 'hand_action_count')
+            else 0,
         }
 
     @classmethod
@@ -180,7 +183,7 @@ class AIPokerPlayer(PokerPlayer):
                 starting_money=starting_money,
                 llm_config=llm_config,
                 game_id=game_id,
-                owner_id=owner_id
+                owner_id=owner_id,
             )
             instance.cards = CardSet()
             instance.cards.add_cards(cards)
@@ -192,9 +195,7 @@ class AIPokerPlayer(PokerPlayer):
             # Restore assistant from dict if available
             if assistant_dict:
                 instance.assistant = Assistant.from_dict(
-                    assistant_dict,
-                    call_type=CallType.PLAYER_DECISION,
-                    player_name=name
+                    assistant_dict, call_type=CallType.PLAYER_DECISION, player_name=name
                 )
 
             # Restore hand strategy persistence
@@ -235,7 +236,13 @@ class AIPokerPlayer(PokerPlayer):
         # Keep the last N exchanges for continuity
         memory.trim_to_exchanges(MEMORY_TRIM_KEEP_EXCHANGES)
 
-    def initialize_attribute(self, attribute: str, constraints: str = DEFAULT_CONSTRAINTS, opponents: str = "other players", mood: int or None = None) -> str:
+    def initialize_attribute(
+        self,
+        attribute: str,
+        constraints: str = DEFAULT_CONSTRAINTS,
+        opponents: str = "other players",
+        mood: int or None = None,
+    ) -> str:
         """
         Initializes the attribute for the player's inner voice.
 
@@ -278,20 +285,20 @@ class AIPokerPlayer(PokerPlayer):
             return responses[0]
         else:
             return responses[mood]
-    
+
     def _load_personality_config(self):
         """Load personality configuration using the personality generator."""
         # Initialize the shared generator if not already created
         if AIPokerPlayer._personality_generator is None:
             AIPokerPlayer._personality_generator = PersonalityGenerator()
-        
+
         # Use the generator which handles the hierarchy:
         # 1. Memory cache
         # 2. Database
         # 3. personalities.json
         # 4. AI generation
         return AIPokerPlayer._personality_generator.get_personality(self.name)
-    
+
     def _default_personality_config(self):
         """Return default personality configuration.
 
@@ -311,8 +318,8 @@ class AIPokerPlayer(PokerPlayer):
                 "aggression": 0.5,
                 "confidence": 0.5,
                 "composure": 0.7,
-                "table_talk": 0.5
-            }
+                "table_talk": 0.5,
+            },
         }
 
     def persona_prompt(self):
@@ -324,19 +331,19 @@ class AIPokerPlayer(PokerPlayer):
         else:
             # Use a default example
             example = json.dumps(PERSONA_EXAMPLES['Eeyore']['sample_response'], indent=2)
-        
+
         base_prompt = self.prompt_manager.render_prompt(
             'poker_player',
             name=self.name,
             attitude=self.attitude,
             confidence=self.confidence,
             money=self.money,
-            json_template=json.dumps(RESPONSE_FORMAT, indent=2)
+            json_template=json.dumps(RESPONSE_FORMAT, indent=2),
         )
-        
+
         # Add example response
         return f"{base_prompt}\n\nExample response:\n{example}"
-    
+
     def adjust_strategy_based_on_state(self):
         """Dynamically adjust strategy based on current game state."""
         if self.money < 1000:  # Low on chips
@@ -345,7 +352,7 @@ class AIPokerPlayer(PokerPlayer):
             return "You're the chip leader. Use your stack to pressure opponents."
         else:
             return ""
-    
+
     def get_personality_modifier(self, traits: Optional[Dict[str, float]] = None):
         """
         Get personality-specific play instructions based on trait values.
@@ -454,7 +461,7 @@ class AIPokerPlayer(PokerPlayer):
         try:
             # Increment action count before getting response
             self.hand_action_count += 1
-            
+
             # Add context about strategy requirement
             if self.hand_action_count == 1:
                 message += "\n\nThis is your FIRST action this hand. You must set your 'hand_strategy' for the entire hand."
@@ -463,16 +470,16 @@ class AIPokerPlayer(PokerPlayer):
                     f"\n\nYour plan from earlier this hand: '{self.current_hand_strategy}'\n"
                     f"Has the board changed your plan? Follow through or adjust."
                 )
-            
+
             player_response = json.loads(self.assistant.chat(message, json_format=True))
-            
+
             # Lock in hand strategy on first action
             if self.hand_action_count == 1 and 'hand_strategy' in player_response:
                 self.current_hand_strategy = player_response['hand_strategy']
             elif self.current_hand_strategy and 'hand_strategy' in player_response:
                 # Override any attempt to change strategy mid-hand
                 player_response['hand_strategy'] = self.current_hand_strategy
-                
+
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"Error decoding player response: {e}")
             player_response = {"error": "Invalid response from assistant"}
@@ -505,7 +512,9 @@ class AIPokerPlayer(PokerPlayer):
         action_comment_list = [action.action_comment for action in hand_state["poker_actions"]]
         action_summary = "We're just getting started! You're first to go."
         if len(action_comment_list) > 0:
-            action_summary = hand_state["table_manager"].summarize_actions_for_player(action_comment_list[-number_of_opponents:], self.name)
+            action_summary = hand_state["table_manager"].summarize_actions_for_player(
+                action_comment_list[-number_of_opponents:], self.name
+            )
 
         persona_state = (
             f"Persona: {persona}\n"
@@ -530,16 +539,21 @@ class AIPokerPlayer(PokerPlayer):
             f"Your cost to call: ${cost_to_call}\n"
         )
 
-        hand_update_message = persona_state + hand_state + pot_state + (
-            #f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
-            # f"Remember, you're feeling {attitude} and {confidence}.\n"
-            f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
-            f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
-            f"You cannot bet more than you have, ${player_money}.\n"
-            f"You must select from these options: {player_options}\n"
-            f"IMPORTANT: If raising, 'raise_to' is the TOTAL amount you want to bet (not an increment).\n"
-            f"Example: To raise to $300 total, set raise_to=300.\n"
-            f"What is your move, {persona}?\n\n"
+        hand_update_message = (
+            persona_state
+            + hand_state
+            + pot_state
+            + (
+                # f"You have {hole_cards} in your hand.\n"  # The current bet is ${current_bet} and
+                # f"Remember, you're feeling {attitude} and {confidence}.\n"
+                f"Consider the strength of your hand relative to the pot and the likelihood that your opponents might have stronger hands. "
+                f"Preserve your chips for when the odds are in your favor, and remember that sometimes folding or checking is the best move. "
+                f"You cannot bet more than you have, ${player_money}.\n"
+                f"You must select from these options: {player_options}\n"
+                f"IMPORTANT: If raising, 'raise_to' is the TOTAL amount you want to bet (not an increment).\n"
+                f"Example: To raise to $300 total, set raise_to=300.\n"
+                f"What is your move, {persona}?\n\n"
+            )
         )
 
         return hand_update_message

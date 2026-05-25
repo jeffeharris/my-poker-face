@@ -1,11 +1,12 @@
 """Game state repository — game CRUD, messages, AI state, emotional/controller state, opponent models."""
+
 import json
 import logging
-from datetime import datetime
-from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.repositories.base_repository import BaseRepository, retry_on_lock
 from poker.repositories.serialization import restore_state_from_dict
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SavedGame:
     """Represents a saved game with metadata."""
+
     game_id: str
     created_at: datetime
     updated_at: datetime
@@ -38,27 +40,26 @@ class GameRepository(BaseRepository):
     def save_coach_mode(self, game_id: str, mode: str) -> None:
         """Persist coach mode preference for a game."""
         with self._get_connection() as conn:
-            conn.execute(
-                "UPDATE games SET coach_mode = ? WHERE game_id = ?",
-                (mode, game_id)
-            )
+            conn.execute("UPDATE games SET coach_mode = ? WHERE game_id = ?", (mode, game_id))
 
     def load_coach_mode(self, game_id: str) -> str:
         """Load coach mode preference for a game. Defaults to 'off'."""
         with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT coach_mode FROM games WHERE game_id = ?",
-                (game_id,)
-            )
+            cursor = conn.execute("SELECT coach_mode FROM games WHERE game_id = ?", (game_id,))
             row = cursor.fetchone()
             return row[0] if row and row[0] else 'off'
 
     # --- Game CRUD ---
 
     @retry_on_lock()
-    def save_game(self, game_id: str, state_machine: PokerStateMachine,
-                  owner_id: Optional[str] = None, owner_name: Optional[str] = None,
-                  llm_configs: Optional[Dict] = None) -> None:
+    def save_game(
+        self,
+        game_id: str,
+        state_machine: PokerStateMachine,
+        owner_id: Optional[str] = None,
+        owner_name: Optional[str] = None,
+        llm_configs: Optional[Dict] = None,
+    ) -> None:
         """Save a game state to the database.
 
         Args:
@@ -92,7 +93,8 @@ class GameRepository(BaseRepository):
             # Use ON CONFLICT DO UPDATE to preserve columns not being updated
             # (like debug_capture_enabled) instead of INSERT OR REPLACE which
             # deletes and re-inserts, resetting unspecified columns to defaults
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO games
                 (game_id, updated_at, phase, num_players, pot_size, game_state_json, owner_id, owner_name, llm_configs_json)
                 VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
@@ -105,25 +107,23 @@ class GameRepository(BaseRepository):
                     owner_id = excluded.owner_id,
                     owner_name = excluded.owner_name,
                     llm_configs_json = COALESCE(excluded.llm_configs_json, games.llm_configs_json)
-            """, (
-                game_id,
-                state_machine.current_phase.value,
-                len(game_state.players),
-                game_state.pot['total'],
-                game_json,
-                owner_id,
-                owner_name,
-                llm_configs_json
-            ))
+            """,
+                (
+                    game_id,
+                    state_machine.current_phase.value,
+                    len(game_state.players),
+                    game_state.pot['total'],
+                    game_json,
+                    owner_id,
+                    owner_name,
+                    llm_configs_json,
+                ),
+            )
 
     def load_game(self, game_id: str) -> Optional[PokerStateMachine]:
         """Load a game state from the database."""
         with self._get_connection() as conn:
-
-            cursor = conn.execute(
-                "SELECT * FROM games WHERE game_id = ?",
-                (game_id,)
-            )
+            cursor = conn.execute("SELECT * FROM games WHERE game_id = ?", (game_id,))
             row = cursor.fetchone()
 
             if not row:
@@ -139,12 +139,15 @@ class GameRepository(BaseRepository):
                     phase_value = int(phase_value)
                 phase = PokerPhase(phase_value)
             except (ValueError, KeyError):
-                logger.warning(f"[RESTORE] Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND")
+                logger.warning(
+                    f"[RESTORE] Could not restore phase {state_dict.get('current_phase')}, using INITIALIZING_HAND"
+                )
                 phase = PokerPhase.INITIALIZING_HAND
 
             # Create state machine with the loaded state and phase
             sm = PokerStateMachine.from_saved_state(
-                game_state, phase,
+                game_state,
+                phase,
                 blind_config=state_dict.get('blind_config'),
                 hand_count=state_dict.get('stats_hand_count', 0),
             )
@@ -171,10 +174,8 @@ class GameRepository(BaseRepository):
             Dict with 'player_llm_configs' and 'default_llm_config', or None if not found
         """
         with self._get_connection() as conn:
-
             cursor = conn.execute(
-                "SELECT llm_configs_json FROM games WHERE game_id = ?",
-                (game_id,)
+                "SELECT llm_configs_json FROM games WHERE game_id = ?", (game_id,)
             )
             row = cursor.fetchone()
 
@@ -222,13 +223,16 @@ class GameRepository(BaseRepository):
         tracker_json = json.dumps(tracker_dict)
 
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO tournament_tracker (game_id, tracker_json, updated_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(game_id) DO UPDATE SET
                     tracker_json = excluded.tracker_json,
                     updated_at = CURRENT_TIMESTAMP
-            """, (game_id, tracker_json))
+            """,
+                (game_id, tracker_json),
+            )
 
     def load_tournament_tracker(self, game_id: str) -> Optional[Dict[str, Any]]:
         """Load tournament tracker state from the database.
@@ -241,8 +245,7 @@ class GameRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT tracker_json FROM tournament_tracker WHERE game_id = ?",
-                (game_id,)
+                "SELECT tracker_json FROM tournament_tracker WHERE game_id = ?", (game_id,)
             )
             row = cursor.fetchone()
 
@@ -251,36 +254,46 @@ class GameRepository(BaseRepository):
 
             return json.loads(row[0])
 
-    def list_games(self, owner_id: Optional[str] = None, limit: int = 20, offset: int = 0) -> List[SavedGame]:
+    def list_games(
+        self, owner_id: Optional[str] = None, limit: int = 20, offset: int = 0
+    ) -> List[SavedGame]:
         """List saved games, most recently updated first. Filter by owner_id if provided."""
         with self._get_connection() as conn:
             if owner_id:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT * FROM games
                     WHERE owner_id = ?
                     ORDER BY updated_at DESC
                     LIMIT ? OFFSET ?
-                """, (owner_id, limit, offset))
+                """,
+                    (owner_id, limit, offset),
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT * FROM games
                     ORDER BY updated_at DESC
                     LIMIT ? OFFSET ?
-                """, (limit, offset))
+                """,
+                    (limit, offset),
+                )
 
             games = []
             for row in cursor:
-                games.append(SavedGame(
-                    game_id=row['game_id'],
-                    created_at=datetime.fromisoformat(row['created_at']),
-                    updated_at=datetime.fromisoformat(row['updated_at']),
-                    phase=row['phase'],
-                    num_players=row['num_players'],
-                    pot_size=row['pot_size'],
-                    game_state_json=row['game_state_json'],
-                    owner_id=row['owner_id'],
-                    owner_name=row['owner_name']
-                ))
+                games.append(
+                    SavedGame(
+                        game_id=row['game_id'],
+                        created_at=datetime.fromisoformat(row['created_at']),
+                        updated_at=datetime.fromisoformat(row['updated_at']),
+                        phase=row['phase'],
+                        num_players=row['num_players'],
+                        pot_size=row['pot_size'],
+                        game_state_json=row['game_state_json'],
+                        owner_id=row['owner_id'],
+                        owner_name=row['owner_name'],
+                    )
+                )
 
             return games
 
@@ -313,21 +326,26 @@ class GameRepository(BaseRepository):
     def save_message(self, game_id: str, message_type: str, message_text: str) -> None:
         """Save a game message/event."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO game_messages (game_id, message_type, message_text)
                 VALUES (?, ?, ?)
-            """, (game_id, message_type, message_text))
+            """,
+                (game_id, message_type, message_text),
+            )
 
     def load_messages(self, game_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Load recent messages for a game."""
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM game_messages
                 WHERE game_id = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (game_id, limit))
+            """,
+                (game_id, limit),
+            )
 
             messages = []
             for row in cursor:
@@ -338,56 +356,72 @@ class GameRepository(BaseRepository):
                 else:
                     sender = 'System'
                     content = text
-                messages.append({
-                    'id': str(row['id']),
-                    'timestamp': row['timestamp'],
-                    'type': row['message_type'],
-                    'sender': sender,
-                    'content': content
-                })
+                messages.append(
+                    {
+                        'id': str(row['id']),
+                        'timestamp': row['timestamp'],
+                        'type': row['message_type'],
+                        'sender': sender,
+                        'content': content,
+                    }
+                )
 
             return list(reversed(messages))  # Return in chronological order
 
     # --- AI Player State ---
 
     @retry_on_lock()
-    def save_ai_player_state(self, game_id: str, player_name: str,
-                            messages: List[Dict[str, str]],
-                            personality_state: Dict[str, Any]) -> None:
+    def save_ai_player_state(
+        self,
+        game_id: str,
+        player_name: str,
+        messages: List[Dict[str, str]],
+        personality_state: Dict[str, Any],
+    ) -> None:
         """Save AI player conversation history and personality state."""
         with self._get_connection() as conn:
             conversation_history = json.dumps(messages)
             personality_json = json.dumps(personality_state)
 
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO ai_player_state
                 (game_id, player_name, conversation_history, personality_state)
                 VALUES (?, ?, ?, ?)
-            """, (game_id, player_name, conversation_history, personality_json))
+            """,
+                (game_id, player_name, conversation_history, personality_json),
+            )
 
     def load_ai_player_states(self, game_id: str) -> Dict[str, Dict[str, Any]]:
         """Load all AI player states for a game."""
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT player_name, conversation_history, personality_state
                 FROM ai_player_state
                 WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             ai_states = {}
             for row in cursor.fetchall():
                 ai_states[row['player_name']] = {
                     'messages': json.loads(row['conversation_history']),
-                    'personality_state': json.loads(row['personality_state'])
+                    'personality_state': json.loads(row['personality_state']),
                 }
 
             return ai_states
 
     @retry_on_lock()
-    def save_personality_snapshot(self, game_id: str, player_name: str,
-                                 hand_number: int, traits: Dict[str, Any],
-                                 pressure_levels: Optional[Dict[str, float]] = None) -> None:
+    def save_personality_snapshot(
+        self,
+        game_id: str,
+        player_name: str,
+        hand_number: int,
+        traits: Dict[str, Any],
+        pressure_levels: Optional[Dict[str, float]] = None,
+    ) -> None:
         """Save a snapshot of personality state for elasticity tracking.
 
         Uses INSERT OR IGNORE so a retry after a successful-but-uncommitted
@@ -396,23 +430,25 @@ class GameRepository(BaseRepository):
         autoincrement PK).
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR IGNORE INTO personality_snapshots
                 (player_name, game_id, hand_number, personality_traits, pressure_levels)
                 VALUES (?, ?, ?, ?, ?)
-            """, (
-                player_name,
-                game_id,
-                hand_number,
-                json.dumps(traits),
-                json.dumps(pressure_levels or {})
-            ))
+            """,
+                (
+                    player_name,
+                    game_id,
+                    hand_number,
+                    json.dumps(traits),
+                    json.dumps(pressure_levels or {}),
+                ),
+            )
 
     # --- Emotional State ---
 
     @retry_on_lock()
-    def save_emotional_state(self, game_id: str, player_name: str,
-                             emotional_state) -> None:
+    def save_emotional_state(self, game_id: str, player_name: str, emotional_state) -> None:
         """Save emotional state for a player.
 
         Args:
@@ -426,28 +462,33 @@ class GameRepository(BaseRepository):
             state_dict = emotional_state
 
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO emotional_state
                 (game_id, player_name, valence, arousal, control, focus,
                  narrative, inner_voice, generated_at_hand, source_events,
                  metadata_json, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                game_id,
-                player_name,
-                state_dict.get('valence', 0.0),
-                state_dict.get('arousal', 0.5),
-                state_dict.get('control', 0.5),
-                state_dict.get('focus', 0.5),
-                state_dict.get('narrative', ''),
-                state_dict.get('inner_voice', ''),
-                state_dict.get('generated_at_hand', 0),
-                json.dumps(state_dict.get('source_events', [])),
-                json.dumps({
-                    'created_at': state_dict.get('created_at'),
-                    'used_fallback': state_dict.get('used_fallback', False)
-                })
-            ))
+            """,
+                (
+                    game_id,
+                    player_name,
+                    state_dict.get('valence', 0.0),
+                    state_dict.get('arousal', 0.5),
+                    state_dict.get('control', 0.5),
+                    state_dict.get('focus', 0.5),
+                    state_dict.get('narrative', ''),
+                    state_dict.get('inner_voice', ''),
+                    state_dict.get('generated_at_hand', 0),
+                    json.dumps(state_dict.get('source_events', [])),
+                    json.dumps(
+                        {
+                            'created_at': state_dict.get('created_at'),
+                            'used_fallback': state_dict.get('used_fallback', False),
+                        }
+                    ),
+                ),
+            )
 
     @staticmethod
     def _build_emotional_state_dict(row) -> Dict[str, Any]:
@@ -463,7 +504,7 @@ class GameRepository(BaseRepository):
             'generated_at_hand': row['generated_at_hand'],
             'source_events': json.loads(row['source_events']) if row['source_events'] else [],
             'created_at': metadata.get('created_at'),
-            'used_fallback': metadata.get('used_fallback', False)
+            'used_fallback': metadata.get('used_fallback', False),
         }
 
     def load_emotional_state(self, game_id: str, player_name: str) -> Optional[Dict[str, Any]]:
@@ -473,10 +514,13 @@ class GameRepository(BaseRepository):
             Dict suitable for EmotionalState.from_dict(), or None if not found
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM emotional_state
                 WHERE game_id = ? AND player_name = ?
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -491,10 +535,13 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> emotional_state dict
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM emotional_state
                 WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             return {
                 row['player_name']: self._build_emotional_state_dict(row)
@@ -514,9 +561,13 @@ class GameRepository(BaseRepository):
     # --- Controller State ---
 
     @retry_on_lock()
-    def save_controller_state(self, game_id: str, player_name: str,
-                              psychology: Dict[str, Any],
-                              prompt_config: Optional[Dict[str, Any]] = None) -> None:
+    def save_controller_state(
+        self,
+        game_id: str,
+        player_name: str,
+        psychology: Dict[str, Any],
+        prompt_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Save unified psychology state and prompt config for a player.
 
         Args:
@@ -526,16 +577,19 @@ class GameRepository(BaseRepository):
             prompt_config: Dict from PromptConfig.to_dict() (optional)
         """
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO controller_state
                 (game_id, player_name, psychology_json, prompt_config_json, updated_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                game_id,
-                player_name,
-                json.dumps(psychology) if psychology else None,
-                json.dumps(prompt_config) if prompt_config else None,
-            ))
+            """,
+                (
+                    game_id,
+                    player_name,
+                    json.dumps(psychology) if psychology else None,
+                    json.dumps(prompt_config) if prompt_config else None,
+                ),
+            )
 
     @staticmethod
     def _build_controller_state_dict(row, player_name: str = '') -> Dict[str, Any]:
@@ -553,8 +607,7 @@ class GameRepository(BaseRepository):
         except (KeyError, IndexError):
             if player_name:
                 logger.debug(
-                    f"psychology_json column not found for {player_name}; "
-                    "fresh-init fallback"
+                    f"psychology_json column not found for {player_name}; " "fresh-init fallback"
                 )
 
         prompt_config = None
@@ -563,12 +616,16 @@ class GameRepository(BaseRepository):
                 prompt_config = json.loads(row['prompt_config_json'])
         except (KeyError, IndexError):
             if player_name:
-                logger.warning(f"prompt_config_json column not found for {player_name}, using defaults")
+                logger.warning(
+                    f"prompt_config_json column not found for {player_name}, using defaults"
+                )
 
         return {
             'psychology': psychology,
             'tilt_state': json.loads(row['tilt_state_json']) if row['tilt_state_json'] else None,
-            'elastic_personality': json.loads(row['elastic_personality_json']) if row['elastic_personality_json'] else None,
+            'elastic_personality': json.loads(row['elastic_personality_json'])
+            if row['elastic_personality_json']
+            else None,
             'prompt_config': prompt_config,
         }
 
@@ -581,11 +638,14 @@ class GameRepository(BaseRepository):
             and 'prompt_config' keys, or None if not found.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ? AND player_name = ?
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -600,11 +660,14 @@ class GameRepository(BaseRepository):
             Dict mapping player_name -> controller state dict
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT player_name, tilt_state_json, elastic_personality_json, prompt_config_json, psychology_json
                 FROM controller_state
                 WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             return {
                 row['player_name']: self._build_controller_state_dict(row)
@@ -634,9 +697,9 @@ class GameRepository(BaseRepository):
         # before iterating observer entries so we have a name→id map
         # to fall back on for rows where the model row itself doesn't
         # carry an id (legacy snapshots written before commit 5e74854b).
-        name_to_id = models_dict.pop('__name_to_id__', None) if isinstance(
-            models_dict, dict
-        ) else None
+        name_to_id = (
+            models_dict.pop('__name_to_id__', None) if isinstance(models_dict, dict) else None
+        )
 
         def _resolve_id(model_data, name):
             # Prefer per-row id (set when register_player_id ran) and
@@ -657,12 +720,8 @@ class GameRepository(BaseRepository):
             # Detect whether the v86 id columns are present so this save
             # path stays compatible with pre-v86 schemas during a rolling
             # migration window.
-            opp_cols = {
-                row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")
-            }
-            has_id_cols = (
-                'observer_id' in opp_cols and 'opponent_id' in opp_cols
-            )
+            opp_cols = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")}
+            has_id_cols = 'observer_id' in opp_cols and 'opponent_id' in opp_cols
 
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
@@ -688,7 +747,8 @@ class GameRepository(BaseRepository):
                         opponent_id = name_to_id.get(opponent_name)
 
                     if has_id_cols:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             INSERT OR REPLACE INTO opponent_models
                             (game_id, observer_name, opponent_name,
                              observer_id, opponent_id,
@@ -697,65 +757,73 @@ class GameRepository(BaseRepository):
                              bluff_frequency, showdown_win_rate, recent_trend, notes,
                              tendencies_json, last_updated)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        """, (
-                            game_id,
-                            observer_name,
-                            opponent_name,
-                            observer_id,
-                            opponent_id,
-                            tendencies.get('hands_observed', 0),
-                            tendencies.get('vpip', 0.5),
-                            tendencies.get('pfr', 0.5),
-                            tendencies.get('aggression_factor', 1.0),
-                            tendencies.get('fold_to_cbet', 0.5),
-                            tendencies.get('bluff_frequency', 0.3),
-                            tendencies.get('showdown_win_rate', 0.5),
-                            tendencies.get('recent_trend', 'stable'),
-                            notes,
-                            json.dumps(tendencies)
-                        ))
+                        """,
+                            (
+                                game_id,
+                                observer_name,
+                                opponent_name,
+                                observer_id,
+                                opponent_id,
+                                tendencies.get('hands_observed', 0),
+                                tendencies.get('vpip', 0.5),
+                                tendencies.get('pfr', 0.5),
+                                tendencies.get('aggression_factor', 1.0),
+                                tendencies.get('fold_to_cbet', 0.5),
+                                tendencies.get('bluff_frequency', 0.3),
+                                tendencies.get('showdown_win_rate', 0.5),
+                                tendencies.get('recent_trend', 'stable'),
+                                notes,
+                                json.dumps(tendencies),
+                            ),
+                        )
                     else:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             INSERT OR REPLACE INTO opponent_models
                             (game_id, observer_name, opponent_name, hands_observed,
                              vpip, pfr, aggression_factor, fold_to_cbet,
                              bluff_frequency, showdown_win_rate, recent_trend, notes,
                              tendencies_json, last_updated)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        """, (
-                            game_id,
-                            observer_name,
-                            opponent_name,
-                            tendencies.get('hands_observed', 0),
-                            tendencies.get('vpip', 0.5),
-                            tendencies.get('pfr', 0.5),
-                            tendencies.get('aggression_factor', 1.0),
-                            tendencies.get('fold_to_cbet', 0.5),
-                            tendencies.get('bluff_frequency', 0.3),
-                            tendencies.get('showdown_win_rate', 0.5),
-                            tendencies.get('recent_trend', 'stable'),
-                            notes,
-                            json.dumps(tendencies)
-                        ))
+                        """,
+                            (
+                                game_id,
+                                observer_name,
+                                opponent_name,
+                                tendencies.get('hands_observed', 0),
+                                tendencies.get('vpip', 0.5),
+                                tendencies.get('pfr', 0.5),
+                                tendencies.get('aggression_factor', 1.0),
+                                tendencies.get('fold_to_cbet', 0.5),
+                                tendencies.get('bluff_frequency', 0.3),
+                                tendencies.get('showdown_win_rate', 0.5),
+                                tendencies.get('recent_trend', 'stable'),
+                                notes,
+                                json.dumps(tendencies),
+                            ),
+                        )
 
                     # Save memorable hands
                     memorable_hands = model_data.get('memorable_hands', [])
                     for hand in memorable_hands:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             INSERT INTO memorable_hands
                             (game_id, observer_name, opponent_name, hand_id,
                              memory_type, impact_score, narrative, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            game_id,
-                            observer_name,
-                            opponent_name,
-                            hand.get('hand_id', 0),
-                            hand.get('memory_type', ''),
-                            hand.get('impact_score', 0.0),
-                            hand.get('narrative', ''),
-                            hand.get('timestamp', datetime.now().isoformat())
-                        ))
+                        """,
+                            (
+                                game_id,
+                                observer_name,
+                                opponent_name,
+                                hand.get('hand_id', 0),
+                                hand.get('memory_type', ''),
+                                hand.get('impact_score', 0.0),
+                                hand.get('narrative', ''),
+                                hand.get('timestamp', datetime.now().isoformat()),
+                            ),
+                        )
 
             logger.debug(f"Saved opponent models for game {game_id}")
 
@@ -768,12 +836,13 @@ class GameRepository(BaseRepository):
         models_dict = {}
 
         with self._get_connection() as conn:
-
-
             # Load all opponent models for this game
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM opponent_models WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             for row in cursor.fetchall():
                 observer_name = row['observer_name']
@@ -783,8 +852,7 @@ class GameRepository(BaseRepository):
                     models_dict[observer_name] = {}
 
                 tendencies_json = (
-                    row['tendencies_json']
-                    if 'tendencies_json' in row.keys() else None
+                    row['tendencies_json'] if 'tendencies_json' in row.keys() else None
                 )
                 tendencies = None
                 if tendencies_json:
@@ -829,12 +897,8 @@ class GameRepository(BaseRepository):
 
                 # Pull v86 id columns if present (None on pre-v86 rows).
                 row_keys = row.keys()
-                observer_id = (
-                    row['observer_id'] if 'observer_id' in row_keys else None
-                )
-                opponent_id = (
-                    row['opponent_id'] if 'opponent_id' in row_keys else None
-                )
+                observer_id = row['observer_id'] if 'observer_id' in row_keys else None
+                opponent_id = row['opponent_id'] if 'opponent_id' in row_keys else None
 
                 models_dict[observer_name][opponent_name] = {
                     'observer': observer_name,
@@ -843,28 +907,33 @@ class GameRepository(BaseRepository):
                     'opponent_id': opponent_id,
                     'tendencies': tendencies,
                     'memorable_hands': [],
-                    'narrative_observations': narrative_observations
+                    'narrative_observations': narrative_observations,
                 }
 
             # Load memorable hands
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM memorable_hands WHERE game_id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             for row in cursor.fetchall():
                 observer_name = row['observer_name']
                 opponent_name = row['opponent_name']
 
                 if observer_name in models_dict and opponent_name in models_dict[observer_name]:
-                    models_dict[observer_name][opponent_name]['memorable_hands'].append({
-                        'hand_id': row['hand_id'],
-                        'memory_type': row['memory_type'],
-                        'opponent_name': opponent_name,
-                        'impact_score': row['impact_score'],
-                        'narrative': row['narrative'] or '',
-                        'hand_summary': '',  # Not stored in DB
-                        'timestamp': row['created_at'] or datetime.now().isoformat()
-                    })
+                    models_dict[observer_name][opponent_name]['memorable_hands'].append(
+                        {
+                            'hand_id': row['hand_id'],
+                            'memory_type': row['memory_type'],
+                            'opponent_name': opponent_name,
+                            'impact_score': row['impact_score'],
+                            'narrative': row['narrative'] or '',
+                            'hand_summary': '',  # Not stored in DB
+                            'timestamp': row['created_at'] or datetime.now().isoformat(),
+                        }
+                    )
 
         if models_dict:
             logger.debug(f"Loaded opponent models for game {game_id}: {len(models_dict)} observers")
@@ -890,9 +959,7 @@ class GameRepository(BaseRepository):
         return models_dict
 
     def load_cross_session_opponent_models(
-        self,
-        observer_name: str,
-        user_id: str
+        self, observer_name: str, user_id: str
     ) -> Dict[str, dict]:
         """Aggregate opponent stats across all games for this user.
 
@@ -921,7 +988,8 @@ class GameRepository(BaseRepository):
 
         with self._get_connection() as conn:
             # Aggregate stats across all games for this user
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     om.opponent_name,
                     COUNT(DISTINCT om.game_id) as session_count,
@@ -936,7 +1004,9 @@ class GameRepository(BaseRepository):
                   AND g.owner_id = ?
                   AND om.hands_observed > 0
                 GROUP BY om.opponent_name
-            """, (observer_name, user_id))
+            """,
+                (observer_name, user_id),
+            )
 
             for row in cursor.fetchall():
                 opponent_name = row['opponent_name']
@@ -978,7 +1048,9 @@ class GameRepository(BaseRepository):
                 }
 
         if result:
-            logger.debug(f"Loaded cross-session opponent models for {observer_name}: {len(result)} opponents")
+            logger.debug(
+                f"Loaded cross-session opponent models for {observer_name}: {len(result)} opponents"
+            )
 
         return result
 

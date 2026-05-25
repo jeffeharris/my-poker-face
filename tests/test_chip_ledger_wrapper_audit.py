@@ -70,10 +70,18 @@ class TestWrapperToAudit:
     def test_player_seed_helper_shows_up_in_audit(self, env):
         db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo = env
         chip_ledger.record_player_seed(
-            ledger_repo, owner_id='alice', amount=200,
+            ledger_repo,
+            owner_id='alice',
+            amount=200,
         )
-        data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo,
-                      datetime(2026, 5, 18, 12, 0, 0))
+        data = _audit(
+            db_path,
+            bankroll_repo,
+            cash_table_repo,
+            ledger_repo,
+            stake_repo,
+            datetime(2026, 5, 18, 12, 0, 0),
+        )
         assert data['by_reason']['player_seed'] == 200
         assert data['ledger_totals']['chips_created'] == 200
 
@@ -82,19 +90,34 @@ class TestWrapperToAudit:
         chip_ledger.record_ai_regen(
             ledger_repo,
             personality_id='zeus',
-            stored_chips=1000, projected_chips=1500,
+            stored_chips=1000,
+            projected_chips=1500,
         )
-        data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo,
-                      datetime(2026, 5, 18, 12, 0, 0))
+        data = _audit(
+            db_path,
+            bankroll_repo,
+            cash_table_repo,
+            ledger_repo,
+            stake_repo,
+            datetime(2026, 5, 18, 12, 0, 0),
+        )
         assert data['by_reason']['ai_regen'] == 500
 
     def test_cap_clamp_helper_shows_up_in_audit_as_destruction(self, env):
         db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo = env
         chip_ledger.record_cap_clamp(
-            ledger_repo, personality_id='zeus', overflow=300,
+            ledger_repo,
+            personality_id='zeus',
+            overflow=300,
         )
-        data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo,
-                      datetime(2026, 5, 18, 12, 0, 0))
+        data = _audit(
+            db_path,
+            bankroll_repo,
+            cash_table_repo,
+            ledger_repo,
+            stake_repo,
+            datetime(2026, 5, 18, 12, 0, 0),
+        )
         assert data['by_reason']['cap_clamp'] == -300
         assert data['ledger_totals']['chips_destroyed'] == 300
 
@@ -102,17 +125,29 @@ class TestWrapperToAudit:
         """Full house-archetype stake lifecycle: issue + settle + forgive."""
         db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo = env
         chip_ledger.record_house_stake_issue(
-            ledger_repo, owner_id='alice', amount=200,
+            ledger_repo,
+            owner_id='alice',
+            amount=200,
         )
         chip_ledger.record_house_stake_settle(
-            ledger_repo, owner_id='alice', amount=50,
+            ledger_repo,
+            owner_id='alice',
+            amount=50,
         )
         chip_ledger.record_forgive_balance(
-            ledger_repo, owner_id='alice', forgiven_principal=150,
+            ledger_repo,
+            owner_id='alice',
+            forgiven_principal=150,
         )
 
-        data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo,
-                      datetime(2026, 5, 18, 12, 0, 0))
+        data = _audit(
+            db_path,
+            bankroll_repo,
+            cash_table_repo,
+            ledger_repo,
+            stake_repo,
+            datetime(2026, 5, 18, 12, 0, 0),
+        )
         assert data['by_reason']['house_stake_issue'] == 200
         assert data['by_reason']['house_stake_settle'] == -50
         # Annotation visible at zero (not eaten by SUM(amount=0)).
@@ -133,8 +168,14 @@ class TestWrapperToAudit:
             reason='made_up_reason',
         )
         assert eid is None
-        data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo,
-                      datetime(2026, 5, 18, 12, 0, 0))
+        data = _audit(
+            db_path,
+            bankroll_repo,
+            cash_table_repo,
+            ledger_repo,
+            stake_repo,
+            datetime(2026, 5, 18, 12, 0, 0),
+        )
         assert data['by_reason'] == {}
         assert data['ledger_totals']['outstanding'] == 0
 
@@ -145,13 +186,19 @@ class TestWrapperToAudit:
         now = datetime(2026, 5, 18, 12, 0, 0)
 
         # State the audit will see.
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id='alice', chips=200, starting_bankroll=200,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id='alice',
+                chips=200,
+                starting_bankroll=200,
+            )
+        )
 
         # Ledger fired through the wrapper.
         chip_ledger.record_player_seed(
-            ledger_repo, owner_id='alice', amount=200,
+            ledger_repo,
+            owner_id='alice',
+            amount=200,
         )
 
         data = _audit(db_path, bankroll_repo, cash_table_repo, ledger_repo, stake_repo, now)

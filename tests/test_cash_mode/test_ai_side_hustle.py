@@ -96,8 +96,10 @@ class TestHustleAmount:
 
     def test_below_min_amount_returns_zero(self):
         # Tiny starting bankroll → rolled amount below the floor.
-        assert compute_hustle_amount(10, 200, _FixedRng()) < HUSTLE_MIN_AMOUNT \
+        assert (
+            compute_hustle_amount(10, 200, _FixedRng()) < HUSTLE_MIN_AMOUNT
             or compute_hustle_amount(10, 200, _FixedRng()) == 0
+        )
 
 
 # --- Integration fixtures ---------------------------------------------------
@@ -123,21 +125,25 @@ def _seed_bankroll(repos, pid, chips):
 def _seed_pool(repos, amount):
     """Deposit `amount` into the bank pool via a rake destruction."""
     chip_ledger.record_table_rake(
-        repos["ledger"], source=chip_ledger.ai("whale"), amount=amount,
+        repos["ledger"],
+        source=chip_ledger.ai("whale"),
+        amount=amount,
         sandbox_id=SBX,
     )
 
 
 def _insert_expired_hustle(repos, pid, target, *, ends_offset_min=-60):
-    repos["hustle"].insert_side_hustle_state(SideHustleState(
-        personality_id=pid,
-        sandbox_id=SBX,
-        started_at=NOW + timedelta(minutes=ends_offset_min - 60),
-        ends_at=NOW + timedelta(minutes=ends_offset_min),
-        amount=target,
-        duration_bucket="medium",
-        narration=f"{pid} grinding",
-    ))
+    repos["hustle"].insert_side_hustle_state(
+        SideHustleState(
+            personality_id=pid,
+            sandbox_id=SBX,
+            started_at=NOW + timedelta(minutes=ends_offset_min - 60),
+            ends_at=NOW + timedelta(minutes=ends_offset_min),
+            amount=target,
+            duration_bucket="medium",
+            narration=f"{pid} grinding",
+        )
+    )
 
 
 # --- resolve_ai_side_hustle -------------------------------------------------
@@ -173,7 +179,9 @@ class TestResolve:
             candidates={"rich"},
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
-            sandbox_id=SBX, rng=_FixedRng(), now=NOW,
+            sandbox_id=SBX,
+            rng=_FixedRng(),
+            now=NOW,
         )
         assert out == []
         assert repos["hustle"].load("rich", sandbox_id=SBX) is None
@@ -181,14 +189,16 @@ class TestResolve:
     def test_respects_max_starts_neediest_first(self, repos):
         # Three broke AIs at different depths; max_starts=2 selects the
         # two deepest deficits (lowest chips).
-        _seed_bankroll(repos, "deep", 200)      # deficit 0.98
-        _seed_bankroll(repos, "mid", 3_000)     # deficit 0.70
+        _seed_bankroll(repos, "deep", 200)  # deficit 0.98
+        _seed_bankroll(repos, "mid", 3_000)  # deficit 0.70
         _seed_bankroll(repos, "shallow", 6_000)  # deficit 0.40
         out = resolve_ai_side_hustle(
             candidates={"deep", "mid", "shallow"},
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
-            sandbox_id=SBX, rng=_FixedRng(), now=NOW,
+            sandbox_id=SBX,
+            rng=_FixedRng(),
+            now=NOW,
             max_starts=2,
         )
         picked = {r.personality_id for r in out}
@@ -205,7 +215,9 @@ class TestResolve:
             candidates={"napoleon"},
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
-            sandbox_id=SBX, rng=_FixedRng(), now=NOW,
+            sandbox_id=SBX,
+            rng=_FixedRng(),
+            now=NOW,
             narrate_fn=narrate,
         )
         assert "real estate" in out[0].narration
@@ -225,15 +237,15 @@ class TestExpiry:
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
             chip_ledger_repo=repos["ledger"],
-            sandbox_id=SBX, now=NOW,
+            sandbox_id=SBX,
+            now=NOW,
         )
         assert len(out) == 1
         assert isinstance(out[0], HustleEndResult)
         assert out[0].paid_amount == 1925
         assert out[0].target_amount == 1925
         # Bankroll credited.
-        assert repos["bankroll"].load_ai_bankroll(
-            "napoleon", sandbox_id=SBX).chips == 500 + 1925
+        assert repos["bankroll"].load_ai_bankroll("napoleon", sandbox_id=SBX).chips == 500 + 1925
         # Pool drawn down: 5_000 deposit − 1925 draw.
         assert compute_bank_pool_reserves(repos["ledger"], sandbox_id=SBX) == 5_000 - 1925
         # Row gone.
@@ -248,11 +260,11 @@ class TestExpiry:
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
             chip_ledger_repo=repos["ledger"],
-            sandbox_id=SBX, now=NOW,
+            sandbox_id=SBX,
+            now=NOW,
         )
         assert out[0].paid_amount == 1_000
-        assert repos["bankroll"].load_ai_bankroll(
-            "napoleon", sandbox_id=SBX).chips == 500 + 1_000
+        assert repos["bankroll"].load_ai_bankroll("napoleon", sandbox_id=SBX).chips == 500 + 1_000
         # Pool fully drained, not negative.
         assert compute_bank_pool_reserves(repos["ledger"], sandbox_id=SBX) == 0
 
@@ -265,12 +277,12 @@ class TestExpiry:
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
             chip_ledger_repo=repos["ledger"],
-            sandbox_id=SBX, now=NOW,
+            sandbox_id=SBX,
+            now=NOW,
         )
         assert out[0].paid_amount == 0
         # Bankroll unchanged, row still deleted (re-triggers next refresh).
-        assert repos["bankroll"].load_ai_bankroll(
-            "napoleon", sandbox_id=SBX).chips == 500
+        assert repos["bankroll"].load_ai_bankroll("napoleon", sandbox_id=SBX).chips == 500
         assert repos["hustle"].load("napoleon", sandbox_id=SBX) is None
 
     def test_multiple_expiries_share_pool_fifo(self, repos):
@@ -285,7 +297,8 @@ class TestExpiry:
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
             chip_ledger_repo=repos["ledger"],
-            sandbox_id=SBX, now=NOW,
+            sandbox_id=SBX,
+            now=NOW,
         )
         paid = {r.personality_id: r.paid_amount for r in out}
         assert paid["first"] == 1925
@@ -302,9 +315,9 @@ class TestExpiry:
             side_hustle_repo=repos["hustle"],
             bankroll_repo=repos["bankroll"],
             chip_ledger_repo=repos["ledger"],
-            sandbox_id=SBX, now=NOW,
+            sandbox_id=SBX,
+            now=NOW,
         )
         assert out == []
         assert repos["hustle"].load("napoleon", sandbox_id=SBX) is not None
-        assert repos["bankroll"].load_ai_bankroll(
-            "napoleon", sandbox_id=SBX).chips == 500
+        assert repos["bankroll"].load_ai_bankroll("napoleon", sandbox_id=SBX).chips == 500

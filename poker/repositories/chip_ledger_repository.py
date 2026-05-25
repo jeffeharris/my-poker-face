@@ -147,11 +147,7 @@ class ChipLedgerRepository(BaseRepository):
         are excluded — they don't change the curve.
         """
         params: List[Any] = [CENTRAL_BANK, CENTRAL_BANK, since_iso]
-        where = (
-            "amount > 0"
-            " AND (source = ? OR sink = ?)"
-            " AND created_at >= ?"
-        )
+        where = "amount > 0" " AND (source = ? OR sink = ?)" " AND created_at >= ?"
         if sandbox_id is not None:
             where += " AND sandbox_id = ?"
             params.append(sandbox_id)

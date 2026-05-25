@@ -2,9 +2,10 @@
 
 Manages the app_settings table for key-value configuration storage.
 """
-import sqlite3
+
 import logging
-from typing import Optional, Dict, Any
+import sqlite3
+from typing import Any, Dict, Optional
 
 from poker.repositories.base_repository import BaseRepository
 
@@ -26,10 +27,7 @@ class SettingsRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT value FROM app_settings WHERE key = ?",
-                    (key,)
-                )
+                cursor = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
                 row = cursor.fetchone()
                 return row[0] if row else default
         except sqlite3.OperationalError:
@@ -49,14 +47,17 @@ class SettingsRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO app_settings (key, value, description, updated_at)
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(key) DO UPDATE SET
                         value = excluded.value,
                         description = COALESCE(excluded.description, app_settings.description),
                         updated_at = CURRENT_TIMESTAMP
-                """, (key, value, description))
+                """,
+                    (key, value, description),
+                )
                 logger.info(f"Setting '{key}' updated to '{value}'")
                 return True
         except Exception as e:
@@ -98,10 +99,7 @@ class SettingsRepository(BaseRepository):
         """
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM app_settings WHERE key = ?",
-                    (key,)
-                )
+                cursor = conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Failed to delete setting '{key}': {e}")

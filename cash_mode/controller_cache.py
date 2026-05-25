@@ -36,7 +36,6 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Callable, Generic, Tuple, TypeVar
 
-
 DEFAULT_MAX_SIZE = 50
 
 T = TypeVar("T")
@@ -64,7 +63,7 @@ class LruControllerCache(Generic[T]):
         if max_size < 1:
             raise ValueError(f"max_size must be >= 1, got {max_size}")
         self._max_size = max_size
-        self._items: "OrderedDict[str, T]" = OrderedDict()
+        self._items: OrderedDict[str, T] = OrderedDict()
 
     def __len__(self) -> int:
         return len(self._items)
@@ -76,7 +75,7 @@ class LruControllerCache(Generic[T]):
     def max_size(self) -> int:
         return self._max_size
 
-    def get(self, personality_id: str) -> "T | None":
+    def get(self, personality_id: str) -> T | None:
         """Return the cached value or None. Does NOT update LRU order.
 
         Use this when inspecting cache state in tests. Production code

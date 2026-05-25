@@ -1,8 +1,9 @@
 """Hand history repository — hand records, commentary, and session stats."""
+
 import json
 import logging
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from .base_repository import BaseRepository
 
@@ -28,26 +29,29 @@ class HandHistoryRepository(BaseRepository):
             hand_dict = recorded_hand
 
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT OR REPLACE INTO hand_history
                 (game_id, hand_number, timestamp, players_json, hole_cards_json,
                  community_cards_json, actions_json, winners_json, pot_size, showdown, deck_seed,
                  community_cards_by_phase_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                hand_dict['game_id'],
-                hand_dict['hand_number'],
-                hand_dict.get('timestamp', datetime.now().isoformat()),
-                json.dumps(hand_dict.get('players', [])),
-                json.dumps(hand_dict.get('hole_cards', {})),
-                json.dumps(hand_dict.get('community_cards', [])),
-                json.dumps(hand_dict.get('actions', [])),
-                json.dumps(hand_dict.get('winners', [])),
-                hand_dict.get('pot_size', 0),
-                hand_dict.get('was_showdown', False),
-                hand_dict.get('deck_seed'),
-                json.dumps(hand_dict.get('community_cards_by_phase', {}))
-            ))
+            """,
+                (
+                    hand_dict['game_id'],
+                    hand_dict['hand_number'],
+                    hand_dict.get('timestamp', datetime.now().isoformat()),
+                    json.dumps(hand_dict.get('players', [])),
+                    json.dumps(hand_dict.get('hole_cards', {})),
+                    json.dumps(hand_dict.get('community_cards', [])),
+                    json.dumps(hand_dict.get('actions', [])),
+                    json.dumps(hand_dict.get('winners', [])),
+                    hand_dict.get('pot_size', 0),
+                    hand_dict.get('was_showdown', False),
+                    hand_dict.get('deck_seed'),
+                    json.dumps(hand_dict.get('community_cards_by_phase', {})),
+                ),
+            )
 
             hand_id = cursor.lastrowid
             logger.debug(f"Saved hand #{hand_dict['hand_number']} for game {hand_dict['game_id']}")
@@ -64,16 +68,20 @@ class HandHistoryRepository(BaseRepository):
             The database ID if found, None otherwise
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id FROM hand_history
                 WHERE game_id = ? AND hand_number = ?
-            """, (game_id, hand_number))
+            """,
+                (game_id, hand_number),
+            )
             row = cursor.fetchone()
             return row['id'] if row else None
 
     # Hand Commentary Persistence Methods
-    def save_hand_commentary(self, game_id: str, hand_number: int, player_name: str,
-                             commentary) -> None:
+    def save_hand_commentary(
+        self, game_id: str, hand_number: int, player_name: str, commentary
+    ) -> None:
         """Save AI commentary for a completed hand.
 
         Args:
@@ -88,25 +96,29 @@ class HandHistoryRepository(BaseRepository):
             c = commentary
 
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO hand_commentary
                 (game_id, hand_number, player_name, emotional_reaction,
                  strategic_reflection, opponent_observations, key_insight, decision_plans)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                game_id,
-                hand_number,
-                player_name,
-                c.get('emotional_reaction'),
-                c.get('strategic_reflection'),
-                json.dumps(c.get('opponent_observations', [])),
-                c.get('key_insight'),
-                json.dumps(c.get('decision_plans', []))
-            ))
+            """,
+                (
+                    game_id,
+                    hand_number,
+                    player_name,
+                    c.get('emotional_reaction'),
+                    c.get('strategic_reflection'),
+                    json.dumps(c.get('opponent_observations', [])),
+                    c.get('key_insight'),
+                    json.dumps(c.get('decision_plans', [])),
+                ),
+            )
             logger.debug(f"Saved commentary for {player_name} hand #{hand_number}")
 
-    def get_recent_reflections(self, game_id: str, player_name: str,
-                               limit: int = 5) -> List[Dict[str, Any]]:
+    def get_recent_reflections(
+        self, game_id: str, player_name: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
         """Get recent strategic reflections for a player.
 
         Args:
@@ -118,14 +130,17 @@ class HandHistoryRepository(BaseRepository):
             List of dicts with hand_number, strategic_reflection, key_insight
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT hand_number, strategic_reflection, key_insight,
                        opponent_observations
                 FROM hand_commentary
                 WHERE game_id = ? AND player_name = ?
                 ORDER BY hand_number DESC
                 LIMIT ?
-            """, (game_id, player_name, limit))
+            """,
+                (game_id, player_name, limit),
+            )
 
             return [dict(row) for row in cursor.fetchall()]
 
@@ -140,8 +155,7 @@ class HandHistoryRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?",
-                (game_id,)
+                "SELECT MAX(hand_number) FROM hand_history WHERE game_id = ?", (game_id,)
             )
             result = cursor.fetchone()[0]
             return result or 0
@@ -173,7 +187,11 @@ class HandHistoryRepository(BaseRepository):
 
             for row in cursor.fetchall():
                 # Handle community_cards_by_phase_json — may be NULL for older records
-                community_cards_by_phase_raw = row['community_cards_by_phase_json'] if 'community_cards_by_phase_json' in row.keys() else None
+                community_cards_by_phase_raw = (
+                    row['community_cards_by_phase_json']
+                    if 'community_cards_by_phase_json' in row.keys()
+                    else None
+                )
                 hand = {
                     'id': row['id'],
                     'game_id': row['game_id'],
@@ -187,7 +205,9 @@ class HandHistoryRepository(BaseRepository):
                     'pot_size': row['pot_size'] or 0,
                     'was_showdown': bool(row['showdown']),
                     'deck_seed': row['deck_seed'] if 'deck_seed' in row.keys() else None,
-                    'community_cards_by_phase': json.loads(community_cards_by_phase_raw) if community_cards_by_phase_raw else {}
+                    'community_cards_by_phase': json.loads(community_cards_by_phase_raw)
+                    if community_cards_by_phase_raw
+                    else {},
                 }
                 hands.append(hand)
 
@@ -214,13 +234,17 @@ class HandHistoryRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM hand_history WHERE game_id = ? AND hand_number = ?",
-                (game_id, hand_number)
+                (game_id, hand_number),
             )
             row = cursor.fetchone()
             if not row:
                 return None
 
-            community_cards_by_phase_raw = row['community_cards_by_phase_json'] if 'community_cards_by_phase_json' in row.keys() else None
+            community_cards_by_phase_raw = (
+                row['community_cards_by_phase_json']
+                if 'community_cards_by_phase_json' in row.keys()
+                else None
+            )
             return {
                 'id': row['id'],
                 'game_id': row['game_id'],
@@ -234,7 +258,9 @@ class HandHistoryRepository(BaseRepository):
                 'pot_size': row['pot_size'] or 0,
                 'was_showdown': bool(row['showdown']),
                 'deck_seed': row['deck_seed'] if 'deck_seed' in row.keys() else None,
-                'community_cards_by_phase': json.loads(community_cards_by_phase_raw) if community_cards_by_phase_raw else {}
+                'community_cards_by_phase': json.loads(community_cards_by_phase_raw)
+                if community_cards_by_phase_raw
+                else {},
             }
 
     def delete_hand_history_for_game(self, game_id: str) -> None:
@@ -268,17 +294,20 @@ class HandHistoryRepository(BaseRepository):
             'biggest_pot_lost': 0,
             'current_streak': 'neutral',
             'streak_count': 0,
-            'recent_hands': []
+            'recent_hands': [],
         }
 
         with self._get_connection() as conn:
             # Get all hands for this game, ordered by hand_number
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT hand_number, players_json, winners_json, actions_json, pot_size, showdown
                 FROM hand_history
                 WHERE game_id = ?
                 ORDER BY hand_number ASC
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
 
             outcomes = []  # Track outcomes for streak calculation
 
@@ -306,15 +335,13 @@ class HandHistoryRepository(BaseRepository):
 
                 # Calculate amount lost (sum of player's bets)
                 amount_bet = sum(
-                    a.get('amount', 0)
-                    for a in actions
-                    if a.get('player_name') == player_name
+                    a.get('amount', 0) for a in actions if a.get('player_name') == player_name
                 )
 
                 # Determine outcome
                 if player_won:
                     stats['hands_won'] += 1
-                    stats['total_winnings'] += (amount_won - amount_bet)
+                    stats['total_winnings'] += amount_won - amount_bet
                     outcomes.append('won')
                     if pot_size > stats['biggest_pot_won']:
                         stats['biggest_pot_won'] = pot_size
@@ -354,8 +381,9 @@ class HandHistoryRepository(BaseRepository):
                     streak_type = 'winning' if current == 'won' else 'losing'
                     streak_count = 1
                     for outcome in reversed(outcomes[:-1]):
-                        if (streak_type == 'winning' and outcome == 'won') or \
-                           (streak_type == 'losing' and outcome == 'lost'):
+                        if (streak_type == 'winning' and outcome == 'won') or (
+                            streak_type == 'losing' and outcome == 'lost'
+                        ):
                             streak_count += 1
                         else:
                             break
@@ -364,8 +392,9 @@ class HandHistoryRepository(BaseRepository):
 
         return stats
 
-    def get_session_context_for_prompt(self, game_id: str, player_name: str,
-                                        max_recent: int = 3) -> str:
+    def get_session_context_for_prompt(
+        self, game_id: str, player_name: str, max_recent: int = 3
+    ) -> str:
         """Get formatted session context string for AI prompts.
 
         Args:
@@ -383,7 +412,9 @@ class HandHistoryRepository(BaseRepository):
         # Session overview
         if stats['hands_played'] > 0:
             win_rate = (stats['hands_won'] / stats['hands_played']) * 100
-            parts.append(f"Session: {stats['hands_won']}/{stats['hands_played']} hands won ({win_rate:.0f}%)")
+            parts.append(
+                f"Session: {stats['hands_won']}/{stats['hands_played']} hands won ({win_rate:.0f}%)"
+            )
 
             # Net result
             if stats['total_winnings'] > 0:

@@ -15,18 +15,18 @@ from typing import Dict, List, Optional
 
 from .controllers import (
     AIPlayerController,
-    calculate_quick_equity,
     _get_canonical_hand,
+    calculate_quick_equity,
     card_to_string,
 )
-from .rule_strategies import (
-    RuleConfig,
-    BUILT_IN_STRATEGIES,
-    _strategy_custom,
-    _strategy_always_fold,
-)
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
-from .stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+from .rule_strategies import (
+    BUILT_IN_STRATEGIES,
+    RuleConfig,
+    _strategy_always_fold,
+    _strategy_custom,
+)
+from .stack_utils import effective_stack_bb, effective_stack_chips, spr as compute_spr
 from .strategy.hand_classification import (
     RANK_VALUES,
     _classify_straight_draw,
@@ -106,7 +106,9 @@ class RuleBotController(AIPlayerController):
         self._this_hand_starts: Dict[str, int] = {}
         self._last_hand_number: int = -1
 
-        logger.info(f"[RULE_BOT] Created RuleBotController for {player_name} with strategy '{strategy}'")
+        logger.info(
+            f"[RULE_BOT] Created RuleBotController for {player_name} with strategy '{strategy}'"
+        )
 
     def _get_ai_decision(self, message: str, **context) -> Dict:
         """Override: Use rules instead of LLM for decision making.
@@ -130,7 +132,9 @@ class RuleBotController(AIPlayerController):
         elif self.strategy in BUILT_IN_STRATEGIES:
             decision = BUILT_IN_STRATEGIES[self.strategy](rule_context)
         else:
-            logger.warning(f"[RULE_BOT] Unknown strategy: {self.strategy}, defaulting to always_fold")
+            logger.warning(
+                f"[RULE_BOT] Unknown strategy: {self.strategy}, defaulting to always_fold"
+            )
             decision = _strategy_always_fold(rule_context)
 
         # Validate action is in valid options
@@ -164,7 +168,11 @@ class RuleBotController(AIPlayerController):
 
         # Calculate equity
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
-        community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+        community_cards = (
+            [card_to_string(c) for c in game_state.community_cards]
+            if game_state.community_cards
+            else []
+        )
 
         # Count opponents
         opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
@@ -176,7 +184,10 @@ class RuleBotController(AIPlayerController):
 
         # Get equity (post-flop) or estimate (pre-flop)
         if community_cards:
-            equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents) or 0.5
+            equity = (
+                calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+                or 0.5
+            )
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
@@ -203,7 +214,11 @@ class RuleBotController(AIPlayerController):
                 break
 
         # Get phase
-        phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+        phase = (
+            self.state_machine.current_phase.name
+            if self.state_machine.current_phase
+            else 'PRE_FLOP'
+        )
 
         # Get opponent stats if available (for adaptive strategies)
         opp_stats = self._get_opponent_stats(opponents, player.name)
@@ -220,7 +235,8 @@ class RuleBotController(AIPlayerController):
         if self.state_machine:
             _stats = self.state_machine.stats
             hand_number = (
-                _stats.get('hand_count', 0) if isinstance(_stats, dict)
+                _stats.get('hand_count', 0)
+                if isinstance(_stats, dict)
                 else getattr(_stats, 'hand_count', 0)
             )
         if hand_number != self._last_hand_number:
@@ -238,7 +254,8 @@ class RuleBotController(AIPlayerController):
         hand_start_stack = self._this_hand_starts.get(player.name, player.stack)
         if hand_start_stack > 0:
             committed_fraction = max(
-                0.0, (hand_start_stack - player.stack) / hand_start_stack,
+                0.0,
+                (hand_start_stack - player.stack) / hand_start_stack,
             )
         else:
             committed_fraction = 0.0
@@ -259,7 +276,9 @@ class RuleBotController(AIPlayerController):
             try:
                 classification = classify_hand_full(hole_cards, community_cards)
                 has_top_pair_or_better = classification.made_tier in (
-                    'nuts', 'strong_made', 'medium_made',
+                    'nuts',
+                    'strong_made',
+                    'medium_made',
                 )
             except Exception:
                 # Classifier shouldn't fail on valid game cards, but if it
@@ -275,14 +294,10 @@ class RuleBotController(AIPlayerController):
                 if len(c) >= 2:
                     suit_counts[c[1]] = suit_counts.get(c[1], 0) + 1
             hole_suits = {c[1] for c in hole_cards if len(c) >= 2}
-            has_flush_draw = any(
-                cnt >= 4 and s in hole_suits for s, cnt in suit_counts.items()
-            )
+            has_flush_draw = any(cnt >= 4 and s in hole_suits for s, cnt in suit_counts.items())
             # OESD: use the existing helper. Convert cards to int ranks.
             try:
-                all_ranks = sorted(
-                    {RANK_VALUES[c[0]] for c in hole_cards + community_cards}
-                )
+                all_ranks = sorted({RANK_VALUES[c[0]] for c in hole_cards + community_cards})
                 has_oesd = _classify_straight_draw(all_ranks) == 'oesd'
             except (KeyError, ValueError):
                 pass
@@ -297,7 +312,11 @@ class RuleBotController(AIPlayerController):
         # means it under-calls medium bets. Adding them gives the base
         # behavior the smoke-test baseline already assumes.
         canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
-        is_pair = bool(canonical_hand) and len(canonical_hand) == 2 and canonical_hand[0] == canonical_hand[1]
+        is_pair = (
+            bool(canonical_hand)
+            and len(canonical_hand) == 2
+            and canonical_hand[0] == canonical_hand[1]
+        )
         is_suited = canonical_hand.endswith('s')
 
         return {

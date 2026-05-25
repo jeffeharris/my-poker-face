@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Dict, Optional
 from unittest.mock import MagicMock
 
+from cash_mode import lobby
 from cash_mode.activity import (
     EVENT_LAST_STAND,
     clear_events,
@@ -23,7 +24,6 @@ from cash_mode.activity import (
     format_player_last_stand_message,
     recent_events,
 )
-from cash_mode import lobby
 from cash_mode.lobby import (
     _committed_seated_ais,
     _emit_last_stand_events,
@@ -83,11 +83,13 @@ class TestCommittedSeatedAis(unittest.TestCase):
         self.assertEqual(out, {})
 
     def test_excludes_non_ai_and_unknown_reserve(self):
-        table = _table(seats=[
-            {"kind": "open"},
-            {"kind": "human", "personality_id": "owner-1", "chips": 500},
-            _ai("ghost", 500),  # no reserve row -> lookup returns None
-        ])
+        table = _table(
+            seats=[
+                {"kind": "open"},
+                {"kind": "human", "personality_id": "owner-1", "chips": 500},
+                _ai("ghost", 500),  # no reserve row -> lookup returns None
+            ]
+        )
         out = _committed_seated_ais(
             table,
             reserve_lookup=self.reserve_lookup,  # "ghost" absent -> None

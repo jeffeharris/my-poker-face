@@ -3,6 +3,7 @@ Centralized prompt management for AI players.
 
 Loads prompt templates from YAML files with optional hot-reload in development mode.
 """
+
 import hashlib
 import json
 import logging
@@ -10,9 +11,9 @@ import re
 import threading
 import time
 import weakref
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional, Set
-from dataclasses import dataclass, field
 
 import yaml
 
@@ -24,6 +25,7 @@ _FORMAT_PLACEHOLDER_RE = re.compile(r'\{([^}:!]+)(?:[!:][^}]*)?\}')
 
 # Regex to validate safe variable names (no private/dunder access)
 _SAFE_VARIABLE_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
+
 
 def _safe_pot_odds(value, default: float = 0.0) -> float:
     """Coerce a possibly-None ``pot_odds`` value to a numeric default.
@@ -47,7 +49,7 @@ DRAMA_CONTEXTS = {
     'routine': "RESPONSE STYLE: Minimal. Skip dramatic_sequence or one brief beat max.",
     'notable': "RESPONSE STYLE: Brief. One or two beats in dramatic_sequence.",
     'high_stakes': "RESPONSE STYLE: Expressive. Build your dramatic_sequence with 2-3 beats.",
-    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal."
+    'climactic': "RESPONSE STYLE: Theatrical. Build tension in dramatic_sequence - 3-5 beats, savor the reveal.",
 }
 
 # Tone modifiers that append to drama context based on hand strength
@@ -55,7 +57,7 @@ TONE_MODIFIERS = {
     'neutral': "",
     'confident': " Channel quiet confidence - you know you have the goods.",
     'desperate': " Show the pressure - this is do-or-die, make it feel that way.",
-    'triumphant': " Savor the moment - you've got them right where you want them."
+    'triumphant': " Savor the moment - you've got them right where you want them.",
 }
 
 
@@ -171,6 +173,7 @@ def compute_prompt_hash(text: str) -> str:
 @dataclass
 class PromptTemplate:
     """Structured prompt template with configurable sections."""
+
     name: str
     version: str = "1.0.0"
     sections: Dict[str, str] = field(default_factory=dict)
@@ -287,7 +290,7 @@ class PromptManager:
         Uses yaml.safe_load() to prevent arbitrary code execution.
         """
         try:
-            with open(yaml_file, 'r', encoding='utf-8') as f:
+            with open(yaml_file, encoding='utf-8') as f:
                 data = yaml.safe_load(f)
 
             if not data or not isinstance(data, dict):
@@ -300,9 +303,7 @@ class PromptManager:
                 return None
 
             return PromptTemplate(
-                name=name,
-                version=data.get('version', '1.0.0'),
-                sections=data.get('sections', {})
+                name=name, version=data.get('version', '1.0.0'), sections=data.get('sections', {})
             )
         except yaml.YAMLError as e:
             logger.error(f"YAML parse error in {yaml_file.name}: {e}")
@@ -380,8 +381,8 @@ class PromptManager:
         """Spin up the class-level Observer for `key`. Returns the
         Observer instance or None on failure (already logged)."""
         try:
-            from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
+            from watchdog.observers import Observer
 
             class _SharedPromptFileHandler(FileSystemEventHandler):
                 def on_modified(self, event):
@@ -391,16 +392,12 @@ class PromptManager:
                     # Snapshot subscribers under the lock; dispatch outside
                     # to avoid holding it across user-facing reload work.
                     with PromptManager._shared_observer_lock:
-                        snapshot = list(
-                            PromptManager._shared_subscribers.get(key, ())
-                        )
+                        snapshot = list(PromptManager._shared_subscribers.get(key, ()))
                     for manager in snapshot:
                         try:
                             manager._schedule_reload(template_name)
                         except Exception as inner:  # noqa: BLE001
-                            logger.debug(
-                                f"[PromptManager] subscriber reload failed: {inner}"
-                            )
+                            logger.debug(f"[PromptManager] subscriber reload failed: {inner}")
 
             observer = Observer()
             observer.schedule(_SharedPromptFileHandler(), str(key), recursive=False)
@@ -428,8 +425,7 @@ class PromptManager:
 
         # Schedule new timer
         self._debounce_timer = threading.Timer(
-            self.RELOAD_DEBOUNCE_SECONDS,
-            self._process_pending_reloads
+            self.RELOAD_DEBOUNCE_SECONDS, self._process_pending_reloads
         )
         self._debounce_timer.daemon = True
         self._debounce_timer.start()
@@ -466,13 +462,9 @@ class PromptManager:
                             obs.stop()
                             if obs.is_alive():
                                 obs.join(timeout=2.0)
-                            logger.info(
-                                f"[PromptManager] Hot-reload stopped (shared, {key})"
-                            )
+                            logger.info(f"[PromptManager] Hot-reload stopped (shared, {key})")
                         except Exception as e:  # noqa: BLE001
-                            logger.debug(
-                                f"[PromptManager] Error stopping shared observer: {e}"
-                            )
+                            logger.debug(f"[PromptManager] Error stopping shared observer: {e}")
             self._observer = None
 
         if self._debounce_timer:
@@ -493,9 +485,7 @@ class PromptManager:
                     obs.join(timeout=2.0)
                 logger.info(f"[PromptManager] Hot-reload stopped (shared, {key})")
             except Exception as e:  # noqa: BLE001
-                logger.debug(
-                    f"[PromptManager] Error stopping shared observer at {key}: {e}"
-                )
+                logger.debug(f"[PromptManager] Error stopping shared observer at {key}: {e}")
 
     def __del__(self):
         """Clean up file watcher on destruction."""
@@ -529,8 +519,9 @@ class PromptManager:
         with self._lock:
             return list(self.templates.keys())
 
-    def save_template(self, template_name: str, sections: Dict[str, str],
-                      version: Optional[str] = None) -> bool:
+    def save_template(
+        self, template_name: str, sections: Dict[str, str], version: Optional[str] = None
+    ) -> bool:
         """Save a template to its YAML file.
 
         Args:
@@ -541,7 +532,7 @@ class PromptManager:
         Returns:
             True if save succeeded, False otherwise
         """
-        from poker.prompts import validate_template_name, get_template_path
+        from poker.prompts import get_template_path, validate_template_name
 
         # Security: validate template name
         if not validate_template_name(template_name):
@@ -562,11 +553,7 @@ class PromptManager:
                     version = "1.0.0"
 
         # Build YAML data
-        yaml_data = {
-            'name': template_name,
-            'version': version,
-            'sections': sections
-        }
+        yaml_data = {'name': template_name, 'version': version, 'sections': sections}
 
         # Atomic write: write to temp file then rename
         temp_path = yaml_path.with_suffix('.yaml.tmp')
@@ -580,10 +567,9 @@ class PromptManager:
             yaml.add_representer(str, str_representer)
 
             with open(temp_path, 'w', encoding='utf-8') as f:
-                yaml.dump(yaml_data, f,
-                         default_flow_style=False,
-                         allow_unicode=True,
-                         sort_keys=False)
+                yaml.dump(
+                    yaml_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False
+                )
 
             # Atomic rename
             temp_path.rename(yaml_path)
@@ -661,19 +647,23 @@ class PromptManager:
 
         # Include pot-committed warning if applicable (high priority - insert before other guidance)
         if pot_committed_info and 'pot_committed' in template.sections:
-            sections_to_render.append(template.sections['pot_committed'].format(
-                pot_odds=_safe_pot_odds(pot_committed_info.get('pot_odds')),
-                required_equity=pot_committed_info.get('required_equity', 0),
-                already_bet_bb=pot_committed_info.get('already_bet_bb', 0),
-                stack_bb=pot_committed_info.get('stack_bb', 0),
-                cost_to_call_bb=pot_committed_info.get('cost_to_call_bb', 0)
-            ))
+            sections_to_render.append(
+                template.sections['pot_committed'].format(
+                    pot_odds=_safe_pot_odds(pot_committed_info.get('pot_odds')),
+                    required_equity=pot_committed_info.get('required_equity', 0),
+                    already_bet_bb=pot_committed_info.get('already_bet_bb', 0),
+                    stack_bb=pot_committed_info.get('stack_bb', 0),
+                    cost_to_call_bb=pot_committed_info.get('cost_to_call_bb', 0),
+                )
+            )
 
         # Include short-stack warning if applicable
         if short_stack_info and 'short_stack' in template.sections:
-            sections_to_render.append(template.sections['short_stack'].format(
-                stack_bb=short_stack_info.get('stack_bb', 0)
-            ))
+            sections_to_render.append(
+                template.sections['short_stack'].format(
+                    stack_bb=short_stack_info.get('stack_bb', 0)
+                )
+            )
 
         # Include made hand guidance if applicable
         # Tier determines strong (80%+) vs moderate (65-79%)
@@ -685,36 +675,47 @@ class PromptManager:
             section_name = f'made_hand_{tier}_{tone}'
 
             if section_name in template.sections:
-                sections_to_render.append(template.sections[section_name].format(
-                    hand_name=made_hand_info.get('hand_name', 'a strong hand'),
-                    equity=made_hand_info.get('equity', 0)
-                ))
+                sections_to_render.append(
+                    template.sections[section_name].format(
+                        hand_name=made_hand_info.get('hand_name', 'a strong hand'),
+                        equity=made_hand_info.get('equity', 0),
+                    )
+                )
 
         # Include equity verdict if applicable (GTO foundation)
         if equity_verdict_info:
             # Get both equity values (fall back to equity_random if equity_ranges unavailable)
-            equity_random = equity_verdict_info.get('equity_random', equity_verdict_info.get('equity', 0))
+            equity_random = equity_verdict_info.get(
+                'equity_random', equity_verdict_info.get('equity', 0)
+            )
             equity_ranges = equity_verdict_info.get('equity_ranges', equity_random)
             opponent_stats = equity_verdict_info.get('opponent_stats', '')
 
             # Choose template based on whether verdict is provided
-            if equity_verdict_info.get('verdict') and 'equity_verdict_with_call' in template.sections:
-                sections_to_render.append(template.sections['equity_verdict_with_call'].format(
-                    equity_random=equity_random,
-                    equity_ranges=equity_ranges,
-                    required_equity=equity_verdict_info.get('required_equity', 0),
-                    pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
-                    verdict=equity_verdict_info.get('verdict', ''),
-                    opponent_stats=opponent_stats,
-                ))
+            if (
+                equity_verdict_info.get('verdict')
+                and 'equity_verdict_with_call' in template.sections
+            ):
+                sections_to_render.append(
+                    template.sections['equity_verdict_with_call'].format(
+                        equity_random=equity_random,
+                        equity_ranges=equity_ranges,
+                        required_equity=equity_verdict_info.get('required_equity', 0),
+                        pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
+                        verdict=equity_verdict_info.get('verdict', ''),
+                        opponent_stats=opponent_stats,
+                    )
+                )
             elif 'equity_verdict' in template.sections:
-                sections_to_render.append(template.sections['equity_verdict'].format(
-                    equity_random=equity_random,
-                    equity_ranges=equity_ranges,
-                    required_equity=equity_verdict_info.get('required_equity', 0),
-                    pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
-                    opponent_stats=opponent_stats,
-                ))
+                sections_to_render.append(
+                    template.sections['equity_verdict'].format(
+                        equity_random=equity_random,
+                        equity_ranges=equity_ranges,
+                        required_equity=equity_verdict_info.get('required_equity', 0),
+                        pot_odds=_safe_pot_odds(equity_verdict_info.get('pot_odds')),
+                        opponent_stats=opponent_stats,
+                    )
+                )
 
         # Include pot odds guidance from YAML template (if enabled and info provided)
         if include_pot_odds and pot_odds_info:
@@ -725,13 +726,15 @@ class PromptManager:
                 # None here would explode. Defensive coercion keeps the prompt
                 # rendering even if upstream regresses; the `free` branch is
                 # the correct path when math is undefined.
-                sections_to_render.append(template.sections['pot_odds_guidance'].format(
-                    pot_odds=_safe_pot_odds(pot_odds_info.get('pot_odds')),
-                    equity_needed=pot_odds_info.get('equity_needed', 0),
-                    pot_fmt=pot_odds_info.get('pot_fmt', ''),
-                    call_fmt=pot_odds_info.get('call_fmt', ''),
-                    pot_odds_extra=pot_odds_info.get('pot_odds_extra', ''),
-                ))
+                sections_to_render.append(
+                    template.sections['pot_odds_guidance'].format(
+                        pot_odds=_safe_pot_odds(pot_odds_info.get('pot_odds')),
+                        equity_needed=pot_odds_info.get('equity_needed', 0),
+                        pot_fmt=pot_odds_info.get('pot_fmt', ''),
+                        call_fmt=pot_odds_info.get('call_fmt', ''),
+                        pot_odds_extra=pot_odds_info.get('pot_odds_extra', ''),
+                    )
+                )
 
         if include_mind_games and 'mind_games' in template.sections:
             sections_to_render.append(template.sections['mind_games'])
@@ -806,7 +809,9 @@ class PromptManager:
         if 'call' in valid_actions:
             action_hints.append(f"- 'call': Match the bet (costs {fmt_bb(call_amount)})")
         if 'raise' in valid_actions:
-            action_hints.append(f"- 'raise': Increase the bet (raise_to between {fmt_bb(min_raise)} and {fmt_bb(max_raise)}, the total you're raising TO)")
+            action_hints.append(
+                f"- 'raise': Increase the bet (raise_to between {fmt_bb(min_raise)} and {fmt_bb(max_raise)}, the total you're raising TO)"
+            )
         if 'all_in' in valid_actions or 'all-in' in valid_actions:
             action_hints.append("- 'all_in': Bet all your remaining chips")
 
@@ -841,15 +846,13 @@ RESPONSE_FORMAT = {
     "player_observations": "OPTIONAL: Notes about other players' behavior and patterns",
     "hand_strength": "OPTIONAL: Your assessment of your hand (weak/marginal/strong/monster)",
     "bluff_likelihood": "OPTIONAL: % likelihood you're bluffing (0-100)",
-
     # DECISION (Lock in your action)
     "action": "REQUIRED: Your final action from the provided options",
     "bet_sizing": "REQUIRED if raising: Name your bet sizing BEFORE the amount (e.g., '2/3 pot value bet', 'min-raise to see cheap flop', '1.5x pot overbet bluff')",
     "raise_to": "REQUIRED if raising: Total bet amount (the amount you're raising TO, not BY)",
-
     # REACTION (Visible response after deciding)
     "dramatic_sequence": "OPTIONAL: Your visible reaction as a list of beats. Mix speech (plain text) and actions (*in asterisks*). Match intensity to the moment.",
-    "addressing": "OPTIONAL: List of opponent name(s) you are DIRECTLY addressing in a speech beat this turn (e.g. ['Bob'] when you say 'Your move, Bob.'). Multiple names allowed. Empty list for general table chatter or when not addressing anyone specific."
+    "addressing": "OPTIONAL: List of opponent name(s) you are DIRECTLY addressing in a speech beat this turn (e.g. ['Bob'] when you say 'Your move, Bob.'). Multiple names allowed. Empty list for general table chatter or when not addressing anyone specific.",
 }
 
 
@@ -865,14 +868,16 @@ PERSONA_EXAMPLES = {
             "player_observations": {"pooh": "playing loose, possibly bluffing"},
             "hand_strength": "weak",
             "bluff_likelihood": 10,
-
             # DECISION
             "action": "check",
             "raise_to": 0,
-
             # REACTION
-            "dramatic_sequence": ["*looks at feet*", "*lets out a big sigh*", "Oh bother, just my luck. Another miserable hand, I suppose."]
-        }
+            "dramatic_sequence": [
+                "*looks at feet*",
+                "*lets out a big sigh*",
+                "Oh bother, just my luck. Another miserable hand, I suppose.",
+            ],
+        },
     },
     "Clint Eastwood": {
         "play_style": "loose and aggressive",
@@ -883,14 +888,12 @@ PERSONA_EXAMPLES = {
             "player_observations": {"john": "seems nervous, keeps glancing at chips"},
             "hand_strength": "marginal but drawing",
             "bluff_likelihood": 25,
-
             # DECISION
             "action": "raise",
             "bet_sizing": "3/4 pot semi-bluff with flush draw equity",
             "raise_to": 150,
-
             # REACTION
-            "dramatic_sequence": ["*narrows eyes*", "Your move."]
-        }
-    }
+            "dramatic_sequence": ["*narrows eyes*", "Your move."],
+        },
+    },
 }

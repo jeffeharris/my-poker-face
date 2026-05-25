@@ -10,8 +10,8 @@ Tests cover:
 """
 
 import os
-import sys
 import sqlite3
+import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -19,10 +19,10 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from poker.memory.commentary_generator import DecisionPlan, HandCommentary
-from poker.memory.session_memory import SessionMemory
 from poker.memory.opponent_model import OpponentModel
-from poker.repositories import create_repos
+from poker.memory.session_memory import SessionMemory
 from poker.prompt_config import PromptConfig
+from poker.repositories import create_repos
 
 
 class TestDecisionPlan(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestDecisionPlan(unittest.TestCase):
             inner_monologue='I think opponent is weak',
             action='raise',
             amount=100,
-            pot_size=200
+            pot_size=200,
         )
 
         self.assertEqual(plan.hand_number, 1)
@@ -59,7 +59,7 @@ class TestDecisionPlan(unittest.TestCase):
             inner_monologue='He looks scared',
             action='bet',
             amount=500,
-            pot_size=1000
+            pot_size=1000,
         )
 
         data = original.to_dict()
@@ -84,7 +84,7 @@ class TestDecisionPlan(unittest.TestCase):
             inner_monologue='',
             action='fold',
             amount=0,
-            pot_size=100
+            pot_size=100,
         )
 
         self.assertIsInstance(plan.timestamp, datetime)
@@ -103,7 +103,7 @@ class TestHandCommentaryExtended(unittest.TestCase):
             table_comment='Nice hand!',
             decision_plans=[],
             key_insight='Check-raise works.',
-            hand_number=1
+            hand_number=1,
         )
 
         self.assertEqual(commentary.key_insight, 'Check-raise works.')
@@ -120,7 +120,7 @@ class TestHandCommentaryExtended(unittest.TestCase):
             inner_monologue='Strong hand',
             action='bet',
             amount=50,
-            pot_size=100
+            pot_size=100,
         )
 
         commentary = HandCommentary(
@@ -131,7 +131,7 @@ class TestHandCommentaryExtended(unittest.TestCase):
             table_comment=None,
             decision_plans=[plan],
             key_insight='Betting pays off',
-            hand_number=1
+            hand_number=1,
         )
 
         data = commentary.to_dict()
@@ -223,7 +223,7 @@ class TestSessionMemoryReflections(unittest.TestCase):
         sm = SessionMemory('TestPlayer')
         sm.add_reflection(
             'Long strategic reflection about the hand and what happened.',
-            key_insight='Bet bigger on wet boards.'
+            key_insight='Bet bigger on wet boards.',
         )
 
         self.assertEqual(len(sm.recent_reflections), 1)
@@ -300,7 +300,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             opponent_observations=['Trump: folds to pressure'],
             table_comment='Nice hand!',
             key_insight='Check-raise works.',
-            hand_number=1
+            hand_number=1,
         )
 
         self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
@@ -327,7 +327,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             inner_monologue='Going for value',
             action='raise',
             amount=100,
-            pot_size=200
+            pot_size=200,
         )
 
         commentary = HandCommentary(
@@ -337,7 +337,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             opponent_observations=[],
             table_comment=None,
             decision_plans=[plan],
-            hand_number=1
+            hand_number=1,
         )
 
         self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary)
@@ -363,11 +363,15 @@ class TestCommentaryPersistence(unittest.TestCase):
                 opponent_observations=[],
                 table_comment=None,
                 key_insight=f'Insight {i}',
-                hand_number=i + 1
+                hand_number=i + 1,
             )
-            self.hand_history_repo.save_hand_commentary('test_game', i + 1, 'TestPlayer', commentary)
+            self.hand_history_repo.save_hand_commentary(
+                'test_game', i + 1, 'TestPlayer', commentary
+            )
 
-        reflections = self.hand_history_repo.get_recent_reflections('test_game', 'TestPlayer', limit=5)
+        reflections = self.hand_history_repo.get_recent_reflections(
+            'test_game', 'TestPlayer', limit=5
+        )
 
         self.assertEqual(len(reflections), 3)
         # Should be ordered by hand_number DESC
@@ -381,7 +385,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             strategic_reflection='First reflection',
             opponent_observations=[],
             table_comment=None,
-            hand_number=1
+            hand_number=1,
         )
         self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary1)
 
@@ -391,7 +395,7 @@ class TestCommentaryPersistence(unittest.TestCase):
             strategic_reflection='Updated reflection',
             opponent_observations=[],
             table_comment=None,
-            hand_number=1
+            hand_number=1,
         )
         self.hand_history_repo.save_hand_commentary('test_game', 1, 'TestPlayer', commentary2)
 

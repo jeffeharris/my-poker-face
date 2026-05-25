@@ -1,7 +1,8 @@
 """Tests for LLMResponse and ImageResponse dataclasses."""
+
 import unittest
 
-from core.llm import LLMResponse, ImageResponse
+from core.llm import ImageResponse, LLMResponse
 
 
 class TestLLMResponse(unittest.TestCase):

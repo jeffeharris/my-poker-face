@@ -11,6 +11,7 @@ Validates that board connection detection correctly identifies:
 """
 
 import unittest
+
 from poker.hand_evaluator import HandEvaluator, _has_straight_draw
 
 

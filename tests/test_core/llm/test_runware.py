@@ -1,8 +1,13 @@
 """Tests for Runware provider."""
+
 import unittest
 from unittest.mock import Mock, patch
 
-from core.llm.providers.runware import RunwareProvider, RunwareImageResponse, round_to_multiple_of_64
+from core.llm.providers.runware import (
+    RunwareImageResponse,
+    RunwareProvider,
+    round_to_multiple_of_64,
+)
 
 
 class TestRoundToMultipleOf64(unittest.TestCase):
@@ -51,9 +56,7 @@ class TestRunwareProvider(unittest.TestCase):
     def test_complete_raises_not_implemented(self):
         """Test that complete() raises NotImplementedError."""
         with self.assertRaises(NotImplementedError) as context:
-            self.provider.complete(
-                messages=[{"role": "user", "content": "Hello"}]
-            )
+            self.provider.complete(messages=[{"role": "user", "content": "Hello"}])
         self.assertIn("image-only provider", str(context.exception))
 
     @patch('core.llm.providers.runware.requests.Session')
@@ -65,12 +68,14 @@ class TestRunwareProvider(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            "data": [{
-                "taskType": "imageInference",
-                "taskUUID": "test-uuid-123",
-                "imageUUID": "img-uuid-456",
-                "imageURL": "https://im.runware.ai/image/test.png"
-            }]
+            "data": [
+                {
+                    "taskType": "imageInference",
+                    "taskUUID": "test-uuid-123",
+                    "imageUUID": "img-uuid-456",
+                    "imageURL": "https://im.runware.ai/image/test.png",
+                }
+            ]
         }
         mock_response.raise_for_status = Mock()
         mock_session.post.return_value = mock_response
@@ -111,9 +116,7 @@ class TestRunwareProvider(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            "data": [{
-                "imageURL": "https://im.runware.ai/image/test.png"
-            }]
+            "data": [{"imageURL": "https://im.runware.ai/image/test.png"}]
         }
         mock_response.raise_for_status = Mock()
         mock_session.post.return_value = mock_response
@@ -138,9 +141,7 @@ class TestRunwareProvider(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            "data": [{
-                "imageURL": "https://im.runware.ai/image/test.png"
-            }]
+            "data": [{"imageURL": "https://im.runware.ai/image/test.png"}]
         }
         mock_response.raise_for_status = Mock()
         mock_session.post.return_value = mock_response
@@ -165,9 +166,7 @@ class TestRunwareProvider(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            "data": [{
-                "imageURL": "https://im.runware.ai/image/test.png"
-            }]
+            "data": [{"imageURL": "https://im.runware.ai/image/test.png"}]
         }
         mock_response.raise_for_status = Mock()
         mock_session.post.return_value = mock_response
@@ -187,6 +186,7 @@ class TestRunwareProvider(unittest.TestCase):
     def test_generate_image_timeout_with_retries(self, mock_session_class, mock_sleep):
         """Test timeout handling with retry logic."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}
         mock_session_class.return_value = mock_session
@@ -210,11 +210,7 @@ class TestRunwareProvider(unittest.TestCase):
         mock_session_class.return_value = mock_session
 
         mock_response = Mock()
-        mock_response.json.return_value = {
-            "errors": [{
-                "message": "Invalid API key"
-            }]
-        }
+        mock_response.json.return_value = {"errors": [{"message": "Invalid API key"}]}
         mock_response.raise_for_status = Mock()
         mock_session.post.return_value = mock_response
 
@@ -250,6 +246,7 @@ class TestRunwareProvider(unittest.TestCase):
     def test_generate_image_http_error_4xx_no_retry(self, mock_session_class):
         """Test that 4xx client errors are NOT retried."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}
         mock_session_class.return_value = mock_session
@@ -275,6 +272,7 @@ class TestRunwareProvider(unittest.TestCase):
     def test_generate_image_http_error_5xx_retries(self, mock_session_class, mock_sleep):
         """Test that 5xx server errors ARE retried."""
         import requests
+
         mock_session = Mock()
         mock_session.headers = {}
         mock_session_class.return_value = mock_session

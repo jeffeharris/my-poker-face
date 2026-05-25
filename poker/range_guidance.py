@@ -14,25 +14,24 @@ from typing import Dict, Optional, Tuple
 from .archetypes import archetype_label_from_anchors
 from .hand_tiers import PREMIUM_HANDS, is_hand_in_range
 
-
 # Position offsets applied to effective_looseness to get range_pct.
 # Negative = tighter (early position), positive = looser (late position).
 # Looseness IS the range — offsets just shift it by position.
 POSITION_OFFSETS: Dict[str, float] = {
-    'early': -0.15,       # UTG: play 15pp tighter than baseline
-    'middle': -0.08,      # MP: play 8pp tighter
-    'late': 0.00,         # CO: play at baseline
-    'button': +0.05,      # BTN: play 5pp wider
-    'small_blind': -0.05,   # SB: play 5pp tighter (out of position)
-    'big_blind': -0.05,     # BB: play 5pp tighter
-    'blinds': -0.05,      # Generic blinds reference
+    'early': -0.15,  # UTG: play 15pp tighter than baseline
+    'middle': -0.08,  # MP: play 8pp tighter
+    'late': 0.00,  # CO: play at baseline
+    'button': +0.05,  # BTN: play 5pp wider
+    'small_blind': -0.05,  # SB: play 5pp tighter (out of position)
+    'big_blind': -0.05,  # BB: play 5pp tighter
+    'blinds': -0.05,  # Generic blinds reference
 }
 
 # Heads-up offsets: both positions play much wider ranges
 HEADS_UP_POSITION_OFFSETS: Dict[str, float] = {
-    'button': +0.30,        # BTN/SB in HU: play 30pp wider
-    'small_blind': +0.30,   # SB acts first preflop in HU
-    'big_blind': +0.20,     # BB: play 20pp wider
+    'button': +0.30,  # BTN/SB in HU: play 30pp wider
+    'small_blind': +0.30,  # SB acts first preflop in HU
+    'big_blind': +0.20,  # BB: play 20pp wider
 }
 
 # Floor: minimum range % for any position (even the tightest rock plays something)
@@ -52,13 +51,13 @@ POSITION_CLAMPS: Dict[str, Tuple[float, float]] = {
 # Base opening ranges by position (for neutral 0.5 looseness)
 # Used for get_range_guidance display
 POSITION_RANGES = {
-    'early': 0.12,      # UTG: ~12% (tight from early position)
-    'middle': 0.18,     # MP: ~18%
-    'late': 0.28,       # CO: ~28%
-    'button': 0.35,     # BTN: ~35% (widest from button)
+    'early': 0.12,  # UTG: ~12% (tight from early position)
+    'middle': 0.18,  # MP: ~18%
+    'late': 0.28,  # CO: ~28%
+    'button': 0.35,  # BTN: ~35% (widest from button)
     'small_blind': 0.24,  # SB: ~24%
-    'big_blind': 0.30,    # BB: ~30% (defending range)
-    'blinds': 0.24,     # Generic blinds reference
+    'big_blind': 0.30,  # BB: ~30% (defending range)
+    'blinds': 0.24,  # Generic blinds reference
 }
 
 # Position aliases for flexible matching
@@ -392,6 +391,7 @@ def _game_position_to_range_key(game_position: str) -> str:
 
     # Use hand_ranges position grouping
     from .hand_ranges import get_position_group
+
     pos_group = get_position_group(game_position)
     return _POSITION_GROUP_TO_RANGE_KEY.get(pos_group.value, 'middle')
 
@@ -469,7 +469,10 @@ def classify_preflop_hand_for_player(
         in_looser = is_hand_in_range(canonical, looser_pct)
 
         outside_msg, just_outside_msg = _get_outside_range_messages(
-            effective_looseness, canonical, pos_display, range_pct_display,
+            effective_looseness,
+            canonical,
+            pos_display,
+            range_pct_display,
             num_opponents=num_opponents,
         )
         return just_outside_msg if in_looser else outside_msg

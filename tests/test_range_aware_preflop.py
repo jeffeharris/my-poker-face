@@ -3,9 +3,9 @@
 import pytest
 
 from poker.range_guidance import (
-    classify_preflop_hand_for_player,
     _game_position_to_range_key,
     _position_display_name,
+    classify_preflop_hand_for_player,
 )
 
 

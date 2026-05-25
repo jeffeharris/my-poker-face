@@ -1,10 +1,11 @@
 """Tests for the RuleBotController - rule-based bot with psychology system."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.rule_bot_controller import RuleBotController
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
 
 
 class TestRuleBotControllerBasics:

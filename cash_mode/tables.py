@@ -96,7 +96,8 @@ def personality_for_seat(seat: Dict[str, Any], personality_repo) -> Optional[Dic
     except (sqlite3.Error, json.JSONDecodeError) as exc:
         logger.warning(
             "[CASH] personality_for_seat lookup failed for pid=%r: %s",
-            pid, exc,
+            pid,
+            exc,
         )
         return None
 
@@ -167,8 +168,7 @@ class CashTableState:
                 raise ValueError(f"Slot {i} is malformed: {slot!r}")
             if slot["kind"] not in ("open", "ai", "human"):
                 raise ValueError(
-                    f"Slot {i} has unknown kind {slot['kind']!r}; "
-                    f"expected open/ai/human"
+                    f"Slot {i} has unknown kind {slot['kind']!r}; " f"expected open/ai/human"
                 )
 
     # --- read helpers ---
@@ -191,9 +191,7 @@ class CashTableState:
     def seated_personality_ids(self) -> List[str]:
         """Return the personality_ids of seated AIs (excludes human)."""
         return [
-            s["personality_id"]
-            for s in self.seats
-            if s["kind"] == "ai" and s.get("personality_id")
+            s["personality_id"] for s in self.seats if s["kind"] == "ai" and s.get("personality_id")
         ]
 
     def has_open_seat(self) -> bool:
@@ -201,7 +199,7 @@ class CashTableState:
 
     # --- functional updates ---
 
-    def with_seat(self, index: int, slot: Dict[str, Any]) -> "CashTableState":
+    def with_seat(self, index: int, slot: Dict[str, Any]) -> CashTableState:
         """Return a copy with seat `index` replaced by `slot`."""
         if index < 0 or index >= TABLE_SEAT_COUNT:
             raise ValueError(f"seat index {index} out of range")
@@ -237,10 +235,10 @@ def seats_from_json(seats_json: str) -> List[Dict[str, Any]]:
 # Keep the set explicit so the lobby UI / admin views can interpret the
 # state.
 IDLE_REASONS: Tuple[str, ...] = (
-    "forced_leave",       # AI busted or near-busted; needs bankroll recovery
-    "stake_up_queued",    # AI won big and wants a higher stake
-    "take_break",         # AI's choice to step away for a bit
-    "bored_move",         # Small base-rate cycling to keep the lobby alive
+    "forced_leave",  # AI busted or near-busted; needs bankroll recovery
+    "stake_up_queued",  # AI won big and wants a higher stake
+    "take_break",  # AI's choice to step away for a bit
+    "bored_move",  # Small base-rate cycling to keep the lobby alive
 )
 
 
@@ -261,6 +259,4 @@ class IdlePoolEntry:
 
     def __post_init__(self) -> None:
         if self.reason not in IDLE_REASONS:
-            raise ValueError(
-                f"Unknown reason {self.reason!r}; expected one of {IDLE_REASONS}"
-            )
+            raise ValueError(f"Unknown reason {self.reason!r}; expected one of {IDLE_REASONS}")

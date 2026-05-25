@@ -1,4 +1,5 @@
 """Tests for BaseRepository connection management."""
+
 import os
 import sqlite3
 import tempfile

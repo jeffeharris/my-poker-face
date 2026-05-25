@@ -17,13 +17,13 @@ from poker.strategy.value_override import (
     BLUFF_CATCH_TRIGGER_CLASSES,
     HandStrengthClass,
     _base_call_prob,
-    _board_danger_dampener,
     _bluff_catch_call_probability,
+    _board_danger_dampener,
     _clamp_to_envelope,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def reset_config():
@@ -33,6 +33,7 @@ def reset_config():
 
 
 # ── Trigger class membership ─────────────────────────────────────────────
+
 
 class TestTriggerClasses:
     def test_medium_and_weak_made_in_trigger_set(self):
@@ -47,42 +48,58 @@ class TestTriggerClasses:
 
 # ── _base_call_prob: medium_made matrix ──────────────────────────────────
 
+
 class TestBaseCallProbMediumMade:
-    @pytest.mark.parametrize("bet,expected", [
-        (0.10, 0.95),    # tiny bet — bluff-catch wide
-        (0.50, 0.95),    # boundary at 0.5 — still wide
-        (0.51, 0.80),    # just over 0.5 — drops to pot-size band
-        (1.00, 0.80),    # pot-size
-        (1.50, 0.50),    # 1.5x pot — drops to over-pot
-        (2.00, 0.50),    # boundary at 2.0
-        (2.50, 0.20),    # 2.5x pot — drops to huge
-        (3.50, 0.20),    # 3.5x pot — jam-ish
-    ])
+    @pytest.mark.parametrize(
+        "bet,expected",
+        [
+            (0.10, 0.95),  # tiny bet — bluff-catch wide
+            (0.50, 0.95),  # boundary at 0.5 — still wide
+            (0.51, 0.80),  # just over 0.5 — drops to pot-size band
+            (1.00, 0.80),  # pot-size
+            (1.50, 0.50),  # 1.5x pot — drops to over-pot
+            (2.00, 0.50),  # boundary at 2.0
+            (2.50, 0.20),  # 2.5x pot — drops to huge
+            (3.50, 0.20),  # 3.5x pot — jam-ish
+        ],
+    )
     def test_medium_made_band(self, bet, expected):
         assert _base_call_prob('medium_made', bet) == expected
 
 
 # ── _base_call_prob: weak_made matrix ────────────────────────────────────
 
+
 class TestBaseCallProbWeakMade:
-    @pytest.mark.parametrize("bet,expected", [
-        (0.10, 0.70),
-        (0.33, 0.70),    # boundary
-        (0.40, 0.40),    # over 0.33 → mid band
-        (0.67, 0.40),    # boundary
-        (0.80, 0.10),    # over 0.67 → fold-heavy
-        (2.00, 0.10),    # large bet
-    ])
+    @pytest.mark.parametrize(
+        "bet,expected",
+        [
+            (0.10, 0.70),
+            (0.33, 0.70),  # boundary
+            (0.40, 0.40),  # over 0.33 → mid band
+            (0.67, 0.40),  # boundary
+            (0.80, 0.10),  # over 0.67 → fold-heavy
+            (2.00, 0.10),  # large bet
+        ],
+    )
     def test_weak_made_band(self, bet, expected):
         assert _base_call_prob('weak_made', bet) == expected
 
 
 # ── _base_call_prob: out-of-class returns 0 ──────────────────────────────
 
+
 class TestBaseCallProbOutOfClass:
-    @pytest.mark.parametrize("hand_class", [
-        'nuts', 'strong_made', 'strong', 'not_strong', 'air',
-    ])
+    @pytest.mark.parametrize(
+        "hand_class",
+        [
+            'nuts',
+            'strong_made',
+            'strong',
+            'not_strong',
+            'air',
+        ],
+    )
     def test_non_trigger_class_returns_zero(self, hand_class):
         """Hand classes outside BLUFF_CATCH_TRIGGER_CLASSES → 0 prob.
         The caller should never invoke this for those classes; this
@@ -91,6 +108,7 @@ class TestBaseCallProbOutOfClass:
 
 
 # ── _board_danger_dampener ───────────────────────────────────────────────
+
 
 class TestBoardDangerDampener:
     def test_flop_safe_texture_full_strength(self):
@@ -106,9 +124,15 @@ class TestBoardDangerDampener:
         """River alone applies 0.6 street factor."""
         assert _board_danger_dampener('river', 'dry_high', 'medium_made') == 0.6
 
-    @pytest.mark.parametrize("texture", [
-        'monotone', 'wet_rainbow', 'two_tone_broadway', 'two_tone_connected',
-    ])
+    @pytest.mark.parametrize(
+        "texture",
+        [
+            'monotone',
+            'wet_rainbow',
+            'two_tone_broadway',
+            'two_tone_connected',
+        ],
+    )
     def test_flop_dangerous_texture(self, texture):
         """Dangerous texture on flop → 0.5 multiplier, no street penalty."""
         result = _board_danger_dampener('flop', texture, 'medium_made')
@@ -123,14 +147,20 @@ class TestBoardDangerDampener:
         """weak_made on a paired board takes an extra 0.5 factor."""
         # Safe texture except for the paired flag.
         result = _board_danger_dampener(
-            'flop', 'dry_low_static', 'weak_made', is_paired_board=True,
+            'flop',
+            'dry_low_static',
+            'weak_made',
+            is_paired_board=True,
         )
         assert result == pytest.approx(0.5)
 
     def test_medium_made_on_paired_no_extra_dampener(self):
         """The paired-board extra dampener is weak_made specific."""
         result = _board_danger_dampener(
-            'flop', 'dry_low_static', 'medium_made', is_paired_board=True,
+            'flop',
+            'dry_low_static',
+            'medium_made',
+            is_paired_board=True,
         )
         assert result == 1.0
 
@@ -141,7 +171,10 @@ class TestBoardDangerDampener:
         factor doesn't fire. This test uses 'monotone' to get all three.
         """
         result = _board_danger_dampener(
-            'river', 'monotone', 'weak_made', is_paired_board=True,
+            'river',
+            'monotone',
+            'weak_made',
+            is_paired_board=True,
         )
         assert result == pytest.approx(0.6 * 0.5 * 0.5)
 
@@ -153,11 +186,15 @@ class TestBoardDangerDampener:
 
 # ── _bluff_catch_call_probability composed ───────────────────────────────
 
+
 class TestComposedCallProbability:
     def test_safe_spot_full_base_prob(self):
         """Flop + safe texture + medium_made + small bet → full 0.95."""
         result = _bluff_catch_call_probability(
-            'medium_made', 0.5, 'flop', 'dry_high',
+            'medium_made',
+            0.5,
+            'flop',
+            'dry_high',
         )
         assert result == 0.95
 
@@ -169,7 +206,10 @@ class TestComposedCallProbability:
         result drops to 24%, which is conservative.
         """
         result = _bluff_catch_call_probability(
-            'medium_made', 1.0, 'river', 'monotone',
+            'medium_made',
+            1.0,
+            'river',
+            'monotone',
         )
         assert result == pytest.approx(0.24)
 
@@ -177,19 +217,27 @@ class TestComposedCallProbability:
         """River + dangerous texture + paired board + weak_made + large bet:
         0.10 × 0.6 × 0.5 × 0.5 = 0.015 — essentially folding."""
         result = _bluff_catch_call_probability(
-            'weak_made', 1.0, 'river', 'monotone', is_paired_board=True,
+            'weak_made',
+            1.0,
+            'river',
+            'monotone',
+            is_paired_board=True,
         )
         assert result == pytest.approx(0.015)
 
     def test_out_of_class_returns_zero(self):
         """Hand class outside trigger set → 0 regardless of other args."""
         result = _bluff_catch_call_probability(
-            'nuts', 0.5, 'flop', 'dry_high',
+            'nuts',
+            0.5,
+            'flop',
+            'dry_high',
         )
         assert result == 0.0
 
 
 # ── _clamp_to_envelope ───────────────────────────────────────────────────
+
 
 class TestClampToEnvelope:
     def test_proposed_within_envelope_unchanged(self):

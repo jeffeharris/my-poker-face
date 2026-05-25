@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Set
 
+from cash_mode.bankroll import AIBankrollState, project_bankroll
 from core.economy import ledger as chip_ledger
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
@@ -48,7 +49,6 @@ from core.economy.ledger import (
     record_bank_pool_deposit,
     record_bank_pool_sim_seed_pair,
 )
-from cash_mode.bankroll import AIBankrollState, project_bankroll
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,9 @@ def compute_vice_probability(excess_ratio: float) -> float:
 
 
 def compute_vice_amount(
-    bankroll: int, excess_ratio: float, rng: random.Random,
+    bankroll: int,
+    excess_ratio: float,
+    rng: random.Random,
 ) -> int:
     """Amount drained on a fire. Scales with excess; random multiplier
     spreads events across visually distinct sizes.
@@ -252,7 +254,10 @@ def is_hungry_grinder(
         # picked up by other seating paths once they have a bankroll).
         return False
     projected = project_bankroll(
-        state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        state,
+        knobs.starting_bankroll,
+        knobs.bankroll_rate,
+        now,
     )
     return projected < knobs.starting_bankroll * GRINDER_HUNGER_THRESHOLD
 
@@ -283,13 +288,19 @@ def list_hungry_grinders(
         if pid in exclude:
             continue
         if not is_hungry_grinder(
-            pid, bankroll_repo=bankroll_repo, sandbox_id=sandbox_id, now=now,
+            pid,
+            bankroll_repo=bankroll_repo,
+            sandbox_id=sandbox_id,
+            now=now,
         ):
             continue
         knobs = bankroll_repo.load_personality_knobs(pid)
         state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
         projected = project_bankroll(
-            state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+            state,
+            knobs.starting_bankroll,
+            knobs.bankroll_rate,
+            now,
         )
         ratio = projected / knobs.starting_bankroll
         ratios.append((ratio, pid))
@@ -414,12 +425,14 @@ def resolve_fake_vice_deposits(
             },
             sandbox_id=sandbox_id,
         )
-        deposits.append(FakeViceDeposit(
-            personality_id=pid,
-            amount=amount,
-            excess_ratio=round(excess, 3),
-            vice_prob=round(prob, 3),
-        ))
+        deposits.append(
+            FakeViceDeposit(
+                personality_id=pid,
+                amount=amount,
+                excess_ratio=round(excess, 3),
+                vice_prob=round(prob, 3),
+            )
+        )
     return deposits
 
 
@@ -440,7 +453,8 @@ def resolve_closed_economy(
     the resolve (mirrors the carry-resolution best-effort pattern).
     """
     pool_before = compute_bank_pool_reserves(
-        chip_ledger_repo, sandbox_id=sandbox_id,
+        chip_ledger_repo,
+        sandbox_id=sandbox_id,
     )
     fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     deposits: List[FakeViceDeposit] = []
@@ -456,10 +470,12 @@ def resolve_closed_economy(
     except Exception as exc:  # noqa: BLE001 — best-effort resolution
         logger.warning(
             "[CLOSED_ECONOMY] fake-vice deposit failed for sandbox %s: %s",
-            sandbox_id, exc,
+            sandbox_id,
+            exc,
         )
     pool_after = compute_bank_pool_reserves(
-        chip_ledger_repo, sandbox_id=sandbox_id,
+        chip_ledger_repo,
+        sandbox_id=sandbox_id,
     )
     return ClosedEconomyBatch(
         deposits=deposits,

@@ -2,7 +2,7 @@
 
 import unittest
 
-from flask_app.services.skill_evaluator import SkillEvaluator, SkillEvaluation
+from flask_app.services.skill_evaluator import SkillEvaluation, SkillEvaluator
 
 
 class TestSkillEvaluator(unittest.TestCase):
@@ -11,9 +11,17 @@ class TestSkillEvaluator(unittest.TestCase):
     def setUp(self):
         self.evaluator = SkillEvaluator()
 
-    def _make_data(self, hand_strength='72o - Unconnected cards, Bottom 10%',
-                   position='Under The Gun', cost_to_call=0, pot_total=30,
-                   phase='PRE_FLOP', hand_rank=None, outs=None, big_blind=10):
+    def _make_data(
+        self,
+        hand_strength='72o - Unconnected cards, Bottom 10%',
+        position='Under The Gun',
+        cost_to_call=0,
+        pot_total=30,
+        phase='PRE_FLOP',
+        hand_rank=None,
+        outs=None,
+        big_blind=10,
+    ):
         data = {
             'phase': phase,
             'hand_strength': hand_strength,
@@ -143,8 +151,14 @@ class TestFlopConnectionEvaluation(TestSkillEvaluator):
     """Test flop_connection evaluation."""
 
     def _make_flop_air(self, **kwargs):
-        defaults = dict(phase='FLOP', hand_rank=10, hand_strength='High Card',
-                        position='Button', cost_to_call=0, outs=2)
+        defaults = dict(
+            phase='FLOP',
+            hand_rank=10,
+            hand_strength='High Card',
+            position='Button',
+            cost_to_call=0,
+            outs=2,
+        )
         defaults.update(kwargs)
         return self._make_data(**defaults)
 
@@ -174,8 +188,9 @@ class TestFlopConnectionEvaluation(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'incorrect')
 
     def test_pair_is_not_applicable(self):
-        data = self._make_data(phase='FLOP', hand_rank=9, hand_strength='One Pair',
-                               position='Button')
+        data = self._make_data(
+            phase='FLOP', hand_rank=9, hand_strength='One Pair', position='Button'
+        )
         result = self.evaluator.evaluate('flop_connection', 'fold', data)
         self.assertEqual(result.evaluation, 'not_applicable')
 
@@ -184,8 +199,9 @@ class TestBetWhenStrongEvaluation(TestSkillEvaluator):
     """Test bet_when_strong evaluation."""
 
     def _make_strong(self, **kwargs):
-        defaults = dict(phase='FLOP', hand_rank=8, hand_strength='Two Pair',
-                        position='Button', cost_to_call=0)
+        defaults = dict(
+            phase='FLOP', hand_rank=8, hand_strength='Two Pair', position='Button', cost_to_call=0
+        )
         defaults.update(kwargs)
         return self._make_data(**defaults)
 
@@ -215,8 +231,9 @@ class TestBetWhenStrongEvaluation(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'incorrect')
 
     def test_weak_hand_not_applicable(self):
-        data = self._make_data(phase='FLOP', hand_rank=9, hand_strength='One Pair',
-                               position='Button')
+        data = self._make_data(
+            phase='FLOP', hand_rank=9, hand_strength='One Pair', position='Button'
+        )
         result = self.evaluator.evaluate('bet_when_strong', 'check', data)
         self.assertEqual(result.evaluation, 'not_applicable')
 
@@ -225,8 +242,14 @@ class TestCheckingIsAllowedEvaluation(TestSkillEvaluator):
     """Test checking_is_allowed evaluation."""
 
     def _make_weak_can_check(self, **kwargs):
-        defaults = dict(phase='FLOP', hand_rank=10, hand_strength='High Card',
-                        position='Button', cost_to_call=0, outs=1)
+        defaults = dict(
+            phase='FLOP',
+            hand_rank=10,
+            hand_strength='High Card',
+            position='Button',
+            cost_to_call=0,
+            outs=1,
+        )
         defaults.update(kwargs)
         return self._make_data(**defaults)
 
@@ -256,14 +279,20 @@ class TestCheckingIsAllowedEvaluation(TestSkillEvaluator):
         self.assertEqual(result.evaluation, 'incorrect')
 
     def test_pair_not_applicable(self):
-        data = self._make_data(phase='FLOP', hand_rank=9, hand_strength='One Pair',
-                               position='Button', cost_to_call=0)
+        data = self._make_data(
+            phase='FLOP', hand_rank=9, hand_strength='One Pair', position='Button', cost_to_call=0
+        )
         result = self.evaluator.evaluate('checking_is_allowed', 'raise', data)
         self.assertEqual(result.evaluation, 'not_applicable')
 
     def test_facing_bet_not_applicable(self):
-        data = self._make_data(phase='FLOP', hand_rank=10, hand_strength='High Card',
-                               position='Button', cost_to_call=20)
+        data = self._make_data(
+            phase='FLOP',
+            hand_rank=10,
+            hand_strength='High Card',
+            position='Button',
+            cost_to_call=20,
+        )
         result = self.evaluator.evaluate('checking_is_allowed', 'call', data)
         self.assertEqual(result.evaluation, 'not_applicable')
 
@@ -282,8 +311,11 @@ class TestForcedAllIn(TestSkillEvaluator):
     def test_voluntary_all_in_is_evaluated(self):
         """When stack > cost_to_call, all_in is voluntary and should be evaluated."""
         data = self._make_data(
-            phase='FLOP', hand_rank=8, hand_strength='Two Pair',
-            position='Button', cost_to_call=20,
+            phase='FLOP',
+            hand_rank=8,
+            hand_strength='Two Pair',
+            position='Button',
+            cost_to_call=20,
         )
         data['stack'] = 500  # Stack much larger than cost to call
         result = self.evaluator.evaluate('bet_when_strong', 'all_in', data)
@@ -294,9 +326,16 @@ class TestDrawsNeedPriceEvaluation(TestSkillEvaluator):
     """Test draws_need_price evaluation."""
 
     def _make_draw_data(self, equity=0.35, required_equity=0.22, **kwargs):
-        defaults = dict(phase='FLOP', hand_rank=10, hand_strength='High Card',
-                        position='Button', cost_to_call=20, pot_total=100,
-                        outs=8, big_blind=10)
+        defaults = dict(
+            phase='FLOP',
+            hand_rank=10,
+            hand_strength='High Card',
+            position='Button',
+            cost_to_call=20,
+            pot_total=100,
+            outs=8,
+            big_blind=10,
+        )
         defaults.update(kwargs)
         data = self._make_data(**defaults)
         data['equity'] = equity
@@ -346,9 +385,15 @@ class TestRespectBigBetsEvaluation(TestSkillEvaluator):
 
     def _make_big_bet_data(self, **kwargs):
         # pot_total=150, cost_to_call=100 => pot_before_bet=50, bet >= 50*0.5
-        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
-                        position='Button', cost_to_call=100, pot_total=150,
-                        big_blind=10)
+        defaults = dict(
+            phase='TURN',
+            hand_rank=9,
+            hand_strength='One Pair',
+            position='Button',
+            cost_to_call=100,
+            pot_total=150,
+            big_blind=10,
+        )
         defaults.update(kwargs)
         data = self._make_data(**defaults)
         data['hand_actions'] = []
@@ -385,9 +430,15 @@ class TestHaveAPlanEvaluation(TestSkillEvaluator):
     """Test have_a_plan evaluation."""
 
     def _make_turn_data(self, player_bet_flop=True, **kwargs):
-        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
-                        position='Button', cost_to_call=0, pot_total=100,
-                        big_blind=10)
+        defaults = dict(
+            phase='TURN',
+            hand_rank=9,
+            hand_strength='One Pair',
+            position='Button',
+            cost_to_call=0,
+            pot_total=100,
+            big_blind=10,
+        )
         defaults.update(kwargs)
         data = self._make_data(**defaults)
         actions = []
@@ -432,9 +483,15 @@ class TestDontPayDoubleBarrelsEvaluation(TestSkillEvaluator):
     """Test dont_pay_double_barrels evaluation."""
 
     def _make_double_barrel_data(self, **kwargs):
-        defaults = dict(phase='TURN', hand_rank=9, hand_strength='One Pair',
-                        position='Button', cost_to_call=40, pot_total=120,
-                        big_blind=10)
+        defaults = dict(
+            phase='TURN',
+            hand_rank=9,
+            hand_strength='One Pair',
+            position='Button',
+            cost_to_call=40,
+            pot_total=120,
+            big_blind=10,
+        )
         defaults.update(kwargs)
         data = self._make_data(**defaults)
         data['hand_actions'] = [
@@ -477,9 +534,15 @@ class TestSizeBetsWithPurposeEvaluation(TestSkillEvaluator):
     """Test size_bets_with_purpose evaluation."""
 
     def _make_bet_data(self, ratio=0.5, **kwargs):
-        defaults = dict(phase='FLOP', hand_rank=8, hand_strength='Two Pair',
-                        position='Button', cost_to_call=0, pot_total=100,
-                        big_blind=10)
+        defaults = dict(
+            phase='FLOP',
+            hand_rank=8,
+            hand_strength='Two Pair',
+            position='Button',
+            cost_to_call=0,
+            pot_total=100,
+            big_blind=10,
+        )
         defaults.update(kwargs)
         data = self._make_data(**defaults)
         data['bet_to_pot_ratio'] = ratio

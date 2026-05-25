@@ -10,7 +10,7 @@ Impact was display-only (pot distribution used correct sort at lines 824-825),
 but the reported "best overall hand" could be wrong.
 """
 
-from poker.poker_game import determine_winner, PokerGameState, Player, Card
+from poker.poker_game import Card, Player, PokerGameState, determine_winner
 
 
 def make_game_state(player1_hand, player2_hand, community_cards, bets=(100, 100)):
@@ -60,10 +60,10 @@ class TestBestOverallHandSort:
             player2_hand=[Card('K', 'hearts'), Card('Q', 'clubs')],
             community_cards=[
                 Card('A', 'diamonds'),  # Gives Alice pair of Aces
-                Card('10', 'clubs'),    # Gives Alice pair of Tens
-                Card('K', 'spades'),    # Gives Bob pair of Kings
+                Card('10', 'clubs'),  # Gives Alice pair of Tens
+                Card('K', 'spades'),  # Gives Bob pair of Kings
                 Card('Q', 'diamonds'),  # Gives Bob pair of Queens
-                Card('3', 'hearts'),    # Neutral
+                Card('3', 'hearts'),  # Neutral
             ],
         )
 
@@ -76,9 +76,7 @@ class TestBestOverallHandSort:
 
         # The best overall hand reported should also be Alice's
         assert 'Two Pair' in result['hand_name']
-        assert "A" in result['hand_name'], (
-            f"Best hand should be Aces, got: {result['hand_name']}"
-        )
+        assert "A" in result['hand_name'], f"Best hand should be Aces, got: {result['hand_name']}"
 
     def test_best_overall_hand_matches_tier_winner(self):
         """The best overall hand should match the actual pot winner.

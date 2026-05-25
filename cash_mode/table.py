@@ -92,7 +92,7 @@ class CashTable:
 
     # --- functional updates ---
 
-    def with_seat(self, seat_index: int, seat_id: Optional[str]) -> "CashTable":
+    def with_seat(self, seat_index: int, seat_id: Optional[str]) -> CashTable:
         """Return a copy with `seat_index` set to `seat_id`.
 
         Used by sit_down (assigns the new occupant) and leave/bust
@@ -103,12 +103,11 @@ class CashTable:
         if seat_index < 0 or seat_index >= self.seat_count:
             raise ValueError(f"seat_index {seat_index} out of range")
         new_seats = tuple(
-            seat_id if i == seat_index else occupant
-            for i, occupant in enumerate(self.seats)
+            seat_id if i == seat_index else occupant for i, occupant in enumerate(self.seats)
         )
         return replace(self, seats=new_seats)
 
-    def with_stack(self, seat_id: str, chips: int) -> "CashTable":
+    def with_stack(self, seat_id: str, chips: int) -> CashTable:
         """Return a copy with the seat's stack set to `chips`.
 
         `chips == 0` writes a zero entry rather than deleting the key.
@@ -119,7 +118,7 @@ class CashTable:
         new_stacks[seat_id] = chips
         return replace(self, stacks=new_stacks)
 
-    def without_stack(self, seat_id: str) -> "CashTable":
+    def without_stack(self, seat_id: str) -> CashTable:
         """Return a copy with the seat's stack entry removed."""
         if seat_id not in self.stacks:
             return self
@@ -127,7 +126,7 @@ class CashTable:
         del new_stacks[seat_id]
         return replace(self, stacks=new_stacks)
 
-    def with_hand_in_progress(self, in_progress: bool) -> "CashTable":
+    def with_hand_in_progress(self, in_progress: bool) -> CashTable:
         return replace(self, hand_in_progress=in_progress)
 
 

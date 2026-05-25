@@ -27,13 +27,6 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
-from flask_app import config
-# `limiter` is set by init_limiter() during init_extensions(), which runs
-# before blueprints are imported, and is never reassigned afterward — so a
-# top-level import captures the real instance (unlike the repo globals, which
-# are reassigned by init_persistence() and must be imported lazily).
-from flask_app.extensions import limiter
-
 from cash_mode.bankroll import (
     AIBankrollState,
     PlayerBankrollState,
@@ -41,14 +34,12 @@ from cash_mode.bankroll import (
     project_bankroll,
 )
 from cash_mode.sponsor_offers import (
+    LenderRejection,
     PersonalitySponsorOffer,
     compute_offers_for_table,
-    LenderRejection,
     compute_personality_offers,
     offer_for_archetype,
 )
-from core.economy import ledger as chip_ledger
-from poker.memory.relationship_events import RelationshipEvent
 from cash_mode.stakes import (
     BORROWER_KIND_HUMAN,
     BORROWER_KIND_PERSONALITY,
@@ -74,7 +65,16 @@ from cash_mode.stakes_ladder import (
 )
 from cash_mode.table import PLAYER_SEAT_ID
 from cash_mode.tables import personality_for_seat
+from core.economy import ledger as chip_ledger
+from flask_app import config
+
+# `limiter` is set by init_limiter() during init_extensions(), which runs
+# before blueprints are imported, and is never reassigned afterward — so a
+# top-level import captures the real instance (unlike the repo globals, which
+# are reassigned by init_persistence() and must be imported lazily).
+from flask_app.extensions import limiter
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+from poker.memory.relationship_events import RelationshipEvent
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,7 @@ def _resolve_owner_id() -> str:
     current user is resolvable.
     """
     from flask_app.extensions import auth_manager
+
     user = auth_manager.get_current_user() if auth_manager else None
     if user and user.get("id"):
         return user["id"]
@@ -116,12 +117,14 @@ def _resolve_sandbox_id(owner_id: str) -> str:
     per-process for hot-path O(1) lookups.
     """
     from flask_app.extensions import sandbox_repo
+
     return resolve_default_sandbox_for(owner_id, sandbox_repo=sandbox_repo)
 
 
 def _resolve_player_name() -> str:
     """Display name for the human player at the cash table."""
     from flask_app.extensions import auth_manager
+
     user = auth_manager.get_current_user() if auth_manager else None
     if user and user.get("name"):
         return user["name"]
@@ -148,11 +151,13 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
     has zero cash rows for this owner — nothing to resume.
     """
     from flask_app.services import game_state_service
+
     for gid, gdata in list(game_state_service.games.items()):
         if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
             return gid
 
     from flask_app.extensions import game_repo
+
     try:
         rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
     except Exception:
@@ -188,12 +193,11 @@ def _resolve_emotion_from_blob(blob: str, personality_id: str) -> str:
         if personality is None:
             return "confident"
         from poker.player_psychology import PlayerPsychology
+
         psych = PlayerPsychology.from_dict(state_dict, personality)
         return psych.get_display_emotion()
     except Exception as exc:  # noqa: BLE001 — emotion is best-effort UX
-        logger.debug(
-            f"[CASH][LOBBY] emotion resolution failed for {personality_id}: {exc}"
-        )
+        logger.debug(f"[CASH][LOBBY] emotion resolution failed for {personality_id}: {exc}")
         return "confident"
 
 
@@ -235,6 +239,7 @@ def cleanup_orphan_cash_games() -> int:
     Returns the count of rows deleted so the caller can log it.
     """
     from flask_app.extensions import game_repo
+
     try:
         rows = game_repo.list_games(owner_id=None, limit=1000, offset=0)
     except Exception as e:
@@ -260,12 +265,15 @@ def cleanup_orphan_cash_games() -> int:
             game_repo.delete_game(gid)
         except Exception as e:
             logger.warning(
-                "[CASH] orphan cleanup: delete_game(%r) failed: %s", gid, e,
+                "[CASH] orphan cleanup: delete_game(%r) failed: %s",
+                gid,
+                e,
             )
     if to_delete:
         logger.info(
             "[CASH] orphan cleanup: deleted %d stale duplicate cash row(s): %s",
-            len(to_delete), to_delete,
+            len(to_delete),
+            to_delete,
         )
     return len(to_delete)
 
@@ -300,6 +308,7 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
     instrumentation pass for the orphan-cleanup path.
     """
     from flask_app.extensions import cash_session_repo, game_repo
+
     try:
         rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
     except Exception as e:
@@ -316,7 +325,9 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
             purged.append(row.game_id)
         except Exception as e:
             logger.warning(
-                "[CASH] purge: delete_game(%r) failed: %s", row.game_id, e,
+                "[CASH] purge: delete_game(%r) failed: %s",
+                row.game_id,
+                e,
             )
             continue
         # Also drop the orphaned cash_sessions row. Without this,
@@ -329,12 +340,15 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
             except Exception as e:
                 logger.warning(
                     "[CASH] purge: cash_sessions delete(%r) failed: %s",
-                    row.game_id, e,
+                    row.game_id,
+                    e,
                 )
     if purged:
         logger.info(
             "[CASH] purged %d prior cash row(s) for owner=%r: %s",
-            len(purged), owner_id, purged,
+            len(purged),
+            owner_id,
+            purged,
         )
     return len(purged)
 
@@ -361,7 +375,8 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
         tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
     except Exception as e:
         logger.warning(
-            "[CASH] _free_ghost_human_seats: list_all_tables failed: %s", e,
+            "[CASH] _free_ghost_human_seats: list_all_tables failed: %s",
+            e,
         )
         return 0
 
@@ -379,14 +394,17 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
                 )
                 logger.info(
                     "[CASH] _free_ghost_human_seats: freed table=%r seat=%d owner=%r",
-                    table.table_id, idx, owner_id,
+                    table.table_id,
+                    idx,
+                    owner_id,
                 )
                 freed += 1
             except Exception as e:
                 logger.warning(
-                    "[CASH] _free_ghost_human_seats: save_table failed "
-                    "for %r:%d: %s",
-                    table.table_id, idx, e,
+                    "[CASH] _free_ghost_human_seats: save_table failed " "for %r:%d: %s",
+                    table.table_id,
+                    idx,
+                    e,
                 )
     return freed
 
@@ -413,6 +431,7 @@ def _build_preselected_from_table(
     path, which silently swaps the lineup.
     """
     from cash_mode.tables import TABLE_SEAT_COUNT
+
     preselected_ai: list = []
     preselected_chips: Dict[str, int] = {}
     seats = claimed_table.seats
@@ -435,11 +454,7 @@ def _build_preselected_from_table(
         personality = personality_for_seat(slot, personality_repo)
         # Tourists carry display_name on the seat; for regular AI seats
         # use the personality's name; fall back to pid.
-        name = (
-            slot.get("display_name")
-            or (personality or {}).get("name")
-            or pid
-        )
+        name = slot.get("display_name") or (personality or {}).get("name") or pid
         entry: Dict[str, Any] = {"personality_id": pid, "name": name}
         preselected_ai.append(entry)
         preselected_chips[pid] = int(slot.get("chips", 0))
@@ -448,7 +463,9 @@ def _build_preselected_from_table(
 
 
 def _load_or_seed_player_bankroll(
-    owner_id: str, *, sandbox_id: Optional[str] = None,
+    owner_id: str,
+    *,
+    sandbox_id: Optional[str] = None,
 ) -> PlayerBankrollState:
     """Load the player's bankroll row or create a fresh seed on miss.
 
@@ -466,6 +483,7 @@ def _load_or_seed_player_bankroll(
     the legacy bucket.
     """
     from flask_app.extensions import bankroll_repo, chip_ledger_repo, sandbox_repo
+
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is not None:
         return bankroll
@@ -477,8 +495,10 @@ def _load_or_seed_player_bankroll(
             from flask_app.services.sandbox_resolver import (
                 resolve_default_sandbox_for,
             )
+
             sandbox_id = resolve_default_sandbox_for(
-                owner_id, sandbox_repo=sandbox_repo,
+                owner_id,
+                sandbox_repo=sandbox_repo,
             )
         except Exception:
             sandbox_id = None  # fall through; entry writes NULL
@@ -495,8 +515,12 @@ def _load_or_seed_player_bankroll(
         context={'reason_detail': 'first_cash_entry', 'sandbox_id': sandbox_id},
         sandbox_id=sandbox_id,
     )
-    logger.info("[CASH] Seeded fresh bankroll for %r at %d chips (sandbox=%r)",
-                owner_id, DEFAULT_PLAYER_STARTING_BANKROLL, sandbox_id)
+    logger.info(
+        "[CASH] Seeded fresh bankroll for %r at %d chips (sandbox=%r)",
+        owner_id,
+        DEFAULT_PLAYER_STARTING_BANKROLL,
+        sandbox_id,
+    )
     return bankroll
 
 
@@ -507,6 +531,7 @@ def _record_cash_session_start(**kwargs) -> None:
     """
     from cash_mode.cash_session_persistence import record_cash_session_start
     from flask_app.extensions import cash_session_repo
+
     record_cash_session_start(cash_session_repo=cash_session_repo, **kwargs)
 
 
@@ -514,6 +539,7 @@ def _increment_cash_session_buy_in(game_id: str, amount: int) -> None:
     """Thin wrapper — see `cash_mode.cash_session_persistence.increment_cash_session_buy_in`."""
     from cash_mode.cash_session_persistence import increment_cash_session_buy_in
     from flask_app.extensions import cash_session_repo
+
     increment_cash_session_buy_in(cash_session_repo, game_id, amount)
 
 
@@ -534,12 +560,9 @@ def _load_human_stake_or_404(stake_id: str, owner_id: str):
     lands), all three routes update at one edit.
     """
     from flask_app.extensions import stake_repo
+
     stake = stake_repo.load_stake(stake_id)
-    if (
-        stake is None
-        or stake.borrower_id != owner_id
-        or stake.borrower_kind != BORROWER_KIND_HUMAN
-    ):
+    if stake is None or stake.borrower_id != owner_id or stake.borrower_kind != BORROWER_KIND_HUMAN:
         return None, (jsonify({"error": "Stake not found"}), 404)
     return stake, None
 
@@ -562,6 +585,7 @@ def _resolve_player_tier_stake_label(owner_id: str, bankroll_chips: int) -> str:
     active_game_id = _find_active_cash_game_id(owner_id)
     if active_game_id:
         from flask_app.services import game_state_service
+
         active_game = game_state_service.get_game(active_game_id)
         if active_game:
             label = active_game.get("cash_stake_label")
@@ -619,9 +643,14 @@ def _build_cash_game(
     big_blind, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
     from flask_app.extensions import (
-        bankroll_repo, game_repo, hand_history_repo, personality_repo,
-        persistence_db_path, relationship_repo,
-        capture_label_repo, decision_analysis_repo,
+        bankroll_repo,
+        capture_label_repo,
+        decision_analysis_repo,
+        game_repo,
+        hand_history_repo,
+        persistence_db_path,
+        personality_repo,
+        relationship_repo,
     )
 
     selected_ai: list = []
@@ -676,14 +705,19 @@ def _build_cash_game(
                 stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
             else:
                 projected = project_bankroll(
-                    stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+                    stored,
+                    knobs.starting_bankroll,
+                    knobs.bankroll_rate,
+                    now,
                 )
             if projected < ai_threshold:
                 continue
             selected_ai.append({"personality_id": pid, "name": name})
             ai_buy_ins[pid] = ai_buy_in
             ai_states[pid] = AIBankrollState(
-                personality_id=pid, chips=projected, last_regen_tick=stored.last_regen_tick,
+                personality_id=pid,
+                chips=projected,
+                last_regen_tick=stored.last_regen_tick,
             )
             # Stash stored.chips (pre-projection) so the eventual
             # save_ai_bankroll can record the regen amount that just
@@ -697,18 +731,18 @@ def _build_cash_game(
             )
 
     # 2. Build the game state.
+    from flask_app.game_adapter import StateMachineAdapter
+    from flask_app.handlers.tiered_factory import build_tiered_controller
+    from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
+    from poker.cash_bot_assignment import assign_bot
+    from poker.controllers import AIPlayerController
+    from poker.hybrid_ai_controller import HybridAIController
+    from poker.memory import AIMemoryManager
     from poker.poker_game import initialize_game_state
     from poker.poker_state_machine import PokerStateMachine
-    from poker.memory import AIMemoryManager
     from poker.pressure_detector import PressureEventDetector
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
-    from poker.hybrid_ai_controller import HybridAIController
-    from poker.controllers import AIPlayerController
-    from poker.cash_bot_assignment import assign_bot
-    from flask_app.handlers.tiered_factory import build_tiered_controller
-    from flask_app.game_adapter import StateMachineAdapter
-    from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
 
     human_name = _resolve_player_name()
     ai_names = [a["name"] for a in selected_ai]
@@ -770,10 +804,12 @@ def _build_cash_game(
         # ephemeral tourists.
         rule_strategy_override = (
             (personality_config or {}).get("rule_strategy")
-            if isinstance(personality_config, dict) else None
+            if isinstance(personality_config, dict)
+            else None
         )
         if rule_strategy_override == "fish":
             from poker.rule_bot_controller import RuleBotController
+
             fish_leak = (personality_config or {}).get("fish_leak")
             bot_types[player.name] = "fish"
             player_llm_configs[player.name] = {}
@@ -849,11 +885,13 @@ def _build_cash_game(
         sandbox_id=sandbox_id,
         table_max_buy_in=max_buy_in,
     )
-    memory_manager.set_fish_ids({
-        p['personality_id']
-        for p in personality_repo.list_fish_for_cash_mode()
-        if p.get('personality_id')
-    })
+    memory_manager.set_fish_ids(
+        {
+            p['personality_id']
+            for p in personality_repo.list_fish_for_cash_mode()
+            if p.get('personality_id')
+        }
+    )
     for player in state_machine.game_state.players:
         try:
             pid = personality_repo.resolve_name_to_personality_id(player.name)
@@ -887,6 +925,7 @@ def _build_cash_game(
     # use the persisted table chips, which already represent chips
     # off-bankroll, so debiting here would double-charge the AI.
     from flask_app.extensions import chip_ledger_repo
+
     for pid, state in ai_states.items():
         debited = AIBankrollState(
             personality_id=pid,
@@ -929,16 +968,16 @@ def _build_cash_game(
         "last_announced_phase": None,
         "guest_tracking_id": None,
         "guest_messages_this_action": 0,
-        "messages": [{
-            "id": "1",
-            "sender": "Table",
-            "content": welcome_message,
-            "timestamp": datetime.now().isoformat(),
-            "type": "table",
-        }],
-        "hand_start_stacks": {
-            p.name: p.stack for p in state_machine.game_state.players
-        },
+        "messages": [
+            {
+                "id": "1",
+                "sender": "Table",
+                "content": welcome_message,
+                "timestamp": datetime.now().isoformat(),
+                "type": "table",
+            }
+        ],
+        "hand_start_stacks": {p.name: p.stack for p in state_machine.game_state.players},
         "short_stack_players": set(),
         "cash_mode": True,
         "cash_stake_label": stake_label,
@@ -948,6 +987,7 @@ def _build_cash_game(
     }
 
     from flask_app.services import game_state_service
+
     game_state_service.set_game(game_id, game_data)
 
     # Persist `llm_configs_json` so cold-load (post-reboot, post-eviction)
@@ -961,7 +1001,10 @@ def _build_cash_game(
         if not player.is_human:
             saved_bot_types.setdefault(player.name, "standard")
     game_repo.save_game(
-        game_id, state_machine._state_machine, owner_id, human_name,
+        game_id,
+        state_machine._state_machine,
+        owner_id,
+        human_name,
         llm_configs={
             "player_llm_configs": player_llm_configs,
             "default_llm_config": default_llm_config,
@@ -969,9 +1012,15 @@ def _build_cash_game(
         },
     )
 
-    logger.info("[CASH] Created game_id=%r owner=%r stake=%r player_stack=%d ai=%r bot_types=%r",
-                game_id, owner_id, stake_label, player_starting_stack,
-                [a["name"] for a in selected_ai], saved_bot_types)
+    logger.info(
+        "[CASH] Created game_id=%r owner=%r stake=%r player_stack=%d ai=%r bot_types=%r",
+        game_id,
+        owner_id,
+        stake_label,
+        player_starting_stack,
+        [a["name"] for a in selected_ai],
+        saved_bot_types,
+    )
     return game_id, None
 
 
@@ -1005,41 +1054,48 @@ def start_cash_session():
     opponent_count = int(payload.get("opponents", 5))
 
     if stake_label not in STAKES_LADDER:
-        return jsonify({
-            "error": "Invalid stake_label",
-            "valid_stakes": list(STAKES_LADDER.keys()),
-        }), 400
+        return jsonify(
+            {
+                "error": "Invalid stake_label",
+                "valid_stakes": list(STAKES_LADDER.keys()),
+            }
+        ), 400
     if not isinstance(buy_in, int) or buy_in <= 0:
         return jsonify({"error": "buy_in must be a positive integer"}), 400
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
     if buy_in < min_buy_in or buy_in > max_buy_in:
-        return jsonify({
-            "error": (
-                f"buy_in {buy_in} out of range for {stake_label} table "
-                f"(min={min_buy_in}, max={max_buy_in})"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"buy_in {buy_in} out of range for {stake_label} table "
+                    f"(min={min_buy_in}, max={max_buy_in})"
+                ),
+            }
+        ), 400
 
     # Block duplicate sessions: one cash game per owner at a time.
     existing = _find_active_cash_game_id(owner_id)
     if existing is not None:
-        return jsonify({
-            "error": "A cash session is already active. Leave first.",
-            "game_id": existing,
-        }), 409
+        return jsonify(
+            {
+                "error": "A cash session is already active. Leave first.",
+                "game_id": existing,
+            }
+        ), 409
 
     from flask_app.extensions import bankroll_repo
 
     # Player bankroll: load or seed; verify affordability.
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
     if player_bankroll.chips < buy_in:
-        return jsonify({
-            "error": (
-                f"Insufficient bankroll: {player_bankroll.chips} chips, "
-                f"buy_in {buy_in}"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"Insufficient bankroll: {player_bankroll.chips} chips, " f"buy_in {buy_in}"
+                ),
+            }
+        ), 400
 
     # Build + register the game (AI selection, controllers, memory manager).
     game_id, err = _build_cash_game(
@@ -1055,11 +1111,13 @@ def start_cash_session():
 
     # Debit the player's bankroll. Loan fields stay zeroed — this is
     # the self-funded path.
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=player_bankroll.player_id,
-        chips=player_bankroll.chips - buy_in,
-        starting_bankroll=player_bankroll.starting_bankroll,
-    ))
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=player_bankroll.player_id,
+            chips=player_bankroll.chips - buy_in,
+            starting_bankroll=player_bankroll.starting_bankroll,
+        )
+    )
 
     _record_cash_session_start(
         game_id=game_id,
@@ -1122,16 +1180,20 @@ def sit_at_table():
         return jsonify({"error": "seat_index out of range"}), 400
     target_slot = table.seats[seat_index]
     if target_slot["kind"] != "open":
-        return jsonify({
-            "error": "Seat is not open",
-            "seat_kind": target_slot["kind"],
-        }), 409
+        return jsonify(
+            {
+                "error": "Seat is not open",
+                "seat_kind": target_slot["kind"],
+            }
+        ), 409
 
     stake_label = table.stake_label
     if stake_label not in STAKES_LADDER:
-        return jsonify({
-            "error": f"Table has invalid stake_label {stake_label!r}",
-        }), 500
+        return jsonify(
+            {
+                "error": f"Table has invalid stake_label {stake_label!r}",
+            }
+        ), 500
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
     if buy_in is None:
@@ -1139,20 +1201,24 @@ def sit_at_table():
     if not isinstance(buy_in, int) or buy_in <= 0:
         return jsonify({"error": "buy_in must be a positive integer"}), 400
     if buy_in < min_buy_in or buy_in > max_buy_in:
-        return jsonify({
-            "error": (
-                f"buy_in {buy_in} out of range for {stake_label} table "
-                f"(min={min_buy_in}, max={max_buy_in})"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"buy_in {buy_in} out of range for {stake_label} table "
+                    f"(min={min_buy_in}, max={max_buy_in})"
+                ),
+            }
+        ), 400
 
     # Block duplicate sessions: one cash game per owner at a time.
     existing = _find_active_cash_game_id(owner_id)
     if existing is not None:
-        return jsonify({
-            "error": "A cash session is already active. Leave first.",
-            "game_id": existing,
-        }), 409
+        return jsonify(
+            {
+                "error": "A cash session is already active. Leave first.",
+                "game_id": existing,
+            }
+        ), 409
 
     # Belt-and-suspenders against orphaned seats: the duplicate-session
     # check above guards against duplicate game rows, but a stale human
@@ -1167,20 +1233,23 @@ def sit_at_table():
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
     if player_bankroll.chips < buy_in:
         if is_sponsor_eligible(player_bankroll.chips, stake_label):
-            return jsonify({
-                "requires_sponsor": True,
-                "stake_label": stake_label,
+            return jsonify(
+                {
+                    "requires_sponsor": True,
+                    "stake_label": stake_label,
+                    "bankroll": player_bankroll.chips,
+                    "min_buy_in": min_buy_in,
+                    "max_buy_in": max_buy_in,
+                }
+            ), 402
+        return jsonify(
+            {
+                "error": (
+                    f"Insufficient bankroll: {player_bankroll.chips} chips, " f"buy_in {buy_in}"
+                ),
                 "bankroll": player_bankroll.chips,
-                "min_buy_in": min_buy_in,
-                "max_buy_in": max_buy_in,
-            }), 402
-        return jsonify({
-            "error": (
-                f"Insufficient bankroll: {player_bankroll.chips} chips, "
-                f"buy_in {buy_in}"
-            ),
-            "bankroll": player_bankroll.chips,
-        }), 400
+            }
+        ), 400
 
     # Persist the seat claim immediately so a second device can't
     # double-sit. The roster-based _build_cash_game below reads this
@@ -1195,26 +1264,28 @@ def sit_at_table():
     # "ghost me" seat on session resume, which then survived the
     # next leave and blocked AI live-fill on the abandoned chair.
     from cash_mode.tables import human_slot
+
     table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
     if table is None:
         return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
     if table.seats[seat_index]["kind"] != "open":
-        return jsonify({
-            "error": "Seat is not open",
-            "seat_kind": table.seats[seat_index]["kind"],
-        }), 409
+        return jsonify(
+            {
+                "error": "Seat is not open",
+                "seat_kind": table.seats[seat_index]["kind"],
+            }
+        ), 409
     claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
     cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts, sourced via the shared preselected-builder.
     from flask_app.extensions import personality_repo
-    preselected_ai, preselected_chips, dealer_player_idx = (
-        _build_preselected_from_table(
-            claimed_table=claimed_table,
-            seat_index=seat_index,
-            personality_repo=personality_repo,
-        )
+
+    preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
+        claimed_table=claimed_table,
+        seat_index=seat_index,
+        personality_repo=personality_repo,
     )
 
     game_id, err = _build_cash_game(
@@ -1222,9 +1293,7 @@ def sit_at_table():
         sandbox_id=sandbox_id,
         stake_label=stake_label,
         player_starting_stack=buy_in,
-        welcome_message=(
-            f"*** Cash table {stake_label} — sit down at ${buy_in} ***"
-        ),
+        welcome_message=(f"*** Cash table {stake_label} — sit down at ${buy_in} ***"),
         preselected_ai=preselected_ai,
         preselected_ai_chips=preselected_chips,
         dealer_player_idx=dealer_player_idx,
@@ -1237,15 +1306,18 @@ def sit_at_table():
 
     # Debit the player's bankroll. Loan fields stay zeroed — this is
     # the self-funded path.
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=player_bankroll.player_id,
-        chips=player_bankroll.chips - buy_in,
-        starting_bankroll=player_bankroll.starting_bankroll,
-    ))
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=player_bankroll.player_id,
+            chips=player_bankroll.chips - buy_in,
+            starting_bankroll=player_bankroll.starting_bankroll,
+        )
+    )
 
     # Stash the table_id + seat_index on the game_data so /api/cash/leave
     # can free the seat back to "open" at session end.
     from flask_app.services import game_state_service
+
     game_data = game_state_service.get_game(game_id)
     if game_data is not None:
         game_data["cash_table_id"] = table_id
@@ -1262,11 +1334,13 @@ def sit_at_table():
         cash_seat_index=seat_index,
     )
 
-    return jsonify({
-        "game_id": game_id,
-        "table_id": table_id,
-        "seat_index": seat_index,
-    })
+    return jsonify(
+        {
+            "game_id": game_id,
+            "table_id": table_id,
+            "seat_index": seat_index,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/sponsor-offers", methods=["GET"])
@@ -1305,30 +1379,37 @@ def sponsor_offers_for_stake():
     stake_label = request.args.get("stake_label")
     table_id = request.args.get("table_id")
     if stake_label not in STAKES_LADDER:
-        return jsonify({
-            "error": "Invalid stake_label",
-            "valid_stakes": list(STAKES_LADDER.keys()),
-        }), 400
+        return jsonify(
+            {
+                "error": "Invalid stake_label",
+                "valid_stakes": list(STAKES_LADDER.keys()),
+            }
+        ), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
     if not is_sponsor_eligible(bankroll.chips, stake_label):
         _, this_min, _ = table_buy_in_window(stake_label)
-        return jsonify({
-            "eligible": False,
-            "reason": "tier_locked",
-            "bankroll": bankroll.chips,
-            "this_min_buy_in": this_min,
-        }), 200
+        return jsonify(
+            {
+                "eligible": False,
+                "reason": "tier_locked",
+                "bankroll": bankroll.chips,
+                "this_min_buy_in": this_min,
+            }
+        ), 200
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
     # Path B + Lobby v1.5: assemble personality offers, narrowed to the
     # current table's seated AIs when `table_id` is provided.
+    from cash_mode.staking_tier import resolve_tier
     from flask_app.extensions import (
-        bankroll_repo, cash_table_repo, personality_repo, relationship_repo,
+        bankroll_repo,
+        cash_table_repo,
+        personality_repo,
+        relationship_repo,
         stake_repo,
     )
-    from cash_mode.staking_tier import resolve_tier
 
     broad_candidates = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
 
@@ -1337,18 +1418,20 @@ def sponsor_offers_for_stake():
     # list rather than failing the route.
     try:
         from flask_app.extensions import vice_state_repo
+
         if vice_state_repo is not None:
             on_vice_pids = vice_state_repo.active_pids(
-                sandbox_id=sandbox_id, now=datetime.utcnow(),
+                sandbox_id=sandbox_id,
+                now=datetime.utcnow(),
             )
             if on_vice_pids:
                 broad_candidates = [
-                    c for c in broad_candidates
-                    if c.get("personality_id") not in on_vice_pids
+                    c for c in broad_candidates if c.get("personality_id") not in on_vice_pids
                 ]
     except Exception as exc:
         logger.warning(
-            "[CASH][SPONSOR_OFFERS] vice filter failed: %s", exc,
+            "[CASH][SPONSOR_OFFERS] vice filter failed: %s",
+            exc,
         )
 
     candidates = broad_candidates
@@ -1357,10 +1440,7 @@ def sponsor_offers_for_stake():
         table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
         if table is not None and table.stake_label == stake_label:
             seated_pids = set(table.seated_personality_ids())
-            narrowed = [
-                c for c in broad_candidates
-                if c.get("personality_id") in seated_pids
-            ]
+            narrowed = [c for c in broad_candidates if c.get("personality_id") in seated_pids]
             if narrowed:
                 candidates = narrowed
 
@@ -1406,57 +1486,68 @@ def sponsor_offers_for_stake():
     # can render a tier indicator alongside the offers. Tolerates a
     # missing stake_repo by defaulting to 'premium' for back-compat
     # in tests that don't wire one through.
-    tier = resolve_tier(
-        borrower_id=owner_id,
-        current_stake_label=stake_label,
-        stake_repo=stake_repo,
-    ) if stake_repo is not None else 'premium'
+    tier = (
+        resolve_tier(
+            borrower_id=owner_id,
+            current_stake_label=stake_label,
+            stake_repo=stake_repo,
+        )
+        if stake_repo is not None
+        else 'premium'
+    )
 
     # House fallback: fill the remainder up to 3 with anonymous archetypes.
     house_slots = max(0, 3 - len(personality_offers))
     house_offers = (
         compute_offers_for_table(min_buy_in, max_buy_in, count=house_slots)
-        if house_slots > 0 else []
+        if house_slots > 0
+        else []
     )
 
     response_offers = []
     for po in personality_offers:
-        response_offers.append({
-            "kind": "personality",
-            "lender_id": po.lender_id,
-            "name": po.lender_name,
-            "amount": po.amount,
-            "floor": po.floor,
-            "rate": po.rate,
-            "flavor": po.flavor,
-            "relationship_hint": po.relationship_hint,
-        })
-    for ho in house_offers:
-        response_offers.append({
-            "kind": "house",
-            "archetype_id": ho.archetype_id,
-            "name": ho.name,
-            "amount": ho.amount,
-            "floor": ho.floor,
-            "rate": ho.rate,
-            "flavor": ho.flavor,
-        })
-
-    return jsonify({
-        "eligible": True,
-        "stake_label": stake_label,
-        "offers": response_offers,
-        "tier": tier,
-        "rejections": [
+        response_offers.append(
             {
-                "lender_id": r.lender_id,
-                "name": r.lender_name,
-                "reason": r.reason,
-                "detail": r.detail,
+                "kind": "personality",
+                "lender_id": po.lender_id,
+                "name": po.lender_name,
+                "amount": po.amount,
+                "floor": po.floor,
+                "rate": po.rate,
+                "flavor": po.flavor,
+                "relationship_hint": po.relationship_hint,
             }
-            for r in rejections
-        ],
-    })
+        )
+    for ho in house_offers:
+        response_offers.append(
+            {
+                "kind": "house",
+                "archetype_id": ho.archetype_id,
+                "name": ho.name,
+                "amount": ho.amount,
+                "floor": ho.floor,
+                "rate": ho.rate,
+                "flavor": ho.flavor,
+            }
+        )
+
+    return jsonify(
+        {
+            "eligible": True,
+            "stake_label": stake_label,
+            "offers": response_offers,
+            "tier": tier,
+            "rejections": [
+                {
+                    "lender_id": r.lender_id,
+                    "name": r.lender_name,
+                    "reason": r.reason,
+                    "detail": r.detail,
+                }
+                for r in rejections
+            ],
+        }
+    )
 
 
 def _record_relationship_event(
@@ -1482,12 +1573,16 @@ def _record_relationship_event(
     try:
         from flask_app.extensions import relationship_repo
         from poker.memory import OpponentModelManager
+
         mgr = OpponentModelManager(relationship_repo=relationship_repo)
         mgr.record_event(actor_id=actor_id, target_id=target_id, event=event)
     except Exception as e:
         logger.warning(
             "[CASH] record_relationship_event(%s) actor=%r target=%r failed: %s",
-            event.value, actor_id, target_id, e,
+            event.value,
+            actor_id,
+            target_id,
+            e,
         )
 
 
@@ -1591,26 +1686,34 @@ def sponsor_and_sit():
     seat_index = payload.get("seat_index")
 
     if stake_label not in STAKES_LADDER:
-        return jsonify({
-            "error": "Invalid stake_label",
-            "valid_stakes": list(STAKES_LADDER.keys()),
-        }), 400
+        return jsonify(
+            {
+                "error": "Invalid stake_label",
+                "valid_stakes": list(STAKES_LADDER.keys()),
+            }
+        ), 400
     if archetype_id and lender_id:
-        return jsonify({
-            "error": "Send either archetype_id (house) or lender_id (personality), not both",
-        }), 400
+        return jsonify(
+            {
+                "error": "Send either archetype_id (house) or lender_id (personality), not both",
+            }
+        ), 400
     if not archetype_id and not lender_id:
-        return jsonify({
-            "error": "archetype_id or lender_id is required",
-        }), 400
+        return jsonify(
+            {
+                "error": "archetype_id or lender_id is required",
+            }
+        ), 400
     if archetype_id is not None and not isinstance(archetype_id, str):
         return jsonify({"error": "archetype_id must be a string"}), 400
     if lender_id is not None and not isinstance(lender_id, str):
         return jsonify({"error": "lender_id must be a string"}), 400
     if (table_id is None) != (seat_index is None):
-        return jsonify({
-            "error": "table_id and seat_index must be sent together",
-        }), 400
+        return jsonify(
+            {
+                "error": "table_id and seat_index must be sent together",
+            }
+        ), 400
 
     # Vice spending: refuse staking an AI who's currently off-grid.
     # The AI's bankroll is part of the stake's economic shape (offers
@@ -1621,47 +1724,58 @@ def sponsor_and_sit():
     if lender_id is not None:
         try:
             from flask_app.extensions import vice_state_repo
+
             if vice_state_repo is not None:
                 vstate = vice_state_repo.load(
-                    lender_id, sandbox_id=sandbox_id,
+                    lender_id,
+                    sandbox_id=sandbox_id,
                 )
                 if vstate is not None and vstate.ends_at > datetime.utcnow():
-                    return jsonify({
-                        "error": "lender is currently away",
-                        "lender_id": lender_id,
-                        "vice_ends_at": vstate.ends_at.isoformat(),
-                        "vice_narration": vstate.narration,
-                    }), 409
+                    return jsonify(
+                        {
+                            "error": "lender is currently away",
+                            "lender_id": lender_id,
+                            "vice_ends_at": vstate.ends_at.isoformat(),
+                            "vice_narration": vstate.narration,
+                        }
+                    ), 409
         except Exception as exc:
             # Don't fail the route on a vice-check error — log and proceed.
             logger.warning(
                 "[CASH][SPONSOR] vice check failed lender=%r: %s",
-                lender_id, exc,
+                lender_id,
+                exc,
             )
     if table_id is not None and not isinstance(table_id, str):
         return jsonify({"error": "table_id must be a string"}), 400
-    if seat_index is not None and (
-        not isinstance(seat_index, int) or seat_index < 0
-    ):
+    if seat_index is not None and (not isinstance(seat_index, int) or seat_index < 0):
         return jsonify({"error": "seat_index must be a non-negative integer"}), 400
 
     existing = _find_active_cash_game_id(owner_id)
     if existing is not None:
-        return jsonify({
-            "error": "A cash session is already active. Leave first.",
-            "game_id": existing,
-        }), 409
+        return jsonify(
+            {
+                "error": "A cash session is already active. Leave first.",
+                "game_id": existing,
+            }
+        ), 409
 
     from flask_app.extensions import (
-        bankroll_repo, personality_repo, relationship_repo, stake_repo,
+        bankroll_repo,
+        personality_repo,
+        relationship_repo,
+        stake_repo,
     )
+
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
     if not is_sponsor_eligible(bankroll.chips, stake_label):
-        return jsonify({
-            "error": "Not sponsor-eligible at this stake",
-            "bankroll": bankroll.chips,
-        }), 400
+        return jsonify(
+            {
+                "error": "Not sponsor-eligible at this stake",
+                "bankroll": bankroll.chips,
+            }
+        ), 400
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
@@ -1683,11 +1797,11 @@ def sponsor_and_sit():
             stake_label=stake_label,
         )
         if personality_offer is None:
-            return jsonify({
-                "error": (
-                    f"Lender {lender_id!r} doesn't qualify for a loan right now"
-                ),
-            }), 400
+            return jsonify(
+                {
+                    "error": (f"Lender {lender_id!r} doesn't qualify for a loan right now"),
+                }
+            ), 400
         offer_amount = personality_offer.amount
         offer_floor = personality_offer.floor
         offer_rate = personality_offer.rate
@@ -1696,9 +1810,11 @@ def sponsor_and_sit():
     else:
         house_offer = offer_for_archetype(archetype_id, min_buy_in, max_buy_in)
         if house_offer is None:
-            return jsonify({
-                "error": f"Unknown sponsor archetype {archetype_id!r}",
-            }), 400
+            return jsonify(
+                {
+                    "error": f"Unknown sponsor archetype {archetype_id!r}",
+                }
+            ), 400
         offer_amount = house_offer.amount
         offer_floor = house_offer.floor
         offer_rate = house_offer.rate
@@ -1712,8 +1828,9 @@ def sponsor_and_sit():
     # silently swaps the lineup — the user clicks a table showing
     # AIs X/Y/Z but gets seated against A/B/C, which they correctly
     # flagged as a recurring bug.
-    from flask_app.extensions import cash_table_repo
     from cash_mode.tables import human_slot
+    from flask_app.extensions import cash_table_repo
+
     claimed_table = None
     pre_claim_table = None  # snapshot for rollback on build failure
     preselected_ai = None
@@ -1724,19 +1841,23 @@ def sponsor_and_sit():
         if table is None:
             return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
         if table.stake_label != stake_label:
-            return jsonify({
-                "error": (
-                    f"Table {table_id!r} stake {table.stake_label!r} doesn't "
-                    f"match request stake {stake_label!r}"
-                ),
-            }), 400
+            return jsonify(
+                {
+                    "error": (
+                        f"Table {table_id!r} stake {table.stake_label!r} doesn't "
+                        f"match request stake {stake_label!r}"
+                    ),
+                }
+            ), 400
         if seat_index >= len(table.seats):
             return jsonify({"error": "seat_index out of range"}), 400
         if table.seats[seat_index]["kind"] != "open":
-            return jsonify({
-                "error": "Seat is not open",
-                "seat_kind": table.seats[seat_index]["kind"],
-            }), 409
+            return jsonify(
+                {
+                    "error": "Seat is not open",
+                    "seat_kind": table.seats[seat_index]["kind"],
+                }
+            ), 409
         # Sweep any orphan human seats for this owner BEFORE claiming
         # the new one — same defense sit_at_table uses. Reload after
         # the sweep because the sweep may have rewritten this table's
@@ -1747,21 +1868,22 @@ def sponsor_and_sit():
         if table is None:
             return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
         if table.seats[seat_index]["kind"] != "open":
-            return jsonify({
-                "error": "Seat is not open",
-                "seat_kind": table.seats[seat_index]["kind"],
-            }), 409
+            return jsonify(
+                {
+                    "error": "Seat is not open",
+                    "seat_kind": table.seats[seat_index]["kind"],
+                }
+            ), 409
         pre_claim_table = table
         claimed_table = table.with_seat(
-            seat_index, human_slot(owner_id, offer_amount),
+            seat_index,
+            human_slot(owner_id, offer_amount),
         )
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
-        preselected_ai, preselected_chips, dealer_player_idx = (
-            _build_preselected_from_table(
-                claimed_table=claimed_table,
-                seat_index=seat_index,
-                personality_repo=personality_repo,
-            )
+        preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
+            claimed_table=claimed_table,
+            seat_index=seat_index,
+            personality_repo=personality_repo,
         )
 
     # Build + register the game with loan.amount as the starting stack.
@@ -1790,6 +1912,7 @@ def sponsor_and_sit():
     # the seat back to "open" at session end (mirror sit_at_table).
     if table_id is not None:
         from flask_app.services import game_state_service
+
         game_data = game_state_service.get_game(game_id)
         if game_data is not None:
             game_data["cash_table_id"] = table_id
@@ -1812,29 +1935,31 @@ def sponsor_and_sit():
     stake_kind = STAKER_KIND_HOUSE if offer_lender_id is None else STAKER_KIND_PERSONALITY
     stake_format = STAKE_FORMAT_HOUSE if offer_lender_id is None else STAKE_FORMAT_PURE
     stake_id = f"sponsor_{game_id}"
-    stake_repo.create_stake(Stake(
-        stake_id=stake_id,
-        session_id=game_id,
-        staker_id=offer_lender_id,
-        staker_kind=stake_kind,
-        borrower_id=owner_id,
-        borrower_kind=BORROWER_KIND_HUMAN,
-        format=stake_format,
-        principal=offer_amount,
-        match_amount=0,
-        origination_fee=0,
-        cut=offer_rate,
-        status=STAKE_STATUS_ACTIVE,
-        carry_amount=0,
-        stake_tier=stake_label,
-        created_at=datetime.utcnow(),
-        # v111: pin the stake to the specific lobby table the player
-        # sat at, so per-table analytics ("which $50 table has the
-        # highest carry rate?") become possible. `table_id` is set on
-        # the seat-targeted sponsor-and-sit path; the auto-sit fallback
-        # (no table_id in payload) leaves it NULL.
-        table_id=table_id,
-    ))
+    stake_repo.create_stake(
+        Stake(
+            stake_id=stake_id,
+            session_id=game_id,
+            staker_id=offer_lender_id,
+            staker_kind=stake_kind,
+            borrower_id=owner_id,
+            borrower_kind=BORROWER_KIND_HUMAN,
+            format=stake_format,
+            principal=offer_amount,
+            match_amount=0,
+            origination_fee=0,
+            cut=offer_rate,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier=stake_label,
+            created_at=datetime.utcnow(),
+            # v111: pin the stake to the specific lobby table the player
+            # sat at, so per-table analytics ("which $50 table has the
+            # highest carry rate?") become possible. `table_id` is set on
+            # the seat-targeted sponsor-and-sit path; the auto-sit fallback
+            # (no table_id in payload) leaves it NULL.
+            table_id=table_id,
+        )
+    )
 
     # The player put up no own chips — `sponsor_principal` carries the
     # full table stack, `initial_buy_in` stays 0. The leave-time summary
@@ -1857,6 +1982,7 @@ def sponsor_and_sit():
     # through here.
     if offer_lender_id is None:
         from flask_app.extensions import chip_ledger_repo
+
         chip_ledger.record_house_stake_issue(
             chip_ledger_repo,
             owner_id=owner_id,
@@ -1874,10 +2000,14 @@ def sponsor_and_sit():
 
     if lender_id:
         logger.info(
-            "[CASH] Sponsored sit %r owner=%r stake=%r lender=%r "
-            "amount=%d floor=%.2f rate=%.2f",
-            game_id, owner_id, stake_label, lender_id,
-            offer_amount, offer_floor, offer_rate,
+            "[CASH] Sponsored sit %r owner=%r stake=%r lender=%r " "amount=%d floor=%.2f rate=%.2f",
+            game_id,
+            owner_id,
+            stake_label,
+            lender_id,
+            offer_amount,
+            offer_floor,
+            offer_rate,
         )
         # Path B relationship event: the AI lender just extended trust.
         # Anonymous house loans don't fire this — no `actor` to credit
@@ -1891,8 +2021,13 @@ def sponsor_and_sit():
         logger.info(
             "[CASH] Sponsored sit %r owner=%r stake=%r archetype=%r "
             "amount=%d floor=%.2f rate=%.2f",
-            game_id, owner_id, stake_label, archetype_id,
-            offer_amount, offer_floor, offer_rate,
+            game_id,
+            owner_id,
+            stake_label,
+            archetype_id,
+            offer_amount,
+            offer_floor,
+            offer_rate,
         )
 
     response_offer = {
@@ -1911,10 +2046,12 @@ def sponsor_and_sit():
         response_offer["archetype_id"] = archetype_id
         response_offer["flavor"] = house_offer.flavor
 
-    return jsonify({
-        "game_id": game_id,
-        "offer": response_offer,
-    })
+    return jsonify(
+        {
+            "game_id": game_id,
+            "offer": response_offer,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/rebuy", methods=["POST"])
@@ -1972,18 +2109,22 @@ def rebuy():
         return jsonify({"error": "Player not seated"}), 400
     human_player = state_machine.game_state.players[human_idx]
     if human_player.stack != 0:
-        return jsonify({
-            "error": "Rebuy is only allowed when stack is 0 (use top-up otherwise)",
-            "stack": human_player.stack,
-        }), 400
+        return jsonify(
+            {
+                "error": "Rebuy is only allowed when stack is 0 (use top-up otherwise)",
+                "stack": human_player.stack,
+            }
+        ), 400
 
     if amount < min_buy_in or amount > max_buy_in:
-        return jsonify({
-            "error": (
-                f"amount {amount} out of range for {stake_label} table "
-                f"(min={min_buy_in}, max={max_buy_in})"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"amount {amount} out of range for {stake_label} table "
+                    f"(min={min_buy_in}, max={max_buy_in})"
+                ),
+            }
+        ), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
 
@@ -1992,27 +2133,34 @@ def rebuy():
     # the leave-time settlement math (the new buy-in would be subject to
     # the staker's cut on the upside). Force a /leave to settle first.
     from flask_app.extensions import stake_repo
+
     if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
-        return jsonify({
-            "error": "Rebuy disabled while a stake is active. Leave the table to settle.",
-        }), 400
+        return jsonify(
+            {
+                "error": "Rebuy disabled while a stake is active. Leave the table to settle.",
+            }
+        ), 400
     if bankroll.chips < amount:
         return jsonify({"error": "Insufficient bankroll"}), 400
 
     state_machine.game_state = state_machine.game_state.update_player(
-        human_idx, stack=amount,
+        human_idx,
+        stack=amount,
     )
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=bankroll.chips - amount,
-        starting_bankroll=bankroll.starting_bankroll,
-    ))
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=bankroll.chips - amount,
+            starting_bankroll=bankroll.starting_bankroll,
+        )
+    )
 
     # Rebuy is another bankroll → table transfer, just like top-up;
     # leave-time P&L needs it counted as money put in (not won).
     _increment_cash_session_buy_in(game_id, amount)
 
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
+
     update_and_emit_game_state(game_id)
     # Resume play: if the table was paused in HAND_OVER because the
     # human's bust dropped chip-holders below 2, refilling our stack
@@ -2020,10 +2168,12 @@ def rebuy():
     # deals instead of waiting for some other event.
     progress_game(game_id)
 
-    return jsonify({
-        "stack": amount,
-        "bankroll": bankroll.chips - amount,
-    })
+    return jsonify(
+        {
+            "stack": amount,
+            "bankroll": bankroll.chips - amount,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/stakes/<stake_id>/default", methods=["POST"])
@@ -2074,25 +2224,32 @@ def default_stake(stake_id: str):
         return err
 
     if stake.status != STAKE_STATUS_CARRY:
-        return jsonify({
-            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
-        }), 400
+        return jsonify(
+            {
+                "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+            }
+        ), 400
     if stake.staker_id is None:
         # House stakes never carry. This branch only fires if a row
         # somehow got into 'carry' status with NULL staker_id, which
         # shouldn't happen — Phase 1's settle_stake_on_leave overrides
         # house carries to 'settled' before persisting.
-        return jsonify({
-            "error": "House stakes cannot be defaulted (they don't carry)",
-        }), 400
+        return jsonify(
+            {
+                "error": "House stakes cannot be defaulted (they don't carry)",
+            }
+        ), 400
 
     from flask_app.extensions import stake_repo
+
     former_carry = stake.carry_amount
     former_staker = stake.staker_id
 
     stake_repo.update_carry_amount(stake_id, 0)
     stake_repo.update_status(
-        stake_id, STAKE_STATUS_DEFAULTED, settled_at=datetime.utcnow(),
+        stake_id,
+        STAKE_STATUS_DEFAULTED,
+        settled_at=datetime.utcnow(),
     )
 
     # Fire the reputation hit. The dispatch table's STAKE_DEFAULTED
@@ -2107,17 +2264,21 @@ def default_stake(stake_id: str):
     )
 
     logger.info(
-        "[STAKE] Explicit default stake_id=%r owner=%r staker=%r "
-        "former_carry=%d",
-        stake_id, owner_id, former_staker, former_carry,
+        "[STAKE] Explicit default stake_id=%r owner=%r staker=%r " "former_carry=%d",
+        stake_id,
+        owner_id,
+        former_staker,
+        former_carry,
     )
 
-    return jsonify({
-        "stake_id": stake_id,
-        "status": STAKE_STATUS_DEFAULTED,
-        "former_carry_amount": former_carry,
-        "staker_id": former_staker,
-    })
+    return jsonify(
+        {
+            "stake_id": stake_id,
+            "status": STAKE_STATUS_DEFAULTED,
+            "former_carry_amount": former_carry,
+            "staker_id": former_staker,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/stakes/<stake_id>/payoff", methods=["POST"])
@@ -2158,40 +2319,54 @@ def payoff_stake(stake_id: str):
         return err
 
     if stake.status != STAKE_STATUS_CARRY:
-        return jsonify({
-            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
-        }), 400
+        return jsonify(
+            {
+                "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+            }
+        ), 400
     if stake.staker_id is None:
-        return jsonify({
-            "error": "House stakes cannot be paid off (they don't carry)",
-        }), 400
+        return jsonify(
+            {
+                "error": "House stakes cannot be paid off (they don't carry)",
+            }
+        ), 400
     if stake.staker_kind == STAKER_KIND_HUMAN:
-        return jsonify({
-            "error": "Human-staker payoff not yet supported",
-        }), 501
+        return jsonify(
+            {
+                "error": "Human-staker payoff not yet supported",
+            }
+        ), 501
 
     from flask_app.extensions import bankroll_repo, chip_ledger_repo, stake_repo
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     carry_amount = int(stake.carry_amount)
     if bankroll.chips < carry_amount:
-        return jsonify({
-            "error": "Insufficient bankroll to cover carry",
-            "bankroll": bankroll.chips,
-            "carry_amount": carry_amount,
-        }), 400
+        return jsonify(
+            {
+                "error": "Insufficient bankroll to cover carry",
+                "bankroll": bankroll.chips,
+                "carry_amount": carry_amount,
+            }
+        ), 400
 
     # Pre-flight: confirm the staker's bankroll row exists. Without
     # this, `credit_ai_cash_out` silently returns None on a missing
     # row (its documented contract) — and we'd debit the player while
     # the credit evaporates, plus flip the stake to settled so the
     # player can't retry. Fail fast before any state mutation.
-    if bankroll_repo.load_ai_bankroll(
-        stake.staker_id, sandbox_id=sandbox_id,
-    ) is None:
-        return jsonify({
-            "error": "Staker bankroll unavailable for this carry",
-        }), 503
+    if (
+        bankroll_repo.load_ai_bankroll(
+            stake.staker_id,
+            sandbox_id=sandbox_id,
+        )
+        is None
+    ):
+        return jsonify(
+            {
+                "error": "Staker bankroll unavailable for this carry",
+            }
+        ), 503
 
     # Transfer: player bankroll → staker bankroll. credit_ai_cash_out
     # mirrors the leave-time settlement path so the staker's bankroll
@@ -2201,13 +2376,17 @@ def payoff_stake(stake_id: str):
     # accounting shape depending on which event produced the credit.
     now = datetime.utcnow()
     new_player_chips = bankroll.chips - carry_amount
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=new_player_chips,
-        starting_bankroll=bankroll.starting_bankroll,
-    ))
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=new_player_chips,
+            starting_bankroll=bankroll.starting_bankroll,
+        )
+    )
     credit_ai_cash_out(
-        bankroll_repo, stake.staker_id, carry_amount,
+        bankroll_repo,
+        stake.staker_id,
+        carry_amount,
         sandbox_id=sandbox_id,
         now=now,
         chip_ledger_repo=chip_ledger_repo,
@@ -2247,16 +2426,21 @@ def payoff_stake(stake_id: str):
 
     logger.info(
         "[STAKE] Voluntary payoff stake_id=%r owner=%r staker=%r amount=%d",
-        stake_id, owner_id, stake.staker_id, carry_amount,
+        stake_id,
+        owner_id,
+        stake.staker_id,
+        carry_amount,
     )
 
-    return jsonify({
-        "stake_id": stake_id,
-        "status": STAKE_STATUS_SETTLED,
-        "paid": carry_amount,
-        "bankroll": new_player_chips,
-        "staker_id": stake.staker_id,
-    })
+    return jsonify(
+        {
+            "stake_id": stake_id,
+            "status": STAKE_STATUS_SETTLED,
+            "paid": carry_amount,
+            "bankroll": new_player_chips,
+            "staker_id": stake.staker_id,
+        }
+    )
 
 
 # Phase 3 Commit 3 — forgiveness-request constants
@@ -2293,7 +2477,8 @@ def _forgiveness_score(*, likability: float, respect: float, heat: float) -> flo
 
 
 @cash_bp.route(
-    "/api/cash/stakes/<stake_id>/request-forgiveness", methods=["POST"],
+    "/api/cash/stakes/<stake_id>/request-forgiveness",
+    methods=["POST"],
 )
 def request_forgiveness(stake_id: str):
     """POST /api/cash/stakes/<stake_id>/request-forgiveness
@@ -2343,40 +2528,52 @@ def request_forgiveness(stake_id: str):
         return err
 
     from flask_app.extensions import (
-        personality_repo, relationship_repo, stake_repo,
+        personality_repo,
+        relationship_repo,
+        stake_repo,
     )
 
     if stake.status != STAKE_STATUS_CARRY:
-        return jsonify({
-            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
-        }), 400
+        return jsonify(
+            {
+                "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+            }
+        ), 400
     if stake.staker_id is None:
-        return jsonify({
-            "error": "House stakes cannot be forgiven (they don't carry)",
-        }), 400
+        return jsonify(
+            {
+                "error": "House stakes cannot be forgiven (they don't carry)",
+            }
+        ), 400
 
     now = datetime.utcnow()
     if stake.forgiveness_last_asked is not None:
         elapsed = (now - stake.forgiveness_last_asked).total_seconds()
         if elapsed < FORGIVENESS_RATE_LIMIT_SECONDS:
             retry_after = int(FORGIVENESS_RATE_LIMIT_SECONDS - elapsed)
-            return jsonify({
-                "error": "Forgiveness already requested recently",
-                "retry_after_seconds": retry_after,
-            }), 429
+            return jsonify(
+                {
+                    "error": "Forgiveness already requested recently",
+                    "retry_after_seconds": retry_after,
+                }
+            ), 429
 
     # Read staker's view of borrower. `load_relationship_state` returns
     # None for never-interacted pairs — treat as the neutral default
     # (0.5/0.5/0.0). Heat is already projected through decay on read.
     rel = relationship_repo.load_relationship_state(
-        observer_id=stake.staker_id, opponent_id=owner_id, now=now,
+        observer_id=stake.staker_id,
+        opponent_id=owner_id,
+        now=now,
     )
     likability = rel.likability if rel is not None else 0.5
     respect = rel.respect if rel is not None else 0.5
     heat = rel.heat if rel is not None else 0.0
 
     score = _forgiveness_score(
-        likability=likability, respect=respect, heat=heat,
+        likability=likability,
+        respect=respect,
+        heat=heat,
     )
     granted = score > FORGIVENESS_THRESHOLD
 
@@ -2412,19 +2609,25 @@ def request_forgiveness(stake_id: str):
     logger.info(
         "[STAKE] Forgiveness request stake_id=%r owner=%r staker=%r "
         "score=%.3f threshold=%.3f granted=%s",
-        stake_id, owner_id, stake.staker_id, score,
-        FORGIVENESS_THRESHOLD, granted,
+        stake_id,
+        owner_id,
+        stake.staker_id,
+        score,
+        FORGIVENESS_THRESHOLD,
+        granted,
     )
 
-    return jsonify({
-        "stake_id": stake_id,
-        "granted": granted,
-        "status": STAKE_STATUS_SETTLED if granted else STAKE_STATUS_CARRY,
-        "staker_id": stake.staker_id,
-        "staker_display_name": display_name,
-        "score": round(score, 3),
-        "threshold": FORGIVENESS_THRESHOLD,
-    })
+    return jsonify(
+        {
+            "stake_id": stake_id,
+            "granted": granted,
+            "status": STAKE_STATUS_SETTLED if granted else STAKE_STATUS_CARRY,
+            "staker_id": stake.staker_id,
+            "staker_display_name": display_name,
+            "score": round(score, 3),
+            "threshold": FORGIVENESS_THRESHOLD,
+        }
+    )
 
 
 # v110 — AI-initiated forgiveness asks against a human staker. The
@@ -2461,7 +2664,8 @@ def list_forgiveness_requests():
     except Exception as exc:
         logger.warning(
             "[CASH] list pending forgiveness failed for %r: %s",
-            owner_id, exc,
+            owner_id,
+            exc,
         )
         return jsonify({"requests": []})
 
@@ -2482,12 +2686,9 @@ def list_forgiveness_requests():
             "carry_amount": int(s.carry_amount),
             "stake_tier": s.stake_tier,
             "pending_since": (
-                s.pending_forgiveness_ask.isoformat()
-                if s.pending_forgiveness_ask else None
+                s.pending_forgiveness_ask.isoformat() if s.pending_forgiveness_ask else None
             ),
-            "created_at": (
-                s.created_at.isoformat() if s.created_at else None
-            ),
+            "created_at": (s.created_at.isoformat() if s.created_at else None),
         }
         for s in pending
     ]
@@ -2495,7 +2696,8 @@ def list_forgiveness_requests():
 
 
 @cash_bp.route(
-    "/api/cash/stakes/<stake_id>/staker-forgive", methods=["POST"],
+    "/api/cash/stakes/<stake_id>/staker-forgive",
+    methods=["POST"],
 )
 def staker_forgive(stake_id: str):
     """POST /api/cash/stakes/<id>/staker-forgive — grant or refuse.
@@ -2530,17 +2732,23 @@ def staker_forgive(stake_id: str):
         # caller isn't the staker. Mirrors the /payoff pattern.
         return jsonify({"error": "Stake not found"}), 404
     if stake.staker_kind != STAKER_KIND_HUMAN:
-        return jsonify({
-            "error": "Only human-staker carries route through staker-forgive",
-        }), 400
+        return jsonify(
+            {
+                "error": "Only human-staker carries route through staker-forgive",
+            }
+        ), 400
     if stake.status != STAKE_STATUS_CARRY:
-        return jsonify({
-            "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
-        }), 400
+        return jsonify(
+            {
+                "error": f"Stake is not in 'carry' status (current: {stake.status!r})",
+            }
+        ), 400
     if stake.pending_forgiveness_ask is None:
-        return jsonify({
-            "error": "No pending forgiveness ask on this stake",
-        }), 400
+        return jsonify(
+            {
+                "error": "No pending forgiveness ask on this stake",
+            }
+        ), 400
 
     now = datetime.utcnow()
     if grant:
@@ -2570,16 +2778,21 @@ def staker_forgive(stake_id: str):
 
     logger.info(
         "[STAKE] staker-forgive stake_id=%r owner=%r borrower=%r granted=%s",
-        stake_id, owner_id, stake.borrower_id, grant,
+        stake_id,
+        owner_id,
+        stake.borrower_id,
+        grant,
     )
 
-    return jsonify({
-        "stake_id": stake_id,
-        "granted": grant,
-        "status": STAKE_STATUS_SETTLED if grant else STAKE_STATUS_CARRY,
-        "borrower_id": stake.borrower_id,
-        "borrower_display_name": borrower_display_name,
-    })
+    return jsonify(
+        {
+            "stake_id": stake_id,
+            "granted": grant,
+            "status": STAKE_STATUS_SETTLED if grant else STAKE_STATUS_CARRY,
+            "borrower_id": stake.borrower_id,
+            "borrower_display_name": borrower_display_name,
+        }
+    )
 
 
 # Phase 5 — humans as stakers. Player offers a stake to a specific AI;
@@ -2625,11 +2838,14 @@ def stakable_ai():
         return jsonify({"error": str(e)}), 400
     sandbox_id = _resolve_sandbox_id(owner_id)
 
-    from flask_app.extensions import (
-        bankroll_repo, cash_table_repo, personality_repo,
-        relationship_repo, stake_repo,
-    )
     from cash_mode.player_staking import list_stakeable_ai
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_table_repo,
+        personality_repo,
+        relationship_repo,
+        stake_repo,
+    )
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     candidates = list_stakeable_ai(
@@ -2654,13 +2870,12 @@ def stakable_ai():
 
     candidate_pids = [c.personality_id for c in candidates]
     emotion_blobs = bankroll_repo.load_emotional_state_json_for_pids(
-        candidate_pids, sandbox_id=sandbox_id,
+        candidate_pids,
+        sandbox_id=sandbox_id,
     )
     candidate_emotions: Dict[str, str] = {}
     for pid, blob in emotion_blobs.items():
-        candidate_emotions[pid] = (
-            _resolve_emotion_from_blob(blob, pid) if blob else "confident"
-        )
+        candidate_emotions[pid] = _resolve_emotion_from_blob(blob, pid) if blob else "confident"
 
     # Group by target tier for the per-section rendering pattern. Tier
     # order matches STAKES_ORDER so the frontend can iterate in lobby
@@ -2668,31 +2883,38 @@ def stakable_ai():
     by_tier: Dict[str, Dict[str, Any]] = {}
     for c in candidates:
         emotion = candidate_emotions.get(c.personality_id, "confident")
-        bucket = by_tier.setdefault(c.target_stake_label, {
-            "stake_label": c.target_stake_label,
-            "min_buy_in": c.min_buy_in,
-            "max_buy_in": c.max_buy_in,
-            "candidates": [],
-        })
-        bucket["candidates"].append({
-            "personality_id": c.personality_id,
-            "name": c.name,
-            "comfort_zone": c.comfort_zone,
-            "suggested_principal": c.suggested_principal,
-            "relationship_hint": c.relationship_hint,
-            "likability": round(c.likability, 3),
-            "respect": round(c.respect, 3),
-            "heat": round(c.heat, 3),
-            "desperation": round(c.desperation, 3),
-            "ego": round(c.ego, 3),
-            "emotion": emotion,
-            "avatar_url": get_avatar_url_with_fallback(None, c.name, emotion),
-        })
+        bucket = by_tier.setdefault(
+            c.target_stake_label,
+            {
+                "stake_label": c.target_stake_label,
+                "min_buy_in": c.min_buy_in,
+                "max_buy_in": c.max_buy_in,
+                "candidates": [],
+            },
+        )
+        bucket["candidates"].append(
+            {
+                "personality_id": c.personality_id,
+                "name": c.name,
+                "comfort_zone": c.comfort_zone,
+                "suggested_principal": c.suggested_principal,
+                "relationship_hint": c.relationship_hint,
+                "likability": round(c.likability, 3),
+                "respect": round(c.respect, 3),
+                "heat": round(c.heat, 3),
+                "desperation": round(c.desperation, 3),
+                "ego": round(c.ego, 3),
+                "emotion": emotion,
+                "avatar_url": get_avatar_url_with_fallback(None, c.name, emotion),
+            }
+        )
 
-    return jsonify({
-        "by_tier": list(by_tier.values()),
-        "bankroll": bankroll.chips,
-    })
+    return jsonify(
+        {
+            "by_tier": list(by_tier.values()),
+            "bankroll": bankroll.chips,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/stakes/offer", methods=["POST"])
@@ -2753,10 +2975,12 @@ def offer_stake_to_ai():
     if not isinstance(target_pid, str) or not target_pid:
         return jsonify({"error": "target_pid is required"}), 400
     if stake_label not in STAKES_LADDER:
-        return jsonify({
-            "error": "Invalid stake_label",
-            "valid_stakes": list(STAKES_LADDER.keys()),
-        }), 400
+        return jsonify(
+            {
+                "error": "Invalid stake_label",
+                "valid_stakes": list(STAKES_LADDER.keys()),
+            }
+        ), 400
     if not isinstance(principal, int) or principal <= 0:
         return jsonify({"error": "principal must be a positive integer"}), 400
     if not isinstance(cut, (int, float)):
@@ -2767,38 +2991,48 @@ def offer_stake_to_ai():
         # tampering can't produce a cut beyond the standard cap.
         return jsonify({"error": "cut must lie in [0.0, 0.55]"}), 400
     if stake_format not in (STAKE_FORMAT_PURE, STAKE_FORMAT_MATCH_SHARE):
-        return jsonify({
-            "error": (
-                "format must be 'pure' or 'match_share'"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": ("format must be 'pure' or 'match_share'"),
+            }
+        ), 400
     if stake_format == STAKE_FORMAT_PURE:
         if match_amount != 0:
-            return jsonify({
-                "error": "match_amount is only valid with format='match_share'",
-            }), 400
+            return jsonify(
+                {
+                    "error": "match_amount is only valid with format='match_share'",
+                }
+            ), 400
     else:  # match_share
         if origination_fee != 0:
-            return jsonify({
-                "error": (
-                    "origination_fee is only valid with format='pure' — "
-                    "match_share shares both up- and downside instead"
-                ),
-            }), 400
+            return jsonify(
+                {
+                    "error": (
+                        "origination_fee is only valid with format='pure' — "
+                        "match_share shares both up- and downside instead"
+                    ),
+                }
+            ), 400
         if match_amount <= 0:
-            return jsonify({
-                "error": "match_amount must be a positive integer for match_share",
-            }), 400
+            return jsonify(
+                {
+                    "error": "match_amount must be a positive integer for match_share",
+                }
+            ), 400
     if origination_fee < 0:
         return jsonify({"error": "origination_fee must be non-negative"}), 400
 
-    from flask_app.extensions import (
-        bankroll_repo, cash_table_repo, chip_ledger_repo,
-        personality_repo, relationship_repo, stake_repo,
-    )
     from cash_mode.player_staking import (
         PLAYER_STAKER_BANKROLL_FLOOR_MULT,
         evaluate_player_offer,
+    )
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_table_repo,
+        chip_ledger_repo,
+        personality_repo,
+        relationship_repo,
+        stake_repo,
     )
 
     _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
@@ -2806,48 +3040,52 @@ def offer_stake_to_ai():
     # so the buy-in window check must compare against the combined sum;
     # pure stakes fund the seat entirely from `principal`. AI's match
     # capacity is checked further down once the AI is loaded.
-    seat_total = principal + (
-        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
-    )
+    seat_total = principal + (match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0)
     if seat_total < min_buy_in or seat_total > max_buy_in:
         amount_label = (
-            "principal+match_amount"
-            if stake_format == STAKE_FORMAT_MATCH_SHARE
-            else "principal"
+            "principal+match_amount" if stake_format == STAKE_FORMAT_MATCH_SHARE else "principal"
         )
-        return jsonify({
-            "error": (
-                f"{amount_label} {seat_total} out of range for {stake_label} table "
-                f"(min={min_buy_in}, max={max_buy_in})"
-            ),
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"{amount_label} {seat_total} out of range for {stake_label} table "
+                    f"(min={min_buy_in}, max={max_buy_in})"
+                ),
+            }
+        ), 400
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     bankroll_floor = int(PLAYER_STAKER_BANKROLL_FLOOR_MULT * min_buy_in)
     if bankroll.chips < bankroll_floor:
-        return jsonify({
-            "error": (
-                f"Bankroll ${bankroll.chips} below stake-offer floor "
-                f"${bankroll_floor} for {stake_label}"
-            ),
-            "bankroll": bankroll.chips,
-            "required": bankroll_floor,
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"Bankroll ${bankroll.chips} below stake-offer floor "
+                    f"${bankroll_floor} for {stake_label}"
+                ),
+                "bankroll": bankroll.chips,
+                "required": bankroll_floor,
+            }
+        ), 400
     if bankroll.chips < principal:
-        return jsonify({
-            "error": "Insufficient bankroll to cover principal",
-            "bankroll": bankroll.chips,
-        }), 400
+        return jsonify(
+            {
+                "error": "Insufficient bankroll to cover principal",
+                "bankroll": bankroll.chips,
+            }
+        ), 400
     # Origination fee comes from the player too (paid to the AI's
     # bankroll at deal time on pure stakes). Validate together with
     # the principal so we don't half-commit.
     total_player_outlay = principal + origination_fee
     if bankroll.chips < total_player_outlay:
-        return jsonify({
-            "error": "Insufficient bankroll to cover principal + origination_fee",
-            "bankroll": bankroll.chips,
-            "required": total_player_outlay,
-        }), 400
+        return jsonify(
+            {
+                "error": "Insufficient bankroll to cover principal + origination_fee",
+                "bankroll": bankroll.chips,
+                "required": total_player_outlay,
+            }
+        ), 400
 
     # Target AI must be a real cash-eligible personality.
     personality = personality_repo.load_personality_by_id(target_pid)
@@ -2865,80 +3103,100 @@ def offer_stake_to_ai():
         comfort_idx = -1
         target_idx = -1
     if comfort_idx == -1 or target_idx == -1 or target_idx != comfort_idx + 1:
-        return jsonify({
-            "error": (
-                f"Can only stake {target_display_name} at the tier directly "
-                f"above their comfort zone ({knobs.stake_comfort_zone})."
-            ),
-            "ai_comfort_zone": knobs.stake_comfort_zone,
-        }), 400
+        return jsonify(
+            {
+                "error": (
+                    f"Can only stake {target_display_name} at the tier directly "
+                    f"above their comfort zone ({knobs.stake_comfort_zone})."
+                ),
+                "ai_comfort_zone": knobs.stake_comfort_zone,
+            }
+        ), 400
 
     # AI can't already have an active stake as borrower (one-active-
     # stake invariant).
     existing_active = stake_repo.load_active_for_borrower(
-        target_pid, BORROWER_KIND_PERSONALITY,
+        target_pid,
+        BORROWER_KIND_PERSONALITY,
     )
     if existing_active is not None:
-        return jsonify({
-            "error": f"{target_display_name} is already in an active stake",
-        }), 409
+        return jsonify(
+            {
+                "error": f"{target_display_name} is already in an active stake",
+            }
+        ), 409
 
     # AI's borrower_profile must allow stakes at all.
     profile = bankroll_repo.load_borrower_profile(target_pid)
     if not profile.willing:
-        return jsonify({
-            "accepted": False,
-            "reason": "unwilling",
-            "target_pid": target_pid,
-            "target_display_name": target_display_name,
-            "detail": f"{target_display_name} doesn't accept stakes from anyone.",
-        }), 200
+        return jsonify(
+            {
+                "accepted": False,
+                "reason": "unwilling",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": f"{target_display_name} doesn't accept stakes from anyone.",
+            }
+        ), 200
 
     # Met-before gate: AI must have a relationship row toward this
     # player (created on first interaction). Without history, the
     # offer is a stranger's gesture — refuse with a "build history"
     # nudge rather than an error.
-    if relationship_repo.load_relationship_state(
-        observer_id=target_pid, opponent_id=owner_id,
-    ) is None:
-        return jsonify({
-            "accepted": False,
-            "reason": "no_history",
-            "target_pid": target_pid,
-            "target_display_name": target_display_name,
-            "detail": (
-                f"{target_display_name} hasn't played with you yet — "
-                "share a few hands together first."
-            ),
-        }), 200
+    if (
+        relationship_repo.load_relationship_state(
+            observer_id=target_pid,
+            opponent_id=owner_id,
+        )
+        is None
+    ):
+        return jsonify(
+            {
+                "accepted": False,
+                "reason": "no_history",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": (
+                    f"{target_display_name} hasn't played with you yet — "
+                    "share a few hands together first."
+                ),
+            }
+        ), 200
 
     # Relationship status floor — separate from the willingness math
     # because crossing it means "AI won't even consider the offer."
     now = datetime.utcnow()
     rel_check = relationship_repo.load_relationship_state(
-        observer_id=target_pid, opponent_id=owner_id, now=now,
+        observer_id=target_pid,
+        opponent_id=owner_id,
+        now=now,
     )
     if rel_check is not None:
         if rel_check.heat >= 0.5:
-            return jsonify({
-                "accepted": False,
-                "reason": "heat",
-                "target_pid": target_pid,
-                "target_display_name": target_display_name,
-                "detail": f"{target_display_name} is still upset with you.",
-            }), 200
+            return jsonify(
+                {
+                    "accepted": False,
+                    "reason": "heat",
+                    "target_pid": target_pid,
+                    "target_display_name": target_display_name,
+                    "detail": f"{target_display_name} is still upset with you.",
+                }
+            ), 200
         if rel_check.likability < 0.2:
-            return jsonify({
-                "accepted": False,
-                "reason": "dislike",
-                "target_pid": target_pid,
-                "target_display_name": target_display_name,
-                "detail": f"{target_display_name} doesn't like you enough.",
-            }), 200
+            return jsonify(
+                {
+                    "accepted": False,
+                    "reason": "dislike",
+                    "target_pid": target_pid,
+                    "target_display_name": target_display_name,
+                    "detail": f"{target_display_name} doesn't like you enough.",
+                }
+            ), 200
 
     # Tier gate — if the AI is over-leveraged at this stake, they're
     # house-only and can't take a new peer stake.
-    from cash_mode.staking_tier import resolve_tier, TIER_HOUSE_ONLY
+    from cash_mode.staking_tier import TIER_HOUSE_ONLY, resolve_tier
+
     target_tier = resolve_tier(
         borrower_id=target_pid,
         borrower_kind=BORROWER_KIND_PERSONALITY,
@@ -2946,16 +3204,18 @@ def offer_stake_to_ai():
         stake_repo=stake_repo,
     )
     if target_tier == TIER_HOUSE_ONLY:
-        return jsonify({
-            "accepted": False,
-            "reason": "tier_blocked",
-            "target_pid": target_pid,
-            "target_display_name": target_display_name,
-            "detail": (
-                f"{target_display_name} has too much outstanding debt "
-                "to take a new stake at this level."
-            ),
-        }), 200
+        return jsonify(
+            {
+                "accepted": False,
+                "reason": "tier_blocked",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": (
+                    f"{target_display_name} has too much outstanding debt "
+                    "to take a new stake at this level."
+                ),
+            }
+        ), 200
 
     # 7-day default cooldown.
     cooldown_threshold = now - _timedelta_seconds(
@@ -2968,35 +3228,44 @@ def offer_stake_to_ai():
         since=cooldown_threshold,
     )
     if prior_defaults:
-        return jsonify({
-            "accepted": False,
-            "reason": "cooldown",
-            "target_pid": target_pid,
-            "target_display_name": target_display_name,
-            "detail": (
-                f"{target_display_name} won't take a stake from you yet — "
-                "they defaulted on a recent stake from you."
-            ),
-        }), 200
+        return jsonify(
+            {
+                "accepted": False,
+                "reason": "cooldown",
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
+                "detail": (
+                    f"{target_display_name} won't take a stake from you yet — "
+                    "they defaulted on a recent stake from you."
+                ),
+            }
+        ), 200
 
     # For match-share: the AI must be able to fund their match from
     # bankroll. Refuse if their capacity is too low — they'd otherwise
     # accept and the seat would under-fund.
     if stake_format == STAKE_FORMAT_MATCH_SHARE:
-        ai_chips = bankroll_repo.load_ai_bankroll_current(
-            target_pid, sandbox_id=sandbox_id, now=now,
-        ) or 0
+        ai_chips = (
+            bankroll_repo.load_ai_bankroll_current(
+                target_pid,
+                sandbox_id=sandbox_id,
+                now=now,
+            )
+            or 0
+        )
         if int(ai_chips) < match_amount:
-            return jsonify({
-                "accepted": False,
-                "reason": "ai_underfunded",
-                "target_pid": target_pid,
-                "target_display_name": target_display_name,
-                "detail": (
-                    f"{target_display_name} can't cover the ${match_amount:,} "
-                    "match — pick pure stake or lower the match amount."
-                ),
-            }), 200
+            return jsonify(
+                {
+                    "accepted": False,
+                    "reason": "ai_underfunded",
+                    "target_pid": target_pid,
+                    "target_display_name": target_display_name,
+                    "detail": (
+                        f"{target_display_name} can't cover the ${match_amount:,} "
+                        "match — pick pure stake or lower the match amount."
+                    ),
+                }
+            ), 200
 
     # AI evaluation — desperation + cut-penalty layered on the base
     # willingness threshold. The cut_penalty rises with overage past
@@ -3023,23 +3292,25 @@ def offer_stake_to_ai():
                 f"{target_display_name} doesn't trust you enough yet — "
                 "build more goodwill first."
             )
-        return jsonify({
-            "accepted": False,
-            "reason": evaluation.reason,
-            "target_pid": target_pid,
-            "target_display_name": target_display_name,
-            "score": evaluation.score,
-            "threshold": evaluation.effective_threshold,
-            "evaluation": {
+        return jsonify(
+            {
+                "accepted": False,
+                "reason": evaluation.reason,
+                "target_pid": target_pid,
+                "target_display_name": target_display_name,
                 "score": evaluation.score,
-                "base_threshold": evaluation.base_threshold,
-                "cut_penalty": evaluation.cut_penalty,
-                "desperation": evaluation.desperation,
-                "desperation_relief": evaluation.desperation_relief,
-                "effective_threshold": evaluation.effective_threshold,
-            },
-            "detail": detail,
-        }), 200
+                "threshold": evaluation.effective_threshold,
+                "evaluation": {
+                    "score": evaluation.score,
+                    "base_threshold": evaluation.base_threshold,
+                    "cut_penalty": evaluation.cut_penalty,
+                    "desperation": evaluation.desperation,
+                    "desperation_relief": evaluation.desperation_relief,
+                    "effective_threshold": evaluation.effective_threshold,
+                },
+                "detail": detail,
+            }
+        ), 200
 
     # Find an open seat at any lobby table for this stake. v111+ runs
     # N tables per tier; pick randomly among tables with an open seat
@@ -3052,8 +3323,10 @@ def offer_stake_to_ai():
     # whose sandbox predates a multi-table expansion would hit a 503
     # here even when sibling tables should exist.
     import random as _random
+
     from cash_mode.lobby import ensure_lobby_seeded
     from cash_mode.tables import ai_slot
+
     ensure_lobby_seeded(
         cash_table_repo=cash_table_repo,
         personality_repo=personality_repo,
@@ -3067,12 +3340,14 @@ def offer_stake_to_ai():
     for t in all_tables:
         for slot in t.seats:
             if slot.get("kind") == "ai" and slot.get("personality_id") == target_pid:
-                return jsonify({
-                    "error": (
-                        f"{target_display_name} is already seated at "
-                        f"{t.stake_label} — can't double-seat"
-                    ),
-                }), 409
+                return jsonify(
+                    {
+                        "error": (
+                            f"{target_display_name} is already seated at "
+                            f"{t.stake_label} — can't double-seat"
+                        ),
+                    }
+                ), 409
 
     seatable = []
     for t in all_tables:
@@ -3084,9 +3359,11 @@ def offer_stake_to_ai():
                 break
 
     if not seatable:
-        return jsonify({
-            "error": f"No open seat at any {stake_label} table right now",
-        }), 503
+        return jsonify(
+            {
+                "error": f"No open seat at any {stake_label} table right now",
+            }
+        ), 503
 
     table, open_seat_index = _random.choice(seatable)
     target_table_id = table.table_id
@@ -3099,16 +3376,16 @@ def offer_stake_to_ai():
     # the BaseRepository API doesn't expose. Order matters: charge the
     # player BEFORE seating so an exception leaves them under-charged
     # (recoverable via account credit) not over-charged.
-    seat_chips = principal + (
-        match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0
-    )
+    seat_chips = principal + (match_amount if stake_format == STAKE_FORMAT_MATCH_SHARE else 0)
 
     new_player_chips = bankroll.chips - total_player_outlay
-    bankroll_repo.save_player_bankroll(PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=new_player_chips,
-        starting_bankroll=bankroll.starting_bankroll,
-    ))
+    bankroll_repo.save_player_bankroll(
+        PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=new_player_chips,
+            starting_bankroll=bankroll.starting_bankroll,
+        )
+    )
 
     # Pure-stake origination fee: chips move player bankroll → AI
     # bankroll at deal time. The total_player_outlay above already
@@ -3117,7 +3394,9 @@ def offer_stake_to_ai():
     # consistent with the rest of the AI-credit surface.
     if stake_format == STAKE_FORMAT_PURE and origination_fee > 0:
         credit_ai_cash_out(
-            bankroll_repo, target_pid, origination_fee,
+            bankroll_repo,
+            target_pid,
+            origination_fee,
             sandbox_id=sandbox_id,
             now=now,
             chip_ledger_repo=chip_ledger_repo,
@@ -3133,39 +3412,46 @@ def offer_stake_to_ai():
     # ignored and silently clamped at the debit).
     if stake_format == STAKE_FORMAT_MATCH_SHARE:
         from cash_mode.bankroll import debit_bankroll_for_seat
+
         debit_bankroll_for_seat(
-            bankroll_repo, target_pid, match_amount,
+            bankroll_repo,
+            target_pid,
+            match_amount,
             sandbox_id=sandbox_id,
             chip_ledger_repo=chip_ledger_repo,
             now=now,
         )
 
     updated_table = table.with_seat(
-        open_seat_index, ai_slot(target_pid, seat_chips),
+        open_seat_index,
+        ai_slot(target_pid, seat_chips),
     )
     cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
 
     import uuid as _uuid
+
     stake_id = f"player_stake_{_uuid.uuid4().hex[:12]}"
     session_id = f"player_session_{target_pid}_{int(now.timestamp())}"
-    stake_repo.create_stake(Stake(
-        stake_id=stake_id,
-        session_id=session_id,
-        staker_id=owner_id,
-        staker_kind=STAKER_KIND_HUMAN,
-        borrower_id=target_pid,
-        borrower_kind=BORROWER_KIND_PERSONALITY,
-        format=stake_format,
-        principal=principal,
-        match_amount=match_amount,
-        origination_fee=origination_fee,
-        cut=cut,
-        status=STAKE_STATUS_ACTIVE,
-        carry_amount=0,
-        stake_tier=stake_label,
-        created_at=now,
-        table_id=target_table_id,
-    ))
+    stake_repo.create_stake(
+        Stake(
+            stake_id=stake_id,
+            session_id=session_id,
+            staker_id=owner_id,
+            staker_kind=STAKER_KIND_HUMAN,
+            borrower_id=target_pid,
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            format=stake_format,
+            principal=principal,
+            match_amount=match_amount,
+            origination_fee=origination_fee,
+            cut=cut,
+            status=STAKE_STATUS_ACTIVE,
+            carry_amount=0,
+            stake_tier=stake_label,
+            created_at=now,
+            table_id=target_table_id,
+        )
+    )
 
     # STAKE_OFFERED event: actor=player, target=AI. Mirrors the
     # personality-staker path's event firing. Player extends trust;
@@ -3179,39 +3465,48 @@ def offer_stake_to_ai():
     logger.info(
         "[STAKE][PLAYER_OFFER] %r staked %r principal=%d match=%d cut=%.2f "
         "fee=%d format=%s stake=%r",
-        owner_id, target_pid, principal, match_amount, cut,
-        origination_fee, stake_format, stake_label,
+        owner_id,
+        target_pid,
+        principal,
+        match_amount,
+        cut,
+        origination_fee,
+        stake_format,
+        stake_label,
     )
 
-    return jsonify({
-        "accepted": True,
-        "stake_id": stake_id,
-        "target_pid": target_pid,
-        "target_display_name": target_display_name,
-        "principal": principal,
-        "match_amount": match_amount,
-        "origination_fee": origination_fee,
-        "format": stake_format,
-        "cut": cut,
-        "stake_label": stake_label,
-        "table_id": target_table_id,
-        "seat_index": open_seat_index,
-        "evaluation": {
-            "score": evaluation.score,
-            "base_threshold": evaluation.base_threshold,
-            "cut_penalty": evaluation.cut_penalty,
-            "desperation": evaluation.desperation,
-            "desperation_relief": evaluation.desperation_relief,
-            "effective_threshold": evaluation.effective_threshold,
-        },
-        "bankroll": new_player_chips,
-    })
+    return jsonify(
+        {
+            "accepted": True,
+            "stake_id": stake_id,
+            "target_pid": target_pid,
+            "target_display_name": target_display_name,
+            "principal": principal,
+            "match_amount": match_amount,
+            "origination_fee": origination_fee,
+            "format": stake_format,
+            "cut": cut,
+            "stake_label": stake_label,
+            "table_id": target_table_id,
+            "seat_index": open_seat_index,
+            "evaluation": {
+                "score": evaluation.score,
+                "base_threshold": evaluation.base_threshold,
+                "cut_penalty": evaluation.cut_penalty,
+                "desperation": evaluation.desperation,
+                "desperation_relief": evaluation.desperation_relief,
+                "effective_threshold": evaluation.effective_threshold,
+            },
+            "bankroll": new_player_chips,
+        }
+    )
 
 
 def _timedelta_seconds(seconds: int):
     """Lazy import wrapper so the route doesn't pollute the import
     surface with timedelta at module scope."""
     from datetime import timedelta
+
     return timedelta(seconds=seconds)
 
 
@@ -3250,6 +3545,7 @@ def _load_recent_defaults(
             (staker_id, borrower_id, since.isoformat()),
         ).fetchall()
     from poker.repositories.stake_repository import _row_to_stake
+
     return [_row_to_stake(r) for r in rows]
 
 
@@ -3344,7 +3640,8 @@ def _build_session_summary(
         except Exception as e:
             logger.warning(
                 "[CASH] cash_sessions load failed for summary %r: %s",
-                game_id, e,
+                game_id,
+                e,
             )
             cash_session = None
 
@@ -3369,15 +3666,14 @@ def _build_session_summary(
         except Exception as e:
             logger.warning(
                 "[CASH] load_hand_history failed for summary %r: %s",
-                game_id, e,
+                game_id,
+                e,
             )
 
     fallback_hand_count = 0
     if state_machine is not None:
         try:
-            fallback_hand_count = int(
-                getattr(state_machine, "_state", None).stats.hand_count
-            )
+            fallback_hand_count = int(getattr(state_machine, "_state", None).stats.hand_count)
         except Exception:
             fallback_hand_count = 0
 
@@ -3400,6 +3696,7 @@ def _finalise_cash_session(**kwargs) -> None:
     """Thin wrapper — see `cash_mode.cash_session_persistence.finalise_cash_session`."""
     from cash_mode.cash_session_persistence import finalise_cash_session
     from flask_app.extensions import cash_session_repo
+
     finalise_cash_session(cash_session_repo=cash_session_repo, **kwargs)
 
 
@@ -3410,7 +3707,13 @@ def _leave_table_locked(owner_id: str, game_id: str):
     without indenting the existing block — see the `with lock:` in
     `leave_table` for the rationale.
     """
-    from flask_app.extensions import bankroll_repo, cash_session_repo, cash_table_repo, game_repo, personality_repo
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_session_repo,
+        cash_table_repo,
+        game_repo,
+        personality_repo,
+    )
     from flask_app.services import game_state_service
 
     game_data = game_state_service.get_game(game_id)
@@ -3432,7 +3735,8 @@ def _leave_table_locked(owner_id: str, game_id: str):
         except Exception as e:
             logger.warning(
                 "[CASH] cash_sessions load failed for leave %r: %s",
-                game_id, e,
+                game_id,
+                e,
             )
     if not sandbox_id and persisted_cash_session is not None:
         sandbox_id = persisted_cash_session.sandbox_id
@@ -3489,20 +3793,25 @@ def _leave_table_locked(owner_id: str, game_id: str):
         logger.info(
             "[CASH] Left game_id=%r owner=%r (memory-miss path, "
             "ghost-seat cleanup ran, summary=%s)",
-            game_id, owner_id, "from-db" if ghost_summary else "null",
+            game_id,
+            owner_id,
+            "from-db" if ghost_summary else "null",
         )
-        return jsonify({
-            "session_ended": True,
-            "chips_at_table": 0,
-            "had_active_loan": False,
-            "sponsor_repaid": 0,
-            "returned_chips": 0,
-            "bankroll": bankroll_now,
-            "session_summary": ghost_summary,
-        })
+        return jsonify(
+            {
+                "session_ended": True,
+                "chips_at_table": 0,
+                "had_active_loan": False,
+                "sponsor_repaid": 0,
+                "returned_chips": 0,
+                "bankroll": bankroll_now,
+                "session_summary": ghost_summary,
+            }
+        )
     state_machine = game_data["state_machine"]
     human_player = next(
-        (p for p in state_machine.game_state.players if p.is_human), None,
+        (p for p in state_machine.game_state.players if p.is_human),
+        None,
     )
     chips_at_table = human_player.stack if human_player else 0
 
@@ -3513,10 +3822,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     # via the stake_chip_flow plumbing; sessions without (no stake was
     # ever struck — player walked in with their own bankroll) get their
     # chips returned verbatim.
-    active_stake = (
-        stake_repo.load_active_for_session(game_id)
-        if stake_repo is not None else None
-    )
+    active_stake = stake_repo.load_active_for_session(game_id) if stake_repo is not None else None
 
     # Response payload values — populated by whichever settlement path
     # runs. Defaults cover the "no stake" leave (player walks away with
@@ -3527,16 +3833,17 @@ def _leave_table_locked(owner_id: str, game_id: str):
     had_loan = False
 
     if active_stake is not None:
-        from cash_mode.stake_settlement import settle_stake_on_leave
         from cash_mode.stake_chip_flow import (
             DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL,
             DIRECTION_BORROWER_SEAT_TO_HOUSE,
             DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL,
             build_stake_settlement_flows,
         )
+        from cash_mode.stake_settlement import settle_stake_on_leave
 
         stake_settlement = settle_stake_on_leave(
-            active_stake.stake_id, chips_at_table,
+            active_stake.stake_id,
+            chips_at_table,
             stake_repo=stake_repo,
             chip_ledger_repo=chip_ledger_repo,
             ledger_context={'game_id': game_id, 'site': 'leave_table'},
@@ -3549,7 +3856,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
             if flow.direction == DIRECTION_BORROWER_SEAT_TO_STAKER_BANKROLL:
                 # Personality (or Phase-5 human) staker — credit their bankroll.
                 credit_ai_cash_out(
-                    bankroll_repo, flow.staker_id, flow.amount,
+                    bankroll_repo,
+                    flow.staker_id,
+                    flow.amount,
                     sandbox_id=sandbox_id,
                     now=now,
                     chip_ledger_repo=chip_ledger_repo,
@@ -3580,11 +3889,13 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 borrower_credit = flow.amount
 
         new_bankroll_chips = bankroll.chips + borrower_credit
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=new_bankroll_chips,
-            starting_bankroll=bankroll.starting_bankroll,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=new_bankroll_chips,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
+        )
 
         # Fire STAKE_REPAID only when a personality staker was made whole.
         # Natural carries roll forward silently (no event per the spec);
@@ -3610,11 +3921,13 @@ def _leave_table_locked(owner_id: str, game_id: str):
         # post-cutover sessions all create stake rows, and Phase 1's
         # one-shot migration converted historical loans into stake rows.
         new_bankroll_chips = bankroll.chips + chips_at_table
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=new_bankroll_chips,
-            starting_bankroll=bankroll.starting_bankroll,
-        ))
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=new_bankroll_chips,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
+        )
 
     # Now that settlement is done we know `sponsor_repaid` (chips the
     # staker pulled off the top) and `returned_chips` (what actually
@@ -3649,9 +3962,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     # credits. Path B (AI sponsorship) needs this to be honest, since
     # lender-eligibility reads `load_ai_bankroll_current`.
     # (`now` was already pinned above for the settlement timestamp.)
-    cash_personality_ids: Dict[str, str] = game_data.get(
-        "cash_personality_ids", {}
-    ) or {}
+    cash_personality_ids: Dict[str, str] = game_data.get("cash_personality_ids", {}) or {}
     for player in state_machine.game_state.players:
         if player.is_human:
             continue
@@ -3663,6 +3974,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             )
             continue
         from flask_app.extensions import chip_ledger_repo
+
         credit_ai_cash_out(
             bankroll_repo,
             pid,
@@ -3691,6 +4003,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
     if cash_table_id is not None:
         from cash_mode.tables import ai_slot, open_slot
         from flask_app.extensions import cash_table_repo
+
         table = cash_table_repo.load_table(cash_table_id, sandbox_id=sandbox_id)
         if table is not None:
             # Build chip map: AI's name → personality_id (from session)
@@ -3728,6 +4041,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     new_seats.append(dict(slot))
 
             from cash_mode.tables import CashTableState
+
             updated_table = CashTableState(
                 table_id=table.table_id,
                 stake_label=table.stake_label,
@@ -3746,7 +4060,8 @@ def _leave_table_locked(owner_id: str, game_id: str):
             cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
             logger.info(
                 "[CASH][LOBBY] freed seat %r:%s and persisted final chip counts",
-                cash_table_id, cash_seat_index,
+                cash_table_id,
+                cash_seat_index,
             )
 
             # Cross-table sweep: catch human seats owned by this user
@@ -3762,8 +4077,11 @@ def _leave_table_locked(owner_id: str, game_id: str):
             try:
                 from cash_mode.lobby import refresh_unseated_tables
                 from flask_app.extensions import (
-                    chip_ledger_repo, relationship_repo, stake_repo,
+                    chip_ledger_repo,
+                    relationship_repo,
+                    stake_repo,
                 )
+
                 refresh_unseated_tables(
                     cash_table_repo=cash_table_repo,
                     personality_repo=personality_repo,
@@ -3777,7 +4095,8 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 )
             except Exception as e:
                 logger.warning(
-                    "[CASH][LOBBY] leave-time final refresh failed: %s", e,
+                    "[CASH][LOBBY] leave-time final refresh failed: %s",
+                    e,
                 )
 
     game_state_service.delete_game(game_id)
@@ -3808,26 +4127,34 @@ def _leave_table_locked(owner_id: str, game_id: str):
             game_state_service.delete_game(other_gid)
             logger.info(
                 "[CASH] Leave purged orphan in-memory cash game_id=%r owner=%r",
-                other_gid, owner_id,
+                other_gid,
+                owner_id,
             )
     _purge_other_cash_rows(owner_id, except_game_id=None)
 
     logger.info(
         "[CASH] Left game_id=%r owner=%r chips_at_table=%d had_loan=%s "
         "sponsor_repaid=%d returned=%d bankroll_now=%d",
-        game_id, owner_id, chips_at_table, had_loan,
-        sponsor_repaid, returned_chips, new_bankroll_chips,
+        game_id,
+        owner_id,
+        chips_at_table,
+        had_loan,
+        sponsor_repaid,
+        returned_chips,
+        new_bankroll_chips,
     )
 
-    return jsonify({
-        "session_ended": True,
-        "chips_at_table": chips_at_table,
-        "had_active_loan": had_loan,
-        "sponsor_repaid": sponsor_repaid,
-        "returned_chips": returned_chips,
-        "bankroll": new_bankroll_chips,
-        "session_summary": session_summary,
-    })
+    return jsonify(
+        {
+            "session_ended": True,
+            "chips_at_table": chips_at_table,
+            "had_active_loan": had_loan,
+            "sponsor_repaid": sponsor_repaid,
+            "returned_chips": returned_chips,
+            "bankroll": new_bankroll_chips,
+            "session_summary": session_summary,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/topup", methods=["POST"])
@@ -3879,9 +4206,11 @@ def top_up():
         PokerPhase.HAND_OVER,
     )
     if not between_hands and not human_player.is_folded:
-        return jsonify({
-            "error": "Top up is only allowed between hands or after folding",
-        }), 400
+        return jsonify(
+            {
+                "error": "Top up is only allowed between hands or after folding",
+            }
+        ), 400
 
     bankroll = bankroll_repo.load_player_bankroll(owner_id)
     if bankroll is None or bankroll.chips < amount:
@@ -3890,14 +4219,18 @@ def top_up():
     # leave-time math (your top-up money would be taxed by the
     # staker's cut). Force the player to settle first.
     from flask_app.extensions import stake_repo
+
     if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
-        return jsonify({
-            "error": "Top-up disabled while a stake is active. Leave the table to settle.",
-        }), 400
+        return jsonify(
+            {
+                "error": "Top-up disabled while a stake is active. Leave the table to settle.",
+            }
+        ), 400
 
     new_stack = state_machine.game_state.players[human_idx].stack + amount
     state_machine.game_state = state_machine.game_state.update_player(
-        human_idx, stack=new_stack,
+        human_idx,
+        stack=new_stack,
     )
 
     new_bankroll = PlayerBankrollState(
@@ -3914,12 +4247,15 @@ def top_up():
     _increment_cash_session_buy_in(game_id, amount)
 
     from flask_app.handlers.game_handler import update_and_emit_game_state
+
     update_and_emit_game_state(game_id)
 
-    return jsonify({
-        "stack": new_stack,
-        "bankroll": new_bankroll.chips,
-    })
+    return jsonify(
+        {
+            "stack": new_stack,
+            "bankroll": new_bankroll.chips,
+        }
+    )
 
 
 # A fish counts as a "whale" (prime target) for the lobby scouting tag
@@ -3974,18 +4310,20 @@ def get_lobby():
         return jsonify({"error": str(e)}), 400
     sandbox_id = _resolve_sandbox_id(owner_id)
 
-    from flask_app.extensions import (
-        bankroll_repo, cash_table_repo, personality_repo,
-        relationship_repo,
-    )
-    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
-    from flask_app.services import game_state_service
     from cash_mode.lobby import (
         ensure_ai_bankrolls_seeded,
         ensure_lobby_seeded,
         get_dealer_index,
         refresh_unseated_tables,
     )
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_table_repo,
+        personality_repo,
+        relationship_repo,
+    )
+    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+    from flask_app.services import game_state_service
 
     bankroll = _load_or_seed_player_bankroll(owner_id)
     # Bankroll seed must run BEFORE lobby seed: the lobby seeder picks
@@ -3995,6 +4333,7 @@ def get_lobby():
     # `load_ai_bankroll_current` from returning None for personalities
     # who have never sat.
     from flask_app.extensions import chip_ledger_repo as _chip_ledger_repo
+
     ensure_ai_bankrolls_seeded(
         personality_repo=personality_repo,
         bankroll_repo=bankroll_repo,
@@ -4016,6 +4355,7 @@ def get_lobby():
     # websocket failed (it keeps polling → keeps touching).
     from flask_app.services import presence
     from flask_app.services.ticker_service import is_enabled as _ticker_enabled
+
     presence.touch(owner_id, sandbox_id)
 
     # World advancement. When the realtime ticker owns it, this read is
@@ -4026,9 +4366,13 @@ def get_lobby():
     if not _ticker_enabled():
         try:
             from flask_app.extensions import (
-                chip_ledger_repo, relationship_repo, stake_repo, vice_state_repo,
+                chip_ledger_repo,
+                relationship_repo,
                 side_hustle_state_repo,
+                stake_repo,
+                vice_state_repo,
             )
+
             refresh_unseated_tables(
                 cash_table_repo=cash_table_repo,
                 personality_repo=personality_repo,
@@ -4100,11 +4444,11 @@ def get_lobby():
     # frontend can render a per-card tier indicator alongside the
     # existing affordability. `stake_repo` is imported lazily here to
     # keep the existing module-level extension imports stable.
-    from flask_app.extensions import stake_repo
     from cash_mode.staking_tier import (
         TIER_PREMIUM,
         resolve_tier,
     )
+    from flask_app.extensions import stake_repo
 
     # Phase 3 Commit 1: build a {staker_id: total_carry_amount} map so
     # AI seats the player has outstanding carries with can be annotated
@@ -4115,14 +4459,14 @@ def get_lobby():
     if stake_repo is not None:
         try:
             for stake in stake_repo.list_carries_for_borrower(
-                owner_id, BORROWER_KIND_HUMAN,
+                owner_id,
+                BORROWER_KIND_HUMAN,
             ):
                 if stake.staker_id is None:
                     continue  # house carries shouldn't exist; skip
-                carries_by_staker[stake.staker_id] = (
-                    carries_by_staker.get(stake.staker_id, 0)
-                    + int(stake.carry_amount)
-                )
+                carries_by_staker[stake.staker_id] = carries_by_staker.get(
+                    stake.staker_id, 0
+                ) + int(stake.carry_amount)
         except Exception as e:
             logger.warning("[CASH][LOBBY] carry annotation load failed: %s", e)
 
@@ -4134,12 +4478,11 @@ def get_lobby():
     active_stake_pids: set = set()
     if stake_repo is not None:
         try:
-            active_stake_pids = set(
-                stake_repo.get_active_personality_participants()
-            )
+            active_stake_pids = set(stake_repo.get_active_personality_participants())
         except Exception as e:
             logger.warning(
-                "[CASH][LOBBY] active stake participants load failed: %s", e,
+                "[CASH][LOBBY] active stake participants load failed: %s",
+                e,
             )
 
     # Fish/whale scouting tags. `load_fish_ids` is one bulk query for the
@@ -4150,6 +4493,7 @@ def get_lobby():
     fish_ids: set = set()
     try:
         from cash_mode.closed_economy import load_fish_ids
+
         fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     except Exception as e:
         logger.warning("[CASH][LOBBY] fish-id load failed: %s", e)
@@ -4172,14 +4516,17 @@ def get_lobby():
         # tier degradation per-card so they can pick a table whose
         # tier matches the offer quality they want.
         try:
-            table_tier = resolve_tier(
-                borrower_id=owner_id,
-                current_stake_label=table.stake_label,
-                stake_repo=stake_repo,
-            ) if stake_repo is not None else TIER_PREMIUM
+            table_tier = (
+                resolve_tier(
+                    borrower_id=owner_id,
+                    current_stake_label=table.stake_label,
+                    stake_repo=stake_repo,
+                )
+                if stake_repo is not None
+                else TIER_PREMIUM
+            )
         except Exception as e:
-            logger.warning("[CASH][LOBBY] tier resolution failed for %r: %s",
-                           table.stake_label, e)
+            logger.warning("[CASH][LOBBY] tier resolution failed for %r: %s", table.stake_label, e)
             table_tier = TIER_PREMIUM
 
         serialized_seats = []
@@ -4208,11 +4555,7 @@ def get_lobby():
                 entry["personality_id"] = pid
                 # Tourists carry display_name on the seat; regular AIs
                 # fall through to personality.name.
-                ai_name = (
-                    slot.get("display_name")
-                    or personality.get("name")
-                    or pid
-                )
+                ai_name = slot.get("display_name") or personality.get("name") or pid
                 entry["name"] = ai_name
                 entry["chips"] = int(slot.get("chips", 0))
                 # Emotion resolution priority:
@@ -4234,16 +4577,20 @@ def get_lobby():
                 # (no synthetic-pid zombie risk that the old tourist path
                 # had to guard against).
                 entry["avatar_url"] = get_avatar_url_with_fallback(
-                    None, ai_name, emotion,
+                    None,
+                    ai_name,
+                    emotion,
                 )
                 # Relationship hint: lender's POV of the player.
                 hint = ""
                 try:
                     rel = relationship_repo.load_relationship_state(
-                        observer_id=pid, opponent_id=owner_id,
+                        observer_id=pid,
+                        opponent_id=owner_id,
                     )
                     if rel is not None:
                         from cash_mode.sponsor_offers import _relationship_hint
+
                         hint = _relationship_hint(
                             likability=rel.likability,
                             heat=rel.heat,
@@ -4273,7 +4620,8 @@ def get_lobby():
                     role = "fish"
                     try:
                         ai_bk = bankroll_repo.load_ai_bankroll(
-                            pid, sandbox_id=sandbox_id,
+                            pid,
+                            sandbox_id=sandbox_id,
                         )
                         if (
                             ai_bk is not None
@@ -4288,40 +4636,47 @@ def get_lobby():
                 entry["chips"] = int(slot.get("chips", 0))
             serialized_seats.append(entry)
 
-        response_tables.append({
-            "table_id": table.table_id,
-            "stake_label": table.stake_label,
-            "big_blind": big_blind,
-            "min_buy_in": min_buy_in,
-            "max_buy_in": max_buy_in,
-            "affordability": affordability,
-            "seats": serialized_seats,
-            "dealer_index": get_dealer_index(table),
-            "tier": table_tier,
-            # v111: surface name + table_type so the frontend can render
-            # tier-grouped sections with friendly labels.
-            "table_name": table.name,
-            "table_type": table.table_type,
-            # v113: casino tables run a closing countdown before teardown.
-            # Surface it so the lobby can tag the table and flag the Casino
-            # tab. None for active tables (the common case).
-            "closing_hand_countdown": table.closing_hand_countdown,
-        })
+        response_tables.append(
+            {
+                "table_id": table.table_id,
+                "stake_label": table.stake_label,
+                "big_blind": big_blind,
+                "min_buy_in": min_buy_in,
+                "max_buy_in": max_buy_in,
+                "affordability": affordability,
+                "seats": serialized_seats,
+                "dealer_index": get_dealer_index(table),
+                "tier": table_tier,
+                # v111: surface name + table_type so the frontend can render
+                # tier-grouped sections with friendly labels.
+                "table_name": table.name,
+                "table_type": table.table_type,
+                # v113: casino tables run a closing countdown before teardown.
+                # Surface it so the lobby can tag the table and flag the Casino
+                # tab. None for active tables (the common case).
+                "closing_hand_countdown": table.closing_hand_countdown,
+            }
+        )
 
     # Top-level tier reflects "what tier am I currently playing at?".
     # `_resolve_player_tier_stake_label` consolidates the active-session
     # → bankroll → cheapest fallback chain; the same helper drives
     # `/api/cash/net-worth` so the two surfaces can't disagree.
     current_tier_stake = _resolve_player_tier_stake_label(
-        owner_id, bankroll.chips,
+        owner_id,
+        bankroll.chips,
     )
 
     try:
-        current_tier = resolve_tier(
-            borrower_id=owner_id,
-            current_stake_label=current_tier_stake,
-            stake_repo=stake_repo,
-        ) if stake_repo is not None else TIER_PREMIUM
+        current_tier = (
+            resolve_tier(
+                borrower_id=owner_id,
+                current_stake_label=current_tier_stake,
+                stake_repo=stake_repo,
+            )
+            if stake_repo is not None
+            else TIER_PREMIUM
+        )
     except Exception as e:
         logger.warning("[CASH][LOBBY] current tier resolution failed: %s", e)
         current_tier = TIER_PREMIUM
@@ -4338,7 +4693,8 @@ def get_lobby():
             )
         except Exception as e:
             logger.warning(
-                "[CASH][LOBBY] pending forgiveness count failed: %s", e,
+                "[CASH][LOBBY] pending forgiveness count failed: %s",
+                e,
             )
 
     from cash_mode.activity import recent_events, serialize_event
@@ -4349,9 +4705,11 @@ def get_lobby():
     active_vices_payload = []
     try:
         from flask_app.extensions import vice_state_repo
+
         if vice_state_repo is not None and sandbox_id is not None:
             actives = vice_state_repo.list_active(
-                sandbox_id=sandbox_id, now=datetime.utcnow(),
+                sandbox_id=sandbox_id,
+                now=datetime.utcnow(),
             )
             for v in actives:
                 try:
@@ -4359,15 +4717,17 @@ def get_lobby():
                 except Exception:
                     p = None
                 name = (p.get("name") if isinstance(p, dict) else None) or v.personality_id
-                active_vices_payload.append({
-                    "personality_id": v.personality_id,
-                    "name": name,
-                    "narration": v.narration,
-                    "duration_bucket": v.duration_bucket,
-                    "started_at": v.started_at.isoformat(),
-                    "ends_at": v.ends_at.isoformat(),
-                    "amount": v.amount,
-                })
+                active_vices_payload.append(
+                    {
+                        "personality_id": v.personality_id,
+                        "name": name,
+                        "narration": v.narration,
+                        "duration_bucket": v.duration_bucket,
+                        "started_at": v.started_at.isoformat(),
+                        "ends_at": v.ends_at.isoformat(),
+                        "amount": v.amount,
+                    }
+                )
     except Exception as exc:
         logger.warning("[CASH][LOBBY] active_vices payload failed: %s", exc)
 
@@ -4375,6 +4735,7 @@ def get_lobby():
     # right state. Defaults gracefully if the prefs row is unset.
     try:
         from flask_app.extensions import user_prefs_repo
+
         world_pace = user_prefs_repo.get_world_pace(owner_id)
     except Exception:
         world_pace = "lively"
@@ -4383,10 +4744,7 @@ def get_lobby():
     # with real scroll-back history; the client merges these into its
     # rolling feed (it accumulates further over the session). Bounded by
     # the activity ring buffer's own cap.
-    events_payload = [
-        serialize_event(e)
-        for e in recent_events(limit=30, sandbox_id=sandbox_id)
-    ]
+    events_payload = [serialize_event(e) for e in recent_events(limit=30, sandbox_id=sandbox_id)]
 
     # The player's own last-stand line — bankroll is $0 and they have a
     # stack in play, so their entire net worth is on a single table. The
@@ -4413,16 +4771,20 @@ def get_lobby():
                     EVENT_LAST_STAND,
                     format_player_last_stand_message,
                 )
-                events_payload.insert(0, {
-                    "type": EVENT_LAST_STAND,
-                    "table_id": active_game.get("cash_table_id", ""),
-                    "stake_label": stake_label,
-                    "personality_id": owner_id,
-                    "name": "You",
-                    "reason": "self",
-                    "message": format_player_last_stand_message(stake_label),
-                    "created_at": datetime.utcnow().isoformat(),
-                })
+
+                events_payload.insert(
+                    0,
+                    {
+                        "type": EVENT_LAST_STAND,
+                        "table_id": active_game.get("cash_table_id", ""),
+                        "stake_label": stake_label,
+                        "personality_id": owner_id,
+                        "name": "You",
+                        "reason": "self",
+                        "message": format_player_last_stand_message(stake_label),
+                        "created_at": datetime.utcnow().isoformat(),
+                    },
+                )
 
     # Bankroll trajectory + last-session delta for the career hero.
     # Reconstructed from finalised cash_sessions: each session moved the
@@ -4437,18 +4799,17 @@ def get_lobby():
     last_session_delta: Optional[int] = None
     try:
         from flask_app.extensions import cash_session_repo
+
         if cash_session_repo is not None:
             sessions = cash_session_repo.list_for_owner(owner_id, limit=40)
             # list_for_owner is newest-first; keep only finalised rows and
             # flip to oldest-first so the curve reads left → right in time.
             finalised = [
-                s for s in reversed(sessions)
+                s
+                for s in reversed(sessions)
                 if s.ended_at is not None and s.player_take_home is not None
             ]
-            nets = [
-                int(s.player_take_home) - int(s.total_buy_in)
-                for s in finalised
-            ]
+            nets = [int(s.player_take_home) - int(s.total_buy_in) for s in finalised]
             if nets:
                 last_session_delta = nets[-1]
                 # Walk back from the current balance (newest → oldest),
@@ -4465,18 +4826,20 @@ def get_lobby():
         bankroll_history = []
         last_session_delta = None
 
-    return jsonify({
-        "bankroll": bankroll.chips,
-        "tier": current_tier,
-        "tier_stake_label": current_tier_stake,
-        "tables": response_tables,
-        "events": events_payload,
-        "pending_forgiveness_count": pending_forgiveness_count,
-        "active_vices": active_vices_payload,
-        "world_pace": world_pace,
-        "bankroll_history": bankroll_history,
-        "last_session_delta": last_session_delta,
-    })
+    return jsonify(
+        {
+            "bankroll": bankroll.chips,
+            "tier": current_tier,
+            "tier_stake_label": current_tier_stake,
+            "tables": response_tables,
+            "events": events_payload,
+            "pending_forgiveness_count": pending_forgiveness_count,
+            "active_vices": active_vices_payload,
+            "world_pace": world_pace,
+            "bankroll_history": bankroll_history,
+            "last_session_delta": last_session_delta,
+        }
+    )
 
 
 @cash_bp.route("/api/cash/world-pace", methods=["PUT"])
@@ -4495,6 +4858,7 @@ def set_world_pace():
     data = request.get_json(silent=True) or {}
     pace = data.get("pace")
     from flask_app.extensions import user_prefs_repo
+
     try:
         user_prefs_repo.set_world_pace(owner_id, pace)
     except ValueError as e:
@@ -4541,12 +4905,12 @@ def get_net_worth():
         return jsonify({"error": str(e)}), 400
     sandbox_id = _resolve_sandbox_id(owner_id)
 
-    from flask_app.extensions import bankroll_repo, personality_repo, stake_repo
     from cash_mode.staking_tier import (
         TIER_PREMIUM,
         max_carry_for_tier,
         resolve_tier,
     )
+    from flask_app.extensions import bankroll_repo, personality_repo, stake_repo
 
     bankroll = _load_or_seed_player_bankroll(owner_id, sandbox_id=sandbox_id)
     tier_stake_label = _resolve_player_tier_stake_label(owner_id, bankroll.chips)
@@ -4571,7 +4935,8 @@ def get_net_worth():
     if stake_repo is not None:
         try:
             carries = stake_repo.list_carries_for_borrower(
-                owner_id, BORROWER_KIND_HUMAN,
+                owner_id,
+                BORROWER_KIND_HUMAN,
             )
         except Exception as e:
             logger.warning("[CASH][NET_WORTH] list_carries failed: %s", e)
@@ -4589,10 +4954,7 @@ def get_net_worth():
             # crash if one slipped through.
             continue
         display_name = name_cache.get(stake.staker_id, stake.staker_id)
-        if (
-            stake.staker_id not in name_cache
-            and stake.staker_kind == STAKER_KIND_PERSONALITY
-        ):
+        if stake.staker_id not in name_cache and stake.staker_kind == STAKER_KIND_PERSONALITY:
             try:
                 personality = personality_repo.load_personality_by_id(
                     stake.staker_id,
@@ -4602,18 +4964,18 @@ def get_net_worth():
             except Exception:
                 pass  # fall back to id
             name_cache[stake.staker_id] = display_name
-        payables.append({
-            "stake_id": stake.stake_id,
-            "staker_id": stake.staker_id,
-            "staker_kind": stake.staker_kind,
-            "staker_display_name": display_name,
-            "carry_amount": int(stake.carry_amount),
-            "principal": int(stake.principal),
-            "stake_tier": stake.stake_tier,
-            "created_at": (
-                stake.created_at.isoformat() if stake.created_at else None
-            ),
-        })
+        payables.append(
+            {
+                "stake_id": stake.stake_id,
+                "staker_id": stake.staker_id,
+                "staker_kind": stake.staker_kind,
+                "staker_display_name": display_name,
+                "carry_amount": int(stake.carry_amount),
+                "principal": int(stake.principal),
+                "stake_tier": stake.stake_tier,
+                "created_at": (stake.created_at.isoformat() if stake.created_at else None),
+            }
+        )
         payables_sum += int(stake.carry_amount)
 
     # Phase 5 — populate receivables from BOTH active stakes the
@@ -4653,31 +5015,32 @@ def get_net_worth():
             active_for_staker = stake_repo.list_active_stakes_for_staker(owner_id)
         except Exception as e:
             logger.warning(
-                "[CASH][NET_WORTH] list_active_stakes_for_staker failed: %s", e,
+                "[CASH][NET_WORTH] list_active_stakes_for_staker failed: %s",
+                e,
             )
             active_for_staker = []
         for stake in active_for_staker:
             amount = int(stake.principal) + int(stake.match_amount)
-            receivables.append({
-                "stake_id": stake.stake_id,
-                "borrower_id": stake.borrower_id,
-                "borrower_kind": stake.borrower_kind,
-                "borrower_display_name": _borrower_display_for(stake),
-                # `amount` is the unified field the UI renders; the
-                # row's `status` tells the UI whether to call it
-                # "in play" (active) or "owed" (carry).
-                "amount": amount,
-                "carry_amount": int(stake.carry_amount),
-                "principal": int(stake.principal),
-                "match_amount": int(stake.match_amount),
-                "stake_tier": stake.stake_tier,
-                "status": stake.status,  # 'active'
-                "format": stake.format,
-                "cut": float(stake.cut),
-                "created_at": (
-                    stake.created_at.isoformat() if stake.created_at else None
-                ),
-            })
+            receivables.append(
+                {
+                    "stake_id": stake.stake_id,
+                    "borrower_id": stake.borrower_id,
+                    "borrower_kind": stake.borrower_kind,
+                    "borrower_display_name": _borrower_display_for(stake),
+                    # `amount` is the unified field the UI renders; the
+                    # row's `status` tells the UI whether to call it
+                    # "in play" (active) or "owed" (carry).
+                    "amount": amount,
+                    "carry_amount": int(stake.carry_amount),
+                    "principal": int(stake.principal),
+                    "match_amount": int(stake.match_amount),
+                    "stake_tier": stake.stake_tier,
+                    "status": stake.status,  # 'active'
+                    "format": stake.format,
+                    "cut": float(stake.cut),
+                    "created_at": (stake.created_at.isoformat() if stake.created_at else None),
+                }
+            )
             active_receivables_sum += amount
 
         # Carries owed to the player by AIs who busted under their stake.
@@ -4685,28 +5048,29 @@ def get_net_worth():
             receivable_carries = stake_repo.list_carries_for_staker(owner_id)
         except Exception as e:
             logger.warning(
-                "[CASH][NET_WORTH] list_carries_for_staker failed: %s", e,
+                "[CASH][NET_WORTH] list_carries_for_staker failed: %s",
+                e,
             )
             receivable_carries = []
         for stake in receivable_carries:
             carry = int(stake.carry_amount)
-            receivables.append({
-                "stake_id": stake.stake_id,
-                "borrower_id": stake.borrower_id,
-                "borrower_kind": stake.borrower_kind,
-                "borrower_display_name": _borrower_display_for(stake),
-                "amount": carry,
-                "carry_amount": carry,
-                "principal": int(stake.principal),
-                "match_amount": int(stake.match_amount),
-                "stake_tier": stake.stake_tier,
-                "status": stake.status,  # 'carry'
-                "format": stake.format,
-                "cut": float(stake.cut),
-                "created_at": (
-                    stake.created_at.isoformat() if stake.created_at else None
-                ),
-            })
+            receivables.append(
+                {
+                    "stake_id": stake.stake_id,
+                    "borrower_id": stake.borrower_id,
+                    "borrower_kind": stake.borrower_kind,
+                    "borrower_display_name": _borrower_display_for(stake),
+                    "amount": carry,
+                    "carry_amount": carry,
+                    "principal": int(stake.principal),
+                    "match_amount": int(stake.match_amount),
+                    "stake_tier": stake.stake_tier,
+                    "status": stake.status,  # 'carry'
+                    "format": stake.format,
+                    "cut": float(stake.cut),
+                    "created_at": (stake.created_at.isoformat() if stake.created_at else None),
+                }
+            )
             carry_receivables_sum += carry
 
     receivables_sum = active_receivables_sum + carry_receivables_sum
@@ -4721,7 +5085,8 @@ def get_net_worth():
             closed = stake_repo.list_recent_closed_for_owner(owner_id, limit=20)
         except Exception as e:
             logger.warning(
-                "[CASH][NET_WORTH] list_recent_closed_for_owner failed: %s", e,
+                "[CASH][NET_WORTH] list_recent_closed_for_owner failed: %s",
+                e,
             )
             closed = []
         for stake in closed:
@@ -4771,10 +5136,7 @@ def get_net_worth():
             # the IOU. Net for the staker who was owed = same as the
             # carry-creation moment (lost principal − staker_payout).
             net_for_player: Optional[int] = None
-            payout = (
-                stake.staker_payout if role == "staker"
-                else stake.borrower_payout
-            )
+            payout = stake.staker_payout if role == "staker" else stake.borrower_payout
             if payout is not None:
                 if role == "staker":
                     # Player put up principal; received payout (+ any
@@ -4795,39 +5157,35 @@ def get_net_worth():
                         cost += int(stake.origination_fee)
                     proceeds = int(payout)
                     net_for_player = proceeds - cost
-            history.append({
-                "stake_id": stake.stake_id,
-                "role": role,
-                "status": stake.status,  # 'settled' | 'defaulted'
-                "counterparty_id": counterparty_id,
-                "counterparty_kind": counterparty_kind,
-                "counterparty_display_name": counterparty_display,
-                "principal": int(stake.principal),
-                "match_amount": int(stake.match_amount),
-                "stake_tier": stake.stake_tier,
-                "format": stake.format,
-                "cut": float(stake.cut),
-                # Chip flows captured at settle time. NULL on legacy
-                # pre-v106 rows; the UI hides the P&L line then.
-                "staker_payout": (
-                    int(stake.staker_payout)
-                    if stake.staker_payout is not None else None
-                ),
-                "borrower_payout": (
-                    int(stake.borrower_payout)
-                    if stake.borrower_payout is not None else None
-                ),
-                # Net for the player on this stake (positive = won
-                # money, negative = lost money). null when chip flows
-                # weren't captured (pre-v106 history).
-                "net_for_player": net_for_player,
-                "created_at": (
-                    stake.created_at.isoformat() if stake.created_at else None
-                ),
-                "settled_at": (
-                    stake.settled_at.isoformat() if stake.settled_at else None
-                ),
-            })
+            history.append(
+                {
+                    "stake_id": stake.stake_id,
+                    "role": role,
+                    "status": stake.status,  # 'settled' | 'defaulted'
+                    "counterparty_id": counterparty_id,
+                    "counterparty_kind": counterparty_kind,
+                    "counterparty_display_name": counterparty_display,
+                    "principal": int(stake.principal),
+                    "match_amount": int(stake.match_amount),
+                    "stake_tier": stake.stake_tier,
+                    "format": stake.format,
+                    "cut": float(stake.cut),
+                    # Chip flows captured at settle time. NULL on legacy
+                    # pre-v106 rows; the UI hides the P&L line then.
+                    "staker_payout": (
+                        int(stake.staker_payout) if stake.staker_payout is not None else None
+                    ),
+                    "borrower_payout": (
+                        int(stake.borrower_payout) if stake.borrower_payout is not None else None
+                    ),
+                    # Net for the player on this stake (positive = won
+                    # money, negative = lost money). null when chip flows
+                    # weren't captured (pre-v106 history).
+                    "net_for_player": net_for_player,
+                    "created_at": (stake.created_at.isoformat() if stake.created_at else None),
+                    "settled_at": (stake.settled_at.isoformat() if stake.settled_at else None),
+                }
+            )
 
     net_worth = int(bankroll.chips) + receivables_sum - payables_sum
     available = max(0, int(carry_cap) - payables_sum)
@@ -4845,22 +5203,25 @@ def get_net_worth():
     except Exception as exc:
         logger.warning(
             "[CASH] pending forgiveness count failed for %r: %s",
-            owner_id, exc,
+            owner_id,
+            exc,
         )
         pending_forgiveness_count = 0
 
-    return jsonify({
-        "bankroll": int(bankroll.chips),
-        "tier_stake_label": tier_stake_label,
-        "tier_status": tier_status,
-        "carry_cap": int(carry_cap),
-        "payables": payables,
-        "receivables": receivables,
-        "history": history,
-        "net_worth": int(net_worth),
-        "available": int(available),
-        "pending_forgiveness_count": int(pending_forgiveness_count),
-    })
+    return jsonify(
+        {
+            "bankroll": int(bankroll.chips),
+            "tier_stake_label": tier_stake_label,
+            "tier_status": tier_status,
+            "carry_cap": int(carry_cap),
+            "payables": payables,
+            "receivables": receivables,
+            "history": history,
+            "net_worth": int(net_worth),
+            "available": int(available),
+            "pending_forgiveness_count": int(pending_forgiveness_count),
+        }
+    )
 
 
 @cash_bp.route("/api/cash/state", methods=["GET"])
@@ -4883,10 +5244,12 @@ def get_state():
     bankroll = _load_or_seed_player_bankroll(owner_id)
     game_id = _find_active_cash_game_id(owner_id)
     if game_id is None:
-        return jsonify({
-            "state": None,
-            "bankroll": bankroll.chips,
-        })
+        return jsonify(
+            {
+                "state": None,
+                "bankroll": bankroll.chips,
+            }
+        )
 
     from flask_app.services import game_state_service
 
@@ -4894,10 +5257,12 @@ def get_state():
     # nicety. Tolerate missing game_data (DB-only id after a restart;
     # the /game/:id cold-load will rehydrate it).
     game_data = game_state_service.get_game(game_id)
-    return jsonify({
-        "state": {
-            "game_id": game_id,
-            "stake_label": game_data.get("cash_stake_label") if game_data else None,
-        },
-        "bankroll": bankroll.chips,
-    })
+    return jsonify(
+        {
+            "state": {
+                "game_id": game_id,
+                "stake_label": game_data.get("cash_stake_label") if game_data else None,
+            },
+            "bankroll": bankroll.chips,
+        }
+    )

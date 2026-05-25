@@ -1,12 +1,15 @@
 """Helper functions for game state logic."""
+
 from .poker_state_machine import PokerPhase
 
-NON_BETTING_PHASES = frozenset({
-    PokerPhase.EVALUATING_HAND,
-    PokerPhase.HAND_OVER,
-    PokerPhase.SHOWDOWN,
-    PokerPhase.GAME_OVER,
-})
+NON_BETTING_PHASES = frozenset(
+    {
+        PokerPhase.EVALUATING_HAND,
+        PokerPhase.HAND_OVER,
+        PokerPhase.SHOWDOWN,
+        PokerPhase.GAME_OVER,
+    }
+)
 
 
 def should_clear_player_options(game_state, state_machine) -> bool:

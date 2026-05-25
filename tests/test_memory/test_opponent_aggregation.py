@@ -75,9 +75,7 @@ class TestAggregateActiveOpponents(unittest.TestCase):
         manager = OpponentModelManager()
         # Touch model so it exists but leave hands_observed at default (0)
         manager.get_model("Hero", "Bob")
-        self.assertEqual(
-            manager.models["Hero"]["Bob"].tendencies.hands_observed, 0
-        )
+        self.assertEqual(manager.models["Hero"]["Bob"].tendencies.hands_observed, 0)
 
         result = manager.aggregate_active_opponents("Hero", ["Bob"])
 
@@ -86,7 +84,9 @@ class TestAggregateActiveOpponents(unittest.TestCase):
     def test_single_opponent_with_history_returns_their_stats(self):
         manager = OpponentModelManager()
         _seed_tendencies(
-            manager, "Hero", "Bob",
+            manager,
+            "Hero",
+            "Bob",
             hands_observed=42,
             vpip=0.33,
             pfr=0.18,
@@ -105,16 +105,38 @@ class TestAggregateActiveOpponents(unittest.TestCase):
     def test_multiway_equal_weight_average(self):
         """3 opponents with distinct vpips (0.2, 0.5, 0.8) -> avg = 0.5."""
         manager = OpponentModelManager()
-        _seed_tendencies(manager, "Hero", "A", hands_observed=100, vpip=0.2,
-                         pfr=0.10, aggression_factor=1.0, all_in_frequency=0.0)
-        _seed_tendencies(manager, "Hero", "B", hands_observed=100, vpip=0.5,
-                         pfr=0.20, aggression_factor=2.0, all_in_frequency=0.1)
-        _seed_tendencies(manager, "Hero", "C", hands_observed=100, vpip=0.8,
-                         pfr=0.30, aggression_factor=3.0, all_in_frequency=0.2)
-
-        result = manager.aggregate_active_opponents(
-            "Hero", ["A", "B", "C"], money_committed=None
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "A",
+            hands_observed=100,
+            vpip=0.2,
+            pfr=0.10,
+            aggression_factor=1.0,
+            all_in_frequency=0.0,
         )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "B",
+            hands_observed=100,
+            vpip=0.5,
+            pfr=0.20,
+            aggression_factor=2.0,
+            all_in_frequency=0.1,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "C",
+            hands_observed=100,
+            vpip=0.8,
+            pfr=0.30,
+            aggression_factor=3.0,
+            all_in_frequency=0.2,
+        )
+
+        result = manager.aggregate_active_opponents("Hero", ["A", "B", "C"], money_committed=None)
 
         self.assertAlmostEqual(result.vpip, 0.5)
         self.assertAlmostEqual(result.pfr, 0.20)
@@ -124,12 +146,36 @@ class TestAggregateActiveOpponents(unittest.TestCase):
     def test_multiway_60_percent_concentrates(self):
         """A puts in 70% of committed money -> result is exactly A's stats."""
         manager = OpponentModelManager()
-        _seed_tendencies(manager, "Hero", "A", hands_observed=120, vpip=0.85,
-                         pfr=0.55, aggression_factor=4.5, all_in_frequency=0.4)
-        _seed_tendencies(manager, "Hero", "B", hands_observed=80, vpip=0.20,
-                         pfr=0.10, aggression_factor=1.0, all_in_frequency=0.0)
-        _seed_tendencies(manager, "Hero", "C", hands_observed=60, vpip=0.30,
-                         pfr=0.15, aggression_factor=1.2, all_in_frequency=0.0)
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "A",
+            hands_observed=120,
+            vpip=0.85,
+            pfr=0.55,
+            aggression_factor=4.5,
+            all_in_frequency=0.4,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "B",
+            hands_observed=80,
+            vpip=0.20,
+            pfr=0.10,
+            aggression_factor=1.0,
+            all_in_frequency=0.0,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "C",
+            hands_observed=60,
+            vpip=0.30,
+            pfr=0.15,
+            aggression_factor=1.2,
+            all_in_frequency=0.0,
+        )
 
         result = manager.aggregate_active_opponents(
             "Hero",
@@ -147,12 +193,36 @@ class TestAggregateActiveOpponents(unittest.TestCase):
     def test_multiway_below_60_percent_uses_average(self):
         """A has 50% of pot committed; below 60% threshold -> equal-weight avg."""
         manager = OpponentModelManager()
-        _seed_tendencies(manager, "Hero", "A", hands_observed=100, vpip=0.6,
-                         pfr=0.30, aggression_factor=3.0, all_in_frequency=0.2)
-        _seed_tendencies(manager, "Hero", "B", hands_observed=100, vpip=0.3,
-                         pfr=0.15, aggression_factor=1.5, all_in_frequency=0.05)
-        _seed_tendencies(manager, "Hero", "C", hands_observed=100, vpip=0.3,
-                         pfr=0.15, aggression_factor=1.5, all_in_frequency=0.05)
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "A",
+            hands_observed=100,
+            vpip=0.6,
+            pfr=0.30,
+            aggression_factor=3.0,
+            all_in_frequency=0.2,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "B",
+            hands_observed=100,
+            vpip=0.3,
+            pfr=0.15,
+            aggression_factor=1.5,
+            all_in_frequency=0.05,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "C",
+            hands_observed=100,
+            vpip=0.3,
+            pfr=0.15,
+            aggression_factor=1.5,
+            all_in_frequency=0.05,
+        )
 
         result = manager.aggregate_active_opponents(
             "Hero",
@@ -169,28 +239,74 @@ class TestAggregateActiveOpponents(unittest.TestCase):
     def test_hands_observed_is_min_when_weight_averaging(self):
         """When averaging, hands_observed = MIN across opponents."""
         manager = OpponentModelManager()
-        _seed_tendencies(manager, "Hero", "A", hands_observed=50,
-                         vpip=0.4, pfr=0.2, aggression_factor=1.5, all_in_frequency=0.1)
-        _seed_tendencies(manager, "Hero", "B", hands_observed=80,
-                         vpip=0.5, pfr=0.25, aggression_factor=2.0, all_in_frequency=0.1)
-        _seed_tendencies(manager, "Hero", "C", hands_observed=100,
-                         vpip=0.6, pfr=0.30, aggression_factor=2.5, all_in_frequency=0.1)
-
-        result = manager.aggregate_active_opponents(
-            "Hero", ["A", "B", "C"], money_committed=None
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "A",
+            hands_observed=50,
+            vpip=0.4,
+            pfr=0.2,
+            aggression_factor=1.5,
+            all_in_frequency=0.1,
         )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "B",
+            hands_observed=80,
+            vpip=0.5,
+            pfr=0.25,
+            aggression_factor=2.0,
+            all_in_frequency=0.1,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "C",
+            hands_observed=100,
+            vpip=0.6,
+            pfr=0.30,
+            aggression_factor=2.5,
+            all_in_frequency=0.1,
+        )
+
+        result = manager.aggregate_active_opponents("Hero", ["A", "B", "C"], money_committed=None)
 
         self.assertEqual(result.hands_observed, 50)
 
     def test_hands_observed_is_dominant_when_60_rule_fires(self):
         """When 60% rule fires, hands_observed = the dominant opponent's count."""
         manager = OpponentModelManager()
-        _seed_tendencies(manager, "Hero", "A", hands_observed=120,
-                         vpip=0.7, pfr=0.4, aggression_factor=3.5, all_in_frequency=0.3)
-        _seed_tendencies(manager, "Hero", "B", hands_observed=50,
-                         vpip=0.3, pfr=0.15, aggression_factor=1.0, all_in_frequency=0.0)
-        _seed_tendencies(manager, "Hero", "C", hands_observed=200,
-                         vpip=0.4, pfr=0.20, aggression_factor=1.5, all_in_frequency=0.05)
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "A",
+            hands_observed=120,
+            vpip=0.7,
+            pfr=0.4,
+            aggression_factor=3.5,
+            all_in_frequency=0.3,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "B",
+            hands_observed=50,
+            vpip=0.3,
+            pfr=0.15,
+            aggression_factor=1.0,
+            all_in_frequency=0.0,
+        )
+        _seed_tendencies(
+            manager,
+            "Hero",
+            "C",
+            hands_observed=200,
+            vpip=0.4,
+            pfr=0.20,
+            aggression_factor=1.5,
+            all_in_frequency=0.05,
+        )
 
         result = manager.aggregate_active_opponents(
             "Hero",
@@ -212,6 +328,7 @@ class TestHandsDealt(unittest.TestCase):
 
     def test_record_hand_dealt_increments_counter(self):
         from poker.memory.opponent_model import OpponentModel
+
         model = OpponentModel(observer='Hero', opponent='Villain')
         self.assertEqual(model.tendencies.hands_dealt, 0)
         model.record_hand_dealt(hand_number=1)
@@ -222,6 +339,7 @@ class TestHandsDealt(unittest.TestCase):
     def test_record_hand_dealt_idempotent_within_hand(self):
         """Calling twice with same hand_number must only increment once."""
         from poker.memory.opponent_model import OpponentModel
+
         model = OpponentModel(observer='Hero', opponent='Villain')
         model.record_hand_dealt(hand_number=1)
         model.record_hand_dealt(hand_number=1)
@@ -237,6 +355,7 @@ class TestHandsDealt(unittest.TestCase):
         captures all dealt hands.
         """
         from poker.memory.opponent_model import OpponentModel
+
         model = OpponentModel(observer='Hero', opponent='Villain')
 
         # Villain is dealt 10 hands, voluntarily entered 3 of them.
@@ -245,8 +364,7 @@ class TestHandsDealt(unittest.TestCase):
         # Simulate 3 voluntary entries (call/raise); folds-before-action
         # wouldn't trigger observe_action.
         for h in range(3):
-            model.observe_action(action='call', phase='PRE_FLOP',
-                                 hand_number=h + 100)
+            model.observe_action(action='call', phase='PRE_FLOP', hand_number=h + 100)
 
         # VPIP should be 3 / 10 = 0.30, not 3 / 3 = 1.0
         self.assertAlmostEqual(model.tendencies.vpip, 0.30, places=3)
@@ -258,11 +376,11 @@ class TestHandsDealt(unittest.TestCase):
         code path (hands_observed denominator). Backwards compatibility.
         """
         from poker.memory.opponent_model import OpponentModel
+
         model = OpponentModel(observer='Hero', opponent='Villain')
         # No record_hand_dealt calls — only observed actions
         for h in range(3):
-            model.observe_action(action='call', phase='PRE_FLOP',
-                                 hand_number=h)
+            model.observe_action(action='call', phase='PRE_FLOP', hand_number=h)
 
         # hands_dealt=0, so falls back to hands_observed=3 → VPIP = 3/3 = 1.0
         self.assertEqual(model.tendencies.hands_dealt, 0)
@@ -279,9 +397,7 @@ class TestHandsDealt(unittest.TestCase):
             hand_number=1,
         )
         for opp in ('A', 'B', 'C'):
-            self.assertEqual(
-                manager.get_model('Hero', opp).tendencies.hands_dealt, 1
-            )
+            self.assertEqual(manager.get_model('Hero', opp).tendencies.hands_dealt, 1)
 
     def test_to_dict_includes_hands_dealt(self):
         t = OpponentTendencies(hands_observed=5, hands_dealt=10)
@@ -328,8 +444,12 @@ class TestCbetFieldsInAggregation(unittest.TestCase):
     def test_single_opponent_propagates_cbet_fields(self):
         manager = OpponentModelManager()
         _seed_tendencies(
-            manager, "Hero", "Foldy",
-            hands_observed=50, fold_to_cbet=0.85, cbet_faced_count=12,
+            manager,
+            "Hero",
+            "Foldy",
+            hands_observed=50,
+            fold_to_cbet=0.85,
+            cbet_faced_count=12,
         )
         result = manager.aggregate_active_opponents("Hero", ["Foldy"])
         self.assertAlmostEqual(result.fold_to_cbet, 0.85)
@@ -339,15 +459,24 @@ class TestCbetFieldsInAggregation(unittest.TestCase):
         """60% rule path also surfaces c-bet fields from the dominant opp."""
         manager = OpponentModelManager()
         _seed_tendencies(
-            manager, "Hero", "A",
-            hands_observed=120, fold_to_cbet=0.80, cbet_faced_count=20,
+            manager,
+            "Hero",
+            "A",
+            hands_observed=120,
+            fold_to_cbet=0.80,
+            cbet_faced_count=20,
         )
         _seed_tendencies(
-            manager, "Hero", "B",
-            hands_observed=80, fold_to_cbet=0.20, cbet_faced_count=5,
+            manager,
+            "Hero",
+            "B",
+            hands_observed=80,
+            fold_to_cbet=0.20,
+            cbet_faced_count=5,
         )
         result = manager.aggregate_active_opponents(
-            "Hero", ["A", "B"],
+            "Hero",
+            ["A", "B"],
             money_committed={"A": 700, "B": 200},  # A is dominant
         )
         self.assertAlmostEqual(result.fold_to_cbet, 0.80)

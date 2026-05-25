@@ -1,5 +1,7 @@
 """Tests for TournamentRepository."""
+
 import pytest
+
 from poker.repositories.tournament_repository import TournamentRepository
 
 

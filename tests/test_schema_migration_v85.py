@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -104,31 +103,29 @@ class TestV85Migration:
             "SELECT name, personality_id FROM personalities ORDER BY id"
         ).fetchall()
         for row in rows:
-            assert row["personality_id"], (
-                f"Personality {row['name']!r} has no personality_id after migration"
-            )
+            assert row[
+                "personality_id"
+            ], f"Personality {row['name']!r} has no personality_id after migration"
 
     def test_backfilled_ids_match_slug_rule(self, v84_db):
         _apply_v85_via_schema_manager(v84_db)
 
         from poker.personality_id import slugify_personality_name
 
-        rows = v84_db.execute(
-            "SELECT name, personality_id FROM personalities"
-        ).fetchall()
+        rows = v84_db.execute("SELECT name, personality_id FROM personalities").fetchall()
         for row in rows:
             expected = slugify_personality_name(row["name"])
-            assert row["personality_id"] == expected, (
-                f"{row['name']!r}: id={row['personality_id']!r} expected={expected!r}"
-            )
+            assert (
+                row["personality_id"] == expected
+            ), f"{row['name']!r}: id={row['personality_id']!r} expected={expected!r}"
 
     def test_creates_unique_index(self, v84_db):
         _apply_v85_via_schema_manager(v84_db)
 
         indexes = [
-            row[1] for row in v84_db.execute(
-                "SELECT * FROM sqlite_master "
-                "WHERE type='index' AND tbl_name='personalities'"
+            row[1]
+            for row in v84_db.execute(
+                "SELECT * FROM sqlite_master " "WHERE type='index' AND tbl_name='personalities'"
             )
         ]
         assert "idx_personalities_personality_id" in indexes
@@ -137,13 +134,12 @@ class TestV85Migration:
         _apply_v85_via_schema_manager(v84_db)
 
         # Pick one existing id and try to insert another row claiming it
-        existing = v84_db.execute(
-            "SELECT personality_id FROM personalities LIMIT 1"
-        ).fetchone()["personality_id"]
+        existing = v84_db.execute("SELECT personality_id FROM personalities LIMIT 1").fetchone()[
+            "personality_id"
+        ]
         with pytest.raises(sqlite3.IntegrityError):
             v84_db.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("New Personality", "{}", existing),
             )
 
@@ -157,13 +153,11 @@ class TestV85Migration:
 
         # Insert two rows with NULL personality_id — both should succeed
         v84_db.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, NULL)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, NULL)",
             ("Null A", "{}"),
         )
         v84_db.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, NULL)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, NULL)",
             ("Null B", "{}"),
         )
         v84_db.commit()
@@ -202,9 +196,7 @@ class TestV85Migration:
 
         _apply_v85_via_schema_manager(conn)
 
-        rows = conn.execute(
-            "SELECT name, personality_id FROM personalities ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT name, personality_id FROM personalities ORDER BY id").fetchall()
         ids = [r["personality_id"] for r in rows]
         assert ids[0] == "test_hero"
         assert ids[1] == "test_hero_v2"
@@ -218,16 +210,13 @@ class TestV85Migration:
         _apply_v85_via_schema_manager(v84_db)
 
         # Simulate a partial state: blow away half the ids
-        v84_db.execute(
-            "UPDATE personalities SET personality_id = NULL WHERE id <= 3"
-        )
+        v84_db.execute("UPDATE personalities SET personality_id = NULL WHERE id <= 3")
         v84_db.commit()
 
         # Capture the surviving ids that should not change
         surviving = dict(
             v84_db.execute(
-                "SELECT name, personality_id FROM personalities "
-                "WHERE personality_id IS NOT NULL"
+                "SELECT name, personality_id FROM personalities " "WHERE personality_id IS NOT NULL"
             ).fetchall()
         )
 

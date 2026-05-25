@@ -18,20 +18,20 @@ import argparse
 import json
 import logging
 import sys
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Any, Callable
+from typing import Any, Callable, Dict, Optional
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.llm import LLMClient, CallType
-from poker.repositories import create_repos
-from experiments.variant_config import build_effective_variant_config
+from core.llm import CallType, LLMClient
 from experiments.pause_coordinator import pause_coordinator
+from experiments.variant_config import build_effective_variant_config
+from poker.repositories import create_repos
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ReplayResult:
     """Result from replaying a single capture with a variant."""
+
     capture_id: int
     variant: str
     success: bool
@@ -68,7 +69,7 @@ class ReplayExperimentRunner:
         replay_experiment_repo,
         db_path: str,
         max_workers: int = 3,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ):
         """Initialize the runner.
 
@@ -85,11 +86,7 @@ class ReplayExperimentRunner:
         self._stop_requested = False
         self._current_experiment_id: Optional[int] = None
 
-    def run_experiment(
-        self,
-        experiment_id: int,
-        parallel: bool = True
-    ) -> Dict[str, Any]:
+    def run_experiment(self, experiment_id: int, parallel: bool = True) -> Dict[str, Any]:
         """Run a replay experiment.
 
         Args:
@@ -121,8 +118,10 @@ class ReplayExperimentRunner:
             if not variants:
                 raise ValueError("No variants defined for this experiment")
 
-            logger.info(f"Running replay experiment {experiment_id}: "
-                       f"{len(captures)} captures x {len(variants)} variants")
+            logger.info(
+                f"Running replay experiment {experiment_id}: "
+                f"{len(captures)} captures x {len(variants)} variants"
+            )
 
             # Build work items
             work_items = []
@@ -146,7 +145,10 @@ class ReplayExperimentRunner:
                 # Parallel execution
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     futures = {
-                        executor.submit(self._replay_capture, capture, variant_dict): (capture, variant_dict)
+                        executor.submit(self._replay_capture, capture, variant_dict): (
+                            capture,
+                            variant_dict,
+                        )
                         for capture, variant_dict in work_items
                     }
 
@@ -179,13 +181,14 @@ class ReplayExperimentRunner:
                                 capture_id=capture['id'],
                                 variant=variant_dict.get('label', 'Unknown'),
                                 success=False,
-                                error_message=str(e)
+                                error_message=str(e),
                             )
                             self._store_result(experiment_id, error_result)
 
                         completed += 1
-                        self._report_progress(completed, total_work,
-                                            f"Completed {completed}/{total_work}")
+                        self._report_progress(
+                            completed, total_work, f"Completed {completed}/{total_work}"
+                        )
             else:
                 # Sequential execution
                 for capture, variant_dict in work_items:
@@ -214,13 +217,14 @@ class ReplayExperimentRunner:
                             capture_id=capture['id'],
                             variant=variant_dict.get('label', 'Unknown'),
                             success=False,
-                            error_message=str(e)
+                            error_message=str(e),
                         )
                         self._store_result(experiment_id, error_result)
 
                     completed += 1
-                    self._report_progress(completed, total_work,
-                                        f"Completed {completed}/{total_work}")
+                    self._report_progress(
+                        completed, total_work, f"Completed {completed}/{total_work}"
+                    )
 
             # Generate summary
             summary = self._generate_summary(experiment_id)
@@ -247,20 +251,22 @@ class ReplayExperimentRunner:
     def _load_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
         """Load full capture data including prompts."""
         import sqlite3
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM prompt_captures WHERE id = ?
-            """, (capture_id,))
+            """,
+                (capture_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
             return dict(row)
 
     def _replay_capture(
-        self,
-        capture: Dict[str, Any],
-        variant_dict: Dict[str, Any]
+        self, capture: Dict[str, Any], variant_dict: Dict[str, Any]
     ) -> ReplayResult:
         """Replay a single capture with a variant.
 
@@ -284,7 +290,7 @@ class ReplayExperimentRunner:
                 variant_dict,
                 control_dict=None,
                 experiment_model=capture.get('model', 'gpt-4o-mini'),
-                experiment_provider=capture.get('provider', 'openai')
+                experiment_provider=capture.get('provider', 'openai'),
             )
 
             # Get model/provider for this variant
@@ -314,26 +320,35 @@ class ReplayExperimentRunner:
             # Build messages
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
+                {"role": "user", "content": user_message},
             ]
 
             # Include conversation history if present
             conversation_history = capture.get('conversation_history')
             if conversation_history:
                 try:
-                    history = json.loads(conversation_history) if isinstance(conversation_history, str) else conversation_history
+                    history = (
+                        json.loads(conversation_history)
+                        if isinstance(conversation_history, str)
+                        else conversation_history
+                    )
                     if isinstance(history, list):
                         # Insert history before the current user message
-                        messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_message}]
+                        messages = (
+                            [{"role": "system", "content": system_prompt}]
+                            + history
+                            + [{"role": "user", "content": user_message}]
+                        )
                 except (json.JSONDecodeError, TypeError):
-                    logger.debug("Failed to parse conversation_history for capture id=%s, proceeding without history", capture.get('id'))
+                    logger.debug(
+                        "Failed to parse conversation_history for capture id=%s, proceeding without history",
+                        capture.get('id'),
+                    )
 
             # Make the LLM call
             # Note: reasoning_effort not currently supported by LLMClient
             response = client.complete(
-                messages=messages,
-                json_format=True,
-                call_type=CallType.PLAYER_DECISION
+                messages=messages, json_format=True, call_type=CallType.PLAYER_DECISION
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -363,18 +378,20 @@ class ReplayExperimentRunner:
                 reasoning_effort=reasoning_effort,
                 input_tokens=getattr(response, 'input_tokens', 0),
                 output_tokens=getattr(response, 'output_tokens', 0),
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
             )
 
         except Exception as e:
             latency_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"Replay failed for capture {capture['id']} with variant {variant_label}: {e}")
+            logger.error(
+                f"Replay failed for capture {capture['id']} with variant {variant_label}: {e}"
+            )
             return ReplayResult(
                 capture_id=capture['id'],
                 variant=variant_label,
                 success=False,
                 error_message=str(e),
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
             )
 
     def _inject_guidance(self, user_message: str, guidance: str) -> str:
@@ -390,16 +407,15 @@ class ReplayExperimentRunner:
 
         # Insert guidance before the action prompt
         return (
-            user_message[:injection_point] +
-            "\n" + guidance + "\n\n" +
-            user_message[injection_point:]
+            user_message[:injection_point]
+            + "\n"
+            + guidance
+            + "\n\n"
+            + user_message[injection_point:]
         )
 
     def _assess_quality(
-        self,
-        capture: Dict[str, Any],
-        new_action: str,
-        new_raise_amount: Optional[int]
+        self, capture: Dict[str, Any], new_action: str, new_raise_amount: Optional[int]
     ) -> Optional[str]:
         """Assess the quality of the new action.
 
@@ -411,12 +427,16 @@ class ReplayExperimentRunner:
         """
         # Try to get decision analysis for this capture
         import sqlite3
+
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT optimal_action, decision_quality
                 FROM player_decision_analysis
                 WHERE capture_id = ?
-            """, (capture['id'],))
+            """,
+                (capture['id'],),
+            )
             row = cursor.fetchone()
             if row:
                 optimal_action = row[0]
@@ -448,7 +468,7 @@ class ReplayExperimentRunner:
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 latency_ms=result.latency_ms,
-                error_message=result.error_message
+                error_message=result.error_message,
             )
         except Exception as e:
             logger.error(f"Failed to store replay result: {e}")
@@ -471,7 +491,7 @@ def run_replay_experiment_async(
     replay_experiment_repo,
     db_path: str,
     parallel: bool = True,
-    max_workers: int = 3
+    max_workers: int = 3,
 ) -> threading.Thread:
     """Run a replay experiment in a background thread.
 
@@ -485,9 +505,12 @@ def run_replay_experiment_async(
     Returns:
         The started thread
     """
+
     def run():
         try:
-            runner = ReplayExperimentRunner(replay_experiment_repo, db_path=db_path, max_workers=max_workers)
+            runner = ReplayExperimentRunner(
+                replay_experiment_repo, db_path=db_path, max_workers=max_workers
+            )
             runner.run_experiment(experiment_id, parallel=parallel)
         except Exception as e:
             logger.error(f"Async replay experiment {experiment_id} failed: {e}")
@@ -500,16 +523,15 @@ def run_replay_experiment_async(
 def main():
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description="Run a replay experiment")
-    parser.add_argument("--experiment-id", type=int, required=True,
-                       help="ID of the replay experiment to run")
-    parser.add_argument("--db", default="data/poker_games.db",
-                       help="Database path")
-    parser.add_argument("--sequential", action="store_true",
-                       help="Run sequentially instead of parallel")
-    parser.add_argument("--max-workers", type=int, default=3,
-                       help="Maximum parallel workers")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                       help="Verbose output")
+    parser.add_argument(
+        "--experiment-id", type=int, required=True, help="ID of the replay experiment to run"
+    )
+    parser.add_argument("--db", default="data/poker_games.db", help="Database path")
+    parser.add_argument(
+        "--sequential", action="store_true", help="Run sequentially instead of parallel"
+    )
+    parser.add_argument("--max-workers", type=int, default=3, help="Maximum parallel workers")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
@@ -528,14 +550,11 @@ def main():
         replay_experiment_repo,
         db_path=args.db,
         max_workers=args.max_workers,
-        progress_callback=progress_callback
+        progress_callback=progress_callback,
     )
 
     try:
-        summary = runner.run_experiment(
-            args.experiment_id,
-            parallel=not args.sequential
-        )
+        summary = runner.run_experiment(args.experiment_id, parallel=not args.sequential)
         print("\n" + "=" * 60)
         print("EXPERIMENT COMPLETE")
         print("=" * 60)

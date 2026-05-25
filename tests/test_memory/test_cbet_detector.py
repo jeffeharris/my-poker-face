@@ -4,8 +4,8 @@ import pytest
 
 from poker.memory.cbet_detector import CbetDetector
 
-
 # ── State machine basics ────────────────────────────────────────────────
+
 
 class TestPreflopAggressorTracking:
     def test_initial_state_none(self):
@@ -59,6 +59,7 @@ class TestPreflopAggressorTracking:
 
 # ── C-bet detection + responses ─────────────────────────────────────────
 
+
 class TestCbetDetectionAndResponses:
     def _hero_raises_preflop(self) -> CbetDetector:
         det = CbetDetector()
@@ -69,7 +70,9 @@ class TestCbetDetectionAndResponses:
         det = self._hero_raises_preflop()
         # Villain (not the preflop raiser) leads the flop
         responses = det.record_action(
-            'Villain', 'bet', 'FLOP',
+            'Villain',
+            'bet',
+            'FLOP',
             active_players=['Hero', 'Villain'],
         )
         assert responses == []
@@ -78,7 +81,9 @@ class TestCbetDetectionAndResponses:
     def test_cbet_fires_on_preflop_raisers_flop_bet(self):
         det = self._hero_raises_preflop()
         det.record_action(
-            'Hero', 'bet', 'FLOP',
+            'Hero',
+            'bet',
+            'FLOP',
             active_players=['Hero', 'Villain'],
         )
         assert det.cbet_made is True
@@ -89,7 +94,9 @@ class TestCbetDetectionAndResponses:
         det = self._hero_raises_preflop()
         det.record_action('Villain', 'call', 'PRE_FLOP')
         det.record_action(
-            'Hero', 'all_in', 'FLOP',
+            'Hero',
+            'all_in',
+            'FLOP',
             active_players=['Hero', 'Villain'],
         )
         assert det.cbet_made is True
@@ -101,19 +108,16 @@ class TestCbetDetectionAndResponses:
         # Donker leads first, then preflop raiser raises — that's a c-bet
         # only if we consider raises by the PFR as continuation. Detector
         # treats first-qualifying flop bet/raise from the PFR as c-bet.
-        det.record_action('Villain', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Villain', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         assert det.cbet_made is False
-        det.record_action('Hero', 'raise', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'raise', 'FLOP', active_players=['Hero', 'Villain'])
         assert det.cbet_made is True
 
     def test_only_first_qualifying_flop_action_counts(self):
         """After cbet_made flips, subsequent bets/raises by the PFR
         don't re-fire detection (no double-counting)."""
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         # Villain calls; PFR bets the turn — not a "c-bet" event again
         responses_call = det.record_action('Villain', 'call', 'FLOP')
         assert ('Villain', False) in responses_call
@@ -124,29 +128,28 @@ class TestCbetDetectionAndResponses:
 
     def test_fold_to_cbet_response_recorded(self):
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         responses = det.record_action('Villain', 'fold', 'FLOP')
         assert responses == [('Villain', True)]
 
     def test_call_to_cbet_response_recorded(self):
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         responses = det.record_action('Villain', 'call', 'FLOP')
         assert responses == [('Villain', False)]
 
     def test_raise_to_cbet_response_recorded_as_not_folded(self):
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         responses = det.record_action('Villain', 'raise', 'FLOP')
         assert responses == [('Villain', False)]
 
     def test_multiway_facing_set_includes_all_non_bettors(self):
         det = self._hero_raises_preflop()
         det.record_action(
-            'Hero', 'bet', 'FLOP',
+            'Hero',
+            'bet',
+            'FLOP',
             active_players=['Hero', 'A', 'B', 'C'],
         )
         # Three opponents responding individually
@@ -161,8 +164,7 @@ class TestCbetDetectionAndResponses:
         """Once a player has responded, a later action by them does not
         re-fire a response (set is drained)."""
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         det.record_action('Villain', 'call', 'FLOP')
         # Now both check the turn — no c-bet response should fire
         responses = det.record_action('Villain', 'check', 'TURN')
@@ -181,7 +183,9 @@ class TestCbetDetectionAndResponses:
         """The preflop raiser doesn't face their own c-bet."""
         det = self._hero_raises_preflop()
         det.record_action(
-            'Hero', 'bet', 'FLOP',
+            'Hero',
+            'bet',
+            'FLOP',
             active_players=['Hero', 'Villain'],
         )
         # If hero somehow takes another action while in the facing set
@@ -191,8 +195,7 @@ class TestCbetDetectionAndResponses:
 
     def test_reset_clears_facing_set(self):
         det = self._hero_raises_preflop()
-        det.record_action('Hero', 'bet', 'FLOP',
-                          active_players=['Hero', 'Villain'])
+        det.record_action('Hero', 'bet', 'FLOP', active_players=['Hero', 'Villain'])
         det.reset_for_new_hand()
         # New hand: no facing set, no response even if cbet_made would have
         responses = det.record_action('Villain', 'fold', 'FLOP')

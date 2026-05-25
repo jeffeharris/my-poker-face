@@ -14,9 +14,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from poker.player_psychology import (
-    ZoneContext, ZoneStrategy, ZONE_STRATEGIES,
-    select_zone_strategy, build_zone_guidance,
+    ZONE_STRATEGIES,
+    ZoneContext,
+    build_zone_guidance,
     get_zone_effects,
+    select_zone_strategy,
 )
 from poker.prompt_manager import PromptManager
 
@@ -58,7 +60,7 @@ def test_zone_strategy_selection():
             'strength': 0.8,
             'context': ZoneContext(
                 weak_player_note="Villain appears nervous",
-                opponent_analysis="Villain folds to river bets 70%"
+                opponent_analysis="Villain folds to river bets 70%",
             ),
             'description': 'Aggro zone with weak player detected',
         },
@@ -77,11 +79,7 @@ def test_zone_strategy_selection():
         # Select strategy multiple times to see randomness
         strategies_selected = {}
         for _ in range(10):
-            strategy = select_zone_strategy(
-                case['zone'],
-                case['strength'],
-                case['context']
-            )
+            strategy = select_zone_strategy(case['zone'], case['strength'], case['context'])
             if strategy:
                 name = strategy.name
                 strategies_selected[name] = strategies_selected.get(name, 0) + 1
@@ -145,11 +143,7 @@ def test_zone_guidance_generation():
         print(f"\n{state['description']}:")
 
         # Get zone effects
-        zone_effects = get_zone_effects(
-            state['confidence'],
-            state['composure'],
-            state['energy']
-        )
+        zone_effects = get_zone_effects(state['confidence'], state['composure'], state['energy'])
         effects_dict = zone_effects.to_dict()
 
         print(f"  Sweet spots: {effects_dict['sweet_spots']}")

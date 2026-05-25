@@ -3,6 +3,7 @@
 This module provides shared logic for categorizing all-in decisions
 and computing quality indicators across the codebase.
 """
+
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Stack depth thresholds (in big blinds)
-SHORT_STACK_BB = 10   # <= 10 BB: Short stack all-ins are defensible
+SHORT_STACK_BB = 10  # <= 10 BB: Short stack all-ins are defensible
 MARGINAL_STACK_BB = 15  # 11-15 BB: Marginal territory
 
 # Bluff detection threshold
@@ -21,9 +22,7 @@ TRASH_EQUITY = 0.25  # Equity below this is considered trash hand
 
 
 def categorize_allin_row(
-    stack_bb: Optional[float],
-    ai_response: Optional[str],
-    equity: Optional[float]
+    stack_bb: Optional[float], ai_response: Optional[str], equity: Optional[float]
 ) -> Optional[str]:
     """Categorize a single all-in decision as suspicious, marginal, or defensible.
 
@@ -78,9 +77,7 @@ def categorize_allin_row(
         return 'suspicious'
 
 
-def compute_allin_categorizations(
-    cursor_results: List[Tuple[Any, ...]]
-) -> Tuple[int, int]:
+def compute_allin_categorizations(cursor_results: List[Tuple[Any, ...]]) -> Tuple[int, int]:
     """Compute suspicious and marginal all-in counts from cursor results.
 
     Args:
@@ -155,8 +152,7 @@ def build_quality_indicators(
     if all_in_wins is not None and all_in_losses is not None:
         total_showdowns = all_in_wins + all_in_losses
         result['all_in_survival_rate'] = (
-            round(all_in_wins * 100 / total_showdowns, 1)
-            if total_showdowns > 0 else None
+            round(all_in_wins * 100 / total_showdowns, 1) if total_showdowns > 0 else None
         )
 
     return result

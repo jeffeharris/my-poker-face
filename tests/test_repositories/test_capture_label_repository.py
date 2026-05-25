@@ -1,7 +1,9 @@
 """Tests for CaptureLabelRepository."""
+
 import pytest
-from poker.repositories.prompt_capture_repository import PromptCaptureRepository
+
 from poker.repositories.capture_label_repository import CaptureLabelRepository
+from poker.repositories.prompt_capture_repository import PromptCaptureRepository
 
 
 def _make_capture(**overrides):
@@ -37,7 +39,9 @@ def repo(db_path, prompt_capture_repo):
 class TestCaptureLabels:
     @pytest.fixture
     def capture_id(self, prompt_capture_repo):
-        return prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='fold'))
+        return prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='fold')
+        )
 
     def test_add_and_get_labels(self, repo, capture_id):
         added = repo.add_capture_labels(capture_id, ['interesting', 'mistake'])
@@ -83,11 +87,14 @@ class TestCaptureLabels:
         assert stats['interesting'] == 1
 
     def test_compute_and_store_auto_labels_short_stack_fold(self, repo, capture_id):
-        labels = repo.compute_and_store_auto_labels(capture_id, {
-            'action_taken': 'fold',
-            'stack_bb': 2.0,
-            'pot_odds': 3.0,
-        })
+        labels = repo.compute_and_store_auto_labels(
+            capture_id,
+            {
+                'action_taken': 'fold',
+                'stack_bb': 2.0,
+                'pot_odds': 3.0,
+            },
+        )
         assert 'short_stack_fold' in labels
 
         stored = repo.get_capture_labels(capture_id)
@@ -95,23 +102,33 @@ class TestCaptureLabels:
         assert 'short_stack_fold' in stored_names
 
     def test_compute_and_store_auto_labels_suspicious_fold(self, repo, capture_id):
-        labels = repo.compute_and_store_auto_labels(capture_id, {
-            'action_taken': 'fold',
-            'stack_bb': 10.0,
-            'pot_odds': 6.0,
-        })
+        labels = repo.compute_and_store_auto_labels(
+            capture_id,
+            {
+                'action_taken': 'fold',
+                'stack_bb': 10.0,
+                'pot_odds': 6.0,
+            },
+        )
         assert 'suspicious_fold' in labels
 
     def test_compute_and_store_auto_labels_no_labels(self, repo, capture_id):
-        labels = repo.compute_and_store_auto_labels(capture_id, {
-            'action_taken': 'call',
-            'stack_bb': 20.0,
-        })
+        labels = repo.compute_and_store_auto_labels(
+            capture_id,
+            {
+                'action_taken': 'call',
+                'stack_bb': 20.0,
+            },
+        )
         assert labels == []
 
     def test_search_captures_with_labels(self, repo, prompt_capture_repo):
-        cid1 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='fold'))
-        cid2 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='call'))
+        cid1 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='fold')
+        )
+        cid2 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='call')
+        )
         repo.add_capture_labels(cid1, ['mistake'])
         repo.add_capture_labels(cid2, ['good'])
 
@@ -120,8 +137,12 @@ class TestCaptureLabels:
         assert result['captures'][0]['id'] == cid1
 
     def test_search_captures_with_labels_match_all(self, repo, prompt_capture_repo):
-        cid1 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='fold'))
-        cid2 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='call'))
+        cid1 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='fold')
+        )
+        cid2 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='call')
+        )
         repo.add_capture_labels(cid1, ['a', 'b'])
         repo.add_capture_labels(cid2, ['a'])
 
@@ -135,16 +156,24 @@ class TestCaptureLabels:
         assert result['total'] == 1
 
     def test_bulk_add_capture_labels(self, repo, prompt_capture_repo):
-        cid1 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='fold'))
-        cid2 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='call'))
+        cid1 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='fold')
+        )
+        cid2 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='call')
+        )
 
         result = repo.bulk_add_capture_labels([cid1, cid2], ['tag1', 'tag2'])
         assert result['captures_affected'] == 2
         assert result['labels_added'] == 4
 
     def test_bulk_remove_capture_labels(self, repo, prompt_capture_repo):
-        cid1 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='fold'))
-        cid2 = prompt_capture_repo.save_prompt_capture(_make_capture(game_id='g1', action_taken='call'))
+        cid1 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='fold')
+        )
+        cid2 = prompt_capture_repo.save_prompt_capture(
+            _make_capture(game_id='g1', action_taken='call')
+        )
         repo.bulk_add_capture_labels([cid1, cid2], ['tag1', 'tag2'])
 
         result = repo.bulk_remove_capture_labels([cid1, cid2], ['tag1'])

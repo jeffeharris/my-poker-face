@@ -22,21 +22,20 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from cash_mode.bankroll import (
-    AIBankrollState,
     BANKROLL_KNOB_DEFAULTS,
+    AIBankrollState,
     BankrollKnobs,
     PlayerBankrollState,
     project_bankroll,
 )
 from cash_mode.staker_profile import (
     BORROWER_PROFILE_DEFAULTS,
-    BorrowerProfile,
     STAKER_PROFILE_DEFAULTS,
+    BorrowerProfile,
     StakerProfile,
 )
 from poker.repositories.bankroll_repository import BankrollRepository
 from poker.repositories.schema_manager import SchemaManager
-
 
 SANDBOX_ID = "test-sandbox-1"
 
@@ -52,6 +51,7 @@ def _enable_regen():
     The "off" behaviour is covered by tests/test_economy_flags.py.
     """
     from cash_mode import economy_flags
+
     saved = economy_flags.REGEN_ENABLED
     economy_flags.REGEN_ENABLED = True
     yield
@@ -80,8 +80,7 @@ def _insert_personality(
         config["anchors"] = anchors
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
             (name or f"Personality {personality_id}", json.dumps(config), personality_id),
         )
         conn.commit()
@@ -127,12 +126,14 @@ class TestSchemaMigrationV88:
         with sqlite3.connect(db_path) as conn:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(personalities)")}
             for forbidden in (
-                "starting_bankroll", "bankroll_rate", "buy_in_multiplier",
+                "starting_bankroll",
+                "bankroll_rate",
+                "buy_in_multiplier",
                 "stake_comfort_zone",
             ):
-                assert forbidden not in cols, (
-                    f"v88 should not add {forbidden} column — knobs live in config_json"
-                )
+                assert (
+                    forbidden not in cols
+                ), f"v88 should not add {forbidden} column — knobs live in config_json"
 
     def test_ai_bankroll_pk_enforced(self, db_path):
         # v102: composite PK (personality_id, sandbox_id); a second
@@ -187,9 +188,7 @@ class TestSchemaMigrationV88:
         SchemaManager(path).ensure_schema()
         with sqlite3.connect(path) as conn:
             tables = {
-                row[0] for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
+                row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
             }
             assert "ai_bankroll_state" in tables
             assert "player_bankroll_state" in tables
@@ -307,9 +306,7 @@ class TestPersonalityKnobs:
         # The repo doesn't insert new personality rows — knob writes
         # target rows that already exist. Missing personality_id is a
         # no-op, signaled by the False return.
-        assert repo.save_personality_knobs(
-            "no_such_personality", BANKROLL_KNOB_DEFAULTS
-        ) is False
+        assert repo.save_personality_knobs("no_such_personality", BANKROLL_KNOB_DEFAULTS) is False
 
     def test_partial_sub_dict_uses_defaults_per_field(self, db_path, repo):
         # bankroll_knobs has only two keys — the rest fall back to defaults.
@@ -336,8 +333,7 @@ class TestPersonalityKnobs:
         }
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Preserved Pete", json.dumps(original_config), "preserved_pete"),
             )
             conn.commit()
@@ -359,8 +355,7 @@ class TestPersonalityKnobs:
         # If config_json is unparseable, return defaults rather than crashing.
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Broken Bob", "{not valid json", "broken_bob"),
             )
             conn.commit()
@@ -371,8 +366,7 @@ class TestPersonalityKnobs:
         # `bankroll_knobs: "oops"` (string instead of dict) → defaults.
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Wrong Type", json.dumps({"bankroll_knobs": "oops"}), "wrong_type"),
             )
             conn.commit()
@@ -390,7 +384,10 @@ class TestProjectBankrollPure:
         state = AIBankrollState("seed", chips=3_000, last_regen_tick=None)
         # The "never had an event" state should project to the seed
         # value, not inflate by full elapsed time since epoch.
-        assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=datetime.utcnow()) == 3_000
+        assert (
+            project_bankroll(state, starting_bankroll=10_000, rate=500, now=datetime.utcnow())
+            == 3_000
+        )
 
     def test_within_same_day_no_regen(self):
         # Half-second elapsed → floor(rate * 5.78e-6 days) == 0 → no change.
@@ -443,7 +440,9 @@ class TestAIBankrollCurrentReads:
             sandbox_id=SANDBOX_ID,
         )
         projected = repo.load_ai_bankroll_current(
-            "hungry_hippo", sandbox_id=SANDBOX_ID, now=now,
+            "hungry_hippo",
+            sandbox_id=SANDBOX_ID,
+            now=now,
         )
         assert projected == 3_000
 
@@ -465,7 +464,9 @@ class TestAIBankrollCurrentReads:
             sandbox_id=SANDBOX_ID,
         )
         projected = repo.load_ai_bankroll_current(
-            "capped_cat", sandbox_id=SANDBOX_ID, now=now,
+            "capped_cat",
+            sandbox_id=SANDBOX_ID,
+            now=now,
         )
         assert projected == 2_000
 
@@ -541,8 +542,7 @@ class TestStakerProfile:
         # Malformed config_json → defaults (logged warning).
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Bad JSON", "{not valid", "bad_json"),
             )
             conn.commit()
@@ -553,8 +553,7 @@ class TestStakerProfile:
         # staker_profile sub-key isn't a dict → defaults.
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Wrong Type", json.dumps({"staker_profile": "oops"}), "wrong_type_lp"),
             )
             conn.commit()
@@ -584,7 +583,8 @@ class TestBorrowerProfile:
     def test_load_returns_stoic_unwilling_borrower(self, db_path, repo):
         # Stoic personalities (Lincoln, Buddha) refuse stakes.
         _insert_personality(
-            db_path, "buddha",
+            db_path,
+            "buddha",
             borrower_profile={"willing": False},
         )
         profile = repo.load_borrower_profile("buddha")
@@ -594,7 +594,8 @@ class TestBorrowerProfile:
         # Most personalities default to willing=True; an explicit override
         # is preserved through the read path.
         _insert_personality(
-            db_path, "napoleon",
+            db_path,
+            "napoleon",
             borrower_profile={"willing": True},
         )
         profile = repo.load_borrower_profile("napoleon")
@@ -603,8 +604,7 @@ class TestBorrowerProfile:
     def test_load_handles_malformed_json(self, db_path, repo):
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Bad JSON", "{not valid", "bad_json_bp"),
             )
             conn.commit()
@@ -614,8 +614,7 @@ class TestBorrowerProfile:
     def test_load_handles_non_dict_borrower_profile(self, db_path, repo):
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO personalities (name, config_json, personality_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
                 ("Wrong Type", json.dumps({"borrower_profile": "oops"}), "wrong_type_bp"),
             )
             conn.commit()
@@ -626,7 +625,8 @@ class TestBorrowerProfile:
         # A personality can be a willing lender AND unwilling borrower
         # (Lincoln-like: principled about giving help but not asking).
         _insert_personality(
-            db_path, "principled_lincoln",
+            db_path,
+            "principled_lincoln",
             staker_profile={"willing": True, "max_loan_pct_of_bankroll": 0.15},
             borrower_profile={"willing": False},
         )
@@ -645,13 +645,18 @@ class TestAspirationCooldown:
 
     def test_default_is_none(self, repo):
         # No row → no cooldown.
-        assert repo.load_aspiration_cooldown_until(
-            "missing", sandbox_id="sb",
-        ) is None
+        assert (
+            repo.load_aspiration_cooldown_until(
+                "missing",
+                sandbox_id="sb",
+            )
+            is None
+        )
 
     def test_round_trips_timestamp(self, repo):
         # Seed a bankroll row, stamp cooldown, read it back.
         from cash_mode.bankroll import AIBankrollState
+
         repo.save_ai_bankroll(
             AIBankrollState(
                 personality_id="zeus",
@@ -662,7 +667,9 @@ class TestAspirationCooldown:
         )
         target = datetime(2026, 5, 22, 12, 30, 45)
         ok = repo.save_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb1", until=target,
+            "zeus",
+            sandbox_id="sb1",
+            until=target,
         )
         assert ok is True
         loaded = repo.load_aspiration_cooldown_until("zeus", sandbox_id="sb1")
@@ -670,6 +677,7 @@ class TestAspirationCooldown:
 
     def test_save_none_clears_cooldown(self, repo):
         from cash_mode.bankroll import AIBankrollState
+
         repo.save_ai_bankroll(
             AIBankrollState(
                 personality_id="zeus",
@@ -679,25 +687,39 @@ class TestAspirationCooldown:
             sandbox_id="sb1",
         )
         repo.save_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb1", until=datetime(2026, 5, 22, 11, 0, 0),
+            "zeus",
+            sandbox_id="sb1",
+            until=datetime(2026, 5, 22, 11, 0, 0),
         )
         ok = repo.save_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb1", until=None,
+            "zeus",
+            sandbox_id="sb1",
+            until=None,
         )
         assert ok is True
-        assert repo.load_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb1",
-        ) is None
+        assert (
+            repo.load_aspiration_cooldown_until(
+                "zeus",
+                sandbox_id="sb1",
+            )
+            is None
+        )
 
     def test_save_returns_false_without_row(self, repo):
         # No bankroll row → cannot stamp cooldown.
-        assert repo.save_aspiration_cooldown_until(
-            "ghost", sandbox_id="sb1", until=datetime(2026, 5, 22),
-        ) is False
+        assert (
+            repo.save_aspiration_cooldown_until(
+                "ghost",
+                sandbox_id="sb1",
+                until=datetime(2026, 5, 22),
+            )
+            is False
+        )
 
     def test_sandbox_scoped(self, repo):
         # Same pid in two sandboxes has independent cooldowns.
         from cash_mode.bankroll import AIBankrollState
+
         for sandbox_id in ("sb_a", "sb_b"):
             repo.save_ai_bankroll(
                 AIBankrollState(
@@ -708,14 +730,21 @@ class TestAspirationCooldown:
                 sandbox_id=sandbox_id,
             )
         repo.save_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb_a", until=datetime(2026, 5, 22, 12, 0, 0),
+            "zeus",
+            sandbox_id="sb_a",
+            until=datetime(2026, 5, 22, 12, 0, 0),
         )
         assert repo.load_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb_a",
+            "zeus",
+            sandbox_id="sb_a",
         ) == datetime(2026, 5, 22, 12, 0, 0)
-        assert repo.load_aspiration_cooldown_until(
-            "zeus", sandbox_id="sb_b",
-        ) is None
+        assert (
+            repo.load_aspiration_cooldown_until(
+                "zeus",
+                sandbox_id="sb_b",
+            )
+            is None
+        )
 
 
 class TestBorrowerProfileAspirationBias:
@@ -732,7 +761,8 @@ class TestBorrowerProfileAspirationBias:
     def test_derived_from_ego_and_risk_identity(self, db_path, repo):
         # 0.6 × 0.86 + 0.4 × 0.90 = 0.876 — Napoleon-class climber.
         _insert_personality(
-            db_path, "napoleon",
+            db_path,
+            "napoleon",
             anchors={"ego": 0.86, "risk_identity": 0.90},
         )
         profile = repo.load_borrower_profile("napoleon")
@@ -741,7 +771,8 @@ class TestBorrowerProfileAspirationBias:
     def test_derived_low_for_humble_and_cautious(self, db_path, repo):
         # 0.6 × 0.36 + 0.4 × 0.38 = 0.368 — Lincoln-class grinder.
         _insert_personality(
-            db_path, "lincoln",
+            db_path,
+            "lincoln",
             anchors={"ego": 0.36, "risk_identity": 0.38},
         )
         profile = repo.load_borrower_profile("lincoln")
@@ -750,7 +781,8 @@ class TestBorrowerProfileAspirationBias:
     def test_explicit_override_wins(self, db_path, repo):
         # Explicit JSON override beats the anchor-derived value.
         _insert_personality(
-            db_path, "fixed_climber",
+            db_path,
+            "fixed_climber",
             anchors={"ego": 0.20, "risk_identity": 0.20},  # would derive low
             borrower_profile={"aspiration_bias": 0.95},
         )
@@ -760,12 +792,14 @@ class TestBorrowerProfileAspirationBias:
     def test_override_clamped_to_unit_interval(self, db_path, repo):
         # Out-of-range overrides clamp rather than crash.
         _insert_personality(
-            db_path, "loud_one",
+            db_path,
+            "loud_one",
             borrower_profile={"aspiration_bias": 1.5},
         )
         assert repo.load_borrower_profile("loud_one").aspiration_bias == 1.0
         _insert_personality(
-            db_path, "quiet_one",
+            db_path,
+            "quiet_one",
             borrower_profile={"aspiration_bias": -0.4},
         )
         assert repo.load_borrower_profile("quiet_one").aspiration_bias == 0.0
@@ -774,7 +808,8 @@ class TestBorrowerProfileAspirationBias:
         # Locked decision: refusing stakes ⟹ never aspires.
         # The anchor values would otherwise derive a high bias.
         _insert_personality(
-            db_path, "buddha",
+            db_path,
+            "buddha",
             anchors={"ego": 0.90, "risk_identity": 0.90},
             borrower_profile={"willing": False, "aspiration_bias": 0.95},
         )
@@ -785,7 +820,8 @@ class TestBorrowerProfileAspirationBias:
     def test_partial_anchors_fall_back_to_default(self, db_path, repo):
         # Anchors dict present but missing risk_identity → default.
         _insert_personality(
-            db_path, "ego_only",
+            db_path,
+            "ego_only",
             anchors={"ego": 0.86},
         )
         profile = repo.load_borrower_profile("ego_only")
@@ -793,7 +829,8 @@ class TestBorrowerProfileAspirationBias:
 
     def test_non_numeric_override_falls_back_to_default(self, db_path, repo):
         _insert_personality(
-            db_path, "bad_override",
+            db_path,
+            "bad_override",
             borrower_profile={"aspiration_bias": "high"},
         )
         profile = repo.load_borrower_profile("bad_override")
@@ -813,7 +850,8 @@ class TestBorrowerProfileAspirationBias:
     def test_save_none_clears_override(self, db_path, repo):
         # Storing an explicit value then clearing it returns to default.
         _insert_personality(
-            db_path, "togglable",
+            db_path,
+            "togglable",
             borrower_profile={"aspiration_bias": 0.9},
         )
         repo.save_borrower_profile(

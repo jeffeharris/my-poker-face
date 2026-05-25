@@ -26,7 +26,8 @@ def _stats() -> AggregatedOpponentStats:
     is passed in directly (bluff_reduction only reads intensity)."""
     return AggregatedOpponentStats(
         hands_observed=100,
-        vpip=0.50, pfr=0.20,
+        vpip=0.50,
+        pfr=0.20,
         aggression_factor=1.5,
         all_in_frequency=0.0,
     )
@@ -41,7 +42,9 @@ class TestBluffReductionFires:
 
     def test_bet_actions_get_negative_offset(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_33', 'bet_67', 'bet_100'],
             bluff_reduction_intensity=1.0,
         )
@@ -52,7 +55,9 @@ class TestBluffReductionFires:
 
     def test_raise_actions_get_negative_offset(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'call', 'raise_67', 'raise_150'],
             bluff_reduction_intensity=1.0,
         )
@@ -61,7 +66,9 @@ class TestBluffReductionFires:
 
     def test_check_action_gets_positive_offset(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=1.0,
         )
@@ -70,7 +77,9 @@ class TestBluffReductionFires:
     def test_fold_action_gets_positive_offset(self):
         # When facing a bet, fold (not check) is the passive line.
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'call', 'raise_67'],
             bluff_reduction_intensity=1.0,
         )
@@ -80,7 +89,9 @@ class TestBluffReductionFires:
         # The rule should NOT push call mass (that's value_vs_station /
         # defense_floor's job).
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'call', 'raise_67'],
             bluff_reduction_intensity=1.0,
         )
@@ -97,7 +108,9 @@ class TestBluffReductionDoesNotFireAtZeroIntensity:
 
     def test_intensity_zero_produces_no_offsets(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=0.0,
         )
@@ -105,14 +118,13 @@ class TestBluffReductionDoesNotFireAtZeroIntensity:
         # contribution is zero — easiest to check via the traced
         # variant.
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=0.0,
         )
-        br_trace = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br_trace = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         assert br_trace.fired is False
         assert br_trace.reason_code == 'intensity_zero_or_gated'
 
@@ -122,14 +134,13 @@ class TestBluffReductionTrace:
 
     def test_fires_emits_adjust_trace(self):
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=0.5,
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         assert br.fired is True
         assert br.operation == 'adjust'
         assert br.layer_order == 1
@@ -139,17 +150,22 @@ class TestBluffReductionTrace:
     def test_intensity_scales_offset_magnitude(self):
         """Half intensity → half magnitude."""
         full = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=1.0,
         )
         half = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=0.5,
         )
         assert half.get('bet_67', 0.0) == pytest.approx(
-            full.get('bet_67', 0.0) * 0.5, abs=1e-6,
+            full.get('bet_67', 0.0) * 0.5,
+            abs=1e-6,
         )
 
 
@@ -158,21 +174,22 @@ class TestBluffReductionDisable:
 
     def test_disabled_rule_emits_disabled_trace(self):
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=1.0,
             disable_rules={('bluff_reduction', 'default')},
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         assert br.fired is False
         assert br.reason_code == 'disabled_by_ablation'
 
     def test_disabled_offsets_absent(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=1.0,
             disable_rules={('bluff_reduction', 'default')},
@@ -190,7 +207,9 @@ class TestRuleSeparationFromValueVsStation:
 
     def test_value_vs_station_pushes_bet_positive(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             value_vs_station_intensity=1.0,
         )
@@ -198,7 +217,9 @@ class TestRuleSeparationFromValueVsStation:
 
     def test_bluff_reduction_pushes_bet_negative(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             bluff_reduction_intensity=1.0,
         )
@@ -210,7 +231,9 @@ class TestRuleSeparationFromValueVsStation:
         partially offset each other: +0.30 from vvs, -0.20 from
         bluff_reduction → +0.10 net."""
         offsets = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             value_vs_station_intensity=1.0,
             bluff_reduction_intensity=1.0,
@@ -221,7 +244,9 @@ class TestRuleSeparationFromValueVsStation:
         assert bet_offset > 0  # still positive net
         # Compare to pure value_vs_station
         vvs_only = compute_exploitation_offsets(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=['fold', 'check', 'bet_67'],
             value_vs_station_intensity=1.0,
         )

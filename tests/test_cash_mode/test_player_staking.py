@@ -130,22 +130,31 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
 
     def test_humble_ego_yields_low_threshold(self):
         from cash_mode.staker_profile import compute_default_willingness_threshold
+
         # Lincoln-style humble: ego 0.36 → ~0.23
         self.assertAlmostEqual(
-            compute_default_willingness_threshold(0.36), 0.23, places=2,
+            compute_default_willingness_threshold(0.36),
+            0.23,
+            places=2,
         )
 
     def test_baseline_ego_yields_default(self):
         from cash_mode.staker_profile import compute_default_willingness_threshold
+
         self.assertAlmostEqual(
-            compute_default_willingness_threshold(0.5), 0.30, places=2,
+            compute_default_willingness_threshold(0.5),
+            0.30,
+            places=2,
         )
 
     def test_proud_ego_yields_high_threshold(self):
         from cash_mode.staker_profile import compute_default_willingness_threshold
+
         # Napoleon-style proud: ego 0.86 → ~0.48
         self.assertAlmostEqual(
-            compute_default_willingness_threshold(0.86), 0.48, places=2,
+            compute_default_willingness_threshold(0.86),
+            0.48,
+            places=2,
         )
 
     def test_extreme_egos_clamped(self):
@@ -154,6 +163,7 @@ class TestWillingnessThresholdDerivation(unittest.TestCase):
             WILLINGNESS_THRESHOLD_MIN,
             compute_default_willingness_threshold,
         )
+
         # Below clamp.
         self.assertEqual(
             compute_default_willingness_threshold(0.0),
@@ -176,32 +186,43 @@ class TestAspirationBiasDerivation(unittest.TestCase):
 
     def test_baseline_yields_midpoint(self):
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         # 0.6 × 0.5 + 0.4 × 0.5 = 0.5
         self.assertAlmostEqual(
-            compute_default_aspiration_bias(0.5, 0.5), 0.5, places=4,
+            compute_default_aspiration_bias(0.5, 0.5),
+            0.5,
+            places=4,
         )
 
     def test_lincoln_class_grinder(self):
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         # Lincoln (ego 0.36, risk 0.38) → 0.6×0.36 + 0.4×0.38 = 0.368
         self.assertAlmostEqual(
-            compute_default_aspiration_bias(0.36, 0.38), 0.368, places=4,
+            compute_default_aspiration_bias(0.36, 0.38),
+            0.368,
+            places=4,
         )
 
     def test_napoleon_class_climber(self):
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         # Napoleon (ego 0.86, risk 0.90) → 0.6×0.86 + 0.4×0.90 = 0.876
         self.assertAlmostEqual(
-            compute_default_aspiration_bias(0.86, 0.90), 0.876, places=4,
+            compute_default_aspiration_bias(0.86, 0.90),
+            0.876,
+            places=4,
         )
 
     def test_clamps_at_zero(self):
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         # Below clamp (defensive — out-of-range anchor values).
         self.assertEqual(compute_default_aspiration_bias(-1.0, -1.0), 0.0)
 
     def test_clamps_at_one(self):
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         # Above clamp.
         self.assertEqual(compute_default_aspiration_bias(2.0, 2.0), 1.0)
 
@@ -210,6 +231,7 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         produces a climber-ish value, while low ego with high risk
         stays below 0.5. This pins the relative weighting decision."""
         from cash_mode.staker_profile import compute_default_aspiration_bias
+
         high_ego_low_risk = compute_default_aspiration_bias(1.0, 0.0)
         low_ego_high_risk = compute_default_aspiration_bias(0.0, 1.0)
         self.assertGreater(high_ego_low_risk, low_ego_high_risk)
@@ -222,8 +244,9 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         import json
         import sqlite3
         import tempfile
-        from poker.repositories.schema_manager import SchemaManager
+
         from poker.repositories.bankroll_repository import BankrollRepository
+        from poker.repositories.schema_manager import SchemaManager
 
         db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
         SchemaManager(db).ensure_schema()
@@ -243,16 +266,18 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         self.assertTrue(profile.willing)
         self.assertAlmostEqual(profile.willingness_threshold, 0.48, places=2)
         import os
+
         os.unlink(db)
 
     def test_save_borrower_profile_persists_override(self):
         """Save an explicit override; loader reads it back."""
         import json
+        import os
         import sqlite3
         import tempfile
-        import os
-        from poker.repositories.schema_manager import SchemaManager
+
         from poker.repositories.bankroll_repository import BankrollRepository
+        from poker.repositories.schema_manager import SchemaManager
 
         db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
         SchemaManager(db).ensure_schema()
@@ -273,14 +298,18 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         self.assertAlmostEqual(before.willingness_threshold, 0.48, places=2)
         # Save an explicit override.
         ok = repo.save_borrower_profile(
-            "test_pid", willing=True, willingness_threshold=0.20,
+            "test_pid",
+            willing=True,
+            willingness_threshold=0.20,
         )
         self.assertTrue(ok)
         after = repo.load_borrower_profile("test_pid")
         self.assertEqual(after.willingness_threshold, 0.20)
         # Clear the override → should fall back to ego-derived again.
         ok = repo.save_borrower_profile(
-            "test_pid", willing=True, willingness_threshold=None,
+            "test_pid",
+            willing=True,
+            willingness_threshold=None,
         )
         self.assertTrue(ok)
         reverted = repo.load_borrower_profile("test_pid")
@@ -290,11 +319,12 @@ class TestAspirationBiasDerivation(unittest.TestCase):
     def test_save_borrower_profile_preserves_other_config(self):
         """Saving borrower_profile must NOT touch sibling keys."""
         import json
+        import os
         import sqlite3
         import tempfile
-        import os
-        from poker.repositories.schema_manager import SchemaManager
+
         from poker.repositories.bankroll_repository import BankrollRepository
+        from poker.repositories.schema_manager import SchemaManager
 
         db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
         SchemaManager(db).ensure_schema()
@@ -316,7 +346,9 @@ class TestAspirationBiasDerivation(unittest.TestCase):
             )
         repo = BankrollRepository(db)
         repo.save_borrower_profile(
-            "test_pid", willing=False, willingness_threshold=0.40,
+            "test_pid",
+            willing=False,
+            willingness_threshold=0.40,
         )
         # Re-load full config and confirm every sibling key survives.
         with sqlite3.connect(db) as conn:
@@ -340,8 +372,9 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         import json
         import sqlite3
         import tempfile
-        from poker.repositories.schema_manager import SchemaManager
+
         from poker.repositories.bankroll_repository import BankrollRepository
+        from poker.repositories.schema_manager import SchemaManager
 
         db = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
         SchemaManager(db).ensure_schema()
@@ -363,6 +396,7 @@ class TestAspirationBiasDerivation(unittest.TestCase):
         profile = repo.load_borrower_profile("override_pid")
         self.assertEqual(profile.willingness_threshold, 0.20)
         import os
+
         os.unlink(db)
 
 
@@ -403,8 +437,10 @@ def _seed_personality(repos, pid, name, *, comfort, ego=0.5, starting=10_000):
     staking helpers have something to work with."""
     config = {
         "anchors": {
-            "baseline_aggression": 0.5, "baseline_looseness": 0.3,
-            "ego": ego, "poise": 0.7,
+            "baseline_aggression": 0.5,
+            "baseline_looseness": 0.3,
+            "ego": ego,
+            "poise": 0.7,
         },
         "bankroll_knobs": {
             "starting_bankroll": starting,
@@ -415,6 +451,7 @@ def _seed_personality(repos, pid, name, *, comfort, ego=0.5, starting=10_000):
         "borrower_profile": {"willing": True, "willingness_threshold": 0.30},
     }
     import sqlite3
+
     with sqlite3.connect(repos["db"]) as conn:
         conn.execute(
             "INSERT INTO personalities (name, personality_id, config_json, visibility) "
@@ -430,6 +467,7 @@ def _seed_personality(repos, pid, name, *, comfort, ego=0.5, starting=10_000):
 def _seed_relationship(repos, *, observer, opponent, likability=0.5, respect=0.5, heat=0.0):
     """Insert a relationship row so the met-before gate clears."""
     from poker.memory.opponent_model import RelationshipState
+
     repos["relationship"].save_relationship_state(
         observer,
         opponent,
@@ -444,11 +482,13 @@ def _seed_relationship(repos, *, observer, opponent, likability=0.5, respect=0.5
 
 
 def _seed_player_bankroll(repos, chips=10_000):
-    repos["bankroll"].save_player_bankroll(PlayerBankrollState(
-        player_id=PLAYER_ID,
-        chips=chips,
-        starting_bankroll=chips,
-    ))
+    repos["bankroll"].save_player_bankroll(
+        PlayerBankrollState(
+            player_id=PLAYER_ID,
+            chips=chips,
+            starting_bankroll=chips,
+        )
+    )
 
 
 class TestListStakeableAI:
@@ -476,8 +516,12 @@ class TestListStakeableAI:
         _seed_personality(db_repos, "napoleon", "Napoleon", comfort="$10")
         _seed_player_bankroll(db_repos)
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.6, respect=0.7, heat=0.0,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.6,
+            respect=0.7,
+            heat=0.0,
         )
         candidates = list_stakeable_ai(
             owner_id=PLAYER_ID,
@@ -520,8 +564,12 @@ class TestListStakeableAI:
         _seed_player_bankroll(db_repos)
         # Heat above ceiling.
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.5, respect=0.5, heat=0.6,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.5,
+            respect=0.5,
+            heat=0.6,
         )
         candidates = list_stakeable_ai(
             owner_id=PLAYER_ID,
@@ -542,28 +590,33 @@ class TestListStakeableAI:
         _seed_personality(db_repos, "napoleon", "Napoleon", comfort="$10")
         _seed_player_bankroll(db_repos)
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.6, respect=0.6,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.6,
+            respect=0.6,
         )
         # Seed a defaulted stake from this player to this AI 3 days ago.
-        db_repos["stake"].create_stake(Stake(
-            stake_id="prior_default",
-            session_id="player_session_napoleon_prior",
-            staker_id=PLAYER_ID,
-            staker_kind=STAKER_KIND_HUMAN,
-            borrower_id="napoleon",
-            borrower_kind=BORROWER_KIND_PERSONALITY,
-            format=STAKE_FORMAT_PURE,
-            principal=2000,
-            match_amount=0,
-            origination_fee=0,
-            cut=0.30,
-            status=STAKE_STATUS_DEFAULTED,
-            carry_amount=0,
-            stake_tier="$50",
-            created_at=ANCHOR - timedelta(days=5),
-            settled_at=ANCHOR - timedelta(days=3),  # within 7d cooldown
-        ))
+        db_repos["stake"].create_stake(
+            Stake(
+                stake_id="prior_default",
+                session_id="player_session_napoleon_prior",
+                staker_id=PLAYER_ID,
+                staker_kind=STAKER_KIND_HUMAN,
+                borrower_id="napoleon",
+                borrower_kind=BORROWER_KIND_PERSONALITY,
+                format=STAKE_FORMAT_PURE,
+                principal=2000,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.30,
+                status=STAKE_STATUS_DEFAULTED,
+                carry_amount=0,
+                stake_tier="$50",
+                created_at=ANCHOR - timedelta(days=5),
+                settled_at=ANCHOR - timedelta(days=3),  # within 7d cooldown
+            )
+        )
         candidates = list_stakeable_ai(
             owner_id=PLAYER_ID,
             player_bankroll=10_000,
@@ -584,8 +637,12 @@ class TestEvaluatePlayerOffer:
         cut penalty, no desperation relief) → accepted."""
         _seed_personality(db_repos, "napoleon", "Napoleon", comfort="$10")
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.7, respect=0.8, heat=0.0,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.7,
+            respect=0.8,
+            heat=0.0,
         )
         result = evaluate_player_offer(
             target_pid="napoleon",
@@ -605,8 +662,12 @@ class TestEvaluatePlayerOffer:
         for cut overage."""
         _seed_personality(db_repos, "napoleon", "Napoleon", comfort="$10", ego=0.5)
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.5, respect=0.5, heat=0.0,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.5,
+            respect=0.5,
+            heat=0.0,
         )
         result = evaluate_player_offer(
             target_pid="napoleon",
@@ -628,8 +689,12 @@ class TestEvaluatePlayerOffer:
         """High-ego AI down to 0 chips → max desperation → relief = 0.4,
         offsetting cut_penalty. Should accept where comfortable AI refused."""
         _seed_personality(
-            db_repos, "napoleon", "Napoleon", comfort="$10",
-            ego=1.0, starting=10_000,
+            db_repos,
+            "napoleon",
+            "Napoleon",
+            comfort="$10",
+            ego=1.0,
+            starting=10_000,
         )
         # Drain bankroll to 0 → desperation = 1.0
         db_repos["bankroll"].save_ai_bankroll(
@@ -637,8 +702,12 @@ class TestEvaluatePlayerOffer:
             sandbox_id=SBX,
         )
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.5, respect=0.5, heat=0.0,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.5,
+            respect=0.5,
+            heat=0.0,
         )
         result = evaluate_player_offer(
             target_pid="napoleon",
@@ -662,8 +731,12 @@ class TestEvaluatePlayerOffer:
         """At-fair cut but no goodwill → refused with low_goodwill."""
         _seed_personality(db_repos, "napoleon", "Napoleon", comfort="$10")
         _seed_relationship(
-            db_repos, observer="napoleon", opponent=PLAYER_ID,
-            likability=0.1, respect=0.1, heat=0.0,
+            db_repos,
+            observer="napoleon",
+            opponent=PLAYER_ID,
+            likability=0.1,
+            respect=0.1,
+            heat=0.0,
         )
         result = evaluate_player_offer(
             target_pid="napoleon",

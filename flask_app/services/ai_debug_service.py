@@ -6,7 +6,7 @@ for AI players, used in the debug card flip feature.
 
 import logging
 import sqlite3
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from flask_app.config import DB_PATH
 
@@ -32,7 +32,8 @@ def get_player_llm_stats(game_id: str, player_name: str) -> Optional[Dict[str, A
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA busy_timeout=5000")
 
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     provider,
                     model,
@@ -47,7 +48,9 @@ def get_player_llm_stats(game_id: str, player_name: str) -> Optional[Dict[str, A
                 GROUP BY provider, model, reasoning_effort
                 ORDER BY COUNT(*) DESC
                 LIMIT 1
-            """, (game_id, player_name))
+            """,
+                (game_id, player_name),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -59,7 +62,9 @@ def get_player_llm_stats(game_id: str, player_name: str) -> Optional[Dict[str, A
                 'reasoning_effort': row['reasoning_effort'],
                 'total_calls': row['total_calls'],
                 'avg_latency_ms': round(row['avg_latency_ms'], 0) if row['avg_latency_ms'] else 0,
-                'avg_cost_per_call': round(row['avg_cost_per_call'], 6) if row['avg_cost_per_call'] else 0,
+                'avg_cost_per_call': round(row['avg_cost_per_call'], 6)
+                if row['avg_cost_per_call']
+                else 0,
             }
 
     except Exception as e:
@@ -90,7 +95,8 @@ def get_all_players_llm_stats(game_id: str, player_names: list) -> Dict[str, Dic
             # Build placeholder string for IN clause
             placeholders = ','.join('?' * len(player_names))
 
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT
                     player_name,
                     provider,
@@ -105,7 +111,9 @@ def get_all_players_llm_stats(game_id: str, player_names: list) -> Dict[str, Dic
                   AND call_type = 'player_decision'
                 GROUP BY player_name, provider, model, reasoning_effort
                 ORDER BY player_name, COUNT(*) DESC
-            """, [game_id] + player_names)
+            """,
+                [game_id] + player_names,
+            )
 
             # Group by player, taking the most common model config
             results = {}
@@ -117,8 +125,12 @@ def get_all_players_llm_stats(game_id: str, player_names: list) -> Dict[str, Dic
                         'model': row['model'],
                         'reasoning_effort': row['reasoning_effort'],
                         'total_calls': row['total_calls'],
-                        'avg_latency_ms': round(row['avg_latency_ms'], 0) if row['avg_latency_ms'] else 0,
-                        'avg_cost_per_call': round(row['avg_cost_per_call'], 6) if row['avg_cost_per_call'] else 0,
+                        'avg_latency_ms': round(row['avg_latency_ms'], 0)
+                        if row['avg_latency_ms']
+                        else 0,
+                        'avg_cost_per_call': round(row['avg_cost_per_call'], 6)
+                        if row['avg_cost_per_call']
+                        else 0,
                     }
 
             return results

@@ -12,23 +12,27 @@ from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.strategy_table import StrategyTable
 from poker.tiered_bot_controller import TieredBotController
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 def _make_strategy_table():
     """Create a minimal strategy table for testing."""
     data = {
         # UTG RFI: AA always raises, 72o always folds
-        PreflopNode(hand='AA', position='UTG', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={'raise_2.5bb': 1.0}),
-        PreflopNode(hand='72o', position='UTG', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={'fold': 1.0}),
+        PreflopNode(
+            hand='AA', position='UTG', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={'raise_2.5bb': 1.0}),
+        PreflopNode(
+            hand='72o', position='UTG', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={'fold': 1.0}),
         # BTN RFI: AKs mixed
-        PreflopNode(hand='AKs', position='BTN', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={'raise_2.5bb': 0.8, 'fold': 0.2}),
+        PreflopNode(
+            hand='AKs', position='BTN', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={'raise_2.5bb': 0.8, 'fold': 0.2}),
         # BB vs UTG: QQ 3-bets
-        PreflopNode(hand='QQ', position='BB', scenario='vs_open', opener_position='UTG').key:
-            StrategyProfile(action_probabilities={'raise_3x': 0.6, 'call': 0.4}),
+        PreflopNode(
+            hand='QQ', position='BB', scenario='vs_open', opener_position='UTG'
+        ).key: StrategyProfile(action_probabilities={'raise_3x': 0.6, 'call': 0.4}),
     }
     return StrategyTable(data)
 
@@ -65,7 +69,7 @@ def _make_game_state(
 
     # Fix bets for blinds: SB=50, BB=100
     if num_players >= 3:
-        players[1].bet = 50   # SB
+        players[1].bet = 50  # SB
         players[2].bet = 100  # BB
 
     # Build position mapping
@@ -120,6 +124,7 @@ def _make_state_machine(game_state, phase_name='PRE_FLOP'):
 
 # ── Tests ────────────────────────────────────────────────────────────────
 
+
 class TestTieredBotController:
     """Test the full TieredBotController decision pipeline."""
 
@@ -149,6 +154,7 @@ class TestTieredBotController:
     def test_preflop_rfi_aa_raises(self):
         """AA from UTG in RFI should produce a raise."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('A', 'h'), Card('A', 's')),
             position_key='under_the_gun',
@@ -166,6 +172,7 @@ class TestTieredBotController:
     def test_preflop_rfi_72o_folds(self):
         """72o from UTG in RFI should fold."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('7', 'h'), Card('2', 's')),
             position_key='under_the_gun',
@@ -182,6 +189,7 @@ class TestTieredBotController:
     def test_postflop_fallback_checks(self):
         """Postflop should use check/fold fallback."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('A', 'h'), Card('A', 's')),
         )
@@ -195,6 +203,7 @@ class TestTieredBotController:
     def test_postflop_fallback_folds_when_no_check(self):
         """Postflop should fold when check isn't available."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('A', 'h'), Card('A', 's')),
         )
@@ -220,6 +229,7 @@ class TestTieredBotController:
     def test_result_has_required_keys(self):
         """Decision result should have all required keys."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('A', 'h'), Card('A', 's')),
             raises=0,
@@ -237,6 +247,7 @@ class TestTieredBotController:
     def test_unknown_hand_falls_back_to_fold(self):
         """Hand not in strategy table should use conservative default (fold)."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('3', 'h'), Card('2', 's')),
             position_key='under_the_gun',
@@ -253,6 +264,7 @@ class TestTieredBotController:
     def test_validate_action_fallback(self):
         """When resolved action isn't legal, validator should pick a fallback."""
         from core.card import Card
+
         gs = _make_game_state(
             hand=(Card('A', 'h'), Card('A', 's')),
         )
@@ -265,6 +277,7 @@ class TestTieredBotController:
     def test_deterministic_with_seed(self):
         """Same seed should produce same decision."""
         from core.card import Card
+
         gs1 = _make_game_state(
             hand=(Card('A', 'h'), Card('K', 's')),
             position_key='button',
@@ -282,10 +295,12 @@ class TestTieredBotController:
         c2.rng = random.Random(42)
 
         r1 = c1._get_ai_decision(
-            message='', valid_actions=['fold', 'call', 'raise', 'all_in'],
+            message='',
+            valid_actions=['fold', 'call', 'raise', 'all_in'],
         )
         r2 = c2._get_ai_decision(
-            message='', valid_actions=['fold', 'call', 'raise', 'all_in'],
+            message='',
+            valid_actions=['fold', 'call', 'raise', 'all_in'],
         )
         assert r1['action'] == r2['action']
         assert r1['raise_to'] == r2['raise_to']

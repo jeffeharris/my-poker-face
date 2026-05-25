@@ -4,12 +4,10 @@ This module provides the central source of truth for all game state.
 All modules that need access to game state import from here.
 """
 
-import os
-import threading
 import logging
-from typing import Dict, Optional
-
+import threading
 from datetime import datetime, timedelta
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 

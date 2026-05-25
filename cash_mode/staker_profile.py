@@ -168,10 +168,7 @@ def compute_default_willingness_threshold(ego: float) -> float:
       - ego 0.50 (baseline)             → 0.30
       - ego 0.86 (Napoleon-style proud) → ~0.48
     """
-    raw = (
-        WILLINGNESS_THRESHOLD_BASE
-        + WILLINGNESS_THRESHOLD_SLOPE * (float(ego) - 0.5)
-    )
+    raw = WILLINGNESS_THRESHOLD_BASE + WILLINGNESS_THRESHOLD_SLOPE * (float(ego) - 0.5)
     return max(
         WILLINGNESS_THRESHOLD_MIN,
         min(WILLINGNESS_THRESHOLD_MAX, raw),
@@ -191,7 +188,8 @@ ASPIRATION_RISK_WEIGHT = 0.4
 
 
 def compute_default_aspiration_bias(
-    ego: float, risk_identity: float,
+    ego: float,
+    risk_identity: float,
 ) -> float:
     """Derive aspiration_bias from `ego` and `risk_identity` anchors.
 
@@ -211,10 +209,7 @@ def compute_default_aspiration_bias(
       - Baseline (ego 0.50, risk 0.50) → 0.50
       - Napoleon-class (ego 0.86, risk 0.90) → ~0.88
     """
-    raw = (
-        ASPIRATION_EGO_WEIGHT * float(ego)
-        + ASPIRATION_RISK_WEIGHT * float(risk_identity)
-    )
+    raw = ASPIRATION_EGO_WEIGHT * float(ego) + ASPIRATION_RISK_WEIGHT * float(risk_identity)
     return max(0.0, min(1.0, raw))
 
 
@@ -233,7 +228,8 @@ PAYOFF_EAGERNESS_POISE_WEIGHT = 0.4
 
 
 def compute_default_payoff_eagerness(
-    risk_identity: float, poise: float,
+    risk_identity: float,
+    poise: float,
 ) -> float:
     """Derive payoff_eagerness from `risk_identity` (inverse) + `poise`.
 
@@ -254,8 +250,7 @@ def compute_default_payoff_eagerness(
       - Napoleon-class (risk 0.90, poise 0.40) → 0.6×0.10 + 0.4×0.40
         = 0.22 (gambler — would rather climb than settle)
     """
-    raw = (
-        PAYOFF_EAGERNESS_RISK_WEIGHT * (1.0 - float(risk_identity))
-        + PAYOFF_EAGERNESS_POISE_WEIGHT * float(poise)
-    )
+    raw = PAYOFF_EAGERNESS_RISK_WEIGHT * (
+        1.0 - float(risk_identity)
+    ) + PAYOFF_EAGERNESS_POISE_WEIGHT * float(poise)
     return max(0.0, min(1.0, raw))

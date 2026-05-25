@@ -1,5 +1,7 @@
 """Tests for ReplayExperimentRepository."""
+
 import pytest
+
 from poker.repositories.prompt_capture_repository import PromptCaptureRepository
 from poker.repositories.replay_experiment_repository import ReplayExperimentRepository
 
@@ -40,12 +42,14 @@ class TestReplayExperiments:
         """Create some captures and return their IDs."""
         ids = []
         for i in range(3):
-            cid = prompt_capture_repo.save_prompt_capture(_make_capture(
-                game_id='game-1',
-                player_name='Batman',
-                hand_number=i,
-                action_taken='call',
-            ))
+            cid = prompt_capture_repo.save_prompt_capture(
+                _make_capture(
+                    game_id='game-1',
+                    player_name='Batman',
+                    hand_number=i,
+                    action_taken='call',
+                )
+            )
             ids.append(cid)
         return ids
 
@@ -75,7 +79,9 @@ class TestReplayExperiments:
     def test_add_replay_result(self, repo, capture_ids):
         variants = [{'label': 'v1', 'model': 'gpt-4'}]
         exp_id = repo.create_replay_experiment(
-            name='result-test', capture_ids=capture_ids, variants=variants,
+            name='result-test',
+            capture_ids=capture_ids,
+            variants=variants,
         )
 
         result_id = repo.add_replay_result(
@@ -93,12 +99,17 @@ class TestReplayExperiments:
     def test_get_replay_results(self, repo, capture_ids):
         variants = [{'label': 'v1', 'model': 'gpt-4'}]
         exp_id = repo.create_replay_experiment(
-            name='results-test', capture_ids=capture_ids, variants=variants,
+            name='results-test',
+            capture_ids=capture_ids,
+            variants=variants,
         )
 
         repo.add_replay_result(
-            experiment_id=exp_id, capture_id=capture_ids[0], variant='v1',
-            new_response='{"action": "fold"}', new_action='fold',
+            experiment_id=exp_id,
+            capture_id=capture_ids[0],
+            variant='v1',
+            new_response='{"action": "fold"}',
+            new_action='fold',
         )
 
         results = repo.get_replay_results(exp_id)
@@ -108,12 +119,17 @@ class TestReplayExperiments:
     def test_get_replay_results_summary(self, repo, capture_ids):
         variants = [{'label': 'v1', 'model': 'gpt-4'}]
         exp_id = repo.create_replay_experiment(
-            name='summary-test', capture_ids=capture_ids, variants=variants,
+            name='summary-test',
+            capture_ids=capture_ids,
+            variants=variants,
         )
 
         repo.add_replay_result(
-            experiment_id=exp_id, capture_id=capture_ids[0], variant='v1',
-            new_response='{"action": "fold"}', new_action='fold',
+            experiment_id=exp_id,
+            capture_id=capture_ids[0],
+            variant='v1',
+            new_response='{"action": "fold"}',
+            new_action='fold',
         )
 
         summary = repo.get_replay_results_summary(exp_id)
@@ -123,7 +139,9 @@ class TestReplayExperiments:
     def test_get_replay_experiment_captures(self, repo, capture_ids):
         variants = [{'label': 'v1', 'model': 'gpt-4'}]
         exp_id = repo.create_replay_experiment(
-            name='captures-test', capture_ids=capture_ids, variants=variants,
+            name='captures-test',
+            capture_ids=capture_ids,
+            variants=variants,
         )
 
         captures = repo.get_replay_experiment_captures(exp_id)
@@ -132,7 +150,9 @@ class TestReplayExperiments:
     def test_list_replay_experiments(self, repo, capture_ids):
         variants = [{'label': 'v1', 'model': 'gpt-4'}]
         repo.create_replay_experiment(
-            name='list-test', capture_ids=capture_ids, variants=variants,
+            name='list-test',
+            capture_ids=capture_ids,
+            variants=variants,
         )
 
         result = repo.list_replay_experiments()

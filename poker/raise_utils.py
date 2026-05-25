@@ -6,7 +6,6 @@ import surface (which previously required an absolute lazy import to
 break the cycle).
 """
 
-
 # Raise level to action name mapping for preflop
 RAISE_LEVEL_ACTIONS = {
     0: 'open_raise',

@@ -239,7 +239,7 @@ class PersonalitySponsorOffer:
     flavor: str
     relationship_hint: str
     capacity: int  # the lender's available bankroll at offer time,
-                   # used for sorting and for capacity-disclosure UX in v2.
+    # used for sorting and for capacity-disclosure UX in v2.
 
 
 @dataclass(frozen=True)
@@ -285,8 +285,8 @@ TIER_RATE_BUMP = {
 # Premium is open to everyone the legacy gates allow; standard is mildly
 # selective; restricted requires high trust on both axes.
 TIER_RELATIONSHIP_FLOORS = {
-    TIER_PREMIUM:    {"likability": 0.0, "respect": 0.0},
-    TIER_STANDARD:   {"likability": 0.4, "respect": 0.5},
+    TIER_PREMIUM: {"likability": 0.0, "respect": 0.0},
+    TIER_STANDARD: {"likability": 0.4, "respect": 0.5},
     TIER_RESTRICTED: {"likability": 0.6, "respect": 0.6},
     TIER_HOUSE_ONLY: {"likability": 1.1, "respect": 1.1},  # impossible
 }
@@ -397,7 +397,7 @@ def compute_personality_offers(
     stake_repo=None,
     stake_label: Optional[str] = None,
     borrower_kind: str = BORROWER_KIND_HUMAN,
-    rejections_out: Optional[List["LenderRejection"]] = None,
+    rejections_out: Optional[List[LenderRejection]] = None,
 ) -> List[PersonalitySponsorOffer]:
     """Generate up to `count` AI-personality sponsor offers.
 
@@ -473,7 +473,8 @@ def compute_personality_offers(
     carries_by_staker: dict = {}
     if stake_repo is not None:
         carries = stake_repo.list_carries_for_borrower(
-            player_owner_id, borrower_kind,
+            player_owner_id,
+            borrower_kind,
         )
         for c in carries:
             if c.staker_id is None:
@@ -526,15 +527,19 @@ def compute_personality_offers(
 
         # Projected bankroll via projection-on-read.
         projected = bankroll_repo.load_ai_bankroll_current(
-            pid, sandbox_id=sandbox_id, now=now,
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
         )
         if projected is None:
             # No bankroll row yet — can't lend out of nothing. Skip.
             continue
 
         capacity = _capacity_for_lender(
-            profile, projected,
-            min_buy_in=min_buy_in, max_buy_in=max_buy_in,
+            profile,
+            projected,
+            min_buy_in=min_buy_in,
+            max_buy_in=max_buy_in,
         )
         if capacity < min_buy_in:
             continue
@@ -547,19 +552,21 @@ def compute_personality_offers(
         # eligibility logic.
         if pid in defaulted_staker_ids:
             if rejections_out is not None:
-                rejections_out.append(LenderRejection(
-                    lender_id=pid, lender_name=name,
-                    reason="recent_default",
-                    detail=(
-                        f"{name} won't back you yet — you defaulted "
-                        "on them recently."
-                    ),
-                ))
+                rejections_out.append(
+                    LenderRejection(
+                        lender_id=pid,
+                        lender_name=name,
+                        reason="recent_default",
+                        detail=(f"{name} won't back you yet — you defaulted " "on them recently."),
+                    )
+                )
             continue
 
         # Relationship state — lender's POV of the player. None → default neutral.
         rel = relationship_repo.load_relationship_state(
-            observer_id=pid, opponent_id=player_owner_id, now=now,
+            observer_id=pid,
+            opponent_id=player_owner_id,
+            now=now,
         )
         if rel is None:
             respect, heat, likability = 0.5, 0.0, 0.5
@@ -570,36 +577,42 @@ def compute_personality_offers(
 
         if respect < profile.respect_floor:
             if rejections_out is not None:
-                rejections_out.append(LenderRejection(
-                    lender_id=pid, lender_name=name,
-                    reason="respect_too_low",
-                    detail=f"{name} doesn't respect your game right now.",
-                ))
+                rejections_out.append(
+                    LenderRejection(
+                        lender_id=pid,
+                        lender_name=name,
+                        reason="respect_too_low",
+                        detail=f"{name} doesn't respect your game right now.",
+                    )
+                )
             continue
         if heat > profile.heat_ceiling:
             if rejections_out is not None:
-                rejections_out.append(LenderRejection(
-                    lender_id=pid, lender_name=name,
-                    reason="heat_too_high",
-                    detail=f"{name} is too heated to stake you.",
-                ))
+                rejections_out.append(
+                    LenderRejection(
+                        lender_id=pid,
+                        lender_name=name,
+                        reason="heat_too_high",
+                        detail=f"{name} is too heated to stake you.",
+                    )
+                )
             continue
 
         # Tier floors — only applied when the caller opted in. Lenders
         # that pass legacy gates 1-4 may still fail tier 5 here.
-        if (
-            likability < tier_floors["likability"]
-            or respect < tier_floors["respect"]
-        ):
+        if likability < tier_floors["likability"] or respect < tier_floors["respect"]:
             if rejections_out is not None:
-                rejections_out.append(LenderRejection(
-                    lender_id=pid, lender_name=name,
-                    reason="tier_floor",
-                    detail=(
-                        f"{name} won't back you at the {tier} tier — "
-                        "you haven't built up enough goodwill."
-                    ),
-                ))
+                rejections_out.append(
+                    LenderRejection(
+                        lender_id=pid,
+                        lender_name=name,
+                        reason="tier_floor",
+                        detail=(
+                            f"{name} won't back you at the {tier} tier — "
+                            "you haven't built up enough goodwill."
+                        ),
+                    )
+                )
             continue
 
         floor, rate = _adjusted_terms(
@@ -625,19 +638,23 @@ def compute_personality_offers(
         rate = max(0.00, min(0.55, rate))
 
         hint = _relationship_hint(
-            likability=likability, heat=heat, respect=respect,
+            likability=likability,
+            heat=heat,
+            respect=respect,
         )
 
-        qualifying.append(PersonalitySponsorOffer(
-            lender_id=pid,
-            lender_name=name,
-            amount=capacity,
-            floor=floor,
-            rate=rate,
-            flavor=f"{name} offers you a loan.",
-            relationship_hint=hint,
-            capacity=capacity,
-        ))
+        qualifying.append(
+            PersonalitySponsorOffer(
+                lender_id=pid,
+                lender_name=name,
+                amount=capacity,
+                floor=floor,
+                rate=rate,
+                flavor=f"{name} offers you a loan.",
+                relationship_hint=hint,
+                capacity=capacity,
+            )
+        )
 
     qualifying.sort(key=lambda o: o.capacity, reverse=True)
     return qualifying[:count]

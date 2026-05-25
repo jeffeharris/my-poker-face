@@ -5,7 +5,7 @@ Unit tests for BettingContext betting validation and calculations.
 import unittest
 
 from poker.betting_context import BettingContext
-from poker.poker_game import PokerGameState, Player, create_deck
+from poker.poker_game import Player, PokerGameState, create_deck
 
 
 class TestBettingContextComputedProperties(unittest.TestCase):

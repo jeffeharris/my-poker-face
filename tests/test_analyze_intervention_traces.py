@@ -25,7 +25,6 @@ from experiments.analyze_intervention_traces import (
 from poker.repositories.decision_analysis_repository import DecisionAnalysisRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 # ── Fixtures ────────────────────────────────────────────────────────────
 
 
@@ -49,9 +48,13 @@ def _insert_game(conn: sqlite3.Connection, game_id: str) -> None:
 
 
 def _insert_decision(
-    conn: sqlite3.Connection, *,
-    game_id: str, hand_number: int, phase: str,
-    action_taken: str, trace_entries: list,
+    conn: sqlite3.Connection,
+    *,
+    game_id: str,
+    hand_number: int,
+    phase: str,
+    action_taken: str,
+    trace_entries: list,
     snapshot: dict = None,
 ) -> int:
     cur = conn.execute(
@@ -59,9 +62,15 @@ def _insert_decision(
         "(game_id, player_name, hand_number, phase, action_taken, "
         "intervention_trace_json, strategy_pipeline_snapshot_json) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (game_id, 'Hero', hand_number, phase, action_taken,
-         json.dumps(trace_entries),
-         json.dumps(snapshot) if snapshot is not None else None),
+        (
+            game_id,
+            'Hero',
+            hand_number,
+            phase,
+            action_taken,
+            json.dumps(trace_entries),
+            json.dumps(snapshot) if snapshot is not None else None,
+        ),
     )
     return cur.lastrowid
 
@@ -75,27 +84,57 @@ class TestAggregate:
         try:
             _insert_game(conn, 'g1')
             # Decision 1: hyper_aggressive fires, hyper_passive doesn't
-            _insert_decision(conn, game_id='g1', hand_number=1, phase='FLOP',
+            _insert_decision(
+                conn,
+                game_id='g1',
+                hand_number=1,
+                phase='FLOP',
                 action_taken='call',
                 trace_entries=[
-                    {'layer': 'exploitation', 'rule_id': 'hyper_aggressive',
-                     'fired': True, 'operation': 'adjust',
-                     'effect_size': 0.4, 'reason_code': 'extreme_tier'},
-                    {'layer': 'exploitation', 'rule_id': 'hyper_passive',
-                     'fired': False, 'operation': 'no_op',
-                     'effect_size': 0.0, 'reason_code': 'intensity_below_threshold'},
-                ])
+                    {
+                        'layer': 'exploitation',
+                        'rule_id': 'hyper_aggressive',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'effect_size': 0.4,
+                        'reason_code': 'extreme_tier',
+                    },
+                    {
+                        'layer': 'exploitation',
+                        'rule_id': 'hyper_passive',
+                        'fired': False,
+                        'operation': 'no_op',
+                        'effect_size': 0.0,
+                        'reason_code': 'intensity_below_threshold',
+                    },
+                ],
+            )
             # Decision 2: hyper_aggressive doesn't fire either
-            _insert_decision(conn, game_id='g1', hand_number=2, phase='TURN',
+            _insert_decision(
+                conn,
+                game_id='g1',
+                hand_number=2,
+                phase='TURN',
                 action_taken='fold',
                 trace_entries=[
-                    {'layer': 'exploitation', 'rule_id': 'hyper_aggressive',
-                     'fired': False, 'operation': 'no_op',
-                     'effect_size': 0.0, 'reason_code': 'intensity_below_threshold'},
-                    {'layer': 'exploitation', 'rule_id': 'hyper_passive',
-                     'fired': False, 'operation': 'no_op',
-                     'effect_size': 0.0, 'reason_code': 'intensity_below_threshold'},
-                ])
+                    {
+                        'layer': 'exploitation',
+                        'rule_id': 'hyper_aggressive',
+                        'fired': False,
+                        'operation': 'no_op',
+                        'effect_size': 0.0,
+                        'reason_code': 'intensity_below_threshold',
+                    },
+                    {
+                        'layer': 'exploitation',
+                        'rule_id': 'hyper_passive',
+                        'fired': False,
+                        'operation': 'no_op',
+                        'effect_size': 0.0,
+                        'reason_code': 'intensity_below_threshold',
+                    },
+                ],
+            )
             conn.commit()
         finally:
             conn.close()
@@ -121,13 +160,23 @@ class TestAggregate:
         try:
             for gid in ('g_a', 'g_b'):
                 _insert_game(conn, gid)
-                _insert_decision(conn, game_id=gid, hand_number=1, phase='FLOP',
+                _insert_decision(
+                    conn,
+                    game_id=gid,
+                    hand_number=1,
+                    phase='FLOP',
                     action_taken='raise',
                     trace_entries=[
-                        {'layer': 'personality', 'rule_id': 'default',
-                         'fired': True, 'operation': 'adjust',
-                         'effect_size': 0.3, 'reason_code': 'deviation_profile_lag'},
-                    ])
+                        {
+                            'layer': 'personality',
+                            'rule_id': 'default',
+                            'fired': True,
+                            'operation': 'adjust',
+                            'effect_size': 0.3,
+                            'reason_code': 'deviation_profile_lag',
+                        },
+                    ],
+                )
             conn.commit()
         finally:
             conn.close()
@@ -167,43 +216,101 @@ class TestFirstDivergence:
 
             # Hand 1 decision 1: both fold, traces agree.
             common_trace = [
-                {'layer': 'personality', 'rule_id': 'default',
-                 'fired': True, 'operation': 'adjust',
-                 'primary_action_after': 'fold', 'reason_code': 'deviation_profile_tag'},
+                {
+                    'layer': 'personality',
+                    'rule_id': 'default',
+                    'fired': True,
+                    'operation': 'adjust',
+                    'primary_action_after': 'fold',
+                    'reason_code': 'deviation_profile_tag',
+                },
             ]
-            _insert_decision(conn, game_id='cand', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=common_trace)
-            _insert_decision(conn, game_id='ctrl', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=common_trace)
+            _insert_decision(
+                conn,
+                game_id='cand',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=common_trace,
+            )
+            _insert_decision(
+                conn,
+                game_id='ctrl',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=common_trace,
+            )
 
             # Hand 1 decision 2: divergence. Candidate's bluff_catch fires.
-            _insert_decision(conn, game_id='cand', hand_number=1, phase='TURN',
+            _insert_decision(
+                conn,
+                game_id='cand',
+                hand_number=1,
+                phase='TURN',
                 action_taken='call',
                 trace_entries=[
-                    {'layer': 'personality', 'rule_id': 'default',
-                     'fired': True, 'operation': 'adjust',
-                     'primary_action_after': 'call', 'reason_code': 'deviation_profile_tag'},
-                    {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                     'fired': True, 'operation': 'override',
-                     'primary_action_after': 'call',
-                     'reason_code': 'medium_made_vs_extreme_facing_bet'},
-                ])
-            _insert_decision(conn, game_id='ctrl', hand_number=1, phase='TURN',
+                    {
+                        'layer': 'personality',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'primary_action_after': 'call',
+                        'reason_code': 'deviation_profile_tag',
+                    },
+                    {
+                        'layer': 'bluff_catch_override',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'override',
+                        'primary_action_after': 'call',
+                        'reason_code': 'medium_made_vs_extreme_facing_bet',
+                    },
+                ],
+            )
+            _insert_decision(
+                conn,
+                game_id='ctrl',
+                hand_number=1,
+                phase='TURN',
                 action_taken='fold',
                 trace_entries=[
-                    {'layer': 'personality', 'rule_id': 'default',
-                     'fired': True, 'operation': 'adjust',
-                     'primary_action_after': 'fold', 'reason_code': 'deviation_profile_tag'},
-                    {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                     'fired': False, 'operation': 'no_op',
-                     'primary_action_after': '', 'reason_code': 'gate_rejected'},
-                ])
+                    {
+                        'layer': 'personality',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'primary_action_after': 'fold',
+                        'reason_code': 'deviation_profile_tag',
+                    },
+                    {
+                        'layer': 'bluff_catch_override',
+                        'rule_id': 'default',
+                        'fired': False,
+                        'operation': 'no_op',
+                        'primary_action_after': '',
+                        'reason_code': 'gate_rejected',
+                    },
+                ],
+            )
 
             # Hand 1 decision 3: post-divergence — should be excluded.
-            _insert_decision(conn, game_id='cand', hand_number=1, phase='RIVER',
-                action_taken='check', trace_entries=common_trace)
-            _insert_decision(conn, game_id='ctrl', hand_number=1, phase='RIVER',
-                action_taken='check', trace_entries=common_trace)
+            _insert_decision(
+                conn,
+                game_id='cand',
+                hand_number=1,
+                phase='RIVER',
+                action_taken='check',
+                trace_entries=common_trace,
+            )
+            _insert_decision(
+                conn,
+                game_id='ctrl',
+                hand_number=1,
+                phase='RIVER',
+                action_taken='check',
+                trace_entries=common_trace,
+            )
 
             conn.commit()
         finally:
@@ -221,8 +328,9 @@ class TestFirstDivergence:
 
         # Both personality and bluff_catch_override differ at the divergence
         # decision (personality primary_action_after, bluff_catch fired flag).
-        attrib = {(r['layer'], r['rule_id']): r['first_divergence_count']
-                  for r in report['attribution']}
+        attrib = {
+            (r['layer'], r['rule_id']): r['first_divergence_count'] for r in report['attribution']
+        }
         assert ('bluff_catch_override', 'default') in attrib
         assert attrib[('bluff_catch_override', 'default')] == 1
 
@@ -231,13 +339,25 @@ class TestFirstDivergence:
         try:
             _insert_game(conn, 'a')
             _insert_game(conn, 'b')
-            trace = [{'layer': 'personality', 'rule_id': 'default',
-                      'fired': True, 'operation': 'adjust',
-                      'primary_action_after': 'fold',
-                      'reason_code': 'deviation_profile_tag'}]
+            trace = [
+                {
+                    'layer': 'personality',
+                    'rule_id': 'default',
+                    'fired': True,
+                    'operation': 'adjust',
+                    'primary_action_after': 'fold',
+                    'reason_code': 'deviation_profile_tag',
+                }
+            ]
             for gid in ('a', 'b'):
-                _insert_decision(conn, game_id=gid, hand_number=1, phase='FLOP',
-                    action_taken='fold', trace_entries=trace)
+                _insert_decision(
+                    conn,
+                    game_id=gid,
+                    hand_number=1,
+                    phase='FLOP',
+                    action_taken='fold',
+                    trace_entries=trace,
+                )
             conn.commit()
         finally:
             conn.close()
@@ -262,8 +382,14 @@ class TestShadowEval:
         try:
             _insert_game(conn, 'g')
             # No snapshot — Mode 1 should skip this decision.
-            _insert_decision(conn, game_id='g', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=[])
+            _insert_decision(
+                conn,
+                game_id='g',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=[],
+            )
             conn.commit()
         finally:
             conn.close()
@@ -289,8 +415,12 @@ class TestShadowEval:
                 'legal_actions': ['fold', 'call'],
             }
             _insert_decision(
-                conn, game_id='g', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=[],
+                conn,
+                game_id='g',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=[],
                 snapshot=snapshot,
             )
             conn.commit()
@@ -323,8 +453,12 @@ class TestShadowEval:
                 'big_blind': 100,
             }
             _insert_decision(
-                conn, game_id='g', hand_number=1, phase='FLOP',
-                action_taken='call', trace_entries=[],
+                conn,
+                game_id='g',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='call',
+                trace_entries=[],
                 snapshot=snapshot,
             )
             conn.commit()
@@ -352,18 +486,33 @@ class TestShadowCli:
         assert '--game-id' in captured.err
 
     def test_missing_disable_rule_returns_2(self, tmp_db, capsys):
-        exit_code = main([
-            '--mode', 'shadow', '--db', tmp_db, '--game-id', 'g',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'shadow',
+                '--db',
+                tmp_db,
+                '--game-id',
+                'g',
+            ]
+        )
         assert exit_code == 2
         captured = capsys.readouterr()
         assert '--disable-rule' in captured.err
 
     def test_malformed_disable_rule_returns_2(self, tmp_db, capsys):
-        exit_code = main([
-            '--mode', 'shadow', '--db', tmp_db, '--game-id', 'g',
-            '--disable-rule', 'not_dotted',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'shadow',
+                '--db',
+                tmp_db,
+                '--game-id',
+                'g',
+                '--disable-rule',
+                'not_dotted',
+            ]
+        )
         assert exit_code == 2
         captured = capsys.readouterr()
         assert 'layer.rule_id' in captured.err
@@ -383,54 +532,105 @@ class TestAblation:
 
             # Hand 1 decision 1: identical, both rules emit no-op.
             common_trace = [
-                {'layer': 'personality', 'rule_id': 'default',
-                 'fired': True, 'operation': 'adjust',
-                 'primary_action_after': 'fold',
-                 'reason_code': 'deviation_profile_tag'},
-                {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                 'fired': False, 'operation': 'no_op',
-                 'reason_code': 'hand_class_not_eligible'},
+                {
+                    'layer': 'personality',
+                    'rule_id': 'default',
+                    'fired': True,
+                    'operation': 'adjust',
+                    'primary_action_after': 'fold',
+                    'reason_code': 'deviation_profile_tag',
+                },
+                {
+                    'layer': 'bluff_catch_override',
+                    'rule_id': 'default',
+                    'fired': False,
+                    'operation': 'no_op',
+                    'reason_code': 'hand_class_not_eligible',
+                },
             ]
-            _insert_decision(conn, game_id='base', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=common_trace)
+            _insert_decision(
+                conn,
+                game_id='base',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=common_trace,
+            )
 
             ablation_trace_h1 = [
                 common_trace[0],
-                {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                 'fired': False, 'operation': 'no_op',
-                 'reason_code': 'disabled_by_ablation'},
+                {
+                    'layer': 'bluff_catch_override',
+                    'rule_id': 'default',
+                    'fired': False,
+                    'operation': 'no_op',
+                    'reason_code': 'disabled_by_ablation',
+                },
             ]
-            _insert_decision(conn, game_id='abl', hand_number=1, phase='FLOP',
-                action_taken='fold', trace_entries=ablation_trace_h1)
+            _insert_decision(
+                conn,
+                game_id='abl',
+                hand_number=1,
+                phase='FLOP',
+                action_taken='fold',
+                trace_entries=ablation_trace_h1,
+            )
 
             # Hand 2 decision 1: baseline's bluff_catch fires, ablation's
             # was disabled — action diverges.
-            _insert_decision(conn, game_id='base', hand_number=2, phase='TURN',
+            _insert_decision(
+                conn,
+                game_id='base',
+                hand_number=2,
+                phase='TURN',
                 action_taken='call',
                 trace_entries=[
-                    {'layer': 'personality', 'rule_id': 'default',
-                     'fired': True, 'operation': 'adjust',
-                     'primary_action_after': 'call'},
-                    {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                     'fired': True, 'operation': 'override',
-                     'primary_action_after': 'call',
-                     'reason_code': 'medium_made_vs_extreme_facing_bet'},
-                ])
-            _insert_decision(conn, game_id='abl', hand_number=2, phase='TURN',
+                    {
+                        'layer': 'personality',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'primary_action_after': 'call',
+                    },
+                    {
+                        'layer': 'bluff_catch_override',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'override',
+                        'primary_action_after': 'call',
+                        'reason_code': 'medium_made_vs_extreme_facing_bet',
+                    },
+                ],
+            )
+            _insert_decision(
+                conn,
+                game_id='abl',
+                hand_number=2,
+                phase='TURN',
                 action_taken='fold',
                 trace_entries=[
-                    {'layer': 'personality', 'rule_id': 'default',
-                     'fired': True, 'operation': 'adjust',
-                     'primary_action_after': 'fold'},
-                    {'layer': 'bluff_catch_override', 'rule_id': 'default',
-                     'fired': False, 'operation': 'no_op',
-                     'reason_code': 'disabled_by_ablation'},
-                ])
+                    {
+                        'layer': 'personality',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'primary_action_after': 'fold',
+                    },
+                    {
+                        'layer': 'bluff_catch_override',
+                        'rule_id': 'default',
+                        'fired': False,
+                        'operation': 'no_op',
+                        'reason_code': 'disabled_by_ablation',
+                    },
+                ],
+            )
             conn.commit()
         finally:
             conn.close()
 
         from experiments.analyze_intervention_traces import ablation_compare
+
         repo = DecisionAnalysisRepository(tmp_db)
         report = ablation_compare(repo, 'base', 'abl')
 
@@ -457,25 +657,45 @@ class TestAblation:
         try:
             _insert_game(conn, 'a')
             _insert_game(conn, 'b')
-            trace = [{'layer': 'personality', 'fired': True,
-                      'operation': 'adjust', 'reason_code': 'deviation_profile_tag'}]
+            trace = [
+                {
+                    'layer': 'personality',
+                    'fired': True,
+                    'operation': 'adjust',
+                    'reason_code': 'deviation_profile_tag',
+                }
+            ]
             for gid in ('a', 'b'):
-                _insert_decision(conn, game_id=gid, hand_number=1, phase='FLOP',
-                    action_taken='fold', trace_entries=trace)
+                _insert_decision(
+                    conn,
+                    game_id=gid,
+                    hand_number=1,
+                    phase='FLOP',
+                    action_taken='fold',
+                    trace_entries=trace,
+                )
             conn.commit()
         finally:
             conn.close()
 
         from experiments.analyze_intervention_traces import ablation_compare
+
         repo = DecisionAnalysisRepository(tmp_db)
         report = ablation_compare(repo, 'a', 'b')
         assert report['ablated_rules'] == []
         assert report['action_changed_decisions'] == 0
 
     def test_cli_ablation_requires_both_game_ids(self, tmp_db, capsys):
-        exit_code = main([
-            '--mode', 'ablation', '--db', tmp_db, '--baseline-game', 'a',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'ablation',
+                '--db',
+                tmp_db,
+                '--baseline-game',
+                'a',
+            ]
+        )
         assert exit_code == 2
         captured = capsys.readouterr()
         assert '--baseline-game' in captured.err
@@ -490,20 +710,37 @@ class TestCliSmoke:
         conn = sqlite3.connect(tmp_db)
         try:
             _insert_game(conn, 'g1')
-            _insert_decision(conn, game_id='g1', hand_number=1, phase='FLOP',
+            _insert_decision(
+                conn,
+                game_id='g1',
+                hand_number=1,
+                phase='FLOP',
                 action_taken='call',
-                trace_entries=[{
-                    'layer': 'bluff_catch_override', 'rule_id': 'default',
-                    'fired': True, 'operation': 'override',
-                    'effect_size': 0.5, 'reason_code': 'extreme',
-                }])
+                trace_entries=[
+                    {
+                        'layer': 'bluff_catch_override',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'override',
+                        'effect_size': 0.5,
+                        'reason_code': 'extreme',
+                    }
+                ],
+            )
             conn.commit()
         finally:
             conn.close()
 
-        exit_code = main([
-            '--mode', 'aggregate', '--db', tmp_db, '--game-id', 'g1',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'aggregate',
+                '--db',
+                tmp_db,
+                '--game-id',
+                'g1',
+            ]
+        )
         assert exit_code == 0
         captured = capsys.readouterr()
         assert 'aggregate firing rates' in captured.out
@@ -513,21 +750,39 @@ class TestCliSmoke:
         conn = sqlite3.connect(tmp_db)
         try:
             _insert_game(conn, 'g1')
-            _insert_decision(conn, game_id='g1', hand_number=1, phase='FLOP',
+            _insert_decision(
+                conn,
+                game_id='g1',
+                hand_number=1,
+                phase='FLOP',
                 action_taken='call',
-                trace_entries=[{
-                    'layer': 'personality', 'rule_id': 'default',
-                    'fired': True, 'operation': 'adjust',
-                    'effect_size': 0.2, 'reason_code': 'deviation_profile_tag',
-                }])
+                trace_entries=[
+                    {
+                        'layer': 'personality',
+                        'rule_id': 'default',
+                        'fired': True,
+                        'operation': 'adjust',
+                        'effect_size': 0.2,
+                        'reason_code': 'deviation_profile_tag',
+                    }
+                ],
+            )
             conn.commit()
         finally:
             conn.close()
 
-        exit_code = main([
-            '--mode', 'aggregate', '--db', tmp_db,
-            '--game-id', 'g1', '--output', 'json',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'aggregate',
+                '--db',
+                tmp_db,
+                '--game-id',
+                'g1',
+                '--output',
+                'json',
+            ]
+        )
         assert exit_code == 0
         captured = capsys.readouterr()
         decoded = json.loads(captured.out)
@@ -535,10 +790,16 @@ class TestCliSmoke:
         assert decoded['decisions_total'] == 1
 
     def test_first_divergence_requires_both_games(self, tmp_db, capsys):
-        exit_code = main([
-            '--mode', 'first-divergence', '--db', tmp_db,
-            '--candidate-game', 'a',
-        ])
+        exit_code = main(
+            [
+                '--mode',
+                'first-divergence',
+                '--db',
+                tmp_db,
+                '--candidate-game',
+                'a',
+            ]
+        )
         assert exit_code == 2
         captured = capsys.readouterr()
         assert '--candidate-game' in captured.err

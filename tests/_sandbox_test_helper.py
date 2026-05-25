@@ -24,7 +24,6 @@ from typing import Any
 from flask_app.services import sandbox_resolver
 from poker.repositories.sandbox_repository import SandboxState
 
-
 TEST_SANDBOX_ID = "test-sandbox-1"
 
 

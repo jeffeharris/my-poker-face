@@ -50,15 +50,22 @@ def _make_hand(
 
 def _player(name: str, stack: int = 1000, position: str = "BTN") -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position=position, is_human=False,
+        name=name,
+        starting_stack=stack,
+        position=position,
+        is_human=False,
     )
 
 
-def _action(name: str, action: str, amount: int, phase: str = "PRE_FLOP",
-            pot_after: int = 0) -> RecordedAction:
+def _action(
+    name: str, action: str, amount: int, phase: str = "PRE_FLOP", pot_after: int = 0
+) -> RecordedAction:
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -77,9 +84,14 @@ class TestHeadsUpBigPotEmission:
         # MomentAnalyzer.is_big_pot is pot > 0.75 * avg_stack when
         # no per-player stack is supplied. 800 chips > 750 → big.
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 100, pot_after=100),
             _action("bob", "call", 100, pot_after=200),
@@ -87,7 +99,10 @@ class TestHeadsUpBigPotEmission:
             _action("bob", "call", 300, phase="FLOP", pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         detector = HandOutcomeDetector()
@@ -128,11 +143,19 @@ class TestHeadsUpBigPotEmission:
             _action("alice", "bet", 200, phase="TURN", pot_after=1000),
             _action("bob", "fold", 0, phase="TURN", pot_after=1000),
         ]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name=None, hand_rank=None,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name=None,
+                hand_rank=None,
+            )
+        ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
             was_showdown=False,
         )
 
@@ -156,9 +179,14 @@ class TestNoEmission:
     def test_small_pot_emits_nothing(self):
         # 50-chip pot with 1000-chip avg stack: 50 < 750 (0.75 * avg).
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=50, hand_name="High Card", hand_rank=10,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=50,
+                hand_name="High Card",
+                hand_rank=10,
+            )
+        ]
         actions = [
             _action("alice", "raise", 25, pot_after=25),
             _action("bob", "call", 25, pot_after=50),
@@ -166,14 +194,20 @@ class TestNoEmission:
             _action("bob", "check", 0, phase="FLOP", pot_after=50),
         ]
         hand = _make_hand(
-            pot_size=50, winners=winners, players=players, actions=actions,
+            pot_size=50,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
         assert HandOutcomeDetector().detect_events(hand) == []
 
     def test_zero_pot_emits_nothing(self):
         players = [_player("alice"), _player("bob")]
         hand = _make_hand(
-            pot_size=0, winners=[], players=players, actions=[],
+            pot_size=0,
+            winners=[],
+            players=players,
+            actions=[],
             was_showdown=False,
         )
         assert HandOutcomeDetector().detect_events(hand) == []
@@ -181,7 +215,10 @@ class TestNoEmission:
     def test_no_winners_emits_nothing(self):
         players = [_player("alice"), _player("bob")]
         hand = _make_hand(
-            pot_size=1000, winners=[], players=players, actions=[
+            pot_size=1000,
+            winners=[],
+            players=players,
+            actions=[
                 _action("alice", "raise", 500, pot_after=500),
                 _action("bob", "raise", 1000, pot_after=1500),
             ],
@@ -206,16 +243,24 @@ class TestMultiwayAllocation:
         # 3-way pot, alice wins. Both losers contribute equally → each
         # is allocated half of alice's net gain.
         players = [_player("alice"), _player("bob"), _player("carol")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=900, hand_name="Flush", hand_rank=4,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=900,
+                hand_name="Flush",
+                hand_rank=4,
+            )
+        ]
         actions = [
             _action("alice", "raise", 300, pot_after=300),
             _action("bob", "call", 300, pot_after=600),
             _action("carol", "call", 300, pot_after=900),
         ]
         hand = _make_hand(
-            pot_size=900, winners=winners, players=players, actions=actions,
+            pot_size=900,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -239,9 +284,14 @@ class TestMultiwayAllocation:
         # than carol. Allocation should split alice's net gain
         # proportionally to bob/carol's contribution.
         players = [_player("alice"), _player("bob"), _player("carol")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=900, hand_name="Flush", hand_rank=4,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=900,
+                hand_name="Flush",
+                hand_rank=4,
+            )
+        ]
         actions = [
             _action("alice", "raise", 100, pot_after=100),
             _action("bob", "raise", 500, pot_after=600),
@@ -259,7 +309,10 @@ class TestMultiwayAllocation:
             _action("bob", "fold", 0, pot_after=900),
         ]
         hand = _make_hand(
-            pot_size=900, winners=winners, players=players, actions=actions,
+            pot_size=900,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
         # Contributions: alice 400, bob 100, carol 400.
         # Losers: bob (100), carol (400). Total loser contrib = 500.
@@ -269,8 +322,7 @@ class TestMultiwayAllocation:
 
         events = HandOutcomeDetector().detect_events(hand)
         win_chips = {
-            e.target_id: e.chips_won
-            for e in events if e.event is RelationshipEvent.BIG_WIN
+            e.target_id: e.chips_won for e in events if e.event is RelationshipEvent.BIG_WIN
         }
         assert win_chips == {"bob": 100, "carol": 400}
 
@@ -290,7 +342,10 @@ class TestMultiwayAllocation:
             _action("carol", "call", 300, pot_after=900),
         ]
         hand = _make_hand(
-            pot_size=900, winners=winners, players=players, actions=actions,
+            pot_size=900,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -299,13 +354,15 @@ class TestMultiwayAllocation:
         # carol total loss: 300 (her full contribution).
         win_pairs = {
             (e.actor_id, e.target_id): e.chips_won
-            for e in events if e.event is RelationshipEvent.BIG_WIN
+            for e in events
+            if e.event is RelationshipEvent.BIG_WIN
         }
         assert win_pairs == {("alice", "carol"): 150, ("bob", "carol"): 150}
 
         loss_pairs = {
             (e.actor_id, e.target_id): e.chips_won
-            for e in events if e.event is RelationshipEvent.BIG_LOSS
+            for e in events
+            if e.event is RelationshipEvent.BIG_LOSS
         }
         assert loss_pairs == {("carol", "alice"): -150, ("carol", "bob"): -150}
 
@@ -320,15 +377,23 @@ class TestIdResolution:
 
     def test_registered_ids_used_when_present(self):
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 400, pot_after=400),
             _action("bob", "call", 400, pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         registry = {"alice": "alice_v1", "bob": "bob_v1"}
@@ -344,15 +409,23 @@ class TestIdResolution:
     def test_unregistered_name_falls_back_to_display_name(self):
         # Only alice has an id; bob falls through to display name.
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 400, pot_after=400),
             _action("bob", "call", 400, pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         events = HandOutcomeDetector({"alice": "alice_v1"}).detect_events(hand)
@@ -366,15 +439,23 @@ class TestIdResolution:
         # Human players are explicitly registered with id=None — the
         # detector falls back to their display name as the key.
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 400, pot_after=400),
             _action("bob", "call", 400, pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
 
         registry = {"alice": None, "bob": None}
@@ -393,30 +474,46 @@ class TestIdResolution:
 class TestDetectedEventShape:
     def test_default_impact_score_is_one(self):
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 400, pot_after=400),
             _action("bob", "call", 400, pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
         events = HandOutcomeDetector().detect_events(hand)
         assert all(e.impact_score == 1.0 for e in events)
 
     def test_narrative_includes_both_names(self):
         players = [_player("alice"), _player("bob")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            )
+        ]
         actions = [
             _action("alice", "raise", 400, pot_after=400),
             _action("bob", "call", 400, pot_after=800),
         ]
         hand = _make_hand(
-            pot_size=800, winners=winners, players=players, actions=actions,
+            pot_size=800,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
         events = HandOutcomeDetector().detect_events(hand)
         for e in events:

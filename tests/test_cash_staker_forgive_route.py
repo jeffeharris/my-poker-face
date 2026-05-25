@@ -42,7 +42,6 @@ from flask_app import create_app
 from poker.repositories import create_repos
 from tests._sandbox_test_helper import pin_sandbox_for
 
-
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
@@ -80,6 +79,7 @@ class _StakerForgiveRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -113,11 +113,13 @@ class _StakerForgiveRouteBase(unittest.TestCase):
         )
         self._auth_patcher.start()
 
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=5_000,
-            starting_bankroll=5_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=5_000,
+                starting_bankroll=5_000,
+            )
+        )
 
     def tearDown(self):
         self._authz_patcher.stop()
@@ -230,7 +232,8 @@ class TestStakerForgiveGrant(_StakerForgiveRouteBase):
             json={'grant': True},
         )
         state = self.relationship_repo.load_relationship_state(
-            observer_id=PLAYER_OWNER_ID, opponent_id=self.napoleon_id,
+            observer_id=PLAYER_OWNER_ID,
+            opponent_id=self.napoleon_id,
         )
         self.assertIsNotNone(state)
         self.assertGreater(state.likability, 0.5)
@@ -262,7 +265,8 @@ class TestStakerForgiveRefuse(_StakerForgiveRouteBase):
             json={'grant': False},
         )
         state = self.relationship_repo.load_relationship_state(
-            observer_id=PLAYER_OWNER_ID, opponent_id=self.napoleon_id,
+            observer_id=PLAYER_OWNER_ID,
+            opponent_id=self.napoleon_id,
         )
         self.assertIsNotNone(state)
         # STAKE_FORGIVENESS_REFUSED actor-side: likability=-0.15.
@@ -309,8 +313,8 @@ class TestStakerForgiveRejections(_StakerForgiveRouteBase):
         self._seed_carry(
             staker_kind=STAKER_KIND_PERSONALITY,
             staker_id=self.napoleon_id,  # treat napoleon as the staker for
-                                         # this fixture path; route check
-                                         # uses staker_kind, not identity.
+            # this fixture path; route check
+            # uses staker_kind, not identity.
         )
         # Caller is PLAYER_OWNER_ID; the staker is napoleon_id; the
         # ownership check itself will short-circuit with 404 here,

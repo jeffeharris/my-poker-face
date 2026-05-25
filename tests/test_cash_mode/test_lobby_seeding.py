@@ -123,7 +123,11 @@ def _seed_personalities(db_path: str, count: int = 30) -> None:
 
 class TestEnsureLobbySeeded:
     def test_creates_one_table_per_stake(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         _seed_personalities(db_path, count=60)
         ensure_lobby_seeded(
@@ -140,7 +144,11 @@ class TestEnsureLobbySeeded:
         assert stake_labels == set(STAKES_ORDER)
 
     def test_each_table_has_4_ai_2_open(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         _seed_personalities(db_path, count=60)
         ensure_lobby_seeded(
@@ -156,7 +164,11 @@ class TestEnsureLobbySeeded:
             assert open_count == 2
 
     def test_idempotent(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         _seed_personalities(db_path, count=60)
         first = ensure_lobby_seeded(
@@ -181,7 +193,11 @@ class TestEnsureLobbySeeded:
             assert list(t.seats) == original_seats[t.table_id]
 
     def test_one_personality_per_active_seat(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         """Hard invariant: a personality must appear at most one table."""
         _seed_personalities(db_path, count=30)
@@ -197,13 +213,15 @@ class TestEnsureLobbySeeded:
                 if slot["kind"] != "ai":
                     continue
                 pid = slot["personality_id"]
-                assert pid not in seen_pids, (
-                    f"Personality {pid!r} appears at multiple tables"
-                )
+                assert pid not in seen_pids, f"Personality {pid!r} appears at multiple tables"
                 seen_pids.add(pid)
 
     def test_chips_match_buy_in(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         _seed_personalities(db_path, count=30)
         tables = ensure_lobby_seeded(
@@ -219,7 +237,11 @@ class TestEnsureLobbySeeded:
         assert all(s["chips"] == 80 for s in ai_seats)
 
     def test_partial_lobby_extended(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         """If the canonical $2 table already exists, seeding leaves it
         untouched and adds the rest of the lobby."""
@@ -245,25 +267,44 @@ class TestEnsureLobbySeeded:
         assert all(s["kind"] == "open" for s in two_a.seats)
 
     def test_personality_with_low_bankroll_skipped(
-        self, cash_table_repo, personality_repo, bankroll_repo, db_path,
+        self,
+        cash_table_repo,
+        personality_repo,
+        bankroll_repo,
+        db_path,
     ):
         # Two personalities. One has a huge bankroll, the other near-zero.
-        _insert_personality(db_path, "rich", name="Rich", bankroll_knobs={
-            "starting_bankroll": 100_000,
-            "bankroll_rate": 0,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
-        _insert_personality(db_path, "broke", name="Broke", bankroll_knobs={
-            "starting_bankroll": 100_000,
-            "bankroll_rate": 0,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "rich",
+            name="Rich",
+            bankroll_knobs={
+                "starting_bankroll": 100_000,
+                "bankroll_rate": 0,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
+        _insert_personality(
+            db_path,
+            "broke",
+            name="Broke",
+            bankroll_knobs={
+                "starting_bankroll": 100_000,
+                "bankroll_rate": 0,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         # Force "broke" to have ai_bankroll_state row of 1 chip.
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="broke", chips=1, last_regen_tick=datetime(2026, 5, 18),
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="broke",
+                chips=1,
+                last_regen_tick=datetime(2026, 5, 18),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         # "rich" has no row — defaults to starting_bankroll (rich enough).
         ensure_lobby_seeded(
             cash_table_repo=cash_table_repo,
@@ -317,11 +358,13 @@ def _row(game_id, owner_id="u1"):
 
 class TestKillAllCashSessions:
     def test_drops_in_memory_cash_games(self):
-        service = _FakeGameStateService(initial={
-            "cash-abc": {"cash_mode": True, "owner_id": "u1"},
-            "cash-def": {"cash_mode": True, "owner_id": "u2"},
-            "tournament-1": {"cash_mode": False, "owner_id": "u1"},
-        })
+        service = _FakeGameStateService(
+            initial={
+                "cash-abc": {"cash_mode": True, "owner_id": "u1"},
+                "cash-def": {"cash_mode": True, "owner_id": "u2"},
+                "tournament-1": {"cash_mode": False, "owner_id": "u1"},
+            }
+        )
         repo = _FakeGameRepo([])
         dropped = kill_all_cash_sessions(
             game_state_service=service,
@@ -336,11 +379,13 @@ class TestKillAllCashSessions:
     def test_preserves_persisted_cash_rows(self):
         """Persisted cash rows survive boot — they're the resume target."""
         service = _FakeGameStateService()
-        repo = _FakeGameRepo([
-            _row("cash-old-1"),
-            _row("cash-old-2"),
-            _row("tournament-3"),
-        ])
+        repo = _FakeGameRepo(
+            [
+                _row("cash-old-1"),
+                _row("cash-old-2"),
+                _row("tournament-3"),
+            ]
+        )
         dropped = kill_all_cash_sessions(
             game_state_service=service,
             game_repo=repo,
@@ -353,13 +398,17 @@ class TestKillAllCashSessions:
         """In-memory cash games are still cleared (no-op in production
         boot since memory starts empty, but useful for callers that
         want a hard reset). Persisted rows untouched."""
-        service = _FakeGameStateService(initial={
-            "cash-abc": {"cash_mode": True, "owner_id": "u1"},
-        })
-        repo = _FakeGameRepo([
-            _row("cash-old-1"),
-            _row("tournament-1"),
-        ])
+        service = _FakeGameStateService(
+            initial={
+                "cash-abc": {"cash_mode": True, "owner_id": "u1"},
+            }
+        )
+        repo = _FakeGameRepo(
+            [
+                _row("cash-old-1"),
+                _row("tournament-1"),
+            ]
+        )
         dropped = kill_all_cash_sessions(
             game_state_service=service,
             game_repo=repo,
@@ -371,9 +420,13 @@ class TestKillAllCashSessions:
     def test_empty_state_returns_zero(self):
         service = _FakeGameStateService()
         repo = _FakeGameRepo([])
-        assert kill_all_cash_sessions(
-            game_state_service=service, game_repo=repo,
-        ) == 0
+        assert (
+            kill_all_cash_sessions(
+                game_state_service=service,
+                game_repo=repo,
+            )
+            == 0
+        )
 
 
 class TestKillAllCashSessionsHumanSeatReset:
@@ -384,24 +437,27 @@ class TestKillAllCashSessionsHumanSeatReset:
     intact so the player can resume on reconnect.
     """
 
-    def test_resets_orphan_seat_and_refunds_chips(
-        self, cash_table_repo, bankroll_repo
-    ):
+    def test_resets_orphan_seat_and_refunds_chips(self, cash_table_repo, bankroll_repo):
         from cash_mode.bankroll import PlayerBankrollState
         from cash_mode.tables import CashTableState, human_slot, open_slot
 
         seats = [open_slot() for _ in range(6)]
         seats[4] = human_slot("guest_jeff", 150)
-        cash_table_repo.save_table(CashTableState(
-            table_id="cash-table-2-001",
-            stake_label="$2",
-            seats=seats,
-        ), sandbox_id="test-sandbox-1")
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id="guest_jeff",
-            chips=148,
-            starting_bankroll=200,
-        ))
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id="cash-table-2-001",
+                stake_label="$2",
+                seats=seats,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id="guest_jeff",
+                chips=148,
+                starting_bankroll=200,
+            )
+        )
 
         # No cash row for guest_jeff → seat is orphan.
         kill_all_cash_sessions(
@@ -417,25 +473,28 @@ class TestKillAllCashSessionsHumanSeatReset:
         br = bankroll_repo.load_player_bankroll("guest_jeff")
         assert br.chips == 298  # 148 + 150
 
-    def test_preserves_seat_when_cash_row_exists(
-        self, cash_table_repo, bankroll_repo
-    ):
+    def test_preserves_seat_when_cash_row_exists(self, cash_table_repo, bankroll_repo):
         """Backing row present → seat stays seated for resume."""
         from cash_mode.bankroll import PlayerBankrollState
         from cash_mode.tables import CashTableState, human_slot, open_slot
 
         seats = [open_slot() for _ in range(6)]
         seats[4] = human_slot("guest_jeff", 150)
-        cash_table_repo.save_table(CashTableState(
-            table_id="cash-table-2-001",
-            stake_label="$2",
-            seats=seats,
-        ), sandbox_id="test-sandbox-1")
-        bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id="guest_jeff",
-            chips=148,
-            starting_bankroll=200,
-        ))
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id="cash-table-2-001",
+                stake_label="$2",
+                seats=seats,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id="guest_jeff",
+                chips=148,
+                starting_bankroll=200,
+            )
+        )
 
         kill_all_cash_sessions(
             game_state_service=_FakeGameStateService(),
@@ -457,11 +516,14 @@ class TestKillAllCashSessionsHumanSeatReset:
 
         seats = [open_slot() for _ in range(6)]
         seats[0] = human_slot("guest_jeff", 100)
-        cash_table_repo.save_table(CashTableState(
-            table_id="cash-table-2-001",
-            stake_label="$2",
-            seats=seats,
-        ), sandbox_id="test-sandbox-1")
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id="cash-table-2-001",
+                stake_label="$2",
+                seats=seats,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         kill_all_cash_sessions(
             game_state_service=_FakeGameStateService(),

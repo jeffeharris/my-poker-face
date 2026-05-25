@@ -4,19 +4,20 @@ Pollinations.ai is an image-only provider with extremely low pricing.
 It returns binary image data which we convert to data URLs for compatibility
 with the existing image handling infrastructure (urllib.request.urlopen).
 """
-import os
+
 import base64
 import logging
+import os
 import random
 import time
 import uuid
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import requests
 
-from .base import LLMProvider
 from ..config import DEFAULT_MAX_TOKENS, POLLINATIONS_DEFAULT_MODEL
+from .base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class PollinationsImageResponse:
 
     Mimics the structure expected by extract_* methods.
     """
+
     url: str  # data URL
     id: str  # generated request ID
     model: str
@@ -155,8 +157,9 @@ class PollinationsProvider(LLMProvider):
         if self._api_key and "Authorization" not in self._session.headers:
             params["key"] = self._api_key
 
-        logger.debug("Generating image with Pollinations: model=%s, size=%dx%d",
-                     self._model, width, height)
+        logger.debug(
+            "Generating image with Pollinations: model=%s, size=%dx%d", self._model, width, height
+        )
 
         last_exception = None
         for attempt in range(MAX_RETRIES + 1):
@@ -193,16 +196,13 @@ class PollinationsProvider(LLMProvider):
             except requests.exceptions.Timeout as e:
                 last_exception = e
                 if attempt < MAX_RETRIES:
-                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    delay = min(INITIAL_RETRY_DELAY * (2**attempt), MAX_RETRY_DELAY)
                     logger.warning(
-                        "Pollinations timeout, retry %d/%d in %ds",
-                        attempt + 1, MAX_RETRIES, delay
+                        "Pollinations timeout, retry %d/%d in %ds", attempt + 1, MAX_RETRIES, delay
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(
-                        f"Pollinations API timeout after {MAX_RETRIES + 1} attempts"
-                    )
+                    raise Exception(f"Pollinations API timeout after {MAX_RETRIES + 1} attempts")
             except requests.exceptions.HTTPError as e:
                 # Don't retry client errors (4xx)
                 status_code = e.response.status_code if e.response else 0
@@ -212,10 +212,13 @@ class PollinationsProvider(LLMProvider):
                 # Retry server errors (5xx)
                 last_exception = e
                 if attempt < MAX_RETRIES:
-                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    delay = min(INITIAL_RETRY_DELAY * (2**attempt), MAX_RETRY_DELAY)
                     logger.warning(
                         "Pollinations server error (%s), retry %d/%d in %ds",
-                        status_code, attempt + 1, MAX_RETRIES, delay
+                        status_code,
+                        attempt + 1,
+                        MAX_RETRIES,
+                        delay,
                     )
                     time.sleep(delay)
                 else:

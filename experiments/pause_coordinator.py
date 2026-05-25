@@ -31,6 +31,7 @@ class PauseCoordinator:
         # When resuming:
         coordinator.clear_pause(experiment_id)
     """
+
     _pause_flags: Dict[int, bool] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 

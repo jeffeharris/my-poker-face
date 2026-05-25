@@ -24,26 +24,28 @@ from unittest.mock import MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from cash_mode.staker_profile import (
-    BORROWER_PROFILE_DEFAULTS,
-    BorrowerProfile,
-    STAKER_PROFILE_DEFAULTS,
-    StakerProfile,
-)
 from cash_mode.movement import (
     StakeCreationChange,
     find_ai_staker_for,
     refresh_table_roster,
 )
 from cash_mode.staker_history import StakerHistoryStats
+from cash_mode.staker_profile import (
+    BORROWER_PROFILE_DEFAULTS,
+    STAKER_PROFILE_DEFAULTS,
+    BorrowerProfile,
+    StakerProfile,
+)
 from cash_mode.tables import CashTableState, ai_slot, open_slot
-
 
 ANCHOR = datetime(2026, 5, 20, 12, 0, 0)
 
 
 def _willing_staker(
-    *, max_pct=0.5, respect_floor=-0.5, heat_ceiling=0.7,
+    *,
+    max_pct=0.5,
+    respect_floor=-0.5,
+    heat_ceiling=0.7,
 ) -> StakerProfile:
     return StakerProfile(
         willing=True,
@@ -61,16 +63,19 @@ class TestFindAIStakerFor(unittest.TestCase):
     def _profile_lookup(self, profiles):
         def _lookup(pid):
             return profiles.get(pid, STAKER_PROFILE_DEFAULTS)
+
         return _lookup
 
     def _bankroll_lookup(self, bankrolls):
         def _lookup(pid):
             return bankrolls.get(pid)
+
         return _lookup
 
     def _rel_lookup(self, rels):
         def _lookup(observer, opponent):
             return rels.get((observer, opponent))
+
         return _lookup
 
     def test_returns_none_when_no_candidates(self):
@@ -87,9 +92,12 @@ class TestFindAIStakerFor(unittest.TestCase):
 
     def test_returns_none_when_all_unwilling(self):
         unwilling = StakerProfile(
-            willing=False, max_loan_pct_of_bankroll=0.5,
-            floor_anchor=1.0, rate_anchor=0.3,
-            respect_floor=-1.0, heat_ceiling=1.0,
+            willing=False,
+            max_loan_pct_of_bankroll=0.5,
+            floor_anchor=1.0,
+            rate_anchor=0.3,
+            respect_floor=-1.0,
+            heat_ceiling=1.0,
         )
         match = find_ai_staker_for(
             borrower_id="bust_ai",
@@ -109,9 +117,11 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            staker_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_staker(),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "napoleon": _willing_staker(),
+                }
+            ),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
@@ -127,9 +137,11 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=2_000,
             candidate_pids=["broke_ai"],
-            staker_profile_lookup=self._profile_lookup({
-                "broke_ai": _willing_staker(max_pct=0.05),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "broke_ai": _willing_staker(max_pct=0.05),
+                }
+            ),
             # 1,000 × 0.05 = 50 < 2,000.
             bankroll_lookup=self._bankroll_lookup({"broke_ai": 1_000}),
             relationship_lookup=self._rel_lookup({}),
@@ -143,13 +155,17 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            staker_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_staker(respect_floor=-0.5),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "napoleon": _willing_staker(respect_floor=-0.5),
+                }
+            ),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
-            relationship_lookup=self._rel_lookup({
-                ("napoleon", "bust_ai"): (0.5, -0.8, 0.0),
-            }),
+            relationship_lookup=self._rel_lookup(
+                {
+                    ("napoleon", "bust_ai"): (0.5, -0.8, 0.0),
+                }
+            ),
             rng=random.Random(1),
         )
         self.assertIsNone(match)
@@ -159,13 +175,17 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            staker_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_staker(heat_ceiling=0.6),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "napoleon": _willing_staker(heat_ceiling=0.6),
+                }
+            ),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
-            relationship_lookup=self._rel_lookup({
-                ("napoleon", "bust_ai"): (0.5, 0.5, 0.9),
-            }),
+            relationship_lookup=self._rel_lookup(
+                {
+                    ("napoleon", "bust_ai"): (0.5, 0.5, 0.9),
+                }
+            ),
             rng=random.Random(1),
         )
         self.assertIsNone(match)
@@ -176,9 +196,11 @@ class TestFindAIStakerFor(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["bust_ai"],
-            staker_profile_lookup=self._profile_lookup({
-                "bust_ai": _willing_staker(),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "bust_ai": _willing_staker(),
+                }
+            ),
             bankroll_lookup=self._bankroll_lookup({"bust_ai": 5_000}),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
@@ -200,26 +222,31 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
     def _profile_lookup(self, profiles):
         def _lookup(pid):
             return profiles.get(pid, STAKER_PROFILE_DEFAULTS)
+
         return _lookup
 
     def _bankroll_lookup(self, bankrolls):
         def _lookup(pid):
             return bankrolls.get(pid)
+
         return _lookup
 
     def _rel_lookup(self, rels):
         def _lookup(observer, opponent):
             return rels.get((observer, opponent))
+
         return _lookup
 
     def _history_lookup(self, histories):
         def _lookup(staker_id):
             return histories.get(staker_id, {})
+
         return _lookup
 
     def _starting_lookup(self, startings):
         def _lookup(pid):
             return startings.get(pid)
+
         return _lookup
 
     def test_history_lookup_none_uses_legacy_random(self):
@@ -229,13 +256,18 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["bezos", "napoleon"],
-            staker_profile_lookup=self._profile_lookup({
-                "bezos": _willing_staker(),
-                "napoleon": _willing_staker(),
-            }),
-            bankroll_lookup=self._bankroll_lookup({
-                "bezos": 5_000, "napoleon": 5_000,
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "bezos": _willing_staker(),
+                    "napoleon": _willing_staker(),
+                }
+            ),
+            bankroll_lookup=self._bankroll_lookup(
+                {
+                    "bezos": 5_000,
+                    "napoleon": 5_000,
+                }
+            ),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
         )
@@ -252,19 +284,27 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                staker_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_staker(),
-                    "napoleon": _willing_staker(),
-                }),
-                bankroll_lookup=self._bankroll_lookup({
-                    "bezos": 100_000, "napoleon": 10_000,
-                }),
+                staker_profile_lookup=self._profile_lookup(
+                    {
+                        "bezos": _willing_staker(),
+                        "napoleon": _willing_staker(),
+                    }
+                ),
+                bankroll_lookup=self._bankroll_lookup(
+                    {
+                        "bezos": 100_000,
+                        "napoleon": 10_000,
+                    }
+                ),
                 relationship_lookup=self._rel_lookup({}),
                 rng=random.Random(trial),
                 history_lookup=self._history_lookup({}),
-                starting_bankroll_lookup=self._starting_lookup({
-                    "bezos": 10_000, "napoleon": 10_000,
-                }),
+                starting_bankroll_lookup=self._starting_lookup(
+                    {
+                        "bezos": 10_000,
+                        "napoleon": 10_000,
+                    }
+                ),
             )
             wins[match[0]] += 1
         # Heavier weight should win the majority — not deterministic,
@@ -280,23 +320,37 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                staker_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_staker(),
-                    "napoleon": _willing_staker(),
-                }),
-                bankroll_lookup=self._bankroll_lookup({
-                    "bezos": 10_000, "napoleon": 10_000,
-                }),
+                staker_profile_lookup=self._profile_lookup(
+                    {
+                        "bezos": _willing_staker(),
+                        "napoleon": _willing_staker(),
+                    }
+                ),
+                bankroll_lookup=self._bankroll_lookup(
+                    {
+                        "bezos": 10_000,
+                        "napoleon": 10_000,
+                    }
+                ),
                 relationship_lookup=self._rel_lookup({}),
                 rng=random.Random(trial),
-                history_lookup=self._history_lookup({
-                    "bezos": {"bust_ai": StakerHistoryStats(
-                        settled_count=5, carry_count=0, defaulted_count=0,
-                    )},
-                }),
-                starting_bankroll_lookup=self._starting_lookup({
-                    "bezos": 10_000, "napoleon": 10_000,
-                }),
+                history_lookup=self._history_lookup(
+                    {
+                        "bezos": {
+                            "bust_ai": StakerHistoryStats(
+                                settled_count=5,
+                                carry_count=0,
+                                defaulted_count=0,
+                            )
+                        },
+                    }
+                ),
+                starting_bankroll_lookup=self._starting_lookup(
+                    {
+                        "bezos": 10_000,
+                        "napoleon": 10_000,
+                    }
+                ),
             )
             wins[match[0]] += 1
         self.assertGreater(wins["bezos"], wins["napoleon"])
@@ -310,23 +364,37 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                staker_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_staker(),
-                    "napoleon": _willing_staker(),
-                }),
-                bankroll_lookup=self._bankroll_lookup({
-                    "bezos": 10_000, "napoleon": 10_000,
-                }),
+                staker_profile_lookup=self._profile_lookup(
+                    {
+                        "bezos": _willing_staker(),
+                        "napoleon": _willing_staker(),
+                    }
+                ),
+                bankroll_lookup=self._bankroll_lookup(
+                    {
+                        "bezos": 10_000,
+                        "napoleon": 10_000,
+                    }
+                ),
                 relationship_lookup=self._rel_lookup({}),
                 rng=random.Random(trial),
-                history_lookup=self._history_lookup({
-                    "bezos": {"bust_ai": StakerHistoryStats(
-                        settled_count=0, carry_count=0, defaulted_count=3,
-                    )},
-                }),
-                starting_bankroll_lookup=self._starting_lookup({
-                    "bezos": 10_000, "napoleon": 10_000,
-                }),
+                history_lookup=self._history_lookup(
+                    {
+                        "bezos": {
+                            "bust_ai": StakerHistoryStats(
+                                settled_count=0,
+                                carry_count=0,
+                                defaulted_count=3,
+                            )
+                        },
+                    }
+                ),
+                starting_bankroll_lookup=self._starting_lookup(
+                    {
+                        "bezos": 10_000,
+                        "napoleon": 10_000,
+                    }
+                ),
             )
             wins[match[0]] += 1
         self.assertGreater(wins["napoleon"], wins["bezos"])
@@ -341,20 +409,31 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
                 borrower_id="bust_ai",
                 principal=80,
                 candidate_pids=["bezos", "napoleon"],
-                staker_profile_lookup=self._profile_lookup({
-                    "bezos": _willing_staker(),
-                    "napoleon": _willing_staker(),
-                }),
-                bankroll_lookup=self._bankroll_lookup({
-                    "bezos": 100_000, "napoleon": 5_000,
-                }),
+                staker_profile_lookup=self._profile_lookup(
+                    {
+                        "bezos": _willing_staker(),
+                        "napoleon": _willing_staker(),
+                    }
+                ),
+                bankroll_lookup=self._bankroll_lookup(
+                    {
+                        "bezos": 100_000,
+                        "napoleon": 5_000,
+                    }
+                ),
                 relationship_lookup=self._rel_lookup({}),
                 rng=random.Random(trial),
-                history_lookup=self._history_lookup({
-                    "bezos": {"bust_ai": StakerHistoryStats(
-                        settled_count=5, carry_count=0, defaulted_count=0,
-                    )},
-                }),
+                history_lookup=self._history_lookup(
+                    {
+                        "bezos": {
+                            "bust_ai": StakerHistoryStats(
+                                settled_count=5,
+                                carry_count=0,
+                                defaulted_count=0,
+                            )
+                        },
+                    }
+                ),
                 # No starting_bankroll_lookup — excess part = 0 for both.
             )
             wins[match[0]] += 1
@@ -369,9 +448,11 @@ class TestFindAIStakerForWeightedSelection(unittest.TestCase):
             borrower_id="bust_ai",
             principal=80,
             candidate_pids=["napoleon"],
-            staker_profile_lookup=self._profile_lookup({
-                "napoleon": _willing_staker(),
-            }),
+            staker_profile_lookup=self._profile_lookup(
+                {
+                    "napoleon": _willing_staker(),
+                }
+            ),
             bankroll_lookup=self._bankroll_lookup({"napoleon": 5_000}),
             relationship_lookup=self._rel_lookup({}),
             rng=random.Random(1),
@@ -444,9 +525,12 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         # Borrower willing; peer (napoleon) is unwilling.
         table = self._make_table()
         unwilling_staker = StakerProfile(
-            willing=False, max_loan_pct_of_bankroll=0.5,
-            floor_anchor=1.0, rate_anchor=0.3,
-            respect_floor=-1.0, heat_ceiling=1.0,
+            willing=False,
+            max_loan_pct_of_bankroll=0.5,
+            floor_anchor=1.0,
+            rate_anchor=0.3,
+            respect_floor=-1.0,
+            heat_ceiling=1.0,
         )
         result = refresh_table_roster(
             table,
@@ -513,7 +597,8 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
             ),
         )
         from_seat = [
-            bc for bc in result.bankroll_changes
+            bc
+            for bc in result.bankroll_changes
             if bc.direction == "from_seat" and bc.personality_id == "bust_ai"
         ]
         self.assertEqual(len(from_seat), 1)
@@ -549,7 +634,8 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         self.assertEqual(result.decisions.get("bust_ai"), "take_stake")
         self.assertEqual(len(result.stake_creations), 1)
         self.assertEqual(
-            result.stake_creations[0].staker_id, "off_table_napoleon",
+            result.stake_creations[0].staker_id,
+            "off_table_napoleon",
         )
 
     def test_cross_table_pool_dedups_with_table_local(self):
@@ -569,7 +655,8 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         self.assertEqual(result.decisions.get("bust_ai"), "take_stake")
         # Still picks napoleon (only qualified candidate).
         self.assertEqual(
-            result.stake_creations[0].staker_id, "napoleon",
+            result.stake_creations[0].staker_id,
+            "napoleon",
         )
 
     def test_take_stake_with_zero_chips_emits_no_from_seat(self):
@@ -587,7 +674,8 @@ class TestTakeStakeInRefreshRoster(unittest.TestCase):
         )
         self.assertEqual(result.decisions.get("bust_ai"), "take_stake")
         from_seat = [
-            bc for bc in result.bankroll_changes
+            bc
+            for bc in result.bankroll_changes
             if bc.direction == "from_seat" and bc.personality_id == "bust_ai"
         ]
         self.assertEqual(len(from_seat), 0)
@@ -603,6 +691,7 @@ class TestBorrowerGuardClosure(unittest.TestCase):
 
     def test_burst_local_guard_blocks_second_stake(self):
         from cash_mode.staker_profile import BorrowerProfile
+
         burst_seen: set = set()
 
         def lookup(pid: str):

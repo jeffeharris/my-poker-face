@@ -75,7 +75,13 @@ def get_template_path(name: str) -> Optional[Path]:
 # Template schema definitions: required sections per template type
 TEMPLATE_SCHEMAS = {
     'poker_player': {
-        'required_sections': ['persona_details', 'strategy', 'direction', 'response_format', 'reminder'],
+        'required_sections': [
+            'persona_details',
+            'strategy',
+            'direction',
+            'response_format',
+            'reminder',
+        ],
         'description': 'Main AI player persona template',
     },
     'decision': {

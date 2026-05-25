@@ -18,8 +18,8 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from cash_mode.tables import (
-    CashTableState,
     IDLE_REASONS,
+    CashTableState,
     IdlePoolEntry,
     ai_slot,
     human_slot,
@@ -27,7 +27,6 @@ from cash_mode.tables import (
 )
 from poker.repositories.cash_table_repository import CashTableRepository
 from poker.repositories.schema_manager import SchemaManager
-
 
 SANDBOX_ID = "test-sandbox-1"
 
@@ -58,9 +57,7 @@ class TestSchemaMigrationV91:
 
     def test_schema_version_at_least_91(self, db_path):
         with sqlite3.connect(db_path) as conn:
-            version = conn.execute(
-                "SELECT MAX(version) FROM schema_version"
-            ).fetchone()[0]
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         assert version >= 91
 
     def test_table_id_is_primary_key(self, db_path):
@@ -93,7 +90,9 @@ class TestRoundtrip:
             open_slot(),
         ]
         state = CashTableState(
-            table_id="cash-table-50-001", stake_label="$50", seats=seats,
+            table_id="cash-table-50-001",
+            stake_label="$50",
+            seats=seats,
         )
         repo.save_table(state, sandbox_id=SANDBOX_ID)
         loaded = repo.load_table("cash-table-50-001", sandbox_id=SANDBOX_ID)
@@ -192,9 +191,7 @@ class TestSchemaMigrationV92:
 
     def test_schema_version_at_least_92(self, db_path):
         with sqlite3.connect(db_path) as conn:
-            version = conn.execute(
-                "SELECT MAX(version) FROM schema_version"
-            ).fetchone()[0]
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         assert version >= 92
 
     def test_personality_id_is_primary_key(self, db_path):
@@ -243,13 +240,17 @@ class TestIdlePoolRoundtrip:
         t2 = datetime(2026, 5, 18, 13, 0, 0)
         repo.save_idle(
             IdlePoolEntry(
-                personality_id="napoleon", left_at=t1, reason="bored_move",
+                personality_id="napoleon",
+                left_at=t1,
+                reason="bored_move",
             ),
             sandbox_id=SANDBOX_ID,
         )
         repo.save_idle(
             IdlePoolEntry(
-                personality_id="napoleon", left_at=t2, reason="forced_leave",
+                personality_id="napoleon",
+                left_at=t2,
+                reason="forced_leave",
             ),
             sandbox_id=SANDBOX_ID,
         )
@@ -267,21 +268,24 @@ class TestIdlePoolList:
         # Insert out of order; should come back oldest-first.
         repo.save_idle(
             IdlePoolEntry(
-                personality_id="newest", left_at=datetime(2026, 5, 18, 15, 0),
+                personality_id="newest",
+                left_at=datetime(2026, 5, 18, 15, 0),
                 reason="bored_move",
             ),
             sandbox_id=SANDBOX_ID,
         )
         repo.save_idle(
             IdlePoolEntry(
-                personality_id="oldest", left_at=datetime(2026, 5, 18, 9, 0),
+                personality_id="oldest",
+                left_at=datetime(2026, 5, 18, 9, 0),
                 reason="forced_leave",
             ),
             sandbox_id=SANDBOX_ID,
         )
         repo.save_idle(
             IdlePoolEntry(
-                personality_id="middle", left_at=datetime(2026, 5, 18, 12, 0),
+                personality_id="middle",
+                left_at=datetime(2026, 5, 18, 12, 0),
                 reason="take_break",
             ),
             sandbox_id=SANDBOX_ID,

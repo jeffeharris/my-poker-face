@@ -15,6 +15,7 @@ import pytest
 @pytest.fixture
 def mgr():
     from poker.memory.memory_manager import AIMemoryManager
+
     # No persistence — tests just exercise in-memory state.
     return AIMemoryManager(game_id="test_game", db_path=None)
 

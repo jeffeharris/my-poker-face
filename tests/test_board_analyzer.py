@@ -1,12 +1,13 @@
 """Tests for board texture analysis."""
 
 import pytest
+
 from poker.board_analyzer import (
+    _is_connected,
     analyze_board_texture,
     build_board_read,
     classify_texture_bucket,
     get_texture_description,
-    _is_connected,
 )
 
 

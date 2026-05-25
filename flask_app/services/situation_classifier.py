@@ -8,8 +8,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from poker.coach_models import PlayerSkillState, SkillState
-from poker.coach_models import SKILL_STATE_ORDER
+from poker.coach_models import SKILL_STATE_ORDER, PlayerSkillState
+
 from .context_builder import build_poker_context
 from .skill_definitions import get_skills_for_gate
 
@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class SituationClassification:
     """Result of classifying a game situation against the skill tree."""
-    relevant_skills: tuple          # Tuple of skill_id strings
-    primary_skill: Optional[str]    # The skill to focus coaching on (or None)
-    situation_tags: tuple           # Descriptive tags (e.g. 'trash_hand', 'early_position')
-    confidence: float = 1.0         # How confident the classification is
+
+    relevant_skills: tuple  # Tuple of skill_id strings
+    primary_skill: Optional[str]  # The skill to focus coaching on (or None)
+    situation_tags: tuple  # Descriptive tags (e.g. 'trash_hand', 'early_position')
+    confidence: float = 1.0  # How confident the classification is
 
 
 class SituationClassifier:
@@ -128,22 +129,25 @@ class SituationClassifier:
 
     def _check_bet_when_strong_trigger(self, ctx: Dict) -> bool:
         """Trigger on any post-flop street when player has a strong hand."""
-        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
-                and ctx.get('is_strong_hand', False))
+        return ctx['phase'] in ('FLOP', 'TURN', 'RIVER') and ctx.get('is_strong_hand', False)
 
     def _check_checking_is_allowed_trigger(self, ctx: Dict) -> bool:
         """Trigger when player has a weak hand and can check."""
-        return (ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
-                and not ctx.get('has_pair', False)
-                and ctx.get('can_check', False))
+        return (
+            ctx['phase'] in ('FLOP', 'TURN', 'RIVER')
+            and not ctx.get('has_pair', False)
+            and ctx.get('can_check', False)
+        )
 
     # ---- Gate 3 triggers (pressure recognition) ----
 
     def _check_draws_need_price_trigger(self, ctx: Dict) -> bool:
         """Trigger when facing a bet with a draw."""
-        return (ctx['phase'] in ('FLOP', 'TURN')
-                and ctx.get('has_draw', False)
-                and ctx['cost_to_call'] > 0)
+        return (
+            ctx['phase'] in ('FLOP', 'TURN')
+            and ctx.get('has_draw', False)
+            and ctx['cost_to_call'] > 0
+        )
 
     def _check_respect_big_bets_trigger(self, ctx: Dict) -> bool:
         """Trigger when facing a big bet (>=50% pot) on turn/river with medium hand."""
@@ -153,8 +157,7 @@ class SituationClassifier:
 
     def _check_have_a_plan_trigger(self, ctx: Dict) -> bool:
         """Trigger on turn when player bet the flop."""
-        return (ctx['phase'] == 'TURN'
-                and ctx.get('player_bet_flop', False))
+        return ctx['phase'] == 'TURN' and ctx.get('player_bet_flop', False)
 
     # ---- Gate 4 triggers (multi-street thinking) ----
 

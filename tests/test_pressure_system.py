@@ -4,14 +4,14 @@ Tests for the pressure detection and stats tracking system.
 
 import unittest
 from datetime import datetime
-from poker.pressure_detector import PressureEventDetector
-from poker.pressure_stats import PressureStatsTracker, PressureEvent
-from poker.poker_game import PokerGameState, Player, initialize_game_state
+
 from core.card import Card
+from poker.poker_game import Player, PokerGameState, initialize_game_state
+from poker.pressure_detector import PressureEventDetector
+from poker.pressure_stats import PressureEvent, PressureStatsTracker
 
 
 class TestPressureSystem(unittest.TestCase):
-
     def setUp(self):
         """Set up test components."""
         self.pressure_detector = PressureEventDetector()
@@ -19,10 +19,9 @@ class TestPressureSystem(unittest.TestCase):
 
         # Create a test game state with 3 players
         self.game_state = initialize_game_state(
-            player_names=["Gordon Ramsay", "Donald Trump", "Bob Ross"],
-            starting_stack=1000
+            player_names=["Gordon Ramsay", "Donald Trump", "Bob Ross"], starting_stack=1000
         )
-        
+
     def test_big_win_detection(self):
         """Test that big wins are properly detected and tracked."""
         # Set up a game state where pot is big (> 1.5x average stack)
@@ -34,12 +33,12 @@ class TestPressureSystem(unittest.TestCase):
             'pot_breakdown': [
                 {
                     'winners': [{'name': 'Gordon Ramsay', 'amount': 2000}],
-                    'hand_name': "Pair of Aces"
+                    'hand_name': "Pair of Aces",
                 }
             ],
             'winnings': {'Gordon Ramsay': 2000},
             'winning_hand': [14, 14, 13, 12, 11],  # Pair of aces
-            'hand_name': "Pair of Aces"
+            'hand_name': "Pair of Aces",
         }
 
         # Detect showdown events
@@ -55,11 +54,7 @@ class TestPressureSystem(unittest.TestCase):
         self.assertEqual(big_win_event[1], ["Gordon Ramsay"], "Winner should be Gordon Ramsay")
 
         # Track events in stats (only big_win, since win doesn't stack)
-        self.stats_tracker.record_event(
-            "big_win",
-            ["Gordon Ramsay"],
-            {'pot_size': 2000}
-        )
+        self.stats_tracker.record_event("big_win", ["Gordon Ramsay"], {'pot_size': 2000})
 
         # Verify stats were updated
         gordon_stats = self.stats_tracker.get_player_stats("Gordon Ramsay")
@@ -73,7 +68,7 @@ class TestPressureSystem(unittest.TestCase):
         self.assertEqual(biggest_winners[0]['name'], "Gordon Ramsay")
         self.assertEqual(biggest_winners[0]['wins'], 1)
         self.assertEqual(biggest_winners[0]['biggest_pot'], 2000)
-        
+
     def test_small_pot_not_big_win(self):
         """Test that small pots trigger win (not big_win) and loss for losers."""
         # Small pot (500 < 1.5x average stack of 1000)
@@ -83,19 +78,19 @@ class TestPressureSystem(unittest.TestCase):
             players=tuple(
                 player.update(is_folded=(player.name == "Bob Ross"))
                 for player in self.game_state.players
-            )
+            ),
         )
 
         winner_info = {
             'pot_breakdown': [
                 {
                     'winners': [{'name': 'Gordon Ramsay', 'amount': 500}],
-                    'hand_name': "Pair of Kings"
+                    'hand_name': "Pair of Kings",
                 }
             ],
             'winnings': {'Gordon Ramsay': 500},
             'winning_hand': [13, 13, 12, 11, 10],
-            'hand_name': "Pair of Kings"
+            'hand_name': "Pair of Kings",
         }
 
         events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
@@ -104,7 +99,7 @@ class TestPressureSystem(unittest.TestCase):
         self.assertNotIn("big_win", event_types, "Small pot should not trigger big win")
         self.assertIn("win", event_types, "Small pot should trigger win event")
         self.assertIn("loss", event_types, "Small pot should trigger loss for losers")
-        
+
     def test_multiple_events_tracking(self):
         """Test tracking multiple events and stats accumulation."""
         # Gordon wins big (detector emits only big_win, not both)
@@ -115,20 +110,16 @@ class TestPressureSystem(unittest.TestCase):
 
         # Trump wins once
         self.stats_tracker.record_event("big_win", ["Donald Trump"], {'pot_size': 1500})
-        
+
         # Gordon gets bluffed
-        self.stats_tracker.record_event(
-            "bluff_called", 
-            ["Gordon Ramsay"], 
-            {}
-        )
-        
+        self.stats_tracker.record_event("bluff_called", ["Gordon Ramsay"], {})
+
         # Check Gordon's stats
         gordon_stats = self.stats_tracker.get_player_stats("Gordon Ramsay")
         self.assertEqual(gordon_stats['big_wins'], 2, "Should have 2 big wins")
         self.assertEqual(gordon_stats['biggest_pot_won'], 3000, "Biggest pot should be 3000")
         self.assertEqual(gordon_stats['bluffs_caught'], 1, "Should have been bluffed once")
-        
+
         # Check leaderboard order
         leaderboards = self.stats_tracker.get_leaderboard()
         biggest_winners = leaderboards['biggest_winners']
@@ -136,7 +127,7 @@ class TestPressureSystem(unittest.TestCase):
         self.assertEqual(biggest_winners[0]['wins'], 2)
         self.assertEqual(biggest_winners[1]['name'], "Donald Trump", "Trump should be #2")
         self.assertEqual(biggest_winners[1]['wins'], 1)
-        
+
     def test_session_summary(self):
         """Test that session summary correctly aggregates all stats."""
         # Add various events
@@ -146,67 +137,63 @@ class TestPressureSystem(unittest.TestCase):
             ("successful_bluff", ["Bob Ross"], {}),
             ("bad_beat", ["Donald Trump"], {}),
         ]
-        
+
         for event_type, players, details in events:
             self.stats_tracker.record_event(event_type, players, details)
-            
+
         # Get session summary
         summary = self.stats_tracker.get_session_summary()
-        
+
         # Verify summary contents
         self.assertEqual(summary['total_events'], 4)
         self.assertEqual(summary['biggest_pot'], 2500)
         self.assertIn('Gordon Ramsay', summary['player_summaries'])
         self.assertIn('leaderboards', summary)
         self.assertIn('fun_facts', summary)
-        
+
         # Verify player summaries
         gordon_summary = summary['player_summaries']['Gordon Ramsay']
         self.assertEqual(gordon_summary['big_wins'], 1)
         self.assertEqual(gordon_summary['signature_move'], "Steady Player")  # Only 1 win
-        
+
     def test_pressure_event_integration(self):
         """Test the full integration from detection to stats."""
         # Simulate a full showdown scenario
         game_state = self.game_state.update(
             pot={'total': 3000},
             players=tuple(
-                player.update(is_folded=False if player.name in ["Gordon Ramsay", "Donald Trump"] else True)
+                player.update(
+                    is_folded=False if player.name in ["Gordon Ramsay", "Donald Trump"] else True
+                )
                 for player in self.game_state.players
-            )
+            ),
         )
-        
+
         winner_info = {
             'pot_breakdown': [
-                {
-                    'winners': [{'name': 'Gordon Ramsay', 'amount': 3000}],
-                    'hand_name': "Straight"
-                }
+                {'winners': [{'name': 'Gordon Ramsay', 'amount': 3000}], 'hand_name': "Straight"}
             ],
             'winnings': {'Gordon Ramsay': 3000},
             'winning_hand': [10, 9, 8, 7, 6],  # Straight
-            'hand_name': "Straight"
+            'hand_name': "Straight",
         }
-        
+
         # Detect events
         events = self.pressure_detector.detect_showdown_events(game_state, winner_info)
-        
+
         # Apply to stats tracker
         for event_type, players in events:
             self.stats_tracker.record_event(
-                event_type, 
-                players, 
-                {'pot_size': game_state.pot['total']}
+                event_type, players, {'pot_size': game_state.pot['total']}
             )
-        
+
         # Verify Gordon won
         gordon_stats = self.stats_tracker.get_player_stats("Gordon Ramsay")
         self.assertGreater(gordon_stats['big_wins'], 0, "Gordon should have wins")
-        
+
         # Verify Trump lost
         trump_stats = self.stats_tracker.get_player_stats("Donald Trump")
         self.assertGreater(trump_stats['big_losses'], 0, "Trump should have losses")
-
 
     def test_successful_bluff_does_not_penalize_folders(self):
         """When everyone folds to a bluff, only winner gets successful_bluff, not folders."""
@@ -216,14 +203,13 @@ class TestPressureSystem(unittest.TestCase):
             players=tuple(
                 player.update(is_folded=(player.name != "Donald Trump"))
                 for player in self.game_state.players
-            )
+            ),
         )
 
         winner_info = {
-            'pot_breakdown': [{
-                'winners': [{'name': 'Donald Trump', 'amount': 2000}],
-                'hand_name': 'High Card'
-            }],
+            'pot_breakdown': [
+                {'winners': [{'name': 'Donald Trump', 'amount': 2000}], 'hand_name': 'High Card'}
+            ],
             'hand_rank': 10,  # High card = weak hand (bluff)
         }
 
@@ -236,8 +222,11 @@ class TestPressureSystem(unittest.TestCase):
         self.assertEqual(bluff_event[1], ["Donald Trump"])
 
         # Should NOT have bluff_called for folders
-        self.assertNotIn("bluff_called", event_types,
-            "Folders should not receive bluff_called - they made correct decisions")
+        self.assertNotIn(
+            "bluff_called",
+            event_types,
+            "Folders should not receive bluff_called - they made correct decisions",
+        )
 
 
 class TestEventPriority(unittest.TestCase):
@@ -246,8 +235,7 @@ class TestEventPriority(unittest.TestCase):
     def setUp(self):
         self.detector = PressureEventDetector()
         self.game_state = initialize_game_state(
-            player_names=["Alice", "Bob", "Charlie"],
-            starting_stack=1000
+            player_names=["Alice", "Bob", "Charlie"], starting_stack=1000
         )
 
     def test_big_win_does_not_stack_with_win(self):
@@ -257,7 +245,7 @@ class TestEventPriority(unittest.TestCase):
             players=tuple(
                 p.update(is_folded=(p.name not in ("Alice", "Bob")))
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 2000}]}],
@@ -275,10 +263,7 @@ class TestEventPriority(unittest.TestCase):
         # Only one active player = bluff (everyone folded)
         game_state = self.game_state.update(
             pot={'total': 2000},
-            players=tuple(
-                p.update(is_folded=(p.name != "Alice"))
-                for p in self.game_state.players
-            )
+            players=tuple(p.update(is_folded=(p.name != "Alice")) for p in self.game_state.players),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 2000}]}],
@@ -300,7 +285,7 @@ class TestEventPriority(unittest.TestCase):
             players=tuple(
                 p.update(is_folded=(p.name not in ("Alice", "Bob")))
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
@@ -322,7 +307,7 @@ class TestEventPriority(unittest.TestCase):
             players=tuple(
                 p.update(is_folded=(p.name not in ("Alice", "Bob")))
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 2000}]}],
@@ -341,17 +326,19 @@ class TestEventPriority(unittest.TestCase):
         game_state = self.game_state.update(
             pot={'total': 300},
             community_cards=[
-                Card('2', 'hearts'), Card('3', 'diamonds'),
-                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+                Card('2', 'hearts'),
+                Card('3', 'diamonds'),
+                Card('7', 'clubs'),
+                Card('9', 'spades'),
+                Card('J', 'hearts'),
             ],
             players=tuple(
                 p.update(
                     is_folded=(p.name not in ("Alice", "Bob")),
-                    hand=[Card('4', 'spades'), Card('5', 'hearts')] if p.name == "Bob"
-                    else p.hand
+                    hand=[Card('4', 'spades'), Card('5', 'hearts')] if p.name == "Bob" else p.hand,
                 )
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
@@ -373,17 +360,19 @@ class TestEventPriority(unittest.TestCase):
         game_state = self.game_state.update(
             pot={'total': 300},
             community_cards=[
-                Card('2', 'hearts'), Card('3', 'diamonds'),
-                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+                Card('2', 'hearts'),
+                Card('3', 'diamonds'),
+                Card('7', 'clubs'),
+                Card('9', 'spades'),
+                Card('J', 'hearts'),
             ],
             players=tuple(
                 p.update(
                     is_folded=(p.name not in ("Alice", "Bob")),
-                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob"
-                    else p.hand
+                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob" else p.hand,
                 )
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
@@ -394,34 +383,41 @@ class TestEventPriority(unittest.TestCase):
         # Without bluff_likelihood: Bob's two pair (rank 8) should NOT trigger bluff_called
         events_without = self.detector.detect_showdown_events(game_state, winner_info)
         event_types_without = [e[0] for e in events_without]
-        self.assertNotIn("bluff_called", event_types_without,
-            "Two pair should not trigger bluff_called by hand rank alone")
+        self.assertNotIn(
+            "bluff_called",
+            event_types_without,
+            "Two pair should not trigger bluff_called by hand rank alone",
+        )
 
         # With bluff_likelihood >= 50: should trigger bluff_called
         events_with = self.detector.detect_showdown_events(
-            game_state, winner_info,
-            player_bluff_likelihoods={"Bob": 70, "Alice": 10}
+            game_state, winner_info, player_bluff_likelihoods={"Bob": 70, "Alice": 10}
         )
         event_types_with = [e[0] for e in events_with]
-        self.assertIn("bluff_called", event_types_with,
-            "High bluff_likelihood should trigger bluff_called even with decent hand")
+        self.assertIn(
+            "bluff_called",
+            event_types_with,
+            "High bluff_likelihood should trigger bluff_called even with decent hand",
+        )
 
     def test_bluff_likelihood_below_threshold_no_trigger(self):
         """Low bluff_likelihood with decent hand should NOT trigger bluff_called."""
         game_state = self.game_state.update(
             pot={'total': 300},
             community_cards=[
-                Card('2', 'hearts'), Card('3', 'diamonds'),
-                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+                Card('2', 'hearts'),
+                Card('3', 'diamonds'),
+                Card('7', 'clubs'),
+                Card('9', 'spades'),
+                Card('J', 'hearts'),
             ],
             players=tuple(
                 p.update(
                     is_folded=(p.name not in ("Alice", "Bob")),
-                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob"
-                    else p.hand
+                    hand=[Card('7', 'spades'), Card('9', 'hearts')] if p.name == "Bob" else p.hand,
                 )
                 for p in self.game_state.players
-            )
+            ),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 300}]}],
@@ -430,12 +426,14 @@ class TestEventPriority(unittest.TestCase):
         }
 
         events = self.detector.detect_showdown_events(
-            game_state, winner_info,
-            player_bluff_likelihoods={"Bob": 30, "Alice": 5}
+            game_state, winner_info, player_bluff_likelihoods={"Bob": 30, "Alice": 5}
         )
         event_types = [e[0] for e in events]
-        self.assertNotIn("bluff_called", event_types,
-            "Low bluff_likelihood + decent hand should not trigger bluff_called")
+        self.assertNotIn(
+            "bluff_called",
+            event_types,
+            "Low bluff_likelihood + decent hand should not trigger bluff_called",
+        )
 
     def test_successful_bluff_via_bluff_likelihood(self):
         """successful_bluff fires when winner has decent hand but self-reported bluffing."""
@@ -443,13 +441,13 @@ class TestEventPriority(unittest.TestCase):
         game_state = self.game_state.update(
             pot={'total': 2000},
             community_cards=[
-                Card('2', 'hearts'), Card('3', 'diamonds'),
-                Card('7', 'clubs'), Card('9', 'spades'), Card('J', 'hearts')
+                Card('2', 'hearts'),
+                Card('3', 'diamonds'),
+                Card('7', 'clubs'),
+                Card('9', 'spades'),
+                Card('J', 'hearts'),
             ],
-            players=tuple(
-                p.update(is_folded=(p.name != "Alice"))
-                for p in self.game_state.players
-            )
+            players=tuple(p.update(is_folded=(p.name != "Alice")) for p in self.game_state.players),
         )
         winner_info = {
             'pot_breakdown': [{'winners': [{'name': 'Alice', 'amount': 2000}]}],
@@ -464,12 +462,14 @@ class TestEventPriority(unittest.TestCase):
 
         # With high bluff_likelihood: should detect bluff even with strong hand
         events_with = self.detector.detect_showdown_events(
-            game_state, winner_info,
-            player_bluff_likelihoods={"Alice": 80}
+            game_state, winner_info, player_bluff_likelihoods={"Alice": 80}
         )
         event_types_with = [e[0] for e in events_with]
-        self.assertIn("successful_bluff", event_types_with,
-            "High bluff_likelihood should trigger successful_bluff regardless of hand rank")
+        self.assertIn(
+            "successful_bluff",
+            event_types_with,
+            "High bluff_likelihood should trigger successful_bluff regardless of hand rank",
+        )
 
 
 class TestStreakEvents(unittest.TestCase):
@@ -481,56 +481,49 @@ class TestStreakEvents(unittest.TestCase):
     def test_no_streak_below_threshold(self):
         """Streak events should not fire for streak_count < 3."""
         # 2-hand winning streak (below threshold)
-        events = self.detector.detect_streak_events("Alice", {
-            'streak_count': 2,
-            'current_streak': 'winning'
-        })
+        events = self.detector.detect_streak_events(
+            "Alice", {'streak_count': 2, 'current_streak': 'winning'}
+        )
         self.assertEqual(events, [])
 
         # 2-hand losing streak (below threshold)
-        events = self.detector.detect_streak_events("Alice", {
-            'streak_count': 2,
-            'current_streak': 'losing'
-        })
+        events = self.detector.detect_streak_events(
+            "Alice", {'streak_count': 2, 'current_streak': 'losing'}
+        )
         self.assertEqual(events, [])
 
     def test_winning_streak_detection(self):
         """Winning streak fires at milestone thresholds (3, 6)."""
-        events = self.detector.detect_streak_events("Alice", {
-            'streak_count': 3,
-            'current_streak': 'winning'
-        })
+        events = self.detector.detect_streak_events(
+            "Alice", {'streak_count': 3, 'current_streak': 'winning'}
+        )
         self.assertEqual(events, [("winning_streak", ["Alice"])])
 
         # Also fires at second milestone (6)
-        events = self.detector.detect_streak_events("Bob", {
-            'streak_count': 6,
-            'current_streak': 'winning'
-        })
+        events = self.detector.detect_streak_events(
+            "Bob", {'streak_count': 6, 'current_streak': 'winning'}
+        )
         self.assertEqual(events, [("winning_streak", ["Bob"])])
 
         # Does NOT fire between milestones (4, 5, 7, etc.)
         for count in (4, 5, 7, 8):
-            events = self.detector.detect_streak_events("Alice", {
-                'streak_count': count,
-                'current_streak': 'winning'
-            })
+            events = self.detector.detect_streak_events(
+                "Alice", {'streak_count': count, 'current_streak': 'winning'}
+            )
             self.assertEqual(events, [], f"Should not fire at streak_count={count}")
 
     def test_losing_streak_detection(self):
         """Losing streak fires at 3+ consecutive losses."""
-        events = self.detector.detect_streak_events("Charlie", {
-            'streak_count': 3,
-            'current_streak': 'losing'
-        })
+        events = self.detector.detect_streak_events(
+            "Charlie", {'streak_count': 3, 'current_streak': 'losing'}
+        )
         self.assertEqual(events, [("losing_streak", ["Charlie"])])
 
     def test_neutral_streak_no_event(self):
         """Neutral streak should not fire events."""
-        events = self.detector.detect_streak_events("Alice", {
-            'streak_count': 5,
-            'current_streak': 'neutral'
-        })
+        events = self.detector.detect_streak_events(
+            "Alice", {'streak_count': 5, 'current_streak': 'neutral'}
+        )
         self.assertEqual(events, [])
 
 
@@ -541,8 +534,7 @@ class TestStackEvents(unittest.TestCase):
         self.detector = PressureEventDetector()
         # Create test game state with players at various stack sizes
         self.game_state = initialize_game_state(
-            player_names=["Alice", "Bob", "Charlie"],
-            starting_stack=1000
+            player_names=["Alice", "Bob", "Charlie"], starting_stack=1000
         )
 
     def test_crippled_detection(self):
@@ -550,8 +542,7 @@ class TestStackEvents(unittest.TestCase):
         # Bob starts with 1000, loses 800, now has 200 (80% loss)
         game_state = self.game_state.update(
             players=tuple(
-                p.update(stack=200 if p.name == "Bob" else p.stack)
-                for p in self.game_state.players
+                p.update(stack=200 if p.name == "Bob" else p.stack) for p in self.game_state.players
             )
         )
         hand_start_stacks = {"Alice": 1000, "Bob": 1000, "Charlie": 1000}
@@ -637,9 +628,7 @@ class TestNemesisEvents(unittest.TestCase):
 
         # Alice wins, Bob loses
         events = self.detector.detect_nemesis_events(
-            winner_names=["Alice"],
-            loser_names=["Bob", "Charlie"],
-            player_nemesis_map=nemesis_map
+            winner_names=["Alice"], loser_names=["Bob", "Charlie"], player_nemesis_map=nemesis_map
         )
 
         self.assertEqual(events, [("nemesis_win", ["Alice"])])
@@ -651,9 +640,7 @@ class TestNemesisEvents(unittest.TestCase):
 
         # Bob wins, Alice loses
         events = self.detector.detect_nemesis_events(
-            winner_names=["Bob"],
-            loser_names=["Alice", "Charlie"],
-            player_nemesis_map=nemesis_map
+            winner_names=["Bob"], loser_names=["Alice", "Charlie"], player_nemesis_map=nemesis_map
         )
 
         self.assertEqual(events, [("nemesis_loss", ["Alice"])])
@@ -663,9 +650,7 @@ class TestNemesisEvents(unittest.TestCase):
         nemesis_map = {"Alice": None, "Bob": None}
 
         events = self.detector.detect_nemesis_events(
-            winner_names=["Alice"],
-            loser_names=["Bob"],
-            player_nemesis_map=nemesis_map
+            winner_names=["Alice"], loser_names=["Bob"], player_nemesis_map=nemesis_map
         )
 
         self.assertEqual(events, [])
@@ -678,7 +663,7 @@ class TestNemesisEvents(unittest.TestCase):
         events = self.detector.detect_nemesis_events(
             winner_names=["Alice"],
             loser_names=["Charlie"],  # Bob not in pot
-            player_nemesis_map=nemesis_map
+            player_nemesis_map=nemesis_map,
         )
 
         self.assertEqual(events, [])
@@ -690,9 +675,7 @@ class TestNemesisEvents(unittest.TestCase):
 
         # Alice wins, Bob loses
         events = self.detector.detect_nemesis_events(
-            winner_names=["Alice"],
-            loser_names=["Bob"],
-            player_nemesis_map=nemesis_map
+            winner_names=["Alice"], loser_names=["Bob"], player_nemesis_map=nemesis_map
         )
 
         event_types = [e[0] for e in events]

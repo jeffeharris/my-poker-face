@@ -25,8 +25,8 @@ from poker.strategy.exploitation import AggregatedOpponentStats
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.tiered_bot_controller import TieredBotController
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def reset_config():
@@ -38,8 +38,11 @@ def reset_config():
 def _make_extreme_maniac_stats():
     """Stats that classify as EXTREME tier."""
     return AggregatedOpponentStats(
-        hands_observed=200, vpip=0.85, pfr=0.75,
-        aggression_factor=8.0, all_in_frequency=0.40,
+        hands_observed=200,
+        vpip=0.85,
+        pfr=0.75,
+        aggression_factor=8.0,
+        all_in_frequency=0.40,
         aggression_factor_postflop=7.0,
         all_in_per_facing_bet=0.40,
         facing_bet_opportunities=150,
@@ -51,8 +54,11 @@ def _make_extreme_maniac_stats():
 def _make_neutral_stats():
     """Stats that classify as DEFAULT tier."""
     return AggregatedOpponentStats(
-        hands_observed=200, vpip=0.40, pfr=0.20,
-        aggression_factor=2.0, all_in_frequency=0.02,
+        hands_observed=200,
+        vpip=0.40,
+        pfr=0.20,
+        aggression_factor=2.0,
+        all_in_frequency=0.02,
         aggression_factor_postflop=2.0,
         all_in_per_facing_bet=0.05,
         facing_bet_opportunities=150,
@@ -69,7 +75,8 @@ def _make_manager(stats):
     model = MagicMock()
     model.tendencies = SimpleNamespace(
         hands_observed=stats.hands_observed,
-        vpip=stats.vpip, pfr=stats.pfr,
+        vpip=stats.vpip,
+        pfr=stats.pfr,
         aggression_factor=stats.aggression_factor,
         all_in_frequency=stats.all_in_frequency,
         fold_to_cbet=stats.fold_to_cbet,
@@ -87,18 +94,24 @@ def _make_manager(stats):
     return manager
 
 
-def _make_game_state(*, hu=True, facing_bet=True, hero_stack=10000,
-                     current_player_options=None):
+def _make_game_state(*, hu=True, facing_bet=True, hero_stack=10000, current_player_options=None):
     """Minimal game_state stub: hero + one opponent, optional facing bet.
 
     pot_total = 200; call_amount = 100 (so bet/pot_before_bet = 1.0 — pot-size).
     """
     hero = SimpleNamespace(
-        name='Hero', stack=hero_stack, bet=0, is_folded=False, is_human=False,
+        name='Hero',
+        stack=hero_stack,
+        bet=0,
+        is_folded=False,
+        is_human=False,
     )
     maniac = SimpleNamespace(
-        name='Maniac', stack=10000, bet=100 if facing_bet else 0,
-        is_folded=False, is_human=False,
+        name='Maniac',
+        stack=10000,
+        bet=100 if facing_bet else 0,
+        is_folded=False,
+        is_human=False,
     )
     players = [hero, maniac]
     return SimpleNamespace(
@@ -121,8 +134,7 @@ def _make_game_state(*, hu=True, facing_bet=True, hero_stack=10000,
 
 def _make_controller(*, manager, game_state=None, phase='FLOP'):
     """Build a TieredBotController with parent __init__ mocked."""
-    with patch('poker.tiered_bot_controller.AIPlayerController.__init__',
-               return_value=None):
+    with patch('poker.tiered_bot_controller.AIPlayerController.__init__', return_value=None):
         controller = TieredBotController.__new__(TieredBotController)
 
     if game_state is None:
@@ -150,6 +162,7 @@ def _make_controller(*, manager, game_state=None, phase='FLOP'):
 
 # ── Override fires when conditions met ───────────────────────────────────
 
+
 class TestBluffCatchFires:
     def test_medium_made_vs_extreme_maniac_hu_fires(self):
         manager = _make_manager(_make_extreme_maniac_stats())
@@ -160,9 +173,12 @@ class TestBluffCatchFires:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 
@@ -182,9 +198,12 @@ class TestBluffCatchFires:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='weak_made',
         )
 
@@ -208,9 +227,12 @@ class TestBluffCatchFires:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=gs, player_idx=0,
+            strategy=baseline,
+            game_state=gs,
+            player_idx=0,
             valid_actions=['fold', 'all_in'],
-            anchors=anchors, emotional_state=emotional,
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 
@@ -220,6 +242,7 @@ class TestBluffCatchFires:
 
 
 # ── Override blocks when conditions fail ─────────────────────────────────
+
 
 class TestBluffCatchBlocks:
     def test_strong_made_does_not_fire_bluff_catch(self):
@@ -233,9 +256,12 @@ class TestBluffCatchBlocks:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='strong_made',
         )
 
@@ -255,9 +281,12 @@ class TestBluffCatchBlocks:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 
@@ -278,9 +307,12 @@ class TestBluffCatchBlocks:
         emotional = SimpleNamespace(state='composed')
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=gs, player_idx=0,
+            strategy=baseline,
+            game_state=gs,
+            player_idx=0,
             valid_actions=['check', 'bet'],
-            anchors=anchors, emotional_state=emotional,
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
         assert result.action_probabilities == baseline.action_probabilities
@@ -296,9 +328,12 @@ class TestBluffCatchBlocks:
         emotional = SimpleNamespace(state='shaken')  # tilt_factor=0
 
         result, _trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 

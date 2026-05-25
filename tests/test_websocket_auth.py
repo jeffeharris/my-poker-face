@@ -3,8 +3,10 @@
 Verifies that on_join and handle_player_action reject non-owners
 and unauthenticated users with auth_error emission.
 """
-import pytest
+
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 import flask_app.extensions as ext
 
@@ -70,6 +72,7 @@ def _register_and_get_handlers():
         def decorator(fn):
             handlers[event] = fn
             return fn
+
         return decorator
 
     sio.on = capture_handler
@@ -86,8 +89,9 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_non_owner_cannot_join(self, mock_auth, mock_gss, mock_join_room,
-                                    mock_socketio, mock_progress, mock_emit):
+    def test_non_owner_cannot_join(
+        self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
+    ):
         """Non-owner user is rejected with auth_error — no room join, no game start."""
         mock_auth.get_current_user.return_value = {'id': 'other-user'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
@@ -97,7 +101,9 @@ class TestOnJoinAuth:
 
         mock_join_room.assert_not_called()
         mock_progress.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.emit')
     @patch('flask_app.routes.game_routes.progress_game')
@@ -105,8 +111,9 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager', None)
-    def test_unauthenticated_user_cannot_join(self, mock_gss, mock_join_room,
-                                               mock_socketio, mock_progress, mock_emit):
+    def test_unauthenticated_user_cannot_join(
+        self, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
+    ):
         """When auth_manager is None, user is rejected with auth_error."""
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
@@ -115,7 +122,9 @@ class TestOnJoinAuth:
 
         mock_join_room.assert_not_called()
         mock_progress.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.emit')
     @patch('flask_app.routes.game_routes.progress_game')
@@ -123,9 +132,9 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_auth_returns_none_user_cannot_join(self, mock_auth, mock_gss,
-                                                 mock_join_room, mock_socketio,
-                                                 mock_progress, mock_emit):
+    def test_auth_returns_none_user_cannot_join(
+        self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
+    ):
         """Unauthenticated user (get_current_user returns None) is rejected with auth_error."""
         mock_auth.get_current_user.return_value = None
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
@@ -135,15 +144,18 @@ class TestOnJoinAuth:
 
         mock_join_room.assert_not_called()
         mock_progress.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_owner_can_join_and_start(self, mock_auth, mock_gss, mock_join_room,
-                                      mock_socketio, mock_progress):
+    def test_owner_can_join_and_start(
+        self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress
+    ):
         """Owner is allowed to join the room and trigger game start."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
         game_data = _make_game_data(owner_id='owner-123', game_started=False)
@@ -160,8 +172,9 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_nonexistent_game_rejected(self, mock_auth, mock_gss, mock_join_room,
-                                        mock_socketio, mock_progress):
+    def test_nonexistent_game_rejected(
+        self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress
+    ):
         """Non-existent game returns silently."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
         mock_gss.get_game.return_value = None
@@ -185,34 +198,41 @@ class TestHandlePlayerActionAuth:
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
         handlers = _register_and_get_handlers()
-        handlers['player_action']({
-            'game_id': 'game-abc',
-            'action': 'call',
-            'amount': 0,
-        })
+        handlers['player_action'](
+            {
+                'game_id': 'game-abc',
+                'action': 'call',
+                'amount': 0,
+            }
+        )
 
         mock_play_turn.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.emit')
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_unauthenticated_user_cannot_act(self, mock_auth, mock_gss,
-                                              mock_play_turn, mock_emit):
+    def test_unauthenticated_user_cannot_act(self, mock_auth, mock_gss, mock_play_turn, mock_emit):
         """Unauthenticated user's action is rejected with auth_error."""
         mock_auth.get_current_user.return_value = None
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
         handlers = _register_and_get_handlers()
-        handlers['player_action']({
-            'game_id': 'game-abc',
-            'action': 'call',
-            'amount': 0,
-        })
+        handlers['player_action'](
+            {
+                'game_id': 'game-abc',
+                'action': 'call',
+                'amount': 0,
+            }
+        )
 
         mock_play_turn.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.update_and_emit_game_state')
@@ -226,12 +246,21 @@ class TestHandlePlayerActionAuth:
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_owner_can_act_on_human_turn(self, mock_auth, mock_gss, mock_play_turn,
-                                          mock_validate, mock_advance,
-                                          mock_record, mock_analyze,
-                                          mock_format, mock_send_msg,
-                                          mock_game_repo, mock_update,
-                                          mock_progress):
+    def test_owner_can_act_on_human_turn(
+        self,
+        mock_auth,
+        mock_gss,
+        mock_play_turn,
+        mock_validate,
+        mock_advance,
+        mock_record,
+        mock_analyze,
+        mock_format,
+        mock_send_msg,
+        mock_game_repo,
+        mock_update,
+        mock_progress,
+    ):
         """Owner can submit actions when it's a human player's turn."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
         game_data = _make_game_data(owner_id='owner-123', is_human=True)
@@ -241,11 +270,13 @@ class TestHandlePlayerActionAuth:
         mock_gss.get_game_owner_info.return_value = ('owner-123', 'Owner')
 
         handlers = _register_and_get_handlers()
-        handlers['player_action']({
-            'game_id': 'game-abc',
-            'action': 'call',
-            'amount': 0,
-        })
+        handlers['player_action'](
+            {
+                'game_id': 'game-abc',
+                'action': 'call',
+                'amount': 0,
+            }
+        )
 
         mock_play_turn.assert_called_once()
 
@@ -255,16 +286,16 @@ class TestHandlePlayerActionAuth:
     def test_owner_cannot_act_on_ai_turn(self, mock_auth, mock_gss, mock_play_turn):
         """Owner is rejected when it's an AI player's turn."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
-        mock_gss.get_game.return_value = _make_game_data(
-            owner_id='owner-123', is_human=False
-        )
+        mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123', is_human=False)
 
         handlers = _register_and_get_handlers()
-        handlers['player_action']({
-            'game_id': 'game-abc',
-            'action': 'call',
-            'amount': 0,
-        })
+        handlers['player_action'](
+            {
+                'game_id': 'game-abc',
+                'action': 'call',
+                'amount': 0,
+            }
+        )
 
         mock_play_turn.assert_not_called()
 
@@ -277,20 +308,26 @@ class TestHandleSendMessageAuth:
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_non_owner_cannot_send_message(self, mock_auth, mock_gss, mock_send_message, _mock_authz, mock_emit):
+    def test_non_owner_cannot_send_message(
+        self, mock_auth, mock_gss, mock_send_message, _mock_authz, mock_emit
+    ):
         mock_auth.get_current_user.return_value = {'id': 'attacker'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
         handlers = _register_and_get_handlers()
-        handlers['send_message']({
-            'game_id': 'game-abc',
-            'message': 'hello',
-            'sender': 'Player',
-            'message_type': 'user',
-        })
+        handlers['send_message'](
+            {
+                'game_id': 'game-abc',
+                'message': 'hello',
+                'sender': 'Player',
+                'message_type': 'user',
+            }
+        )
 
         mock_send_message.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
@@ -300,14 +337,18 @@ class TestHandleSendMessageAuth:
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
         handlers = _register_and_get_handlers()
-        handlers['send_message']({
-            'game_id': 'game-abc',
-            'message': 'hello',
-            'sender': 'Player',
-            'message_type': 'user',
-        })
+        handlers['send_message'](
+            {
+                'game_id': 'game-abc',
+                'message': 'hello',
+                'sender': 'Player',
+                'message_type': 'user',
+            }
+        )
 
-        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user', addressing=None)
+        mock_send_message.assert_called_once_with(
+            'game-abc', 'Player', 'hello', 'user', addressing=None
+        )
 
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
@@ -316,16 +357,23 @@ class TestHandleSendMessageAuth:
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
-        with patch('flask_app.routes.game_routes.get_authorization_service', return_value=_mock_admin_authz(True)):
+        with patch(
+            'flask_app.routes.game_routes.get_authorization_service',
+            return_value=_mock_admin_authz(True),
+        ):
             handlers = _register_and_get_handlers()
-            handlers['send_message']({
-                'game_id': 'game-abc',
-                'message': 'hello',
-                'sender': 'Player',
-                'message_type': 'user',
-            })
+            handlers['send_message'](
+                {
+                    'game_id': 'game-abc',
+                    'message': 'hello',
+                    'sender': 'Player',
+                    'message_type': 'user',
+                }
+            )
 
-        mock_send_message.assert_called_once_with('game-abc', 'Player', 'hello', 'user', addressing=None)
+        mock_send_message.assert_called_once_with(
+            'game-abc', 'Player', 'hello', 'user', addressing=None
+        )
 
 
 class TestProgressGameSocketAuth:
@@ -336,7 +384,9 @@ class TestProgressGameSocketAuth:
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
-    def test_non_owner_cannot_progress_game(self, mock_auth, mock_gss, mock_progress, _mock_authz, mock_emit):
+    def test_non_owner_cannot_progress_game(
+        self, mock_auth, mock_gss, mock_progress, _mock_authz, mock_emit
+    ):
         mock_auth.get_current_user.return_value = {'id': 'attacker'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
@@ -344,7 +394,9 @@ class TestProgressGameSocketAuth:
         handlers['progress_game']('game-abc')
 
         mock_progress.assert_not_called()
-        mock_emit.assert_called_once_with('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+        mock_emit.assert_called_once_with(
+            'auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'}
+        )
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
@@ -365,7 +417,10 @@ class TestProgressGameSocketAuth:
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
-        with patch('flask_app.routes.game_routes.get_authorization_service', return_value=_mock_admin_authz(True)):
+        with patch(
+            'flask_app.routes.game_routes.get_authorization_service',
+            return_value=_mock_admin_authz(True),
+        ):
             handlers = _register_and_get_handlers()
             handlers['progress_game']('game-abc')
 

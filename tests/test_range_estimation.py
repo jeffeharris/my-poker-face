@@ -14,21 +14,22 @@ Sources for mathematical benchmarks:
 """
 
 import unittest
+
 from poker.hand_ranges import (
-    OpponentInfo,
-    EARLY_POSITION_RANGE,
-    MIDDLE_POSITION_RANGE,
-    LATE_POSITION_RANGE,
     BLIND_DEFENSE_RANGE,
+    EARLY_POSITION_RANGE,
+    LATE_POSITION_RANGE,
+    MIDDLE_POSITION_RANGE,
     ULTRA_PREMIUM_RANGE,
-    estimate_range_from_pfr,
-    estimate_range_from_vpip,
+    OpponentInfo,
+    _narrow_range_by_strength,
+    apply_aggression_adjustment,
     estimate_3bet_range,
     estimate_calling_range,
-    apply_aggression_adjustment,
+    estimate_range_from_pfr,
+    estimate_range_from_vpip,
     get_opponent_range,
     get_opponent_range_og,
-    _narrow_range_by_strength,
 )
 
 
@@ -96,9 +97,9 @@ class TestCallingRangeEstimation(unittest.TestCase):
 
         overlap = calling & raising
         self.assertEqual(
-            len(overlap), 0,
-            f"Calling and raising ranges should not overlap. "
-            f"Found overlap: {overlap}"
+            len(overlap),
+            0,
+            f"Calling and raising ranges should not overlap. " f"Found overlap: {overlap}",
         )
 
     def test_calling_range_size(self):
@@ -113,13 +114,9 @@ class TestCallingRangeEstimation(unittest.TestCase):
         expected_max = len(vpip_range)
 
         self.assertGreaterEqual(
-            len(calling), max(0, expected_min),
-            f"Calling range too small: {len(calling)}"
+            len(calling), max(0, expected_min), f"Calling range too small: {len(calling)}"
         )
-        self.assertLessEqual(
-            len(calling), expected_max,
-            f"Calling range too large: {len(calling)}"
-        )
+        self.assertLessEqual(len(calling), expected_max, f"Calling range too large: {len(calling)}")
 
     def test_calling_range_excludes_premium(self):
         """Calling range should not include hands player would raise."""
@@ -143,9 +140,10 @@ class Test3BetRangeEstimation(unittest.TestCase):
 
         # 3-bet range should be significantly smaller
         self.assertLess(
-            len(three_bet_range), len(open_range) * 0.6,
+            len(three_bet_range),
+            len(open_range) * 0.6,
             f"3-bet range ({len(three_bet_range)}) should be < 60% of "
-            f"open-raise range ({len(open_range)})"
+            f"open-raise range ({len(open_range)})",
         )
 
     def test_3bet_range_is_premium(self):
@@ -163,14 +161,8 @@ class Test3BetRangeEstimation(unittest.TestCase):
         three_bet_pct = len(three_bet) / 169
 
         # Should be roughly 4-10% (allowing some tolerance)
-        self.assertGreaterEqual(
-            three_bet_pct, 0.03,
-            f"3-bet range ({three_bet_pct:.1%}) too tight"
-        )
-        self.assertLessEqual(
-            three_bet_pct, 0.15,
-            f"3-bet range ({three_bet_pct:.1%}) too wide"
-        )
+        self.assertGreaterEqual(three_bet_pct, 0.03, f"3-bet range ({three_bet_pct:.1%}) too tight")
+        self.assertLessEqual(three_bet_pct, 0.15, f"3-bet range ({three_bet_pct:.1%}) too wide")
 
 
 class TestAggressionAdjustment(unittest.TestCase):
@@ -185,9 +177,10 @@ class TestAggressionAdjustment(unittest.TestCase):
 
         # Range should be narrowed by ~30%
         self.assertLess(
-            len(adjusted), len(base_range) * 0.75,
+            len(adjusted),
+            len(base_range) * 0.75,
             f"Passive player range ({len(adjusted)}) should be narrowed "
-            f"from base ({len(base_range)})"
+            f"from base ({len(base_range)})",
         )
 
     def test_aggressive_player_no_narrowing(self):
@@ -241,8 +234,8 @@ class TestActionBasedNarrowing(unittest.TestCase):
             position="button",
             hands_observed=20,
             vpip=0.40,  # Very loose overall
-            pfr=0.15,   # But tight raiser
-            preflop_action='open_raise'
+            pfr=0.15,  # But tight raiser
+            preflop_action='open_raise',
         )
         range_est = get_opponent_range(opponent)
 
@@ -252,8 +245,9 @@ class TestActionBasedNarrowing(unittest.TestCase):
 
         # Range should be closer to PFR size than VPIP size
         self.assertLess(
-            len(range_est), len(vpip_range) * 0.8,
-            "Open-raiser range should be closer to PFR than VPIP"
+            len(range_est),
+            len(vpip_range) * 0.8,
+            "Open-raiser range should be closer to PFR than VPIP",
         )
 
     def test_caller_uses_vpip_minus_pfr(self):
@@ -264,7 +258,7 @@ class TestActionBasedNarrowing(unittest.TestCase):
             hands_observed=20,
             vpip=0.40,
             pfr=0.15,
-            preflop_action='call'
+            preflop_action='call',
         )
         range_est = get_opponent_range(opponent)
 
@@ -280,15 +274,12 @@ class TestActionBasedNarrowing(unittest.TestCase):
             hands_observed=20,
             vpip=0.40,
             pfr=0.20,
-            preflop_action='3bet'
+            preflop_action='3bet',
         )
         range_est = get_opponent_range(opponent)
 
         # 3-bet range should be very tight
-        self.assertLess(
-            len(range_est), 20,
-            f"3-bet range too wide: {len(range_est)} hands"
-        )
+        self.assertLess(len(range_est), 20, f"3-bet range too wide: {len(range_est)} hands")
 
     def test_4bet_uses_premium_range(self):
         """When opponent 4-bet+, use ultra-premium range."""
@@ -298,7 +289,7 @@ class TestActionBasedNarrowing(unittest.TestCase):
             hands_observed=20,
             vpip=0.40,
             pfr=0.20,
-            preflop_action='4bet+'
+            preflop_action='4bet+',
         )
         range_est = get_opponent_range(opponent)
 
@@ -313,7 +304,7 @@ class TestActionBasedNarrowing(unittest.TestCase):
             hands_observed=20,
             vpip=0.35,
             pfr=0.15,
-            preflop_action=None  # No action context
+            preflop_action=None,  # No action context
         )
         range_est = get_opponent_range(opponent)
 
@@ -333,7 +324,7 @@ class TestOldVsNewComparison(unittest.TestCase):
             hands_observed=20,
             vpip=0.40,
             pfr=0.15,
-            preflop_action='open_raise'
+            preflop_action='open_raise',
         )
 
         old_range = get_opponent_range_og(opponent)
@@ -341,9 +332,10 @@ class TestOldVsNewComparison(unittest.TestCase):
 
         # New range should be smaller (more accurate)
         self.assertLess(
-            len(new_range), len(old_range),
+            len(new_range),
+            len(old_range),
             f"New range ({len(new_range)}) should be tighter than "
-            f"old range ({len(old_range)}) for open-raiser"
+            f"old range ({len(old_range)}) for open-raiser",
         )
 
     def test_new_excludes_premium_for_caller(self):
@@ -354,7 +346,7 @@ class TestOldVsNewComparison(unittest.TestCase):
             hands_observed=20,
             vpip=0.40,
             pfr=0.15,
-            preflop_action='call'
+            preflop_action='call',
         )
 
         old_range = get_opponent_range_og(opponent)
@@ -401,8 +393,7 @@ class TestMathematicalBenchmarks(unittest.TestCase):
         raising = estimate_range_from_pfr(0.25)
         self.assertGreater(len(calling), 0, "Should have some calling hands")
         self.assertLess(
-            len(calling), len(raising),
-            "LAG calling range should be smaller than raising range"
+            len(calling), len(raising), "LAG calling range should be smaller than raising range"
         )
 
     def test_calling_range_for_passive_player(self):
@@ -423,6 +414,7 @@ class TestIsHandInStandardRange(unittest.TestCase):
     def setUp(self):
         """Import the function for testing."""
         from poker.hand_ranges import is_hand_in_standard_range
+
         self.is_hand_in_range = is_hand_in_standard_range
 
     def test_premium_hand_in_all_ranges(self):
@@ -523,8 +515,9 @@ class TestIsHandInStandardRange(unittest.TestCase):
         for position, expected_group in positions_to_groups.items():
             result = self.is_hand_in_range("Ah", "Kh", position)
             self.assertEqual(
-                result['position_group'], expected_group,
-                f"Position {position} should map to {expected_group}"
+                result['position_group'],
+                expected_group,
+                f"Position {position} should map to {expected_group}",
             )
 
 

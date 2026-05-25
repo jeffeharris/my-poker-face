@@ -17,7 +17,6 @@ from typing import Optional
 
 import pytest
 
-from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
 from cash_mode.sponsor_offers import (
     PersonalitySponsorOffer,
     _adjusted_terms,
@@ -25,12 +24,14 @@ from cash_mode.sponsor_offers import (
     _relationship_hint,
     compute_personality_offers,
 )
+from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
 
 
 @dataclass
 class _RelState:
     """Minimal RelationshipState double for the fake repo. Mirrors the
     fields `compute_personality_offers` reads."""
+
     respect: float = 0.5
     heat: float = 0.0
     likability: float = 0.5
@@ -80,9 +81,12 @@ MAX_BUY_IN = 1000
 class TestCapacityForLender:
     def test_pct_under_min_returns_raw(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.05,
-            floor_anchor=1.0, rate_anchor=0.2,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.05,
+            floor_anchor=1.0,
+            rate_anchor=0.2,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
         # 5% of 5000 = 250 < min_buy_in 400 → returns raw 250 (caller
         # filters with `capacity < min_buy_in`).
@@ -91,9 +95,12 @@ class TestCapacityForLender:
 
     def test_pct_above_max_clamps_down(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.50,
-            floor_anchor=1.0, rate_anchor=0.2,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.50,
+            floor_anchor=1.0,
+            rate_anchor=0.2,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
         # 50% of 10_000 = 5_000 > max 1_000 → clamp to 1_000.
         cap = _capacity_for_lender(profile, 10_000, min_buy_in=400, max_buy_in=1_000)
@@ -101,9 +108,12 @@ class TestCapacityForLender:
 
     def test_pct_in_window_returns_pct(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.0, rate_anchor=0.2,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.0,
+            rate_anchor=0.2,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
         # 10% of 8000 = 800 in [400, 1000] → 800.
         cap = _capacity_for_lender(profile, 8_000, min_buy_in=400, max_buy_in=1_000)
@@ -116,21 +126,30 @@ class TestCapacityForLender:
 class TestAdjustedTerms:
     def _profile(self):
         return StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.20, rate_anchor=0.30,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.20,
+            rate_anchor=0.30,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
 
     def test_neutral_relationship_returns_anchors(self):
         floor, rate = _adjusted_terms(
-            self._profile(), likability=0.5, heat=0.0, respect=0.5,
+            self._profile(),
+            likability=0.5,
+            heat=0.0,
+            respect=0.5,
         )
         assert floor == 1.20
         assert rate == 0.30
 
     def test_high_likability_softens_terms(self):
         floor, rate = _adjusted_terms(
-            self._profile(), likability=0.8, heat=0.0, respect=0.5,
+            self._profile(),
+            likability=0.8,
+            heat=0.0,
+            respect=0.5,
         )
         # 1.20 - 0.05 = 1.15; 0.30 - 0.05 = 0.25
         assert floor == pytest.approx(1.15)
@@ -138,7 +157,10 @@ class TestAdjustedTerms:
 
     def test_high_heat_raises_terms(self):
         floor, rate = _adjusted_terms(
-            self._profile(), likability=0.5, heat=0.6, respect=0.5,
+            self._profile(),
+            likability=0.5,
+            heat=0.6,
+            respect=0.5,
         )
         # 1.20 + 0.10 = 1.30; 0.30 + 0.10 = 0.40
         assert floor == pytest.approx(1.30)
@@ -146,7 +168,10 @@ class TestAdjustedTerms:
 
     def test_high_respect_softens_terms(self):
         floor, rate = _adjusted_terms(
-            self._profile(), likability=0.5, heat=0.0, respect=0.7,
+            self._profile(),
+            likability=0.5,
+            heat=0.0,
+            respect=0.7,
         )
         # 1.20 - 0.03 = 1.17; 0.30 - 0.03 = 0.27
         assert floor == pytest.approx(1.17)
@@ -155,48 +180,72 @@ class TestAdjustedTerms:
     def test_floor_clamped_to_min(self):
         # Anchors near 1.00 plus likability+respect trims could go below 1.00.
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.02, rate_anchor=0.10,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.02,
+            rate_anchor=0.10,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
         floor, rate = _adjusted_terms(
-            profile, likability=0.8, heat=0.0, respect=0.8,
+            profile,
+            likability=0.8,
+            heat=0.0,
+            respect=0.8,
         )
         # 1.02 - 0.05 - 0.03 = 0.94 → clamp to 1.00.
         assert floor == 1.00
 
     def test_rate_clamped_to_zero(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.20, rate_anchor=0.02,
-            respect_floor=-0.5, heat_ceiling=0.7,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.20,
+            rate_anchor=0.02,
+            respect_floor=-0.5,
+            heat_ceiling=0.7,
         )
         floor, rate = _adjusted_terms(
-            profile, likability=0.8, heat=0.0, respect=0.8,
+            profile,
+            likability=0.8,
+            heat=0.0,
+            respect=0.8,
         )
         # 0.02 - 0.05 - 0.03 = -0.06 → clamp to 0.00.
         assert rate == 0.00
 
     def test_floor_clamped_to_max(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.45, rate_anchor=0.30,
-            respect_floor=-0.5, heat_ceiling=1.0,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.45,
+            rate_anchor=0.30,
+            respect_floor=-0.5,
+            heat_ceiling=1.0,
         )
         floor, rate = _adjusted_terms(
-            profile, likability=0.5, heat=0.8, respect=0.5,
+            profile,
+            likability=0.5,
+            heat=0.8,
+            respect=0.5,
         )
         # 1.45 + 0.10 = 1.55 → clamp to 1.50.
         assert floor == 1.50
 
     def test_rate_clamped_to_max(self):
         profile = StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.20, rate_anchor=0.50,
-            respect_floor=-0.5, heat_ceiling=1.0,
+            willing=True,
+            max_loan_pct_of_bankroll=0.10,
+            floor_anchor=1.20,
+            rate_anchor=0.50,
+            respect_floor=-0.5,
+            heat_ceiling=1.0,
         )
         floor, rate = _adjusted_terms(
-            profile, likability=0.5, heat=0.8, respect=0.5,
+            profile,
+            likability=0.5,
+            heat=0.8,
+            respect=0.5,
         )
         # 0.50 + 0.10 = 0.60 → clamp to 0.55.
         assert rate == 0.55
@@ -238,20 +287,26 @@ class TestEligibility:
     def test_unwilling_lender_excluded(self):
         profiles = {
             "mime": StakerProfile(
-                willing=False, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=False,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
         }
         bank = _FakeBankrollRepo(
-            profiles=profiles, bankrolls={"mime": 50_000},
+            profiles=profiles,
+            bankrolls={"mime": 50_000},
         )
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "mime", "name": "Mime"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
@@ -259,74 +314,106 @@ class TestEligibility:
     def test_no_bankroll_row_excluded(self):
         # AI never sat down → no bankroll row → load_ai_bankroll_current
         # returns None → skipped.
-        profiles = {"newbie": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.2, rate_anchor=0.3,
-            respect_floor=-0.5, heat_ceiling=0.7,
-        )}
+        profiles = {
+            "newbie": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={})
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "newbie", "name": "Newbie"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
     def test_capacity_below_min_excluded(self):
         # 5% of 3000 = 150 < min 400 → excluded.
-        profiles = {"poor": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.05,
-            floor_anchor=1.2, rate_anchor=0.3,
-            respect_floor=-0.5, heat_ceiling=0.7,
-        )}
+        profiles = {
+            "poor": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.05,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"poor": 3_000})
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "poor", "name": "Poor"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
     def test_respect_below_floor_excluded(self):
-        profiles = {"strict": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.2, rate_anchor=0.3,
-            respect_floor=0.3, heat_ceiling=0.9,
-        )}
+        profiles = {
+            "strict": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=0.3,
+                heat_ceiling=0.9,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"strict": 10_000})
-        rel = _FakeRelationshipRepo(states={
-            ("strict", "player"): _RelState(respect=0.2, heat=0.0, likability=0.5),
-        })
+        rel = _FakeRelationshipRepo(
+            states={
+                ("strict", "player"): _RelState(respect=0.2, heat=0.0, likability=0.5),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "strict", "name": "Strict"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
 
     def test_heat_above_ceiling_excluded(self):
-        profiles = {"chilly": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.2, rate_anchor=0.3,
-            respect_floor=-0.5, heat_ceiling=0.4,
-        )}
+        profiles = {
+            "chilly": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.4,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"chilly": 10_000})
-        rel = _FakeRelationshipRepo(states={
-            ("chilly", "player"): _RelState(respect=0.5, heat=0.6, likability=0.5),
-        })
+        rel = _FakeRelationshipRepo(
+            states={
+                ("chilly", "player"): _RelState(respect=0.5, heat=0.6, likability=0.5),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "chilly", "name": "Chilly"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
@@ -334,18 +421,25 @@ class TestEligibility:
     def test_no_relationship_row_treated_as_neutral(self):
         # No relationship state → neutral defaults → all gates pass for
         # this lender → qualifies.
-        profiles = {"fresh": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.10,
-            floor_anchor=1.2, rate_anchor=0.3,
-            respect_floor=-0.5, heat_ceiling=0.7,
-        )}
+        profiles = {
+            "fresh": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"fresh": 10_000})
         rel = _FakeRelationshipRepo(states={})
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "fresh", "name": "Fresh"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
@@ -361,36 +455,50 @@ class TestSortAndCount:
     def test_offers_sorted_by_capacity_desc(self):
         profiles = {
             "small": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
             "big": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
             "mid": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
         }
-        bank = _FakeBankrollRepo(profiles=profiles, bankrolls={
-            "small": 5_000,   # 10% = 500
-            "big":   10_000,  # 10% = 1000 (clamps at max)
-            "mid":   7_000,   # 10% = 700
-        })
+        bank = _FakeBankrollRepo(
+            profiles=profiles,
+            bankrolls={
+                "small": 5_000,  # 10% = 500
+                "big": 10_000,  # 10% = 1000 (clamps at max)
+                "mid": 7_000,  # 10% = 700
+            },
+        )
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[
                 {"personality_id": "small", "name": "Small"},
                 {"personality_id": "big", "name": "Big"},
                 {"personality_id": "mid", "name": "Mid"},
             ],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert [o.lender_id for o in offers] == ["big", "mid", "small"]
@@ -399,9 +507,12 @@ class TestSortAndCount:
     def test_count_truncates_results(self):
         profiles = {
             f"l{i}": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             )
             for i in range(5)
         }
@@ -410,11 +521,13 @@ class TestSortAndCount:
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[
                 {"personality_id": f"l{i}", "name": f"L{i}"} for i in range(5)
             ],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             count=2,
             sandbox_id="test-sandbox-1",
         )
@@ -425,9 +538,11 @@ class TestSortAndCount:
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert offers == []
@@ -435,36 +550,50 @@ class TestSortAndCount:
     def test_mixed_eligible_and_ineligible(self):
         profiles = {
             "willing": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
             "unwilling": StakerProfile(
-                willing=False, max_loan_pct_of_bankroll=0.10,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=False,
+                max_loan_pct_of_bankroll=0.10,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
             "too_poor": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.03,
-                floor_anchor=1.2, rate_anchor=0.3,
-                respect_floor=-0.5, heat_ceiling=0.7,
+                willing=True,
+                max_loan_pct_of_bankroll=0.03,
+                floor_anchor=1.2,
+                rate_anchor=0.3,
+                respect_floor=-0.5,
+                heat_ceiling=0.7,
             ),
         }
-        bank = _FakeBankrollRepo(profiles=profiles, bankrolls={
-            "willing": 10_000,
-            "unwilling": 10_000,
-            "too_poor": 5_000,  # 3% = 150 < 400 min
-        })
+        bank = _FakeBankrollRepo(
+            profiles=profiles,
+            bankrolls={
+                "willing": 10_000,
+                "unwilling": 10_000,
+                "too_poor": 5_000,  # 3% = 150 < 400 min
+            },
+        )
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[
                 {"personality_id": "willing", "name": "Willing"},
                 {"personality_id": "unwilling", "name": "Unwilling"},
                 {"personality_id": "too_poor", "name": "Too Poor"},
             ],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
@@ -476,20 +605,29 @@ class TestSortAndCount:
 
 class TestOutputShape:
     def test_offer_carries_lender_id_name_and_relationship_hint(self):
-        profiles = {"napoleon": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.08,
-            floor_anchor=1.4, rate_anchor=0.45,
-            respect_floor=-0.9, heat_ceiling=0.95,
-        )}
+        profiles = {
+            "napoleon": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.08,
+                floor_anchor=1.4,
+                rate_anchor=0.45,
+                respect_floor=-0.9,
+                heat_ceiling=0.95,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"napoleon": 20_000})
-        rel = _FakeRelationshipRepo(states={
-            ("napoleon", "player"): _RelState(respect=0.5, heat=0.5, likability=0.5),
-        })
+        rel = _FakeRelationshipRepo(
+            states={
+                ("napoleon", "player"): _RelState(respect=0.5, heat=0.5, likability=0.5),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "napoleon", "name": "Napoleon"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
@@ -505,18 +643,25 @@ class TestOutputShape:
         assert offer.capacity == 1_000
 
     def test_offer_flavor_includes_name(self):
-        profiles = {"buddha": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.15,
-            floor_anchor=1.0, rate_anchor=0.15,
-            respect_floor=-0.7, heat_ceiling=0.85,
-        )}
+        profiles = {
+            "buddha": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
+            )
+        }
         bank = _FakeBankrollRepo(profiles=profiles, bankrolls={"buddha": 10_000})
         rel = _FakeRelationshipRepo()
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[{"personality_id": "buddha", "name": "Buddha"}],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
         )
         assert len(offers) == 1
@@ -557,24 +702,27 @@ class TestDefaultCooldown:
             STAKER_KIND_PERSONALITY,
             Stake,
         )
-        stake_repo.create_stake(Stake(
-            stake_id=stake_id,
-            session_id=f"sess_{stake_id}",
-            staker_id=staker_id,
-            staker_kind=STAKER_KIND_PERSONALITY,
-            borrower_id=borrower_id,
-            borrower_kind=BORROWER_KIND_HUMAN,
-            format=STAKE_FORMAT_PURE,
-            principal=2_000,
-            match_amount=0,
-            origination_fee=0,
-            cut=0.30,
-            status=STAKE_STATUS_DEFAULTED,
-            carry_amount=0,
-            stake_tier="$50",
-            created_at=settled_at,
-            settled_at=settled_at,
-        ))
+
+        stake_repo.create_stake(
+            Stake(
+                stake_id=stake_id,
+                session_id=f"sess_{stake_id}",
+                staker_id=staker_id,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=borrower_id,
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_PURE,
+                principal=2_000,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.30,
+                status=STAKE_STATUS_DEFAULTED,
+                carry_amount=0,
+                stake_tier="$50",
+                created_at=settled_at,
+                settled_at=settled_at,
+            )
+        )
 
     def test_recent_default_filters_lender(self, stake_repo):
         from cash_mode.sponsor_offers import LenderRejection
@@ -589,27 +737,42 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=3),
         )
 
-        profiles = {"napoleon": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.15,
-            floor_anchor=1.0, rate_anchor=0.15,
-            respect_floor=-0.7, heat_ceiling=0.85,
-        )}
+        profiles = {
+            "napoleon": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
+            )
+        }
         bank = _FakeBankrollRepo(
-            profiles=profiles, bankrolls={"napoleon": 20_000},
+            profiles=profiles,
+            bankrolls={"napoleon": 20_000},
         )
-        rel = _FakeRelationshipRepo({
-            ("napoleon", "player"): _RelState(
-                respect=0.6, heat=0.0, likability=0.6,
-            ),
-        })
+        rel = _FakeRelationshipRepo(
+            {
+                ("napoleon", "player"): _RelState(
+                    respect=0.6,
+                    heat=0.0,
+                    likability=0.6,
+                ),
+            }
+        )
         rejections: list = []
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
-            candidate_personalities=[{
-                "personality_id": "napoleon", "name": "Napoleon",
-            }],
-            bankroll_repo=bank, relationship_repo=rel,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[
+                {
+                    "personality_id": "napoleon",
+                    "name": "Napoleon",
+                }
+            ],
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
             stake_repo=stake_repo,
             stake_label="$50",
@@ -633,26 +796,41 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=10),
         )
 
-        profiles = {"napoleon": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.15,
-            floor_anchor=1.0, rate_anchor=0.15,
-            respect_floor=-0.7, heat_ceiling=0.85,
-        )}
+        profiles = {
+            "napoleon": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
+            )
+        }
         bank = _FakeBankrollRepo(
-            profiles=profiles, bankrolls={"napoleon": 20_000},
+            profiles=profiles,
+            bankrolls={"napoleon": 20_000},
         )
-        rel = _FakeRelationshipRepo({
-            ("napoleon", "player"): _RelState(
-                respect=0.6, heat=0.0, likability=0.6,
-            ),
-        })
+        rel = _FakeRelationshipRepo(
+            {
+                ("napoleon", "player"): _RelState(
+                    respect=0.6,
+                    heat=0.0,
+                    likability=0.6,
+                ),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
-            candidate_personalities=[{
-                "personality_id": "napoleon", "name": "Napoleon",
-            }],
-            bankroll_repo=bank, relationship_repo=rel,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[
+                {
+                    "personality_id": "napoleon",
+                    "name": "Napoleon",
+                }
+            ],
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
             stake_repo=stake_repo,
             stake_label="$50",
@@ -673,36 +851,50 @@ class TestDefaultCooldown:
 
         profiles = {
             "napoleon": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.15,
-                floor_anchor=1.0, rate_anchor=0.15,
-                respect_floor=-0.7, heat_ceiling=0.85,
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
             ),
             "buddha": StakerProfile(
-                willing=True, max_loan_pct_of_bankroll=0.15,
-                floor_anchor=1.0, rate_anchor=0.15,
-                respect_floor=-0.7, heat_ceiling=0.85,
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
             ),
         }
         bank = _FakeBankrollRepo(
             profiles=profiles,
             bankrolls={"napoleon": 20_000, "buddha": 20_000},
         )
-        rel = _FakeRelationshipRepo({
-            ("napoleon", "player"): _RelState(
-                respect=0.6, heat=0.0, likability=0.6,
-            ),
-            ("buddha", "player"): _RelState(
-                respect=0.6, heat=0.0, likability=0.6,
-            ),
-        })
+        rel = _FakeRelationshipRepo(
+            {
+                ("napoleon", "player"): _RelState(
+                    respect=0.6,
+                    heat=0.0,
+                    likability=0.6,
+                ),
+                ("buddha", "player"): _RelState(
+                    respect=0.6,
+                    heat=0.0,
+                    likability=0.6,
+                ),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[
                 {"personality_id": "napoleon", "name": "Napoleon"},
                 {"personality_id": "buddha", "name": "Buddha"},
             ],
-            bankroll_repo=bank, relationship_repo=rel,
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
             stake_repo=stake_repo,
             stake_label="$50",
@@ -723,27 +915,42 @@ class TestDefaultCooldown:
             settled_at=now - timedelta(days=3),
         )
 
-        profiles = {"napoleon": StakerProfile(
-            willing=True, max_loan_pct_of_bankroll=0.15,
-            floor_anchor=1.0, rate_anchor=0.15,
-            respect_floor=-0.7, heat_ceiling=0.85,
-        )}
+        profiles = {
+            "napoleon": StakerProfile(
+                willing=True,
+                max_loan_pct_of_bankroll=0.15,
+                floor_anchor=1.0,
+                rate_anchor=0.15,
+                respect_floor=-0.7,
+                heat_ceiling=0.85,
+            )
+        }
         bank = _FakeBankrollRepo(
-            profiles=profiles, bankrolls={"napoleon": 20_000},
+            profiles=profiles,
+            bankrolls={"napoleon": 20_000},
         )
-        rel = _FakeRelationshipRepo({
-            ("napoleon", "player"): _RelState(
-                respect=0.6, heat=0.0, likability=0.6,
-            ),
-        })
+        rel = _FakeRelationshipRepo(
+            {
+                ("napoleon", "player"): _RelState(
+                    respect=0.6,
+                    heat=0.0,
+                    likability=0.6,
+                ),
+            }
+        )
         # NOTE: no stake_repo / stake_label passed → cooldown disabled.
         offers = compute_personality_offers(
             player_owner_id="player",
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
-            candidate_personalities=[{
-                "personality_id": "napoleon", "name": "Napoleon",
-            }],
-            bankroll_repo=bank, relationship_repo=rel,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
+            candidate_personalities=[
+                {
+                    "personality_id": "napoleon",
+                    "name": "Napoleon",
+                }
+            ],
+            bankroll_repo=bank,
+            relationship_repo=rel,
             sandbox_id="test-sandbox-1",
             now=now,
         )

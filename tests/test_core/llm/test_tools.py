@@ -1,6 +1,6 @@
 """Tests for tool calling support in LLMClient."""
-import json
 
+import json
 from unittest.mock import Mock, patch
 
 from core.llm import LLMClient, UsageTracker
@@ -86,20 +86,20 @@ class TestToolCalling:
             return json.dumps({"error": "unknown tool"})
 
         # Define a tool
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get weather for a location",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string"}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"location": {"type": "string"}},
+                        "required": ["location"],
                     },
-                    "required": ["location"]
-                }
+                },
             }
-        }]
+        ]
 
         client = LLMClient(tracker=usage_tracker)
         response = client.complete(
@@ -141,14 +141,16 @@ class TestToolCalling:
 
         mock_client.chat.completions.create.return_value = mock_response
 
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get weather",
-                "parameters": {"type": "object", "properties": {}}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}},
+                },
             }
-        }]
+        ]
 
         client = LLMClient(tracker=usage_tracker)
         response = client.complete(
@@ -204,14 +206,16 @@ class TestToolCalling:
         def failing_executor(name, args):
             raise ValueError("Tool execution failed!")
 
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "failing_tool",
-                "description": "A tool that fails",
-                "parameters": {"type": "object", "properties": {}}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "failing_tool",
+                    "description": "A tool that fails",
+                    "parameters": {"type": "object", "properties": {}},
+                },
             }
-        }]
+        ]
 
         client = LLMClient(tracker=usage_tracker)
         response = client.complete(
@@ -274,14 +278,19 @@ class TestToolCalling:
         def tool_executor(name, args):
             return json.dumps({"weather": "sunny"})
 
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get weather",
-                "parameters": {"type": "object", "properties": {"location": {"type": "string"}}}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"location": {"type": "string"}},
+                    },
+                },
             }
-        }]
+        ]
 
         # Use DeepSeek provider which implements extract_reasoning_content
         client = LLMClient(provider="deepseek", model="deepseek-chat", tracker=usage_tracker)

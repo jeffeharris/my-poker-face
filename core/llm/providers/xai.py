@@ -11,16 +11,17 @@ Reasoning behavior by model:
 - grok-3: No reasoning capability
 - grok-4: Always reasons (cannot disable)
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai import OpenAI
 
+from ..config import DEFAULT_MAX_TOKENS, XAI_DEFAULT_MODEL
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, XAI_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,10 @@ class XAIProvider(LLMProvider):
         else:
             self._model = base_model
             # Only store reasoning_effort if model supports native parameter
-            if self._model in REASONING_EFFORT_MODELS and reasoning_effort in VALID_REASONING_EFFORTS:
+            if (
+                self._model in REASONING_EFFORT_MODELS
+                and reasoning_effort in VALID_REASONING_EFFORTS
+            ):
                 self._reasoning_effort = reasoning_effort
 
         # Validate API key early for better error messages
@@ -233,7 +237,7 @@ class XAIProvider(LLMProvider):
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,
-                }
+                },
             }
             for tc in tool_calls
         ]

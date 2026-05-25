@@ -16,9 +16,9 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def repo(tmp_path):
-    from poker.repositories.schema_manager import SchemaManager
     from poker.repositories.experiment_repository import ExperimentRepository
     from poker.repositories.game_repository import GameRepository
+    from poker.repositories.schema_manager import SchemaManager
 
     db_path = str(tmp_path / "chat_owner.db")
     SchemaManager(db_path).ensure_schema()
@@ -59,24 +59,18 @@ class TestGetChatSessionOwnership:
         assert result["session_id"] == "alice_session"
 
     def test_correct_owner_can_read(self, two_sessions):
-        result = two_sessions.get_chat_session(
-            "alice_session", expected_owner_id="user_alice"
-        )
+        result = two_sessions.get_chat_session("alice_session", expected_owner_id="user_alice")
         assert result is not None
         assert result["messages"][0]["content"] == "alice's secret"
 
     def test_wrong_owner_returns_none(self, two_sessions):
         """T1-27: an attacker who knows a session_id but isn't the owner
         gets None — same shape as a missing session, no information leak."""
-        result = two_sessions.get_chat_session(
-            "alice_session", expected_owner_id="user_bob"
-        )
+        result = two_sessions.get_chat_session("alice_session", expected_owner_id="user_bob")
         assert result is None
 
     def test_missing_session_with_owner_returns_none(self, two_sessions):
-        result = two_sessions.get_chat_session(
-            "nonexistent", expected_owner_id="user_alice"
-        )
+        result = two_sessions.get_chat_session("nonexistent", expected_owner_id="user_alice")
         assert result is None
 
 
@@ -88,24 +82,28 @@ class TestArchiveChatSessionOwnership:
 
     def test_correct_owner_can_archive(self, two_sessions):
         archived = two_sessions.archive_chat_session(
-            "alice_session", expected_owner_id="user_alice",
+            "alice_session",
+            expected_owner_id="user_alice",
         )
         assert archived is True
 
     def test_wrong_owner_cannot_archive(self, two_sessions):
         archived = two_sessions.archive_chat_session(
-            "alice_session", expected_owner_id="user_bob",
+            "alice_session",
+            expected_owner_id="user_bob",
         )
         assert archived is False
 
         # Verify alice's session is NOT archived — still retrievable
         result = two_sessions.get_chat_session(
-            "alice_session", expected_owner_id="user_alice",
+            "alice_session",
+            expected_owner_id="user_alice",
         )
         assert result is not None
 
     def test_missing_session_returns_false(self, two_sessions):
         archived = two_sessions.archive_chat_session(
-            "nonexistent", expected_owner_id="user_alice",
+            "nonexistent",
+            expected_owner_id="user_alice",
         )
         assert archived is False

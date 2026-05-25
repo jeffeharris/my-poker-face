@@ -22,25 +22,28 @@ import random
 import re
 from typing import Dict, List, Optional
 
-from .hybrid_ai_controller import HybridAIController
-from .controllers import (
-    _parse_game_messages, _get_street_lines, _get_preflop_lines,
-    classify_preflop_hand,
-)
+from core.card import Card
+
+from .ai_resilience import parse_json_response
+from .board_analyzer import build_board_read
 from .bounded_options import (
     BoundedOption,
     EmotionalShift,
     OptionProfile,
-    generate_bounded_options,
     apply_emotional_window_shift,
+    generate_bounded_options,
     get_emotional_shift,
 )
-from .nudge_phrases import apply_composed_nudges
-from .board_analyzer import build_board_read
+from .controllers import (
+    _get_preflop_lines,
+    _get_street_lines,
+    _parse_game_messages,
+    classify_preflop_hand,
+)
 from .hand_narrator import narrate_hand_breakdown
+from .hybrid_ai_controller import HybridAIController
 from .minimal_prompt import get_position_abbrev
-from .ai_resilience import parse_json_response
-from core.card import Card
+from .nudge_phrases import apply_composed_nudges
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +97,12 @@ class LeanBoundedController(HybridAIController):
         # Calculate raise bounds (same logic as parent decide_action)
         highest_bet = game_state.highest_bet
         max_opponent_stack = max(
-            (p.stack for p in game_state.players
-             if not p.is_folded and not p.is_all_in and p.name != player.name),
-            default=0
+            (
+                p.stack
+                for p in game_state.players
+                if not p.is_folded and not p.is_all_in and p.name != player.name
+            ),
+            default=0,
         )
         max_raise_by = min(player.stack, max_opponent_stack)
         max_raise_to = highest_bet + max_raise_by
@@ -130,9 +136,7 @@ class LeanBoundedController(HybridAIController):
 
         if not options:
             logger.warning(f"[LEAN] No options for {self.player_name}, fallback")
-            return self._create_fallback_response(
-                'check' if 'check' in player_options else 'fold'
-            )
+            return self._create_fallback_response('check' if 'check' in player_options else 'fold')
 
         # Layer 5.5: Composed nudges (replace raw rationale with playstyle phrases)
         is_heads_up = rule_context.get('num_opponents', 2) <= 1
@@ -143,7 +147,10 @@ class LeanBoundedController(HybridAIController):
         emotional_shift = get_emotional_shift(self.psychology)
         if emotional_shift.severity != 'none':
             options = apply_emotional_window_shift(
-                options, emotional_shift, rule_context, profile,
+                options,
+                emotional_shift,
+                rule_context,
+                profile,
             )
 
         # Option ordering (local RNG per project convention)
@@ -163,8 +170,11 @@ class LeanBoundedController(HybridAIController):
         try:
             # Build minimal prompt and get decision
             lean_prompt = self._build_lean_prompt(
-                options, rule_context, profile_key,
-                profile=profile, emotional_shift=emotional_shift,
+                options,
+                rule_context,
+                profile_key,
+                profile=profile,
+                emotional_shift=emotional_shift,
             )
 
             llm_response = self.assistant.chat_full(
@@ -173,16 +183,18 @@ class LeanBoundedController(HybridAIController):
                 hand_number=self.current_hand_number,
                 prompt_template='decision_lean_bounded',
                 capture_enricher=self._make_hybrid_enricher(
-                    options, rule_context, capture_id, profile_key=profile_key,
+                    options,
+                    rule_context,
+                    capture_id,
+                    profile_key=profile_key,
                     range_data=range_data,
                 ),
             )
             response_dict = parse_json_response(llm_response.content)
         except Exception as e:
             logger.warning(
-                f"[LEAN] LLM/parse failed for {self.player_name}: "
-                f"{type(e).__name__}: {e}",
-                exc_info=True
+                f"[LEAN] LLM/parse failed for {self.player_name}: " f"{type(e).__name__}: {e}",
+                exc_info=True,
             )
             response_dict = None
         finally:
@@ -215,8 +227,9 @@ class LeanBoundedController(HybridAIController):
 
         return chosen
 
-    def _build_street_action_summary(self, phase: str, big_blind: int,
-                                       position_map: Optional[Dict[str, str]] = None) -> str:
+    def _build_street_action_summary(
+        self, phase: str, big_blind: int, position_map: Optional[Dict[str, str]] = None
+    ) -> str:
         """Build a compact summary of betting actions on the current street.
 
         Parses game_messages to extract actions for the current phase and
@@ -254,7 +267,8 @@ class LeanBoundedController(HybridAIController):
         for line in street_lines:
             m = re.match(
                 r'(.+?)\s+(?:checks|calls|raises|folds|goes all-in|bets)',
-                line.strip(), re.IGNORECASE,
+                line.strip(),
+                re.IGNORECASE,
             )
             if m:
                 name = m.group(1).strip()
@@ -280,7 +294,8 @@ class LeanBoundedController(HybridAIController):
             match = re.match(
                 r'(.+?)\s+(checks|calls|raises|folds|goes all-in|bets)'
                 r'(?:\s+(?:to\s+)?\$(\d+))?',
-                line_stripped, re.IGNORECASE,
+                line_stripped,
+                re.IGNORECASE,
             )
             if not match:
                 continue
@@ -357,10 +372,14 @@ class LeanBoundedController(HybridAIController):
         stack_bb = context.get('stack_bb', 0)
         pot_bb = context.get('pot_total', 0) / big_blind if big_blind > 0 else 0
         pos_segment = f" | Position: {position_short_label}" if position_short_label else ''
-        parts.append(f"Street: {street_name}{pos_segment} | Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB")
+        parts.append(
+            f"Street: {street_name}{pos_segment} | Stack: {stack_bb:.0f} BB | Pot: {pot_bb:.1f} BB"
+        )
 
         # Betting action this street
-        action_summary = self._build_street_action_summary(phase, big_blind, position_map=position_map)
+        action_summary = self._build_street_action_summary(
+            phase, big_blind, position_map=position_map
+        )
         if action_summary:
             parts.append(f"Action: {action_summary}")
 
@@ -401,7 +420,11 @@ class LeanBoundedController(HybridAIController):
         # Numbered options
         # Resolve EV visibility: PromptConfig override > profile default
         show_ev_override = getattr(self.prompt_config, 'show_ev_labels', None)
-        show_ev = show_ev_override if show_ev_override is not None else (profile.show_ev_labels if profile else True)
+        show_ev = (
+            show_ev_override
+            if show_ev_override is not None
+            else (profile.show_ev_labels if profile else True)
+        )
         use_nudges = getattr(self.prompt_config, 'composed_nudges', False)
 
         for i, opt in enumerate(options, 1):

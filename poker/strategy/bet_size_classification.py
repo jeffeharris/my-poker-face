@@ -17,12 +17,11 @@ stays put for now; consolidation is future work.
 from dataclasses import dataclass
 from typing import Optional
 
-
 # ── Bucket labels ──────────────────────────────────────────────────
-BUCKET_SMALL = 'small'       # required_equity ≤ 20%
-BUCKET_MEDIUM = 'medium'     # 20% < required_equity ≤ 35%
-BUCKET_LARGE = 'large'       # 35% < required_equity ≤ 50%
-BUCKET_JAM = 'jam'           # required_equity > 50% OR facing all-in
+BUCKET_SMALL = 'small'  # required_equity ≤ 20%
+BUCKET_MEDIUM = 'medium'  # 20% < required_equity ≤ 35%
+BUCKET_LARGE = 'large'  # 35% < required_equity ≤ 50%
+BUCKET_JAM = 'jam'  # required_equity > 50% OR facing all-in
 
 
 # ── Required-equity thresholds (per plan §4) ───────────────────────
@@ -45,6 +44,7 @@ class BetSizeClassification:
             want both inputs in one place. 0.0 when no bet to face.
         facing_all_in: True iff the decision is against an all-in jam.
     """
+
     bucket: Optional[str]
     required_equity: float
     bet_size_pot_ratio: float
@@ -119,7 +119,9 @@ def classify_bet_size(
         ratio = float(call_amount) / float(pot_before_bet)
     return BetSizeClassification(
         bucket=classify_bet_size_bucket(
-            call_amount, pot_before_bet, facing_all_in=facing_all_in,
+            call_amount,
+            pot_before_bet,
+            facing_all_in=facing_all_in,
         ),
         required_equity=req,
         bet_size_pot_ratio=ratio,

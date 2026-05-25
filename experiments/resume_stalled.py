@@ -29,17 +29,12 @@ sys.path.insert(0, str(project_root))
 
 from poker.repositories import create_repos
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 def list_stalled_variants(
-    experiment_repo,
-    experiment_id: int,
-    threshold_minutes: int = 5
+    experiment_repo, experiment_id: int, threshold_minutes: int = 5
 ) -> List[Dict]:
     """List stalled variants for an experiment.
 
@@ -54,8 +49,10 @@ def list_stalled_variants(
     stalled = experiment_repo.get_stalled_variants(experiment_id, threshold_minutes)
 
     if not stalled:
-        print(f"No stalled variants found for experiment {experiment_id} "
-              f"(threshold: {threshold_minutes} minutes)")
+        print(
+            f"No stalled variants found for experiment {experiment_id} "
+            f"(threshold: {threshold_minutes} minutes)"
+        )
         return []
 
     print(f"\nStalled variants for experiment {experiment_id}:")
@@ -79,11 +76,7 @@ def list_stalled_variants(
 
 
 def resume_variant(
-    experiment_repo,
-    db_path: str,
-    experiment_id: int,
-    game_id: str,
-    config_dict: Dict
+    experiment_repo, db_path: str, experiment_id: int, game_id: str, config_dict: Dict
 ) -> bool:
     """Resume a specific stalled variant.
 
@@ -97,11 +90,12 @@ def resume_variant(
     Returns:
         True if successfully resumed, False otherwise
     """
+    from experiments.resume_helpers import build_experiment_config, resume_variant_impl
     from experiments.run_ai_tournament import (
         AITournamentRunner,
-        TournamentPausedException, TournamentSupersededException
+        TournamentPausedException,
+        TournamentSupersededException,
     )
-    from experiments.resume_helpers import resume_variant_impl, build_experiment_config
 
     logger.info(f"Attempting to resume variant {game_id}")
 
@@ -137,7 +131,9 @@ def resume_variant(
             runner = AITournamentRunner(exp_config, db_path=db_path)
             runner.experiment_id = experiment_id
             runner._save_result(result)
-            logger.info(f"Variant {game_id} completed successfully: {result.winner} won in {result.hands_played} hands")
+            logger.info(
+                f"Variant {game_id} completed successfully: {result.winner} won in {result.hands_played} hands"
+            )
             return True
 
         return False
@@ -160,41 +156,20 @@ def resume_variant(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='List and resume stalled experiment variants'
-    )
+    parser = argparse.ArgumentParser(description='List and resume stalled experiment variants')
+    parser.add_argument('-e', '--experiment-id', type=int, required=True, help='The experiment ID')
+    parser.add_argument('--list', action='store_true', help='List stalled variants')
+    parser.add_argument('--resume-all', action='store_true', help='Resume all stalled variants')
     parser.add_argument(
-        '-e', '--experiment-id',
-        type=int,
-        required=True,
-        help='The experiment ID'
-    )
-    parser.add_argument(
-        '--list',
-        action='store_true',
-        help='List stalled variants'
-    )
-    parser.add_argument(
-        '--resume-all',
-        action='store_true',
-        help='Resume all stalled variants'
-    )
-    parser.add_argument(
-        '-g', '--game-id',
-        type=str,
-        help='Resume a specific game/variant by game_id'
+        '-g', '--game-id', type=str, help='Resume a specific game/variant by game_id'
     )
     parser.add_argument(
         '--threshold',
         type=int,
         default=5,
-        help='Minutes of inactivity before considered stalled (default: 5)'
+        help='Minutes of inactivity before considered stalled (default: 5)',
     )
-    parser.add_argument(
-        '--db-path',
-        type=str,
-        help='Path to database (default: auto-detect)'
-    )
+    parser.add_argument('--db-path', type=str, help='Path to database (default: auto-detect)')
 
     args = parser.parse_args()
 
@@ -224,13 +199,15 @@ def main():
     elif args.resume_all:
         stalled = experiment_repo.get_stalled_variants(args.experiment_id, args.threshold)
         if not stalled:
-            print(f"No stalled variants to resume")
+            print("No stalled variants to resume")
             sys.exit(0)
 
         print(f"Resuming {len(stalled)} stalled variant(s)...")
         success_count = 0
         for variant in stalled:
-            if resume_variant(experiment_repo, db_path, args.experiment_id, variant['game_id'], config_dict):
+            if resume_variant(
+                experiment_repo, db_path, args.experiment_id, variant['game_id'], config_dict
+            ):
                 success_count += 1
 
         print(f"\nResumed {success_count}/{len(stalled)} variants successfully")

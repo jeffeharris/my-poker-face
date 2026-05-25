@@ -10,23 +10,30 @@ using controlled game states to catch bugs in:
 - Side pot distributions
 - Mid-tournament eliminations
 """
-import unittest
-import tempfile
+
 import os
-from typing import List, Dict, Any, Tuple
+import tempfile
+import unittest
+from typing import Any, Dict, List, Tuple
+
 import pytest
 
+from core.card import Card
 from poker.poker_game import (
-    Player, PokerGameState, initialize_game_state,
-    determine_winner, award_pot_winnings
+    Player,
+    PokerGameState,
+    award_pot_winnings,
+    determine_winner,
+    initialize_game_state,
 )
 from poker.poker_state_machine import (
-    PokerStateMachine, PokerPhase, ImmutableStateMachine,
-    run_betting_round_transition
+    ImmutableStateMachine,
+    PokerPhase,
+    PokerStateMachine,
+    run_betting_round_transition,
 )
-from poker.tournament_tracker import TournamentTracker, EliminationEvent
 from poker.repositories import create_repos
-from core.card import Card
+from poker.tournament_tracker import EliminationEvent, TournamentTracker
 
 pytestmark = pytest.mark.integration
 
@@ -35,10 +42,17 @@ pytestmark = pytest.mark.integration
 # Helper Functions
 # =============================================================================
 
-def create_player(name: str, stack: int = 1000, bet: int = 0,
-                  is_human: bool = False, is_folded: bool = False,
-                  is_all_in: bool = False, has_acted: bool = False,
-                  hand: Tuple = ()) -> Player:
+
+def create_player(
+    name: str,
+    stack: int = 1000,
+    bet: int = 0,
+    is_human: bool = False,
+    is_folded: bool = False,
+    is_all_in: bool = False,
+    has_acted: bool = False,
+    hand: Tuple = (),
+) -> Player:
     """Create a player with specified attributes."""
     return Player(
         name=name,
@@ -82,7 +96,8 @@ def create_game_state(
     for p in players:
         pot[p.name] = p.bet
 
-    return PokerGameState(deck=(),
+    return PokerGameState(
+        deck=(),
         players=tuple(players),
         community_cards=community_cards,
         pot=pot,
@@ -93,8 +108,7 @@ def create_game_state(
 
 
 def create_state_machine(
-    game_state: PokerGameState,
-    phase: PokerPhase = PokerPhase.RIVER
+    game_state: PokerGameState, phase: PokerPhase = PokerPhase.RIVER
 ) -> PokerStateMachine:
     """Create a state machine at a specific phase."""
     return PokerStateMachine.from_saved_state(game_state, phase)
@@ -103,6 +117,7 @@ def create_state_machine(
 # =============================================================================
 # Test Classes
 # =============================================================================
+
 
 class TestRunItOutPersistence(unittest.TestCase):
     """Tests for run_it_out flag persistence across save/reload."""
@@ -173,10 +188,7 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
             {'name': 'AI2', 'is_human': False},
             {'name': 'AI3', 'is_human': False},
         ]
-        tracker = TournamentTracker(
-            game_id=self.game_id,
-            starting_players=starting_players
-        )
+        tracker = TournamentTracker(game_id=self.game_id, starting_players=starting_players)
 
         # Record eliminations
         tracker.on_player_eliminated('AI3', 'AI1', pot_size=500)
@@ -210,10 +222,7 @@ class TestTournamentTrackerPersistence(unittest.TestCase):
             {'name': 'Human', 'is_human': True},
             {'name': 'AI1', 'is_human': False},
         ]
-        tracker = TournamentTracker(
-            game_id=self.game_id,
-            starting_players=starting_players
-        )
+        tracker = TournamentTracker(game_id=self.game_id, starting_players=starting_players)
 
         self.game_repo.save_tournament_tracker(self.game_id, tracker)
         tracker_data = self.game_repo.load_tournament_tracker(self.game_id)
@@ -241,13 +250,13 @@ class TestFinalHandPosition(unittest.TestCase):
         human_hand = create_hand(('K', 'spades'), ('K', 'hearts'))  # Pair of Kings
         ai_hand = create_hand(('A', 'spades'), ('A', 'hearts'))  # Pair of Aces
         community = create_community_cards(
-            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'),
-            ('2', 'hearts'), ('3', 'diamonds')
+            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'), ('2', 'hearts'), ('3', 'diamonds')
         )
 
         players = [
-            create_player('Human', stack=0, bet=1000, is_human=True,
-                         is_all_in=True, hand=human_hand),
+            create_player(
+                'Human', stack=0, bet=1000, is_human=True, is_all_in=True, hand=human_hand
+            ),
             create_player('AI', stack=0, bet=1000, is_all_in=True, hand=ai_hand),
         ]
         game_state = create_game_state(players, community_cards=community)
@@ -277,13 +286,13 @@ class TestFinalHandPosition(unittest.TestCase):
         human_hand = create_hand(('A', 'spades'), ('A', 'hearts'))  # Pair of Aces
         ai_hand = create_hand(('K', 'spades'), ('K', 'hearts'))  # Pair of Kings
         community = create_community_cards(
-            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'),
-            ('2', 'hearts'), ('3', 'diamonds')
+            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'), ('2', 'hearts'), ('3', 'diamonds')
         )
 
         players = [
-            create_player('Human', stack=0, bet=1000, is_human=True,
-                         is_all_in=True, hand=human_hand),
+            create_player(
+                'Human', stack=0, bet=1000, is_human=True, is_all_in=True, hand=human_hand
+            ),
             create_player('AI', stack=0, bet=1000, is_all_in=True, hand=ai_hand),
         ]
         game_state = create_game_state(players, community_cards=community)
@@ -323,8 +332,7 @@ class TestMultiWayAllIn(unittest.TestCase):
         p2_hand = create_hand(('K', 'spades'), ('K', 'hearts'))
         p3_hand = create_hand(('Q', 'spades'), ('Q', 'hearts'))
         community = create_community_cards(
-            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'),
-            ('2', 'hearts'), ('3', 'diamonds')
+            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'), ('2', 'hearts'), ('3', 'diamonds')
         )
 
         players = [
@@ -362,10 +370,7 @@ class TestMidTournamentElimination(unittest.TestCase):
             {'name': 'AI2', 'is_human': False},
             {'name': 'AI3', 'is_human': False},
         ]
-        tracker = TournamentTracker(
-            game_id='test_game',
-            starting_players=starting_players
-        )
+        tracker = TournamentTracker(game_id='test_game', starting_players=starting_players)
 
         # First elimination - should be 4th place
         event1 = tracker.on_player_eliminated('AI3', 'AI1', pot_size=500)
@@ -384,10 +389,7 @@ class TestMidTournamentElimination(unittest.TestCase):
             {'name': 'AI1', 'is_human': False},
             {'name': 'AI2', 'is_human': False},
         ]
-        tracker = TournamentTracker(
-            game_id='test_game',
-            starting_players=starting_players
-        )
+        tracker = TournamentTracker(game_id='test_game', starting_players=starting_players)
 
         self.assertIn('AI2', tracker._active_players)
         self.assertEqual(tracker.active_player_count, 3)
@@ -404,7 +406,7 @@ class TestMidTournamentElimination(unittest.TestCase):
             starting_players=[
                 {'name': 'P1', 'is_human': False},
                 {'name': 'P2', 'is_human': False},
-            ]
+            ],
         )
 
         tracker.on_player_eliminated('P2', 'P1')
@@ -425,7 +427,7 @@ class TestTournamentStandings(unittest.TestCase):
                 {'name': 'P2', 'is_human': False},
                 {'name': 'P3', 'is_human': False},
                 {'name': 'P4', 'is_human': False},
-            ]
+            ],
         )
 
         # Eliminate in order: P4 (4th), P3 (3rd), P2 (2nd)
@@ -453,7 +455,7 @@ class TestTournamentStandings(unittest.TestCase):
                 {'name': 'Human', 'is_human': True},
                 {'name': 'AI1', 'is_human': False},
                 {'name': 'AI2', 'is_human': False},
-            ]
+            ],
         )
 
         tracker.on_player_eliminated('AI2', 'Human')
@@ -474,8 +476,7 @@ class TestWinnerInfoStructure(unittest.TestCase):
         human_hand = create_hand(('A', 'spades'), ('K', 'spades'))
         ai_hand = create_hand(('Q', 'hearts'), ('J', 'hearts'))
         community = create_community_cards(
-            ('A', 'hearts'), ('K', 'hearts'), ('7', 'diamonds'),
-            ('2', 'clubs'), ('3', 'spades')
+            ('A', 'hearts'), ('K', 'hearts'), ('7', 'diamonds'), ('2', 'clubs'), ('3', 'spades')
         )
 
         players = [
@@ -504,24 +505,36 @@ class TestWinnerInfoStructure(unittest.TestCase):
     def test_pot_breakdown_amounts_sum_to_total(self):
         """Pot breakdown amounts should sum to total pot."""
         players = [
-            create_player('P1', stack=0, bet=300, is_all_in=True,
-                         hand=create_hand(('A', 'spades'), ('A', 'hearts'))),
-            create_player('P2', stack=0, bet=500, is_all_in=True,
-                         hand=create_hand(('K', 'spades'), ('K', 'hearts'))),
-            create_player('P3', stack=0, bet=500, is_all_in=True,
-                         hand=create_hand(('Q', 'spades'), ('Q', 'hearts'))),
+            create_player(
+                'P1',
+                stack=0,
+                bet=300,
+                is_all_in=True,
+                hand=create_hand(('A', 'spades'), ('A', 'hearts')),
+            ),
+            create_player(
+                'P2',
+                stack=0,
+                bet=500,
+                is_all_in=True,
+                hand=create_hand(('K', 'spades'), ('K', 'hearts')),
+            ),
+            create_player(
+                'P3',
+                stack=0,
+                bet=500,
+                is_all_in=True,
+                hand=create_hand(('Q', 'spades'), ('Q', 'hearts')),
+            ),
         ]
         community = create_community_cards(
-            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'),
-            ('2', 'hearts'), ('3', 'diamonds')
+            ('7', 'diamonds'), ('8', 'clubs'), ('9', 'spades'), ('2', 'hearts'), ('3', 'diamonds')
         )
         game_state = create_game_state(players, community_cards=community)
 
         winner_info = determine_winner(game_state)
 
-        total_from_breakdown = sum(
-            pot['total_amount'] for pot in winner_info['pot_breakdown']
-        )
+        total_from_breakdown = sum(pot['total_amount'] for pot in winner_info['pot_breakdown'])
         expected_total = 300 + 500 + 500  # 1300
 
         self.assertEqual(total_from_breakdown, expected_total)

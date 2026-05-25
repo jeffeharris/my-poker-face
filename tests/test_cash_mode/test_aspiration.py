@@ -19,7 +19,6 @@ from cash_mode.aspiration import (
     wealth_gap_factor,
 )
 
-
 # --- aspiration_bias_factor --------------------------------------------------
 
 
@@ -154,14 +153,20 @@ class TestComputeAspirationProbability:
         # No target tier → no probability.
         assert (
             compute_aspiration_probability(
-                aspiration_bias=1.0, bankroll=25_000, target_min_buy_in=0,
-            ) == 0.0
+                aspiration_bias=1.0,
+                bankroll=25_000,
+                target_min_buy_in=0,
+            )
+            == 0.0
         )
         # Negative bankroll → no probability.
         assert (
             compute_aspiration_probability(
-                aspiration_bias=1.0, bankroll=-5_000, target_min_buy_in=10_000,
-            ) == 0.0
+                aspiration_bias=1.0,
+                bankroll=-5_000,
+                target_min_buy_in=10_000,
+            )
+            == 0.0
         )
 
     def test_lincoln_class_low_but_nonzero(self):

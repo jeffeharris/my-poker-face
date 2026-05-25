@@ -50,6 +50,11 @@ ignore = [
 "scripts/**/*.py" = ["E402", "T201"]
 "experiments/**/*.py" = ["E402"]
 "**/migrations/**/*.py" = ["E402"]
+# Flask route/handler/extension modules expose attributes for tests to patch via
+# `patch('flask_app.routes.foo.bar', ...)`. Removing "unused" imports breaks those tests.
+"flask_app/routes/*.py" = ["F401"]
+"flask_app/handlers/*.py" = ["F401"]
+"flask_app/extensions.py" = ["F401"]
 
 [tool.ruff.lint.isort]
 # Treat first-party packages as local imports.

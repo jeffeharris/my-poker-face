@@ -7,17 +7,18 @@ from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import limiter, game_repo, coach_repo, auth_manager
-from ..services import game_state_service
-from ..services.coach_engine import compute_coaching_data_with_progression
-from ..services.coach_assistant import get_or_create_coach_with_mode
-from ..services.coach_progression import CoachProgressionService
 from flask_app.utils.hand_context import (
     build_hand_context_from_recorded_hand,
     format_hand_context_for_prompt,
 )
-from poker.authorization import require_permission, get_authorization_service
-from ..services.skill_definitions import ALL_SKILLS, ALL_GATES
+from poker.authorization import get_authorization_service, require_permission
+
+from ..extensions import auth_manager, coach_repo, game_repo, limiter
+from ..services import game_state_service
+from ..services.coach_assistant import get_or_create_coach_with_mode
+from ..services.coach_engine import compute_coaching_data_with_progression
+from ..services.coach_progression import CoachProgressionService
+from ..services.skill_definitions import ALL_GATES, ALL_SKILLS
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,11 @@ def coach_stats(game_id: str):
 
     user_id = _get_current_user_id()
     data = compute_coaching_data_with_progression(
-        game_id, player_name, user_id=user_id,
-        game_data=game_data, coach_repo=coach_repo,
+        game_id,
+        player_name,
+        user_id=user_id,
+        game_data=game_data,
+        coach_repo=coach_repo,
     )
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
@@ -136,8 +140,11 @@ def coach_ask(game_id: str):
     # Compute current stats with progression context
     user_id = _get_current_user_id()
     stats = compute_coaching_data_with_progression(
-        game_id, player_name, user_id=user_id,
-        game_data=game_data, coach_repo=coach_repo,
+        game_id,
+        player_name,
+        user_id=user_id,
+        game_data=game_data,
+        coach_repo=coach_repo,
     )
 
     # Use mode-aware coach if progression data is available
@@ -146,7 +153,8 @@ def coach_ask(game_id: str):
     coaching_prompt = progression.get('coaching_prompt', '')
 
     coach = get_or_create_coach_with_mode(
-        game_data, game_id,
+        game_data,
+        game_id,
         player_name=request_player_name or player_name,
         mode=coaching_mode,
         skill_context=coaching_prompt,
@@ -180,12 +188,14 @@ def coach_ask(game_id: str):
         stats['recommendation'] = coach_action
         stats['raise_to'] = coach_raise_to
 
-    return jsonify({
-        'answer': answer,
-        'coach_action': coach_action,
-        'coach_raise_to': coach_raise_to,
-        'stats': stats,
-    })
+    return jsonify(
+        {
+            'answer': answer,
+            'coach_action': coach_action,
+            'coach_raise_to': coach_raise_to,
+            'stats': stats,
+        }
+    )
 
 
 @coach_bp.route('/api/coach/<game_id>/config', methods=['GET'])
@@ -276,7 +286,10 @@ def coach_hand_review(game_id: str):
         if live_state is not None:
             big_blind = getattr(live_state, 'current_ante', None)
     hand_text = format_hand_context_for_prompt(
-        context, player_name, recorded_hand=hand, big_blind=big_blind,
+        context,
+        player_name,
+        recorded_hand=hand,
+        big_blind=big_blind,
     )
 
     # Append skill evaluations from SessionMemory (if available)
@@ -296,7 +309,8 @@ def coach_hand_review(game_id: str):
 
     # Use mode-aware coach with REVIEW mode
     coach = get_or_create_coach_with_mode(
-        game_data, game_id,
+        game_data,
+        game_id,
         player_name=request_player_name or player_name,
         mode='review',
         skill_context='',
@@ -308,10 +322,12 @@ def coach_hand_review(game_id: str):
         logger.error(f"Coach hand review failed: {e}", exc_info=True)
         return jsonify({'error': 'Coach unavailable'}), 503
 
-    return jsonify({
-        'review': review,
-        'hand_number': hand_number,
-    })
+    return jsonify(
+        {
+            'review': review,
+            'hand_number': hand_number,
+        }
+    )
 
 
 @coach_bp.route('/api/coach/<game_id>/progression')
@@ -330,33 +346,37 @@ def coach_progression(game_id: str):
         service = CoachProgressionService(coach_repo)
         state = service.get_or_initialize_player(user_id)
 
-        return jsonify({
-            'skill_states': {
-                sid: {
-                    'state': ss.state.value,
-                    'total_opportunities': ss.total_opportunities,
-                    'total_correct': ss.total_correct,
-                    'window_accuracy': round(ss.window_accuracy, 2),
-                    'streak_correct': ss.streak_correct,
-                    'name': ALL_SKILLS[sid].name if sid in ALL_SKILLS else sid,
-                    'description': ALL_SKILLS[sid].description if sid in ALL_SKILLS else '',
-                    'gate': ALL_SKILLS[sid].gate if sid in ALL_SKILLS else 0,
-                }
-                for sid, ss in state['skill_states'].items()
-            },
-            'gate_progress': {
-                str(gn): {
-                    'unlocked': state['gate_progress'][gn].unlocked
-                    if gn in state['gate_progress'] else False,
-                    'unlocked_at': state['gate_progress'][gn].unlocked_at
-                    if gn in state['gate_progress'] else None,
-                    'name': gate_def.name,
-                    'description': gate_def.description,
-                }
-                for gn, gate_def in ALL_GATES.items()
-            },
-            'profile': state['profile'],
-        })
+        return jsonify(
+            {
+                'skill_states': {
+                    sid: {
+                        'state': ss.state.value,
+                        'total_opportunities': ss.total_opportunities,
+                        'total_correct': ss.total_correct,
+                        'window_accuracy': round(ss.window_accuracy, 2),
+                        'streak_correct': ss.streak_correct,
+                        'name': ALL_SKILLS[sid].name if sid in ALL_SKILLS else sid,
+                        'description': ALL_SKILLS[sid].description if sid in ALL_SKILLS else '',
+                        'gate': ALL_SKILLS[sid].gate if sid in ALL_SKILLS else 0,
+                    }
+                    for sid, ss in state['skill_states'].items()
+                },
+                'gate_progress': {
+                    str(gn): {
+                        'unlocked': state['gate_progress'][gn].unlocked
+                        if gn in state['gate_progress']
+                        else False,
+                        'unlocked_at': state['gate_progress'][gn].unlocked_at
+                        if gn in state['gate_progress']
+                        else None,
+                        'name': gate_def.name,
+                        'description': gate_def.description,
+                    }
+                    for gn, gate_def in ALL_GATES.items()
+                },
+                'profile': state['profile'],
+            }
+        )
     except Exception as e:
         logger.error(f"Coach progression failed: {e}", exc_info=True)
         return jsonify({'error': 'Could not load progression'}), 500
@@ -398,10 +418,12 @@ def coach_onboarding(game_id: str):
             state = service.initialize_player(user_id, level=level)
             logger.info(f"Initialized new player {user_id} at level {level}")
 
-        return jsonify({
-            'status': 'ok',
-            'profile': state['profile'],
-        })
+        return jsonify(
+            {
+                'status': 'ok',
+                'profile': state['profile'],
+            }
+        )
     except Exception as e:
         logger.error(f"Coach onboarding failed: {e}", exc_info=True)
         return jsonify({'error': 'Onboarding failed'}), 500

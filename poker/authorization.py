@@ -3,6 +3,7 @@ Authorization service for My Poker Face.
 
 Provides role-based access control (RBAC) through groups and permissions.
 """
+
 import logging
 from functools import wraps
 from typing import Optional, Set
@@ -82,35 +83,38 @@ class AuthorizationService:
         Returns:
             Decorator function
         """
+
         def decorator(f):
             @wraps(f)
             def decorated_function(*args, **kwargs):
                 user = self.auth_manager.get_current_user()
                 if not user:
-                    return jsonify({
-                        'error': 'Authentication required',
-                        'code': 'AUTH_REQUIRED'
-                    }), 401
+                    return jsonify(
+                        {'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+                    ), 401
 
                 user_id = user.get('id')
                 if not user_id:
-                    return jsonify({
-                        'error': 'Invalid user session',
-                        'code': 'INVALID_SESSION'
-                    }), 401
+                    return jsonify(
+                        {'error': 'Invalid user session', 'code': 'INVALID_SESSION'}
+                    ), 401
 
                 if not self.has_permission(user_id, permission):
                     logger.warning(
                         f"User {user_id} denied access: missing permission '{permission}'"
                     )
-                    return jsonify({
-                        'error': 'Permission denied',
-                        'code': 'PERMISSION_DENIED',
-                        'required_permission': permission
-                    }), 403
+                    return jsonify(
+                        {
+                            'error': 'Permission denied',
+                            'code': 'PERMISSION_DENIED',
+                            'required_permission': permission,
+                        }
+                    ), 403
 
                 return f(*args, **kwargs)
+
             return decorated_function
+
         return decorator
 
 
@@ -154,41 +158,37 @@ def require_permission(permission: str):
     Returns:
         Decorator function
     """
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if not authorization_service:
                 logger.error("Authorization service not initialized")
-                return jsonify({
-                    'error': 'Server configuration error',
-                    'code': 'AUTH_NOT_CONFIGURED'
-                }), 500
+                return jsonify(
+                    {'error': 'Server configuration error', 'code': 'AUTH_NOT_CONFIGURED'}
+                ), 500
 
             # Check permission directly instead of creating nested decorator
             user = authorization_service.auth_manager.get_current_user()
             if not user:
-                return jsonify({
-                    'error': 'Authentication required',
-                    'code': 'AUTH_REQUIRED'
-                }), 401
+                return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
             user_id = user.get('id')
             if not user_id:
-                return jsonify({
-                    'error': 'Invalid user session',
-                    'code': 'INVALID_SESSION'
-                }), 401
+                return jsonify({'error': 'Invalid user session', 'code': 'INVALID_SESSION'}), 401
 
             if not authorization_service.has_permission(user_id, permission):
-                logger.warning(
-                    f"User {user_id} denied access: missing permission '{permission}'"
-                )
-                return jsonify({
-                    'error': 'Permission denied',
-                    'code': 'PERMISSION_DENIED',
-                    'required_permission': permission
-                }), 403
+                logger.warning(f"User {user_id} denied access: missing permission '{permission}'")
+                return jsonify(
+                    {
+                        'error': 'Permission denied',
+                        'code': 'PERMISSION_DENIED',
+                        'required_permission': permission,
+                    }
+                ), 403
 
             return f(*args, **kwargs)
+
         return decorated_function
+
     return decorator

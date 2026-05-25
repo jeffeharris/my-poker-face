@@ -4,6 +4,7 @@ This module consolidates card string conversion logic that was previously
 duplicated across controllers.py, decision_analyzer.py, hand_ranges.py,
 and minimal_prompt.py.
 """
+
 from typing import Union
 
 # Unicode suit symbols to letter mapping for eval7 compatibility
@@ -11,10 +12,26 @@ SUIT_MAP = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
 
 # Extended suit map for various input formats
 SUIT_MAP_EXTENDED = {
-    'Spades': 's', 'spades': 's', 'S': 's', 's': 's', '♠': 's',
-    'Hearts': 'h', 'hearts': 'h', 'H': 'h', 'h': 'h', '♥': 'h',
-    'Diamonds': 'd', 'diamonds': 'd', 'D': 'd', 'd': 'd', '♦': 'd',
-    'Clubs': 'c', 'clubs': 'c', 'C': 'c', 'c': 'c', '♣': 'c',
+    'Spades': 's',
+    'spades': 's',
+    'S': 's',
+    's': 's',
+    '♠': 's',
+    'Hearts': 'h',
+    'hearts': 'h',
+    'H': 'h',
+    'h': 'h',
+    '♥': 'h',
+    'Diamonds': 'd',
+    'diamonds': 'd',
+    'D': 'd',
+    'd': 'd',
+    '♦': 'd',
+    'Clubs': 'c',
+    'clubs': 'c',
+    'C': 'c',
+    'c': 'c',
+    '♣': 'c',
 }
 
 

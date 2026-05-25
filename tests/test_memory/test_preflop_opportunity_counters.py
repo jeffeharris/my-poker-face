@@ -23,7 +23,6 @@ import pytest
 from poker.memory.memory_manager import AIMemoryManager
 from poker.memory.opponent_model import OpponentTendencies
 
-
 # ── Direct OpponentTendencies tests ─────────────────────────────────────
 
 
@@ -43,8 +42,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'raise', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=False,
+            'raise',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=False,
         )
         assert t._preflop_open_opportunities == 1
         assert t._preflop_open_raise_count == 1
@@ -59,8 +61,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'fold', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=True,
+            'fold',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=True,
         )
         # Voluntary opp ticks. Open opp does NOT (was_facing_bet=True).
         assert t._preflop_voluntary_opportunities == 1
@@ -78,8 +83,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'check', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=False,
+            'check',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=False,
         )
         # Both opp denominators tick.
         assert t._preflop_voluntary_opportunities == 1
@@ -93,8 +101,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'call', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=True,
+            'call',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=True,
         )
         # Voluntary opp + action tick.
         assert t._preflop_voluntary_opportunities == 1
@@ -114,8 +125,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'raise', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=True,  # 3-bet!
+            'raise',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=True,  # 3-bet!
         )
         # Legacy PFR still ticks.
         assert t._pfr_count == 1
@@ -133,12 +147,18 @@ class TestOpportunityCounters:
         # 3-bets them, opponent calls (raise, facing bet). Two voluntary
         # decisions but only ONE hand of data.
         t.update_from_action(
-            'raise', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=False,
+            'raise',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=False,
         )
         t.update_from_action(
-            'call', 'PRE_FLOP', is_voluntary=True,
-            count_hand=False, was_facing_bet=True,
+            'call',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=False,
+            was_facing_bet=True,
         )
         # Once-per-hand: denominators don't double-count.
         assert t._preflop_voluntary_opportunities == 1
@@ -155,8 +175,11 @@ class TestOpportunityCounters:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'sb', 'PRE_FLOP', is_voluntary=False,
-            count_hand=True, was_facing_bet=False,
+            'sb',
+            'PRE_FLOP',
+            is_voluntary=False,
+            count_hand=True,
+            was_facing_bet=False,
         )
         assert t._preflop_voluntary_opportunities == 0
         assert t._preflop_open_opportunities == 0
@@ -167,7 +190,10 @@ class TestOpportunityCounters:
         t.record_hand_dealt()
         # No was_facing_bet supplied (default None).
         t.update_from_action(
-            'raise', 'PRE_FLOP', is_voluntary=True, count_hand=True,
+            'raise',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
         )
         # Neither denominator nor numerator should move.
         assert t._preflop_voluntary_opportunities == 0
@@ -186,14 +212,20 @@ class TestOpportunityCounters:
         for i in range(5):
             t.record_hand_dealt()
             t.update_from_action(
-                'raise', 'PRE_FLOP', is_voluntary=True,
-                count_hand=True, was_facing_bet=False,
+                'raise',
+                'PRE_FLOP',
+                is_voluntary=True,
+                count_hand=True,
+                was_facing_bet=False,
             )
         for i in range(5):
             t.record_hand_dealt()
             t.update_from_action(
-                'raise', 'PRE_FLOP', is_voluntary=True,
-                count_hand=True, was_facing_bet=True,
+                'raise',
+                'PRE_FLOP',
+                is_voluntary=True,
+                count_hand=True,
+                was_facing_bet=True,
             )
         # Legacy pfr: 10/10 hands_dealt = 1.0 (since each hand had an
         # action). But legacy pfr could be lower if not every hand
@@ -215,13 +247,19 @@ class TestSerialization:
         t = OpponentTendencies()
         t.record_hand_dealt()
         t.update_from_action(
-            'raise', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=False,
+            'raise',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=False,
         )
         t.record_hand_dealt()
         t.update_from_action(
-            'call', 'PRE_FLOP', is_voluntary=True,
-            count_hand=True, was_facing_bet=True,
+            'call',
+            'PRE_FLOP',
+            is_voluntary=True,
+            count_hand=True,
+            was_facing_bet=True,
         )
         data = t.to_dict()
         t2 = OpponentTendencies.from_dict(data)
@@ -258,10 +296,7 @@ class TestSerialization:
 
 
 def _gs(*names):
-    players = [
-        SimpleNamespace(name=n, stack=10000, is_human=False, hand=None)
-        for n in names
-    ]
+    players = [SimpleNamespace(name=n, stack=10000, is_human=False, hand=None) for n in names]
     return SimpleNamespace(players=players, table_positions={})
 
 
@@ -281,8 +316,12 @@ class TestMemoryManagerIntegration:
         mm.on_hand_start(_gs('Hero', 'Villain'), hand_number=1)
         # Villain acts first preflop with no prior raise → open opp.
         mm.on_action(
-            'Villain', 'raise', amount=300, phase='PRE_FLOP',
-            pot_total=300, active_players=['Hero', 'Villain'],
+            'Villain',
+            'raise',
+            amount=300,
+            phase='PRE_FLOP',
+            pot_total=300,
+            active_players=['Hero', 'Villain'],
         )
         t = mm.opponent_model_manager.get_model('Hero', 'Villain').tendencies
         assert t._preflop_open_opportunities == 1
@@ -296,13 +335,21 @@ class TestMemoryManagerIntegration:
         mm.on_hand_start(_gs('Hero', 'Villain'), hand_number=1)
         # Hero raises first (sets preflop aggressor).
         mm.on_action(
-            'Hero', 'raise', amount=300, phase='PRE_FLOP',
-            pot_total=300, active_players=['Hero', 'Villain'],
+            'Hero',
+            'raise',
+            amount=300,
+            phase='PRE_FLOP',
+            pot_total=300,
+            active_players=['Hero', 'Villain'],
         )
         # Villain now facing a raise — calls.
         mm.on_action(
-            'Villain', 'call', amount=300, phase='PRE_FLOP',
-            pot_total=600, active_players=['Hero', 'Villain'],
+            'Villain',
+            'call',
+            amount=300,
+            phase='PRE_FLOP',
+            pot_total=600,
+            active_players=['Hero', 'Villain'],
         )
         t = mm.opponent_model_manager.get_model('Hero', 'Villain').tendencies
         # Voluntary opp ticks.
@@ -319,12 +366,20 @@ class TestMemoryManagerIntegration:
         mm.on_hand_start(_gs('Hero', 'Villain'), hand_number=1)
         # Hero raises, Villain 3-bets.
         mm.on_action(
-            'Hero', 'raise', amount=300, phase='PRE_FLOP',
-            pot_total=300, active_players=['Hero', 'Villain'],
+            'Hero',
+            'raise',
+            amount=300,
+            phase='PRE_FLOP',
+            pot_total=300,
+            active_players=['Hero', 'Villain'],
         )
         mm.on_action(
-            'Villain', 'raise', amount=900, phase='PRE_FLOP',
-            pot_total=1200, active_players=['Hero', 'Villain'],
+            'Villain',
+            'raise',
+            amount=900,
+            phase='PRE_FLOP',
+            pot_total=1200,
+            active_players=['Hero', 'Villain'],
         )
         t = mm.opponent_model_manager.get_model('Hero', 'Villain').tendencies
         # Legacy PFR ticks (any preflop raise).
@@ -339,8 +394,12 @@ class TestMemoryManagerIntegration:
         mm.initialize_for_player('Villain')
         mm.on_hand_start(_gs('Hero', 'Villain'), hand_number=1)
         mm.on_action(
-            'Villain', 'bet', amount=300, phase='FLOP',
-            pot_total=300, active_players=['Hero', 'Villain'],
+            'Villain',
+            'bet',
+            amount=300,
+            phase='FLOP',
+            pot_total=300,
+            active_players=['Hero', 'Villain'],
         )
         t = mm.opponent_model_manager.get_model('Hero', 'Villain').tendencies
         # Preflop counters stay at zero — the action was postflop.

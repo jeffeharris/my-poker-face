@@ -34,19 +34,29 @@ from poker.strategy.strategy_profile import StrategyProfile
 
 def _anchors(**overrides) -> PersonalityAnchors:
     defaults = dict(
-        baseline_aggression=0.9, baseline_looseness=0.7,
-        ego=0.6, poise=0.5, expressiveness=0.5,
-        risk_identity=0.6, adaptation_bias=0.5,
-        baseline_energy=0.5, recovery_rate=0.15,
+        baseline_aggression=0.9,
+        baseline_looseness=0.7,
+        ego=0.6,
+        poise=0.5,
+        expressiveness=0.5,
+        risk_identity=0.6,
+        adaptation_bias=0.5,
+        baseline_energy=0.5,
+        recovery_rate=0.15,
     )
     defaults.update(overrides)
     return PersonalityAnchors(**defaults)
 
 
 COMPOSED = EmotionalShift(state='composed', severity='none', intensity=0.0)
-BASE_STRATEGY = StrategyProfile(action_probabilities={
-    'fold': 0.3, 'call': 0.4, 'raise_2.5bb': 0.2, 'jam': 0.1,
-})
+BASE_STRATEGY = StrategyProfile(
+    action_probabilities={
+        'fold': 0.3,
+        'call': 0.4,
+        'raise_2.5bb': 0.2,
+        'jam': 0.1,
+    }
+)
 LEGAL = ['fold', 'call', 'raise', 'all_in']
 
 

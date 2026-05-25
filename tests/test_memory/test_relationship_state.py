@@ -92,9 +92,7 @@ class TestProjectHeatDecay:
 
     def test_two_half_lives_quarters_the_heat(self):
         tick = datetime(2026, 5, 1, 12, 0, 0)
-        now = tick + timedelta(
-            days=HEAT_DECAY_PLATEAU_DAYS + 2 * HEAT_DECAY_HALF_LIFE_DAYS
-        )
+        now = tick + timedelta(days=HEAT_DECAY_PLATEAU_DAYS + 2 * HEAT_DECAY_HALF_LIFE_DAYS)
         s = RelationshipState(heat=0.8, last_decay_tick=tick)
         result = project_heat(s, now)
         assert result == pytest.approx(0.2, abs=1e-9)
@@ -103,10 +101,12 @@ class TestProjectHeatDecay:
         tick = datetime(2026, 5, 1, 12, 0, 0)
         s = RelationshipState(heat=0.9, last_decay_tick=tick)
         prev = 0.9  # plateau value
-        for days in (HEAT_DECAY_PLATEAU_DAYS + 1,
-                     HEAT_DECAY_PLATEAU_DAYS + 7,
-                     HEAT_DECAY_PLATEAU_DAYS + 14,
-                     HEAT_DECAY_PLATEAU_DAYS + 28):
+        for days in (
+            HEAT_DECAY_PLATEAU_DAYS + 1,
+            HEAT_DECAY_PLATEAU_DAYS + 7,
+            HEAT_DECAY_PLATEAU_DAYS + 14,
+            HEAT_DECAY_PLATEAU_DAYS + 28,
+        ):
             current = project_heat(s, tick + timedelta(days=days))
             assert current < prev, f"heat should decay; at {days}d got {current} >= {prev}"
             prev = current
@@ -133,9 +133,7 @@ class TestProjectHeatSnapToZero:
         tick = datetime(2026, 5, 1, 12, 0, 0)
         # Far enough out that 0.8 * 0.5^(N) < 0.05.
         # 0.8 * 0.5^x = 0.05 → x = log2(16) = 4. So 4 half-lives.
-        now = tick + timedelta(
-            days=HEAT_DECAY_PLATEAU_DAYS + 4 * HEAT_DECAY_HALF_LIFE_DAYS + 1
-        )
+        now = tick + timedelta(days=HEAT_DECAY_PLATEAU_DAYS + 4 * HEAT_DECAY_HALF_LIFE_DAYS + 1)
         s = RelationshipState(heat=0.8, last_decay_tick=tick)
         assert project_heat(s, now) == 0.0
 
@@ -182,7 +180,11 @@ class TestProjectHeatCustomParameters:
         # plateau 0 + half-life 1 + snap 0.15 → 2 days out heat=0.1 < 0.15 → snap
         now = tick + timedelta(days=2)
         result = project_heat(
-            s, now, plateau_days=0, half_life_days=1, snap_threshold=0.15,
+            s,
+            now,
+            plateau_days=0,
+            half_life_days=1,
+            snap_threshold=0.15,
         )
         assert result == 0.0
 

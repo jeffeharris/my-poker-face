@@ -4,9 +4,10 @@ Prompt Configuration System.
 Allows toggling individual prompt components on/off for testing,
 A/B comparison, and mid-game adjustment based on circumstances.
 """
+
 import logging
 from dataclasses import dataclass, fields
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from poker.game_modes_loader import get_preset_configs
 
@@ -49,15 +50,15 @@ class PromptConfig:
     # Memory components
     session_memory: bool = True
     opponent_intel: bool = True
-    strategic_reflection: bool = True    # Include past reflections in prompts
-    memory_keep_exchanges: int = 0       # Conversation messages to retain (0=clear)
+    strategic_reflection: bool = True  # Include past reflections in prompts
+    memory_keep_exchanges: int = 0  # Conversation messages to retain (0=clear)
 
     # Psychological components
     chattiness: bool = True
     emotional_state: bool = True
     tilt_effects: bool = True
     expression_filtering: bool = True  # Phase 2: visibility-based expression dampening
-    zone_benefits: bool = True         # Phase 7: zone-based strategy guidance
+    zone_benefits: bool = True  # Phase 7: zone-based strategy guidance
 
     # Template instruction components
     mind_games: bool = True
@@ -78,7 +79,7 @@ class PromptConfig:
     # GTO Foundation components (math-first decision support)
     gto_equity: bool = False  # Always show equity verdict for all decisions
     gto_verdict: bool = False  # Show "CALL is +EV" / "FOLD is correct" verdict
-    use_enhanced_ranges: bool = True   # Use PFR/action-based range estimation (vs VPIP-only)
+    use_enhanced_ranges: bool = True  # Use PFR/action-based range estimation (vs VPIP-only)
 
     # Personality toggle — when False, uses a generic system prompt instead of personality
     include_personality: bool = True
@@ -194,17 +195,15 @@ class PromptConfig:
 
     def disable_all(self) -> 'PromptConfig':
         """Return new config with all boolean components disabled."""
-        return PromptConfig(**{
-            f.name: False if f.type == bool else getattr(self, f.name)
-            for f in fields(self)
-        })
+        return PromptConfig(
+            **{f.name: False if f.type == bool else getattr(self, f.name) for f in fields(self)}
+        )
 
     def enable_all(self) -> 'PromptConfig':
         """Return new config with all boolean components enabled."""
-        return PromptConfig(**{
-            f.name: True if f.type == bool else getattr(self, f.name)
-            for f in fields(self)
-        })
+        return PromptConfig(
+            **{f.name: True if f.type == bool else getattr(self, f.name) for f in fields(self)}
+        )
 
     def copy(self, **overrides) -> 'PromptConfig':
         """Return a copy with optional overrides."""

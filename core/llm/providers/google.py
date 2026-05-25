@@ -3,9 +3,10 @@
 Google Gemini offers competitive models with a generous free tier.
 Uses the google-genai SDK (the new unified Google GenAI SDK).
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 from google import genai
 from google.genai import types
@@ -15,9 +16,9 @@ try:
 except ImportError:
     google_exceptions = None  # type: ignore[assignment]
 
+from ..config import DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_MODEL
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -112,17 +113,11 @@ class GoogleProvider(LLMProvider):
                 system_instruction = content
             elif role == "assistant":
                 contents.append(
-                    types.Content(
-                        role="model",
-                        parts=[types.Part.from_text(text=content)]
-                    )
+                    types.Content(role="model", parts=[types.Part.from_text(text=content)])
                 )
             else:  # user
                 contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text=content)]
-                    )
+                    types.Content(role="user", parts=[types.Part.from_text(text=content)])
                 )
 
         return system_instruction, contents
@@ -199,7 +194,9 @@ class GoogleProvider(LLMProvider):
             return True, 30
         if isinstance(exception, google_exceptions.DeadlineExceeded):
             return True, 2
-        if isinstance(exception, (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError)):
+        if isinstance(
+            exception, (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError)
+        ):
             return True, 2
         return False, 0
 
@@ -243,7 +240,11 @@ class GoogleProvider(LLMProvider):
                 candidate = raw_response.candidates[0]
                 finish_reason = getattr(candidate, 'finish_reason', None)
                 if finish_reason:
-                    return str(finish_reason.name) if hasattr(finish_reason, 'name') else str(finish_reason)
+                    return (
+                        str(finish_reason.name)
+                        if hasattr(finish_reason, 'name')
+                        else str(finish_reason)
+                    )
         except Exception as e:
             logger.debug("Failed to extract finish reason from Gemini response: %s", e)
         return ""

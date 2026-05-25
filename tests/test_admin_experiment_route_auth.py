@@ -28,6 +28,7 @@ class TestAdminExperimentRouteAuth(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = self.repos['game_repo']
             ext.user_repo = self.repos['user_repo']
             ext.settings_repo = self.repos['settings_repo']
@@ -112,9 +113,11 @@ class TestAdminExperimentRouteAuth(unittest.TestCase):
         self.assertTrue(response.get_json().get('success'))
 
     def test_admin_can_access_prompt_debug_routes(self):
-        with self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True), \
-             patch('flask_app.routes.prompt_debug_routes.prompt_capture_repo') as mock_capture_repo, \
-             patch('flask_app.routes.prompt_debug_routes.capture_label_repo') as mock_label_repo:
+        with (
+            self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True),
+            patch('flask_app.routes.prompt_debug_routes.prompt_capture_repo') as mock_capture_repo,
+            patch('flask_app.routes.prompt_debug_routes.capture_label_repo') as mock_label_repo,
+        ):
             mock_capture_repo.list_prompt_captures.return_value = {'captures': [], 'total': 0}
             mock_capture_repo.get_prompt_capture_stats.return_value = {}
             mock_label_repo.get_label_stats.return_value = {}
@@ -124,8 +127,10 @@ class TestAdminExperimentRouteAuth(unittest.TestCase):
         self.assertTrue(response.get_json().get('success'))
 
     def test_admin_can_access_capture_label_routes(self):
-        with self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True), \
-             patch('flask_app.routes.capture_label_routes.capture_label_repo') as mock_repo:
+        with (
+            self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True),
+            patch('flask_app.routes.capture_label_routes.capture_label_repo') as mock_repo,
+        ):
             mock_repo.list_all_labels.return_value = []
             response = self.client.get('/api/capture-labels')
 
@@ -133,8 +138,10 @@ class TestAdminExperimentRouteAuth(unittest.TestCase):
         self.assertTrue(response.get_json().get('success'))
 
     def test_admin_can_access_replay_experiment_routes(self):
-        with self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True), \
-             patch('flask_app.routes.replay_experiment_routes.replay_experiment_repo') as mock_repo:
+        with (
+            self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True),
+            patch('flask_app.routes.replay_experiment_routes.replay_experiment_repo') as mock_repo,
+        ):
             mock_repo.list_replay_experiments.return_value = {'experiments': [], 'total': 0}
             response = self.client.get('/api/replay-experiments')
 

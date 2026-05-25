@@ -19,10 +19,10 @@ loading every blueprint (and the Flask-Limiter instance that goes with
 them).
 """
 
+import logging
 from collections import defaultdict
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Tuple
-import logging
 
 from core.card import Card
 from poker.hand_evaluator import HandEvaluator
@@ -99,15 +99,12 @@ def build_hand_context_from_recorded_hand(
     # multi-way pots with mixed action types misrank the opponent.
     contributions = hand.get_player_contributions()
     opponent_contributions = {
-        name: chips for name, chips in contributions.items()
-        if name != player_name
+        name: chips for name, chips in contributions.items() if name != player_name
     }
 
     if player_outcome == 'won':
         if opponent_contributions:
-            result['opponent_name'] = max(
-                opponent_contributions, key=opponent_contributions.get
-            )
+            result['opponent_name'] = max(opponent_contributions, key=opponent_contributions.get)
     else:
         for w in hand.winners:
             if w.name != player_name:
@@ -126,11 +123,7 @@ def build_hand_context_from_recorded_hand(
 
     # Winners' hand names come from WinnerInfo; for an opponent who lost
     # the showdown we evaluate live so the field is still populated.
-    if (
-        not result['opponent_hand_name']
-        and result['opponent_cards']
-        and hand.was_showdown
-    ):
+    if not result['opponent_hand_name'] and result['opponent_cards'] and hand.was_showdown:
         result['opponent_hand_name'] = evaluate_hand_label(
             result['opponent_cards'], result['community_cards']
         )
@@ -157,10 +150,7 @@ def build_hand_context_from_recorded_hand(
             continue
         cards = phase_cards.get(phase, [])
         phase_header = f"{phase} [{', '.join(cards)}]" if cards else phase
-        action_lines = [
-            format_action_phrase(a, perspective=player_name)
-            for a in phase_actions
-        ]
+        action_lines = [format_action_phrase(a, perspective=player_name) for a in phase_actions]
         indented = "\n".join(f"  {line}" for line in action_lines)
         timeline_parts.append(f"{phase_header}:\n{indented}")
 
@@ -243,7 +233,9 @@ def _format_hand_context_rich(
         parts.extend(facts)
 
     recap = narrate_hand_recap(
-        recorded_hand, big_blind=big_blind, perspective=player_name,
+        recorded_hand,
+        big_blind=big_blind,
+        perspective=player_name,
     )
     if recap:
         parts.append("")
@@ -284,7 +276,8 @@ def _build_explicit_card_facts(
 
     hole_strs = recorded_hand.hole_cards.get(player_name) or context.get('player_cards') or []
     community_strs = (
-        list(recorded_hand.community_cards) if recorded_hand.community_cards
+        list(recorded_hand.community_cards)
+        if recorded_hand.community_cards
         else (context.get('community_cards') or [])
     )
 
@@ -353,7 +346,8 @@ def _build_winner_summary(
 
 
 def _build_opponent_showdowns(
-    recorded_hand: RecordedHand, player_name: str,
+    recorded_hand: RecordedHand,
+    player_name: str,
 ) -> list:
     """One indented line per non-folded showdown opponent.
 
@@ -367,7 +361,8 @@ def _build_opponent_showdowns(
     folded = {a.player_name for a in recorded_hand.actions if a.action == 'fold'}
     acted = {a.player_name for a in recorded_hand.actions}
     opponents = [
-        p.name for p in recorded_hand.players
+        p.name
+        for p in recorded_hand.players
         if p.name != player_name
         and p.name in acted
         and p.name not in folded
@@ -439,7 +434,8 @@ def _compute_best5_info(
     ]
     # Map back to the original strings so unicode-suit display is preserved.
     used_hole_input_strs = [
-        hole_strs[i] for i, c in enumerate(hole_cards)
+        hole_strs[i]
+        for i, c in enumerate(hole_cards)
         if (c.value, c.suit) in {(b.value, b.suit) for b in best5_cards}
     ]
 
@@ -483,6 +479,7 @@ def _order_for_display(cards: List[Card]) -> List[Card]:
     sort by frequency (more = more important) then by rank descending.
     """
     from collections import Counter
+
     rank_counts = Counter(c.value for c in cards)
     return sorted(
         cards,
@@ -511,14 +508,15 @@ def _compute_river_impact(
     if not pre_river_name:
         return f"River {river_card} completed your hand ({river_hand_name})."
     if pre_river_name == river_hand_name:
-        return f"River {river_card} was a blank — your hand was already {river_hand_name} on the turn."
-    return (
-        f"River {river_card} changed your hand from {pre_river_name} to {river_hand_name}."
-    )
+        return (
+            f"River {river_card} was a blank — your hand was already {river_hand_name} on the turn."
+        )
+    return f"River {river_card} changed your hand from {pre_river_name} to {river_hand_name}."
 
 
 def _build_player_hand_breakdown(
-    recorded_hand: RecordedHand, player_name: str,
+    recorded_hand: RecordedHand,
+    player_name: str,
 ) -> str:
     """Return narrate_hand_breakdown output for the player's hand, or ''.
 

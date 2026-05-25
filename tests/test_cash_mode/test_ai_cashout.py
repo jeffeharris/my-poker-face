@@ -30,8 +30,8 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from cash_mode.bankroll import (
-    AIBankrollState,
     BANKROLL_KNOB_DEFAULTS,
+    AIBankrollState,
     credit_ai_cash_out,
 )
 from poker.repositories.bankroll_repository import BankrollRepository
@@ -49,6 +49,7 @@ def _enable_regen():
     behaviour is covered by tests/test_economy_flags.py.
     """
     from cash_mode import economy_flags
+
     saved = economy_flags.REGEN_ENABLED
     economy_flags.REGEN_ENABLED = True
     yield
@@ -68,8 +69,7 @@ def _insert_personality(
         config["bankroll_knobs"] = bankroll_knobs
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
             (name or f"Personality {personality_id}", json.dumps(config), personality_id),
         )
         conn.commit()
@@ -102,15 +102,24 @@ class TestSingleAICashOut:
         # Napoleon: bankroll 5_000 at last_regen_tick=now. Cash-out
         # 3_000 chips from the table → bankroll becomes 8_000 (no
         # projection time elapsed, no clamp).
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 50_000,
-            "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=5_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 50_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=5_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", 3_000, sandbox_id="test-sandbox-1", now=now)
 
@@ -124,18 +133,25 @@ class TestSingleAICashOut:
     def test_projection_applied_before_credit(self, repo, db_path, now):
         # last_regen_tick is one day ago, rate=500/day → projection
         # adds 500 before the table credit lands.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 50_000,
-            "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 50_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         one_day_ago = now - timedelta(days=1)
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon",
-            chips=5_000,
-            last_regen_tick=one_day_ago,
-        ), sandbox_id="test-sandbox-1")
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=5_000,
+                last_regen_tick=one_day_ago,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", 3_000, sandbox_id="test-sandbox-1", now=now)
 
@@ -152,15 +168,24 @@ class TestWinningsAboveTarget:
         # Bankroll at 49_000, starting_bankroll 50_000, table stack
         # 5_000 → final bankroll 54_000. starting_bankroll is the
         # regen *target*, not a ceiling — winnings above it are kept.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 50_000,
-            "bankroll_rate": 0,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=49_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 50_000,
+                "bankroll_rate": 0,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=49_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", 5_000, sandbox_id="test-sandbox-1", now=now)
 
@@ -170,15 +195,24 @@ class TestWinningsAboveTarget:
         # Already above starting_bankroll; cash-out adds winnings and
         # regen is dormant (project_bankroll early-returns when chips
         # are already at or above target).
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 50_000,
-            "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=50_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 50_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=50_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
 
@@ -190,18 +224,26 @@ class TestWinningsAboveTarget:
         # tier), wins big at the $2 table. The cash-out must let the
         # winnings stack — without this, the character can never
         # afford a higher stake.
-        _insert_personality(db_path, "a_mime", bankroll_knobs={
-            "starting_bankroll": 200,
-            "bankroll_rate": 100,  # 100 chips/day regen toward target
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$2",
-        })
+        _insert_personality(
+            db_path,
+            "a_mime",
+            bankroll_knobs={
+                "starting_bankroll": 200,
+                "bankroll_rate": 100,  # 100 chips/day regen toward target
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$2",
+            },
+        )
         # Bankroll at 120 (below target), tick 1 day ago — regen
         # should pull it up toward target (200) before winnings land.
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="a_mime", chips=120,
-            last_regen_tick=now - timedelta(days=1),
-        ), sandbox_id="test-sandbox-1")
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="a_mime",
+                chips=120,
+                last_regen_tick=now - timedelta(days=1),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         # Wins $400 at the seat — far above the $200 starting target.
         result = credit_ai_cash_out(repo, "a_mime", 400, sandbox_id="test-sandbox-1", now=now)
@@ -223,9 +265,14 @@ class TestEdgeCases:
         # chips=0 with a stale tick and never recovers.
         _insert_personality(db_path, "napoleon")
         old_tick = now - timedelta(days=1)
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=5_000, last_regen_tick=old_tick,
-        ), sandbox_id="test-sandbox-1")
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=5_000,
+                last_regen_tick=old_tick,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", 0, sandbox_id="test-sandbox-1", now=now)
 
@@ -243,9 +290,14 @@ class TestEdgeCases:
         # clamp to 0 rather than debiting the bankroll. Tick still
         # advances so regen continues.
         _insert_personality(db_path, "napoleon")
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=5_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=5_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "napoleon", -100, sandbox_id="test-sandbox-1", now=now)
 
@@ -290,15 +342,24 @@ class TestMultipleAIs:
         # Three AIs with different stacks — each credited
         # independently. No cross-contamination between bankrolls.
         for pid in ("napoleon", "zeus", "athena"):
-            _insert_personality(db_path, pid, bankroll_knobs={
-                "starting_bankroll": 50_000,
-                "bankroll_rate": 0,
-                "buy_in_multiplier": 1.0,
-                "stake_comfort_zone": "$10",
-            })
-            repo.save_ai_bankroll(AIBankrollState(
-                personality_id=pid, chips=5_000, last_regen_tick=now,
-            ), sandbox_id="test-sandbox-1")
+            _insert_personality(
+                db_path,
+                pid,
+                bankroll_knobs={
+                    "starting_bankroll": 50_000,
+                    "bankroll_rate": 0,
+                    "buy_in_multiplier": 1.0,
+                    "stake_comfort_zone": "$10",
+                },
+            )
+            repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid,
+                    chips=5_000,
+                    last_regen_tick=now,
+                ),
+                sandbox_id="test-sandbox-1",
+            )
 
         credit_ai_cash_out(repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=now)
         credit_ai_cash_out(repo, "zeus", 2_500, sandbox_id="test-sandbox-1", now=now)
@@ -306,7 +367,9 @@ class TestMultipleAIs:
 
         assert repo.load_ai_bankroll("napoleon", sandbox_id="test-sandbox-1").chips == 6_000
         assert repo.load_ai_bankroll("zeus", sandbox_id="test-sandbox-1").chips == 7_500
-        assert repo.load_ai_bankroll("athena", sandbox_id="test-sandbox-1").chips == 5_000  # unchanged
+        assert (
+            repo.load_ai_bankroll("athena", sandbox_id="test-sandbox-1").chips == 5_000
+        )  # unchanged
 
 
 # --- Defaults fallback ---
@@ -319,11 +382,14 @@ class TestDefaultKnobs:
         # is just the regen target — winnings stack uncapped on top.
         _insert_personality(db_path, "rookie")  # no knobs
         starting = BANKROLL_KNOB_DEFAULTS.starting_bankroll
-        repo.save_ai_bankroll(AIBankrollState(
-            personality_id="rookie",
-            chips=starting - 1_000,  # one buy-in below default target
-            last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="rookie",
+                chips=starting - 1_000,  # one buy-in below default target
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         result = credit_ai_cash_out(repo, "rookie", 5_000, sandbox_id="test-sandbox-1", now=now)
 

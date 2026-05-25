@@ -15,7 +15,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -58,15 +58,29 @@ class _CashLobbyRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo',
-                'decision_analysis_repo', 'prompt_preset_repo',
-                'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo', 'sandbox_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
+                'stake_repo',
+                'sandbox_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -76,6 +90,7 @@ class _CashLobbyRouteBase(unittest.TestCase):
         # resolver returns a deterministic id instead of crashing. Mirrors
         # the helper used by test_cash_sit_route + test_cash_sponsor_routes.
         from tests._sandbox_test_helper import pin_sandbox_for
+
         pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
 
         cls.napoleon_id = cls.personality_repo.save_personality(
@@ -83,16 +98,21 @@ class _CashLobbyRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
             },
         )
-        cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=cls.napoleon_id, chips=10_000,
-            last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ), sandbox_id="test-sandbox-1")
+        cls.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=cls.napoleon_id,
+                chips=10_000,
+                last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             cls.app = create_app()
@@ -137,6 +157,7 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
 
     def test_lobby_seeded_with_all_lobby_config_tables(self):
         from cash_mode.lobby_config import LOBBY_TABLES
+
         expected_count = sum(len(v) for v in LOBBY_TABLES.values())
         resp = self.client.get("/api/cash/lobby")
         data = resp.get_json()
@@ -159,12 +180,15 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
             assert "seats" in t
             assert len(t["seats"]) == 6
 
-
     # --- Affordability tri-state (rolled into single class).
     def _set_player_bankroll(self, chips):
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID, chips=chips, starting_bankroll=200,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=chips,
+                starting_bankroll=200,
+            )
+        )
 
     def test_locked_when_no_bankroll(self):
         self._set_player_bankroll(0)
@@ -185,31 +209,32 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         for t in data["tables"]:
             assert t["affordability"] == "affordable"
 
-
     # --- Movement on read.
     def test_last_activity_at_bumps_on_read(self):
         # The route triggers refresh_unseated_tables, which always bumps
         # last_activity_at via save_table. Pre-read the value, then re-read.
         first = self.client.get("/api/cash/lobby")
         first_data = first.get_json()
-        first_activity = {
-            t["table_id"]: t for t in first_data["tables"]
-        }
+        first_activity = {t["table_id"]: t for t in first_data["tables"]}
 
         # Read again; persisted state must have updated.
-        before_second = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        before_second = self.cash_table_repo.load_table(
+            "cash-table-10-001", sandbox_id="test-sandbox-1"
+        )
         assert before_second is not None
         first_ts = before_second.last_activity_at
 
         second = self.client.get("/api/cash/lobby")
         second_data = second.get_json()
         from cash_mode.lobby_config import LOBBY_TABLES
+
         assert len(second_data["tables"]) == sum(len(v) for v in LOBBY_TABLES.values())
 
-        after_second = self.cash_table_repo.load_table("cash-table-10-001", sandbox_id="test-sandbox-1")
+        after_second = self.cash_table_repo.load_table(
+            "cash-table-10-001", sandbox_id="test-sandbox-1"
+        )
         # Activity timestamp should have moved forward or stayed (same-sec).
         assert after_second.last_activity_at >= first_ts
-
 
     # --- Seat serialization.
     def test_ai_seat_carries_personality_id_and_chips(self):

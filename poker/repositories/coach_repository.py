@@ -1,8 +1,9 @@
 """Coach progression repository — skill states, gate progress, and coach profiles."""
+
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from poker.repositories.base_repository import BaseRepository
 
@@ -21,7 +22,8 @@ class CoachRepository(BaseRepository):
         """Persist a PlayerSkillState to the database."""
         window_decisions_json = json.dumps(list(skill_state.window_decisions))
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO player_skill_progress
                     (user_id, skill_id, state, total_opportunities, total_correct,
                      window_opportunities, window_correct, window_decisions,
@@ -39,19 +41,29 @@ class CoachRepository(BaseRepository):
                     streak_incorrect = excluded.streak_incorrect,
                     last_evaluated_at = excluded.last_evaluated_at,
                     first_seen_at = excluded.first_seen_at
-            """, (
-                user_id, skill_state.skill_id, skill_state.state.value
-                if hasattr(skill_state.state, 'value') else skill_state.state,
-                skill_state.total_opportunities, skill_state.total_correct,
-                skill_state.window_opportunities, skill_state.window_correct,
-                window_decisions_json,
-                skill_state.streak_correct, skill_state.streak_incorrect,
-                skill_state.last_evaluated_at, skill_state.first_seen_at,
-            ))
+            """,
+                (
+                    user_id,
+                    skill_state.skill_id,
+                    skill_state.state.value
+                    if hasattr(skill_state.state, 'value')
+                    else skill_state.state,
+                    skill_state.total_opportunities,
+                    skill_state.total_correct,
+                    skill_state.window_opportunities,
+                    skill_state.window_correct,
+                    window_decisions_json,
+                    skill_state.streak_correct,
+                    skill_state.streak_incorrect,
+                    skill_state.last_evaluated_at,
+                    skill_state.first_seen_at,
+                ),
+            )
 
     def load_skill_state(self, user_id: str, skill_id: str):
         """Load a single PlayerSkillState. Returns None if not found."""
         from poker.coach_models import PlayerSkillState, SkillState
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
@@ -81,6 +93,7 @@ class CoachRepository(BaseRepository):
     def load_all_skill_states(self, user_id: str):
         """Load all PlayerSkillState records for a user. Returns dict keyed by skill_id."""
         from poker.coach_models import PlayerSkillState, SkillState
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT skill_id, state, total_opportunities, total_correct, "
@@ -112,20 +125,26 @@ class CoachRepository(BaseRepository):
     def save_gate_progress(self, user_id: str, gate_progress) -> None:
         """Persist a GateProgress record."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO player_gate_progress (user_id, gate, unlocked, unlocked_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(user_id, gate) DO UPDATE SET
                     unlocked = excluded.unlocked,
                     unlocked_at = excluded.unlocked_at
-            """, (
-                user_id, gate_progress.gate_number,
-                gate_progress.unlocked, gate_progress.unlocked_at,
-            ))
+            """,
+                (
+                    user_id,
+                    gate_progress.gate_number,
+                    gate_progress.unlocked,
+                    gate_progress.unlocked_at,
+                ),
+            )
 
     def load_gate_progress(self, user_id: str):
         """Load all gate progress for a user. Returns dict keyed by gate_number."""
         from poker.coach_models import GateProgress
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT gate, unlocked, unlocked_at FROM player_gate_progress WHERE user_id = ?",
@@ -142,10 +161,14 @@ class CoachRepository(BaseRepository):
 
     # --- Coach Profile ---
 
-    def save_coach_profile(self, user_id: str, self_reported_level: str = None,
-                           effective_level: str = 'beginner',
-                           onboarding_completed_at: str = None,
-                           range_targets: Dict = None) -> None:
+    def save_coach_profile(
+        self,
+        user_id: str,
+        self_reported_level: str = None,
+        effective_level: str = 'beginner',
+        onboarding_completed_at: str = None,
+        range_targets: Dict = None,
+    ) -> None:
         """Persist the player's coaching profile.
 
         Args:
@@ -158,7 +181,8 @@ class CoachRepository(BaseRepository):
         now = datetime.now().isoformat()
         range_targets_json = json.dumps(range_targets) if range_targets else None
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO player_coach_profile
                     (user_id, self_reported_level, effective_level, created_at, updated_at,
                      onboarding_completed_at, range_targets)
@@ -171,8 +195,17 @@ class CoachRepository(BaseRepository):
                                                        player_coach_profile.onboarding_completed_at),
                     range_targets = COALESCE(excluded.range_targets,
                                              player_coach_profile.range_targets)
-            """, (user_id, self_reported_level, effective_level, now, now,
-                  onboarding_completed_at, range_targets_json))
+            """,
+                (
+                    user_id,
+                    self_reported_level,
+                    effective_level,
+                    now,
+                    now,
+                    onboarding_completed_at,
+                    range_targets_json,
+                ),
+            )
 
     def load_coach_profile(self, user_id: str) -> Optional[Dict]:
         """Load coaching profile. Returns dict or None."""
@@ -214,13 +247,16 @@ class CoachRepository(BaseRepository):
         now = datetime.now().isoformat()
         range_targets_json = json.dumps(range_targets)
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO player_coach_profile (user_id, range_targets, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     range_targets = excluded.range_targets,
                     updated_at = excluded.updated_at
-            """, (user_id, range_targets_json, now, now))
+            """,
+                (user_id, range_targets_json, now, now),
+            )
 
     def load_range_targets(self, user_id: str) -> Optional[Dict[str, float]]:
         """Load just the range_targets for a user. Returns None if not set."""
@@ -244,9 +280,7 @@ class CoachRepository(BaseRepository):
         """Aggregate overview of coaching profiles and gate progress."""
         with self._get_connection() as conn:
             # Total and by-level counts
-            total = conn.execute(
-                "SELECT COUNT(*) FROM player_coach_profile"
-            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM player_coach_profile").fetchone()[0]
 
             level_rows = conn.execute(
                 "SELECT self_reported_level, COUNT(*) as cnt "
@@ -322,14 +356,16 @@ class CoachRepository(BaseRepository):
 
             advancement = []
             for row in rows:
-                advancement.append({
-                    'skill_id': row[0],
-                    'state': row[1],
-                    'player_count': row[2],
-                    'avg_total_opportunities': row[3],
-                    'min_opportunities': row[4],
-                    'max_opportunities': row[5],
-                })
+                advancement.append(
+                    {
+                        'skill_id': row[0],
+                        'state': row[1],
+                        'player_count': row[2],
+                        'avg_total_opportunities': row[3],
+                        'min_opportunities': row[4],
+                        'max_opportunities': row[5],
+                    }
+                )
 
             # Regression indicator: skills where players are in a lower state
             # despite having many opportunities (potential threshold issue)

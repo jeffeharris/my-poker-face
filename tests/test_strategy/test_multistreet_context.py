@@ -13,10 +13,10 @@ from poker.strategy.multistreet_context import (
     H1_MAX_ACTIVE_PLAYERS,
     H2_FOLD_TARGET,
     MultiStreetSignals,
-    apply_multistreet_context,
-    derive_signals,
     _pump_bet,
     _pump_fold,
+    apply_multistreet_context,
+    derive_signals,
 )
 from poker.strategy.strategy_profile import StrategyProfile
 
@@ -34,6 +34,7 @@ def _sim_controller(player_name='Hero', hero_bet=None, opp_bet=None, pf_agg=None
 
 # ── Distribution surgery ─────────────────────────────────────────────
 
+
 class TestPumpBet:
     def test_pumps_existing_bet_mass_from_check(self):
         sp = StrategyProfile(action_probabilities={'check': 0.9, 'bet_67': 0.1})
@@ -42,9 +43,13 @@ class TestPumpBet:
         assert out.action_probabilities['check'] == pytest.approx(0.3)
 
     def test_splits_across_multiple_bet_sizes_proportionally(self):
-        sp = StrategyProfile(action_probabilities={
-            'check': 0.8, 'bet_33': 0.15, 'bet_100': 0.05,
-        })
+        sp = StrategyProfile(
+            action_probabilities={
+                'check': 0.8,
+                'bet_33': 0.15,
+                'bet_100': 0.05,
+            }
+        )
         out = _pump_bet(sp, 0.6)
         # 0.4 added split 3:1 between bet_33 and bet_100
         assert out.action_probabilities['bet_33'] == pytest.approx(0.15 + 0.4 * 0.75)
@@ -81,6 +86,7 @@ class TestPumpFold:
 
 
 # ── Signal derivation (sim path) ─────────────────────────────────────
+
 
 class TestDeriveSignals:
     def test_flop_prev_aggressor_is_preflop_raiser(self):
@@ -132,6 +138,7 @@ class TestDeriveSignals:
 
 # ── apply_multistreet_context ────────────────────────────────────────
 
+
 class TestApplyH1:
     def _unopened(self):
         return StrategyProfile(action_probabilities={'check': 0.9, 'bet_67': 0.1})
@@ -139,8 +146,11 @@ class TestApplyH1:
     def test_h1_fires_hu_value_unopened_prev_aggressor(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
         out, tr = apply_multistreet_context(
-            self._unopened(), signals=sig, hand_class='strong_made',
-            action_context='unopened', active_count=2,
+            self._unopened(),
+            signals=sig,
+            hand_class='strong_made',
+            action_context='unopened',
+            active_count=2,
         )
         assert tr.fired and tr.rule_id == 'barrel'
         assert out.action_probabilities['bet_67'] == pytest.approx(H1_BARREL_TARGET['strong_made'])
@@ -151,8 +161,11 @@ class TestApplyH1:
         sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
         sp = self._unopened()
         out, tr = apply_multistreet_context(
-            sp, signals=sig, hand_class='strong_made',
-            action_context='unopened', active_count=H1_MAX_ACTIVE_PLAYERS + 1,
+            sp,
+            signals=sig,
+            hand_class='strong_made',
+            action_context='unopened',
+            active_count=H1_MAX_ACTIVE_PLAYERS + 1,
         )
         assert not tr.fired
         assert out is sp  # unchanged
@@ -160,16 +173,23 @@ class TestApplyH1:
     def test_h1_skips_when_not_prev_aggressor(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=False, facing_double_barrel=False)
         _, tr = apply_multistreet_context(
-            self._unopened(), signals=sig, hand_class='nuts',
-            action_context='unopened', active_count=2,
+            self._unopened(),
+            signals=sig,
+            hand_class='nuts',
+            action_context='unopened',
+            active_count=2,
         )
         assert not tr.fired
 
     def test_h1_disabled_toggle(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
         _, tr = apply_multistreet_context(
-            self._unopened(), signals=sig, hand_class='nuts',
-            action_context='unopened', active_count=2, h1_enabled=False,
+            self._unopened(),
+            signals=sig,
+            hand_class='nuts',
+            action_context='unopened',
+            active_count=2,
+            h1_enabled=False,
         )
         assert not tr.fired
 
@@ -181,8 +201,11 @@ class TestApplyH2:
     def test_h2_fires_double_barrel_marginal(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=False, facing_double_barrel=True)
         out, tr = apply_multistreet_context(
-            self._facing(), signals=sig, hand_class='weak_made',
-            action_context='facing_bet', active_count=2,
+            self._facing(),
+            signals=sig,
+            hand_class='weak_made',
+            action_context='facing_bet',
+            active_count=2,
         )
         assert tr.fired and tr.rule_id == 'fold_barrel'
         assert out.action_probabilities['fold'] == pytest.approx(H2_FOLD_TARGET['weak_made'])
@@ -191,16 +214,22 @@ class TestApplyH2:
     def test_h2_skips_strong_hand(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=False, facing_double_barrel=True)
         _, tr = apply_multistreet_context(
-            self._facing(), signals=sig, hand_class='strong_made',
-            action_context='facing_bet', active_count=2,
+            self._facing(),
+            signals=sig,
+            hand_class='strong_made',
+            action_context='facing_bet',
+            active_count=2,
         )
         assert not tr.fired  # strong hands aren't in H2_FOLD_TARGET
 
     def test_h2_skips_when_no_double_barrel(self):
         sig = MultiStreetSignals(was_prev_street_aggressor=False, facing_double_barrel=False)
         _, tr = apply_multistreet_context(
-            self._facing(), signals=sig, hand_class='weak_made',
-            action_context='facing_bet', active_count=2,
+            self._facing(),
+            signals=sig,
+            hand_class='weak_made',
+            action_context='facing_bet',
+            active_count=2,
         )
         assert not tr.fired
 
@@ -210,8 +239,12 @@ class TestPriorLayerFired:
         sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=True)
         sp = StrategyProfile(action_probabilities={'check': 0.9, 'bet_67': 0.1})
         out, tr = apply_multistreet_context(
-            sp, signals=sig, hand_class='nuts', action_context='unopened',
-            active_count=2, prior_layer_fired=True,
+            sp,
+            signals=sig,
+            hand_class='nuts',
+            action_context='unopened',
+            active_count=2,
+            prior_layer_fired=True,
         )
         assert out is sp
         assert not tr.fired and tr.reason_code == 'prior_override_active'

@@ -23,11 +23,9 @@ and §"Locked decisions" (3 — kill_all_cash_sessions).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set
-
 import random
-from typing import Callable, Tuple
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from cash_mode.bankroll import (
     AIBankrollState,
@@ -47,16 +45,14 @@ from cash_mode.movement import (
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
 from cash_mode.stakes_ladder import (
-    STAKES_LADDER,
     STAKES_ORDER,
     table_buy_in_window,
 )
 from cash_mode.staking_tier import TIER_HOUSE_ONLY, resolve_tier
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
-    CashTableState,
-    IdlePoolEntry,
     TABLE_SEAT_COUNT,
+    CashTableState,
     ai_slot,
     open_slot,
 )
@@ -65,7 +61,8 @@ logger = logging.getLogger(__name__)
 
 
 def _next_occupied_seat(
-    seats: List[Dict[str, Any]], start_after: int,
+    seats: List[Dict[str, Any]],
+    start_after: int,
 ) -> Optional[int]:
     """Find the next non-`open` seat clockwise from `start_after` (exclusive).
 
@@ -185,6 +182,7 @@ def ensure_ai_bankrolls_seeded(
             # `save_emotional_state_json` inserted chips=0).
             if chip_ledger_repo is not None and new_state.chips > stored.chips:
                 from core.economy import ledger as chip_ledger
+
                 chip_ledger.record_ai_seed(
                     chip_ledger_repo,
                     personality_id=pid,
@@ -201,7 +199,9 @@ def ensure_ai_bankrolls_seeded(
     if n_created or n_repaired:
         logger.info(
             "[CASH][LOBBY] bankroll seed: %d created, %d repaired, %d skipped",
-            n_created, n_repaired, len(actions) - n_created - n_repaired,
+            n_created,
+            n_repaired,
+            len(actions) - n_created - n_repaired,
         )
     return actions
 
@@ -313,9 +313,7 @@ def ensure_lobby_seeded(
             # Pick which 4 positions hold AI seats (the remaining 2 stay
             # open and become the player's choices). Distinct random sample
             # so no duplicates.
-            ai_positions = sorted(
-                seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS)
-            )
+            ai_positions = sorted(seed_rng.sample(range(TABLE_SEAT_COUNT), BASELINE_AI_SEATS))
 
             # Shuffle the candidate pool per-table so seeding doesn't
             # always pick the alphabetically-first affordable
@@ -351,7 +349,10 @@ def ensure_lobby_seeded(
                     projected = knobs.starting_bankroll
                 else:
                     projected = project_bankroll(
-                        stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+                        stored,
+                        knobs.starting_bankroll,
+                        knobs.bankroll_rate,
+                        now,
                     )
                 if projected < ai_threshold:
                     continue
@@ -368,6 +369,7 @@ def ensure_lobby_seeded(
                 # `cash_table_seats_ai` move in opposite directions by
                 # `ai_buy_in`, preserving `actual_outstanding`.
                 from cash_mode.bankroll import debit_bankroll_for_seat
+
                 debit_bankroll_for_seat(
                     bankroll_repo,
                     pid,
@@ -378,7 +380,11 @@ def ensure_lobby_seeded(
                 )
                 logger.info(
                     "[CASH][LOBBY] seed %s/%s: seated %r at seat %d chips=%d",
-                    stake_label, table_id, pid, seat_position, ai_buy_in,
+                    stake_label,
+                    table_id,
+                    pid,
+                    seat_position,
+                    ai_buy_in,
                 )
 
             new_state = CashTableState(
@@ -393,7 +399,10 @@ def ensure_lobby_seeded(
             out_tables.append(new_state)
             logger.info(
                 "[CASH][LOBBY] seed %s: created table %r (%r) with %d AI seats",
-                stake_label, table_id, display_name, filled,
+                stake_label,
+                table_id,
+                display_name,
+                filled,
             )
 
     return out_tables
@@ -453,7 +462,8 @@ def _committed_seated_ais(
 
 
 def _select_new_last_stands(
-    sandbox_id: Optional[str], now_qualifying: Set[str],
+    sandbox_id: Optional[str],
+    now_qualifying: Set[str],
 ) -> Set[str]:
     """Diff this refresh's committed AIs against the prior refresh's.
 
@@ -526,6 +536,7 @@ def refresh_unseated_tables(
     # gates below (no vice), which is the safe default for a bad value.
     if vice_mode is None:
         from cash_mode import economy_flags as _economy_flags
+
         vice_mode = _economy_flags.VICE_MODE
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
@@ -542,6 +553,7 @@ def refresh_unseated_tables(
     if vice_repo is not None and sandbox_id is not None:
         try:
             from cash_mode.ai_vice_spending import tick_vice_expirations
+
             vice_ends = tick_vice_expirations(
                 vice_repo=vice_repo,
                 bankroll_repo=bankroll_repo,
@@ -551,13 +563,15 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] vice expiry pass failed: %s", exc,
+                "[CASH][LOBBY] vice expiry pass failed: %s",
+                exc,
             )
         try:
             on_vice = vice_repo.active_pids(sandbox_id=sandbox_id, now=now)
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] vice active_pids failed: %s", exc,
+                "[CASH][LOBBY] vice active_pids failed: %s",
+                exc,
             )
             on_vice = set()
 
@@ -567,6 +581,7 @@ def refresh_unseated_tables(
     # for seating this same refresh. Gated on SIDE_HUSTLE_ENABLED + the
     # repos needed to draw from / ledger the pool.
     from cash_mode import economy_flags
+
     hustle_ends: list = []
     on_hustle: Set[str] = set()
     if (
@@ -577,6 +592,7 @@ def refresh_unseated_tables(
     ):
         try:
             from cash_mode.ai_side_hustle import tick_side_hustle_expirations
+
             hustle_ends = tick_side_hustle_expirations(
                 side_hustle_repo=side_hustle_repo,
                 bankroll_repo=bankroll_repo,
@@ -586,13 +602,15 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] side-hustle expiry pass failed: %s", exc,
+                "[CASH][LOBBY] side-hustle expiry pass failed: %s",
+                exc,
             )
         try:
             on_hustle = side_hustle_repo.active_pids(sandbox_id=sandbox_id, now=now)
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] side-hustle active_pids failed: %s", exc,
+                "[CASH][LOBBY] side-hustle active_pids failed: %s",
+                exc,
             )
             on_hustle = set()
 
@@ -604,14 +622,8 @@ def refresh_unseated_tables(
     # per-call-site changes.
     off_grid = on_vice | on_hustle
     if off_grid:
-        idle_pool = [
-            entry for entry in idle_pool
-            if entry.personality_id not in off_grid
-        ]
-        eligible = [
-            cand for cand in eligible
-            if cand.get("personality_id") not in off_grid
-        ]
+        idle_pool = [entry for entry in idle_pool if entry.personality_id not in off_grid]
+        eligible = [cand for cand in eligible if cand.get("personality_id") not in off_grid]
 
     # Closed-economy: fish are a casino-only player class. The lobby
     # never live-fills a fish; this set is the defense-in-depth filter
@@ -619,11 +631,14 @@ def refresh_unseated_tables(
     # casino seat. Boot-time seed seeding is already fish-free via
     # `list_eligible_for_cash_mode` (excludes archetype='fish').
     from cash_mode.closed_economy import load_fish_ids
+
     _fish_ids = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
 
     def _bankroll_lookup(pid: str) -> Optional[int]:
         current = bankroll_repo.load_ai_bankroll_current(
-            pid, sandbox_id=sandbox_id, now=now,
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
         )
         if current is not None:
             return current
@@ -637,9 +652,7 @@ def refresh_unseated_tables(
     # and relationship_repo are provided. The borrower/lender profile
     # lookups always work — the gates inside find_ai_staker_for treat
     # missing config as defaults.
-    _take_stake_enabled = (
-        relationship_repo is not None and stake_repo is not None
-    )
+    _take_stake_enabled = relationship_repo is not None and stake_repo is not None
 
     # Phase 4 Commit 4: build the cross-table staker candidate pool
     # ONCE per refresh, indexed by stake_label of the target table.
@@ -652,11 +665,7 @@ def refresh_unseated_tables(
         if label not in STAKES_ORDER:
             return []
         idx = STAKES_ORDER.index(label)
-        return [
-            STAKES_ORDER[i]
-            for i in (idx - 1, idx, idx + 1)
-            if 0 <= i < len(STAKES_ORDER)
-        ]
+        return [STAKES_ORDER[i] for i in (idx - 1, idx, idx + 1) if 0 <= i < len(STAKES_ORDER)]
 
     # Cache `stake_comfort_zone` per pid once per refresh. The knobs
     # are static for the duration of a lobby refresh, so loading them
@@ -732,13 +741,15 @@ def refresh_unseated_tables(
         if not profile.willing:
             return profile
         from cash_mode.staker_profile import BorrowerProfile
+
         # Burst-local guard: was this pid already given a stake earlier
         # in the current refresh? (DB check below sees stale state.)
         if pid in _burst_stake_creation_pids:
             return BorrowerProfile(willing=False)
         if stake_repo is not None:
             existing = stake_repo.load_active_for_borrower(
-                pid, "personality",
+                pid,
+                "personality",
             )
             if existing is not None:
                 return BorrowerProfile(willing=False)
@@ -751,7 +762,9 @@ def refresh_unseated_tables(
         if relationship_repo is None:
             return None
         rel = relationship_repo.load_relationship_state(
-            observer_id=observer_id, opponent_id=opponent_id, now=now,
+            observer_id=observer_id,
+            opponent_id=opponent_id,
+            now=now,
         )
         if rel is None:
             return None
@@ -769,13 +782,12 @@ def refresh_unseated_tables(
             return {}
         if staker_id not in _history_cache:
             try:
-                _history_cache[staker_id] = (
-                    stake_repo.aggregate_history_for_staker(staker_id)
-                )
+                _history_cache[staker_id] = stake_repo.aggregate_history_for_staker(staker_id)
             except Exception as exc:
                 logger.debug(
                     "[CASH][LOBBY] history aggregation failed staker=%r: %s",
-                    staker_id, exc,
+                    staker_id,
+                    exc,
                 )
                 _history_cache[staker_id] = {}
         return _history_cache[staker_id]
@@ -809,13 +821,12 @@ def refresh_unseated_tables(
         except Exception as exc:
             logger.debug(
                 "[CASH][LOBBY] carry_lookup failed staker=%r borrower=%r: %s",
-                staker_id, borrower_id, exc,
+                staker_id,
+                borrower_id,
+                exc,
             )
             return 0
-        return sum(
-            int(c.carry_amount) for c in carries
-            if c.borrower_id == borrower_id
-        )
+        return sum(int(c.carry_amount) for c in carries if c.borrower_id == borrower_id)
 
     def _buy_in_lookup(pid: str) -> int:
         # Map back to a table buy-in: needs the stake_label of the
@@ -872,7 +883,8 @@ def refresh_unseated_tables(
         _target_stake_label = table.stake_label
 
         def _borrower_lookup_for_table(
-            pid: str, _stake=_target_stake_label,
+            pid: str,
+            _stake=_target_stake_label,
         ):
             profile = _borrower_profile_lookup(pid)
             if not profile.willing:
@@ -889,11 +901,13 @@ def refresh_unseated_tables(
             except Exception as exc:
                 logger.debug(
                     "[CASH][LOBBY] tier resolution failed pid=%r: %s",
-                    pid, exc,
+                    pid,
+                    exc,
                 )
                 return profile
             if tier == TIER_HOUSE_ONLY:
                 from cash_mode.staker_profile import BorrowerProfile
+
                 return BorrowerProfile(willing=False)
             return profile
 
@@ -921,6 +935,7 @@ def refresh_unseated_tables(
         # Aggregate the per-hand results so persistence + event emission
         # below sees the full burst's worth of changes.
         from cash_mode.full_sim import _get_default_controller_cache
+
         controller_cache = _get_default_controller_cache()
 
         def _psych_lookup_sim(pid: str) -> Dict[str, Any]:
@@ -1006,9 +1021,12 @@ def refresh_unseated_tables(
                     decrement_closing_hands,
                     is_closing,
                 )
+
                 if is_closing(cash_table_repo, sandbox_id, table.table_id):
                     decrement_closing_hands(
-                        cash_table_repo, sandbox_id, table.table_id,
+                        cash_table_repo,
+                        sandbox_id,
+                        table.table_id,
                     )
 
             # Advance detached counters for AI seats now that the hand
@@ -1040,9 +1058,7 @@ def refresh_unseated_tables(
             # `_refill_one_fish`), never via lobby live-fill. See
             # `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
             if _fish_ids:
-                _table_idle_pool = [
-                    e for e in idle_pool if e.personality_id not in _fish_ids
-                ]
+                _table_idle_pool = [e for e in idle_pool if e.personality_id not in _fish_ids]
             else:
                 _table_idle_pool = idle_pool
 
@@ -1054,25 +1070,24 @@ def refresh_unseated_tables(
             _effective_live_fill_prob = live_fill_prob
             if table.table_type == 'casino':
                 from cash_mode.closed_economy import list_hungry_grinders
+
                 _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
                 _hungry_grinder_ids = list_hungry_grinders(
-                    bankroll_repo, sandbox_id=sandbox_id, now=now,
+                    bankroll_repo,
+                    sandbox_id=sandbox_id,
+                    now=now,
                 )
                 _hungry_set = set(_hungry_grinder_ids)
                 if _hungry_set:
                     _hungry_entries = [
-                        e for e in _table_idle_pool
-                        if e.personality_id in _hungry_set
+                        e for e in _table_idle_pool if e.personality_id in _hungry_set
                     ]
                     _other_entries = [
-                        e for e in _table_idle_pool
-                        if e.personality_id not in _hungry_set
+                        e for e in _table_idle_pool if e.personality_id not in _hungry_set
                     ]
                     # Sort hungry entries by the global hunger ranking
                     # (most desperate first); ties broken by personality_id.
-                    _order_index = {
-                        pid: i for i, pid in enumerate(_hungry_grinder_ids)
-                    }
+                    _order_index = {pid: i for i, pid in enumerate(_hungry_grinder_ids)}
                     _hungry_entries.sort(
                         key=lambda e: _order_index.get(e.personality_id, 1_000_000)
                     )
@@ -1101,12 +1116,8 @@ def refresh_unseated_tables(
                 borrower_profile_lookup=(
                     _borrower_lookup_for_table if _take_stake_enabled else None
                 ),
-                staker_profile_lookup=(
-                    _staker_profile_lookup if _take_stake_enabled else None
-                ),
-                relationship_lookup=(
-                    _relationship_lookup if _take_stake_enabled else None
-                ),
+                staker_profile_lookup=(_staker_profile_lookup if _take_stake_enabled else None),
+                relationship_lookup=(_relationship_lookup if _take_stake_enabled else None),
                 stake_label=table.stake_label,
                 # Phase 4 Commit 4: cross-table candidate pool. The
                 # per-table loop sees the pre-loop snapshot of other
@@ -1116,25 +1127,20 @@ def refresh_unseated_tables(
                 # so a now-broke AI wouldn't qualify even if they
                 # appeared in this list.
                 cross_table_staker_pids=_cross_table_pool_for(
-                    table.stake_label, table.table_id,
+                    table.stake_label,
+                    table.table_id,
                 ),
                 # Phase 4.5 Commit 1: per-staker garnishment for AI
                 # borrowers. Only meaningful when stake_repo is wired
                 # (else the lookup returns 0 and the cut stays at
                 # rate_anchor as before).
-                carry_lookup=(
-                    _carry_lookup if _take_stake_enabled else None
-                ),
+                carry_lookup=(_carry_lookup if _take_stake_enabled else None),
                 # Staker-incentives plan: weighted candidate selection
                 # in find_ai_staker_for. Wired only when stake_repo is
                 # available; otherwise the matcher falls back to its
                 # legacy uniform-random pick.
-                history_lookup=(
-                    _history_for if _take_stake_enabled else None
-                ),
-                starting_bankroll_lookup=(
-                    _starting_bankroll_for if _take_stake_enabled else None
-                ),
+                history_lookup=(_history_for if _take_stake_enabled else None),
+                starting_bankroll_lookup=(_starting_bankroll_for if _take_stake_enabled else None),
             )
             # Carry the post-hand table forward to the next iteration.
             table = per_hand.new_table
@@ -1252,12 +1258,14 @@ def refresh_unseated_tables(
                 chips_at_leave = result.bankroll_changes[idx].amount
                 # Was this AI a stake borrower? Look up active stake.
                 active_stake = stake_repo.load_active_for_borrower(
-                    pid, BORROWER_KIND_PERSONALITY,
+                    pid,
+                    BORROWER_KIND_PERSONALITY,
                 )
                 if active_stake is None:
                     continue
                 settlement = settle_stake_on_leave(
-                    active_stake.stake_id, chips_at_leave,
+                    active_stake.stake_id,
+                    chips_at_leave,
                     stake_repo=stake_repo,
                     chip_ledger_repo=chip_ledger_repo,
                     ledger_context={
@@ -1284,6 +1292,7 @@ def refresh_unseated_tables(
                         # so concurrent leaves don't lose the credit.
                         if flow.staker_kind == STAKER_KIND_HUMAN:
                             from cash_mode.bankroll import PlayerBankrollState
+
                             existing = bankroll_repo.load_player_bankroll(
                                 flow.staker_id,
                             )
@@ -1299,12 +1308,16 @@ def refresh_unseated_tables(
                                 logger.warning(
                                     "[CASH][LOBBY] human staker bankroll "
                                     "missing for credit staker=%r stake=%r",
-                                    flow.staker_id, active_stake.stake_id,
+                                    flow.staker_id,
+                                    active_stake.stake_id,
                                 )
                         else:
                             from cash_mode.bankroll import credit_ai_cash_out
+
                             credit_ai_cash_out(
-                                bankroll_repo, flow.staker_id, flow.amount,
+                                bankroll_repo,
+                                flow.staker_id,
+                                flow.amount,
                                 sandbox_id=sandbox_id,
                                 now=now,
                                 chip_ledger_repo=chip_ledger_repo,
@@ -1315,8 +1328,11 @@ def refresh_unseated_tables(
                             )
                     elif flow.direction == DIRECTION_BORROWER_SEAT_TO_BORROWER_BANKROLL:
                         from cash_mode.bankroll import credit_ai_cash_out
+
                         credit_ai_cash_out(
-                            bankroll_repo, flow.borrower_id, flow.amount,
+                            bankroll_repo,
+                            flow.borrower_id,
+                            flow.amount,
                             sandbox_id=sandbox_id,
                             now=now,
                             chip_ledger_repo=chip_ledger_repo,
@@ -1344,6 +1360,7 @@ def refresh_unseated_tables(
                         from poker.memory.relationship_events import (
                             RelationshipEvent,
                         )
+
                         mgr = OpponentModelManager(
                             relationship_repo=relationship_repo,
                         )
@@ -1354,8 +1371,9 @@ def refresh_unseated_tables(
                         )
                     except Exception as exc:
                         logger.warning(
-                            "[CASH][LOBBY] STAKE_REPAID event failed "
-                            "stake=%r: %s", active_stake.stake_id, exc,
+                            "[CASH][LOBBY] STAKE_REPAID event failed " "stake=%r: %s",
+                            active_stake.stake_id,
+                            exc,
                         )
                 if (
                     settlement.new_status == STAKE_STATUS_CARRY
@@ -1369,28 +1387,34 @@ def refresh_unseated_tables(
                             format_ai_default_message,
                             record_event,
                         )
+
                         staker_name = _ticker_name_for(
-                            settlement.staker_id, personality_repo,
+                            settlement.staker_id,
+                            personality_repo,
                         )
                         borrower_name = _ticker_name_for(
-                            settlement.borrower_id, personality_repo,
+                            settlement.borrower_id,
+                            personality_repo,
                         )
                         if staker_name and borrower_name:
-                            record_event(LobbyEvent(
-                                type=EVENT_AI_DEFAULT,
-                                table_id=result.new_table.table_id,
-                                stake_label=active_stake.stake_tier,
-                                personality_id=settlement.borrower_id,
-                                name=borrower_name,
-                                reason=settlement.staker_id,
-                                message=format_ai_default_message(
-                                    borrower_name, staker_name,
-                                    active_stake.stake_tier,
-                                    settlement.carry_amount,
-                                ),
-                                created_at=now.isoformat(),
-                                sandbox_id=sandbox_id,
-                            ))
+                            record_event(
+                                LobbyEvent(
+                                    type=EVENT_AI_DEFAULT,
+                                    table_id=result.new_table.table_id,
+                                    stake_label=active_stake.stake_tier,
+                                    personality_id=settlement.borrower_id,
+                                    name=borrower_name,
+                                    reason=settlement.staker_id,
+                                    message=format_ai_default_message(
+                                        borrower_name,
+                                        staker_name,
+                                        active_stake.stake_tier,
+                                        settlement.carry_amount,
+                                    ),
+                                    created_at=now.isoformat(),
+                                    sandbox_id=sandbox_id,
+                                )
+                            )
                     except Exception as exc:
                         logger.warning(
                             "[CASH][LOBBY] EVENT_AI_DEFAULT emit failed: %s",
@@ -1408,10 +1432,13 @@ def refresh_unseated_tables(
             credit_ai_cash_out,
             debit_bankroll_for_seat,
         )
+
         for i, bc in enumerate(result.bankroll_changes):
             if bc.direction == "to_seat":
                 debit_bankroll_for_seat(
-                    bankroll_repo, bc.personality_id, bc.amount,
+                    bankroll_repo,
+                    bc.personality_id,
+                    bc.amount,
                     sandbox_id=sandbox_id,
                     chip_ledger_repo=chip_ledger_repo,
                     now=now,
@@ -1457,6 +1484,8 @@ def refresh_unseated_tables(
             return personality.get("name") or pid
 
         if result.stake_creations:
+            import uuid
+
             from cash_mode.stakes import (
                 BORROWER_KIND_PERSONALITY,
                 STAKE_FORMAT_PURE,
@@ -1464,11 +1493,12 @@ def refresh_unseated_tables(
                 STAKER_KIND_PERSONALITY,
                 Stake,
             )
-            import uuid
 
             for sc in result.stake_creations:
                 debit_bankroll_for_seat(
-                    bankroll_repo, sc.staker_id, sc.principal,
+                    bankroll_repo,
+                    sc.staker_id,
+                    sc.principal,
                     sandbox_id=sandbox_id,
                     chip_ledger_repo=chip_ledger_repo,
                     now=now,
@@ -1498,6 +1528,7 @@ def refresh_unseated_tables(
                         from poker.memory.relationship_events import (
                             RelationshipEvent,
                         )
+
                         mgr = OpponentModelManager(
                             relationship_repo=relationship_repo,
                         )
@@ -1508,9 +1539,10 @@ def refresh_unseated_tables(
                         )
                     except Exception as exc:
                         logger.warning(
-                            "[CASH][LOBBY] STAKE_OFFERED event failed "
-                            "staker=%r borrower=%r: %s",
-                            sc.staker_id, sc.borrower_id, exc,
+                            "[CASH][LOBBY] STAKE_OFFERED event failed " "staker=%r borrower=%r: %s",
+                            sc.staker_id,
+                            sc.borrower_id,
+                            exc,
                         )
                 # Phase 4 Commit 5: emit ticker event for stakes above
                 # the threshold so the player sees the AI economy
@@ -1525,27 +1557,34 @@ def refresh_unseated_tables(
                             format_ai_stake_message,
                             record_event,
                         )
+
                         staker_name = _ticker_name_for(
-                            sc.staker_id, personality_repo,
+                            sc.staker_id,
+                            personality_repo,
                         )
                         borrower_name = _ticker_name_for(
-                            sc.borrower_id, personality_repo,
+                            sc.borrower_id,
+                            personality_repo,
                         )
                         if staker_name and borrower_name:
-                            record_event(LobbyEvent(
-                                type=EVENT_AI_STAKE,
-                                table_id=result.new_table.table_id,
-                                stake_label=sc.stake_label,
-                                personality_id=sc.staker_id,
-                                name=staker_name,
-                                reason=sc.borrower_id,
-                                message=format_ai_stake_message(
-                                    staker_name, borrower_name,
-                                    sc.stake_label, sc.principal,
-                                ),
-                                created_at=now.isoformat(),
-                                sandbox_id=sandbox_id,
-                            ))
+                            record_event(
+                                LobbyEvent(
+                                    type=EVENT_AI_STAKE,
+                                    table_id=result.new_table.table_id,
+                                    stake_label=sc.stake_label,
+                                    personality_id=sc.staker_id,
+                                    name=staker_name,
+                                    reason=sc.borrower_id,
+                                    message=format_ai_stake_message(
+                                        staker_name,
+                                        borrower_name,
+                                        sc.stake_label,
+                                        sc.principal,
+                                    ),
+                                    created_at=now.isoformat(),
+                                    sandbox_id=sandbox_id,
+                                )
+                            )
                     except Exception as exc:
                         logger.warning(
                             "[CASH][LOBBY] EVENT_AI_STAKE emit failed: %s",
@@ -1590,7 +1629,8 @@ def refresh_unseated_tables(
             reserve_lookup=_bankroll_lookup,
         ).items():
             last_stand_qualifying[_pid] = (
-                result.new_table.table_id, result.new_table.stake_label,
+                result.new_table.table_id,
+                result.new_table.stake_label,
             )
 
         # Refresh idle_pool snapshot so the next iteration sees the
@@ -1604,7 +1644,8 @@ def refresh_unseated_tables(
     # re-flooding the ticker every tick; recovered / departed AIs drop
     # out of the announced set and can re-trigger on a future episode.
     newly_committed = _select_new_last_stands(
-        sandbox_id, set(last_stand_qualifying),
+        sandbox_id,
+        set(last_stand_qualifying),
     )
     if newly_committed:
         _emit_last_stand_events(
@@ -1636,6 +1677,7 @@ def refresh_unseated_tables(
                 pressure signals dominate when energy is unknown).
                 """
                 from cash_mode.full_sim import _get_default_controller_cache
+
                 cache = _get_default_controller_cache()
                 ctrl = cache.get(pid)
                 if ctrl is not None:
@@ -1647,7 +1689,8 @@ def refresh_unseated_tables(
                             return 0.5
                 try:
                     blob = bankroll_repo.load_emotional_state_json(
-                        pid, sandbox_id=sandbox_id,
+                        pid,
+                        sandbox_id=sandbox_id,
                     )
                 except Exception:
                     return 0.5
@@ -1655,6 +1698,7 @@ def refresh_unseated_tables(
                     return 0.5
                 try:
                     import json as _json
+
                     state_dict = _json.loads(blob)
                     return float(state_dict.get('energy', 0.5))
                 except Exception:
@@ -1679,7 +1723,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] AI carry resolution failed: %s", exc,
+                "[CASH][LOBBY] AI carry resolution failed: %s",
+                exc,
             )
 
     # AI vice spending — start pass. Runs after carry resolution so a
@@ -1701,6 +1746,7 @@ def refresh_unseated_tables(
         try:
             from cash_mode.ai_vice_spending import resolve_ai_vice_spending
             from cash_mode.vice_narration import narrate_vice
+
             # Idle-only candidates per the design's "sim-seated AIs
             # are deferred" decision (see CASH_MODE_AI_VICE_SPENDING.md).
             # idle_pool was already filtered to exclude on_vice AIs at
@@ -1708,17 +1754,16 @@ def refresh_unseated_tables(
             # snapshot so any AIs who entered idle during the table
             # loop are eligible too.
             current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-            candidates = {
-                e.personality_id for e in current_idle
-                if e.personality_id not in on_vice
-            }
+            candidates = {e.personality_id for e in current_idle if e.personality_id not in on_vice}
 
             def _vice_narrate(pid, amount, snapshot):
                 # Bind the personality_repo so the LLM prompt can
                 # include style + anchors + verbal tics. Fail-soft
                 # internal to narrate_vice — never raises.
                 return narrate_vice(
-                    pid, amount, snapshot,
+                    pid,
+                    amount,
+                    snapshot,
                     personality_repo=personality_repo,
                 )
 
@@ -1734,7 +1779,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] AI vice spending failed: %s", exc,
+                "[CASH][LOBBY] AI vice spending failed: %s",
+                exc,
             )
 
     # Emit vice ticker events for both starts (this refresh) and ends
@@ -1751,7 +1797,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] vice event emission failed: %s", exc,
+                "[CASH][LOBBY] vice event emission failed: %s",
+                exc,
             )
 
     # AI side hustle — start pass (mirror of the vice start pass). Sends
@@ -1783,7 +1830,9 @@ def refresh_unseated_tables(
                     continue
                 try:
                     projected = bankroll_repo.load_ai_bankroll_current(
-                        pid, sandbox_id=sandbox_id, now=now,
+                        pid,
+                        sandbox_id=sandbox_id,
+                        now=now,
                     )
                     knobs = bankroll_repo.load_personality_knobs(pid)
                 except Exception:
@@ -1798,7 +1847,9 @@ def refresh_unseated_tables(
                 # Bind personality_repo so the LLM prompt can include
                 # style + anchors + verbal tics. Fail-soft internally.
                 return narrate_side_hustle(
-                    pid, amount, personality_repo=personality_repo,
+                    pid,
+                    amount,
+                    personality_repo=personality_repo,
                 )
 
             if candidates:
@@ -1813,7 +1864,8 @@ def refresh_unseated_tables(
                 )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] AI side hustle failed: %s", exc,
+                "[CASH][LOBBY] AI side hustle failed: %s",
+                exc,
             )
 
     # Emit side-hustle ticker events for both starts (this refresh) and
@@ -1829,7 +1881,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] side-hustle event emission failed: %s", exc,
+                "[CASH][LOBBY] side-hustle event emission failed: %s",
+                exc,
             )
 
     # Closed-economy testbed: fake-vice deposits. Runs only when
@@ -1851,7 +1904,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] closed-economy resolution failed: %s", exc,
+                "[CASH][LOBBY] closed-economy resolution failed: %s",
+                exc,
             )
 
     # Casino provisioning: spawn `table_type='casino'` tables when the bank
@@ -1878,7 +1932,8 @@ def refresh_unseated_tables(
             )
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] casino provisioning failed: %s", exc,
+                "[CASH][LOBBY] casino provisioning failed: %s",
+                exc,
             )
 
     return out
@@ -1930,17 +1985,19 @@ def _emit_activity_events(
         if not name:
             continue
         try:
-            record_event(LobbyEvent(
-                type=EVENT_LEAVE,
-                table_id=table.table_id,
-                stake_label=stake,
-                personality_id=pid,
-                name=name,
-                reason=decision,
-                message=format_leave_message(name, stake, decision),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_LEAVE,
+                    table_id=table.table_id,
+                    stake_label=stake,
+                    personality_id=pid,
+                    name=name,
+                    reason=decision,
+                    message=format_leave_message(name, stake, decision),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception:
             # Buffer is best-effort. Don't let it break the refresh.
             pass
@@ -1950,17 +2007,19 @@ def _emit_activity_events(
         if not name:
             continue
         try:
-            record_event(LobbyEvent(
-                type=EVENT_JOIN,
-                table_id=table.table_id,
-                stake_label=stake,
-                personality_id=pid,
-                name=name,
-                reason="",
-                message=format_join_message(name, stake),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_JOIN,
+                    table_id=table.table_id,
+                    stake_label=stake,
+                    personality_id=pid,
+                    name=name,
+                    reason="",
+                    message=format_join_message(name, stake),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception:
             pass
 
@@ -1998,17 +2057,19 @@ def _emit_last_stand_events(
         if not name:
             continue
         try:
-            record_event(LobbyEvent(
-                type=EVENT_LAST_STAND,
-                table_id=table_id,
-                stake_label=stake_label,
-                personality_id=pid,
-                name=name,
-                reason="",
-                message=format_last_stand_message(name, stake_label),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_LAST_STAND,
+                    table_id=table_id,
+                    stake_label=stake_label,
+                    personality_id=pid,
+                    name=name,
+                    reason="",
+                    message=format_last_stand_message(name, stake_label),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception:
             pass
 
@@ -2086,28 +2147,32 @@ def _emit_sim_events(
     delta = int(sim_result.delta)
 
     try:
-        record_event(LobbyEvent(
-            type=EVENT_BIG_WIN,
-            table_id=table.table_id,
-            stake_label=stake,
-            personality_id=winner_pid,
-            name=winner_name,
-            reason=loser_pid,  # opponent id for frontend grouping
-            message=format_big_win_message(winner_name, loser_name, stake, delta),
-            created_at=ts,
-            sandbox_id=sandbox_id,
-        ))
-        record_event(LobbyEvent(
-            type=EVENT_BIG_LOSS,
-            table_id=table.table_id,
-            stake_label=stake,
-            personality_id=loser_pid,
-            name=loser_name,
-            reason=winner_pid,
-            message=format_big_loss_message(loser_name, winner_name, stake, delta),
-            created_at=ts,
-            sandbox_id=sandbox_id,
-        ))
+        record_event(
+            LobbyEvent(
+                type=EVENT_BIG_WIN,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=winner_pid,
+                name=winner_name,
+                reason=loser_pid,  # opponent id for frontend grouping
+                message=format_big_win_message(winner_name, loser_name, stake, delta),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            )
+        )
+        record_event(
+            LobbyEvent(
+                type=EVENT_BIG_LOSS,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=loser_pid,
+                name=loser_name,
+                reason=winner_pid,
+                message=format_big_loss_message(loser_name, winner_name, stake, delta),
+                created_at=ts,
+                sandbox_id=sandbox_id,
+            )
+        )
     except Exception:
         # Buffer is best-effort.
         pass
@@ -2235,22 +2300,24 @@ def _emit_burst_summary(
             top_name = top_pid
 
     try:
-        record_event(LobbyEvent(
-            type=EVENT_BURST_SUMMARY,
-            table_id=table.table_id,
-            stake_label=table.stake_label,
-            personality_id=top_pid or "",
-            name=top_name or "",
-            reason="",
-            message=format_burst_summary_message(
+        record_event(
+            LobbyEvent(
+                type=EVENT_BURST_SUMMARY,
+                table_id=table.table_id,
                 stake_label=table.stake_label,
-                hands=len(sim_results),
-                top_name=top_name,
-                top_net_delta=top_delta,
-            ),
-            created_at=now.isoformat(),
-            sandbox_id=sandbox_id,
-        ))
+                personality_id=top_pid or "",
+                name=top_name or "",
+                reason="",
+                message=format_burst_summary_message(
+                    stake_label=table.stake_label,
+                    hands=len(sim_results),
+                    top_name=top_name,
+                    top_net_delta=top_delta,
+                ),
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+            )
+        )
     except Exception:
         pass
 
@@ -2305,38 +2372,40 @@ def _emit_hand_events(
             continue
 
         if evt.type == HAND_EVENT_ALL_IN:
-            opponent_name = (
-                _name_for(evt.opponent_pid) if evt.opponent_pid else None
-            )
+            opponent_name = _name_for(evt.opponent_pid) if evt.opponent_pid else None
             try:
-                record_event(LobbyEvent(
-                    type=EVENT_ALL_IN,
-                    table_id=table.table_id,
-                    stake_label=stake,
-                    personality_id=evt.personality_id,
-                    name=name,
-                    reason=evt.opponent_pid or "",
-                    message=format_all_in_message(name, stake, opponent_name),
-                    created_at=ts,
-                    sandbox_id=sandbox_id,
-                ))
+                record_event(
+                    LobbyEvent(
+                        type=EVENT_ALL_IN,
+                        table_id=table.table_id,
+                        stake_label=stake,
+                        personality_id=evt.personality_id,
+                        name=name,
+                        reason=evt.opponent_pid or "",
+                        message=format_all_in_message(name, stake, opponent_name),
+                        created_at=ts,
+                        sandbox_id=sandbox_id,
+                    )
+                )
                 seen_types.add(evt.type)
             except Exception:
                 pass
 
         elif evt.type == HAND_EVENT_BUST:
             try:
-                record_event(LobbyEvent(
-                    type=EVENT_BUST,
-                    table_id=table.table_id,
-                    stake_label=stake,
-                    personality_id=evt.personality_id,
-                    name=name,
-                    reason=evt.opponent_pid or "",
-                    message=format_bust_message(name, stake),
-                    created_at=ts,
-                    sandbox_id=sandbox_id,
-                ))
+                record_event(
+                    LobbyEvent(
+                        type=EVENT_BUST,
+                        table_id=table.table_id,
+                        stake_label=stake,
+                        personality_id=evt.personality_id,
+                        name=name,
+                        reason=evt.opponent_pid or "",
+                        message=format_bust_message(name, stake),
+                        created_at=ts,
+                        sandbox_id=sandbox_id,
+                    )
+                )
                 seen_types.add(evt.type)
             except Exception:
                 pass
@@ -2400,7 +2469,10 @@ def _emit_carry_resolution_events(
         if result.kind == 'payoff':
             event_type = EVENT_AI_PAYOFF
             message = format_ai_payoff_message(
-                borrower_name, staker_name, result.stake_tier, result.amount,
+                borrower_name,
+                staker_name,
+                result.stake_tier,
+                result.amount,
             )
             actor_pid = result.borrower_id
             counterparty_pid = result.staker_id
@@ -2408,7 +2480,10 @@ def _emit_carry_resolution_events(
         elif result.kind == 'forgiven':
             event_type = EVENT_AI_FORGIVEN
             message = format_ai_forgiven_message(
-                staker_name, borrower_name, result.stake_tier, result.amount,
+                staker_name,
+                borrower_name,
+                result.stake_tier,
+                result.amount,
             )
             # The staker is the actor in a grant (they chose to forgive),
             # so the event indexes by staker_id. Mirrors how `ai_stake`
@@ -2419,7 +2494,10 @@ def _emit_carry_resolution_events(
         elif result.kind == 'default':
             event_type = EVENT_AI_DEFAULT
             message = format_ai_explicit_default_message(
-                borrower_name, staker_name, result.stake_tier, result.amount,
+                borrower_name,
+                staker_name,
+                result.stake_tier,
+                result.amount,
             )
             actor_pid = result.borrower_id
             counterparty_pid = result.staker_id
@@ -2430,7 +2508,9 @@ def _emit_carry_resolution_events(
             # the ask landed even if they're not watching the drawer.
             event_type = EVENT_AI_REQUESTS_FORGIVENESS
             message = format_ai_requests_forgiveness_message(
-                borrower_name, result.stake_tier, result.amount,
+                borrower_name,
+                result.stake_tier,
+                result.amount,
             )
             actor_pid = result.borrower_id
             counterparty_pid = result.staker_id  # the human owner_id
@@ -2440,21 +2520,24 @@ def _emit_carry_resolution_events(
             continue
 
         try:
-            record_event(LobbyEvent(
-                type=event_type,
-                table_id="",  # carry resolutions aren't table-scoped
-                stake_label=result.stake_tier,
-                personality_id=actor_pid,
-                name=actor_name,
-                reason=counterparty_pid,
-                message=message,
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=event_type,
+                    table_id="",  # carry resolutions aren't table-scoped
+                    stake_label=result.stake_tier,
+                    personality_id=actor_pid,
+                    name=actor_name,
+                    reason=counterparty_pid,
+                    message=message,
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] carry resolution event emit failed (%s): %s",
-                result.kind, exc,
+                result.kind,
+                exc,
             )
 
 
@@ -2507,41 +2590,47 @@ def _emit_vice_spending_events(
     for s in starts:
         name = _name_for(s.personality_id)
         try:
-            record_event(LobbyEvent(
-                type=EVENT_VICE_START,
-                table_id="",
-                stake_label="",
-                personality_id=s.personality_id,
-                name=name,
-                reason=s.duration_bucket,
-                message=format_vice_start_message(name, s.narration),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_VICE_START,
+                    table_id="",
+                    stake_label="",
+                    personality_id=s.personality_id,
+                    name=name,
+                    reason=s.duration_bucket,
+                    message=format_vice_start_message(name, s.narration),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] vice start event emit failed pid=%r: %s",
-                s.personality_id, exc,
+                s.personality_id,
+                exc,
             )
 
     for e in ends:
         name = _name_for(e.personality_id)
         try:
-            record_event(LobbyEvent(
-                type=EVENT_VICE_END,
-                table_id="",
-                stake_label="",
-                personality_id=e.personality_id,
-                name=name,
-                reason=e.duration_bucket,
-                message=format_vice_end_message(name),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_VICE_END,
+                    table_id="",
+                    stake_label="",
+                    personality_id=e.personality_id,
+                    name=name,
+                    reason=e.duration_bucket,
+                    message=format_vice_end_message(name),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] vice end event emit failed pid=%r: %s",
-                e.personality_id, exc,
+                e.personality_id,
+                exc,
             )
 
 
@@ -2591,41 +2680,47 @@ def _emit_side_hustle_events(
     for s in starts:
         name = _name_for(s.personality_id)
         try:
-            record_event(LobbyEvent(
-                type=EVENT_HUSTLE_START,
-                table_id="",
-                stake_label="",
-                personality_id=s.personality_id,
-                name=name,
-                reason=s.duration_bucket,
-                message=format_hustle_start_message(name, s.narration),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_HUSTLE_START,
+                    table_id="",
+                    stake_label="",
+                    personality_id=s.personality_id,
+                    name=name,
+                    reason=s.duration_bucket,
+                    message=format_hustle_start_message(name, s.narration),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] hustle start event emit failed pid=%r: %s",
-                s.personality_id, exc,
+                s.personality_id,
+                exc,
             )
 
     for e in ends:
         name = _name_for(e.personality_id)
         try:
-            record_event(LobbyEvent(
-                type=EVENT_HUSTLE_END,
-                table_id="",
-                stake_label="",
-                personality_id=e.personality_id,
-                name=name,
-                reason=e.duration_bucket,
-                message=format_hustle_end_message(name, e.paid_amount),
-                created_at=ts,
-                sandbox_id=sandbox_id,
-            ))
+            record_event(
+                LobbyEvent(
+                    type=EVENT_HUSTLE_END,
+                    table_id="",
+                    stake_label="",
+                    personality_id=e.personality_id,
+                    name=name,
+                    reason=e.duration_bucket,
+                    message=format_hustle_end_message(name, e.paid_amount),
+                    created_at=ts,
+                    sandbox_id=sandbox_id,
+                )
+            )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] hustle end event emit failed pid=%r: %s",
-                e.personality_id, exc,
+                e.personality_id,
+                exc,
             )
 
 
@@ -2683,21 +2778,16 @@ def kill_all_cash_sessions(
     # Reconcile orphan human seats. A seat is orphan when its owner
     # has no surviving `cash-*` row — the lobby would otherwise render
     # the player as still seated at a vanished table.
-    if (
-        cash_table_repo is not None
-        and bankroll_repo is not None
-        and sandbox_id is not None
-    ):
+    if cash_table_repo is not None and bankroll_repo is not None and sandbox_id is not None:
         from dataclasses import replace as _dc_replace
+
         try:
             rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
         except Exception as e:
             logger.warning("[CASH][LOBBY] list_games failed during reconcile: %s", e)
             rows = []
         owners_with_cash_row: Set[str] = {
-            (row.owner_id or "")
-            for row in rows
-            if row.game_id.startswith("cash-") and row.owner_id
+            (row.owner_id or "") for row in rows if row.game_id.startswith("cash-") and row.owner_id
         }
 
         try:
@@ -2730,13 +2820,17 @@ def kill_all_cash_sessions(
                     logger.info(
                         "[CASH][LOBBY] kill_all_cash_sessions: reset orphan human seat "
                         "table=%r seat=%d owner=%r refunded=%d",
-                        table.table_id, idx, owner_id, refund_chips,
+                        table.table_id,
+                        idx,
+                        owner_id,
+                        refund_chips,
                     )
                 except Exception as e:
                     logger.warning(
-                        "[CASH][LOBBY] failed to reset human seat "
-                        "table=%r seat=%d: %s",
-                        table.table_id, idx, e,
+                        "[CASH][LOBBY] failed to reset human seat " "table=%r seat=%d: %s",
+                        table.table_id,
+                        idx,
+                        e,
                     )
 
     if dropped:
@@ -2799,26 +2893,25 @@ def _process_aspiration_asks(
     Spec: `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 4.
     """
     from cash_mode.aspiration import compute_aspiration_probability
-    from cash_mode.stakes import (
-        BORROWER_KIND_PERSONALITY,
-        STAKE_FORMAT_PURE,
-        STAKE_STATUS_ACTIVE,
-        STAKER_KIND_PERSONALITY,
-        Stake,
-    )
-    from cash_mode.tables import open_slot
-    from cash_mode.stakes_ladder import (
-        STAKES_ORDER,
-        table_buy_in_window,
-    )
-    from poker.memory import OpponentModelManager
-    from poker.memory.relationship_events import RelationshipEvent
     from cash_mode.movement import (
         BankrollChange,
         IdlePoolChange,
         IdlePoolEntry,
         find_ai_staker_for,
     )
+    from cash_mode.stakes import (
+        STAKE_FORMAT_PURE,
+        STAKE_STATUS_ACTIVE,
+        STAKER_KIND_PERSONALITY,
+        Stake,
+    )
+    from cash_mode.stakes_ladder import (
+        STAKES_ORDER,
+        table_buy_in_window,
+    )
+    from cash_mode.tables import open_slot
+    from poker.memory import OpponentModelManager
+    from poker.memory.relationship_events import RelationshipEvent
 
     table = result.new_table
     current_tier = table.stake_label
@@ -2851,12 +2944,14 @@ def _process_aspiration_asks(
         # take a second stake on top.
         try:
             existing = stake_repo.load_active_for_borrower(
-                asker_pid, BORROWER_KIND_PERSONALITY,
+                asker_pid,
+                BORROWER_KIND_PERSONALITY,
             )
         except Exception as exc:
             logger.debug(
                 "[CASH][LOBBY] aspiration: stake lookup failed pid=%r: %s",
-                asker_pid, exc,
+                asker_pid,
+                exc,
             )
             existing = None
         if existing is not None:
@@ -2865,12 +2960,14 @@ def _process_aspiration_asks(
         # Per-AI cooldown gate.
         try:
             cooldown_until = bankroll_repo.load_aspiration_cooldown_until(
-                asker_pid, sandbox_id=sandbox_id,
+                asker_pid,
+                sandbox_id=sandbox_id,
             )
         except Exception as exc:
             logger.debug(
                 "[CASH][LOBBY] aspiration: cooldown read failed pid=%r: %s",
-                asker_pid, exc,
+                asker_pid,
+                exc,
             )
             cooldown_until = None
         if cooldown_until is not None and cooldown_until > now:
@@ -2900,12 +2997,15 @@ def _process_aspiration_asks(
         # next tick.
         try:
             bankroll_repo.save_aspiration_cooldown_until(
-                asker_pid, sandbox_id=sandbox_id, until=cooldown_until_new,
+                asker_pid,
+                sandbox_id=sandbox_id,
+                until=cooldown_until_new,
             )
         except Exception as exc:
             logger.debug(
                 "[CASH][LOBBY] aspiration: cooldown write failed pid=%r: %s",
-                asker_pid, exc,
+                asker_pid,
+                exc,
             )
 
         # Carry-reckoning trigger: about to climb? Settle the books
@@ -2919,12 +3019,14 @@ def _process_aspiration_asks(
         # penalty will discount).
         try:
             outstanding = stake_repo.list_carries_for_borrower(
-                asker_pid, BORROWER_KIND_PERSONALITY,
+                asker_pid,
+                BORROWER_KIND_PERSONALITY,
             )
         except Exception as exc:
             logger.debug(
                 "[CASH][LOBBY] aspiration: carry lookup failed pid=%r: %s",
-                asker_pid, exc,
+                asker_pid,
+                exc,
             )
             outstanding = []
         if outstanding:
@@ -2932,6 +3034,7 @@ def _process_aspiration_asks(
                 PAYOFF_EVENT_BASE_RATE,
                 try_ai_voluntary_payoff,
             )
+
             try:
                 payoff_result = try_ai_voluntary_payoff(
                     personality_id=asker_pid,
@@ -2947,8 +3050,9 @@ def _process_aspiration_asks(
                 )
             except Exception as exc:
                 logger.warning(
-                    "[CASH][LOBBY] aspiration: pre-climb payoff failed "
-                    "pid=%r: %s", asker_pid, exc,
+                    "[CASH][LOBBY] aspiration: pre-climb payoff failed " "pid=%r: %s",
+                    asker_pid,
+                    exc,
                 )
                 payoff_result = None
             if payoff_result is not None:
@@ -2959,7 +3063,9 @@ def _process_aspiration_asks(
                 logger.info(
                     "[CASH][LOBBY] aspiration: pre-climb payoff fired "
                     "pid=%r stake=%r amount=%d — skipping climb",
-                    asker_pid, payoff_result.stake_id, payoff_result.amount,
+                    asker_pid,
+                    payoff_result.stake_id,
+                    payoff_result.amount,
                 )
                 continue
 
@@ -2974,12 +3080,15 @@ def _process_aspiration_asks(
             from cash_mode.ai_carry_resolution import (
                 carry_penalty_probability,
             )
+
             penalty_prob = carry_penalty_probability(len(outstanding))
             if rng.random() >= penalty_prob:
                 logger.info(
                     "[CASH][LOBBY] aspiration: matcher carry-penalty blocked "
                     "pid=%r carries=%d penalty_prob=%.3f",
-                    asker_pid, len(outstanding), penalty_prob,
+                    asker_pid,
+                    len(outstanding),
+                    penalty_prob,
                 )
                 continue
 
@@ -3035,8 +3144,9 @@ def _process_aspiration_asks(
             )
         except Exception as exc:
             logger.debug(
-                "[CASH][LOBBY] aspiration: find_ai_staker_for raised "
-                "pid=%r: %s", asker_pid, exc,
+                "[CASH][LOBBY] aspiration: find_ai_staker_for raised " "pid=%r: %s",
+                asker_pid,
+                exc,
             )
             continue
         if picked is None:
@@ -3055,30 +3165,41 @@ def _process_aspiration_asks(
         # from_seat changes via credit_ai_cash_out, which writes one
         # row + handles regen — combining the two amounts is a
         # single write, cleaner than two separate calls.
-        result.bankroll_changes.append(BankrollChange(
-            direction="from_seat",
-            personality_id=asker_pid,
-            amount=seat_chips + principal,
-        ))
+        result.bankroll_changes.append(
+            BankrollChange(
+                direction="from_seat",
+                personality_id=asker_pid,
+                amount=seat_chips + principal,
+            )
+        )
 
         # Debit the staker inline (matches Phase 4's stake_creations
         # post-loop debit pattern).
         try:
             from cash_mode.bankroll import debit_bankroll_for_seat
+
             debit_bankroll_for_seat(
-                bankroll_repo, staker_id, principal, sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo, now=now,
+                bankroll_repo,
+                staker_id,
+                principal,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
             )
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] aspiration: staker debit failed "
                 "staker=%r pid=%r principal=%d: %s",
-                staker_id, asker_pid, principal, exc,
+                staker_id,
+                asker_pid,
+                principal,
+                exc,
             )
             continue
 
         # Create the stake row.
         import uuid
+
         stake = Stake(
             stake_id=f"ai_stake_aspire_{uuid.uuid4().hex[:12]}",
             session_id=f"ai_aspire_{asker_pid}_{int(now.timestamp())}",
@@ -3100,9 +3221,10 @@ def _process_aspiration_asks(
             stake_repo.create_stake(stake)
         except Exception as exc:
             logger.warning(
-                "[CASH][LOBBY] aspiration: create_stake failed "
-                "asker=%r staker=%r: %s",
-                asker_pid, staker_id, exc,
+                "[CASH][LOBBY] aspiration: create_stake failed " "asker=%r staker=%r: %s",
+                asker_pid,
+                staker_id,
+                exc,
             )
             continue
 
@@ -3120,7 +3242,9 @@ def _process_aspiration_asks(
                 logger.debug(
                     "[CASH][LOBBY] aspiration: STAKE_OFFERED event "
                     "failed staker=%r asker=%r: %s",
-                    staker_id, asker_pid, exc,
+                    staker_id,
+                    asker_pid,
+                    exc,
                 )
 
         # Idle pool: target_stake = next tier so live-fill picks up
@@ -3135,9 +3259,13 @@ def _process_aspiration_asks(
             reason="stake_up_queued",
             target_stake=target_tier,
         )
-        result.idle_changes.append(IdlePoolChange(
-            kind="add", personality_id=asker_pid, entry=idle_entry,
-        ))
+        result.idle_changes.append(
+            IdlePoolChange(
+                kind="add",
+                personality_id=asker_pid,
+                entry=idle_entry,
+            )
+        )
 
         # Decision tag for sim observability (replaces any prior
         # value the burst loop wrote — aspiration_ask overrides the
@@ -3145,8 +3273,11 @@ def _process_aspiration_asks(
         result.decisions[asker_pid] = "aspiration_climb"
 
         logger.info(
-            "[CASH][LOBBY] aspiration_climb: %r ($%s) → %r at %s, "
-            "principal=%d cut=%.2f",
-            asker_pid, current_tier, staker_id, target_tier,
-            principal, staker_profile.rate_anchor,
+            "[CASH][LOBBY] aspiration_climb: %r ($%s) → %r at %s, " "principal=%d cut=%.2f",
+            asker_pid,
+            current_tier,
+            staker_id,
+            target_tier,
+            principal,
+            staker_profile.rate_anchor,
         )

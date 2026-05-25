@@ -61,39 +61,63 @@ def game_data(opp_manager):
 class TestDispatchSkipsWhenInputMissing:
     def test_no_tone_skips_dispatch(self, game_data, repo):
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone=None, intensity=None,
+            game_data,
+            "alice",
+            ["bob"],
+            tone=None,
+            intensity=None,
         )
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
     def test_no_addressing_skips_dispatch(self, game_data, repo):
         # Table-broadcast: no specific target, so no relationship event.
         dispatch_chat_relationship_event(
-            game_data, "alice", None, tone="goad", intensity="spicy",
+            game_data,
+            "alice",
+            None,
+            tone="goad",
+            intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
     def test_empty_addressing_skips_dispatch(self, game_data, repo):
         dispatch_chat_relationship_event(
-            game_data, "alice", [], tone="goad", intensity="spicy",
+            game_data,
+            "alice",
+            [],
+            tone="goad",
+            intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
     def test_bluff_tone_skips_dispatch(self, game_data, repo):
         # bluff is the documented no-op tone (about speaker's own hand).
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="bluff", intensity="spicy",
+            game_data,
+            "alice",
+            ["bob"],
+            tone="bluff",
+            intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
     def test_unknown_tone_skips_dispatch(self, game_data, repo):
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="snarky", intensity="spicy",
+            game_data,
+            "alice",
+            ["bob"],
+            tone="snarky",
+            intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
     def test_no_memory_manager_skips_dispatch(self, repo):
         dispatch_chat_relationship_event(
-            {}, "alice", ["bob"], tone="goad", intensity="spicy",
+            {},
+            "alice",
+            ["bob"],
+            tone="goad",
+            intensity="spicy",
         )
         # No assertion needed beyond "didn't raise" — there's no repo
         # to inspect in this game_data shape.
@@ -101,14 +125,20 @@ class TestDispatchSkipsWhenInputMissing:
 
 class TestDispatchFiresEvent:
     def test_spicy_goad_applies_full_trash_talk_shift(
-        self, game_data, repo,
+        self,
+        game_data,
+        repo,
     ):
         # spicy + goad → TRASH_TALK at multiplier 1.0.
         # Actor (alice) shift from the dispatch table: heat +0.10,
         # likability -0.05. The bilateral update also writes the
         # mirror row.
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="goad", intensity="spicy",
+            game_data,
+            "alice",
+            ["bob"],
+            tone="goad",
+            intensity="spicy",
         )
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         assert actor_state is not None
@@ -117,45 +147,49 @@ class TestDispatchFiresEvent:
         # likability=0.5; the shift is applied on top.
         assert actor_state.heat == pytest.approx(expected.heat)
         assert actor_state.respect == pytest.approx(0.5 + expected.respect)
-        assert actor_state.likability == pytest.approx(
-            0.5 + expected.likability
-        )
+        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
 
     def test_chill_needle_compounds_to_quarter_shift(
-        self, game_data, repo,
+        self,
+        game_data,
+        repo,
     ):
         # needle base = 0.5, chill modifier = 0.5 → composed multiplier
         # 0.25. The applied TRASH_TALK actor shift is scaled accordingly.
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="needle", intensity="chill",
+            game_data,
+            "alice",
+            ["bob"],
+            tone="needle",
+            intensity="chill",
         )
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TRASH_TALK]
         assert actor_state.heat == pytest.approx(expected.heat * 0.25)
-        assert actor_state.respect == pytest.approx(
-            0.5 + expected.respect * 0.25
-        )
-        assert actor_state.likability == pytest.approx(
-            0.5 + expected.likability * 0.25
-        )
+        assert actor_state.respect == pytest.approx(0.5 + expected.respect * 0.25)
+        assert actor_state.likability == pytest.approx(0.5 + expected.likability * 0.25)
 
     def test_gloat_applies_taunt_post_win(self, game_data, repo):
         # Post-round tone; intensity is ignored.
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="gloat", intensity=None,
+            game_data,
+            "alice",
+            ["bob"],
+            tone="gloat",
+            intensity=None,
         )
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.TAUNT_POST_WIN]
         assert actor_state.heat == pytest.approx(expected.heat)
         assert actor_state.respect == pytest.approx(0.5 + expected.respect)
-        assert actor_state.likability == pytest.approx(
-            0.5 + expected.likability
-        )
+        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
 
     def test_memorable_hand_attached_when_hand_count_present(
-        self, opp_manager, repo,
+        self,
+        opp_manager,
+        repo,
     ):
         """When the chat path is invoked during an active hand, the
         bilateral axis update should attach a MemorableHand sidecar
@@ -164,6 +198,7 @@ class TestDispatchFiresEvent:
         is invisible in the debug view (axes shift but no narrative).
         """
         from types import SimpleNamespace
+
         memory_manager = SimpleNamespace(
             get_opponent_model_manager=lambda: opp_manager,
             hand_count=7,
@@ -176,7 +211,11 @@ class TestDispatchFiresEvent:
         opp_manager.get_model("alice", "bob")
 
         dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="goad", intensity="spicy",
+            game_data,
+            "alice",
+            ["bob"],
+            tone="goad",
+            intensity="spicy",
         )
         model = opp_manager.get_model("alice", "bob")
         assert len(model.memorable_hands) == 1
@@ -184,13 +223,18 @@ class TestDispatchFiresEvent:
         assert "alice → bob" in model.memorable_hands[0].narrative
 
     def test_self_targeted_message_is_silently_skipped(
-        self, game_data, repo,
+        self,
+        game_data,
+        repo,
     ):
         # actor_id == target_id should never fire. The route is meant
         # to be human-to-AI but a misrouted self-addressed message
         # shouldn't crash and shouldn't write any state.
         dispatch_chat_relationship_event(
-            game_data, "alice", ["alice"],
-            tone="goad", intensity="spicy",
+            game_data,
+            "alice",
+            ["alice"],
+            tone="goad",
+            intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "alice_pid") is None

@@ -8,12 +8,14 @@ Mirrors the canonical pattern in experiments/run_ai_tournament.py.
 import logging
 from typing import Optional
 
-from poker.tiered_bot_controller import TieredBotController, BaselineSolverBot
-from poker.strategy.strategy_table import (
-    load_strategy_table, load_hu_strategy_table, load_depth_strategy_tables,
-)
+from core.llm import CallType, LLMClient
 from poker.strategy.expression_generator import ExpressionGenerator
-from core.llm import LLMClient, CallType
+from poker.strategy.strategy_table import (
+    load_depth_strategy_tables,
+    load_hu_strategy_table,
+    load_strategy_table,
+)
+from poker.tiered_bot_controller import BaselineSolverBot, TieredBotController
 
 logger = logging.getLogger(__name__)
 

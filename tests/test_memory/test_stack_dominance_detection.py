@@ -23,12 +23,11 @@ from poker.memory.hand_history import (
     RecordedHand,
 )
 from poker.memory.hand_outcome_detector import (
-    HandOutcomeDetector,
     STACK_DOMINANCE_EXCESS_CAP,
     STACK_DOMINANCE_THRESHOLD,
+    HandOutcomeDetector,
 )
 from poker.memory.relationship_events import RelationshipEvent
-
 
 # At $50 stake the max buy-in is $50 * 100 = 5000 chips. Threshold for
 # STACK_DOMINANCE is 1.5× that = 7500 chips. Constants picked to match
@@ -39,8 +38,10 @@ THRESHOLD_CHIPS = int(STACK_DOMINANCE_THRESHOLD * MAX_BUY_IN)
 
 def _player(name: str, starting_stack: int) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=starting_stack,
-        position="BTN", is_human=False,
+        name=name,
+        starting_stack=starting_stack,
+        position="BTN",
+        is_human=False,
     )
 
 
@@ -75,8 +76,10 @@ def _build_lookup(pnls: Dict[Tuple[str, str], int]):
     up against deep, negative when down. Missing pairs return 0 to
     match the production behavior of a brand-new pair with no PnL row.
     """
+
     def lookup(observer_id: str, deep_id: str) -> int:
         return pnls.get((observer_id, deep_id), 0)
+
     return lookup
 
 
@@ -103,11 +106,13 @@ class TestNoEmission:
 
     def test_no_deep_stacks_emits_nothing(self):
         # Everyone below 1.5× cap — no resentment.
-        hand = _build_hand(stacks={
-            "alice": 4000,  # 0.8× cap
-            "bob":   6000,  # 1.2× cap
-            "carol": 5500,  # 1.1× cap
-        })
+        hand = _build_hand(
+            stacks={
+                "alice": 4000,  # 0.8× cap
+                "bob": 6000,  # 1.2× cap
+                "carol": 5500,  # 1.1× cap
+            }
+        )
         det = HandOutcomeDetector()
         events = det.detect_events(hand, max_buy_in=MAX_BUY_IN)
         assert events == []
@@ -115,10 +120,12 @@ class TestNoEmission:
     def test_exactly_at_threshold_emits_nothing(self):
         # 1.5× cap = excess of 0 → multiplier 0 → no shift. The
         # detector filters this out rather than emit a no-op event.
-        hand = _build_hand(stacks={
-            "deep":  THRESHOLD_CHIPS,
-            "shorty": 2000,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": THRESHOLD_CHIPS,
+                "shorty": 2000,
+            }
+        )
         det = HandOutcomeDetector()
         events = det.detect_events(hand, max_buy_in=MAX_BUY_IN)
         assert events == []
@@ -129,14 +136,17 @@ class TestEmissionWithoutPnLGate:
     the test-only / early-sandbox path."""
 
     def test_one_deep_stack_emits_to_each_peer(self):
-        hand = _build_hand(stacks={
-            "deep":   10_000,  # 2.0× cap → excess 0.5
-            "alice":  2000,
-            "bob":    3000,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": 10_000,  # 2.0× cap → excess 0.5
+                "alice": 2000,
+                "bob": 3000,
+            }
+        )
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         assert len(events) == 2
@@ -152,15 +162,18 @@ class TestEmissionWithoutPnLGate:
         #   deep_a → seen by {deep_b, alice, bob} = 3 events
         #   deep_b → seen by {deep_a, alice, bob} = 3 events
         # Total 6 events.
-        hand = _build_hand(stacks={
-            "deep_a": 12_000,
-            "deep_b": 10_000,
-            "alice":  3000,
-            "bob":    2500,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep_a": 12_000,
+                "deep_b": 10_000,
+                "alice": 3000,
+                "bob": 2500,
+            }
+        )
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         assert len(events) == 6
@@ -171,13 +184,16 @@ class TestEmissionWithoutPnLGate:
 
     def test_context_multiplier_scales_with_excess(self):
         # 3× cap → excess 1.5
-        hand = _build_hand(stacks={
-            "whale": 15_000,
-            "fish":  2000,
-        })
+        hand = _build_hand(
+            stacks={
+                "whale": 15_000,
+                "fish": 2000,
+            }
+        )
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         assert len(events) == 1
@@ -186,13 +202,16 @@ class TestEmissionWithoutPnLGate:
     def test_context_multiplier_saturates_at_cap(self):
         # 10× cap would naively yield excess 8.5 — capped at 2.0 so a
         # single session against a whale can't tank a pair's axes.
-        hand = _build_hand(stacks={
-            "whale": 10 * MAX_BUY_IN,
-            "fish":  2000,
-        })
+        hand = _build_hand(
+            stacks={
+                "whale": 10 * MAX_BUY_IN,
+                "fish": 2000,
+            }
+        )
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         assert len(events) == 1
@@ -204,21 +223,28 @@ class TestPnLGate:
     deep stack emit. Strangers and net-up observers stay neutral."""
 
     def test_only_net_down_observers_emit(self):
-        hand = _build_hand(stacks={
-            "deep":  10_000,
-            "loser": 2000,
-            "winner": 3000,
-            "neutral": 2500,
-        })
-        lookup = _build_lookup({
-            ("loser",   "deep"): -500,   # loser is down 500 to deep
-            ("winner",  "deep"): +200,   # winner is up on deep
-            ("neutral", "deep"): 0,      # neutral has no history
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": 10_000,
+                "loser": 2000,
+                "winner": 3000,
+                "neutral": 2500,
+            }
+        )
+        lookup = _build_lookup(
+            {
+                ("loser", "deep"): -500,  # loser is down 500 to deep
+                ("winner", "deep"): +200,  # winner is up on deep
+                ("neutral", "deep"): 0,  # neutral has no history
+            }
+        )
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(
-                hand, max_buy_in=MAX_BUY_IN, cash_pnl_lookup=lookup,
+            e
+            for e in det.detect_events(
+                hand,
+                max_buy_in=MAX_BUY_IN,
+                cash_pnl_lookup=lookup,
             )
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
@@ -230,15 +256,20 @@ class TestPnLGate:
         # Brand-new pair with no prior chip flow → 0 PnL → no event.
         # This is the "early sandbox" behavior: resentment only kicks
         # in once the observer has actually lost to the deep stack.
-        hand = _build_hand(stacks={
-            "deep":   10_000,
-            "stranger": 2000,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": 10_000,
+                "stranger": 2000,
+            }
+        )
         lookup = _build_lookup({})  # all pairs default to 0
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(
-                hand, max_buy_in=MAX_BUY_IN, cash_pnl_lookup=lookup,
+            e
+            for e in det.detect_events(
+                hand,
+                max_buy_in=MAX_BUY_IN,
+                cash_pnl_lookup=lookup,
             )
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
@@ -248,11 +279,14 @@ class TestPnLGate:
         # A pnl lookup that raises shouldn't crash the detector. The
         # affected pair is treated as "no data" and skipped, but
         # other pairs in the same hand still get evaluated.
-        hand = _build_hand(stacks={
-            "deep":   10_000,
-            "broken": 2000,
-            "loser":  3000,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": 10_000,
+                "broken": 2000,
+                "loser": 3000,
+            }
+        )
+
         def lookup(observer_id, deep_id):
             if observer_id == "broken":
                 raise RuntimeError("repo blew up")
@@ -260,8 +294,11 @@ class TestPnLGate:
 
         det = HandOutcomeDetector()
         events = [
-            e for e in det.detect_events(
-                hand, max_buy_in=MAX_BUY_IN, cash_pnl_lookup=lookup,
+            e
+            for e in det.detect_events(
+                hand,
+                max_buy_in=MAX_BUY_IN,
+                cash_pnl_lookup=lookup,
             )
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
@@ -274,17 +311,21 @@ class TestDedup:
         # Detector dedup is keyed on (hand_number, actor, target, event).
         # Calling detect_events twice on the same hand should yield
         # events the first time and nothing the second time.
-        hand = _build_hand(stacks={
-            "deep":  10_000,
-            "alice": 2000,
-        })
+        hand = _build_hand(
+            stacks={
+                "deep": 10_000,
+                "alice": 2000,
+            }
+        )
         det = HandOutcomeDetector()
         first = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         second = [
-            e for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
+            e
+            for e in det.detect_events(hand, max_buy_in=MAX_BUY_IN)
             if e.event is RelationshipEvent.STACK_DOMINANCE
         ]
         assert len(first) == 1

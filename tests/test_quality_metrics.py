@@ -1,16 +1,17 @@
 """Tests for poker/quality_metrics.py - shared quality indicator logic."""
 
 import json
+
 import pytest
 
 from poker.quality_metrics import (
-    SHORT_STACK_BB,
-    MARGINAL_STACK_BB,
     BLUFF_THRESHOLD,
+    MARGINAL_STACK_BB,
+    SHORT_STACK_BB,
     TRASH_EQUITY,
+    build_quality_indicators,
     categorize_allin_row,
     compute_allin_categorizations,
-    build_quality_indicators,
 )
 
 
@@ -135,8 +136,16 @@ class TestComputeAllinCategorizations:
     def test_all_defensible(self):
         """All defensible rows should return (0, 0)."""
         rows = [
-            (5.0, json.dumps({'bluff_likelihood': 10, 'hand_strength': 'high card'}), 0.1),  # short stack
-            (20.0, json.dumps({'bluff_likelihood': 70, 'hand_strength': 'high card'}), 0.1),  # intentional bluff
+            (
+                5.0,
+                json.dumps({'bluff_likelihood': 10, 'hand_strength': 'high card'}),
+                0.1,
+            ),  # short stack
+            (
+                20.0,
+                json.dumps({'bluff_likelihood': 70, 'hand_strength': 'high card'}),
+                0.1,
+            ),  # intentional bluff
             (20.0, json.dumps({'bluff_likelihood': 10, 'hand_strength': 'pair'}), 0.5),  # good hand
         ]
         suspicious, marginal = compute_allin_categorizations(rows)

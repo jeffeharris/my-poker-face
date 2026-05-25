@@ -49,15 +49,19 @@ class TestPostRoundHandOrdering(unittest.TestCase):
             deck=(),
             players=(alice, bob),
             community_cards=(
-                Card('7', 'Diamonds'), Card('8', 'Clubs'), Card('9', 'Spades'),
-                Card('Q', 'Hearts'), Card('2', 'Spades'),
+                Card('7', 'Diamonds'),
+                Card('8', 'Clubs'),
+                Card('9', 'Spades'),
+                Card('Q', 'Hearts'),
+                Card('2', 'Spades'),
             ),
             pot={'total': 60, 'Alice': 30, 'Bob': 30},
             current_ante=10,
         )
 
-    def _build_memory_manager(self, game_id: str, game_state: PokerGameState,
-                              hand_number: int) -> AIMemoryManager:
+    def _build_memory_manager(
+        self, game_id: str, game_state: PokerGameState, hand_number: int
+    ) -> AIMemoryManager:
         """Memory manager with an in-progress hand carrying hole cards.
 
         on_hand_start reads hole cards directly off ``player.hand`` and seeds
@@ -73,8 +77,7 @@ class TestPostRoundHandOrdering(unittest.TestCase):
             mm.hand_recorder.complete_hand(
                 winner_info={
                     'pot_breakdown': [
-                        {'winners': [{'name': 'Bob', 'amount': 100}],
-                         'hand_name': 'High Card'}
+                        {'winners': [{'name': 'Bob', 'amount': 100}], 'hand_name': 'High Card'}
                     ],
                     'hand_name': 'High Card',
                     'hand_rank': 10,
@@ -121,32 +124,38 @@ class TestPostRoundHandOrdering(unittest.TestCase):
 
         # Patch everything that isn't the ordering we care about.
         patches = [
-            patch.object(game_handler, 'socketio', MagicMock(emit=capture_emit,
-                                                              start_background_task=MagicMock(),
-                                                              sleep=MagicMock())),
+            patch.object(
+                game_handler,
+                'socketio',
+                MagicMock(emit=capture_emit, start_background_task=MagicMock(), sleep=MagicMock()),
+            ),
             patch.object(game_handler, 'send_message', MagicMock()),
             patch.object(game_handler, 'hand_history_repo', MagicMock()),
             patch.object(game_handler, 'game_repo', MagicMock()),
             patch.object(game_handler, 'event_repository', MagicMock()),
             patch.object(game_handler, 'coach_repo', MagicMock()),
-            patch.object(game_handler, 'handle_eliminations',
-                         MagicMock(return_value=False)),
-            patch.object(game_handler, 'check_tournament_complete',
-                         MagicMock(return_value=False)),
+            patch.object(game_handler, 'handle_eliminations', MagicMock(return_value=False)),
+            patch.object(game_handler, 'check_tournament_complete', MagicMock(return_value=False)),
             patch.object(game_handler, 'update_and_emit_game_state', MagicMock()),
             patch.object(game_handler.game_state_service, 'set_game', MagicMock()),
-            patch.object(game_handler.game_state_service, 'get_game_owner_info',
-                         MagicMock(return_value=('', ''))),
-            patch.object(game_handler, 'config', MagicMock(
-                ENABLE_AI_COMMENTARY=False, ANIMATION_SPEED=0,
-            )),
+            patch.object(
+                game_handler.game_state_service,
+                'get_game_owner_info',
+                MagicMock(return_value=('', '')),
+            ),
+            patch.object(
+                game_handler,
+                'config',
+                MagicMock(
+                    ENABLE_AI_COMMENTARY=False,
+                    ANIMATION_SPEED=0,
+                ),
+            ),
         ]
         for p in patches:
             p.start()
         try:
-            game_handler.handle_evaluating_hand_phase(
-                game_id, game_data, state_machine, game_state
-            )
+            game_handler.handle_evaluating_hand_phase(game_id, game_data, state_machine, game_state)
         finally:
             for p in patches:
                 p.stop()
@@ -158,7 +167,8 @@ class TestPostRoundHandOrdering(unittest.TestCase):
         )
         # And the current hand must be in completed_hands at that moment.
         self.assertIn(
-            hand_number, captured['hand_numbers_at_emit'],
+            hand_number,
+            captured['hand_numbers_at_emit'],
             f"hand {hand_number} was not recorded before winner_announcement; "
             f"completed_hands at emit time: {captured['hand_numbers_at_emit']}. "
             f"This is the bug where post-round chat sees stale hand data.",
@@ -171,11 +181,14 @@ class TestFormatHandContextRich(unittest.TestCase):
 
     def _build_recorded_hand(self):
         from poker.memory.hand_history import HandInProgress
+
         # Heads-up: Alice (AsKh) loses to Bob (Qc Qs) on board 7d 8c 9s Qh 2s.
         # Bob makes a set of queens.
         hand = HandInProgress(game_id='g1', hand_number=37)
         hand.add_player(name='Alice', starting_stack=1000, position='button', is_human=True)
-        hand.add_player(name='Bob', starting_stack=1000, position='big_blind_player', is_human=False)
+        hand.add_player(
+            name='Bob', starting_stack=1000, position='big_blind_player', is_human=False
+        )
         hand.set_hole_cards('Alice', ['As', 'Kh'])
         hand.set_hole_cards('Bob', ['Qc', 'Qs'])
         hand.add_community_cards('FLOP', ['7d', '8c', '9s'])
@@ -187,8 +200,11 @@ class TestFormatHandContextRich(unittest.TestCase):
         hand.record_action('Alice', 'raise', 40, 'FLOP', 100)
         hand.record_action('Bob', 'call', 40, 'FLOP', 140)
         from poker.memory.hand_history import WinnerInfo
+
         return hand.complete(
-            winners=[WinnerInfo(name='Bob', amount_won=140, hand_name='Three of a Kind', hand_rank=4)],
+            winners=[
+                WinnerInfo(name='Bob', amount_won=140, hand_name='Three of a Kind', hand_rank=4)
+            ],
             pot_size=140,
             was_showdown=True,
         )
@@ -202,7 +218,10 @@ class TestFormatHandContextRich(unittest.TestCase):
         hand = self._build_recorded_hand()
         context = build_hand_context_from_recorded_hand(hand, 'Alice')
         text = format_hand_context_for_prompt(
-            context, 'Alice', recorded_hand=hand, big_blind=10,
+            context,
+            'Alice',
+            recorded_hand=hand,
+            big_blind=10,
         )
 
         # Outcome prefix kept for quick LLM signal.

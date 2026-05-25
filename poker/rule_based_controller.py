@@ -39,36 +39,62 @@ Example configs:
 import logging
 from typing import Dict, List, Optional
 
-from .poker_state_machine import PokerStateMachine
 from .controllers import (
-    calculate_quick_equity,
     _get_canonical_hand,
+    calculate_quick_equity,
     card_to_string,
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
-from .stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+from .poker_state_machine import PokerStateMachine
 from .rule_strategies import (
-    RuleConfig,
     BUILT_IN_STRATEGIES,
     CHAOS_BOTS,
-    _strategy_always_fold,
-    _strategy_always_call,
-    _strategy_always_raise,
-    _strategy_always_all_in,
+    RuleConfig,
+    _calculate_raise_size,
+    _equity_category,
+    _evaluate_condition,
+    _position_category,
+    _stack_category,
     _strategy_abc,
-    _strategy_foldy,
-    _strategy_position_aware,
-    _strategy_pot_odds_robot,
-    _strategy_maniac,
+    _strategy_always_all_in,
+    _strategy_always_call,
+    _strategy_always_fold,
+    _strategy_always_raise,
     _strategy_bluffbot,
     _strategy_case_based,
     _strategy_custom,
-    _position_category,
-    _stack_category,
-    _equity_category,
-    _evaluate_condition,
-    _calculate_raise_size,
+    _strategy_foldy,
+    _strategy_maniac,
+    _strategy_position_aware,
+    _strategy_pot_odds_robot,
 )
+from .stack_utils import effective_stack_bb, effective_stack_chips, spr as compute_spr
+
+# These imports are intentionally re-exported for backward compatibility.
+# See the module docstring for the migration history.
+__all__ = [
+    "BUILT_IN_STRATEGIES",
+    "CHAOS_BOTS",
+    "RuleConfig",
+    "RuleBasedController",
+    "_calculate_raise_size",
+    "_equity_category",
+    "_evaluate_condition",
+    "_position_category",
+    "_stack_category",
+    "_strategy_abc",
+    "_strategy_always_all_in",
+    "_strategy_always_call",
+    "_strategy_always_fold",
+    "_strategy_always_raise",
+    "_strategy_bluffbot",
+    "_strategy_case_based",
+    "_strategy_custom",
+    "_strategy_foldy",
+    "_strategy_maniac",
+    "_strategy_position_aware",
+    "_strategy_pot_odds_robot",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -173,14 +199,15 @@ class RuleBasedController:
         """Build context dictionary for rule evaluation."""
         big_blind = game_state.current_ante or 100
         pot_total = game_state.pot.get('total', 0)
-        cost_to_call = min(
-            game_state.highest_bet - player.bet,
-            player.stack
-        )
+        cost_to_call = min(game_state.highest_bet - player.bet, player.stack)
 
         # Calculate equity
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
-        community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+        community_cards = (
+            [card_to_string(c) for c in game_state.community_cards]
+            if game_state.community_cards
+            else []
+        )
 
         # Count opponents
         opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
@@ -192,7 +219,10 @@ class RuleBasedController:
 
         # Get equity (post-flop) or estimate (pre-flop)
         if community_cards:
-            equity = calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents) or 0.5
+            equity = (
+                calculate_quick_equity(hole_cards, community_cards, num_opponents=num_opponents)
+                or 0.5
+            )
         else:
             # Pre-flop equity estimate based on hand ranking
             canonical = _get_canonical_hand(hole_cards) if hole_cards else ''
@@ -210,9 +240,12 @@ class RuleBasedController:
         # Calculate raise bounds
         highest_bet = game_state.highest_bet
         max_opponent_stack = max(
-            (p.stack for p in game_state.players
-             if not p.is_folded and not p.is_all_in and p.name != player.name),
-            default=0
+            (
+                p.stack
+                for p in game_state.players
+                if not p.is_folded and not p.is_all_in and p.name != player.name
+            ),
+            default=0,
         )
         max_raise_by = min(player.stack, max_opponent_stack)
         max_raise_to = highest_bet + max_raise_by
@@ -227,7 +260,11 @@ class RuleBasedController:
                 break
 
         # Get phase
-        phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+        phase = (
+            self.state_machine.current_phase.name
+            if self.state_machine.current_phase
+            else 'PRE_FLOP'
+        )
 
         # Get opponent stats if available (for adaptive strategies)
         opp_stats = self._get_opponent_stats(opponents, player.name)
@@ -315,7 +352,7 @@ class RuleBasedController:
             log_level,
             f"[RULE_BOT] {self.player_name} ({self.config.strategy}): "
             f"{decision['action']} (equity={context['equity']:.2f}, "
-            f"pot_odds={context.get('pot_odds') or 0:.1f}, phase={context['phase']})"
+            f"pot_odds={context.get('pot_odds') or 0:.1f}, phase={context['phase']})",
         )
 
     # ========================================================================
@@ -403,17 +440,15 @@ class _RuleBotAIPlayerStub:
 # Factory Functions
 # ============================================================================
 
+
 def create_rule_bot(
-    name: str,
-    strategy: str = 'always_fold',
-    state_machine: PokerStateMachine = None,
-    **kwargs
+    name: str, strategy: str = 'always_fold', state_machine: PokerStateMachine = None, **kwargs
 ) -> RuleBasedController:
     """Quick factory for creating rule-based bots."""
     config = RuleConfig(
         strategy=strategy,
         name=name,
-        **{k: v for k, v in kwargs.items() if k in ('rules', 'raise_size')}
+        **{k: v for k, v in kwargs.items() if k in ('rules', 'raise_size')},
     )
     return RuleBasedController(
         player_name=name,

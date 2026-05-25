@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from poker.repositories.schema_manager import SchemaManager, SCHEMA_VERSION
+from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
 @pytest.fixture
@@ -37,9 +37,9 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 
 def _index_names_for(conn: sqlite3.Connection, table: str) -> set:
     return {
-        row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='index' AND tbl_name=?",
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master " "WHERE type='index' AND tbl_name=?",
             (table,),
         )
     }
@@ -52,11 +52,22 @@ class TestV98Migration:
             assert _table_exists(conn, 'stakes')
             cols = _table_columns(conn, 'stakes')
             assert {
-                'stake_id', 'session_id', 'staker_id', 'staker_kind',
-                'borrower_id', 'borrower_kind', 'format',
-                'principal', 'match_amount', 'origination_fee', 'cut',
-                'status', 'carry_amount', 'stake_tier',
-                'created_at', 'settled_at',
+                'stake_id',
+                'session_id',
+                'staker_id',
+                'staker_kind',
+                'borrower_id',
+                'borrower_kind',
+                'format',
+                'principal',
+                'match_amount',
+                'origination_fee',
+                'cut',
+                'status',
+                'carry_amount',
+                'stake_tier',
+                'created_at',
+                'settled_at',
             }.issubset(cols)
 
     def test_indexes_created(self, tmp_db_path):
@@ -70,9 +81,7 @@ class TestV98Migration:
     def test_schema_version_bumped(self, tmp_db_path):
         SchemaManager(tmp_db_path).ensure_schema()
         with sqlite3.connect(tmp_db_path) as conn:
-            version = conn.execute(
-                "SELECT MAX(version) FROM schema_version"
-            ).fetchone()[0]
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
             assert version == SCHEMA_VERSION
             assert version >= 98
 
@@ -83,8 +92,7 @@ class TestV98Migration:
         SchemaManager(tmp_db_path).ensure_schema()
         with sqlite3.connect(tmp_db_path) as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_master "
-                "WHERE type='table' AND name='stakes'"
+                "SELECT COUNT(*) FROM sqlite_master " "WHERE type='table' AND name='stakes'"
             ).fetchone()[0]
             assert count == 1
 
@@ -120,9 +128,7 @@ class TestV98Migration:
 
         with sqlite3.connect(tmp_db_path) as conn:
             reasons = {
-                row[0] for row in conn.execute(
-                    "SELECT DISTINCT reason FROM chip_ledger_entries"
-                )
+                row[0] for row in conn.execute("SELECT DISTINCT reason FROM chip_ledger_entries")
             }
             # Old names gone, new names present.
             assert 'house_loan_issue' not in reasons

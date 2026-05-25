@@ -1,6 +1,6 @@
 """Tests for Assistant class."""
-import sqlite3
 
+import sqlite3
 from unittest.mock import Mock, patch
 
 from core.llm import Assistant, CallType, UsageTracker
@@ -242,14 +242,14 @@ class TestAssistant:
                 "messages": [
                     {"role": "user", "content": "Previous message"},
                     {"role": "assistant", "content": "Previous response"},
-                ]
+                ],
             },
             "default_context": {
                 "call_type": CallType.PLAYER_DECISION,
                 "game_id": "restored_game",
                 "owner_id": None,
                 "player_name": "Joker",
-            }
+            },
         }
 
         assistant = Assistant.from_dict(data, tracker=usage_tracker)

@@ -7,8 +7,9 @@ Constants are defined here (the poker module is the functional core) and
 re-exported by flask_app.config for convenience. Do NOT import from
 flask_app here — that would create a circular dependency.
 """
+
 import os
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from poker.config import is_development_mode
 
@@ -45,7 +46,9 @@ def _should_enforce(user: Optional[Dict[str, Any]]) -> bool:
     return is_guest(user) and GUEST_LIMITS_ENABLED
 
 
-def check_guest_hands_limit(user: Optional[Dict[str, Any]], hands_played: int) -> Tuple[bool, Optional[str]]:
+def check_guest_hands_limit(
+    user: Optional[Dict[str, Any]], hands_played: int
+) -> Tuple[bool, Optional[str]]:
     """Check if guest has exceeded their hand limit.
 
     Returns (True, None) when allowed, or (False, error_msg) when blocked.
@@ -54,11 +57,16 @@ def check_guest_hands_limit(user: Optional[Dict[str, Any]], hands_played: int) -
     if not _should_enforce(user):
         return (True, None)
     if hands_played >= GUEST_MAX_HANDS:
-        return (False, f'Guest hand limit reached ({GUEST_MAX_HANDS} hands). Sign in with Google to continue playing.')
+        return (
+            False,
+            f'Guest hand limit reached ({GUEST_MAX_HANDS} hands). Sign in with Google to continue playing.',
+        )
     return (True, None)
 
 
-def check_guest_game_limit(user: Optional[Dict[str, Any]], active_game_count: int) -> Tuple[bool, Optional[str]]:
+def check_guest_game_limit(
+    user: Optional[Dict[str, Any]], active_game_count: int
+) -> Tuple[bool, Optional[str]]:
     """Check if guest can create another game.
 
     Returns (True, None) when allowed, or (False, error_msg) when blocked.
@@ -66,11 +74,16 @@ def check_guest_game_limit(user: Optional[Dict[str, Any]], active_game_count: in
     if not _should_enforce(user):
         return (True, None)
     if active_game_count >= GUEST_MAX_ACTIVE_GAMES:
-        return (False, f'Guest users can have up to {GUEST_MAX_ACTIVE_GAMES} active game{"" if GUEST_MAX_ACTIVE_GAMES == 1 else "s"}. Sign in with Google for more.')
+        return (
+            False,
+            f'Guest users can have up to {GUEST_MAX_ACTIVE_GAMES} active game{"" if GUEST_MAX_ACTIVE_GAMES == 1 else "s"}. Sign in with Google for more.',
+        )
     return (True, None)
 
 
-def validate_guest_opponent_count(user: Optional[Dict[str, Any]], count: int) -> Tuple[bool, Optional[str]]:
+def validate_guest_opponent_count(
+    user: Optional[Dict[str, Any]], count: int
+) -> Tuple[bool, Optional[str]]:
     """Check if guest can have this many opponents.
 
     Returns (True, None) when allowed, or (False, error_msg) when blocked.
@@ -78,11 +91,16 @@ def validate_guest_opponent_count(user: Optional[Dict[str, Any]], count: int) ->
     if not _should_enforce(user):
         return (True, None)
     if count > GUEST_MAX_OPPONENTS:
-        return (False, f'Guest users can have up to {GUEST_MAX_OPPONENTS} AI opponents. Sign in with Google for more.')
+        return (
+            False,
+            f'Guest users can have up to {GUEST_MAX_OPPONENTS} AI opponents. Sign in with Google for more.',
+        )
     return (True, None)
 
 
-def check_guest_message_limit(user: Optional[Dict[str, Any]], messages_this_action: int) -> Tuple[bool, Optional[str]]:
+def check_guest_message_limit(
+    user: Optional[Dict[str, Any]], messages_this_action: int
+) -> Tuple[bool, Optional[str]]:
     """Check if guest can send another message this action.
 
     Returns (True, None) when allowed, or (False, error_msg) when blocked.

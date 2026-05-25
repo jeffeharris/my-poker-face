@@ -12,14 +12,14 @@ from typing import Set
 import pytest
 
 from poker.hand_ranges import (
-    OpponentInfo,
-    EquityConfig,
-    sample_hand_for_opponent,
-    get_opponent_range,
-    _get_board_connection_weight,
     EARLY_POSITION_RANGE,
     LATE_POSITION_RANGE,
+    EquityConfig,
+    OpponentInfo,
     Position,
+    _get_board_connection_weight,
+    get_opponent_range,
+    sample_hand_for_opponent,
 )
 
 
@@ -153,13 +153,17 @@ class TestWeightedSamplingBehavior:
 
         # Sample with seed 42
         rng1 = random.Random(42)
-        hands1 = [sample_hand_for_opponent(opponent, excluded, config, rng1, board_cards=board)
-                  for _ in range(10)]
+        hands1 = [
+            sample_hand_for_opponent(opponent, excluded, config, rng1, board_cards=board)
+            for _ in range(10)
+        ]
 
         # Sample again with same seed
         rng2 = random.Random(42)
-        hands2 = [sample_hand_for_opponent(opponent, excluded, config, rng2, board_cards=board)
-                  for _ in range(10)]
+        hands2 = [
+            sample_hand_for_opponent(opponent, excluded, config, rng2, board_cards=board)
+            for _ in range(10)
+        ]
 
         assert hands1 == hands2
 

@@ -12,7 +12,7 @@ kicker values, causing Ace-high to lose to King-high in certain scenarios.
 
 import unittest
 
-from poker.poker_game import determine_winner, PokerGameState, Player, Card
+from poker.poker_game import Card, Player, PokerGameState, determine_winner
 
 
 class TestHighCardComparison(unittest.TestCase):

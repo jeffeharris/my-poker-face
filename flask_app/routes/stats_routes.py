@@ -1,30 +1,37 @@
 """Stats and utility routes."""
 
-import os
 import json
 import logging
+import os
 from pathlib import Path
+from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 from openai import OpenAI
 
-from core.llm import LLMClient, CallType
-
-from ..extensions import tournament_repo, hand_history_repo, auth_manager, limiter, personality_generator, game_repo
-from poker.authorization import get_authorization_service
-from poker.prompt_manager import PromptManager
-from poker.memory.hand_history import RecordedHand
+from core.llm import CallType, LLMClient
 from flask_app.utils.hand_context import (
     build_hand_context_from_recorded_hand,
     format_hand_context_for_prompt,
 )
+from poker.authorization import get_authorization_service
 from poker.config import is_development_mode
-from typing import Dict, Any
+from poker.memory.hand_history import RecordedHand
+from poker.prompt_manager import PromptManager
+
+from ..extensions import (
+    auth_manager,
+    game_repo,
+    hand_history_repo,
+    limiter,
+    personality_generator,
+    tournament_repo,
+)
 
 # Module-level prompt manager instance (with hot-reload in dev mode)
 _prompt_manager = PromptManager(enable_hot_reload=is_development_mode())
-from ..services import game_state_service
 from .. import config
+from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
 
@@ -131,38 +138,41 @@ def get_career_stats():
     history = tournament_repo.get_tournament_history(owner_id, limit=10)
     eliminated = tournament_repo.get_eliminated_personalities(owner_id)
 
-    return jsonify({
-        'stats': stats,
-        'recent_tournaments': history,
-        'eliminated_personalities': eliminated
-    })
+    return jsonify(
+        {'stats': stats, 'recent_tournaments': history, 'eliminated_personalities': eliminated}
+    )
 
 
 @stats_bp.route('/api/models', methods=['GET'])
 def get_available_models():
     """Get available OpenAI models for game configuration."""
-    from core.llm import DEFAULT_REASONING_EFFORT, AVAILABLE_MODELS
+    from core.llm import AVAILABLE_MODELS, DEFAULT_REASONING_EFFORT
+
     default_model = config.get_default_model()
     try:
         client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         models = client.models.list()
         available = [m.id for m in models.data if m.id.startswith(('gpt-5', 'gpt-4o'))]
-        return jsonify({
-            'success': True,
-            'models': sorted(available),
-            'default_model': default_model,
-            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': DEFAULT_REASONING_EFFORT
-        })
+        return jsonify(
+            {
+                'success': True,
+                'models': sorted(available),
+                'default_model': default_model,
+                'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+                'default_reasoning': DEFAULT_REASONING_EFFORT,
+            }
+        )
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
-        return jsonify({
-            'success': True,
-            'models': AVAILABLE_MODELS,
-            'default_model': default_model,
-            'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
-            'default_reasoning': DEFAULT_REASONING_EFFORT
-        })
+        return jsonify(
+            {
+                'success': True,
+                'models': AVAILABLE_MODELS,
+                'default_model': default_model,
+                'reasoning_levels': ['minimal', 'low', 'medium', 'high'],
+                'default_reasoning': DEFAULT_REASONING_EFFORT,
+            }
+        )
 
 
 @stats_bp.route('/settings/<game_id>')
@@ -253,8 +263,11 @@ Return as JSON with this format:
 
         client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider())
         messages = [
-            {"role": "system", "content": "You are a friendly poker player giving brief chat suggestions."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You are a friendly poker player giving brief chat suggestions.",
+            },
+            {"role": "user", "content": prompt},
         ]
 
         response = client.complete(
@@ -276,13 +289,15 @@ Return as JSON with this format:
 
     except Exception as e:
         logger.warning(f"Error generating chat suggestions: {str(e)}")
-        return jsonify({
-            "suggestions": [
-                {"text": "Nice play!", "type": "reaction"},
-                {"text": "Interesting move", "type": "strategic"},
-                {"text": "Let's go!", "type": "social"}
-            ]
-        })
+        return jsonify(
+            {
+                "suggestions": [
+                    {"text": "Nice play!", "type": "reaction"},
+                    {"text": "Interesting move", "type": "strategic"},
+                    {"text": "Let's go!", "type": "social"},
+                ]
+            }
+        )
 
 
 @stats_bp.route('/api/game/<game_id>/targeted-chat-suggestions', methods=['POST'])
@@ -344,7 +359,9 @@ def get_targeted_chat_suggestions(game_id):
 
         last_action = data.get('lastAction')
         if last_action:
-            action_text = f"{last_action.get('player', 'Someone')} just {last_action.get('type', 'acted')}"
+            action_text = (
+                f"{last_action.get('player', 'Someone')} just {last_action.get('type', 'acted')}"
+            )
             if last_action.get('amount'):
                 action_text += f" ${last_action['amount']}"
             context_parts.append(action_text)
@@ -414,7 +431,9 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
         # Detailed logging for debugging/iteration
         logger.info("=" * 80)
         logger.info("[QuickChat] === QUICK CHAT REQUEST ===")
-        logger.info(f"[QuickChat] Target: {target_player}, Tone: {tone}, Length: {length}, Intensity: {intensity}, Player: {player_name}")
+        logger.info(
+            f"[QuickChat] Target: {target_player}, Tone: {tone}, Length: {length}, Intensity: {intensity}, Player: {player_name}"
+        )
         logger.info(f"[QuickChat] Game context: {context_str}")
         logger.info(f"[QuickChat] Game situation:\n{game_situation}")
         logger.info(f"[QuickChat] Target context: {target_context}")
@@ -423,10 +442,17 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
         logger.info(f"[QuickChat]\n{prompt}")
         logger.info("[QuickChat] --- END PROMPT ---")
 
-        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider(), reasoning_effort="minimal")
+        client = LLMClient(
+            model=config.get_fast_model(),
+            provider=config.get_fast_provider(),
+            reasoning_effort="minimal",
+        )
         messages = [
-            {"role": "system", "content": "You write sharp, witty poker banter that responds to the actual conversation. Never generic - always specific callbacks, quotes, or reactions to what just happened. Short and punchy."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You write sharp, witty poker banter that responds to the actual conversation. Never generic - always specific callbacks, quotes, or reactions to what just happened. Short and punchy.",
+            },
+            {"role": "user", "content": prompt},
         ]
 
         response = client.complete(
@@ -458,20 +484,19 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             'needle': ["Interesting timing...", "You sure about that?"],
             'goad': ["Prove it.", "You wouldn't dare."],
             'bluff': ["I should've folded...", "This hand is killing me."],
-            'befriend': ["Good game so far.", "Respect the play."]
+            'befriend': ["Good game so far.", "Respect the play."],
         }
         tone = data.get('tone', 'goad') if data else 'goad'
         msgs = fallback_messages.get(tone, fallback_messages['goad'])
 
-        return jsonify({
-            "suggestions": [
-                {"text": msgs[0], "tone": tone},
-                {"text": msgs[1], "tone": tone}
-            ],
-            "targetPlayer": target,
-            "error": str(e),
-            "fallback": True
-        })
+        return jsonify(
+            {
+                "suggestions": [{"text": msgs[0], "tone": tone}, {"text": msgs[1], "tone": tone}],
+                "targetPlayer": target,
+                "error": str(e),
+                "fallback": True,
+            }
+        )
 
 
 @stats_bp.route('/api/game/<game_id>/post-round-chat-suggestions', methods=['POST'])
@@ -525,10 +550,12 @@ def get_post_round_chat_suggestions(game_id):
 
         if memory_manager and memory_manager.hand_recorder.completed_hands:
             recorded_hand = memory_manager.hand_recorder.completed_hands[-1]
-            logger.info(f"[PostRound] Got hand from memory: hand #{recorded_hand.hand_number}, hole_cards: {list(recorded_hand.hole_cards.keys())}")
+            logger.info(
+                f"[PostRound] Got hand from memory: hand #{recorded_hand.hand_number}, hole_cards: {list(recorded_hand.hole_cards.keys())}"
+            )
         else:
             # Try loading from database if memory is empty (e.g., after container restart)
-            logger.warning(f"[PostRound] No completed hands in memory, trying database...")
+            logger.warning("[PostRound] No completed hands in memory, trying database...")
             if memory_manager:
                 hand_count = memory_manager.hand_count
                 if hand_count > 0:
@@ -584,10 +611,17 @@ def get_post_round_chat_suggestions(game_id):
         logger.info(f"[PostRound]\n{prompt}")
         logger.info("[PostRound] --- END PROMPT ---")
 
-        client = LLMClient(model=config.get_fast_model(), provider=config.get_fast_provider(), reasoning_effort="minimal")
+        client = LLMClient(
+            model=config.get_fast_model(),
+            provider=config.get_fast_provider(),
+            reasoning_effort="minimal",
+        )
         messages = [
-            {"role": "system", "content": "You write short, punchy poker reactions. Keep it natural and under 10 words."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You write short, punchy poker reactions. Keep it natural and under 10 words.",
+            },
+            {"role": "user", "content": prompt},
         ]
 
         response = client.complete(
@@ -616,15 +650,14 @@ def get_post_round_chat_suggestions(game_id):
             'gloat': ["Too easy.", "Thanks for the chips!"],
             'humble': ["Got lucky there.", "Good game."],
             'salty': ["Unreal.", "Of course."],
-            'gracious': ["Nice hand.", "Well played."]
+            'gracious': ["Nice hand.", "Well played."],
         }
         msgs = fallback_messages.get(tone, fallback_messages['gracious'])
 
-        return jsonify({
-            "suggestions": [
-                {"text": msgs[0], "tone": tone},
-                {"text": msgs[1], "tone": tone}
-            ],
-            "error": str(e),
-            "fallback": True
-        })
+        return jsonify(
+            {
+                "suggestions": [{"text": msgs[0], "tone": tone}, {"text": msgs[1], "tone": tone}],
+                "error": str(e),
+                "fallback": True,
+            }
+        )

@@ -38,7 +38,6 @@ from cash_mode.stakes import (
 from flask_app import create_app
 from poker.repositories import create_repos
 
-
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
@@ -68,6 +67,7 @@ class _DefaultRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -96,11 +96,13 @@ class _DefaultRouteBase(unittest.TestCase):
 
         # Seed a baseline player bankroll so we can verify it stays
         # unchanged across default operations.
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=5_000,
-            starting_bankroll=5_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=5_000,
+                starting_bankroll=5_000,
+            )
+        )
 
     def tearDown(self):
         self._authz_patcher.stop()
@@ -181,7 +183,8 @@ class TestSuccessfulDefault(_DefaultRouteBase):
         self.client.post('/api/cash/stakes/stk-carry-1/default')
 
         state_lender_pov = self.relationship_repo.load_relationship_state(
-            observer_id='napoleon', opponent_id=PLAYER_OWNER_ID,
+            observer_id='napoleon',
+            opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state_lender_pov)
         # STAKE_DEFAULTED actor shifts: heat=+0.30, respect=-0.30, likability=-0.20.
@@ -199,7 +202,8 @@ class TestRejections(_DefaultRouteBase):
     def test_other_borrowers_stake_returns_404(self):
         # Same 404 as missing, by design — avoids leaking other players' ids.
         self._seed_stake(
-            stake_id='stk-other', borrower_id=OTHER_PLAYER_ID,
+            stake_id='stk-other',
+            borrower_id=OTHER_PLAYER_ID,
         )
 
         response = self.client.post('/api/cash/stakes/stk-other/default')

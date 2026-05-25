@@ -45,13 +45,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from poker.strategy.exploitation import (
-    AggregatedOpponentStats,
-    DecisionContext,
-    OpponentSpot,
     PFR_LOOSE_PER_OPEN_THRESHOLD,
     STEAL_PRESSURE_PLAYSTYLES,
     VALUE_VS_STATION_PLAYSTYLES,
     VVS_SAFETY_WEIGHT,
+    AggregatedOpponentStats,
+    DecisionContext,
+    OpponentSpot,
     compute_exploitation_offsets,
     compute_steal_pressure_intensity,
     compute_value_vs_station_intensity,
@@ -59,8 +59,8 @@ from poker.strategy.exploitation import (
     is_value_vs_station_enabled,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 def _stats(
     *,
@@ -136,6 +136,7 @@ def _spot(
 
 # ── compute_value_vs_station_intensity ─────────────────────────────────────
 
+
 class TestValueVsStationIntensity:
     def test_empty_spots_returns_zero(self):
         assert compute_value_vs_station_intensity([]) == 0.0
@@ -208,6 +209,7 @@ class TestValueVsStationIntensity:
 
 # ── compute_steal_pressure_intensity ───────────────────────────────────────
 
+
 class TestStealPressureIntensity:
     def test_empty_spots_returns_zero(self):
         assert compute_steal_pressure_intensity([]) == 0.0
@@ -218,18 +220,15 @@ class TestStealPressureIntensity:
 
     def test_folded_player_behind_returns_zero(self):
         # is_active False (folded) → not behind even with can_act_behind True
-        spots = [_spot('A', stats=_tight_nit_stats(),
-                       is_active=False, can_act_behind=True)]
+        spots = [_spot('A', stats=_tight_nit_stats(), is_active=False, can_act_behind=True)]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
     def test_all_in_player_behind_ignored(self):
-        spots = [_spot('A', stats=_tight_nit_stats(),
-                       can_act_behind=True, is_all_in=True)]
+        spots = [_spot('A', stats=_tight_nit_stats(), can_act_behind=True, is_all_in=True)]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
     def test_tight_passive_defender_returns_positive(self):
-        spots = [_spot('Nit', stats=_tight_nit_stats(vpip=0.05),
-                       can_act_behind=True)]
+        spots = [_spot('Nit', stats=_tight_nit_stats(vpip=0.05), can_act_behind=True)]
         result = compute_steal_pressure_intensity(spots)
         assert result > 0.0
 
@@ -238,14 +237,18 @@ class TestStealPressureIntensity:
         # base intensity is < 1.0 and the blind weight (1.5x) actually
         # changes the result. vpip=0.20 → base intensity (0.30-0.20)/
         # (0.30-0.10) = 0.5.
-        in_blind = compute_steal_pressure_intensity([
-            _spot('BB', stats=_tight_nit_stats(vpip=0.20),
-                  can_act_behind=True, is_blind=True),
-        ])
-        non_blind = compute_steal_pressure_intensity([
-            _spot('UTG', stats=_tight_nit_stats(vpip=0.20),
-                  can_act_behind=True, is_blind=False),
-        ])
+        in_blind = compute_steal_pressure_intensity(
+            [
+                _spot('BB', stats=_tight_nit_stats(vpip=0.20), can_act_behind=True, is_blind=True),
+            ]
+        )
+        non_blind = compute_steal_pressure_intensity(
+            [
+                _spot(
+                    'UTG', stats=_tight_nit_stats(vpip=0.20), can_act_behind=True, is_blind=False
+                ),
+            ]
+        )
         assert in_blind > non_blind
 
     def test_high_pfr_player_behind_kills_rule(self):
@@ -254,10 +257,8 @@ class TestStealPressureIntensity:
         # fold. False-steal guard returns 0 even though a nit is also
         # behind and would normally drive the rule.
         spots = [
-            _spot('Nit', stats=_tight_nit_stats(vpip=0.05),
-                  can_act_behind=True),
-            _spot('LAG', stats=_stats(vpip=0.35, pfr=0.55),
-                  can_act_behind=True),
+            _spot('Nit', stats=_tight_nit_stats(vpip=0.05), can_act_behind=True),
+            _spot('LAG', stats=_stats(vpip=0.35, pfr=0.55), can_act_behind=True),
         ]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
@@ -266,19 +267,21 @@ class TestStealPressureIntensity:
         # trips the guard. Setting both `pfr` and the opp-normalized
         # field — guard now reads the opp-normalized one.
         spots = [
-            _spot('TAG', stats=_stats(
-                vpip=0.18,
-                pfr=PFR_LOOSE_PER_OPEN_THRESHOLD,
-                pfr_per_open_opportunity=PFR_LOOSE_PER_OPEN_THRESHOLD,
+            _spot(
+                'TAG',
+                stats=_stats(
+                    vpip=0.18,
+                    pfr=PFR_LOOSE_PER_OPEN_THRESHOLD,
+                    pfr_per_open_opportunity=PFR_LOOSE_PER_OPEN_THRESHOLD,
+                ),
+                can_act_behind=True,
             ),
-                  can_act_behind=True),
         ]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
     def test_cold_start_defender_excluded(self):
         # Defender qualification needs >= MIN_HANDS_DEFAULT samples.
-        spots = [_spot('A', stats=_tight_nit_stats(hands_observed=5),
-                       can_act_behind=True)]
+        spots = [_spot('A', stats=_tight_nit_stats(hands_observed=5), can_act_behind=True)]
         assert compute_steal_pressure_intensity(spots) == 0.0
 
     def test_cold_start_opponent_does_not_trip_pfr_guard(self):
@@ -286,15 +289,14 @@ class TestStealPressureIntensity:
         # otherwise. The min-hands gate keeps unknown opponents
         # neutral — they neither qualify as defenders nor block the rule.
         spots = [
-            _spot('Nit', stats=_tight_nit_stats(),
-                  can_act_behind=True),
-            _spot('Unknown', stats=_stats(hands_observed=3, pfr=0.5),
-                  can_act_behind=True),
+            _spot('Nit', stats=_tight_nit_stats(), can_act_behind=True),
+            _spot('Unknown', stats=_stats(hands_observed=3, pfr=0.5), can_act_behind=True),
         ]
         assert compute_steal_pressure_intensity(spots) > 0.0
 
 
 # ── compute_exploitation_offsets integration ──────────────────────────────
+
 
 def _basic_decision_context(**kwargs) -> DecisionContext:
     return DecisionContext(**kwargs)
@@ -337,6 +339,7 @@ class TestExploitationOffsetsIntegration:
 
 # ── Playstyle gate helpers ─────────────────────────────────────────────────
 
+
 class TestPlaystyleGates:
     @pytest.mark.parametrize('archetype', ['nit', 'rock', 'tag'])
     def test_value_vs_station_enabled_for_disciplined_archetypes(self, archetype):
@@ -353,9 +356,9 @@ class TestPlaystyleGates:
     def test_value_vs_station_set_contents(self):
         assert VALUE_VS_STATION_PLAYSTYLES == frozenset({'nit', 'rock', 'tag'})
 
-    @pytest.mark.parametrize('archetype',
-                             ['nit', 'rock', 'tag', 'lag', 'maniac',
-                              'calling_station', 'baseline'])
+    @pytest.mark.parametrize(
+        'archetype', ['nit', 'rock', 'tag', 'lag', 'maniac', 'calling_station', 'baseline']
+    )
     def test_steal_pressure_disabled_for_every_archetype_in_v1(self, archetype):
         # v1 ships the rule as piping + diagnostics only.
         assert is_steal_pressure_enabled(archetype) is False
@@ -365,6 +368,7 @@ class TestPlaystyleGates:
 
 
 # ── _build_opponent_spots: can_act_behind preflop walkthrough ─────────────
+
 
 def _player(
     name: str,
@@ -433,15 +437,14 @@ class TestCanActBehindPreflop:
         #     applied to UTG-MP-CO before they folded, but folds don't
         #     reset)
         players = [
-            _player('Hero', has_acted=False, bet=50),       # 0 SB
-            _player('BB',   has_acted=False, bet=100),      # 1 BB
-            _player('UTG',  is_folded=True),                # 2
-            _player('MP',   is_folded=True),                # 3
-            _player('CO',   is_folded=True),                # 4
-            _player('BTN',  has_acted=True, bet=300),       # 5 raised
+            _player('Hero', has_acted=False, bet=50),  # 0 SB
+            _player('BB', has_acted=False, bet=100),  # 1 BB
+            _player('UTG', is_folded=True),  # 2
+            _player('MP', is_folded=True),  # 3
+            _player('CO', is_folded=True),  # 4
+            _player('BTN', has_acted=True, bet=300),  # 5 raised
         ]
-        spots = _build_spots_for(players, hero_name='Hero',
-                                  sb_idx=0, bb_idx=1)
+        spots = _build_spots_for(players, hero_name='Hero', sb_idx=0, bb_idx=1)
         by_name = {s.name: s for s in spots}
 
         # BB has not acted → still to act behind Hero
@@ -458,16 +461,15 @@ class TestCanActBehindPreflop:
         # state machine resets has_acted on BTN (action reopened) but
         # leaves BB has_acted=True (they just acted) and SB is folded.
         players = [
-            _player('Hero', is_folded=True),                # 0 SB folded
-            _player('BB',   has_acted=True, bet=900),       # 1 just 3-bet
-            _player('UTG',  is_folded=True),                # 2
-            _player('MP',   is_folded=True),                # 3
-            _player('CO',   is_folded=True),                # 4
-            _player('BTN',  has_acted=False, bet=300),      # 5 action on
+            _player('Hero', is_folded=True),  # 0 SB folded
+            _player('BB', has_acted=True, bet=900),  # 1 just 3-bet
+            _player('UTG', is_folded=True),  # 2
+            _player('MP', is_folded=True),  # 3
+            _player('CO', is_folded=True),  # 4
+            _player('BTN', has_acted=False, bet=300),  # 5 action on
         ]
         # Hero observer is BTN — they're the one deciding now.
-        spots = _build_spots_for(players, hero_name='BTN',
-                                  sb_idx=0, bb_idx=1)
+        spots = _build_spots_for(players, hero_name='BTN', sb_idx=0, bb_idx=1)
         by_name = {s.name: s for s in spots}
 
         # BB just acted — no longer behind
@@ -478,12 +480,11 @@ class TestCanActBehindPreflop:
     def test_is_blind_populated_from_sb_bb_idx(self):
         players = [
             _player('SmallBlind', has_acted=False, bet=50),
-            _player('BigBlind',   has_acted=False, bet=100),
-            _player('Hero',       has_acted=False, bet=0),
-            _player('Other',      has_acted=False, bet=0),
+            _player('BigBlind', has_acted=False, bet=100),
+            _player('Hero', has_acted=False, bet=0),
+            _player('Other', has_acted=False, bet=0),
         ]
-        spots = _build_spots_for(players, hero_name='Hero',
-                                  sb_idx=0, bb_idx=1)
+        spots = _build_spots_for(players, hero_name='Hero', sb_idx=0, bb_idx=1)
         by_name = {s.name: s for s in spots}
 
         assert by_name['SmallBlind'].is_blind is True
@@ -495,8 +496,7 @@ class TestCanActBehindPreflop:
             _player('Hero', has_acted=False),
             _player('Shorty', has_acted=False, is_all_in=True, stack=0),
         ]
-        spots = _build_spots_for(players, hero_name='Hero',
-                                  sb_idx=0, bb_idx=1)
+        spots = _build_spots_for(players, hero_name='Hero', sb_idx=0, bb_idx=1)
         by_name = {s.name: s for s in spots}
 
         # Shorty has nothing left to put in — can't act behind.
@@ -504,6 +504,7 @@ class TestCanActBehindPreflop:
 
 
 # ── Counter identities (smoke test the tally helper) ──────────────────────
+
 
 class TestPlaystyleRuleTally:
     """Spot-check the tally helper writes the right keys when stashed
@@ -518,12 +519,18 @@ class TestPlaystyleRuleTally:
         controller.opponent_model_manager._exploitation_counters = Counter()
         return controller
 
-    def _stash(self, controller, *,
-               archetype='tag',
-               vvs_raw=0.0, vvs_used=0.0,
-               steal_raw=0.0, steal_used=0.0,
-               override_fired=False,
-               will_emit=True):
+    def _stash(
+        self,
+        controller,
+        *,
+        archetype='tag',
+        vvs_raw=0.0,
+        vvs_used=0.0,
+        steal_raw=0.0,
+        steal_used=0.0,
+        override_fired=False,
+        will_emit=True,
+    ):
         controller._last_exploitation_archetype = archetype
         controller._last_value_vs_station_intensity_raw = vvs_raw
         controller._last_value_vs_station_intensity_used = vvs_used
@@ -534,8 +541,7 @@ class TestPlaystyleRuleTally:
 
     def test_vvs_enabled_no_override_increments_fired(self):
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='tag',
-                    vvs_raw=0.5, vvs_used=0.5, override_fired=False)
+        self._stash(controller, archetype='tag', vvs_raw=0.5, vvs_used=0.5, override_fired=False)
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -547,8 +553,7 @@ class TestPlaystyleRuleTally:
 
     def test_vvs_enabled_with_override_increments_superseded(self):
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='tag',
-                    vvs_raw=0.5, vvs_used=0.5, override_fired=True)
+        self._stash(controller, archetype='tag', vvs_raw=0.5, vvs_used=0.5, override_fired=True)
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -557,8 +562,7 @@ class TestPlaystyleRuleTally:
 
     def test_vvs_disabled_archetype_increments_diagnostic_only(self):
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='lag',
-                    vvs_raw=0.5, vvs_used=0.0)
+        self._stash(controller, archetype='lag', vvs_raw=0.5, vvs_used=0.0)
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -571,8 +575,7 @@ class TestPlaystyleRuleTally:
         # Any archetype should land in diagnostic_only because the
         # frozenset is empty.
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='lag',
-                    steal_raw=0.4, steal_used=0.0)
+        self._stash(controller, archetype='lag', steal_raw=0.4, steal_used=0.0)
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -587,17 +590,21 @@ class TestPlaystyleRuleTally:
 
         decisions = [
             # (archetype, vvs_raw, vvs_used, override_fired)
-            ('tag',  0.6, 0.6, False),  # vvs fired
-            ('tag',  0.6, 0.6, True),   # vvs superseded
-            ('tag',  0.4, 0.4, False),  # vvs fired
-            ('lag',  0.5, 0.0, False),  # vvs diagnostic only
-            ('lag',  0.5, 0.0, False),  # vvs diagnostic only
-            ('nit',  0.0, 0.0, False),  # nothing
+            ('tag', 0.6, 0.6, False),  # vvs fired
+            ('tag', 0.6, 0.6, True),  # vvs superseded
+            ('tag', 0.4, 0.4, False),  # vvs fired
+            ('lag', 0.5, 0.0, False),  # vvs diagnostic only
+            ('lag', 0.5, 0.0, False),  # vvs diagnostic only
+            ('nit', 0.0, 0.0, False),  # nothing
         ]
         for archetype, vvs_raw, vvs_used, override_fired in decisions:
-            self._stash(controller, archetype=archetype,
-                        vvs_raw=vvs_raw, vvs_used=vvs_used,
-                        override_fired=override_fired)
+            self._stash(
+                controller,
+                archetype=archetype,
+                vvs_raw=vvs_raw,
+                vvs_used=vvs_used,
+                override_fired=override_fired,
+            )
             controller._tally_playstyle_rule_event()
 
         c = controller.opponent_model_manager._exploitation_counters
@@ -611,8 +618,7 @@ class TestPlaystyleRuleTally:
         )
         assert (
             c['value_vs_station_enabled_eligible_tag']
-            == c['value_vs_station_fired_tag']
-            + c['value_vs_station_superseded_by_override_tag']
+            == c['value_vs_station_fired_tag'] + c['value_vs_station_superseded_by_override_tag']
         )
 
         # LAG: 2 eligible, 0 enabled, 0 fired, 0 superseded, 2 diagnostic
@@ -635,9 +641,14 @@ class TestPlaystyleRuleTally:
         # GATING_FLOOR → compute_exploitation_offsets bails before Phase 8
         # branches. Counter must distinguish this from "fired."
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='tag',
-                    vvs_raw=0.6, vvs_used=0.6,
-                    override_fired=False, will_emit=False)
+        self._stash(
+            controller,
+            archetype='tag',
+            vvs_raw=0.6,
+            vvs_used=0.6,
+            override_fired=False,
+            will_emit=False,
+        )
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -650,8 +661,7 @@ class TestPlaystyleRuleTally:
 
     def test_steal_pressure_blocked_by_bias_floor(self):
         controller = self._controller_with_manager()
-        self._stash(controller, archetype='lag',
-                    steal_raw=0.4, steal_used=0.4, will_emit=False)
+        self._stash(controller, archetype='lag', steal_raw=0.4, steal_used=0.4, will_emit=False)
         controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -665,16 +675,21 @@ class TestPlaystyleRuleTally:
         controller = self._controller_with_manager()
         decisions = [
             # (vvs_raw, vvs_used, override_fired, will_emit)
-            (0.6, 0.6, False, True),   # fired
-            (0.6, 0.6, True,  True),   # superseded
+            (0.6, 0.6, False, True),  # fired
+            (0.6, 0.6, True, True),  # superseded
             (0.6, 0.6, False, False),  # blocked by bias floor
             (0.6, 0.6, False, False),  # blocked by bias floor
-            (0.5, 0.0, False, True),   # diagnostic_only
+            (0.5, 0.0, False, True),  # diagnostic_only
         ]
         for vvs_raw, vvs_used, override_fired, will_emit in decisions:
-            self._stash(controller, archetype='tag',
-                        vvs_raw=vvs_raw, vvs_used=vvs_used,
-                        override_fired=override_fired, will_emit=will_emit)
+            self._stash(
+                controller,
+                archetype='tag',
+                vvs_raw=vvs_raw,
+                vvs_used=vvs_used,
+                override_fired=override_fired,
+                will_emit=will_emit,
+            )
             controller._tally_playstyle_rule_event()
         c = controller.opponent_model_manager._exploitation_counters
 
@@ -698,6 +713,7 @@ class TestPlaystyleRuleTally:
 
 # ── Aggregate cold-start bypass for Phase 8 ───────────────────────────────
 
+
 class TestAggregateColdStartBypass:
     """compute_exploitation_offsets should let Phase 8 branches fire even
     when the aggregate stats look cold-start, because the intensity
@@ -711,8 +727,7 @@ class TestAggregateColdStartBypass:
         so offsets are non-empty but small. Cold-start replacement
         (Track A item 7b) eliminated the predictable 15-hand window."""
         offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=5, vpip=0.85,
-                         aggression_factor=0.4),
+            stats=_stats(hands_observed=5, vpip=0.85, aggression_factor=0.4),
             adaptation_bias=0.9,
             decision_context=_basic_decision_context(is_preflop=False),
             available_actions=['check', 'bet_33', 'bet_67', 'fold'],
@@ -729,8 +744,7 @@ class TestAggregateColdStartBypass:
         # because a per-opponent station was found. Phase 8 branch must
         # still emit bet_* offsets.
         offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=5, vpip=0.85,
-                         aggression_factor=0.4),
+            stats=_stats(hands_observed=5, vpip=0.85, aggression_factor=0.4),
             adaptation_bias=0.9,
             decision_context=_basic_decision_context(is_preflop=False),
             available_actions=['check', 'bet_33', 'bet_67'],
@@ -741,8 +755,7 @@ class TestAggregateColdStartBypass:
 
     def test_cold_start_aggregate_does_not_block_steal_pressure(self):
         offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=5, vpip=0.85,
-                         aggression_factor=0.4),
+            stats=_stats(hands_observed=5, vpip=0.85, aggression_factor=0.4),
             adaptation_bias=0.9,
             decision_context=_basic_decision_context(is_preflop=True),
             available_actions=['fold', 'call', 'raise_2.5bb'],
@@ -755,8 +768,7 @@ class TestAggregateColdStartBypass:
         # ALL rules including Phase 8. The cold-start bypass doesn't
         # imply ignoring the broader bias gate.
         offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=50, vpip=0.85,
-                         aggression_factor=0.4),
+            stats=_stats(hands_observed=50, vpip=0.85, aggression_factor=0.4),
             adaptation_bias=0.01,  # well below GATING_FLOOR
             decision_context=_basic_decision_context(is_preflop=False),
             available_actions=['check', 'bet_33'],
