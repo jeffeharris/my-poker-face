@@ -25,12 +25,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, Wallet } from 'lucide-react';
-import { PageLayout, PageHeader, MenuBar } from '../shared';
+import { ChevronDown } from 'lucide-react';
+import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
-import { ActivityTicker } from './ActivityTicker';
+import { ActivityTicker, feedEventKey } from './ActivityTicker';
+import { CareerHero } from './CareerHero';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
@@ -100,15 +101,6 @@ function groupTablesByStake(tables: LobbyTable[]): Map<StakeLabel, LobbyTable[]>
  *  scroll back through more history than any single poll returns. */
 const MAX_FEED_EVENTS = 60;
 
-/** Stable identity for de-duping the feed. The player's own last-stand
- *  line is re-synthesized with a fresh timestamp on every poll, so all of
- *  its copies collapse onto one key — otherwise a standing self-warning
- *  would pile up one row per poll. */
-function feedEventKey(e: LobbyEvent): string {
-  if (e.type === 'last_stand' && e.reason === 'self') return 'self:last_stand';
-  return `${e.created_at}|${e.type}|${e.personality_id}`;
-}
-
 /** Merge incoming events into the rolling feed: keep the newest copy of
  *  each key, sort newest-first, cap the buffer. Accumulating (rather than
  *  replacing with the server's short snapshot) is what lets the user
@@ -128,6 +120,8 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
+  const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
+  const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -204,6 +198,8 @@ export function Lobby() {
         const lobby = await getLobby();
         if (cancelled) return;
         setBankroll(lobby.bankroll);
+        setBankrollHistory(lobby.bankroll_history ?? []);
+        setLastSessionDelta(lobby.last_session_delta ?? null);
         setTables(lobby.tables);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
@@ -377,67 +373,23 @@ export function Lobby() {
         onMainMenu={() => navigate('/menu')}
         onAdminTools={() => navigate('/admin')}
       />
-      <PageLayout variant="top" glowColor="gold" hasMenuBar>
-        <PageHeader
-          title="Pick a Table"
-          subtitle="Tap an open seat to sit down"
-          titleVariant="primary"
-        />
+      <PageLayout variant="top" glowColor="gold" hasMenuBar className="cash-lobby-layout">
       <div className="cash-entry">
         {bankroll !== null && (
-          <div className="cash-entry__bankroll">
-            <span className="cash-entry__bankroll-label">Your bankroll</span>
-            <span className="cash-entry__bankroll-value">
-              ${bankroll.toLocaleString()}
-            </span>
-            <button
-              type="button"
-              className="cash-entry__net-worth-trigger"
-              onClick={() => setNetWorthOpen(true)}
-              aria-label={
-                pendingForgivenessCount > 0
-                  ? `Open net worth (${pendingForgivenessCount} forgiveness request${pendingForgivenessCount === 1 ? '' : 's'} pending)`
-                  : 'Open net worth'
-              }
-              title={
-                pendingForgivenessCount > 0
-                  ? `${pendingForgivenessCount} forgiveness request${pendingForgivenessCount === 1 ? '' : 's'} need${pendingForgivenessCount === 1 ? 's' : ''} your decision`
-                  : 'View net worth'
-              }
-            >
-              <Wallet size={16} aria-hidden="true" />
-              {pendingForgivenessCount > 0 && (
-                <span
-                  className="cash-entry__net-worth-badge"
-                  aria-hidden="true"
-                >
-                  {pendingForgivenessCount > 9 ? '9+' : pendingForgivenessCount}
-                </span>
-              )}
-            </button>
-          </div>
+          <CareerHero
+            bankroll={bankroll}
+            lastSessionDelta={lastSessionDelta}
+            bankrollHistory={bankrollHistory}
+            pendingForgivenessCount={pendingForgivenessCount}
+            onOpenNetWorth={() => setNetWorthOpen(true)}
+          />
         )}
 
-        {worldPace !== null && (
-          <div className="cash-entry__pace">
-            <label htmlFor="world-pace" className="cash-entry__pace-label">
-              World pace
-            </label>
-            <select
-              id="world-pace"
-              className="cash-entry__pace-select"
-              value={worldPace}
-              onChange={(e) => handlePaceChange(e.target.value as WorldPace)}
-              title="How fast the other tables play while you're here"
-            >
-              <option value="subtle">Subtle</option>
-              <option value="lively">Lively</option>
-              <option value="bustling">Bustling</option>
-            </select>
-          </div>
-        )}
-
-        <ActivityTicker events={events} />
+        <ActivityTicker
+          events={events}
+          worldPace={worldPace}
+          onPaceChange={handlePaceChange}
+        />
 
         {loadError && (
           <div className="cash-entry__error" role="alert">
@@ -451,7 +403,12 @@ export function Lobby() {
         )}
 
         <section className="cash-entry__stakes">
-          <h2>Tables</h2>
+          <div className="cash-entry__section-head">
+            <h2>Pick a table</h2>
+            <span className="cash-entry__section-hint">
+              Tap an open seat to sit down
+            </span>
+          </div>
           {STAKES.map((stake) => {
             const tierTables = tablesByStake.get(stake) ?? [];
             if (tierTables.length === 0) return null;

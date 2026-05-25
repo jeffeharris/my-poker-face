@@ -39,35 +39,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* World pace selector — controls how fast the realtime ticker advances
- * the other (unseated) tables. See CASH_MODE_REALTIME_TICKER.md. */
-.cash-entry__pace {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.cash-entry__pace-label {
-  color: var(--text-secondary, #aaa);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.7rem;
-}
-
-.cash-entry__pace-select {
-  background: rgba(255, 216, 125, 0.06);
-  border: 1px solid rgba(255, 216, 125, 0.22);
-  border-radius: 8px;
-  color: #ffd87d;
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 0.3rem 0.5rem;
-  cursor: pointer;
-}
-
 .cash-entry__stakes h2,
 .cash-entry__buy-in h2 {
   margin: 0 0 0.75rem 0;
@@ -702,6 +673,15 @@
   gap: 0.5rem;
 }
 
+/* Header row: "Activity" heading on the left, the world-pace speed
+   control on the right. */
+.lobby-ticker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .lobby-ticker__heading {
   margin: 0;
   font-size: 0.7rem;
@@ -709,6 +689,58 @@
   letter-spacing: 0.08em;
   color: var(--text-secondary, #aaa);
   font-weight: 600;
+}
+
+/* World-pace control — a segmented fast-forward selector. The chevron
+   count (› / ›› / ›››) reads as slow → fast; the real tick intervals
+   aren't clean multiples so we don't print "2×/4×". Controls how fast
+   the realtime ticker advances unseated tables. See
+   CASH_MODE_REALTIME_TICKER.md. */
+.lobby-ticker__pace {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+}
+
+.lobby-ticker__pace-icon {
+  color: var(--text-secondary, #aaa);
+  opacity: 0.65;
+  margin: 0 2px 0 6px;
+  flex: 0 0 auto;
+}
+
+.lobby-ticker__pace-btn {
+  border: none;
+  background: none;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -2px;
+  line-height: 1;
+  /* Trailing 2px offsets the negative letter-spacing so the chevron
+     cluster stays optically centred in its fixed-width segment. */
+  padding: 5px 2px 5px 0;
+  min-width: 44px;
+  text-align: center;
+  border-radius: var(--radius-full);
+  transition: color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lobby-ticker__pace-btn:hover {
+  color: var(--color-gold-light, #e8c9a0);
+}
+
+.lobby-ticker__pace-btn.is-active {
+  background: rgba(212, 165, 116, 0.16);
+  color: var(--color-gold-bright, #f5d89a);
+  box-shadow: 0 0 12px rgba(212, 165, 116, 0.18);
 }
 
 .lobby-ticker__list {
@@ -825,5 +857,45 @@
 @media (max-width: 480px) {
   .lobby-ticker__item {
     font-size: 0.78rem;
+  }
+}
+
+/* Tighten page gutters on mobile. By default the PageLayout gutter
+ * (16px) stacked on top of .cash-entry's own 24px → ~40px of dead edge
+ * space on phones. Drop the layout gutter to the safe-area inset only
+ * (0 in portrait, notch-aware in landscape) and let .cash-entry supply
+ * an 8px edge. `.page-layout.cash-lobby-layout` (two classes) outranks
+ * the base `.page-layout` rule regardless of CSS import order. */
+@media (max-width: 640px) {
+  .page-layout.cash-lobby-layout {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* Let .cash-entry own the single 8px gap below the menu bar. The
+   * layout clears the fixed bar exactly (no extra gap beyond the 56px +
+   * notch inset) and the content wrapper's default top margin is
+   * removed, so the three stacked 8px contributions collapse to one. */
+  .page-layout.cash-lobby-layout.page-layout--has-menu-bar {
+    padding-top: calc(56px + env(safe-area-inset-top, 0px));
+  }
+
+  .cash-lobby-layout.page-layout--top .page-layout__content {
+    margin-top: 0;
+  }
+
+  .cash-entry {
+    padding-top: var(--space-2);
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+
+  /* Keep lobby table cards full-width on phones. The tighter gutters
+   * above gave the auto-fill grid (minmax 180px) enough room to pop
+   * into 2 columns, squishing each TableCard into a cramped square.
+   * The tier wrapper scopes this to the lobby — CashModeEntry's grid
+   * isn't tier-nested, so its ladder layout is unaffected. */
+  .cash-entry__tier .cash-entry__stake-grid {
+    grid-template-columns: 1fr;
   }
 }

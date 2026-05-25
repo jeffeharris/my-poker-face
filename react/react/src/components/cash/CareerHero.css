@@ -1,0 +1,297 @@
+/**
+ * CareerHero — editorial bankroll headline for the cash lobby.
+ *
+ * Premium-casino language inherited from design-tokens.css: deep black,
+ * warm gold (#d4a574 → #f5d89a), emerald/ruby for P&L. The bankroll is
+ * the hero — oversized tabular gold figure — with a quiet eyebrow, a
+ * last-session delta chip, a net-worth affordance, and a trend sparkline.
+ */
+
+.career-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1) var(--space-5);
+  margin-bottom: var(--space-2);
+  /* Hairline that fades out toward the edges — separates the hero from
+     the table grid without a hard box around it. */
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(212, 165, 116, 0.28) 30%,
+      rgba(212, 165, 116, 0.28) 70%,
+      transparent
+    )
+    1;
+}
+
+/* Soft gold bloom behind the figure — atmosphere, not a card. */
+.career-hero::before {
+  content: '';
+  position: absolute;
+  top: -8%;
+  left: -6%;
+  width: 60%;
+  height: 120%;
+  background: radial-gradient(
+    ellipse 70% 60% at 20% 40%,
+    rgba(212, 165, 116, 0.12),
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(4px);
+}
+
+.career-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Top row: eyebrow + net-worth link ───────────────────────────── */
+.career-hero__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.career-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(212, 165, 116, 0.82);
+}
+
+/* Short gold tick before the eyebrow — an editorial flourish. */
+.career-hero__eyebrow::before {
+  content: '';
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--color-gold), transparent);
+}
+
+.career-hero__worth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text-secondary);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.career-hero__worth:hover,
+.career-hero__worth:focus-visible {
+  color: var(--color-gold-light);
+  border-color: rgba(212, 165, 116, 0.4);
+  background: rgba(212, 165, 116, 0.08);
+  box-shadow: 0 0 18px rgba(212, 165, 116, 0.12);
+  outline: none;
+}
+
+.career-hero__worth-label {
+  line-height: 1;
+}
+
+.career-hero__worth-caret {
+  opacity: 0.55;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.career-hero__worth:hover .career-hero__worth-caret {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+/* Pending-forgiveness badge — amber dot, matches the drawer accent. */
+.career-hero__worth-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #facc15;
+  color: #1f1300;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+}
+
+/* ── Hero figure: the bankroll + delta ───────────────────────────── */
+.career-hero__figure {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+}
+
+.career-hero__amount {
+  font-family: var(--font-display);
+  font-size: clamp(2.6rem, 13vw, 3.75rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #fff3d6 0%, var(--color-gold-bright) 38%, var(--color-gold) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--color-gold-bright);
+  text-shadow: 0 0 48px rgba(212, 165, 116, 0.28);
+}
+
+.career-hero__delta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  padding: 5px 11px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.career-hero__delta-arrow {
+  font-size: 0.7em;
+}
+
+.career-hero__delta-tag {
+  font-weight: 500;
+  font-size: 0.92em;
+  opacity: 0.7;
+  margin-left: 0.15em;
+}
+
+.career-hero__delta--up {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.26);
+}
+
+.career-hero__delta--down {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.26);
+}
+
+.career-hero__delta--flat {
+  color: var(--color-gold-light);
+  background: rgba(212, 165, 116, 0.1);
+  border-color: rgba(212, 165, 116, 0.22);
+}
+
+/* ── Sparkline ───────────────────────────────────────────────────── */
+.career-hero__spark {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: calc(var(--space-1) * -1);
+  overflow: visible;
+}
+
+.sparkline__dot {
+  animation: sparkDotPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes sparkDotPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ── Entrance: staggered rise on mount ───────────────────────────── */
+.career-hero__top,
+.career-hero__figure,
+.career-hero__spark {
+  animation: heroRise 0.5s var(--ease-out-expo) both;
+}
+
+.career-hero__figure {
+  animation-delay: 0.06s;
+}
+
+.career-hero__spark {
+  animation-delay: 0.12s;
+}
+
+@keyframes heroRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .career-hero__top,
+  .career-hero__figure,
+  .career-hero__spark,
+  .sparkline__dot {
+    animation: none;
+  }
+}
+
+/* ── Demoted section label above the table grid ──────────────────── */
+.cash-entry__section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-1);
+}
+
+.cash-entry__section-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+.cash-entry__section-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-tertiary);
+}
+
+@media (max-width: 640px) {
+  .career-hero {
+    padding-bottom: var(--space-4);
+  }
+}

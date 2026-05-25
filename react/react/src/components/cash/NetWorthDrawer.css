@@ -440,52 +440,9 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Lobby trigger button — wallet icon next to bankroll display. */
-
-.cash-entry__net-worth-trigger {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  color: var(--text-secondary, #aaa);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 8px;
-  margin-left: 12px;
-  vertical-align: middle;
-  position: relative;
-  transition: background 0.1s ease-out, color 0.1s ease-out;
-}
-
-.cash-entry__net-worth-trigger:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary, #f5f5f5);
-}
-
-/* v110 — pending forgiveness request badge. Amber dot in the top-
- * right of the wallet button, mirroring the Forgiveness Requests
- * section accent inside the drawer. Shows the count (capped at 9+)
- * so the player knows how many decisions are waiting. */
-.cash-entry__net-worth-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: #facc15;
-  color: #1f1300;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-}
+/* The lobby's net-worth trigger + pending-forgiveness badge moved to
+ * CareerHero.css (`.career-hero__worth*`) when the bankroll display was
+ * refreshed into the editorial hero. */
 
 /* TableCard carry-pin — corner badge on AI seat avatars when the
  * player has an outstanding carry. Top-right corner so it doesn't

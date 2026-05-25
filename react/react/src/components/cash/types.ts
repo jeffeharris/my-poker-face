@@ -264,6 +264,16 @@ export interface LobbyResponse {
   /** How fast the realtime background ticker advances this user's world.
    *  Set via PUT /api/cash/world-pace; drives the lobby pace selector. */
   world_pace?: WorldPace;
+  /** Reconstructed bankroll trajectory (oldest → newest) for the career
+   *  hero's sparkline. Anchored to the current bankroll and walked back
+   *  through finalised cash sessions, so the last point is exact and
+   *  earlier points are a TREND sketch — not an audited balance. Empty
+   *  until the player has at least one finished session. */
+  bankroll_history?: number[];
+  /** Net result of the player's most recent finished session
+   *  (`player_take_home − total_buy_in`). Signed; null until the first
+   *  session is finalised. Drives the hero's up/down delta chip. */
+  last_session_delta?: number | null;
 }
 
 /** How fast the background world ticks for unseated tables. */
