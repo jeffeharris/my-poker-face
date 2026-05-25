@@ -415,4 +415,66 @@ don't fold** — not because of anything in the postflop or entry strategy.
    become live the moment the eval has folding opponents, and are directly
    useful in genuinely short-handed/HU SNG stages.
 
+## 11. Track 2 — Jeff_clone eval (2026-05-25, the unlock)
+
+Stood up `Jeff_clone` as a precision-rewarding *folding* eval, using the
+merged portable-clone infra (`experiments/clone_profiles/jeff.json`, loaded
+via `measure_passivity --opponents jeff`, no DB needed). Jeff = a real human
+model from 4669 observed hands: VPIP 0.39 / PFR 0.16 / **fold_to_cbet 0.45** /
+AF 1.22 / WtSD 0.59 — i.e. it *folds* preflop and to c-bets, unlike the rule
+bots. 3000 × seeds 42/142/242.
+
+### The eval was THE binding constraint — confirmed
+
+| | vs GTO-Lite | vs MIX | **vs Jeff_clone** |
+|---|---|---|---|
+| HU% @ postflop | 2% | ~2% | **41%** |
+| field size | ~78% 6-way | mostly multiway | **HU/3-way (6-way≈0)** |
+| Postflop AggFactor | 0.045 | 0.019 | **0.208** |
+| unopened bet/raise% | ~5% | ~3% | **18%** (nuts 41 / strong 37 / med 24) |
+| raise% facing bet | ~1% | 0% | **5–8%** |
+| barrel-continuation | 3% | 0% | **22%** |
+| pay-off rate | 98% | 91% | **45%** |
+| **bb/100 (OFF)** | **−78.9** | **−106.2** | **−9.6** (−12.3/−12.9/−3.5) |
+
+Against a realistic human the bot is **near break-even (−9.6 bb/100)** and
+plays *actively* — it bets for value with initiative, raises facing bets, and
+continues barrels. **Its catastrophic −80 to −106 vs the rule bots was an
+artifact of being always-multiway against non-folders, not an intrinsic leak.**
+The chart was never the problem; the eval was.
+
+### Layer / isolation re-tests on the good eval
+
+| Arm (vs Jeff_clone) | barrel-cont | facing-dbl-barrel fold | layer fires | bb/100 |
+|---|---|---|---|---|
+| OFF (baseline) | 22% (58/259) | 54% | — | −9.6 |
+| **layer ON (H1+H2)** | **35% (100/283)** | **68%** | barrel **307** (chg 154) / fold_barrel 11 | −9.1 |
+| isolate entry (OFF) | 22% | — | — | −10.3 (HU% still 41%) |
+
+- **H1 (barrel) is no longer inert** — with real HU spots it fires **307×**
+  (vs 5 vs rule bots) and lifts barrel-continuation **22%→35%**. The eval
+  unblocked it exactly as predicted. But **bb/100 is flat (−9.6→−9.1, within
+  noise across all seeds)**: H1 is *active and directionally correct* but **not
+  yet clearly +EV** — barreling more isn't winning more. Converting the +13pp
+  continuation into EV needs barrel selection/sizing/board-awareness iteration
+  (the next sub-project), or H1-only attribution to confirm sign.
+- **H2 (fold double-barrels) still helps** — folds 54%→68%; consistent with the
+  rule-bot result. Shippable.
+- **Preflop isolation is NOT a lever** — inert vs *both* eval types. vs rule
+  bots: can't isolate non-folders (always multiway). vs Jeff: his own folding
+  already produces 41% HU, so the hero forcing 3-bets doesn't move field-size
+  (41%→41%) and is bb/100-neutral (slightly worse). The entry isn't the
+  bottleneck once opponents fold.
+
+### Track 2 decision
+1. **Adopt Jeff_clone as the primary eval for all future tiered-bot work.** It
+   is sensitive (reveals −9.6 vs a human, not −106 vs stations), realistic, and
+   DB-free/portable. The rule-bot roster is a degenerate always-multiway regime
+   that masks true bot quality — keep only as a guardrail.
+2. **Ship H2** (unchanged from §9).
+3. **H1 is now a live, measurable opportunity** (no longer dead): iterate barrel
+   logic on the Jeff eval. First step: H1-only attribution arm to confirm sign,
+   then tune which classes/boards barrel.
+4. **Retire preflop isolation as a lever** (keep code; it's not the fix).
+
 

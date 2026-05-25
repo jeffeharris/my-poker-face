@@ -67,13 +67,40 @@ from experiments.simulate_bb100 import (
     _make_seat_names,
 )
 
-# Opponent roster presets. Per the plan, GTO-Lite is the precision-rewarding
-# primary (Jeff_clone is unavailable — the DB has no observed hands). The MIX
-# is the regression / guardrail reference.
+# Default frozen clone profile (Track 2 eval). Resolved relative to this
+# module so it works regardless of cwd / worktree.
+DEFAULT_CLONE_PROFILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'clone_profiles', 'jeff.json'
+)
+
+# Opponent roster presets. GTO-Lite / MIX are rule bots (never fold preflop →
+# always-multiway, insensitive to postflop quality — see STRUCTURAL_PASSIVITY
+# §9-10). `jeff` is the Track-2 precision-rewarding eval: 5 Jeff_clones (a
+# human model that folds ~45% to c-bets), which should create HU/short-handed
+# pots and reward initiative.
 ROSTERS = {
     'gto': ['GTO-Lite'] * 5,
     'mix': DEFAULT_RULE_OPPONENTS,
+    'jeff': ['Jeff_clone'] * 5,
 }
+
+
+def _ensure_clone_registered(profile_path: str) -> str:
+    """Load + register a frozen CloneProfile as a rule-bot ARCHETYPE.
+
+    Idempotent. Mirrors simulate_bb100's --clone-profile wiring. Must run in
+    each worker process (the ProcessPool children re-register so the ARCHETYPE
+    + strategy registry exist before the matchup looks them up).
+    Returns the archetype key (e.g. 'Jeff_clone').
+    """
+    from poker.human_clone import load_profile_from_file, register_clone_strategy
+    profile = load_profile_from_file(profile_path)
+    player_name = profile.source_player
+    strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
+    register_clone_strategy(strategy_key, profile)
+    archetype_key = f"{player_name}_clone"
+    ARCHETYPES[archetype_key] = {'kind': 'rule_bot', 'strategy': strategy_key}
+    return archetype_key
 
 _AGGRESSIVE = {'bet', 'raise', 'all_in'}
 _POSTFLOP_STREETS = ('FLOP', 'TURN', 'RIVER')
@@ -576,14 +603,16 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
           + ("   ⚠ per-seed SIGN DISAGREEMENT (noise)" if sign_disagree else ""))
 
 
-def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str]):
+def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str]]):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
     """
-    hero, opponents, n_hands, seed, mode, entry = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
+    if clone_profile:
+        _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
     deltas, stats = run_passivity_matchup(
         hero, opponents, n_hands, strategy_table, base_seed=seed, mode=mode,
@@ -603,6 +632,9 @@ def main():
                    help='multi-street-context A/B arm (postflop layer)')
     p.add_argument('--entry', default='default', choices=['default', 'isolate'],
                    help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)")
+    p.add_argument('--clone-profile', default=None,
+                   help=f"frozen CloneProfile JSON for a *_clone opponent "
+                        f"(default {DEFAULT_CLONE_PROFILE} when roster uses a clone)")
     args = p.parse_args()
 
     if args.opponents in ROSTERS:
@@ -612,6 +644,17 @@ def main():
     if len(opponents) != 5:
         print(f"opponents must resolve to 5 entries, got {opponents}")
         sys.exit(1)
+
+    # Track 2: if the roster references a *_clone opponent, register the frozen
+    # CloneProfile so it exists as an ARCHETYPE (in the parent for the
+    # single-seed path + validation; workers re-register themselves).
+    clone_profile = args.clone_profile
+    if any(o.endswith('_clone') for o in opponents) and clone_profile is None:
+        clone_profile = DEFAULT_CLONE_PROFILE
+    if clone_profile:
+        key = _ensure_clone_registered(clone_profile)
+        print(f"[CLONE] registered {key!r} from {clone_profile}")
+
     for o in opponents:
         if o not in ARCHETYPES:
             print(f"Unknown opponent archetype: {o}")
@@ -624,7 +667,8 @@ def main():
 
     # Run seeds concurrently (one child process per seed). The cost is the
     # opponents' equity-MC, so seeds are CPU-bound and parallelize cleanly.
-    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry) for s in seeds]
+    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry, clone_profile)
+            for s in seeds]
     results = []
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
