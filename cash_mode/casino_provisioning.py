@@ -67,10 +67,17 @@ CASINO_SPAWN_THRESHOLDS: Dict[str, int] = {
 
 # Fish-per-casino range. Spawns pick a random count in [MIN, MAX];
 # the refill pass keeps casinos topped up to MAX as long as the pool
-# can fund it. Less than TABLE_SEAT_COUNT (6) so grinders have seats
-# to fill. 2-4 fish + 2-4 grinder seats is the canonical mix.
-CASINO_FISH_MIN = 2
-CASINO_FISH_MAX = 4
+# can fund it. Kept LOW (well under TABLE_SEAT_COUNT=6) so each fish is
+# surrounded by grinders, not other fish: a fish only transfers its
+# stake to the population if it loses to a *predator*, and fish-vs-fish
+# pots just recycle chips among fish (back to the pool when they leave).
+# 1-2 fish + 4-5 grinders means most pots a fish plays are vs a grinder,
+# so the fish actually bleeds out to the population. Sim-validated: a
+# 4-fish table left fish trading amongst themselves (390/400 movement
+# decisions were "stay", ~0 net to grinders). Tunable: raise for more
+# donation throughput per table at the cost of more fish-vs-fish recycle.
+CASINO_FISH_MIN = 1
+CASINO_FISH_MAX = 2
 
 # Minimum hungry grinders required in the idle pool before a casino
 # opens. The demand signal — no point spawning a casino if nobody is
@@ -727,6 +734,98 @@ def _refill_one_fish(
     )
 
 
+def _shed_excess_fish(
+    cash_table_repo,
+    chip_ledger_repo,
+    *,
+    sandbox_id: str,
+    now: datetime,
+) -> int:
+    """Open seats at casinos holding more than `CASINO_FISH_MAX` fish.
+
+    The refill pass only *adds* fish (up to MAX); it never sheds. So when
+    the cap is lowered — or a casino over-seats for any reason — running
+    casinos never rebalance on their own, because content fish rarely
+    leave (they stay and reload until bust). Shed the excess so the
+    configured mix (more grinders per fish) actually takes hold: a fish
+    only feeds the population if it loses to a grinder, not another fish.
+
+    Conservation-safe, mirroring `_reclaim_zombie_casino_seats`: a shed
+    fish's seat chips return to the pool (`casino_seat_return`) before the
+    seat is opened, and its residual bankroll returns via the
+    drain-on-exit sweep on this same resolve (it's no longer seated). A
+    failed seat-return leaves the seat to retry next resolve rather than
+    vanish chips. Closing casinos are skipped (winding down anyway).
+
+    Returns the number of seats shed.
+    """
+    shed = 0
+    for table in cash_table_repo.list_all_tables(sandbox_id=sandbox_id):
+        if table.table_type != 'casino':
+            continue
+        if is_closing(cash_table_repo, sandbox_id, table.table_id):
+            continue
+        fish_idx = [
+            i for i, s in enumerate(table.seats)
+            if s.get('kind') == 'ai' and s.get('archetype') == 'fish'
+        ]
+        excess = len(fish_idx) - CASINO_FISH_MAX
+        if excess <= 0:
+            continue
+        new_seats = list(table.seats)
+        changed = False
+        # Shed the trailing `excess` fish — deterministic, order-stable.
+        for idx in fish_idx[-excess:]:
+            slot = table.seats[idx]
+            pid = slot.get('personality_id')
+            chips = int(slot.get('chips') or 0)
+            if chips > 0 and pid:
+                try:
+                    row_id = record_casino_seat_return(
+                        chip_ledger_repo,
+                        personality_id=pid,
+                        amount=chips,
+                        context={
+                            'site': 'casino_shed_excess_fish',
+                            'table_id': table.table_id,
+                            'stake_label': table.stake_label,
+                        },
+                        sandbox_id=sandbox_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[CASH][CASINO] shed seat-return raised for %s/%s "
+                        "(%d chips): %s", table.table_id, pid, chips, exc,
+                    )
+                    continue
+                if row_id is None:
+                    # Return failed — leave the seat; retry next resolve.
+                    continue
+            new_seats[idx] = open_slot()
+            changed = True
+            shed += 1
+        if changed:
+            updated = CashTableState(
+                table_id=table.table_id,
+                stake_label=table.stake_label,
+                seats=new_seats,
+                created_at=table.created_at,
+                last_activity_at=now,
+                name=table.name,
+                table_type='casino',
+                dealer_idx=table.dealer_idx,
+                closing_hand_countdown=table.closing_hand_countdown,
+            )
+            try:
+                cash_table_repo.save_table(updated, sandbox_id=sandbox_id, now=now)
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][CASINO] shed save_table failed for %s: %s",
+                    table.table_id, exc,
+                )
+    return shed
+
+
 def resolve_casino_provisioning(
     *,
     cash_table_repo,
@@ -807,6 +906,22 @@ def resolve_casino_provisioning(
             )
     except Exception as exc:
         logger.warning("[CASH][CASINO] zombie-seat reclaim failed: %s", exc)
+
+    # Shed fish over the per-casino cap (e.g. after lowering CASINO_FISH_MAX)
+    # so running casinos rebalance toward the configured grinder-heavy mix.
+    # Runs before the drain-on-exit sweep below so a shed fish's bankroll
+    # returns to the pool on this same resolve.
+    try:
+        shed = _shed_excess_fish(
+            cash_table_repo, chip_ledger_repo, sandbox_id=sandbox_id, now=now,
+        )
+        if shed:
+            logger.info(
+                "[CASH][CASINO] shed %d over-cap fish seat(s) in sandbox %s",
+                shed, sandbox_id,
+            )
+    except Exception as exc:
+        logger.warning("[CASH][CASINO] excess-fish shed failed: %s", exc)
 
     # Globally-seated pids — never seat the same fish at two tables in one
     # resolve (each persona is one identity; the player map is name-keyed

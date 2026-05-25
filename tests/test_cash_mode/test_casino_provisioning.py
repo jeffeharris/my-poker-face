@@ -32,6 +32,7 @@ from cash_mode.casino_provisioning import (
     CasinoRefill,
     CasinoSpawn,
     _casino_table_id,
+    _shed_excess_fish,
     clear_closing,
     decrement_closing_hands,
     enter_closing,
@@ -48,7 +49,7 @@ from cash_mode.closed_economy import (
     seed_bank_pool,
 )
 from cash_mode.stakes_ladder import table_buy_in_window
-from cash_mode.tables import CashTableState, open_slot
+from cash_mode.tables import CashTableState, ai_slot_fish, open_slot
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
     BANK_POOL_DRAW_REASONS,
@@ -474,6 +475,55 @@ class TestCasinoRefill:
 
 
 # --- Closing-state lifecycle -------------------------------------------------
+
+
+class TestShedExcessFish:
+    """Casinos over the fish cap shed the excess (chips back to pool)."""
+
+    def _seat_excess_fish(self, db_setup, n_fish, buy_in=80):
+        """Build a $2 casino seating `n_fish` stamped fish + open seats."""
+        tables = db_setup["tables"]
+        fish = db_setup["fish_pids"][:n_fish]
+        seats = [ai_slot_fish(pid, buy_in) for pid in fish]
+        while len(seats) < 6:
+            seats.append(open_slot())
+        casino = CashTableState(
+            table_id="cash-casino-2-001", stake_label="$2", seats=seats,
+            created_at=ANCHOR, last_activity_at=ANCHOR,
+            name="Casino — $2", table_type="casino",
+        )
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+        return tables
+
+    def test_sheds_down_to_max_and_returns_chips(self, db_setup):
+        ledger = db_setup["ledger"]
+        buy_in = 80
+        n_fish = CASINO_FISH_MAX + 2  # over the cap
+        tables = self._seat_excess_fish(db_setup, n_fish, buy_in)
+        pool_before = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        shed = _shed_excess_fish(tables, ledger, sandbox_id=SBX, now=ANCHOR)
+
+        assert shed == n_fish - CASINO_FISH_MAX
+        casino = next(
+            t for t in tables.list_all_tables(sandbox_id=SBX)
+            if t.table_type == "casino"
+        )
+        seated_fish = sum(1 for s in casino.seats if s.get("archetype") == "fish")
+        assert seated_fish == CASINO_FISH_MAX
+        # Conservation: every shed fish's seat chips returned to the pool.
+        pool_after = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+        assert pool_after - pool_before == shed * buy_in
+
+    def test_noop_at_or_below_cap(self, db_setup):
+        ledger = db_setup["ledger"]
+        tables = self._seat_excess_fish(db_setup, CASINO_FISH_MAX)
+        pool_before = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        shed = _shed_excess_fish(tables, ledger, sandbox_id=SBX, now=ANCHOR)
+
+        assert shed == 0
+        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) == pool_before
 
 
 class TestClosingState:
