@@ -140,9 +140,29 @@ expresses intent, not just moves bb/100.
   not skill; target *correctness* (validated across opponent types), not the
   headline number.
 
+## Progress
+
+**P1 (low-SPR) — SHIPPED 2026-05-25.** `generate_postflop_spr.py` derives a
+real **low**-SPR slice (`postflop_strategies_low_spr.json`, 2,160 entries)
+from the high-SPR chart and merges it at load (the authored high-SPR file stays
+pristine; the SPR fallback still covers `medium`). Transform: commit-worthy
+hands (made value, or `strong_draw`) route bet/raise → jam; air/weak give up
+the bluff (bet → check unopened, raise → fold facing).
+- vs Jeff (3000h×3) vs the fallback+commit stopgap: 25bb +32.5→+31.7, **50bb
+  +32.7→+37.0 (+4.3, all 3 seeds +)**, 100bb +49.1→+48.9. Neutral-to-positive —
+  the stopgap already banked the gross win; this is a precision + correctness
+  refinement (proper jam-sizing, semi-bluff-jamming draws, air folding rather
+  than small-bluffing) and the editable foundation for the SPR dimension.
+- The "+200 vs gto/mix" generalization run was **conservation-verified (no
+  bug)** — real chips, just exploiting always-calling rule bots (the known
+  "rule-bot bb/100 is misleading" caveat). Jeff remains the meaningful eval.
+
+**Still open:** medium-SPR entries (currently fallback→high; revisit if a
+medium-SPR leak shows). Then P2 (3BP + un-hardcode classifier), P3, P4.
+
 ## Next concrete step
 
-P1: author real low/medium-SPR postflop entries (transform-derive first, then
-LLM-refine), measure vs Jeff **+ gto + mix** at 25/50/100bb, and confirm it
-beats the SPR-fallback stopgap on precision (sizing/commit) without
-station-overfitting.
+P2a (cheap correctness win): un-hardcode `postflop_classifier.py:133` so 3-bet
+pots are *detected* (`pot_type='3BP'`) instead of always playing SRP; then
+decide whether 3BP needs its own authored slice or the low-SPR work already
+covers its shallowness. Measure vs Jeff at 25/50/100bb.

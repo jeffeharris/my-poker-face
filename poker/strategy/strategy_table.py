@@ -300,6 +300,16 @@ def load_strategy_table(
             postflop_raw = json.load(f)
         postflop_data = _parse_postflop_json(postflop_raw)
 
+    # Merge the generated low-SPR slice (additive — distinct spr=low keys, no
+    # collision with the authored high-SPR entries). Keeps the authored chart
+    # pristine while filling the SPR dimension the original never populated.
+    # See generate_postflop_spr.py / depth doc. Absent file → SPR fallback
+    # still degrades low-SPR lookups to the high entry.
+    low_spr_path = os.path.join(data_dir, 'postflop_strategies_low_spr.json')
+    if os.path.exists(low_spr_path):
+        with open(low_spr_path) as f:
+            postflop_data.update(_parse_postflop_json(json.load(f)))
+
     return StrategyTable(preflop_data, postflop_data)
 
 
