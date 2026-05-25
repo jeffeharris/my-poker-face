@@ -21,7 +21,7 @@
  * update — the AI will appear at the target table next refresh.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, HandCoins } from 'lucide-react';
 import { offerStake } from './api';

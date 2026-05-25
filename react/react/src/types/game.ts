@@ -84,6 +84,7 @@ export interface PlayerShowdownInfo {
   cards: string[] | { rank: string; suit: string }[];
   hand_name: string;
   hand_rank: number;
+  hand_score?: number;
   kickers?: string[];
 }
 

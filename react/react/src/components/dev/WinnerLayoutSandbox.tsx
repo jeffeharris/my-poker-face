@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { WinnerAnnouncement } from '../game/WinnerAnnouncement';
 import { MobileWinnerAnnouncement } from '../mobile/MobileWinnerAnnouncement';
 import type { Player } from '../../types/player';
+import type { WinnerInfo } from '../../types/game';
 import './WinnerLayoutSandbox.css';
 
 /**
@@ -18,7 +19,7 @@ interface Scenario {
   label: string;
   sublabel: string;
   players: Player[];
-  winnerInfo: Parameters<typeof WinnerAnnouncement>[0]['winnerInfo'];
+  winnerInfo: WinnerInfo;
 }
 
 const mkPlayer = (

@@ -380,7 +380,7 @@ export function Lobby() {
       setBusy(true);
       try {
         const result = await sitAtTable(table.table_id, seatIndex);
-        if ('kind' in result && result.kind === 'requires_sponsor') {
+        if ('kind' in result) {
           // Open sponsor modal scoped to this specific seat. Without
           // seatIndex the backend would fall back to the legacy fresh-
           // sample path and seat the player against a different AI

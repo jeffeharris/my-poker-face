@@ -162,6 +162,8 @@ export interface DecisionQuality {
   correct_pct: number;
   mistakes: number;
   avg_ev_lost: number;
+  quality_score?: number;
+  menu_compliance_pct?: number;
 }
 
 /**
