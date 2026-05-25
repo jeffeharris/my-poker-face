@@ -132,6 +132,12 @@ Each catches a different failure class before compute is spent:
 
 ## Relationship to existing docs
 
+- **`docs/plans/CHART_COVERAGE_AND_GENERATION.md` — the near-term, releasable,
+  HAND/LLM path (NOT a solver).** Added 2026-05-25 after the postflop SPR-gap
+  discovery below: it maps exactly which chart cells are populated vs missing
+  (the postflop chart is only 1/6 filled — frozen at `spr=high`, `pot_type=SRP`)
+  and the prioritized plan to fill them by hand + LLM. **Active near-term work
+  lives there;** this doc remains the long-term solver program (parked).
 - `docs/vision/NEXT_PHASE_VISION.md` — Bucket 6 (Solver) is the compressed
   roadmap version of this discussion; the granular multiplication math here
   is what that bucket summarized.
