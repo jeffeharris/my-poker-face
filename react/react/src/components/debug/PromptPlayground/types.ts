@@ -34,7 +34,7 @@ export interface PlaygroundCaptureDetail extends PlaygroundCapture {
   // Image-specific fields (v53)
   is_image_capture?: boolean;
   image_prompt?: string;
-  image_url?: string;  // base64 data URL for display
+  image_url?: string; // base64 data URL for display
   image_data?: string; // base64 encoded image data
   image_size?: string;
   image_width?: number;

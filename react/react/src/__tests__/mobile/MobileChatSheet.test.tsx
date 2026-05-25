@@ -256,7 +256,12 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
   describe('Table messages', () => {
     it('renders table messages without sender name', () => {
       const messages: ChatMessage[] = [
-        makeMessage({ id: 'msg-1', sender: 'Table', message: 'Batman raised to $100', type: 'table' }),
+        makeMessage({
+          id: 'msg-1',
+          sender: 'Table',
+          message: 'Batman raised to $100',
+          type: 'table',
+        }),
       ];
       const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
 
@@ -280,7 +285,12 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
 
     it('renders NEW HAND DEALT as separator', () => {
       const messages: ChatMessage[] = [
-        makeMessage({ id: 'msg-1', sender: 'Table', message: '--- NEW HAND DEALT ---', type: 'table' }),
+        makeMessage({
+          id: 'msg-1',
+          sender: 'Table',
+          message: '--- NEW HAND DEALT ---',
+          type: 'table',
+        }),
       ];
       const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
 

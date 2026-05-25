@@ -13,11 +13,16 @@ function equityColor(equity: number): string {
 
 function recClass(rec: string): string {
   switch (rec) {
-    case 'fold': return 'rec-fold';
-    case 'check': return 'rec-check';
-    case 'call': return 'rec-call';
-    case 'raise': return 'rec-raise';
-    default: return '';
+    case 'fold':
+      return 'rec-fold';
+    case 'check':
+      return 'rec-check';
+    case 'call':
+      return 'rec-call';
+    case 'raise':
+      return 'rec-raise';
+    default:
+      return '';
   }
 }
 
@@ -65,9 +70,7 @@ export function StatsBar({ stats }: StatsBarProps) {
           {stats.pot_odds != null ? (
             <>
               <span className="stat-value">{stats.pot_odds}:1</span>
-              {reqPct != null && (
-                <span className="stat-sub">Need {reqPct}%</span>
-              )}
+              {reqPct != null && <span className="stat-sub">Need {reqPct}%</span>}
             </>
           ) : (
             <span className="stat-placeholder">&mdash;</span>
@@ -80,9 +83,7 @@ export function StatsBar({ stats }: StatsBarProps) {
           {stats.hand_strength ? (
             <>
               <span className="stat-value stat-hand">{stats.hand_strength}</span>
-              {stats.hand_rank != null && (
-                <span className="stat-sub">Rank {stats.hand_rank}</span>
-              )}
+              {stats.hand_rank != null && <span className="stat-sub">Rank {stats.hand_rank}</span>}
             </>
           ) : (
             <span className="stat-placeholder">&mdash;</span>
@@ -119,7 +120,9 @@ export function StatsBar({ stats }: StatsBarProps) {
             </span>
             <span className="stats-player-stat">
               <span className="stats-player-key">Style</span>
-              <span className="stats-player-val stats-player-style">{stats.player_stats.style}</span>
+              <span className="stats-player-val stats-player-style">
+                {stats.player_stats.style}
+              </span>
             </span>
           </div>
         </div>

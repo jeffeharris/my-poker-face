@@ -37,7 +37,7 @@
   width: var(--card-width);
   height: var(--card-height);
   transform-style: preserve-3d;
-  transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1.4);
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1.4);
 }
 
 .debug-card-inner.flipped {
@@ -277,8 +277,13 @@
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 /* Mobile backdrop */
@@ -292,10 +297,21 @@
 }
 
 @keyframes boot-flicker {
-  0%, 10% { opacity: 0; }
-  15%, 20% { opacity: 1; }
-  25% { opacity: 0.3; }
-  30%, 100% { opacity: 1; }
+  0%,
+  10% {
+    opacity: 0;
+  }
+  15%,
+  20% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0.3;
+  }
+  30%,
+  100% {
+    opacity: 1;
+  }
 }
 
 /* ========================================
@@ -325,8 +341,12 @@
   }
 
   @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /* Expanded card on mobile */
@@ -342,7 +362,7 @@
     height: 200px;
     aspect-ratio: unset;
     transform: translate(-50%, -50%) rotateY(180deg);
-    transition: all 0.4s cubic-bezier(0.4, 0.0, 0.2, 1.4);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1.4);
   }
 
   /* Larger text on mobile expanded view */

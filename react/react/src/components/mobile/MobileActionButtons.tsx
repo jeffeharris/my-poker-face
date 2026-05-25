@@ -17,9 +17,9 @@ interface MobileActionButtonsProps {
   potSize: number;
   onAction: (action: string, amount?: number) => void;
   onQuickChat?: () => void;
-  bettingContext?: BettingContext;  // Optional - use if provided by backend
+  bettingContext?: BettingContext; // Optional - use if provided by backend
   recommendedAction?: string | null;
-  raiseToAmount?: number | null;  // Coach-suggested raise amount to pre-fill slider
+  raiseToAmount?: number | null; // Coach-suggested raise amount to pre-fill slider
 }
 
 export const MobileActionButtons = memo(function MobileActionButtons({
@@ -40,14 +40,16 @@ export const MobileActionButtons = memo(function MobileActionButtons({
   const [isEditingAmount, setIsEditingAmount] = useState(false);
 
   // Create betting context from props if not provided
-  const bettingContext = providedContext ?? createBettingContext({
-    playerStack: currentPlayerStack,
-    playerCurrentBet: currentPlayerBet,
-    highestBet,
-    potSize,
-    minRaise,
-    playerOptions,
-  });
+  const bettingContext =
+    providedContext ??
+    createBettingContext({
+      playerStack: currentPlayerStack,
+      playerCurrentBet: currentPlayerBet,
+      highestBet,
+      potSize,
+      minRaise,
+      playerOptions,
+    });
 
   // Use the shared hook for all calculations
   const calc = useBettingCalculations(bettingContext, bigBlind);
@@ -57,9 +59,8 @@ export const MobileActionButtons = memo(function MobileActionButtons({
 
   const handleRaise = () => {
     // Pre-fill with coach's suggested amount if valid, otherwise use minimum
-    const suggestedAmount = raiseToAmount &&
-      raiseToAmount >= calc.safeMinRaiseTo &&
-      raiseToAmount <= calc.safeMaxRaiseTo
+    const suggestedAmount =
+      raiseToAmount && raiseToAmount >= calc.safeMinRaiseTo && raiseToAmount <= calc.safeMaxRaiseTo
         ? raiseToAmount
         : calc.safeMinRaiseTo;
     setRaiseAmount(suggestedAmount);
@@ -84,12 +85,14 @@ export const MobileActionButtons = memo(function MobileActionButtons({
     return (
       <div className="mobile-raise-sheet" data-testid="raise-sheet">
         <div className="raise-sheet-header">
-          <button className="cancel-btn" data-testid="raise-cancel" onClick={() => setShowRaiseSheet(false)}>
+          <button
+            className="cancel-btn"
+            data-testid="raise-cancel"
+            onClick={() => setShowRaiseSheet(false)}
+          >
             Cancel
           </button>
-          <span className="raise-title">
-            {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
-          </span>
+          <span className="raise-title">{playerOptions.includes('raise') ? 'Raise' : 'Bet'}</span>
           <button
             className="confirm-btn"
             data-testid="raise-confirm"
@@ -124,7 +127,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
                   // Enforce limits when done typing
                   const val = parseInt(e.target.value);
                   if (!isNaN(val)) {
-                    setRaiseAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
+                    setRaiseAmount(
+                      Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val))
+                    );
                   } else {
                     setRaiseAmount(calc.safeMinRaiseTo);
                   }
@@ -209,7 +214,12 @@ export const MobileActionButtons = memo(function MobileActionButtons({
               disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
-              <span className="quick-bet-amount">{isCover && <Crosshair size={12} style={{verticalAlign: 'middle', display: 'inline'}} />} ${amount}</span>
+              <span className="quick-bet-amount">
+                {isCover && (
+                  <Crosshair size={12} style={{ verticalAlign: 'middle', display: 'inline' }} />
+                )}{' '}
+                ${amount}
+              </span>
             </button>
           ))}
         </div>
@@ -262,7 +272,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
           data-testid="action-btn-check"
           onClick={() => onAction('check')}
         >
-          <span className="action-icon"><Check /></span>
+          <span className="action-icon">
+            <Check />
+          </span>
           <span className="btn-label">Check</span>
         </button>
       )}
@@ -285,31 +297,31 @@ export const MobileActionButtons = memo(function MobileActionButtons({
           onClick={handleRaise}
         >
           <span className="action-icon">↑</span>
-          <span className="btn-label">
-            {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
-          </span>
+          <span className="btn-label">{playerOptions.includes('raise') ? 'Raise' : 'Bet'}</span>
         </button>
       )}
 
       {/* When only all_in is available (can't call or raise), show button to open raise interface */}
-      {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
-        <button
-          className="action-btn allin-btn"
-          data-testid="action-btn-allin"
-          onClick={handleRaise}
-        >
-          <span className="action-icon"><HandCoins /></span>
-          <span className="btn-label">All-In ${calc.safeStack}</span>
-        </button>
-      )}
+      {playerOptions.includes('all_in') &&
+        !playerOptions.includes('raise') &&
+        !playerOptions.includes('bet') && (
+          <button
+            className="action-btn allin-btn"
+            data-testid="action-btn-allin"
+            onClick={handleRaise}
+          >
+            <span className="action-icon">
+              <HandCoins />
+            </span>
+            <span className="btn-label">All-In ${calc.safeStack}</span>
+          </button>
+        )}
 
       {onQuickChat && (
-        <button
-          className="action-btn chat-btn"
-          data-testid="action-btn-chat"
-          onClick={onQuickChat}
-        >
-          <span className="action-icon"><MessageCircle /></span>
+        <button className="action-btn chat-btn" data-testid="action-btn-chat" onClick={onQuickChat}>
+          <span className="action-icon">
+            <MessageCircle />
+          </span>
           <span className="btn-label">Chat</span>
         </button>
       )}

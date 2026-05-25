@@ -29,7 +29,9 @@ export const ReplayPlayerSlot = memo(function ReplayPlayerSlot({ player }: Repla
     player.is_folded && 'replay-player--folded',
     player.is_all_in && 'replay-player--all-in',
     player.is_current && 'replay-player--current',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div className={statusClass}>
@@ -44,8 +46,18 @@ export const ReplayPlayerSlot = memo(function ReplayPlayerSlot({ player }: Repla
       <div className="replay-player__cards">
         {player.hole_cards && player.hole_cards.length >= 2 ? (
           <>
-            <Card card={player.hole_cards[0]} faceDown={false} size="small" className="replay-player__card" />
-            <Card card={player.hole_cards[1]} faceDown={false} size="small" className="replay-player__card" />
+            <Card
+              card={player.hole_cards[0]}
+              faceDown={false}
+              size="small"
+              className="replay-player__card"
+            />
+            <Card
+              card={player.hole_cards[1]}
+              faceDown={false}
+              size="small"
+              className="replay-player__card"
+            />
           </>
         ) : (
           <>
@@ -57,17 +69,15 @@ export const ReplayPlayerSlot = memo(function ReplayPlayerSlot({ player }: Repla
 
       {/* Action badge */}
       {player.last_action && (
-        <span className={`replay-player__action action-badge ${ACTION_CLASS_MAP[player.last_action] ?? ''}`}>
+        <span
+          className={`replay-player__action action-badge ${ACTION_CLASS_MAP[player.last_action] ?? ''}`}
+        >
           {player.last_action.toUpperCase()}
         </span>
       )}
 
       {/* Bet indicator */}
-      {player.bet > 0 && (
-        <div className="replay-player__bet">
-          ${player.bet.toLocaleString()}
-        </div>
-      )}
+      {player.bet > 0 && <div className="replay-player__bet">${player.bet.toLocaleString()}</div>}
     </div>
   );
 });

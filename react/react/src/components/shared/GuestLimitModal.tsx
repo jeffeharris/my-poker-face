@@ -25,7 +25,8 @@ export function GuestLimitModal({ handsPlayed, handsLimit, onReturnToMenu }: Gue
         </h2>
 
         <p className="guest-limit-modal__subtitle">
-          Guest accounts are limited to {handsLimit} hands. Sign in with Google to keep playing with full access.
+          Guest accounts are limited to {handsLimit} hands. Sign in with Google to keep playing with
+          full access.
         </p>
 
         <div className="guest-limit-modal__benefits">
@@ -47,20 +48,26 @@ export function GuestLimitModal({ handsPlayed, handsLimit, onReturnToMenu }: Gue
           </div>
         </div>
 
-        <button className="guest-limit-modal__cta" data-testid="guest-limit-cta" onClick={handleSignIn}>
+        <button
+          className="guest-limit-modal__cta"
+          data-testid="guest-limit-cta"
+          onClick={handleSignIn}
+        >
           <Crown size={18} />
           Sign in with Google
         </button>
 
         {onReturnToMenu && (
-          <button className="guest-limit-modal__secondary" data-testid="guest-limit-secondary" onClick={onReturnToMenu}>
+          <button
+            className="guest-limit-modal__secondary"
+            data-testid="guest-limit-secondary"
+            onClick={onReturnToMenu}
+          >
             Return to Main Menu
           </button>
         )}
 
-        <p className="guest-limit-modal__note">
-          Your game progress and stats will be preserved.
-        </p>
+        <p className="guest-limit-modal__note">Your game progress and stats will be preserved.</p>
       </div>
     </div>
   );

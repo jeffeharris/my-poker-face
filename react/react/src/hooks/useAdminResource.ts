@@ -76,7 +76,12 @@ export function useAdminResource<T>(
         // Common patterns: result.models, result.pricing, result.settings, etc.
         const extractedData = transformRef.current
           ? transformRef.current(result)
-          : (result.data ?? result.models ?? result.pricing ?? result.settings ?? result.storage ?? result);
+          : (result.data ??
+            result.models ??
+            result.pricing ??
+            result.settings ??
+            result.storage ??
+            result);
         setData(extractedData as T);
       } else {
         const errorMessage = result.error || 'Failed to load data';
@@ -131,37 +136,40 @@ export function useAdminMutation<TPayload = unknown, TResponse = unknown>() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutate = useCallback(async (
-    endpoint: string,
-    payload?: TPayload,
-    method: 'POST' | 'PUT' | 'DELETE' = 'POST'
-  ): Promise<{ success: boolean; data?: TResponse; error?: string }> => {
-    setLoading(true);
-    setError(null);
+  const mutate = useCallback(
+    async (
+      endpoint: string,
+      payload?: TPayload,
+      method: 'POST' | 'PUT' | 'DELETE' = 'POST'
+    ): Promise<{ success: boolean; data?: TResponse; error?: string }> => {
+      setLoading(true);
+      setError(null);
 
-    try {
-      const response = await adminFetch(endpoint, {
-        method,
-        body: payload ? JSON.stringify(payload) : undefined,
-      });
+      try {
+        const response = await adminFetch(endpoint, {
+          method,
+          body: payload ? JSON.stringify(payload) : undefined,
+        });
 
-      const result = await response.json();
+        const result = await response.json();
 
-      if (result.success) {
-        return { success: true, data: result as TResponse };
-      } else {
-        const errorMessage = result.error || 'Operation failed';
+        if (result.success) {
+          return { success: true, data: result as TResponse };
+        } else {
+          const errorMessage = result.error || 'Operation failed';
+          setError(errorMessage);
+          return { success: false, error: errorMessage };
+        }
+      } catch {
+        const errorMessage = 'Failed to connect to server';
         setError(errorMessage);
         return { success: false, error: errorMessage };
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      const errorMessage = 'Failed to connect to server';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   return { mutate, loading, error };
 }

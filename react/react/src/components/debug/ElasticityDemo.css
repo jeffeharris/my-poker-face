@@ -182,11 +182,11 @@
   .demo-content {
     grid-template-columns: 1fr;
   }
-  
+
   .demo-player {
     padding: 15px;
   }
-  
+
   .demo-trait {
     padding: 12px;
   }
@@ -204,9 +204,15 @@
 
 /* Animation for pressure changes */
 @keyframes pressureFlash {
-  0% { opacity: 1; }
-  50% { opacity: 0.3; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .demo-trait-value {

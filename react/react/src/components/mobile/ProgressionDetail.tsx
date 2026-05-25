@@ -1,5 +1,11 @@
 import { memo, useMemo } from 'react';
-import type { ProgressionState, CoachProgression, SkillProgress, FullSkillProgress, SkillStateValue } from '../../types/coach';
+import type {
+  ProgressionState,
+  CoachProgression,
+  SkillProgress,
+  FullSkillProgress,
+  SkillStateValue,
+} from '../../types/coach';
 import './ProgressionDetail.css';
 
 interface ProgressionDetailProps {
@@ -9,11 +15,16 @@ interface ProgressionDetailProps {
 
 function stateColorClass(state: SkillStateValue): string {
   switch (state) {
-    case 'introduced': return 'state-introduced';
-    case 'practicing': return 'state-practicing';
-    case 'reliable': return 'state-reliable';
-    case 'automatic': return 'state-automatic';
-    default: return 'state-introduced';
+    case 'introduced':
+      return 'state-introduced';
+    case 'practicing':
+      return 'state-practicing';
+    case 'reliable':
+      return 'state-reliable';
+    case 'automatic':
+      return 'state-automatic';
+    default:
+      return 'state-introduced';
   }
 }
 
@@ -21,15 +32,18 @@ function stateLabel(state: SkillStateValue): string {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-export const ProgressionDetail = memo(function ProgressionDetail({ progressionFull, progressionLite }: ProgressionDetailProps) {
+export const ProgressionDetail = memo(function ProgressionDetail({
+  progressionFull,
+  progressionLite,
+}: ProgressionDetailProps) {
   // Prefer full data, fall back to lite skill_states
   const skillStates = useMemo<Record<string, SkillProgress | FullSkillProgress>>(
     () => progressionFull?.skill_states ?? progressionLite?.skill_states ?? {},
-    [progressionFull?.skill_states, progressionLite?.skill_states],
+    [progressionFull?.skill_states, progressionLite?.skill_states]
   );
   const gateProgress = useMemo(
     () => progressionFull?.gate_progress ?? {},
-    [progressionFull?.gate_progress],
+    [progressionFull?.gate_progress]
   );
 
   // Derive gate structure from API data (single source of truth)
@@ -54,7 +68,7 @@ export const ProgressionDetail = memo(function ProgressionDetail({ progressionFu
     // Sort gates by number, skills alphabetically within each gate
     return Array.from(gateMap.values())
       .sort((a, b) => a.gate - b.gate)
-      .map(g => ({ ...g, skillIds: g.skillIds.sort() }));
+      .map((g) => ({ ...g, skillIds: g.skillIds.sort() }));
   }, [gateProgress, skillStates]);
 
   if (gates.length === 0) return null;
@@ -74,7 +88,7 @@ export const ProgressionDetail = memo(function ProgressionDetail({ progressionFu
               <span className="progression-detail__gate-label">Gate {gate}</span>
               <span className="progression-detail__gate-name">{name}</span>
               <div className="progression-detail__gate-dots">
-                {skillIds.map(sid => {
+                {skillIds.map((sid) => {
                   const skill = skillStates[sid];
                   const dotClass = skill ? stateColorClass(skill.state) : 'state-locked';
                   return <span key={sid} className={`progression-detail__dot ${dotClass}`} />;
@@ -83,7 +97,7 @@ export const ProgressionDetail = memo(function ProgressionDetail({ progressionFu
             </div>
 
             <div className="progression-detail__skills">
-              {skillIds.map(sid => {
+              {skillIds.map((sid) => {
                 const skill = skillStates[sid];
                 if (!skill && !isLocked) return null;
 
@@ -99,7 +113,9 @@ export const ProgressionDetail = memo(function ProgressionDetail({ progressionFu
                     <div className="progression-detail__skill-top">
                       <span className="progression-detail__skill-name">{skillName}</span>
                       {skill && (
-                        <span className={`progression-detail__skill-accuracy ${stateColorClass(state)}`}>
+                        <span
+                          className={`progression-detail__skill-accuracy ${stateColorClass(state)}`}
+                        >
                           {Math.round(accuracy * 100)}%
                         </span>
                       )}

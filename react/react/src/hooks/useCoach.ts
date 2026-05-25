@@ -1,5 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { CoachStats, CoachMessage, CoachMode, CoachProgression, ProgressionState, SkillProgress } from '../types/coach';
+import type {
+  CoachStats,
+  CoachMessage,
+  CoachMode,
+  CoachProgression,
+  ProgressionState,
+  SkillProgress,
+} from '../types/coach';
 import { config } from '../config';
 
 const MAX_MESSAGES = 50;
@@ -30,8 +37,8 @@ interface UseCoachResult {
   fetchProgression: () => Promise<void>;
   skipAhead: (level: string) => Promise<void>;
   dismissSkillUnlock: (skillId: string) => void;
-  coachAction: string | null;  // Coach's explicit recommendation (only from /ask endpoint)
-  coachRaiseTo: number | null;  // Coach's suggested raise amount
+  coachAction: string | null; // Coach's explicit recommendation (only from /ask endpoint)
+  coachRaiseTo: number | null; // Coach's suggested raise amount
 }
 
 function loadLocalMode(): CoachMode {
@@ -40,15 +47,13 @@ function loadLocalMode(): CoachMode {
     if (stored === 'proactive' || stored === 'reactive' || stored === 'off') {
       return stored;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return 'off';
 }
 
-export function useCoach({
-  gameId,
-  playerName,
-  isPlayerTurn,
-}: UseCoachOptions): UseCoachResult {
+export function useCoach({ gameId, playerName, isPlayerTurn }: UseCoachOptions): UseCoachResult {
   const [mode, setModeState] = useState<CoachMode>(loadLocalMode);
   const [stats, setStats] = useState<CoachStats | null>(null);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
@@ -82,32 +87,48 @@ export function useCoach({
     fetch(`${config.API_URL}/api/coach/${gameId}/config`, {
       credentials: 'include',
     })
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.mode && (data.mode === 'proactive' || data.mode === 'reactive' || data.mode === 'off')) {
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (
+          data?.mode &&
+          (data.mode === 'proactive' || data.mode === 'reactive' || data.mode === 'off')
+        ) {
           setModeState(data.mode);
-          try { localStorage.setItem('coach_mode', data.mode); } catch { /* ignore */ }
+          try {
+            localStorage.setItem('coach_mode', data.mode);
+          } catch {
+            /* ignore */
+          }
         }
       })
-      .catch(() => { /* non-critical — localStorage fallback already applied */ });
+      .catch(() => {
+        /* non-critical — localStorage fallback already applied */
+      });
   }, [gameId]);
 
-  const setMode = useCallback((newMode: CoachMode) => {
-    setModeState(newMode);
-    try {
-      localStorage.setItem('coach_mode', newMode);
-    } catch { /* ignore */ }
+  const setMode = useCallback(
+    (newMode: CoachMode) => {
+      setModeState(newMode);
+      try {
+        localStorage.setItem('coach_mode', newMode);
+      } catch {
+        /* ignore */
+      }
 
-    // Persist to backend
-    if (gameId) {
-      fetch(`${config.API_URL}/api/coach/${gameId}/config`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: newMode }),
-      }).catch(() => { console.warn('useCoach: failed to persist coach mode to server'); });
-    }
-  }, [gameId]);
+      // Persist to backend
+      if (gameId) {
+        fetch(`${config.API_URL}/api/coach/${gameId}/config`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: newMode }),
+        }).catch(() => {
+          console.warn('useCoach: failed to persist coach mode to server');
+        });
+      }
+    },
+    [gameId]
+  );
 
   const fetchProgression = useCallback(async () => {
     if (!gameId) return;
@@ -148,10 +169,10 @@ export function useCoach({
           const prevIds = Object.keys(prevSkillStatesRef.current);
           if (prevIds.length > 0) {
             const newIds = Object.keys(prog.skill_states).filter(
-              sid => !prevSkillStatesRef.current[sid]
+              (sid) => !prevSkillStatesRef.current[sid]
             );
             if (newIds.length > 0) {
-              setSkillUnlockQueue(prev => [...prev, ...newIds]);
+              setSkillUnlockQueue((prev) => [...prev, ...newIds]);
             }
           }
           prevSkillStatesRef.current = prog.skill_states;
@@ -188,7 +209,7 @@ export function useCoach({
           timestamp: Date.now(),
           type: 'tip',
         };
-        setMessages(prev => [...prev, tipMsg].slice(-MAX_MESSAGES));
+        setMessages((prev) => [...prev, tipMsg].slice(-MAX_MESSAGES));
         if (data.stats) setStats(data.stats);
       }
     } catch {
@@ -198,53 +219,56 @@ export function useCoach({
     }
   }, [gameId, playerName]);
 
-  const sendQuestion = useCallback(async (question: string) => {
-    if (!gameId || mode === 'off') return;
+  const sendQuestion = useCallback(
+    async (question: string) => {
+      if (!gameId || mode === 'off') return;
 
-    const userMsg: CoachMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: question,
-      timestamp: Date.now(),
-    };
-
-    setMessages(prev => [...prev, userMsg].slice(-MAX_MESSAGES));
-    setIsThinking(true);
-
-    try {
-      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/ask`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, playerName }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        // Store coach's explicit recommendation for reactive mode highlighting
-        setCoachAction(data.coach_action ?? null);
-        setCoachRaiseTo(data.coach_raise_to ?? null);
-        const coachMsg: CoachMessage = {
-          id: `coach-${Date.now()}`,
-          role: 'coach',
-          content: data.answer,
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, coachMsg].slice(-MAX_MESSAGES));
-        if (data.stats) setStats(data.stats);
-      }
-    } catch {
-      const errorMsg: CoachMessage = {
-        id: `coach-err-${Date.now()}`,
-        role: 'coach',
-        content: 'Sorry, I couldn\'t process that. Try again in a moment.',
+      const userMsg: CoachMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: question,
         timestamp: Date.now(),
       };
-      setMessages(prev => [...prev, errorMsg].slice(-MAX_MESSAGES));
-    } finally {
-      setIsThinking(false);
-    }
-  }, [gameId, mode, playerName]);
+
+      setMessages((prev) => [...prev, userMsg].slice(-MAX_MESSAGES));
+      setIsThinking(true);
+
+      try {
+        const res = await fetch(`${config.API_URL}/api/coach/${gameId}/ask`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, playerName }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Store coach's explicit recommendation for reactive mode highlighting
+          setCoachAction(data.coach_action ?? null);
+          setCoachRaiseTo(data.coach_raise_to ?? null);
+          const coachMsg: CoachMessage = {
+            id: `coach-${Date.now()}`,
+            role: 'coach',
+            content: data.answer,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, coachMsg].slice(-MAX_MESSAGES));
+          if (data.stats) setStats(data.stats);
+        }
+      } catch {
+        const errorMsg: CoachMessage = {
+          id: `coach-err-${Date.now()}`,
+          role: 'coach',
+          content: "Sorry, I couldn't process that. Try again in a moment.",
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, errorMsg].slice(-MAX_MESSAGES));
+      } finally {
+        setIsThinking(false);
+      }
+    },
+    [gameId, mode, playerName]
+  );
 
   const clearProactiveTip = useCallback(() => {
     setProactiveTip(null);
@@ -270,7 +294,7 @@ export function useCoach({
           timestamp: Date.now(),
           type: 'review',
         };
-        setMessages(prev => [...prev, reviewMsg].slice(-MAX_MESSAGES));
+        setMessages((prev) => [...prev, reviewMsg].slice(-MAX_MESSAGES));
         setHasUnreadReview(true);
         // Refresh stats after hand review so progression bar reflects post-action evaluation
         refreshStats();
@@ -287,28 +311,29 @@ export function useCoach({
     setHasUnreadReview(false);
   }, []);
 
-
-
-  const skipAhead = useCallback(async (level: string) => {
-    if (!gameId) return;
-    try {
-      const res = await fetch(`${config.API_URL}/api/coach/${gameId}/onboarding`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ level }),
-      });
-      if (res.ok) {
-        // Re-fetch both stats and full progression after onboarding
-        await Promise.all([refreshStats(), fetchProgression()]);
+  const skipAhead = useCallback(
+    async (level: string) => {
+      if (!gameId) return;
+      try {
+        const res = await fetch(`${config.API_URL}/api/coach/${gameId}/onboarding`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level }),
+        });
+        if (res.ok) {
+          // Re-fetch both stats and full progression after onboarding
+          await Promise.all([refreshStats(), fetchProgression()]);
+        }
+      } catch (err) {
+        console.error('skipAhead failed:', err);
       }
-    } catch (err) {
-      console.error('skipAhead failed:', err);
-    }
-  }, [gameId, refreshStats, fetchProgression]);
+    },
+    [gameId, refreshStats, fetchProgression]
+  );
 
   const dismissSkillUnlock = useCallback((skillId: string) => {
-    setSkillUnlockQueue(prev => prev.filter(id => id !== skillId));
+    setSkillUnlockQueue((prev) => prev.filter((id) => id !== skillId));
   }, []);
 
   // When player's turn starts, auto-fetch stats (and proactive tip if enabled).

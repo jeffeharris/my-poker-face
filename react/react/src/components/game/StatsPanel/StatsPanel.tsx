@@ -8,18 +8,11 @@ interface StatsPanelProps {
   handNumber?: number;
 }
 
-export function StatsPanel({
-  humanPlayer,
-  players,
-  potTotal,
-  handNumber,
-}: StatsPanelProps) {
+export function StatsPanel({ humanPlayer, players, potTotal, handNumber }: StatsPanelProps) {
   // Calculate table stats
-  const activePlayers = players.filter(p => !p.is_folded);
-  const averageStack = Math.round(
-    players.reduce((sum, p) => sum + p.stack, 0) / players.length
-  );
-  const opponents = players.filter(p => !p.is_human);
+  const activePlayers = players.filter((p) => !p.is_folded);
+  const averageStack = Math.round(players.reduce((sum, p) => sum + p.stack, 0) / players.length);
+  const opponents = players.filter((p) => !p.is_human);
 
   return (
     <div className="stats-panel">
@@ -37,12 +30,8 @@ export function StatsPanel({
         </div>
 
         <div className="stats-card__details">
-          {humanPlayer.is_folded && (
-            <div className="stats-card__status folded">FOLDED</div>
-          )}
-          {humanPlayer.is_all_in && (
-            <div className="stats-card__status all-in">ALL-IN</div>
-          )}
+          {humanPlayer.is_folded && <div className="stats-card__status folded">FOLDED</div>}
+          {humanPlayer.is_all_in && <div className="stats-card__status all-in">ALL-IN</div>}
         </div>
       </div>
 
@@ -80,7 +69,7 @@ export function StatsPanel({
         <h3 className="stats-card__title">Opponents</h3>
 
         <div className="opponent-list">
-          {opponents.map(opponent => {
+          {opponents.map((opponent) => {
             const stackPercentage = Math.min(100, (opponent.stack / averageStack) * 100);
 
             return (

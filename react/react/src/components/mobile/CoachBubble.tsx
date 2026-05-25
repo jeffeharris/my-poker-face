@@ -47,20 +47,22 @@ export const CoachBubble = memo(function CoachBubble({
 
   const handleExpand = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsExpanded(prev => !prev);
+    setIsExpanded((prev) => !prev);
   }, []);
 
-  const keyStat = stats?.equity != null
-    ? `${Math.round(stats.equity * 100)}% equity`
-    : stats?.hand_strength
-      ? stats.hand_strength
-      : null;
+  const keyStat =
+    stats?.equity != null
+      ? `${Math.round(stats.equity * 100)}% equity`
+      : stats?.hand_strength
+        ? stats.hand_strength
+        : null;
 
-  const modeClass = coachingMode === 'learn'
-    ? 'coach-bubble--learn'
-    : coachingMode === 'compete'
-      ? 'coach-bubble--compete'
-      : '';
+  const modeClass =
+    coachingMode === 'learn'
+      ? 'coach-bubble--learn'
+      : coachingMode === 'compete'
+        ? 'coach-bubble--compete'
+        : '';
 
   return (
     <AnimatePresence>
@@ -94,10 +96,12 @@ export const CoachBubble = memo(function CoachBubble({
                   {coachingMode === 'learn' ? 'Coach Tip' : 'Your Stats'}
                 </span>
               )}
-              <span className={`coach-bubble-tip ${isExpanded ? 'coach-bubble-tip--expanded' : ''}`}>{tip}</span>
-              {keyStat && (
-                <span className="coach-bubble-stat">{keyStat}</span>
-              )}
+              <span
+                className={`coach-bubble-tip ${isExpanded ? 'coach-bubble-tip--expanded' : ''}`}
+              >
+                {tip}
+              </span>
+              {keyStat && <span className="coach-bubble-stat">{keyStat}</span>}
             </div>
             <button
               className="coach-bubble-expand"

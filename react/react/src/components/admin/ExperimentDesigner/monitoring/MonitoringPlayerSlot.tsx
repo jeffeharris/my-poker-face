@@ -19,7 +19,9 @@ export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotPr
     player.is_folded && !player.is_eliminated && 'monitoring-player--folded',
     player.is_all_in && 'monitoring-player--all-in',
     player.is_current && 'monitoring-player--current',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   // Check if player has tilt (moderate or higher)
   // Use optional chaining since psychology may be disabled for some experiments
@@ -38,9 +40,7 @@ export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotPr
           <span className="monitoring-player__name">{player.name}</span>
         </div>
         <div className="monitoring-player__badges">
-          <span className="monitoring-player__badge monitoring-player__badge--eliminated">
-            OUT
-          </span>
+          <span className="monitoring-player__badge monitoring-player__badge--eliminated">OUT</span>
         </div>
       </button>
     );
@@ -87,32 +87,22 @@ export function MonitoringPlayerSlot({ player, onClick }: MonitoringPlayerSlotPr
       {/* Status badges */}
       <div className="monitoring-player__badges">
         {player.is_folded && (
-          <span className="monitoring-player__badge monitoring-player__badge--folded">
-            FOLDED
-          </span>
+          <span className="monitoring-player__badge monitoring-player__badge--folded">FOLDED</span>
         )}
         {player.is_all_in && (
-          <span className="monitoring-player__badge monitoring-player__badge--all-in">
-            ALL-IN
-          </span>
+          <span className="monitoring-player__badge monitoring-player__badge--all-in">ALL-IN</span>
         )}
         {player.is_current && !player.is_folded && (
-          <span className="monitoring-player__badge monitoring-player__badge--current">
-            TURN
-          </span>
+          <span className="monitoring-player__badge monitoring-player__badge--current">TURN</span>
         )}
         {hasTilt && (
-          <span className="monitoring-player__badge monitoring-player__badge--tilt">
-            TILT
-          </span>
+          <span className="monitoring-player__badge monitoring-player__badge--tilt">TILT</span>
         )}
       </div>
 
       {/* Bet indicator */}
       {player.bet > 0 && (
-        <div className="monitoring-player__bet">
-          ${player.bet.toLocaleString()}
-        </div>
+        <div className="monitoring-player__bet">${player.bet.toLocaleString()}</div>
       )}
     </button>
   );

@@ -25,7 +25,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Error State */
@@ -66,7 +68,9 @@
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .retry-button:hover {
@@ -108,7 +112,9 @@
   border-radius: 8px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .start-playing-button:hover {
@@ -132,7 +138,9 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
-  transition: transform 0.2s, border-color 0.2s;
+  transition:
+    transform 0.2s,
+    border-color 0.2s;
 }
 
 .stat-card:hover {
@@ -222,7 +230,9 @@
 .takeout-badge {
   font-size: 1.25rem;
   opacity: 0.8;
-  transition: transform 0.2s, opacity 0.2s;
+  transition:
+    transform 0.2s,
+    opacity 0.2s;
 }
 
 .takeout-badge:hover {

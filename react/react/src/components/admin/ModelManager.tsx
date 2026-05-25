@@ -76,9 +76,7 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
       const data = await response.json();
 
       if (data.success) {
-        setModels(prev => prev.map(m =>
-          m.id === modelId ? { ...m, enabled } : m
-        ));
+        setModels((prev) => prev.map((m) => (m.id === modelId ? { ...m, enabled } : m)));
         setAlert({ type: 'success', message: `Model ${enabled ? 'enabled' : 'disabled'}` });
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to update model' });
@@ -90,7 +88,7 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
 
   // Toggle provider expansion
   const toggleProvider = (provider: string) => {
-    setExpandedProviders(prev => {
+    setExpandedProviders((prev) => {
       const next = new Set(prev);
       if (next.has(provider)) {
         next.delete(provider);
@@ -102,13 +100,16 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
   };
 
   // Group models by provider
-  const modelsByProvider = models.reduce((acc, model) => {
-    if (!acc[model.provider]) {
-      acc[model.provider] = [];
-    }
-    acc[model.provider].push(model);
-    return acc;
-  }, {} as Record<string, Model[]>);
+  const modelsByProvider = models.reduce(
+    (acc, model) => {
+      if (!acc[model.provider]) {
+        acc[model.provider] = [];
+      }
+      acc[model.provider].push(model);
+      return acc;
+    },
+    {} as Record<string, Model[]>
+  );
 
   // Clear alert after timeout
   useEffect(() => {
@@ -136,7 +137,9 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
             {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
           </span>
           <span className="mm-alert__message">{alert.message}</span>
-          <button className="mm-alert__close" onClick={() => setAlert(null)}>×</button>
+          <button className="mm-alert__close" onClick={() => setAlert(null)}>
+            ×
+          </button>
         </div>
       )}
 
@@ -155,34 +158,49 @@ export function ModelManager({ embedded = false }: ModelManagerProps) {
               onClick={() => toggleProvider(provider)}
               type="button"
             >
-              <span className={`mm-provider__chevron ${expandedProviders.has(provider) ? 'mm-provider__chevron--open' : ''}`}>
+              <span
+                className={`mm-provider__chevron ${expandedProviders.has(provider) ? 'mm-provider__chevron--open' : ''}`}
+              >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path
+                    d="M7.5 5L12.5 10L7.5 15"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </span>
               <span className="mm-provider__name">{provider}</span>
               <span className="mm-provider__count">
-                {providerModels.filter(m => m.enabled).length}/{providerModels.length} enabled
+                {providerModels.filter((m) => m.enabled).length}/{providerModels.length} enabled
               </span>
             </button>
 
             {expandedProviders.has(provider) && (
               <div className="mm-provider__models">
-                {providerModels.map(model => (
-                  <div key={model.id} className={`mm-model ${!model.enabled ? 'mm-model--disabled' : ''}`}>
+                {providerModels.map((model) => (
+                  <div
+                    key={model.id}
+                    className={`mm-model ${!model.enabled ? 'mm-model--disabled' : ''}`}
+                  >
                     <div className="mm-model__info">
-                      <span className="mm-model__name">
-                        {model.display_name || model.model}
-                      </span>
+                      <span className="mm-model__name">{model.display_name || model.model}</span>
                       <div className="mm-model__capabilities">
                         {model.supports_reasoning && (
-                          <span className="mm-cap mm-cap--reasoning" title="Supports reasoning">R</span>
+                          <span className="mm-cap mm-cap--reasoning" title="Supports reasoning">
+                            R
+                          </span>
                         )}
                         {model.supports_json_mode && (
-                          <span className="mm-cap mm-cap--json" title="Supports JSON mode">J</span>
+                          <span className="mm-cap mm-cap--json" title="Supports JSON mode">
+                            J
+                          </span>
                         )}
                         {model.supports_image_gen && (
-                          <span className="mm-cap mm-cap--image" title="Supports image generation">I</span>
+                          <span className="mm-cap mm-cap--image" title="Supports image generation">
+                            I
+                          </span>
                         )}
                       </div>
                     </div>

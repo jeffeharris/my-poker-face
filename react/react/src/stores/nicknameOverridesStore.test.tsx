@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import {
-  useNicknameOverridesStore,
-  useDisplayNickname,
-} from './nicknameOverridesStore';
+import { useNicknameOverridesStore, useDisplayNickname } from './nicknameOverridesStore';
 
 beforeEach(() => {
   useNicknameOverridesStore.getState().reset();
@@ -99,16 +96,12 @@ describe('useDisplayNickname', () => {
   it('returns the override when one is set', () => {
     useNicknameOverridesStore.getState().setOne('Batman', 'my dark one');
     const { result } = renderHook(() => useDisplayNickname());
-    expect(result.current({ name: 'Batman', nickname: 'The Dark Knight' })).toBe(
-      'my dark one',
-    );
+    expect(result.current({ name: 'Batman', nickname: 'The Dark Knight' })).toBe('my dark one');
   });
 
   it('falls back to nickname when no override exists', () => {
     const { result } = renderHook(() => useDisplayNickname());
-    expect(result.current({ name: 'Batman', nickname: 'The Dark Knight' })).toBe(
-      'The Dark Knight',
-    );
+    expect(result.current({ name: 'Batman', nickname: 'The Dark Knight' })).toBe('The Dark Knight');
   });
 
   it('falls back to name when both override and nickname are missing', () => {

@@ -91,8 +91,8 @@ export function CaptureSelector({
   const [matchAllLabels, setMatchAllLabels] = useState(false);
   // Error/correction resilience filters
   const [errorTypeFilter, setErrorTypeFilter] = useState<string>('');
-  const [hasErrorFilter, setHasErrorFilter] = useState<string>('');  // '', 'true', 'false'
-  const [isCorrectionFilter, setIsCorrectionFilter] = useState<string>('');  // '', 'true', 'false'
+  const [hasErrorFilter, setHasErrorFilter] = useState<string>(''); // '', 'true', 'false'
+  const [isCorrectionFilter, setIsCorrectionFilter] = useState<string>(''); // '', 'true', 'false'
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -110,7 +110,8 @@ export function CaptureSelector({
   // Selection state (internal if not controlled externally)
   const [internalSelectedIds, setInternalSelectedIds] = useState<number[]>([]);
   const selected = selectionMode && onSelectionChange ? selectedIds : internalSelectedIds;
-  const setSelected = selectionMode && onSelectionChange ? onSelectionChange : setInternalSelectedIds;
+  const setSelected =
+    selectionMode && onSelectionChange ? onSelectionChange : setInternalSelectedIds;
 
   // Fetch captures with current filters
   const fetchCaptures = useCallback(async () => {
@@ -146,7 +147,19 @@ export function CaptureSelector({
     } finally {
       setLoading(false);
     }
-  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels, errorTypeFilter, hasErrorFilter, isCorrectionFilter, page, pageSize]);
+  }, [
+    selectedLabels,
+    phaseFilter,
+    actionFilter,
+    minPotOdds,
+    maxPotOdds,
+    matchAllLabels,
+    errorTypeFilter,
+    hasErrorFilter,
+    isCorrectionFilter,
+    page,
+    pageSize,
+  ]);
 
   // Fetch all labels for dropdown
   const fetchLabels = useCallback(async () => {
@@ -180,14 +193,22 @@ export function CaptureSelector({
   // Reset page when filters change
   useEffect(() => {
     setPage(0);
-  }, [selectedLabels, phaseFilter, actionFilter, minPotOdds, maxPotOdds, matchAllLabels, errorTypeFilter, hasErrorFilter, isCorrectionFilter]);
+  }, [
+    selectedLabels,
+    phaseFilter,
+    actionFilter,
+    minPotOdds,
+    maxPotOdds,
+    matchAllLabels,
+    errorTypeFilter,
+    hasErrorFilter,
+    isCorrectionFilter,
+  ]);
 
   // Toggle label selection
   const toggleLabel = (label: string) => {
-    setSelectedLabels(prev =>
-      prev.includes(label)
-        ? prev.filter(l => l !== label)
-        : [...prev, label]
+    setSelectedLabels((prev) =>
+      prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]
     );
   };
 
@@ -206,16 +227,12 @@ export function CaptureSelector({
 
   // Toggle capture selection
   const toggleCaptureSelection = (id: number) => {
-    setSelected(
-      selected.includes(id)
-        ? selected.filter(i => i !== id)
-        : [...selected, id]
-    );
+    setSelected(selected.includes(id) ? selected.filter((i) => i !== id) : [...selected, id]);
   };
 
   // Select all on current page
   const selectAllOnPage = () => {
-    const pageIds = captures.map(c => c.id);
+    const pageIds = captures.map((c) => c.id);
     const newSelected = [...new Set([...selected, ...pageIds])];
     setSelected(newSelected);
   };
@@ -269,7 +286,10 @@ export function CaptureSelector({
   const bulkAddLabels = async () => {
     if (!bulkLabelInput.trim() || selected.length === 0) return;
 
-    const labels = bulkLabelInput.split(',').map(l => l.trim()).filter(Boolean);
+    const labels = bulkLabelInput
+      .split(',')
+      .map((l) => l.trim())
+      .filter(Boolean);
     try {
       const response = await adminAPI.fetch('/api/captures/bulk-labels', {
         method: 'POST',
@@ -318,7 +338,15 @@ export function CaptureSelector({
   };
 
   const totalPages = Math.ceil(totalCaptures / pageSize);
-  const hasActiveFilters = selectedLabels.length > 0 || phaseFilter || actionFilter || minPotOdds || maxPotOdds || errorTypeFilter || hasErrorFilter || isCorrectionFilter;
+  const hasActiveFilters =
+    selectedLabels.length > 0 ||
+    phaseFilter ||
+    actionFilter ||
+    minPotOdds ||
+    maxPotOdds ||
+    errorTypeFilter ||
+    hasErrorFilter ||
+    isCorrectionFilter;
 
   if (loading && captures.length === 0) {
     return (
@@ -338,7 +366,9 @@ export function CaptureSelector({
             {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
           </span>
           <span className="cs-alert__message">{alert.message}</span>
-          <button className="cs-alert__close" onClick={() => setAlert(null)}>×</button>
+          <button className="cs-alert__close" onClick={() => setAlert(null)}>
+            ×
+          </button>
         </div>
       )}
 
@@ -357,9 +387,18 @@ export function CaptureSelector({
         >
           <Filter size={18} />
           Filters
-          {hasActiveFilters && <span className="cs-filter-badge">{
-            [selectedLabels.length > 0, phaseFilter, actionFilter, minPotOdds || maxPotOdds].filter(Boolean).length
-          }</span>}
+          {hasActiveFilters && (
+            <span className="cs-filter-badge">
+              {
+                [
+                  selectedLabels.length > 0,
+                  phaseFilter,
+                  actionFilter,
+                  minPotOdds || maxPotOdds,
+                ].filter(Boolean).length
+              }
+            </span>
+          )}
           {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
       </div>
@@ -386,7 +425,7 @@ export function CaptureSelector({
                   {allLabels.length === 0 ? (
                     <div className="cs-label-dropdown__empty">No labels yet</div>
                   ) : (
-                    allLabels.map(label => (
+                    allLabels.map((label) => (
                       <button
                         key={label.name}
                         className={`cs-label-option ${selectedLabels.includes(label.name) ? 'cs-label-option--selected' : ''}`}
@@ -424,8 +463,10 @@ export function CaptureSelector({
               onChange={(e) => setPhaseFilter(e.target.value)}
             >
               <option value="">All phases</option>
-              {PHASES.map(phase => (
-                <option key={phase} value={phase}>{phase}</option>
+              {PHASES.map((phase) => (
+                <option key={phase} value={phase}>
+                  {phase}
+                </option>
               ))}
             </select>
           </div>
@@ -439,8 +480,10 @@ export function CaptureSelector({
               onChange={(e) => setActionFilter(e.target.value)}
             >
               <option value="">All actions</option>
-              {ACTIONS.map(action => (
-                <option key={action} value={action}>{action}</option>
+              {ACTIONS.map((action) => (
+                <option key={action} value={action}>
+                  {action}
+                </option>
               ))}
             </select>
           </div>
@@ -528,7 +571,7 @@ export function CaptureSelector({
       {/* Selected Labels Pills */}
       {selectedLabels.length > 0 && (
         <div className="cs-selected-labels">
-          {selectedLabels.map(label => (
+          {selectedLabels.map((label) => (
             <span key={label} className="cs-label-pill">
               {label}
               <button onClick={() => toggleLabel(label)}>
@@ -587,7 +630,7 @@ export function CaptureSelector({
             <div className="cs-bulk-remove">
               <span className="cs-bulk-remove__label">Remove from selected:</span>
               <div className="cs-bulk-remove__labels">
-                {allLabels.slice(0, 10).map(label => (
+                {allLabels.slice(0, 10).map((label) => (
                   <button
                     key={label.name}
                     className="cs-remove-label-btn"
@@ -612,12 +655,15 @@ export function CaptureSelector({
             <p>{hasActiveFilters ? 'No captures match your filters' : 'No captures found'}</p>
           </div>
         ) : (
-          captures.map(capture => (
+          captures.map((capture) => (
             <div
               key={capture.id}
               className={`cs-capture ${expandedId === capture.id ? 'cs-capture--expanded' : ''} ${selected.includes(capture.id) ? 'cs-capture--selected' : ''}`}
             >
-              <div className="cs-capture__header" onClick={() => setExpandedId(expandedId === capture.id ? null : capture.id)}>
+              <div
+                className="cs-capture__header"
+                onClick={() => setExpandedId(expandedId === capture.id ? null : capture.id)}
+              >
                 {selectionMode && (
                   <label className="cs-capture__checkbox" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -629,7 +675,9 @@ export function CaptureSelector({
                 )}
                 <div className="cs-capture__summary">
                   <span className="cs-capture__player">{capture.player_name}</span>
-                  <span className={`cs-capture__action cs-capture__action--${capture.action_taken}`}>
+                  <span
+                    className={`cs-capture__action cs-capture__action--${capture.action_taken}`}
+                  >
                     {capture.action_taken}
                   </span>
                   <span className="cs-capture__phase">{capture.phase}</span>
@@ -651,7 +699,7 @@ export function CaptureSelector({
               {/* Labels Row */}
               {capture.labels && capture.labels.length > 0 && (
                 <div className="cs-capture__labels">
-                  {capture.labels.map(label => (
+                  {capture.labels.map((label) => (
                     <span
                       key={label.label}
                       className={`cs-capture-label cs-capture-label--${label.label_type}`}
@@ -676,7 +724,9 @@ export function CaptureSelector({
                 <div className="cs-capture__error">
                   <span className="cs-error-badge">{capture.error_type.replace(/_/g, ' ')}</span>
                   {capture.correction_attempt != null && capture.correction_attempt > 0 && (
-                    <span className="cs-correction-badge">Attempt #{capture.correction_attempt}</span>
+                    <span className="cs-correction-badge">
+                      Attempt #{capture.correction_attempt}
+                    </span>
                   )}
                 </div>
               )}
@@ -704,13 +754,17 @@ export function CaptureSelector({
                     {capture.community_cards && capture.community_cards.length > 0 && (
                       <div className="cs-detail-item cs-detail-item--full">
                         <span className="cs-detail-item__label">Community Cards</span>
-                        <span className="cs-detail-item__value">{capture.community_cards.join(' ')}</span>
+                        <span className="cs-detail-item__value">
+                          {capture.community_cards.join(' ')}
+                        </span>
                       </div>
                     )}
                     {capture.player_hand && capture.player_hand.length > 0 && (
                       <div className="cs-detail-item cs-detail-item--full">
                         <span className="cs-detail-item__label">Hand</span>
-                        <span className="cs-detail-item__value">{capture.player_hand.join(' ')}</span>
+                        <span className="cs-detail-item__value">
+                          {capture.player_hand.join(' ')}
+                        </span>
                       </div>
                     )}
                   </div>

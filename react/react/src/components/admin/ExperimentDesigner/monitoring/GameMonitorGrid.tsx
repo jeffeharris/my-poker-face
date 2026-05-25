@@ -16,11 +16,7 @@ export function GameMonitorGrid({ games, onPlayerClick }: GameMonitorGridProps) 
     <div className="game-monitor-grid">
       <div className="game-monitor-grid__cards">
         {games.map((game) => (
-          <GameMonitorCard
-            key={game.game_id}
-            game={game}
-            onPlayerClick={onPlayerClick}
-          />
+          <GameMonitorCard key={game.game_id} game={game} onPlayerClick={onPlayerClick} />
         ))}
       </div>
     </div>

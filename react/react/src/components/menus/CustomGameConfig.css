@@ -295,7 +295,6 @@
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }
 
-
 .theme-modal__header {
   display: flex;
   align-items: center;
@@ -393,7 +392,7 @@
 }
 
 /* Single card — fill more vertical space */
-.player-slots[data-count="1"] {
+.player-slots[data-count='1'] {
   --card-width: 55dvw;
   --card-height: 55dvh;
 }
@@ -491,7 +490,6 @@
   border-color: var(--color-border-hover);
   box-shadow: var(--shadow-lg);
 }
-
 
 .player-card__name {
   position: relative;
@@ -644,7 +642,6 @@
   outline: none;
   border-color: var(--color-border-focus);
 }
-
 
 /* Use defaults toggle */
 .config-sheet__defaults-toggle {
@@ -1201,7 +1198,9 @@
   border: 2px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition:
+    border-color 0.3s,
+    box-shadow 0.3s;
 }
 
 .review-fan__card:hover .review-fan__avatar {
@@ -1228,24 +1227,24 @@
 }
 
 /* Scale down cards for 4-5 opponents */
-.review-fan[data-count="4"] .review-fan__card {
+.review-fan[data-count='4'] .review-fan__card {
   width: 110px;
   margin: 0 -8px;
 }
-.review-fan[data-count="4"] .review-fan__avatar {
+.review-fan[data-count='4'] .review-fan__avatar {
   width: 100px;
   height: 144px;
 }
 
-.review-fan[data-count="5"] .review-fan__card {
+.review-fan[data-count='5'] .review-fan__card {
   width: 90px;
   margin: 0 -10px;
 }
-.review-fan[data-count="5"] .review-fan__avatar {
+.review-fan[data-count='5'] .review-fan__avatar {
   width: 82px;
   height: 118px;
 }
-.review-fan[data-count="5"] .review-fan__name {
+.review-fan[data-count='5'] .review-fan__name {
   font-size: var(--font-size-xs);
   max-width: 90px;
 }

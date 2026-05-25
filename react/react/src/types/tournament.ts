@@ -29,12 +29,14 @@ export interface TournamentResult {
     winnings: { [key: string]: number };
     hand_name: string;
     showdown: boolean;
-    players_showdown?: { [key: string]: {
-      cards: BackendCard[];
-      hand_name: string;
-      hand_rank: number;
-      kickers?: string[];
-    }};
+    players_showdown?: {
+      [key: string]: {
+        cards: BackendCard[];
+        hand_name: string;
+        hand_rank: number;
+        kickers?: string[];
+      };
+    };
     community_cards?: BackendCard[];
     is_final_hand?: boolean;
     tournament_outcome?: {

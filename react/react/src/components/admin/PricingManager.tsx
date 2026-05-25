@@ -1,4 +1,12 @@
-import { useState, useEffect, useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+} from 'react';
 import { Plus } from 'lucide-react';
 import { adminAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
@@ -178,15 +186,7 @@ interface SlideOutProps {
 }
 
 const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function PricingSlideOut(
-  {
-    model,
-    units,
-    unitLabels,
-    onClose,
-    onSave,
-    saving,
-    pendingValues,
-  },
+  { model, units, unitLabels, onClose, onSave, saving, pendingValues },
   ref
 ) {
   const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -219,10 +219,14 @@ const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function PricingS
   }, [editValues, model.costs, units]);
 
   // Expose methods to parent via ref
-  useImperativeHandle(ref, () => ({
-    isDirty: () => isDirty,
-    getValues: () => ({ values: editValues, validFrom }),
-  }), [isDirty, editValues, validFrom]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      isDirty: () => isDirty,
+      getValues: () => ({ values: editValues, validFrom }),
+    }),
+    [isDirty, editValues, validFrom]
+  );
 
   const handleSave = () => {
     onSave(editValues, validFrom);
@@ -262,9 +266,7 @@ const PricingSlideOut = forwardRef<SlideOutRef, SlideOutProps>(function PricingS
                 type="number"
                 className="prm-input"
                 value={editValues[unit]}
-                onChange={(e) =>
-                  setEditValues((prev) => ({ ...prev, [unit]: e.target.value }))
-                }
+                onChange={(e) => setEditValues((prev) => ({ ...prev, [unit]: e.target.value }))}
                 onKeyDown={(e) => {
                   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                     e.preventDefault();
@@ -334,7 +336,8 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
   // Mobile filter sheet
   const { isMobile } = useViewport();
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const activeFilterCount = (filterProvider ? 1 : 0) + (searchQuery ? 1 : 0) + (!currentOnly ? 1 : 0);
+  const activeFilterCount =
+    (filterProvider ? 1 : 0) + (searchQuery ? 1 : 0) + (!currentOnly ? 1 : 0);
 
   // Fetch pricing entries (always fetch current pricing)
   const fetchPricing = useCallback(async () => {
@@ -479,7 +482,15 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
     });
 
     return models;
-  }, [currentModels, filterProvider, searchQuery, sortColumn, sortDirection, currentOnly, enabledModels]);
+  }, [
+    currentModels,
+    filterProvider,
+    searchQuery,
+    sortColumn,
+    sortDirection,
+    currentOnly,
+    enabledModels,
+  ]);
 
   // Handle column sort click
   const handleSortClick = (column: string) => {
@@ -790,11 +801,7 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
         </button>
         <div className="prm-tabs__actions">
           {pendingChanges.size > 0 && (
-            <button
-              className="prm-btn prm-btn--save-all"
-              onClick={handleSaveAll}
-              disabled={saving}
-            >
+            <button className="prm-btn prm-btn--save-all" onClick={handleSaveAll} disabled={saving}>
               {saving ? 'Saving...' : `Save All (${pendingChanges.size})`}
             </button>
           )}
@@ -845,7 +852,9 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
                 >
                   <option value="">All Providers</option>
                   {filteredProviders.map((p) => (
-                    <option key={p} value={p}>{p}</option>
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
                   ))}
                 </select>
               </FilterGroup>
@@ -905,19 +914,15 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
 
       {/* Pivot Table */}
       <div className="prm-table-wrapper">
-        <table className={`prm-table prm-table--clickable ${activeTab === 'image' ? 'prm-table--wide' : ''}`}>
+        <table
+          className={`prm-table prm-table--clickable ${activeTab === 'image' ? 'prm-table--wide' : ''}`}
+        >
           <thead>
             <tr>
-              <th
-                className="prm-table__th--sortable"
-                onClick={() => handleSortClick('provider')}
-              >
+              <th className="prm-table__th--sortable" onClick={() => handleSortClick('provider')}>
                 Provider <SortIndicator column="provider" />
               </th>
-              <th
-                className="prm-table__th--sortable"
-                onClick={() => handleSortClick('model')}
-              >
+              <th className="prm-table__th--sortable" onClick={() => handleSortClick('model')}>
                 Model <SortIndicator column="model" />
               </th>
               {currentUnits.map((unit) => (
@@ -926,7 +931,8 @@ export function PricingManager({ embedded = false }: PricingManagerProps) {
                   className="prm-table__th--sortable prm-table__th--cost"
                   onClick={() => handleSortClick(unit)}
                 >
-                  {(currentUnitLabels as Record<string, string>)[unit]} <SortIndicator column={unit} />
+                  {(currentUnitLabels as Record<string, string>)[unit]}{' '}
+                  <SortIndicator column={unit} />
                 </th>
               ))}
             </tr>

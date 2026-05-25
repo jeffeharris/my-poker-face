@@ -19,7 +19,7 @@ function parseCard(raw: string): ParsedCard | null {
 }
 
 function parseCards(cards: string[]): ParsedCard[] {
-  return cards.map(c => parseCard(c)).filter(Boolean) as ParsedCard[];
+  return cards.map((c) => parseCard(c)).filter(Boolean) as ParsedCard[];
 }
 
 function renderCardChips(parsed: ParsedCard[]): React.ReactNode {
@@ -103,7 +103,7 @@ interface MobileChatSheetProps {
     message: string,
     addressing?: string[],
     tone?: string,
-    intensity?: string,
+    intensity?: string
   ) => void;
   gameId: string;
   playerName: string;
@@ -146,7 +146,7 @@ export function MobileChatSheet({
     if (initialTarget !== lastInitialTargetRef.current) {
       lastInitialTargetRef.current = initialTarget;
       setAppliedTarget(initialTarget);
-      setQuickChatKey(k => k + 1);
+      setQuickChatKey((k) => k + 1);
       // Seed the text-tab target too so a dossier-opened sheet carries
       // the preselected opponent into either compose mode.
       if (initialTarget) {
@@ -183,11 +183,14 @@ export function MobileChatSheet({
     if (isOpen && messagesEndRef.current) {
       const justOpened = !wasOpenRef.current;
       wasOpenRef.current = true;
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({
-          behavior: justOpened ? 'instant' : 'smooth',
-        });
-      }, justOpened ? 0 : 100);
+      setTimeout(
+        () => {
+          messagesEndRef.current?.scrollIntoView({
+            behavior: justOpened ? 'instant' : 'smooth',
+          });
+        },
+        justOpened ? 0 : 100
+      );
     }
     if (!isOpen) {
       wasOpenRef.current = false;
@@ -289,32 +292,27 @@ export function MobileChatSheet({
     text: string,
     addressing?: string[],
     tone?: string,
-    intensity?: string,
+    intensity?: string
   ) => {
     onSendMessage(text, addressing, tone, intensity);
     // Remount QuickChatSuggestions so it resets to expanded with fresh state.
     // Drop the preset target — a fresh chat starts back at "table".
     setAppliedTarget(null);
-    setQuickChatKey(k => k + 1);
+    setQuickChatKey((k) => k + 1);
   };
 
   if (!isOpen) return null;
 
-  const displayMessages = messages
-    .filter(msg => msg.type !== 'system')
-    .slice(-80);
+  const displayMessages = messages.filter((msg) => msg.type !== 'system').slice(-80);
 
   // Portaled to <body> so the fixed overlay escapes any ancestor
   // stacking context (e.g. PageLayout). See CharacterDetailCard.
   return createPortal(
-    <div
-      className={`mcs-overlay ${isClosing ? 'mcs-closing' : ''}`}
-      onClick={handleClose}
-    >
+    <div className={`mcs-overlay ${isClosing ? 'mcs-closing' : ''}`} onClick={handleClose}>
       <div
         ref={sheetRef}
         className={`mcs-sheet ${isClosing ? 'mcs-sheet-closing' : ''}`}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header with drag handle at very top */}
         <div
@@ -343,14 +341,20 @@ export function MobileChatSheet({
               // Render hand/game markers as visual separators
               if (msg.type === 'table' && msg.message.includes('GAME START')) {
                 return (
-                  <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className="mcs-hand-separator">
+                  <div
+                    key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`}
+                    className="mcs-hand-separator"
+                  >
                     <span className="mcs-hand-separator-label">Game Start</span>
                   </div>
                 );
               }
               if (msg.type === 'table' && msg.message.includes('NEW HAND DEALT')) {
                 return (
-                  <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className="mcs-hand-separator">
+                  <div
+                    key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`}
+                    className="mcs-hand-separator"
+                  >
                     <span className="mcs-hand-separator-label">New Hand</span>
                   </div>
                 );
@@ -359,15 +363,14 @@ export function MobileChatSheet({
               const isCardDeal = msg.type === 'table' && msg.phase && msg.cards;
               const isWinResult = msg.type === 'table' && msg.win_result;
               return (
-                <div key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`} className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}>
+                <div
+                  key={msg.id || `${msg.timestamp}-${msg.sender}-${i}`}
+                  className={`mcs-msg mcs-msg-${msg.type}${isCardDeal ? ' mcs-msg-card-deal' : ''}${isWinResult ? ' mcs-msg-win-result' : ''}`}
+                >
                   {isWinResult ? (
-                    <span className="mcs-msg-text">
-                      {renderWinResult(msg.win_result!)}
-                    </span>
+                    <span className="mcs-msg-text">{renderWinResult(msg.win_result!)}</span>
                   ) : isCardDeal ? (
-                    <span className="mcs-msg-text">
-                      {renderCardDeal(msg.phase!, msg.cards!)}
-                    </span>
+                    <span className="mcs-msg-text">{renderCardDeal(msg.phase!, msg.cards!)}</span>
                   ) : msg.type === 'table' ? (
                     <span className="mcs-msg-text">{msg.message}</span>
                   ) : (
@@ -413,7 +416,12 @@ export function MobileChatSheet({
           </div>
 
           {/* Tab content */}
-          <div className="mcs-tab-content" ref={tabContentRef} role="tabpanel" id={`mcs-tabpanel-${activeTab}`}>
+          <div
+            className="mcs-tab-content"
+            ref={tabContentRef}
+            role="tabpanel"
+            id={`mcs-tabpanel-${activeTab}`}
+          >
             {activeTab === 'quick' ? (
               <div className="mcs-quick-chat-wrapper">
                 <QuickChatSuggestions
@@ -435,13 +443,13 @@ export function MobileChatSheet({
               // applies here too.
               <div className="mcs-quick-chat-wrapper mcs-text-tab">
                 <ChatTargetSelector
-                  aiPlayers={players.filter(p => !p.is_human)}
+                  aiPlayers={players.filter((p) => !p.is_human)}
                   selectedTarget={textTarget}
                   onTargetSelect={setTextTarget}
                 />
                 <form
                   className="mcs-keyboard-input"
-                  onSubmit={e => {
+                  onSubmit={(e) => {
                     e.preventDefault();
                     handleSend();
                   }}
@@ -458,7 +466,7 @@ export function MobileChatSheet({
                           : 'Say something...'
                     }
                     value={inputValue}
-                    onChange={e => setInputValue(e.target.value)}
+                    onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
                     maxLength={200}
                     disabled={guestChatDisabled}
@@ -478,6 +486,6 @@ export function MobileChatSheet({
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

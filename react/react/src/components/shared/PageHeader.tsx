@@ -34,29 +34,23 @@ export function PageHeader({
   titleVariant = 'primary',
   className = '',
 }: PageHeaderProps) {
-  const titleClass = titleVariant === 'primary' ? 'page-header__title--gradient-primary' :
-                     titleVariant === 'themed' ? 'page-header__title--gradient-themed' : '';
+  const titleClass =
+    titleVariant === 'primary'
+      ? 'page-header__title--gradient-primary'
+      : titleVariant === 'themed'
+        ? 'page-header__title--gradient-themed'
+        : '';
 
   return (
     <header className={`page-header ${className}`.trim()}>
-      {onBack && (
-        <BackButton onClick={onBack} position="absolute" />
-      )}
+      {onBack && <BackButton onClick={onBack} position="absolute" />}
 
       <div className="page-header__content">
-        <h1 className={`page-header__title ${titleClass}`.trim()}>
-          {title}
-        </h1>
-        {subtitle && (
-          <p className="page-header__subtitle">{subtitle}</p>
-        )}
+        <h1 className={`page-header__title ${titleClass}`.trim()}>{title}</h1>
+        {subtitle && <p className="page-header__subtitle">{subtitle}</p>}
       </div>
 
-      {rightContent && (
-        <div className="page-header__right">
-          {rightContent}
-        </div>
-      )}
+      {rightContent && <div className="page-header__right">{rightContent}</div>}
     </header>
   );
 }

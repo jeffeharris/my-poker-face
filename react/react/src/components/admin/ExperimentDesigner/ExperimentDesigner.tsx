@@ -7,7 +7,16 @@ import { ReplayConfigPreview } from './ReplayConfigPreview';
 import { ExperimentList } from './ExperimentList';
 import { MobileExperimentDesign } from './MobileExperimentDesign';
 import { useViewport } from '../../../hooks/useViewport';
-import type { ExperimentConfig, ExperimentSummary, LabAssistantContext, ConfigVersion, ChatMessage, NextStepSuggestion, ExperimentType, ReplayExperimentConfig } from './types';
+import type {
+  ExperimentConfig,
+  ExperimentSummary,
+  LabAssistantContext,
+  ConfigVersion,
+  ChatMessage,
+  NextStepSuggestion,
+  ExperimentType,
+  ReplayExperimentConfig,
+} from './types';
 import { DEFAULT_EXPERIMENT_CONFIG, DEFAULT_REPLAY_CONFIG } from './types';
 
 /** Extended experiment type with 'undetermined' for initial state */
@@ -91,7 +100,12 @@ interface LocationState {
   };
 }
 
-export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, onDesignModeChange, initialMode = 'list' }: ExperimentDesignerProps) {
+export function ExperimentDesigner({
+  embedded = false,
+  onAssistantPanelChange,
+  onDesignModeChange,
+  initialMode = 'list',
+}: ExperimentDesignerProps) {
   const { isMobile } = useViewport();
   const navigate = useNavigate();
   const location = useLocation();
@@ -101,25 +115,36 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   const [failureContext, setFailureContext] = useState<LabAssistantContext | null>(null);
   const [configVersions, setConfigVersions] = useState<ConfigVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(0);
-  const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(undefined);
+  const [initialChatHistory, setInitialChatHistory] = useState<ChatMessage[] | undefined>(
+    undefined
+  );
 
   // Experiment type state - starts as undetermined until user selects via quick action or conversation
   const [experimentType, setExperimentType] = useState<ExperimentTypeState>('undetermined');
 
   // Replay config state (separate from tournament config)
-  const [replayConfig, setReplayConfig] = useState<ReplayExperimentConfig>({ ...DEFAULT_REPLAY_CONFIG });
+  const [replayConfig, setReplayConfig] = useState<ReplayExperimentConfig>({
+    ...DEFAULT_REPLAY_CONFIG,
+  });
 
   // Session resume state
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
 
   // Compute initialMessage from failureContext (memoized to prevent unnecessary re-renders)
-  const initialMessage = useMemo(() => failureContext ? {
-    userMessage: failureContext.type === 'suggestion'
-      ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
-      : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
-    context: failureContext,
-  } : null, [failureContext]);
+  const initialMessage = useMemo(
+    () =>
+      failureContext
+        ? {
+            userMessage:
+              failureContext.type === 'suggestion'
+                ? `Build a follow-up experiment to test: "${failureContext.suggestion.hypothesis}"`
+                : `Analyze why my experiment "${failureContext.experimentName}" failed and suggest fixes.`,
+            context: failureContext,
+          }
+        : null,
+    [failureContext]
+  );
 
   // Notify parent about design mode changes
   useEffect(() => {
@@ -135,7 +160,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
         config,
         sessionId,
         onSessionIdChange: setSessionId,
-        onConfigUpdate: (updates) => setConfig(prev => ({ ...prev, ...updates })),
+        onConfigUpdate: (updates) => setConfig((prev) => ({ ...prev, ...updates })),
         initialMessage,
         initialChatHistory,
         configVersions,
@@ -148,7 +173,18 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     } else {
       onAssistantPanelChange(null);
     }
-  }, [mode, isMobile, config, sessionId, initialMessage, initialChatHistory, configVersions, currentVersionIndex, onAssistantPanelChange, experimentType]);
+  }, [
+    mode,
+    isMobile,
+    config,
+    sessionId,
+    initialMessage,
+    initialChatHistory,
+    configVersions,
+    currentVersionIndex,
+    onAssistantPanelChange,
+    experimentType,
+  ]);
 
   // Handle navigation state from experiment detail (edit/build actions)
   useEffect(() => {
@@ -232,11 +268,11 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   }, [initialMode, pendingSession, showResumePrompt]);
 
   const handleConfigUpdate = useCallback((updates: Partial<ExperimentConfig>) => {
-    setConfig(prev => ({ ...prev, ...updates }));
+    setConfig((prev) => ({ ...prev, ...updates }));
   }, []);
 
   const handleReplayConfigUpdate = useCallback((updates: Partial<ReplayExperimentConfig>) => {
-    setReplayConfig(prev => ({ ...prev, ...updates }));
+    setReplayConfig((prev) => ({ ...prev, ...updates }));
   }, []);
 
   const handleResumeSession = useCallback(() => {
@@ -247,7 +283,9 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     setSessionId(pendingSession.session_id);
     setInitialChatHistory(pendingSession.messages);
     setConfigVersions(pendingSession.config_versions || []);
-    setCurrentVersionIndex(pendingSession.config_versions ? pendingSession.config_versions.length - 1 : 0);
+    setCurrentVersionIndex(
+      pendingSession.config_versions ? pendingSession.config_versions.length - 1 : 0
+    );
     setFailureContext(null);
     setShowResumePrompt(false);
     setPendingSession(null);
@@ -269,7 +307,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
 
     // Start fresh with new seed
     setConfig(createFreshConfig());
-    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
+    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG }); // Reset replay config
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
@@ -277,18 +315,21 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
     setInitialChatHistory(undefined);
     setShowResumePrompt(false);
     setPendingSession(null);
-    setExperimentType('undetermined');  // Reset experiment type
+    setExperimentType('undetermined'); // Reset experiment type
     setMode('design');
   }, [pendingSession]);
 
-  const handleViewExperiment = useCallback((experiment: ExperimentSummary) => {
-    // Route to the correct detail page based on experiment type
-    if (experiment.experiment_type === 'replay') {
-      navigate(`/admin/replays/${experiment.id}`);
-    } else {
-      navigate(`/admin/experiments/${experiment.id}`);
-    }
-  }, [navigate]);
+  const handleViewExperiment = useCallback(
+    (experiment: ExperimentSummary) => {
+      // Route to the correct detail page based on experiment type
+      if (experiment.experiment_type === 'replay') {
+        navigate(`/admin/replays/${experiment.id}`);
+      } else {
+        navigate(`/admin/experiments/${experiment.id}`);
+      }
+    },
+    [navigate]
+  );
 
   const handleBackToList = useCallback(() => {
     setMode('list');
@@ -297,30 +338,34 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
   const handleExperimentLaunched = useCallback(() => {
     setMode('list');
     setConfig(createFreshConfig());
-    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG });  // Reset replay config
+    setReplayConfig({ ...DEFAULT_REPLAY_CONFIG }); // Reset replay config
     setSessionId(null);
     setFailureContext(null);
     setConfigVersions([]);
     setCurrentVersionIndex(0);
-    setExperimentType('undetermined');  // Reset experiment type
+    setExperimentType('undetermined'); // Reset experiment type
   }, []);
 
-
-  const handleVersionChange = useCallback((index: number) => {
-    if (index >= 0 && index < configVersions.length) {
-      // Simply navigate to the selected version
-      // Auto-saving was too fragile due to form state drift (e.g., model select
-      // showing empty before providers load). Users can preserve edits by
-      // sending a chat message, which creates a new version.
-      setCurrentVersionIndex(index);
-      setConfig(configVersions[index].config);
-    }
-  }, [configVersions]);
+  const handleVersionChange = useCallback(
+    (index: number) => {
+      if (index >= 0 && index < configVersions.length) {
+        // Simply navigate to the selected version
+        // Auto-saving was too fragile due to form state drift (e.g., model select
+        // showing empty before providers load). Users can preserve edits by
+        // sending a chat message, which creates a new version.
+        setCurrentVersionIndex(index);
+        setConfig(configVersions[index].config);
+      }
+    },
+    [configVersions]
+  );
 
   // Mobile design mode - full screen with tabs
   if (isMobile && mode === 'design') {
     return (
-      <div className={`experiment-designer experiment-designer--mobile ${embedded ? 'experiment-designer--embedded' : ''}`}>
+      <div
+        className={`experiment-designer experiment-designer--mobile ${embedded ? 'experiment-designer--embedded' : ''}`}
+      >
         <MobileExperimentDesign
           config={config}
           sessionId={sessionId}
@@ -366,11 +411,7 @@ export function ExperimentDesigner({ embedded = false, onAssistantPanelChange, o
           />
         )}
 
-        {mode === 'list' && (
-          <ExperimentList
-            onViewExperiment={handleViewExperiment}
-          />
-        )}
+        {mode === 'list' && <ExperimentList onViewExperiment={handleViewExperiment} />}
       </div>
 
       {/* Resume Session Prompt Modal */}

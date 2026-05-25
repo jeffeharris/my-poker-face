@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import type { CareerStats, TournamentHistoryEntry, EliminatedPersonality } from '../types/tournament';
+import type {
+  CareerStats,
+  TournamentHistoryEntry,
+  EliminatedPersonality,
+} from '../types/tournament';
 
 interface UseCareerStatsResult {
   stats: CareerStats | null;
@@ -15,7 +19,9 @@ interface UseCareerStatsResult {
 export function useCareerStats(): UseCareerStatsResult {
   const [stats, setStats] = useState<CareerStats | null>(null);
   const [tournaments, setTournaments] = useState<TournamentHistoryEntry[]>([]);
-  const [eliminatedPersonalities, setEliminatedPersonalities] = useState<EliminatedPersonality[]>([]);
+  const [eliminatedPersonalities, setEliminatedPersonalities] = useState<EliminatedPersonality[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

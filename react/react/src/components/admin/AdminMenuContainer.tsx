@@ -53,15 +53,15 @@ export function AdminMenuContainer({
               </div>
             }
             showUserInfo
-            onAdminTools={() => { window.location.href = '/admin'; }}
+            onAdminTools={() => {
+              window.location.href = '/admin';
+            }}
           />
           {/* Spacer for fixed MenuBar */}
           <div className="menu-bar-spacer" />
         </>
       )}
-      <div className="admin-menu-container__content">
-        {children}
-      </div>
+      <div className="admin-menu-container__content">{children}</div>
     </div>
   );
 }

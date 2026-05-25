@@ -18,9 +18,8 @@
   /* Center the card when it fits; allow normal flow scroll when
      it doesn't. `padding` here keeps the card off the viewport
      edges and below the iOS home indicator. */
-  padding: max(2dvh, env(safe-area-inset-top, 0px))
-           var(--space-4)
-           max(2dvh, env(safe-area-inset-bottom, 0px));
+  padding: max(2dvh, env(safe-area-inset-top, 0px)) var(--space-4)
+    max(2dvh, env(safe-area-inset-bottom, 0px));
   display: flex;
   align-items: center;
   justify-content: center;

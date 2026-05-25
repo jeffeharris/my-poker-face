@@ -5,7 +5,13 @@
 
 import { Clock, CheckCircle, XCircle, Loader2, Pause, AlertTriangle } from 'lucide-react';
 
-export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
+export type ExperimentStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'paused'
+  | 'interrupted';
 
 interface StatusConfigItem {
   icon: React.ReactNode;
@@ -18,7 +24,9 @@ interface StatusConfigItem {
  * @param iconSize - Size in pixels for the icons (default: 16)
  */
 // eslint-disable-next-line react-refresh/only-export-components
-export function createStatusConfig(iconSize: number = 16): Record<ExperimentStatus, StatusConfigItem> {
+export function createStatusConfig(
+  iconSize: number = 16
+): Record<ExperimentStatus, StatusConfigItem> {
   return {
     pending: {
       icon: <Clock size={iconSize} />,

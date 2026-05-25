@@ -54,11 +54,7 @@ export function PlayerCommandCenter({
       } ${player.is_folded ? 'is-folded' : ''} ${player.is_all_in ? 'is-all-in' : ''}`}
     >
       {/* Bet pill - positioned at top, overlapping border */}
-      {player.bet > 0 && (
-        <div className="command-center__bet-pill">
-          Bet: ${player.bet}
-        </div>
-      )}
+      {player.bet > 0 && <div className="command-center__bet-pill">Bet: ${player.bet}</div>}
 
       {/* Top section: Cards + Info */}
       <div className="command-center__top">
@@ -95,13 +91,19 @@ export function PlayerCommandCenter({
         {/* Position indicators */}
         <div className="command-center__positions">
           {isDealer && (
-            <div className="position-chip dealer" title="Dealer">D</div>
+            <div className="position-chip dealer" title="Dealer">
+              D
+            </div>
           )}
           {isSmallBlind && (
-            <div className="position-chip small-blind" title="Small Blind">SB</div>
+            <div className="position-chip small-blind" title="Small Blind">
+              SB
+            </div>
           )}
           {isBigBlind && (
-            <div className="position-chip big-blind" title="Big Blind">BB</div>
+            <div className="position-chip big-blind" title="Big Blind">
+              BB
+            </div>
           )}
         </div>
 

@@ -21,11 +21,11 @@ import { STAKES, type StakeLabel } from './types';
 import './CashMode.css';
 
 const BIG_BLIND_BY_STAKE: Record<StakeLabel, number> = {
-  '$2': 2,
-  '$10': 10,
-  '$50': 50,
-  '$200': 200,
-  '$1000': 1000,
+  $2: 2,
+  $10: 10,
+  $50: 50,
+  $200: 200,
+  $1000: 1000,
 };
 
 const MIN_BB = 40;
@@ -118,9 +118,7 @@ export function CashModeEntry() {
         {bankroll !== null && (
           <div className="cash-entry__bankroll">
             <span className="cash-entry__bankroll-label">Your bankroll</span>
-            <span className="cash-entry__bankroll-value">
-              ${bankroll.toLocaleString()}
-            </span>
+            <span className="cash-entry__bankroll-value">${bankroll.toLocaleString()}</span>
           </div>
         )}
 
@@ -132,9 +130,7 @@ export function CashModeEntry() {
               // Treat unknown bankroll (still loading) as affordable so the
               // picker remains usable before /api/cash/state resolves.
               const availability =
-                bankroll === null
-                  ? 'affordable'
-                  : stakeAvailability(s, bankroll);
+                bankroll === null ? 'affordable' : stakeAvailability(s, bankroll);
               const locked = availability === 'locked';
               const sponsorOnly = availability === 'sponsor_eligible';
               const handleClick = () => {
@@ -174,11 +170,7 @@ export function CashModeEntry() {
                       Locked — earn ${min.toLocaleString()}
                     </div>
                   )}
-                  {sponsorOnly && (
-                    <div className="cash-entry__stake-sponsor">
-                      Sponsor required
-                    </div>
-                  )}
+                  {sponsorOnly && <div className="cash-entry__stake-sponsor">Sponsor required</div>}
                 </button>
               );
             })}
@@ -189,7 +181,8 @@ export function CashModeEntry() {
           <section className="cash-entry__buy-in">
             <h2>Buy in</h2>
             <p className="cash-entry__buy-in-help">
-              Choose between ${minBuyIn.toLocaleString()} (min) and ${maxBuyIn.toLocaleString()} (max).
+              Choose between ${minBuyIn.toLocaleString()} (min) and ${maxBuyIn.toLocaleString()}{' '}
+              (max).
             </p>
             <input
               type="range"
@@ -202,15 +195,15 @@ export function CashModeEntry() {
               className="cash-entry__buy-in-slider"
             />
             <div className="cash-entry__buy-in-value">
-              ${buyIn.toLocaleString()} (
-              {Math.round(buyIn / BIG_BLIND_BY_STAKE[stake])} BB
-              )
+              ${buyIn.toLocaleString()} ({Math.round(buyIn / BIG_BLIND_BY_STAKE[stake])} BB )
             </div>
           </section>
         )}
 
         {error && (
-          <div className="cash-entry__error" role="alert">{error}</div>
+          <div className="cash-entry__error" role="alert">
+            {error}
+          </div>
         )}
 
         <button

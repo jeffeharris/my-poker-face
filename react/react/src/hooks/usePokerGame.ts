@@ -20,15 +20,15 @@ type QueuedAction = 'check_fold' | null;
 
 // State buffer for card animation gating
 enum BufferState {
-  NORMAL = 'NORMAL',       // Apply updates immediately
-  GATED = 'GATED',         // Cards animating — queue incoming updates
-  REPLAYING = 'REPLAYING'  // Animation done — replay queued updates with delays
+  NORMAL = 'NORMAL', // Apply updates immediately
+  GATED = 'GATED', // Cards animating — queue incoming updates
+  REPLAYING = 'REPLAYING', // Animation done — replay queued updates with delays
 }
 
 interface QueuedStateUpdate {
   gameState: GameState;
   timestamp: number;
-  handNumber: number;  // For staleness detection - ignore updates from previous hands
+  handNumber: number; // For staleness detection - ignore updates from previous hands
 }
 
 // Type for revealed hole cards during run-it-out showdown
@@ -91,9 +91,9 @@ export function usePokerGame({
   onGameLoadFailed,
 }: UsePokerGameOptions): UsePokerGameResult {
   // Game state lives in Zustand store for granular subscriptions
-  const applyGameState = useGameStore(state => state.applyGameState);
-  const updateStorePlayers = useGameStore(state => state.updatePlayers);
-  const updateStorePlayerOptions = useGameStore(state => state.updatePlayerOptions);
+  const applyGameState = useGameStore((state) => state.applyGameState);
+  const updateStorePlayers = useGameStore((state) => state.updatePlayers);
+  const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
   const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
@@ -118,8 +118,12 @@ export function usePokerGame({
   const isInitialConnectionRef = useRef(true); // Track if this is first connection vs reconnect
   const [queuedAction, setQueuedAction] = useState<QueuedAction>(null);
   const queuedActionRef = useRef<QueuedAction>(null);
-  const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() => Promise.resolve());
-  const refreshGameStateRef = useRef<(gId: string, silent?: boolean) => Promise<boolean>>(() => Promise.resolve(false));
+  const handlePlayerActionRef = useRef<(action: string, amount?: number) => Promise<void>>(() =>
+    Promise.resolve()
+  );
+  const refreshGameStateRef = useRef<(gId: string, silent?: boolean) => Promise<boolean>>(() =>
+    Promise.resolve(false)
+  );
   const aiThinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gameIdRef = useRef<string | null>(null);
   const lastErrorRefreshRef = useRef<number>(0);
@@ -209,25 +213,28 @@ export function usePokerGame({
   /**
    * Handle messages from a game state update.
    */
-  const handleMessagesFromState = useCallback((state: GameState) => {
-    if (state.messages) {
-      const newMessages = state.messages.filter((msg: ChatMessage) => {
-        return !messageIdsRef.current.has(msg.id);
-      });
+  const handleMessagesFromState = useCallback(
+    (state: GameState) => {
+      if (state.messages) {
+        const newMessages = state.messages.filter((msg: ChatMessage) => {
+          return !messageIdsRef.current.has(msg.id);
+        });
 
-      if (newMessages.length > 0) {
-        newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-        setMessages(prev => [...prev, ...newMessages].slice(-MAX_MESSAGES));
+        if (newMessages.length > 0) {
+          newMessages.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+          setMessages((prev) => [...prev, ...newMessages].slice(-MAX_MESSAGES));
 
-        if (onNewAiMessage) {
-          const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
-          if (aiMessages.length > 0) {
-            onNewAiMessage(aiMessages[aiMessages.length - 1]);
+          if (onNewAiMessage) {
+            const aiMessages = newMessages.filter((msg: ChatMessage) => msg.type === 'ai');
+            if (aiMessages.length > 0) {
+              onNewAiMessage(aiMessages[aiMessages.length - 1]);
+            }
           }
         }
       }
-    }
-  }, [onNewAiMessage]);
+    },
+    [onNewAiMessage]
+  );
 
   /**
    * Update AI thinking state based on current player.
@@ -239,7 +246,7 @@ export function usePokerGame({
     if (!players || idx === undefined || idx < 0 || idx >= players.length) {
       logger.error('[BUFFER] Invalid player state for AI thinking check', {
         playersLength: players?.length,
-        currentPlayerIdx: idx
+        currentPlayerIdx: idx,
       });
       setAiThinking(false);
       return;
@@ -252,11 +259,14 @@ export function usePokerGame({
   /**
    * Apply a single state update (game state + messages + AI thinking).
    */
-  const applyStateUpdate = useCallback((state: GameState) => {
-    applyGameState(state);
-    handleMessagesFromState(state);
-    updateAiThinkingFromState(state);
-  }, [applyGameState, handleMessagesFromState, updateAiThinkingFromState]);
+  const applyStateUpdate = useCallback(
+    (state: GameState) => {
+      applyGameState(state);
+      handleMessagesFromState(state);
+      updateAiThinkingFromState(state);
+    },
+    [applyGameState, handleMessagesFromState, updateAiThinkingFromState]
+  );
 
   /**
    * Replay queued updates one by one with 1s delay between each.
@@ -280,7 +290,7 @@ export function usePokerGame({
 
     logger.debug('[BUFFER] Replaying update', {
       remaining: updateQueueRef.current.length,
-      queuedAt: nextUpdate.timestamp
+      queuedAt: nextUpdate.timestamp,
     });
 
     applyStateUpdate(nextUpdate.gameState);
@@ -309,7 +319,7 @@ export function usePokerGame({
     }
 
     logger.debug('[BUFFER] Starting replay', {
-      queueLength: updateQueueRef.current.length
+      queueLength: updateQueueRef.current.length,
     });
     bufferStateRef.current = BufferState.REPLAYING;
     scheduleNextReplay();
@@ -322,263 +332,289 @@ export function usePokerGame({
    * - Applies updates immediately in NORMAL state
    * - Interrupts replay and clears queue if new cards arrive during REPLAYING state
    */
-  const processStateUpdate = useCallback((data: { game_state: GameState }) => {
-    try {
-      // Validate incoming data
-      if (!data?.game_state) {
-        logger.error('[BUFFER] Received invalid state update - missing game_state', { data });
-        return;
-      }
-
-      const transformedState: GameState = {
-        ...data.game_state,
-        messages: data.game_state.messages || []
-      };
-
-      // Detect newly dealt community cards
-      const currentCardCount = transformedState.community_cards?.length ?? 0;
-      const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
-      const cardsJustDealt = newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
-
-      // Update tracking ref
-      prevCommunityCardCountRef.current = currentCardCount;
-
-      if (cardsJustDealt) {
-        // Cards were just dealt - apply immediately (so animation starts) and open gate
-        logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
-
-        // If replaying when new cards arrive, interrupt replay and clear stale queue
-        if (bufferStateRef.current === BufferState.REPLAYING) {
-          clearBufferTimers();
-          updateQueueRef.current = [];  // Clear stale updates from interrupted replay
+  const processStateUpdate = useCallback(
+    (data: { game_state: GameState }) => {
+      try {
+        // Validate incoming data
+        if (!data?.game_state) {
+          logger.error('[BUFFER] Received invalid state update - missing game_state', { data });
+          return;
         }
 
-        // Apply card-dealing state immediately
-        applyStateUpdate(transformedState);
+        const transformedState: GameState = {
+          ...data.game_state,
+          messages: data.game_state.messages || [],
+        };
 
-        // Enter GATED state
-        bufferStateRef.current = BufferState.GATED;
+        // Detect newly dealt community cards
+        const currentCardCount = transformedState.community_cards?.length ?? 0;
+        const newlyDealtCount = transformedState.newly_dealt_count ?? 0;
+        const cardsJustDealt =
+          newlyDealtCount > 0 && currentCardCount > prevCommunityCardCountRef.current;
 
-        // Set timer to start replay after animation completes
-        const gateDuration = calculateGateDuration(newlyDealtCount);
-        gateTimeoutRef.current = setTimeout(() => {
-          try {
-            startReplay();
-          } catch (error) {
-            logger.error('[BUFFER] startReplay failed, resetting to NORMAL:', error);
-            resetBuffer();
+        // Update tracking ref
+        prevCommunityCardCountRef.current = currentCardCount;
+
+        if (cardsJustDealt) {
+          // Cards were just dealt - apply immediately (so animation starts) and open gate
+          logger.debug('[BUFFER] Cards dealt, opening gate', { newlyDealtCount, currentCardCount });
+
+          // If replaying when new cards arrive, interrupt replay and clear stale queue
+          if (bufferStateRef.current === BufferState.REPLAYING) {
+            clearBufferTimers();
+            updateQueueRef.current = []; // Clear stale updates from interrupted replay
           }
-        }, gateDuration);
 
-        return;
-      }
+          // Apply card-dealing state immediately
+          applyStateUpdate(transformedState);
 
-      // Handle based on current buffer state
-      if (bufferStateRef.current === BufferState.NORMAL) {
-        // Normal mode: apply immediately
-        applyStateUpdate(transformedState);
-      } else {
-        // GATED or REPLAYING: queue the update
-        // Clear newly_dealt_count since the card animation was already triggered
-        // by the initial state application. Without this, replayed states would
-        // re-trigger the animation hook.
-        logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
-          queueLength: updateQueueRef.current.length + 1
-        });
-        updateQueueRef.current.push({
-          gameState: { ...transformedState, newly_dealt_count: 0 },
-          timestamp: Date.now(),
-          handNumber: transformedState.hand_number ?? 0
-        });
+          // Enter GATED state
+          bufferStateRef.current = BufferState.GATED;
+
+          // Set timer to start replay after animation completes
+          const gateDuration = calculateGateDuration(newlyDealtCount);
+          gateTimeoutRef.current = setTimeout(() => {
+            try {
+              startReplay();
+            } catch (error) {
+              logger.error('[BUFFER] startReplay failed, resetting to NORMAL:', error);
+              resetBuffer();
+            }
+          }, gateDuration);
+
+          return;
+        }
+
+        // Handle based on current buffer state
+        if (bufferStateRef.current === BufferState.NORMAL) {
+          // Normal mode: apply immediately
+          applyStateUpdate(transformedState);
+        } else {
+          // GATED or REPLAYING: queue the update
+          // Clear newly_dealt_count since the card animation was already triggered
+          // by the initial state application. Without this, replayed states would
+          // re-trigger the animation hook.
+          logger.debug(`[BUFFER] Queuing update during ${bufferStateRef.current}`, {
+            queueLength: updateQueueRef.current.length + 1,
+          });
+          updateQueueRef.current.push({
+            gameState: { ...transformedState, newly_dealt_count: 0 },
+            timestamp: Date.now(),
+            handNumber: transformedState.hand_number ?? 0,
+          });
+        }
+      } catch (error) {
+        logger.error('[BUFFER] Failed to process state update:', error);
+        // Attempt recovery: reset buffer to prevent stuck state
+        resetBuffer();
       }
-    } catch (error) {
-      logger.error('[BUFFER] Failed to process state update:', error);
-      // Attempt recovery: reset buffer to prevent stuck state
-      resetBuffer();
-    }
-  }, [applyStateUpdate, calculateGateDuration, clearBufferTimers, resetBuffer, startReplay]);
+    },
+    [applyStateUpdate, calculateGateDuration, clearBufferTimers, resetBuffer, startReplay]
+  );
 
   // ========================================================================
   // Socket Listeners
   // ========================================================================
 
-  const setupSocketListeners = useCallback((socket: Socket) => {
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-      // Clear aiThinking so UI doesn't appear stuck while disconnected
-      setAiThinking(false);
-      clearAiThinkingTimeout();
-      // Reset state buffer on disconnect
-      resetBuffer();
-    });
-
-    socket.on('player_joined', (_data: { message: string }) => {
-      // Placeholder for future player join handling
-    });
-
-    socket.on('update_game_state', (data: { game_state: GameState }) => {
-      clearAiThinkingTimeout();
-      // Use buffer logic to handle card animation timing
-      processStateUpdate(data);
-    });
-
-    // Listen for new message (singular - desktop format)
-    socket.on('new_message', (data: { message: BackendChatMessage }) => {
-      const msg = data.message;
-      const msgId = msg.id || String(msg.timestamp);
-
-      if (messageIdsRef.current.has(msgId)) {
-        return;
-      }
-
-      const transformedMessage: ChatMessage = {
-        id: msgId,
-        sender: msg.sender,
-        message: msg.content,
-        timestamp: msg.timestamp,
-        type: msg.message_type,
-        action: msg.action  // Include action for AI messages
-      };
-
-      messageIdsRef.current.add(msgId);
-      setMessages(prev => [...prev, transformedMessage].slice(-MAX_MESSAGES));
-
-      if (onNewAiMessage && transformedMessage.type === 'ai') {
-        onNewAiMessage(transformedMessage);
-      }
-    });
-
-    // Listen for new messages (plural - mobile format)
-    socket.on('new_messages', (data: { game_messages: BackendChatMessage[] }) => {
-      const newMessages = data.game_messages.filter((msg) => {
-        return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
+  const setupSocketListeners = useCallback(
+    (socket: Socket) => {
+      socket.on('disconnect', () => {
+        setIsConnected(false);
+        // Clear aiThinking so UI doesn't appear stuck while disconnected
+        setAiThinking(false);
+        clearAiThinkingTimeout();
+        // Reset state buffer on disconnect
+        resetBuffer();
       });
 
-      if (newMessages.length > 0) {
-        newMessages.forEach((msg) => {
-          const msgId = msg.id || String(msg.timestamp);
-          messageIdsRef.current.add(msgId);
-        });
-        setMessages(prev => [...prev, ...newMessages as unknown as ChatMessage[]].slice(-MAX_MESSAGES));
+      socket.on('player_joined', (_data: { message: string }) => {
+        // Placeholder for future player join handling
+      });
 
-        if (onNewAiMessage) {
-          const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
-          if (aiMessages.length > 0) {
-            onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
+      socket.on('update_game_state', (data: { game_state: GameState }) => {
+        clearAiThinkingTimeout();
+        // Use buffer logic to handle card animation timing
+        processStateUpdate(data);
+      });
+
+      // Listen for new message (singular - desktop format)
+      socket.on('new_message', (data: { message: BackendChatMessage }) => {
+        const msg = data.message;
+        const msgId = msg.id || String(msg.timestamp);
+
+        if (messageIdsRef.current.has(msgId)) {
+          return;
+        }
+
+        const transformedMessage: ChatMessage = {
+          id: msgId,
+          sender: msg.sender,
+          message: msg.content,
+          timestamp: msg.timestamp,
+          type: msg.message_type,
+          action: msg.action, // Include action for AI messages
+        };
+
+        messageIdsRef.current.add(msgId);
+        setMessages((prev) => [...prev, transformedMessage].slice(-MAX_MESSAGES));
+
+        if (onNewAiMessage && transformedMessage.type === 'ai') {
+          onNewAiMessage(transformedMessage);
+        }
+      });
+
+      // Listen for new messages (plural - mobile format)
+      socket.on('new_messages', (data: { game_messages: BackendChatMessage[] }) => {
+        const newMessages = data.game_messages.filter((msg) => {
+          return !messageIdsRef.current.has(msg.id || String(msg.timestamp));
+        });
+
+        if (newMessages.length > 0) {
+          newMessages.forEach((msg) => {
+            const msgId = msg.id || String(msg.timestamp);
+            messageIdsRef.current.add(msgId);
+          });
+          setMessages((prev) =>
+            [...prev, ...(newMessages as unknown as ChatMessage[])].slice(-MAX_MESSAGES)
+          );
+
+          if (onNewAiMessage) {
+            const aiMessages = newMessages.filter((msg) => msg.message_type === 'ai');
+            if (aiMessages.length > 0) {
+              onNewAiMessage(aiMessages[aiMessages.length - 1] as unknown as ChatMessage);
+            }
           }
         }
-      }
-    });
+      });
 
-    socket.on('player_turn_start', (data: { current_player_options: string[], cost_to_call: number }) => {
-      clearAiThinkingTimeout();
-      setAiThinking(false);
+      socket.on(
+        'player_turn_start',
+        (data: { current_player_options: string[]; cost_to_call: number }) => {
+          clearAiThinkingTimeout();
+          setAiThinking(false);
 
-      // Check for queued preemptive action
-      if (queuedActionRef.current === 'check_fold') {
-        const action = data.cost_to_call === 0 ? 'check' : 'fold';
-        // Clear ref IMMEDIATELY (synchronously) to prevent double-firing if another
-        // player_turn_start arrives before React re-renders and updates the ref via useEffect
+          // Check for queued preemptive action
+          if (queuedActionRef.current === 'check_fold') {
+            const action = data.cost_to_call === 0 ? 'check' : 'fold';
+            // Clear ref IMMEDIATELY (synchronously) to prevent double-firing if another
+            // player_turn_start arrives before React re-renders and updates the ref via useEffect
+            queuedActionRef.current = null;
+            setQueuedAction(null);
+            handlePlayerActionRef.current(action);
+            return; // Action will trigger new state update
+          }
+
+          updateStorePlayerOptions(data.current_player_options);
+        }
+      );
+
+      socket.on('winner_announcement', (data: WinnerInfo) => {
+        clearAiThinkingTimeout();
+        setWinnerInfo(data);
+        // Clear queue when hand ends (sync ref immediately for consistency)
         queuedActionRef.current = null;
         setQueuedAction(null);
-        handlePlayerActionRef.current(action);
-        return; // Action will trigger new state update
-      }
-
-      updateStorePlayerOptions(data.current_player_options);
-    });
-
-    socket.on('winner_announcement', (data: WinnerInfo) => {
-      clearAiThinkingTimeout();
-      setWinnerInfo(data);
-      // Clear queue when hand ends (sync ref immediately for consistency)
-      queuedActionRef.current = null;
-      setQueuedAction(null);
-    });
-
-    // Listen for hole cards reveal during run-it-out showdown
-    socket.on('reveal_hole_cards', (data: RevealedCardsInfo) => {
-      setRevealedCards(data);
-    });
-
-    socket.on('player_eliminated', (data: EliminationEvent) => {
-      setEliminationEvents(prev => [...prev, data]);
-    });
-
-    socket.on('tournament_complete', (data: TournamentResult) => {
-      setTournamentResult(data);
-    });
-
-    socket.on('guest_limit_reached', () => {
-      setGuestLimitReached(true);
-    });
-
-    socket.on('game_error', (data: { error: string; details?: string; recoverable: boolean }) => {
-      logger.error(`Game error: ${data.error}`, data.details ?? '');
-
-      if (data.recoverable) {
-        toast.error(data.error);
-        const now = Date.now();
-        if (now - lastErrorRefreshRef.current > 5000) {
-          lastErrorRefreshRef.current = now;
-          const gId = gameIdRef.current;
-          if (gId) refreshGameStateRef.current(gId, true);
-        }
-      } else {
-        toast.error(`${data.error}. Please refresh the page.`, { duration: 10000 });
-      }
-    });
-
-    socket.on('rate_limited', (data: { event: string; message: string }) => {
-      logger.warn(`Rate limited: ${data.event}`);
-      toast.error(data.message);
-    });
-
-    // Cash mode: server-driven bust detection. `cash_rebuy_needed`
-    // fires when the human's stack hits 0 but bankroll can still
-    // afford a rebuy at this table; `cash_bust` fires when bankroll
-    // is too low (player must leave and find a sponsor at /cash).
-    socket.on('cash_rebuy_needed', (data: CashBustEvent) => {
-      setCashBustEvent({ ...data, kind: 'rebuy_needed' });
-    });
-    socket.on('cash_bust', (data: CashBustEvent) => {
-      setCashBustEvent({ ...data, kind: 'bust' });
-    });
-
-    // Listen for avatar updates (when background generation completes)
-    // Always cache the URL so it's available when needed later.
-    // Only update the displayed avatar if:
-    // - The player has no avatar yet (initial generation)
-    // - The generated emotion matches what the player is currently showing
-    socket.on('avatar_update', (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
-      logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
-      // Always cache — prevents losing URLs when emotions change during generation
-      if (!avatarCacheRef.current[data.player_name]) {
-        avatarCacheRef.current[data.player_name] = {};
-      }
-      avatarCacheRef.current[data.player_name][data.avatar_emotion] = data.avatar_url;
-      updateStorePlayers(prev => {
-        if (!prev) return prev;
-        return prev.map(player => {
-          if (player.name !== data.player_name) return player;
-          // Always apply if player has no avatar yet
-          if (!player.avatar_url) {
-            return { ...player, avatar_url: data.avatar_url, avatar_emotion: data.avatar_emotion };
-          }
-          // Apply if the generated emotion matches what the player is currently showing
-          if (player.avatar_emotion === data.avatar_emotion) {
-            return { ...player, avatar_url: data.avatar_url };
-          }
-          // Check cache: if the player's current emotion was previously generated, use it
-          const cachedUrl = avatarCacheRef.current[player.name]?.[player.avatar_emotion || ''];
-          if (cachedUrl && player.avatar_url !== cachedUrl) {
-            return { ...player, avatar_url: cachedUrl };
-          }
-          return player;
-        });
       });
-    });
-  }, [onNewAiMessage, clearAiThinkingTimeout, updateStorePlayers, updateStorePlayerOptions, resetBuffer, processStateUpdate]);
+
+      // Listen for hole cards reveal during run-it-out showdown
+      socket.on('reveal_hole_cards', (data: RevealedCardsInfo) => {
+        setRevealedCards(data);
+      });
+
+      socket.on('player_eliminated', (data: EliminationEvent) => {
+        setEliminationEvents((prev) => [...prev, data]);
+      });
+
+      socket.on('tournament_complete', (data: TournamentResult) => {
+        setTournamentResult(data);
+      });
+
+      socket.on('guest_limit_reached', () => {
+        setGuestLimitReached(true);
+      });
+
+      socket.on('game_error', (data: { error: string; details?: string; recoverable: boolean }) => {
+        logger.error(`Game error: ${data.error}`, data.details ?? '');
+
+        if (data.recoverable) {
+          toast.error(data.error);
+          const now = Date.now();
+          if (now - lastErrorRefreshRef.current > 5000) {
+            lastErrorRefreshRef.current = now;
+            const gId = gameIdRef.current;
+            if (gId) refreshGameStateRef.current(gId, true);
+          }
+        } else {
+          toast.error(`${data.error}. Please refresh the page.`, { duration: 10000 });
+        }
+      });
+
+      socket.on('rate_limited', (data: { event: string; message: string }) => {
+        logger.warn(`Rate limited: ${data.event}`);
+        toast.error(data.message);
+      });
+
+      // Cash mode: server-driven bust detection. `cash_rebuy_needed`
+      // fires when the human's stack hits 0 but bankroll can still
+      // afford a rebuy at this table; `cash_bust` fires when bankroll
+      // is too low (player must leave and find a sponsor at /cash).
+      socket.on('cash_rebuy_needed', (data: CashBustEvent) => {
+        setCashBustEvent({ ...data, kind: 'rebuy_needed' });
+      });
+      socket.on('cash_bust', (data: CashBustEvent) => {
+        setCashBustEvent({ ...data, kind: 'bust' });
+      });
+
+      // Listen for avatar updates (when background generation completes)
+      // Always cache the URL so it's available when needed later.
+      // Only update the displayed avatar if:
+      // - The player has no avatar yet (initial generation)
+      // - The generated emotion matches what the player is currently showing
+      socket.on(
+        'avatar_update',
+        (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+          logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
+          // Always cache — prevents losing URLs when emotions change during generation
+          if (!avatarCacheRef.current[data.player_name]) {
+            avatarCacheRef.current[data.player_name] = {};
+          }
+          avatarCacheRef.current[data.player_name][data.avatar_emotion] = data.avatar_url;
+          updateStorePlayers((prev) => {
+            if (!prev) return prev;
+            return prev.map((player) => {
+              if (player.name !== data.player_name) return player;
+              // Always apply if player has no avatar yet
+              if (!player.avatar_url) {
+                return {
+                  ...player,
+                  avatar_url: data.avatar_url,
+                  avatar_emotion: data.avatar_emotion,
+                };
+              }
+              // Apply if the generated emotion matches what the player is currently showing
+              if (player.avatar_emotion === data.avatar_emotion) {
+                return { ...player, avatar_url: data.avatar_url };
+              }
+              // Check cache: if the player's current emotion was previously generated, use it
+              const cachedUrl = avatarCacheRef.current[player.name]?.[player.avatar_emotion || ''];
+              if (cachedUrl && player.avatar_url !== cachedUrl) {
+                return { ...player, avatar_url: cachedUrl };
+              }
+              return player;
+            });
+          });
+        }
+      );
+    },
+    [
+      onNewAiMessage,
+      clearAiThinkingTimeout,
+      updateStorePlayers,
+      updateStorePlayerOptions,
+      resetBuffer,
+      processStateUpdate,
+    ]
+  );
 
   // Fires exactly once when the backend confirms the game no longer
   // exists. Disconnects the socket so the reconnect loop stops, then
@@ -596,100 +632,106 @@ export function usePokerGame({
   }, [onGameLoadFailed]);
 
   // refreshGameState: silent=true means don't touch loading state (for reconnections)
-  const refreshGameState = useCallback(async (gId: string, silent = false): Promise<boolean> => {
-    if (gameGoneRef.current) return false;
-    try {
-      clearAiThinkingTimeout();
-      // Reset buffer on full refresh to prevent stale queued state
-      resetBuffer();
+  const refreshGameState = useCallback(
+    async (gId: string, silent = false): Promise<boolean> => {
+      if (gameGoneRef.current) return false;
+      try {
+        clearAiThinkingTimeout();
+        // Reset buffer on full refresh to prevent stale queued state
+        resetBuffer();
 
-      const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
-      if (res.status === 404) {
-        // Game is gone from the backend (cash sessions don't survive
-        // a backend restart; tournament games could be evicted from
-        // memory). Stop trying.
-        logger.warn(`Game ${gId} not found — backend has no record`);
-        handleGameGone();
+        const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        if (res.status === 404) {
+          // Game is gone from the backend (cash sessions don't survive
+          // a backend restart; tournament games could be evicted from
+          // memory). Stop trying.
+          logger.warn(`Game ${gId} not found — backend has no record`);
+          handleGameGone();
+          return false;
+        }
+        if (!res.ok) {
+          logger.error(`Failed to fetch game state: HTTP ${res.status}`);
+          return false;
+        }
+        const data = await res.json();
+
+        if (data.error || !data.players || data.players.length === 0) {
+          logger.error('Game state refresh failed:', data.error ?? 'No players in response');
+          return false;
+        }
+
+        const currentPlayer = data.players[data.current_player_idx];
+
+        applyGameState(data);
+        // Update card count ref to match refreshed state (prevents false gate trigger)
+        prevCommunityCardCountRef.current = data.community_cards?.length ?? 0;
+
+        if (!silent) {
+          setLoading(false);
+        }
+
+        if (data.messages) {
+          const capped = data.messages.slice(-MAX_MESSAGES);
+          setMessages(capped);
+          // Clear and repopulate to prevent unbounded growth
+          messageIdsRef.current.clear();
+          capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
+        }
+
+        setAiThinking(!currentPlayer.is_human);
+
+        return true;
+      } catch (err) {
+        logger.error('Failed to refresh game state:', err);
         return false;
       }
-      if (!res.ok) {
-        logger.error(`Failed to fetch game state: HTTP ${res.status}`);
-        return false;
-      }
-      const data = await res.json();
-
-      if (data.error || !data.players || data.players.length === 0) {
-        logger.error('Game state refresh failed:', data.error ?? 'No players in response');
-        return false;
-      }
-
-      const currentPlayer = data.players[data.current_player_idx];
-
-      applyGameState(data);
-      // Update card count ref to match refreshed state (prevents false gate trigger)
-      prevCommunityCardCountRef.current = data.community_cards?.length ?? 0;
-
-      if (!silent) {
-        setLoading(false);
-      }
-
-      if (data.messages) {
-        const capped = data.messages.slice(-MAX_MESSAGES);
-        setMessages(capped);
-        // Clear and repopulate to prevent unbounded growth
-        messageIdsRef.current.clear();
-        capped.forEach((msg: ChatMessage) => messageIdsRef.current.add(msg.id));
-      }
-
-      setAiThinking(!currentPlayer.is_human);
-
-      return true;
-    } catch (err) {
-      logger.error('Failed to refresh game state:', err);
-      return false;
-    }
-  }, [clearAiThinkingTimeout, applyGameState, resetBuffer, handleGameGone]);
+    },
+    [clearAiThinkingTimeout, applyGameState, resetBuffer, handleGameGone]
+  );
 
   // Keep ref in sync for socket callback access
   refreshGameStateRef.current = refreshGameState;
 
-  const createSocket = useCallback((gId: string) => {
-    // Pin to polling in dev — Werkzeug + Flask-SocketIO threading
-    // mode can't reliably hold a WS upgrade and emits malformed
-    // frames during the upgrade probe. Production (gunicorn +
-    // GeventWebSocketWorker behind Caddy) handles WS fine, so let
-    // socket.io negotiate normally there.
-    const socket = io(config.SOCKET_URL, {
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      withCredentials: true,  // Send cookies for auth
-      ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
-    });
+  const createSocket = useCallback(
+    (gId: string) => {
+      // Pin to polling in dev — Werkzeug + Flask-SocketIO threading
+      // mode can't reliably hold a WS upgrade and emits malformed
+      // frames during the upgrade probe. Production (gunicorn +
+      // GeventWebSocketWorker behind Caddy) handles WS fine, so let
+      // socket.io negotiate normally there.
+      const socket = io(config.SOCKET_URL, {
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000,
+        withCredentials: true, // Send cookies for auth
+        ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
+      });
 
-    socketRef.current = socket;
+      socketRef.current = socket;
 
-    socket.on('connect', async () => {
-      const isReconnect = !isInitialConnectionRef.current;
-      setIsConnected(true);
-      socket.emit('join_game', gId);
-      // Use silent mode for reconnections to avoid loading flash
-      const success = await refreshGameState(gId, isReconnect);
-      if (success && isReconnect && socket.connected) {
-        // After server restart, the first join_game may have been rejected
-        // because the game wasn't in memory yet. The REST call above reloads
-        // it from persistence, so re-join to ensure we're in the Socket.IO room.
+      socket.on('connect', async () => {
+        const isReconnect = !isInitialConnectionRef.current;
+        setIsConnected(true);
         socket.emit('join_game', gId);
-      }
-      isInitialConnectionRef.current = false;
-    });
+        // Use silent mode for reconnections to avoid loading flash
+        const success = await refreshGameState(gId, isReconnect);
+        if (success && isReconnect && socket.connected) {
+          // After server restart, the first join_game may have been rejected
+          // because the game wasn't in memory yet. The REST call above reloads
+          // it from persistence, so re-join to ensure we're in the Socket.IO room.
+          socket.emit('join_game', gId);
+        }
+        isInitialConnectionRef.current = false;
+      });
 
-    setupSocketListeners(socket);
+      setupSocketListeners(socket);
 
-    return socket;
-  }, [refreshGameState, setupSocketListeners]);
+      return socket;
+    },
+    [refreshGameState, setupSocketListeners]
+  );
 
   // Game initialization effect
   useEffect(() => {
@@ -699,7 +741,7 @@ export function usePokerGame({
 
       createSocket(loadGameId);
 
-      refreshGameState(loadGameId).then(success => {
+      refreshGameState(loadGameId).then((success) => {
         if (!success) {
           logger.error('Failed to load game');
           if (onGameCreated) {
@@ -723,17 +765,17 @@ export function usePokerGame({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          playerName: playerName || 'Player'
+          playerName: playerName || 'Player',
         }),
       })
-        .then(async res => {
+        .then(async (res) => {
           if (!res.ok) {
             const errorData = await res.json();
             throw new Error(errorData.error || 'Failed to create game');
           }
           return res.json();
         })
-        .then(data => {
+        .then((data) => {
           const newGameId = data.game_id;
           setGameId(newGameId);
 
@@ -744,7 +786,7 @@ export function usePokerGame({
           createSocket(newGameId);
           return refreshGameState(newGameId);
         })
-        .catch(err => {
+        .catch((err) => {
           logger.error('Failed to create/fetch game:', err);
           setError(err.message || 'Failed to create game');
           setLoading(false);
@@ -792,95 +834,98 @@ export function usePokerGame({
     };
   }, [clearBufferTimers]);
 
-  const handlePlayerAction = useCallback(async (action: string, amount?: number) => {
-    if (!gameId) return;
+  const handlePlayerAction = useCallback(
+    async (action: string, amount?: number) => {
+      if (!gameId) return;
 
-    // Clear any queued action since user is acting manually
-    // Sync ref immediately to prevent race conditions with socket events
-    queuedActionRef.current = null;
-    setQueuedAction(null);
-    setAiThinking(true);
+      // Clear any queued action since user is acting manually
+      // Sync ref immediately to prevent race conditions with socket events
+      queuedActionRef.current = null;
+      setQueuedAction(null);
+      setAiThinking(true);
 
-    // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
-    clearAiThinkingTimeout();
-    aiThinkingTimeoutRef.current = setTimeout(async () => {
-      logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
-      const gId = gameIdRef.current;
-      if (gId) {
-        const success = await refreshGameState(gId, true);
-        if (!success) {
-          logger.warn('[RESILIENCE] refresh failed after timeout — clearing aiThinking');
-          setAiThinking(false);
-        }
-      }
-    }, 30000);
-
-    try {
-      const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action,
-          amount: amount || 0
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Action failed');
-      }
-    } catch (error) {
-      logger.error('Failed to send action:', error);
-      setAiThinking(false);
+      // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
       clearAiThinkingTimeout();
-    }
-  }, [gameId, clearAiThinkingTimeout, refreshGameState]);
+      aiThinkingTimeoutRef.current = setTimeout(async () => {
+        logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
+        const gId = gameIdRef.current;
+        if (gId) {
+          const success = await refreshGameState(gId, true);
+          if (!success) {
+            logger.warn('[RESILIENCE] refresh failed after timeout — clearing aiThinking');
+            setAiThinking(false);
+          }
+        }
+      }, 30000);
+
+      try {
+        const response = await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action,
+            amount: amount || 0,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Action failed');
+        }
+      } catch (error) {
+        logger.error('Failed to send action:', error);
+        setAiThinking(false);
+        clearAiThinkingTimeout();
+      }
+    },
+    [gameId, clearAiThinkingTimeout, refreshGameState]
+  );
 
   // Keep ref in sync for socket callback access (update synchronously)
   handlePlayerActionRef.current = handlePlayerAction;
 
-  const handleSendMessage = useCallback(async (
-    message: string,
-    addressing?: string[],
-    tone?: string,
-    intensity?: string,
-  ) => {
-    if (!gameId) return;
+  const handleSendMessage = useCallback(
+    async (message: string, addressing?: string[], tone?: string, intensity?: string) => {
+      if (!gameId) return;
 
-    try {
-      await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message,
-          sender: playerName || 'Player',
-          ...(addressing && addressing.length > 0 ? { addressing } : {}),
-          ...(tone ? { tone } : {}),
-          ...(intensity ? { intensity } : {}),
-        }),
-      });
-    } catch (error) {
-      logger.error('Failed to send message:', error);
-    }
-  }, [gameId, playerName]);
+      try {
+        await fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message,
+            sender: playerName || 'Player',
+            ...(addressing && addressing.length > 0 ? { addressing } : {}),
+            ...(tone ? { tone } : {}),
+            ...(intensity ? { intensity } : {}),
+          }),
+        });
+      } catch (error) {
+        logger.error('Failed to send message:', error);
+      }
+    },
+    [gameId, playerName]
+  );
 
   // Debug function to trigger split pot scenario (two winners with equal hands)
   const debugTriggerSplitPot = useCallback(() => {
     const humanName = playerName || 'You';
     const mockWinnerData = {
       winners: [humanName, 'Batman'],
-      pot_breakdown: [{
-        pot_name: 'Main Pot',
-        total_amount: 3000,
-        winners: [
-          { name: humanName, amount: 1500 },
-          { name: 'Batman', amount: 1500 }
-        ],
-        hand_name: 'Two Pair'
-      }],
+      pot_breakdown: [
+        {
+          pot_name: 'Main Pot',
+          total_amount: 3000,
+          winners: [
+            { name: humanName, amount: 1500 },
+            { name: 'Batman', amount: 1500 },
+          ],
+          hand_name: 'Two Pair',
+        },
+      ],
       hand_name: 'Two Pair',
       showdown: true,
       community_cards: [
@@ -888,28 +933,37 @@ export function usePokerGame({
         { rank: 'K', suit: 'hearts' },
         { rank: '7', suit: 'spades' },
         { rank: '7', suit: 'diamonds' },
-        { rank: '2', suit: 'clubs' }
+        { rank: '2', suit: 'clubs' },
       ],
       players_showdown: {
         [humanName]: {
-          cards: [{ rank: 'A', suit: 'spades' }, { rank: 'K', suit: 'diamonds' }],
+          cards: [
+            { rank: 'A', suit: 'spades' },
+            { rank: 'K', suit: 'diamonds' },
+          ],
           hand_name: 'Two Pair',
           hand_rank: 7,
-          kickers: ['2']
+          kickers: ['2'],
         },
-        'Batman': {
-          cards: [{ rank: 'A', suit: 'clubs' }, { rank: 'K', suit: 'spades' }],
+        Batman: {
+          cards: [
+            { rank: 'A', suit: 'clubs' },
+            { rank: 'K', suit: 'spades' },
+          ],
           hand_name: 'Two Pair',
           hand_rank: 7,
-          kickers: ['2']
+          kickers: ['2'],
         },
-        'Joker': {
-          cards: [{ rank: 'Q', suit: 'hearts' }, { rank: 'J', suit: 'hearts' }],
+        Joker: {
+          cards: [
+            { rank: 'Q', suit: 'hearts' },
+            { rank: 'J', suit: 'hearts' },
+          ],
           hand_name: 'Pair',
           hand_rank: 8,
-          kickers: ['A', 'K', 'Q']
-        }
-      }
+          kickers: ['A', 'K', 'Q'],
+        },
+      },
     };
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
@@ -924,23 +978,23 @@ export function usePokerGame({
           pot_name: 'Main Pot',
           total_amount: 1500,
           winners: [{ name: 'Joker', amount: 1500 }],
-          hand_name: 'Flush'
+          hand_name: 'Flush',
         },
         {
           pot_name: 'Side Pot 1',
           total_amount: 2000,
           winners: [
             { name: humanName, amount: 1000 },
-            { name: 'Batman', amount: 1000 }
+            { name: 'Batman', amount: 1000 },
           ],
-          hand_name: 'Two Pair'
+          hand_name: 'Two Pair',
         },
         {
           pot_name: 'Side Pot 2',
           total_amount: 800,
           winners: [{ name: humanName, amount: 800 }],
-          hand_name: 'Two Pair'
-        }
+          hand_name: 'Two Pair',
+        },
       ],
       hand_name: 'Flush',
       showdown: true,
@@ -949,39 +1003,50 @@ export function usePokerGame({
         { rank: '9', suit: 'hearts' },
         { rank: '7', suit: 'hearts' },
         { rank: '4', suit: 'spades' },
-        { rank: '2', suit: 'clubs' }
+        { rank: '2', suit: 'clubs' },
       ],
       players_showdown: {
         [humanName]: {
-          cards: [{ rank: 'A', suit: 'spades' }, { rank: 'A', suit: 'diamonds' }],
+          cards: [
+            { rank: 'A', suit: 'spades' },
+            { rank: 'A', suit: 'diamonds' },
+          ],
           hand_name: 'Two Pair',
           hand_rank: 7,
-          kickers: ['9']
+          kickers: ['9'],
         },
-        'Batman': {
-          cards: [{ rank: 'A', suit: 'clubs' }, { rank: '9', suit: 'spades' }],
+        Batman: {
+          cards: [
+            { rank: 'A', suit: 'clubs' },
+            { rank: '9', suit: 'spades' },
+          ],
           hand_name: 'Two Pair',
           hand_rank: 7,
-          kickers: ['7']
+          kickers: ['7'],
         },
-        'Joker': {
-          cards: [{ rank: 'K', suit: 'hearts' }, { rank: 'J', suit: 'hearts' }],
+        Joker: {
+          cards: [
+            { rank: 'K', suit: 'hearts' },
+            { rank: 'J', suit: 'hearts' },
+          ],
           hand_name: 'Flush',
           hand_rank: 5,
-          kickers: []
-        }
-      }
+          kickers: [],
+        },
+      },
     };
     setWinnerInfo(mockWinnerData);
   }, [playerName]);
 
   const currentPlayer = gameState?.players[gameState.current_player_idx];
-  const showActionButtons = !!(currentPlayer?.is_human &&
-                             !currentPlayer.is_folded &&
-                             gameState?.player_options &&
-                             gameState.player_options.length > 0 &&
-                             !aiThinking &&
-                             isConnected);
+  const showActionButtons = !!(
+    currentPlayer?.is_human &&
+    !currentPlayer.is_folded &&
+    gameState?.player_options &&
+    gameState.player_options.length > 0 &&
+    !aiThinking &&
+    isConnected
+  );
 
   return {
     gameState,

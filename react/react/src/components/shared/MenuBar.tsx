@@ -65,11 +65,7 @@ export const MenuBar = memo(function MenuBar({
       {/* Left section: Back button or spacer */}
       <div className="menu-bar__left">
         {onBack ? (
-          <button
-            className="menu-bar__back"
-            onClick={onBack}
-            aria-label="Go back"
-          >
+          <button className="menu-bar__back" onClick={onBack} aria-label="Go back">
             <span className="menu-bar__back-icon">
               <ChevronLeft size={28} strokeWidth={2.5} />
             </span>

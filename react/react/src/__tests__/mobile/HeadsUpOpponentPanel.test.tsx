@@ -7,11 +7,20 @@ import type { Player, OpponentObservation, PlayerPressureSummary } from '../../t
 vi.mock('framer-motion', () => ({
   motion: {
     div: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => {
-      const { initial: _initial, animate: _animate, exit: _exit, transition: _transition, layout: _layout, ...htmlProps } = props;
+      const {
+        initial: _initial,
+        animate: _animate,
+        exit: _exit,
+        transition: _transition,
+        layout: _layout,
+        ...htmlProps
+      } = props;
       return <div {...htmlProps}>{children}</div>;
     },
   },
-  AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => <>{children}</>,
+  AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => (
+    <>{children}</>
+  ),
 }));
 
 function makeObservation(overrides: Partial<OpponentObservation> = {}): OpponentObservation {
@@ -25,7 +34,9 @@ function makeObservation(overrides: Partial<OpponentObservation> = {}): Opponent
   };
 }
 
-function makePressureSummary(overrides: Partial<PlayerPressureSummary> = {}): PlayerPressureSummary {
+function makePressureSummary(
+  overrides: Partial<PlayerPressureSummary> = {}
+): PlayerPressureSummary {
   return {
     total_events: 10,
     wins: 5,
@@ -207,7 +218,9 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
       // Emotional section should be shown instead
       const emotionalSection = document.querySelector('.emotional-section');
       expect(emotionalSection).toBeTruthy();
-      expect(document.querySelector('.emotional-narrative')!.textContent).toContain('Feeling confident');
+      expect(document.querySelector('.emotional-narrative')!.textContent).toContain(
+        'Feeling confident'
+      );
       expect(document.querySelector('.inner-voice')!.textContent).toContain('I got this');
     });
   });
@@ -263,11 +276,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
     });
 
     it('shows 0W - 0L when no stats available', () => {
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent({ pressure_summary: undefined })}
-        />
-      );
+      render(<HeadsUpOpponentPanel opponent={makeOpponent({ pressure_summary: undefined })} />);
 
       const wins = document.querySelector('.wins');
       expect(wins).toBeTruthy();
@@ -299,11 +308,7 @@ describe('VT-06: HeadsUpOpponentPanel — play style, tilt, record display', () 
     });
 
     it('shows 0 hands observed when no observation data provided', () => {
-      render(
-        <HeadsUpOpponentPanel
-          opponent={makeOpponent({ observation: undefined })}
-        />
-      );
+      render(<HeadsUpOpponentPanel opponent={makeOpponent({ observation: undefined })} />);
 
       const label = document.querySelector('.playstyle-label');
       expect(label).toBeTruthy();

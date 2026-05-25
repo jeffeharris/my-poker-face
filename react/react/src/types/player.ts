@@ -1,9 +1,9 @@
 export interface PlayerPsychology {
-  narrative?: string;      // Third-person: "Feeling confident after that bluff"
-  inner_voice?: string;    // First-person thought: "I've got this..."
-  tilt_level: number;      // 0.0 - 1.0
+  narrative?: string; // Third-person: "Feeling confident after that bluff"
+  inner_voice?: string; // First-person thought: "I've got this..."
+  tilt_level: number; // 0.0 - 1.0
   tilt_category: 'none' | 'mild' | 'moderate' | 'severe';
-  tilt_source?: string;    // 'bad_beat', 'bluff_called', 'big_loss', etc.
+  tilt_source?: string; // 'bad_beat', 'bluff_called', 'big_loss', etc.
   losing_streak: number;
 }
 
@@ -34,12 +34,12 @@ export interface PlayerPressureSummary {
 }
 
 export interface LLMDebugInfo {
-  provider: string;           // e.g., 'openai', 'anthropic', 'groq'
-  model: string;              // e.g., 'gpt-5-nano', 'claude-sonnet-4'
-  reasoning_effort?: string;  // e.g., 'low', 'medium', 'high'
-  total_calls: number;        // Number of decisions made
-  avg_latency_ms: number;     // Average response time
-  avg_cost_per_call: number;  // Average cost per decision
+  provider: string; // e.g., 'openai', 'anthropic', 'groq'
+  model: string; // e.g., 'gpt-5-nano', 'claude-sonnet-4'
+  reasoning_effort?: string; // e.g., 'low', 'medium', 'high'
+  total_calls: number; // Number of decisions made
+  avg_latency_ms: number; // Average response time
+  avg_cost_per_call: number; // Average cost per decision
 }
 
 export interface Player {
@@ -56,7 +56,7 @@ export interface Player {
   psychology?: PlayerPsychology;
   observation?: OpponentObservation;
   pressure_summary?: PlayerPressureSummary;
-  is_rule_bot?: boolean;  // True for deterministic bots (CaseBot, GTO-Lite, BaselineSolver) — drives bot badge overlay
-  last_action?: 'check' | 'call' | 'raise' | 'fold' | 'all_in' | null;  // Most recent action
-  llm_debug?: LLMDebugInfo;  // AI model stats (debug mode only)
+  is_rule_bot?: boolean; // True for deterministic bots (CaseBot, GTO-Lite, BaselineSolver) — drives bot badge overlay
+  last_action?: 'check' | 'call' | 'raise' | 'fold' | 'all_in' | null; // Most recent action
+  llm_debug?: LLMDebugInfo; // AI model stats (debug mode only)
 }

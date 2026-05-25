@@ -43,11 +43,7 @@ export interface CashStateResponse {
   bankroll: number;
 }
 
-export type HandStatus =
-  | 'continue'
-  | 'awaiting_human'
-  | 'not_enough_players'
-  | 'error';
+export type HandStatus = 'continue' | 'awaiting_human' | 'not_enough_players' | 'error';
 
 export interface HandResult {
   status: HandStatus;

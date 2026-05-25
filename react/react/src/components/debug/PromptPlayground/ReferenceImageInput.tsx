@@ -20,7 +20,7 @@ interface ReferenceImageUploadResponse {
 }
 
 interface Props {
-  value: string | null;  // reference_image_id
+  value: string | null; // reference_image_id
   onChange: (id: string | null) => void;
   disabled?: boolean;
 }
@@ -44,33 +44,36 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
   }, []);
 
   // Handle file upload
-  const handleFileUpload = useCallback(async (file: File) => {
-    setIsUploading(true);
-    setError(null);
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      setIsUploading(true);
+      setError(null);
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      const response = await adminFetch('/admin/api/reference-images', {
-        method: 'POST',
-        body: formData,
-      });
+        const response = await adminFetch('/admin/api/reference-images', {
+          method: 'POST',
+          body: formData,
+        });
 
-      const data: ReferenceImageUploadResponse = await response.json();
+        const data: ReferenceImageUploadResponse = await response.json();
 
-      if (data.success && data.reference_id) {
-        onChange(data.reference_id);
-        loadPreview(data.reference_id);
-      } else {
-        setError(data.error || 'Upload failed');
+        if (data.success && data.reference_id) {
+          onChange(data.reference_id);
+          loadPreview(data.reference_id);
+        } else {
+          setError(data.error || 'Upload failed');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Upload failed');
+      } finally {
+        setIsUploading(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setIsUploading(false);
-    }
-  }, [onChange, loadPreview]);
+    },
+    [onChange, loadPreview]
+  );
 
   // Handle URL submission
   const handleUrlSubmit = useCallback(async () => {
@@ -103,12 +106,15 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
   }, [urlInput, onChange, loadPreview]);
 
   // Handle file input change
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  }, [handleFileUpload]);
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        handleFileUpload(file);
+      }
+    },
+    [handleFileUpload]
+  );
 
   // Handle drag and drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -116,15 +122,18 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      handleFileUpload(file);
-    }
-  }, [handleFileUpload]);
+      const file = e.dataTransfer.files?.[0];
+      if (file && file.type.startsWith('image/')) {
+        handleFileUpload(file);
+      }
+    },
+    [handleFileUpload]
+  );
 
   // Clear selection
   const handleClear = useCallback(() => {
@@ -148,11 +157,7 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
       {value && imagePreview ? (
         /* Image selected - show preview */
         <div className="reference-image-preview-wrapper">
-          <img
-            src={imagePreview}
-            alt="Reference"
-            className="reference-image-preview"
-          />
+          <img src={imagePreview} alt="Reference" className="reference-image-preview" />
           <button
             type="button"
             className="reference-image-clear"
@@ -206,7 +211,10 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowUrlInput(false); setUrlInput(''); }}
+                  onClick={() => {
+                    setShowUrlInput(false);
+                    setUrlInput('');
+                  }}
                 >
                   Cancel
                 </button>
@@ -222,7 +230,10 @@ export function ReferenceImageInput({ value, onChange, disabled }: Props) {
                   <button
                     type="button"
                     className="url-link"
-                    onClick={(e) => { e.stopPropagation(); setShowUrlInput(true); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUrlInput(true);
+                    }}
                     disabled={disabled}
                   >
                     paste URL

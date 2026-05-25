@@ -128,8 +128,8 @@ export const useGameStore = create<GameStore>((set) => ({
       // Structural sharing: reuse Player references when data hasn't changed
       let players = state.players;
       if (prev.players && state.players) {
-        players = state.players.map(incoming => {
-          const existing = prev.players!.find(p => p.name === incoming.name);
+        players = state.players.map((incoming) => {
+          const existing = prev.players!.find((p) => p.name === incoming.name);
           return existing && arePlayersEqual(existing, incoming) ? existing : incoming;
         });
       }

@@ -98,10 +98,7 @@ export function IdleStakablePanel({ refreshKey, onStake, onOpenDossier }: IdleSt
     );
   }
 
-  const totalCandidates = data.by_tier.reduce(
-    (sum, tier) => sum + tier.candidates.length,
-    0,
-  );
+  const totalCandidates = data.by_tier.reduce((sum, tier) => sum + tier.candidates.length, 0);
 
   return (
     <section className="idle-stakable-panel">
@@ -123,9 +120,8 @@ export function IdleStakablePanel({ refreshKey, onStake, onOpenDossier }: IdleSt
 
       {totalCandidates === 0 ? (
         <p className="idle-stakable-panel__empty">
-          No one's ready for a stake right now. Play more hands, build
-          relationships, then check back — staking unlocks once you've
-          shared a table with someone.
+          No one's ready for a stake right now. Play more hands, build relationships, then check
+          back — staking unlocks once you've shared a table with someone.
         </p>
       ) : (
         <div className="idle-stakable-panel__tiers">
@@ -197,7 +193,7 @@ function CandidateCard({
         identifier: candidate.personality_id,
       });
     },
-    [candidate, onOpenDossier],
+    [candidate, onOpenDossier]
   );
 
   const desperation = desperationLabel(candidate.desperation);
@@ -216,41 +212,29 @@ function CandidateCard({
           {avatarSrc ? (
             <img src={avatarSrc} alt="" loading="lazy" />
           ) : (
-            <span aria-hidden="true">
-              {candidate.name.charAt(0).toUpperCase()}
-            </span>
+            <span aria-hidden="true">{candidate.name.charAt(0).toUpperCase()}</span>
           )}
         </span>
         <span className="idle-stakable-panel__body">
           <span className="idle-stakable-panel__name">{candidate.name}</span>
           <span className="idle-stakable-panel__meta">
-            <span className="idle-stakable-panel__comfort">
-              plays {candidate.comfort_zone}
-            </span>
+            <span className="idle-stakable-panel__comfort">plays {candidate.comfort_zone}</span>
             {candidate.relationship_hint && (
               <>
                 <span className="idle-stakable-panel__sep">·</span>
-                <span className="idle-stakable-panel__hint">
-                  {candidate.relationship_hint}
-                </span>
+                <span className="idle-stakable-panel__hint">{candidate.relationship_hint}</span>
               </>
             )}
             {desperation && (
               <>
                 <span className="idle-stakable-panel__sep">·</span>
-                <span className="idle-stakable-panel__desperation">
-                  {desperation}
-                </span>
+                <span className="idle-stakable-panel__desperation">{desperation}</span>
               </>
             )}
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        className="idle-stakable-panel__cta"
-        onClick={handleClick}
-      >
+      <button type="button" className="idle-stakable-panel__cta" onClick={handleClick}>
         Stake
       </button>
     </li>

@@ -43,7 +43,7 @@ export const EnrichmentPanel = memo(function EnrichmentPanel({
   }
 
   const qualityColor = enrichment.decision_quality
-    ? QUALITY_COLORS[enrichment.decision_quality] ?? 'var(--color-text-secondary)'
+    ? (QUALITY_COLORS[enrichment.decision_quality] ?? 'var(--color-text-secondary)')
     : undefined;
 
   return (
@@ -76,10 +76,7 @@ export const EnrichmentPanel = memo(function EnrichmentPanel({
           {enrichment.decision_quality && (
             <div className="enrichment-panel__section">
               <span className="enrichment-panel__label">Decision Quality</span>
-              <span
-                className="enrichment-panel__quality-badge"
-                style={{ color: qualityColor }}
-              >
+              <span className="enrichment-panel__quality-badge" style={{ color: qualityColor }}>
                 {enrichment.decision_quality.toUpperCase()}
               </span>
             </div>

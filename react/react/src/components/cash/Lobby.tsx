@@ -46,10 +46,7 @@ import type {
 import { STAKES } from './types';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import {
-  CharacterDetailCard,
-  type CharacterDossierData,
-} from '../character';
+import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
 
 /** What TableCard fires up to the Lobby on AI-seat click. */
@@ -83,11 +80,11 @@ const MOBILE_BREAKPOINT_PX = 640;
 /** Flavor nicknames shown beside each Cardroom stake label in the tier
  *  header. Cosmetic only. */
 const TIER_NICKNAMES: Record<StakeLabel, string> = {
-  '$2': 'Micros',
-  '$10': 'The grind',
-  '$50': 'High limit',
-  '$200': 'The big game',
-  '$1000': 'Nosebleeds',
+  $2: 'Micros',
+  $10: 'The grind',
+  $50: 'High limit',
+  $200: 'The big game',
+  $1000: 'Nosebleeds',
 };
 
 /** Group lobby tables by stake_label, preserving STAKES order. Tables
@@ -213,30 +210,19 @@ export function Lobby() {
     });
   }, []);
 
-  const [activeVenue, setActiveVenue] = useState<'cardroom' | 'casino'>(
-    'cardroom',
-  );
+  const [activeVenue, setActiveVenue] = useState<'cardroom' | 'casino'>('cardroom');
 
   // Split tables by venue. Cardroom = the career ladder (everything that
   // isn't a casino table); Casino = the ephemeral $2 fish floor, its own
   // tab. Casino tables are pulled out of the ladder so they don't double
   // up in the $2 tier.
-  const casinoTables = useMemo(
-    () => tables.filter((t) => t.table_type === 'casino'),
-    [tables],
-  );
-  const cardroomTables = useMemo(
-    () => tables.filter((t) => t.table_type !== 'casino'),
-    [tables],
-  );
+  const casinoTables = useMemo(() => tables.filter((t) => t.table_type === 'casino'), [tables]);
+  const cardroomTables = useMemo(() => tables.filter((t) => t.table_type !== 'casino'), [tables]);
   const casinoClosingCount = useMemo(
     () => casinoTables.filter((t) => t.closing_hand_countdown != null).length,
-    [casinoTables],
+    [casinoTables]
   );
-  const tablesByStake = useMemo(
-    () => groupTablesByStake(cardroomTables),
-    [cardroomTables],
-  );
+  const tablesByStake = useMemo(() => groupTablesByStake(cardroomTables), [cardroomTables]);
 
   // One-shot once tables first load: auto-expand the highest tier the
   // player can self-afford (their "current" tier) rather than just the
@@ -251,11 +237,7 @@ export function Lobby() {
     }
     let target: StakeLabel = STAKES[0];
     for (const stake of STAKES) {
-      if (
-        cardroomTables.some(
-          (t) => t.stake_label === stake && t.affordability === 'affordable',
-        )
-      ) {
+      if (cardroomTables.some((t) => t.stake_label === stake && t.affordability === 'affordable')) {
         target = stake;
       }
     }
@@ -296,8 +278,8 @@ export function Lobby() {
         setEvents((prev) =>
           mergeEvents(
             prev.filter((e) => !(e.type === 'last_stand' && e.reason === 'self')),
-            lobby.events ?? [],
-          ),
+            lobby.events ?? []
+          )
         );
         setPendingForgivenessCount(lobby.pending_forgiveness_count ?? 0);
         // Adopt the server pace only on first load; once set, the local
@@ -385,13 +367,10 @@ export function Lobby() {
         await setWorldPace(pace);
       } catch (e) {
         setWorldPaceState(prev); // revert on failure
-        logger.error(
-          'Failed to set world pace:',
-          e instanceof Error ? e.message : String(e),
-        );
+        logger.error('Failed to set world pace:', e instanceof Error ? e.message : String(e));
       }
     },
-    [worldPace],
+    [worldPace]
   );
 
   const handleSeatTap = useCallback(
@@ -422,7 +401,7 @@ export function Lobby() {
         setBusy(false);
       }
     },
-    [busy, navigate],
+    [busy, navigate]
   );
 
   /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
@@ -436,10 +415,7 @@ export function Lobby() {
         // race conditions can produce a candidate whose target tier
         // isn't in the current lobby snapshot. Fall back to ignoring
         // the click — the next poll will reconcile.
-        logger.warn(
-          'Stake target tier missing from lobby tables:',
-          targetStakeLabel,
-        );
+        logger.warn('Stake target tier missing from lobby tables:', targetStakeLabel);
         return;
       }
       setStakeTarget({
@@ -449,7 +425,7 @@ export function Lobby() {
         maxBuyIn: table.max_buy_in,
       });
     },
-    [tables],
+    [tables]
   );
 
   return (
@@ -462,184 +438,176 @@ export function Lobby() {
         onAdminTools={() => navigate('/admin')}
       />
       <PageLayout variant="top" glowColor="gold" hasMenuBar className="cash-lobby-layout">
-      <div className="cash-entry">
-        {bankroll !== null && (
-          <CareerHero
-            bankroll={bankroll}
-            lastSessionDelta={lastSessionDelta}
-            bankrollHistory={bankrollHistory}
-            pendingForgivenessCount={pendingForgivenessCount}
-            onOpenNetWorth={() => setNetWorthOpen(true)}
-          />
-        )}
+        <div className="cash-entry">
+          {bankroll !== null && (
+            <CareerHero
+              bankroll={bankroll}
+              lastSessionDelta={lastSessionDelta}
+              bankrollHistory={bankrollHistory}
+              pendingForgivenessCount={pendingForgivenessCount}
+              onOpenNetWorth={() => setNetWorthOpen(true)}
+            />
+          )}
 
-        <ActivityTicker
-          events={events}
-          worldPace={worldPace}
-          onPaceChange={handlePaceChange}
-        />
+          <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
 
-        {loadError && (
-          <div className="cash-entry__error" role="alert">
-            {loadError}
-          </div>
-        )}
-        {sitError && (
-          <div className="cash-entry__error" role="alert">
-            {sitError}
-          </div>
-        )}
+          {loadError && (
+            <div className="cash-entry__error" role="alert">
+              {loadError}
+            </div>
+          )}
+          {sitError && (
+            <div className="cash-entry__error" role="alert">
+              {sitError}
+            </div>
+          )}
 
-        <div className="cash-entry__venues">
-        <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeVenue === 'cardroom'}
-            className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
-            onClick={() => setActiveVenue('cardroom')}
-          >
-            <Spade size={15} aria-hidden="true" />
-            Cardroom
-            <span className="cash-entry__tab-count">{cardroomTables.length}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeVenue === 'casino'}
-            className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
-            onClick={() => setActiveVenue('casino')}
-          >
-            <Dices size={15} aria-hidden="true" />
-            Casino
-            <span className="cash-entry__tab-count">{casinoTables.length}</span>
-            {casinoClosingCount > 0 && (
-              <Clock
-                size={13}
-                className="cash-entry__tab-closing"
-                aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
-              />
-            )}
-          </button>
-        </div>
-
-        {activeVenue === 'cardroom' ? (
-          <section className="cash-entry__stakes">
-            {cardroomTables.length === 0 ? (
-              <p className="cash-entry__venue-empty">No tables open right now.</p>
-            ) : (
-              STAKES.map((stake) => {
-                const tierTables = tablesByStake.get(stake) ?? [];
-                if (tierTables.length === 0) return null;
-                const isCollapsed = collapsedTiers.has(stake);
-                const meta = tierMeta(tierTables);
-                const gap = Math.max(0, meta.minBuyIn - (bankroll ?? 0));
-                return (
-                  <div
-                    key={stake}
-                    className={`cash-entry__tier cash-entry__tier--${meta.access}${isCollapsed ? ' cash-entry__tier--collapsed' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="cash-entry__tier-header"
-                      onClick={() => toggleTier(stake)}
-                      aria-expanded={!isCollapsed}
-                    >
-                      <span className="cash-entry__tier-label">{stake}</span>
-                      <span className="cash-entry__tier-name">
-                        {TIER_NICKNAMES[stake]}
-                      </span>
-                      <span className="cash-entry__tier-spacer" />
-                      {meta.access === 'open' && (
-                        <span className="cash-entry__tier-summary">
-                          <i className="cash-entry__tier-dot" aria-hidden="true" />
-                          {meta.openSeats} open · {meta.count}{' '}
-                          {meta.count === 1 ? 'table' : 'tables'}
-                        </span>
-                      )}
-                      {meta.access === 'stakeable' && (
-                        <span className="cash-entry__tier-badge cash-entry__tier-badge--stake">
-                          Get staked
-                        </span>
-                      )}
-                      {meta.access === 'locked' && (
-                        <span className="cash-entry__tier-badge cash-entry__tier-badge--locked">
-                          <Lock size={11} aria-hidden="true" />
-                          earn ${gap.toLocaleString()}
-                        </span>
-                      )}
-                      <ChevronDown
-                        size={18}
-                        className="cash-entry__tier-chevron"
-                        aria-hidden="true"
-                      />
-                    </button>
-                    {meta.access === 'locked' &&
-                      bankroll != null &&
-                      meta.minBuyIn > 0 && (
-                        <div
-                          className="cash-entry__tier-progress"
-                          title={`$${bankroll.toLocaleString()} / $${meta.minBuyIn.toLocaleString()} toward the ${stake} buy-in`}
-                        >
-                          <i
-                            style={{
-                              width: `${Math.min(100, Math.round((bankroll / meta.minBuyIn) * 100))}%`,
-                            }}
-                          />
-                        </div>
-                      )}
-                    {!isCollapsed && (
-                      <div className="cash-entry__stake-grid">
-                        {tierTables.map((t) => (
-                          <TableCard
-                            key={t.table_id}
-                            table={t}
-                            busy={busy}
-                            onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
-                            onAiSeatClick={setDossier}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </section>
-        ) : (
-          <section className="cash-entry__stakes cash-entry__stakes--casino">
-            <p className="cash-entry__venue-intro">
-              The $2 floor — soft games packed with tourists. Tables fill and
-              break fast, so grab a seat while the fish are biting.
-            </p>
-            {casinoTables.length === 0 ? (
-              <div className="cash-entry__casino-empty">
-                The floor’s quiet right now. New casino tables open as the pool
-                fills — check back soon.
-              </div>
-            ) : (
-              <div className="cash-entry__stake-grid">
-                {casinoTables.map((t) => (
-                  <TableCard
-                    key={t.table_id}
-                    table={t}
-                    busy={busy}
-                    onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
-                    onAiSeatClick={setDossier}
+          <div className="cash-entry__venues">
+            <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeVenue === 'cardroom'}
+                className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
+                onClick={() => setActiveVenue('cardroom')}
+              >
+                <Spade size={15} aria-hidden="true" />
+                Cardroom
+                <span className="cash-entry__tab-count">{cardroomTables.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeVenue === 'casino'}
+                className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
+                onClick={() => setActiveVenue('casino')}
+              >
+                <Dices size={15} aria-hidden="true" />
+                Casino
+                <span className="cash-entry__tab-count">{casinoTables.length}</span>
+                {casinoClosingCount > 0 && (
+                  <Clock
+                    size={13}
+                    className="cash-entry__tab-closing"
+                    aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
                   />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-        </div>
+                )}
+              </button>
+            </div>
 
-        <IdleStakablePanel
-          refreshKey={stakablePanelTick}
-          onStake={handleStakeClick}
-          onOpenDossier={setDossier}
-        />
-      </div>
+            {activeVenue === 'cardroom' ? (
+              <section className="cash-entry__stakes">
+                {cardroomTables.length === 0 ? (
+                  <p className="cash-entry__venue-empty">No tables open right now.</p>
+                ) : (
+                  STAKES.map((stake) => {
+                    const tierTables = tablesByStake.get(stake) ?? [];
+                    if (tierTables.length === 0) return null;
+                    const isCollapsed = collapsedTiers.has(stake);
+                    const meta = tierMeta(tierTables);
+                    const gap = Math.max(0, meta.minBuyIn - (bankroll ?? 0));
+                    return (
+                      <div
+                        key={stake}
+                        className={`cash-entry__tier cash-entry__tier--${meta.access}${isCollapsed ? ' cash-entry__tier--collapsed' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className="cash-entry__tier-header"
+                          onClick={() => toggleTier(stake)}
+                          aria-expanded={!isCollapsed}
+                        >
+                          <span className="cash-entry__tier-label">{stake}</span>
+                          <span className="cash-entry__tier-name">{TIER_NICKNAMES[stake]}</span>
+                          <span className="cash-entry__tier-spacer" />
+                          {meta.access === 'open' && (
+                            <span className="cash-entry__tier-summary">
+                              <i className="cash-entry__tier-dot" aria-hidden="true" />
+                              {meta.openSeats} open · {meta.count}{' '}
+                              {meta.count === 1 ? 'table' : 'tables'}
+                            </span>
+                          )}
+                          {meta.access === 'stakeable' && (
+                            <span className="cash-entry__tier-badge cash-entry__tier-badge--stake">
+                              Get staked
+                            </span>
+                          )}
+                          {meta.access === 'locked' && (
+                            <span className="cash-entry__tier-badge cash-entry__tier-badge--locked">
+                              <Lock size={11} aria-hidden="true" />
+                              earn ${gap.toLocaleString()}
+                            </span>
+                          )}
+                          <ChevronDown
+                            size={18}
+                            className="cash-entry__tier-chevron"
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {meta.access === 'locked' && bankroll != null && meta.minBuyIn > 0 && (
+                          <div
+                            className="cash-entry__tier-progress"
+                            title={`$${bankroll.toLocaleString()} / $${meta.minBuyIn.toLocaleString()} toward the ${stake} buy-in`}
+                          >
+                            <i
+                              style={{
+                                width: `${Math.min(100, Math.round((bankroll / meta.minBuyIn) * 100))}%`,
+                              }}
+                            />
+                          </div>
+                        )}
+                        {!isCollapsed && (
+                          <div className="cash-entry__stake-grid">
+                            {tierTables.map((t) => (
+                              <TableCard
+                                key={t.table_id}
+                                table={t}
+                                busy={busy}
+                                onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
+                                onAiSeatClick={setDossier}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </section>
+            ) : (
+              <section className="cash-entry__stakes cash-entry__stakes--casino">
+                <p className="cash-entry__venue-intro">
+                  The $2 floor — soft games packed with tourists. Tables fill and break fast, so
+                  grab a seat while the fish are biting.
+                </p>
+                {casinoTables.length === 0 ? (
+                  <div className="cash-entry__casino-empty">
+                    The floor’s quiet right now. New casino tables open as the pool fills — check
+                    back soon.
+                  </div>
+                ) : (
+                  <div className="cash-entry__stake-grid">
+                    {casinoTables.map((t) => (
+                      <TableCard
+                        key={t.table_id}
+                        table={t}
+                        busy={busy}
+                        onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
+                        onAiSeatClick={setDossier}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+
+          <IdleStakablePanel
+            refreshKey={stakablePanelTick}
+            onStake={handleStakeClick}
+            onOpenDossier={setDossier}
+          />
+        </div>
         <SponsorModal
           isOpen={sponsorState !== null}
           stakeLabel={sponsorState?.stakeLabel ?? null}
@@ -650,7 +618,7 @@ export function Lobby() {
           }
           tableName={
             sponsorState
-              ? tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null
+              ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
               : null
           }
           onClose={() => setSponsorState(null)}
@@ -682,6 +650,5 @@ export function Lobby() {
         />
       </PageLayout>
     </>
-
   );
 }

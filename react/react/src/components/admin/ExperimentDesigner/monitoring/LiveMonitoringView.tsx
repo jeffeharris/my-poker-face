@@ -37,35 +37,37 @@ export function LiveMonitoringView({
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
 
-  const fetchLiveGames = useCallback(async (signal?: AbortSignal): Promise<void> => {
-    try {
-      const response = await adminFetch(
-        `/api/experiments/${experimentId}/live-games`,
-        { signal }
-      );
+  const fetchLiveGames = useCallback(
+    async (signal?: AbortSignal): Promise<void> => {
+      try {
+        const response = await adminFetch(`/api/experiments/${experimentId}/live-games`, {
+          signal,
+        });
 
-      // Don't update state if request was aborted
-      if (signal?.aborted) return;
+        // Don't update state if request was aborted
+        if (signal?.aborted) return;
 
-      const data: LiveGamesResponse = await response.json();
+        const data: LiveGamesResponse = await response.json();
 
-      if (data.success) {
-        setGames(data.games);
-        setExperimentStatus(data.experiment_status);
-        setError(null);
-        setLastUpdate(new Date());
-      } else {
-        setError(data.error || 'Failed to load live games');
+        if (data.success) {
+          setGames(data.games);
+          setExperimentStatus(data.experiment_status);
+          setError(null);
+          setLastUpdate(new Date());
+        } else {
+          setError(data.error || 'Failed to load live games');
+        }
+      } catch (err) {
+        // Ignore abort errors - these are expected on unmount
+        if (err instanceof Error && err.name === 'AbortError') return;
+        logger.error('Failed to fetch live games:', err);
+        setError('Failed to connect to server');
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      // Ignore abort errors - these are expected on unmount
-      if (err instanceof Error && err.name === 'AbortError') return;
-      logger.error('Failed to fetch live games:', err);
-      setError('Failed to connect to server');
-    } finally {
-      setLoading(false);
-    }
-  }, [experimentId]);
+    },
+    [experimentId]
+  );
 
   // Initial load with cleanup
   useEffect(() => {
@@ -121,22 +123,12 @@ export function LiveMonitoringView({
         );
       case 'completed':
         return (
-          <span className="live-monitor__status live-monitor__status--completed">
-            Completed
-          </span>
+          <span className="live-monitor__status live-monitor__status--completed">Completed</span>
         );
       case 'failed':
-        return (
-          <span className="live-monitor__status live-monitor__status--failed">
-            Failed
-          </span>
-        );
+        return <span className="live-monitor__status live-monitor__status--failed">Failed</span>;
       default:
-        return (
-          <span className="live-monitor__status">
-            {experimentStatus}
-          </span>
-        );
+        return <span className="live-monitor__status">{experimentStatus}</span>;
     }
   };
 
@@ -220,7 +212,9 @@ export function LiveMonitoringView({
       </header>
 
       {/* Main Content */}
-      <main className={`live-monitor__content ${selectedPlayer ? 'live-monitor__content--dimmed' : ''}`}>
+      <main
+        className={`live-monitor__content ${selectedPlayer ? 'live-monitor__content--dimmed' : ''}`}
+      >
         {games.length === 0 ? (
           <div className="live-monitor__empty">
             <Monitor size={48} />
@@ -232,15 +226,9 @@ export function LiveMonitoringView({
             </p>
           </div>
         ) : viewMode === 'cards' ? (
-          <GameMonitorGrid
-            games={games}
-            onPlayerClick={handlePlayerClick}
-          />
+          <GameMonitorGrid games={games} onPlayerClick={handlePlayerClick} />
         ) : (
-          <GameMonitorTable
-            games={games}
-            onPlayerClick={handlePlayerClick}
-          />
+          <GameMonitorTable games={games} onPlayerClick={handlePlayerClick} />
         )}
       </main>
 

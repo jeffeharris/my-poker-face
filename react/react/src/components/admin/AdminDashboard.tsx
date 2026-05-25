@@ -27,7 +27,12 @@ interface AdminDashboardProps {
   onCaptureSelect?: (captureId: number | null) => void;
 }
 
-export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelect }: AdminDashboardProps) {
+export function AdminDashboard({
+  onBack,
+  initialTab,
+  onTabChange,
+  onCaptureSelect,
+}: AdminDashboardProps) {
   const { isMobile } = useViewport();
   const [activeTab, setActiveTab] = useState<AdminTab | undefined>(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -44,35 +49,41 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
   }, [initialTab]);
 
   // Wrapper to update both state and notify parent
-  const handleTabChange = useCallback((tab: AdminTab) => {
-    setActiveTab(tab);
-    onTabChange?.(tab);
-    // Clear assistant panel when switching away from experiments
-    if (tab !== 'experiments') {
-      setAssistantPanelProps(null);
-      setIsDesignMode(false);
-    }
-    // Clear analyzer detail mode when switching tabs
-    if (tab !== 'analyzer') {
-      setAnalyzerInDetailMode(false);
-      setAnalyzerBackToList(null);
-    }
-  }, [onTabChange]);
+  const handleTabChange = useCallback(
+    (tab: AdminTab) => {
+      setActiveTab(tab);
+      onTabChange?.(tab);
+      // Clear assistant panel when switching away from experiments
+      if (tab !== 'experiments') {
+        setAssistantPanelProps(null);
+        setIsDesignMode(false);
+      }
+      // Clear analyzer detail mode when switching tabs
+      if (tab !== 'analyzer') {
+        setAnalyzerInDetailMode(false);
+        setAnalyzerBackToList(null);
+      }
+    },
+    [onTabChange]
+  );
 
   // Handle Decision Analyzer detail mode changes
-  const handleAnalyzerDetailModeChange = useCallback((inDetail: boolean, backToList: () => void) => {
-    setAnalyzerInDetailMode(inDetail);
-    setAnalyzerBackToList(() => backToList);
-  }, []);
+  const handleAnalyzerDetailModeChange = useCallback(
+    (inDetail: boolean, backToList: () => void) => {
+      setAnalyzerInDetailMode(inDetail);
+      setAnalyzerBackToList(() => backToList);
+    },
+    []
+  );
 
   // Find active tab config for header
-  const activeTabConfig = SIDEBAR_ITEMS.find(t => t.id === activeTab);
+  const activeTabConfig = SIDEBAR_ITEMS.find((t) => t.id === activeTab);
 
   // Keyboard shortcut to toggle sidebar
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
-      setSidebarCollapsed(prev => !prev);
+      setSidebarCollapsed((prev) => !prev);
     }
   }, []);
 
@@ -84,12 +95,8 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
   // Tab content component
   const renderTabContent = () => (
     <>
-      {activeTab === 'users' && (
-        <UserManagement embedded />
-      )}
-      {activeTab === 'personalities' && (
-        <PersonalityManager embedded />
-      )}
+      {activeTab === 'users' && <UserManagement embedded />}
+      {activeTab === 'personalities' && <PersonalityManager embedded />}
       {activeTab === 'analyzer' && (
         <DecisionAnalyzer
           embedded
@@ -97,12 +104,8 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
           onCaptureSelect={onCaptureSelect}
         />
       )}
-      {activeTab === 'hand-replay' && (
-        <HandReplayBrowser />
-      )}
-      {activeTab === 'playground' && (
-        <PromptPlayground embedded />
-      )}
+      {activeTab === 'hand-replay' && <HandReplayBrowser />}
+      {activeTab === 'playground' && <PromptPlayground embedded />}
       {activeTab === 'experiments' && (
         <ExperimentDesigner
           embedded
@@ -110,12 +113,8 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
           onDesignModeChange={setIsDesignMode}
         />
       )}
-      {activeTab === 'presets' && (
-        <PromptPresetManager embedded />
-      )}
-      {activeTab === 'templates' && (
-        <TemplateEditor embedded />
-      )}
+      {activeTab === 'presets' && <PromptPresetManager embedded />}
+      {activeTab === 'templates' && <TemplateEditor embedded />}
       {activeTab === 'settings' && (
         <UnifiedSettings
           embedded
@@ -124,12 +123,8 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
           }}
         />
       )}
-      {activeTab === 'debug' && (
-        <DebugTools embedded />
-      )}
-      {activeTab === 'chip-ledger' && (
-        <ChipLedgerPanel embedded />
-      )}
+      {activeTab === 'debug' && <DebugTools embedded />}
+      {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
     </>
   );
 
@@ -141,17 +136,14 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
         <>
           <MenuBar
             onBack={onBack}
-            centerContent={
-              <span className="admin-header-title">Admin Tools</span>
-            }
+            centerContent={<span className="admin-header-title">Admin Tools</span>}
             showUserInfo
-            onAdminTools={() => { window.location.href = '/admin'; }}
+            onAdminTools={() => {
+              window.location.href = '/admin';
+            }}
           />
           <PageLayout variant="top" glowColor="gold" hasMenuBar>
-            <PageHeader
-              title="Admin Tools"
-              subtitle="Manage your poker game"
-            />
+            <PageHeader title="Admin Tools" subtitle="Manage your poker game" />
             <div className="game-menu__options">
               {SIDEBAR_ITEMS.map((item) => (
                 <button
@@ -187,10 +179,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
     // Tab selected - show content with back to admin menu
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <AdminMenuContainer
-          title={activeTabConfig?.label || 'Admin'}
-          onBack={handleMobileBack}
-        >
+        <AdminMenuContainer title={activeTabConfig?.label || 'Admin'} onBack={handleMobileBack}>
           <div className="admin-main__content admin-main__content--mobile">
             {renderTabContent()}
           </div>
@@ -201,7 +190,9 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
 
   // Desktop layout - sidebar + main content + optional assistant panel
   return (
-    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+    <div
+      className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}
+    >
       {/* Sidebar Navigation */}
       <AdminSidebar
         items={SIDEBAR_ITEMS}
@@ -229,9 +220,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
         </header>
 
         {/* Tab Content */}
-        <div className="admin-main__content">
-          {renderTabContent()}
-        </div>
+        <div className="admin-main__content">{renderTabContent()}</div>
       </main>
 
       {/* Docked Assistant Panel (page-level) - only in design mode */}
@@ -246,9 +235,7 @@ export function AdminDashboard({ onBack, initialTab, onTabChange, onCaptureSelec
           {assistantPanelProps ? (
             <ExperimentChat {...assistantPanelProps} />
           ) : (
-            <div style={{ padding: '1rem', color: '#888' }}>
-              Loading chat...
-            </div>
+            <div style={{ padding: '1rem', color: '#888' }}>Loading chat...</div>
           )}
         </div>
       )}

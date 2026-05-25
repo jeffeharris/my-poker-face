@@ -15,9 +15,7 @@
   justify-content: center;
   gap: 0.5rem;
   padding: 1rem 1.25rem;
-  background: linear-gradient(180deg,
-    rgba(255, 216, 125, 0.10),
-    rgba(255, 216, 125, 0.04));
+  background: linear-gradient(180deg, rgba(255, 216, 125, 0.1), rgba(255, 216, 125, 0.04));
   border: 1px solid rgba(255, 216, 125, 0.22);
   border-radius: 10px;
   text-align: center;
@@ -138,7 +136,9 @@
   cursor: pointer;
   color: inherit;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .cash-entry__stake-button:hover:not(:disabled) {
@@ -420,8 +420,13 @@
 }
 
 @keyframes cash-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* --- Lobby v1.5: TableCard roster strip --- */
@@ -498,7 +503,10 @@
   border-color: rgba(255, 255, 255, 0.18);
   padding: 0;
   position: relative;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.2s ease;
   /* Reset button defaults when seat is rendered as <button> for dossier click. */
   font: inherit;
   color: inherit;
@@ -621,7 +629,9 @@
   font-family: inherit;
   font-size: inherit;
   color: inherit;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .lobby-table-card__seat--open:hover:not(:disabled) {
@@ -729,7 +739,9 @@
   min-width: 44px;
   text-align: center;
   border-radius: var(--radius-full);
-  transition: color 0.15s ease, background 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -943,7 +955,10 @@
   font-weight: 700;
   font-size: 0.92rem;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -966,12 +981,19 @@
 }
 
 @keyframes cashTabClosingPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cash-entry__tab-closing { animation: none; }
+  .cash-entry__tab-closing {
+    animation: none;
+  }
 }
 
 /* --- Smart tier headers --- */
@@ -988,7 +1010,9 @@
   margin-left: 8px;
 }
 
-.cash-entry__tier-spacer { flex: 1; }
+.cash-entry__tier-spacer {
+  flex: 1;
+}
 
 .cash-entry__tier-summary {
   display: inline-flex;
@@ -1054,7 +1078,11 @@
 .cash-entry__tier-progress > i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--color-gold-dark, #a67c4a), var(--color-gold-bright, #f5d89a));
+  background: linear-gradient(
+    90deg,
+    var(--color-gold-dark, #a67c4a),
+    var(--color-gold-bright, #f5d89a)
+  );
   border-radius: 2px;
 }
 
@@ -1110,7 +1138,10 @@
   align-items: flex-start;
   gap: 10px;
 }
-.lobby-table-card__title { flex: 1; min-width: 0; }
+.lobby-table-card__title {
+  flex: 1;
+  min-width: 0;
+}
 .lobby-table-card__name {
   font-weight: 700;
   font-size: 1rem;
@@ -1157,7 +1188,9 @@
   transition: filter 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.lobby-table-card__sit:hover:not(:disabled) { filter: brightness(1.08); }
+.lobby-table-card__sit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
 .lobby-table-card__sit small {
   display: block;
   font-size: 0.62rem;
@@ -1186,7 +1219,10 @@
   align-items: center;
   gap: 5px;
 }
-.lobby-table-card__scout-open { color: #6ee7b7; font-weight: 600; }
+.lobby-table-card__scout-open {
+  color: #6ee7b7;
+  font-weight: 600;
+}
 .lobby-table-card__scout-open > i {
   width: 7px;
   height: 7px;
@@ -1195,12 +1231,26 @@
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
   display: inline-block;
 }
-.lobby-table-card__scout-open.is-full { color: var(--color-text-tertiary); }
-.lobby-table-card__scout-open.is-full > i { background: #888; box-shadow: none; }
-.lobby-table-card__scout-chips { color: var(--color-text-secondary); }
-.lobby-table-card__scout-fish { color: #7dd3fc; }
-.lobby-table-card__scout-whale { color: var(--color-gold-bright, #f5d89a); font-weight: 700; }
-.lobby-table-card__scout-owe { color: #fca5a5; }
+.lobby-table-card__scout-open.is-full {
+  color: var(--color-text-tertiary);
+}
+.lobby-table-card__scout-open.is-full > i {
+  background: #888;
+  box-shadow: none;
+}
+.lobby-table-card__scout-chips {
+  color: var(--color-text-secondary);
+}
+.lobby-table-card__scout-fish {
+  color: #7dd3fc;
+}
+.lobby-table-card__scout-whale {
+  color: var(--color-gold-bright, #f5d89a);
+  font-weight: 700;
+}
+.lobby-table-card__scout-owe {
+  color: #fca5a5;
+}
 
 /* --- Table card: condensed pip strip --- */
 .lobby-table-card__pips {
@@ -1209,8 +1259,12 @@
   gap: 6px;
   margin-top: 11px;
 }
-.lobby-table-card__pips--footer { margin-top: 9px; }
-.lobby-table-card__pips-rest { flex: 1; }
+.lobby-table-card__pips--footer {
+  margin-top: 9px;
+}
+.lobby-table-card__pips-rest {
+  flex: 1;
+}
 .lobby-table-card__pip {
   width: 30px;
   height: 30px;
@@ -1229,8 +1283,14 @@
   flex: 0 0 auto;
   -webkit-tap-highlight-color: transparent;
 }
-.lobby-table-card__pip img { width: 100%; height: 100%; object-fit: cover; }
-.lobby-table-card__pip--human { cursor: default; }
+.lobby-table-card__pip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lobby-table-card__pip--human {
+  cursor: default;
+}
 .lobby-table-card__pip--open {
   background: rgba(250, 204, 21, 0.08);
   border: 2px dashed rgba(250, 204, 21, 0.4);
@@ -1238,14 +1298,24 @@
   cursor: default;
   font-size: 0.74rem;
 }
-.lobby-table-card__pip--emotion-confident { border-color: rgba(74, 222, 128, 0.7); }
-.lobby-table-card__pip--emotion-thinking { border-color: rgba(96, 165, 250, 0.7); }
-.lobby-table-card__pip--emotion-poker_face { border-color: rgba(180, 180, 180, 0.5); }
+.lobby-table-card__pip--emotion-confident {
+  border-color: rgba(74, 222, 128, 0.7);
+}
+.lobby-table-card__pip--emotion-thinking {
+  border-color: rgba(96, 165, 250, 0.7);
+}
+.lobby-table-card__pip--emotion-poker_face {
+  border-color: rgba(180, 180, 180, 0.5);
+}
 .lobby-table-card__pip--emotion-tilted,
 .lobby-table-card__pip--emotion-frustrated,
-.lobby-table-card__pip--emotion-shaken { border-color: rgba(239, 68, 68, 0.75); }
+.lobby-table-card__pip--emotion-shaken {
+  border-color: rgba(239, 68, 68, 0.75);
+}
 .lobby-table-card__pip--emotion-excited,
-.lobby-table-card__pip--emotion-happy { border-color: rgba(250, 204, 21, 0.7); }
+.lobby-table-card__pip--emotion-happy {
+  border-color: rgba(250, 204, 21, 0.7);
+}
 
 .lobby-table-card__expander {
   background: none;
@@ -1260,7 +1330,9 @@
   padding: 4px;
   -webkit-tap-highlight-color: transparent;
 }
-.lobby-table-card__expander:hover { color: var(--color-text-secondary); }
+.lobby-table-card__expander:hover {
+  color: var(--color-text-secondary);
+}
 
 /* --- Table card: role badge on expanded seats --- */
 .lobby-table-card__role {
@@ -1275,5 +1347,11 @@
   padding: 1px 5px;
   border-radius: 5px;
 }
-.lobby-table-card__role--fish { background: rgba(125, 211, 252, 0.85); color: #04293b; }
-.lobby-table-card__role--whale { background: rgba(245, 216, 154, 0.9); color: #2b1d00; }
+.lobby-table-card__role--fish {
+  background: rgba(125, 211, 252, 0.85);
+  color: #04293b;
+}
+.lobby-table-card__role--whale {
+  background: rgba(245, 216, 154, 0.9);
+  color: #2b1d00;
+}

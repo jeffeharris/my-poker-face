@@ -39,20 +39,31 @@ interface TemplateEditorProps {
 
 const SearchIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
-    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <path d="M4 9L7.5 12.5L14 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path
+      d="M4 9L7.5 12.5L14 5.5"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-    <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path
+      d="M3 5H17M3 10H17M3 15H17"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
   </svg>
 );
 
@@ -68,12 +79,16 @@ interface TemplateSelectorProps {
   onClose: () => void;
 }
 
-function TemplateSelector({ templates, selected, onSelect, isOpen, onClose }: TemplateSelectorProps) {
+function TemplateSelector({
+  templates,
+  selected,
+  onSelect,
+  isOpen,
+  onClose,
+}: TemplateSelectorProps) {
   const [search, setSearch] = useState('');
 
-  const filtered = templates.filter(t =>
-    t.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = templates.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
 
   const handleSelect = (name: string) => {
     onSelect(name);
@@ -82,7 +97,10 @@ function TemplateSelector({ templates, selected, onSelect, isOpen, onClose }: Te
 
   return (
     <>
-      <div className={`te-sheet-backdrop ${isOpen ? 'te-sheet-backdrop--visible' : ''}`} onClick={onClose} />
+      <div
+        className={`te-sheet-backdrop ${isOpen ? 'te-sheet-backdrop--visible' : ''}`}
+        onClick={onClose}
+      />
       <div className={`te-sheet ${isOpen ? 'te-sheet--open' : ''}`}>
         <div className="te-sheet__handle" onClick={onClose}>
           <div className="te-sheet__handle-bar" />
@@ -115,7 +133,9 @@ function TemplateSelector({ templates, selected, onSelect, isOpen, onClose }: Te
               <span className="te-sheet__item-avatar">{t.name.charAt(0).toUpperCase()}</span>
               <div className="te-sheet__item-content">
                 <span className="te-sheet__item-name">{t.name}</span>
-                <span className="te-sheet__item-meta">v{t.version} - {t.section_count} sections</span>
+                <span className="te-sheet__item-meta">
+                  v{t.version} - {t.section_count} sections
+                </span>
               </div>
               {selected === t.name && (
                 <span className="te-sheet__item-check">
@@ -125,9 +145,7 @@ function TemplateSelector({ templates, selected, onSelect, isOpen, onClose }: Te
             </button>
           ))}
           {filtered.length === 0 && (
-            <div className="te-sheet__empty">
-              No templates found matching "{search}"
-            </div>
+            <div className="te-sheet__empty">No templates found matching "{search}"</div>
           )}
         </div>
       </div>
@@ -148,10 +166,8 @@ interface MasterListProps {
 }
 
 function MasterList({ templates, selected, onSelect, search, onSearchChange }: MasterListProps) {
-  const filtered = useMemo(() =>
-    templates.filter(t =>
-      t.name.toLowerCase().includes(search.toLowerCase())
-    ),
+  const filtered = useMemo(
+    () => templates.filter((t) => t.name.toLowerCase().includes(search.toLowerCase())),
     [templates, search]
   );
 
@@ -186,7 +202,9 @@ function MasterList({ templates, selected, onSelect, search, onSearchChange }: M
             <span className="admin-master__item-avatar">{t.name.charAt(0).toUpperCase()}</span>
             <div className="admin-master__item-content">
               <span className="admin-master__item-name">{t.name}</span>
-              <span className="te-master__item-meta">v{t.version} • {t.section_count} sections</span>
+              <span className="te-master__item-meta">
+                v{t.version} • {t.section_count} sections
+              </span>
             </div>
             {selected === t.name && (
               <span className="admin-master__item-check">
@@ -285,7 +303,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
   // Update section content
   const updateSection = (section: string, content: string) => {
-    setEditedSections(prev => ({ ...prev, [section]: content }));
+    setEditedSections((prev) => ({ ...prev, [section]: content }));
     setIsDirty(true);
   };
 
@@ -295,12 +313,15 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
     try {
       setSaving(true);
-      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${selectedTemplate.name}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          sections: editedSections,
-        }),
-      });
+      const response = await adminAPI.fetch(
+        `/admin/api/prompts/templates/${selectedTemplate.name}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            sections: editedSections,
+          }),
+        }
+      );
 
       const data = await response.json();
 
@@ -309,7 +330,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         setIsDirty(false);
         fetchTemplates();
         // Update selected template with new hash
-        setSelectedTemplate(prev => prev ? { ...prev, hash: data.new_hash } : null);
+        setSelectedTemplate((prev) => (prev ? { ...prev, hash: data.new_hash } : null));
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to save template' });
       }
@@ -325,20 +346,26 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
     if (!selectedTemplate) return;
 
     try {
-      const response = await adminAPI.fetch(`/admin/api/prompts/templates/${selectedTemplate.name}/preview`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sections: editedSections,
-          variables: previewVariables,
-        }),
-      });
+      const response = await adminAPI.fetch(
+        `/admin/api/prompts/templates/${selectedTemplate.name}/preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            sections: editedSections,
+            variables: previewVariables,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (data.success) {
         setPreviewResult(data.rendered);
         if (data.missing_variables?.length > 0) {
-          setAlert({ type: 'info', message: `Missing variables: ${data.missing_variables.join(', ')}` });
+          setAlert({
+            type: 'info',
+            message: `Missing variables: ${data.missing_variables.join(', ')}`,
+          });
         }
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to preview template' });
@@ -368,49 +395,58 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
   // Editor content (scrollable)
   // Variables panel (collapsible) - rendered separately on mobile
-  const variablesPanel = selectedTemplate && selectedTemplate.variables.length > 0 ? (
-    <div className={`te-variables ${variablesExpanded ? 'te-variables--expanded' : ''}`}>
-      <button
-        type="button"
-        className="te-variables__header"
-        onClick={() => setVariablesExpanded(!variablesExpanded)}
-      >
-        <span>Preview Variables</span>
-        <span className="te-variables__count">{selectedTemplate.variables.length}</span>
-        <svg
-          className="te-variables__chevron"
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
+  const variablesPanel =
+    selectedTemplate && selectedTemplate.variables.length > 0 ? (
+      <div className={`te-variables ${variablesExpanded ? 'te-variables--expanded' : ''}`}>
+        <button
+          type="button"
+          className="te-variables__header"
+          onClick={() => setVariablesExpanded(!variablesExpanded)}
         >
-          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
-      {variablesExpanded && (
-        <div className="te-variables__grid">
-          {selectedTemplate.variables.map(v => (
-            <div key={v} className="te-variables__item">
-              <label>{v}</label>
-              <input
-                type="text"
-                className="admin-input"
-                value={previewVariables[v] || ''}
-                onChange={(e) => setPreviewVariables(prev => ({ ...prev, [v]: e.target.value }))}
-                placeholder={`{${v}}`}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  ) : null;
+          <span>Preview Variables</span>
+          <span className="te-variables__count">{selectedTemplate.variables.length}</span>
+          <svg
+            className="te-variables__chevron"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <path
+              d="M4 6L8 10L12 6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        {variablesExpanded && (
+          <div className="te-variables__grid">
+            {selectedTemplate.variables.map((v) => (
+              <div key={v} className="te-variables__item">
+                <label>{v}</label>
+                <input
+                  type="text"
+                  className="admin-input"
+                  value={previewVariables[v] || ''}
+                  onChange={(e) =>
+                    setPreviewVariables((prev) => ({ ...prev, [v]: e.target.value }))
+                  }
+                  placeholder={`{${v}}`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    ) : null;
 
   const editorContent = selectedTemplate ? (
     <>
       {/* Section Tabs */}
       <div className="te-tabs">
-        {Object.keys(editedSections).map(section => (
+        {Object.keys(editedSections).map((section) => (
           <button
             key={section}
             className={`te-tab ${activeSection === section ? 'te-tab--active' : ''}`}
@@ -440,10 +476,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         <div className="te-preview">
           <div className="te-preview__header">
             Preview Output
-            <button
-              className="te-preview__close"
-              onClick={() => setPreviewResult(null)}
-            >
+            <button className="te-preview__close" onClick={() => setPreviewResult(null)}>
               ×
             </button>
           </div>
@@ -455,11 +488,20 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
   // Empty state content
   const emptyContent = (
-    <div className={isMobile ? "admin-empty" : "admin-detail__empty"}>
-      <div className={isMobile ? "admin-empty__icon" : "admin-detail__empty-icon"} style={{ fontSize: '64px', opacity: 0.5 }}>📝</div>
-      <h3 className={isMobile ? "admin-empty__title" : "admin-detail__empty-title"}>No Template Selected</h3>
-      <p className={isMobile ? "admin-empty__description" : "admin-detail__empty-description"}>
-        {isMobile ? 'Choose a template above to edit' : 'Select a template from the list to edit its sections'}
+    <div className={isMobile ? 'admin-empty' : 'admin-detail__empty'}>
+      <div
+        className={isMobile ? 'admin-empty__icon' : 'admin-detail__empty-icon'}
+        style={{ fontSize: '64px', opacity: 0.5 }}
+      >
+        📝
+      </div>
+      <h3 className={isMobile ? 'admin-empty__title' : 'admin-detail__empty-title'}>
+        No Template Selected
+      </h3>
+      <p className={isMobile ? 'admin-empty__description' : 'admin-detail__empty-description'}>
+        {isMobile
+          ? 'Choose a template above to edit'
+          : 'Select a template from the list to edit its sections'}
       </p>
     </div>
   );
@@ -468,10 +510,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
   const mobileActionBar = selectedTemplate ? (
     <div className="te-actions">
       <div className="te-actions__secondary">
-        <button
-          className="admin-btn admin-btn--secondary"
-          onClick={previewTemplate}
-        >
+        <button className="admin-btn admin-btn--secondary" onClick={previewTemplate}>
           Preview
         </button>
       </div>
@@ -499,7 +538,9 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
               {alert.type === 'info' && 'ℹ'}
             </span>
             <span className="admin-alert__content">{alert.message}</span>
-            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>×</button>
+            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -523,10 +564,15 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
           >
             {selectedTemplate ? (
               <>
-                <span className="te-selector-trigger__avatar">{selectedTemplate.name.charAt(0).toUpperCase()}</span>
+                <span className="te-selector-trigger__avatar">
+                  {selectedTemplate.name.charAt(0).toUpperCase()}
+                </span>
                 <div className="te-selector-trigger__content">
                   <span className="te-selector-trigger__name">{selectedTemplate.name}</span>
-                  <span className="te-selector-trigger__meta">v{selectedTemplate.version} - {Object.keys(selectedTemplate.sections).length} sections</span>
+                  <span className="te-selector-trigger__meta">
+                    v{selectedTemplate.version} - {Object.keys(selectedTemplate.sections).length}{' '}
+                    sections
+                  </span>
                 </div>
                 <span className="te-selector-trigger__change">Change</span>
               </>
@@ -536,8 +582,20 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
                 <span className="te-selector-trigger__placeholder">Select a template to edit</span>
               </>
             )}
-            <svg className="te-selector-trigger__chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg
+              className="te-selector-trigger__chevron"
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+            >
+              <path
+                d="M5 7.5L10 12.5L15 7.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
 
@@ -551,13 +609,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
           />
 
           {/* Editor or Empty State */}
-          {selectedTemplate ? (
-            <div className="te-editor">
-              {editorContent}
-            </div>
-          ) : (
-            emptyContent
-          )}
+          {selectedTemplate ? <div className="te-editor">{editorContent}</div> : emptyContent}
 
           {/* Fixed bottom bar: Variables + Actions */}
           {selectedTemplate && (
@@ -571,7 +623,9 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
         /* TABLET & DESKTOP LAYOUT */
         <div className="admin-master-detail">
           {/* Master Panel (sidebar) */}
-          <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
+          <aside
+            className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}
+          >
             <MasterList
               templates={templates}
               selected={selectedTemplate?.name || null}
@@ -604,25 +658,21 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
                 <div>
                   <h2 className="admin-detail__title">{selectedTemplate.name}</h2>
                   <p className="admin-detail__subtitle">
-                    v{selectedTemplate.version} • {Object.keys(selectedTemplate.sections).length} sections
+                    v{selectedTemplate.version} • {Object.keys(selectedTemplate.sections).length}{' '}
+                    sections
                   </p>
                 </div>
               </div>
             )}
 
             {/* Detail content (scrollable) */}
-            <div className="admin-detail__content">
-              {editorContent || emptyContent}
-            </div>
+            <div className="admin-detail__content">{editorContent || emptyContent}</div>
 
             {/* Action bar (fixed at bottom) */}
             {selectedTemplate && (
               <div className="admin-detail__footer">
                 <div className="admin-detail__footer-secondary">
-                  <button
-                    className="admin-btn admin-btn--secondary"
-                    onClick={previewTemplate}
-                  >
+                  <button className="admin-btn admin-btn--secondary" onClick={previewTemplate}>
                     Preview
                   </button>
                 </div>
@@ -641,10 +691,7 @@ export function TemplateEditor({ embedded = false }: TemplateEditorProps) {
 
           {/* Backdrop for tablet sidebar */}
           {isTablet && !isDesktop && masterPanelOpen && (
-            <div
-              className="te-backdrop"
-              onClick={() => setMasterPanelOpen(false)}
-            />
+            <div className="te-backdrop" onClick={() => setMasterPanelOpen(false)} />
           )}
         </div>
       )}

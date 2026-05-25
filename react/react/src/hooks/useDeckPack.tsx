@@ -30,7 +30,7 @@ export function DeckPackProvider({ children }: { children: ReactNode }) {
   const [activePackId, setActivePackId] = useState(getStoredPack);
 
   const setPackId = useCallback((id: string) => {
-    const pack = DECK_PACKS.find(p => p.id === id);
+    const pack = DECK_PACKS.find((p) => p.id === id);
     if (!pack) return;
     setActivePackId(id);
     try {
@@ -45,7 +45,7 @@ export function DeckPackProvider({ children }: { children: ReactNode }) {
     setCardsActivePack(activePackId);
   }, [activePackId]);
 
-  const activePack = DECK_PACKS.find(p => p.id === activePackId) || DECK_PACKS[0];
+  const activePack = DECK_PACKS.find((p) => p.id === activePackId) || DECK_PACKS[0];
 
   return (
     <DeckPackContext.Provider value={{ activePackId, activePack, setPackId }}>
@@ -61,7 +61,7 @@ export function useDeckPack(): DeckPackContextValue {
     // Fallback for use outside provider (e.g., in utilities)
     return {
       activePackId: getStoredPack(),
-      activePack: DECK_PACKS.find(p => p.id === getStoredPack()) || DECK_PACKS[0],
+      activePack: DECK_PACKS.find((p) => p.id === getStoredPack()) || DECK_PACKS[0],
       setPackId: () => {},
     };
   }

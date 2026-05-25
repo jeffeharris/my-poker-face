@@ -61,9 +61,12 @@ function computeVisualState(data: HandReplayData, actionIndex: number): VisualSt
         if (cards) accumulated.push(...cards);
         if (p === currentPhase) break;
       }
-      communityCards = accumulated.length > 0 ? accumulated
-        : action.community_cards_visible?.length ? [...action.community_cards_visible]
-        : communityCards;
+      communityCards =
+        accumulated.length > 0
+          ? accumulated
+          : action.community_cards_visible?.length
+            ? [...action.community_cards_visible]
+            : communityCards;
     }
 
     const player = playerMap.get(action.player_name);
@@ -122,10 +125,7 @@ export function HandReplayViewer({ data }: HandReplayViewerProps) {
   const totalActions = data.actions.length;
 
   // Compute visual state
-  const visualState = useMemo(
-    () => computeVisualState(data, currentIndex),
-    [data, currentIndex],
-  );
+  const visualState = useMemo(() => computeVisualState(data, currentIndex), [data, currentIndex]);
 
   // Get current enrichment
   const currentEnrichment = useMemo(() => {
@@ -207,9 +207,7 @@ export function HandReplayViewer({ data }: HandReplayViewerProps) {
     <div className="hand-replay-viewer">
       {/* Header info */}
       <div className="hand-replay-viewer__header">
-        <span className="hand-replay-viewer__title">
-          Hand #{data.hand_number}
-        </span>
+        <span className="hand-replay-viewer__title">Hand #{data.hand_number}</span>
         {data.winners.length > 0 && (
           <div className="hand-replay-viewer__winners">
             {data.winners.map((w) => (

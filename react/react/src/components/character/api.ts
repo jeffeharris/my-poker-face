@@ -28,11 +28,11 @@ export interface DossierCashPairStats {
  *  table). The other anchors (ego, recovery_rate, etc.) are
  *  internal plumbing for tilt dynamics and don't add player signal. */
 export interface DossierAnchors {
-  aggression: number | null;     // baseline_aggression — bet/raise frequency
-  looseness: number | null;      // baseline_looseness  — starting range width
-  poise: number | null;          // poise               — tilt resistance
+  aggression: number | null; // baseline_aggression — bet/raise frequency
+  looseness: number | null; // baseline_looseness  — starting range width
+  poise: number | null; // poise               — tilt resistance
   expressiveness: number | null; // expressiveness      — readability at the table
-  risk: number | null;           // risk_identity       — variance tolerance
+  risk: number | null; // risk_identity       — variance tolerance
 }
 
 export interface DossierPersonality {
@@ -138,13 +138,10 @@ export async function fetchNicknameOverrides(): Promise<Record<string, string>> 
   return data?.overrides ?? {};
 }
 
-export async function fetchCharacterDossier(
-  identifier: string,
-): Promise<DossierResponse> {
-  const res = await fetch(
-    `${BASE}/${encodeURIComponent(identifier)}/dossier`,
-    { credentials: 'include' },
-  );
+export async function fetchCharacterDossier(identifier: string): Promise<DossierResponse> {
+  const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/dossier`, {
+    credentials: 'include',
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -154,17 +151,14 @@ export async function fetchCharacterDossier(
 
 export async function saveCharacterNote(
   identifier: string,
-  note: string,
+  note: string
 ): Promise<{ note: string | null }> {
-  const res = await fetch(
-    `${BASE}/${encodeURIComponent(identifier)}/note`,
-    {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note }),
-    },
-  );
+  const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/note`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -179,17 +173,14 @@ export async function saveCharacterNote(
  */
 export async function saveCharacterNicknameOverride(
   identifier: string,
-  nickname: string,
+  nickname: string
 ): Promise<{ nickname_override: string | null }> {
-  const res = await fetch(
-    `${BASE}/${encodeURIComponent(identifier)}/nickname`,
-    {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nickname }),
-    },
-  );
+  const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/nickname`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `HTTP ${res.status}`);

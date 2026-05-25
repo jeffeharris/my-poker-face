@@ -119,7 +119,9 @@
 }
 
 @keyframes prmSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================
@@ -400,11 +402,10 @@
   width: 100px;
 }
 
-.prm-table th:nth-child(n+3),
-.prm-table td:nth-child(n+3) {
+.prm-table th:nth-child(n + 3),
+.prm-table td:nth-child(n + 3) {
   width: 105px;
 }
-
 
 .prm-sort-indicator {
   margin-left: var(--space-1);
@@ -503,8 +504,12 @@
 }
 
 @keyframes prmFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .prm-slideout {
@@ -742,4 +747,3 @@
     justify-content: flex-end;
   }
 }
-

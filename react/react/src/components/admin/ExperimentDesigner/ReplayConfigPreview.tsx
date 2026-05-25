@@ -1,5 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Play, Code, Settings, Plus, Trash2, ChevronDown, ChevronRight, Loader2, AlertCircle, AlertTriangle, Database } from 'lucide-react';
+import {
+  Play,
+  Code,
+  Settings,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  AlertCircle,
+  AlertTriangle,
+  Database,
+} from 'lucide-react';
 import type { ReplayExperimentConfig, ReplayVariantConfig } from './types';
 import { adminFetch } from '../../../utils/api';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
@@ -20,7 +32,12 @@ interface ValidationResult {
   warnings: string[];
 }
 
-export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionId: _sessionId }: ReplayConfigPreviewProps) {
+export function ReplayConfigPreview({
+  config,
+  onConfigUpdate,
+  onLaunch,
+  sessionId: _sessionId,
+}: ReplayConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -241,16 +258,14 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
               >
                 {variantsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 <span>Variants</span>
-                <span className="config-preview__section-badge">
-                  {config.variants.length}
-                </span>
+                <span className="config-preview__section-badge">{config.variants.length}</span>
               </button>
 
               {variantsExpanded && (
                 <div className="config-preview__section-content">
                   <p className="config-preview__help-text">
-                    Each variant will replay the selected captures with different model/prompt settings.
-                    The first variant typically uses original settings as a control.
+                    Each variant will replay the selected captures with different model/prompt
+                    settings. The first variant typically uses original settings as a control.
                   </p>
 
                   {config.variants.map((variant, index) => (
@@ -281,15 +296,19 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
                           <select
                             className="config-preview__select"
                             value={variant.provider || ''}
-                            onChange={(e) => updateVariant(index, {
-                              provider: e.target.value || undefined,
-                              model: undefined,
-                            })}
+                            onChange={(e) =>
+                              updateVariant(index, {
+                                provider: e.target.value || undefined,
+                                model: undefined,
+                              })
+                            }
                             disabled={providersLoading}
                           >
                             <option value="">Original</option>
                             {providers.map((p) => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
                             ))}
                           </select>
                         </label>
@@ -300,11 +319,15 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
                             <select
                               className="config-preview__select"
                               value={variant.model || ''}
-                              onChange={(e) => updateVariant(index, { model: e.target.value || undefined })}
+                              onChange={(e) =>
+                                updateVariant(index, { model: e.target.value || undefined })
+                              }
                             >
                               <option value="">Default</option>
                               {getModelsForProvider(variant.provider).map((model) => (
-                                <option key={model} value={model}>{model}</option>
+                                <option key={model} value={model}>
+                                  {model}
+                                </option>
                               ))}
                             </select>
                           </label>
@@ -317,7 +340,11 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
                           className="config-preview__input config-preview__textarea"
                           rows={2}
                           value={variant.guidance_injection || ''}
-                          onChange={(e) => updateVariant(index, { guidance_injection: e.target.value || undefined })}
+                          onChange={(e) =>
+                            updateVariant(index, {
+                              guidance_injection: e.target.value || undefined,
+                            })
+                          }
                           placeholder="Extra instructions appended to the prompt (optional)"
                         />
                       </label>
@@ -344,9 +371,7 @@ export function ReplayConfigPreview({ config, onConfigUpdate, onLaunch, sessionI
               onChange={(e) => handleJsonChange(e.target.value)}
               spellCheck={false}
             />
-            {jsonError && (
-              <div className="config-preview__json-error">{jsonError}</div>
-            )}
+            {jsonError && <div className="config-preview__json-error">{jsonError}</div>}
           </div>
         )}
       </div>

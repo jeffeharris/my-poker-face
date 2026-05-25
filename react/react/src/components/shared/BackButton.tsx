@@ -28,8 +28,12 @@ export function BackButton({
   label,
   className = '',
 }: BackButtonProps) {
-  const positionClass = position === 'absolute' ? 'back-button--absolute' :
-                        position === 'relative' ? 'back-button--relative' : '';
+  const positionClass =
+    position === 'absolute'
+      ? 'back-button--absolute'
+      : position === 'relative'
+        ? 'back-button--relative'
+        : '';
 
   return (
     <button

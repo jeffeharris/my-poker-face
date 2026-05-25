@@ -4,7 +4,11 @@ import { useViewport } from '../../hooks/useViewport';
 
 function setViewportSize(width: number, height: number) {
   Object.defineProperty(window, 'innerWidth', { value: width, writable: true, configurable: true });
-  Object.defineProperty(window, 'innerHeight', { value: height, writable: true, configurable: true });
+  Object.defineProperty(window, 'innerHeight', {
+    value: height,
+    writable: true,
+    configurable: true,
+  });
 }
 
 describe('VT-09: useViewport hook — returns correct breakpoints', () => {
@@ -13,8 +17,16 @@ describe('VT-09: useViewport hook — returns correct breakpoints', () => {
 
   afterEach(() => {
     // Restore original values
-    Object.defineProperty(window, 'innerWidth', { value: originalInnerWidth, writable: true, configurable: true });
-    Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, writable: true, configurable: true });
+    Object.defineProperty(window, 'innerWidth', {
+      value: originalInnerWidth,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      value: originalInnerHeight,
+      writable: true,
+      configurable: true,
+    });
   });
 
   describe('Mobile viewport (width < 768)', () => {

@@ -9,7 +9,18 @@ import { MobileFilterSheet } from '../shared/MobileFilterSheet';
 import { MobileFilterBar } from '../shared/MobileFilterBar';
 import { FilterSheetContent } from '../shared/FilterSheetContent';
 import { FilterGroup } from '../shared/FilterGroup';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage, LabelStats } from './types';
+import type {
+  PromptCapture,
+  CaptureStats,
+  CaptureFilters,
+  ReplayResponse,
+  DecisionAnalysisStats,
+  ConversationMessage,
+  DecisionAnalysis,
+  DebugMode,
+  InterrogationMessage,
+  LabelStats,
+} from './types';
 import { InterrogationChat } from './InterrogationChat';
 import { PipelineTracePanel } from './PipelineTracePanel';
 import './DecisionAnalyzer.css';
@@ -79,7 +90,7 @@ function formatPosition(pos: string | null | undefined): string {
 // position-only entries so the panel still renders something useful.
 function pairOpponentSeats(
   positionsJson: string | null | undefined,
-  rangesJson: string | null | undefined,
+  rangesJson: string | null | undefined
 ): Array<{ position: string; name: string | null }> {
   const positions = safeJsonParse<string[]>(positionsJson, []);
   const ranges = safeJsonParse<Record<string, unknown>>(rangesJson, {});
@@ -101,7 +112,13 @@ interface DecisionAnalyzerProps {
   onCaptureSelect?: (captureId: number | null) => void;
 }
 
-export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange, initialCaptureId, onCaptureSelect }: DecisionAnalyzerProps) {
+export function DecisionAnalyzer({
+  onBack,
+  embedded = false,
+  onDetailModeChange,
+  initialCaptureId,
+  onCaptureSelect,
+}: DecisionAnalyzerProps) {
   // Viewport detection for responsive layout
   const { isMobile } = useViewport();
 
@@ -185,7 +202,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   // Replay state
   const [modifiedSystemPrompt, setModifiedSystemPrompt] = useState('');
   const [modifiedUserMessage, setModifiedUserMessage] = useState('');
-  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<ConversationMessage[]>([]);
+  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<
+    ConversationMessage[]
+  >([]);
   const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
@@ -202,10 +221,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
   // Provider and model configuration (fetched from API)
   // Using 'system' scope to include system-only models for admin tools
-  const {
-    providers,
-    getModelsForProvider,
-  } = useLLMProviders({ scope: 'system' });
+  const { providers, getModelsForProvider } = useLLMProviders({ scope: 'system' });
   const reasoningLevels = ['minimal', 'low', 'medium', 'high'];
 
   // Build the raw request messages array
@@ -261,26 +277,34 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       if (filters.player_name) params.set('player_name', filters.player_name);
       if (filters.action) params.set('action', filters.action);
       if (filters.phase) params.set('phase', filters.phase);
-      if (filters.min_pot_odds !== undefined) params.set('min_pot_odds', filters.min_pot_odds.toString());
-      if (filters.min_pot_size !== undefined) params.set('min_pot_size', filters.min_pot_size.toString());
-      if (filters.max_pot_size !== undefined) params.set('max_pot_size', filters.max_pot_size.toString());
-      if (filters.min_big_blind !== undefined) params.set('min_big_blind', filters.min_big_blind.toString());
-      if (filters.max_big_blind !== undefined) params.set('max_big_blind', filters.max_big_blind.toString());
-      if (filters.labels && filters.labels.length > 0) params.set('labels', filters.labels.join(','));
+      if (filters.min_pot_odds !== undefined)
+        params.set('min_pot_odds', filters.min_pot_odds.toString());
+      if (filters.min_pot_size !== undefined)
+        params.set('min_pot_size', filters.min_pot_size.toString());
+      if (filters.max_pot_size !== undefined)
+        params.set('max_pot_size', filters.max_pot_size.toString());
+      if (filters.min_big_blind !== undefined)
+        params.set('min_big_blind', filters.min_big_blind.toString());
+      if (filters.max_big_blind !== undefined)
+        params.set('max_big_blind', filters.max_big_blind.toString());
+      if (filters.labels && filters.labels.length > 0)
+        params.set('labels', filters.labels.join(','));
       if (filters.labelMatchAll) params.set('label_match_all', 'true');
       if (filters.error_type) params.set('error_type', filters.error_type);
       if (filters.has_error !== undefined) params.set('has_error', filters.has_error.toString());
-      if (filters.is_correction !== undefined) params.set('is_correction', filters.is_correction.toString());
+      if (filters.is_correction !== undefined)
+        params.set('is_correction', filters.is_correction.toString());
       if (filters.display_emotion) params.set('display_emotion', filters.display_emotion);
-      if (filters.min_tilt_level !== undefined) params.set('min_tilt_level', filters.min_tilt_level.toString());
-      if (filters.max_tilt_level !== undefined) params.set('max_tilt_level', filters.max_tilt_level.toString());
+      if (filters.min_tilt_level !== undefined)
+        params.set('min_tilt_level', filters.min_tilt_level.toString());
+      if (filters.max_tilt_level !== undefined)
+        params.set('max_tilt_level', filters.max_tilt_level.toString());
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/captures?${params}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/captures?${params}`, {
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error('Failed to fetch captures');
@@ -303,10 +327,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       const params = new URLSearchParams();
       if (filters.game_id) params.set('game_id', filters.game_id);
 
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/analysis-stats?${params}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/analysis-stats?${params}`, {
+        credentials: 'include',
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -322,10 +345,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch(
-          `${config.API_URL}/api/prompt-debug/emotions`,
-          { credentials: 'include' }
-        );
+        const response = await fetch(`${config.API_URL}/api/prompt-debug/emotions`, {
+          credentials: 'include',
+        });
         if (response.ok) {
           const data = await response.json();
           setAvailableEmotions(data.emotions || []);
@@ -342,35 +364,43 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   }, [fetchCaptures, fetchAnalysisStats]);
 
   // Get models for a specific provider (with fallback)
-  const getModelsForProviderWithFallback = useCallback((providerId: string): string[] => {
-    const models = getModelsForProvider(providerId);
-    return models.length > 0 ? models : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
-  }, [getModelsForProvider]);
+  const getModelsForProviderWithFallback = useCallback(
+    (providerId: string): string[] => {
+      const models = getModelsForProvider(providerId);
+      return models.length > 0 ? models : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+    },
+    [getModelsForProvider]
+  );
 
   // Handle provider change for replay
-  const handleReplayProviderChange = useCallback((newProvider: string) => {
-    setReplayProvider(newProvider);
-    const models = getModelsForProviderWithFallback(newProvider);
-    if (models.length > 0 && !models.includes(replayModel)) {
-      setReplayModel(models[0]);
-    }
-  }, [getModelsForProviderWithFallback, replayModel]);
+  const handleReplayProviderChange = useCallback(
+    (newProvider: string) => {
+      setReplayProvider(newProvider);
+      const models = getModelsForProviderWithFallback(newProvider);
+      if (models.length > 0 && !models.includes(replayModel)) {
+        setReplayModel(models[0]);
+      }
+    },
+    [getModelsForProviderWithFallback, replayModel]
+  );
 
   // Handle provider change for interrogate
-  const handleInterrogateProviderChange = useCallback((newProvider: string) => {
-    setInterrogateProvider(newProvider);
-    const models = getModelsForProviderWithFallback(newProvider);
-    if (models.length > 0 && !models.includes(interrogateModel)) {
-      setInterrogateModel(models[0]);
-    }
-  }, [getModelsForProviderWithFallback, interrogateModel]);
+  const handleInterrogateProviderChange = useCallback(
+    (newProvider: string) => {
+      setInterrogateProvider(newProvider);
+      const models = getModelsForProviderWithFallback(newProvider);
+      if (models.length > 0 && !models.includes(interrogateModel)) {
+        setInterrogateModel(models[0]);
+      }
+    },
+    [getModelsForProviderWithFallback, interrogateModel]
+  );
 
   const fetchCaptureDetail = async (captureId: number, updateUrl = true) => {
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/captures/${captureId}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/captures/${captureId}`, {
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error('Failed to fetch capture details');
@@ -454,7 +484,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   };
 
   const updateHistoryMessage = (index: number, field: 'role' | 'content', value: string) => {
-    setModifiedConversationHistory(prev => {
+    setModifiedConversationHistory((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value as ConversationMessage['role'] };
       return updated;
@@ -462,11 +492,11 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   };
 
   const removeHistoryMessage = (index: number) => {
-    setModifiedConversationHistory(prev => prev.filter((_, i) => i !== index));
+    setModifiedConversationHistory((prev) => prev.filter((_, i) => i !== index));
   };
 
   const addHistoryMessage = () => {
-    setModifiedConversationHistory(prev => [...prev, { role: 'user', content: '' }]);
+    setModifiedConversationHistory((prev) => [...prev, { role: 'user', content: '' }]);
   };
 
   const formatPotOdds = (potOdds: number | null) => {
@@ -476,12 +506,18 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
   const getActionColor = (action: string | null) => {
     switch (action) {
-      case 'fold': return 'action-fold';
-      case 'check': return 'action-check';
-      case 'call': return 'action-call';
-      case 'raise': return 'action-raise';
-      case 'all_in': return 'action-allin';
-      default: return '';
+      case 'fold':
+        return 'action-fold';
+      case 'check':
+        return 'action-check';
+      case 'call':
+        return 'action-call';
+      case 'raise':
+        return 'action-raise';
+      case 'all_in':
+        return 'action-allin';
+      default:
+        return '';
     }
   };
 
@@ -509,14 +545,14 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   const toggleLabelFilter = (label: string) => {
     const currentLabels = filters.labels || [];
     const newLabels = currentLabels.includes(label)
-      ? currentLabels.filter(l => l !== label)
+      ? currentLabels.filter((l) => l !== label)
       : [...currentLabels, label];
     setFilters({ ...filters, labels: newLabels.length > 0 ? newLabels : undefined, offset: 0 });
   };
 
   // Format label name for display
   const formatLabelName = (label: string) => {
-    return label.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return label.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
   // Get severity class for label
@@ -530,10 +566,20 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
   // Format emotion name for display
   const formatEmotionName = (emotion: string): string =>
-    emotion.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    emotion.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   // Default filter state
-  const DEFAULT_FILTERS: CaptureFilters = { limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined, display_emotion: undefined, min_tilt_level: undefined, max_tilt_level: undefined };
+  const DEFAULT_FILTERS: CaptureFilters = {
+    limit: 50,
+    offset: 0,
+    labels: undefined,
+    error_type: undefined,
+    has_error: undefined,
+    is_correction: undefined,
+    display_emotion: undefined,
+    min_tilt_level: undefined,
+    max_tilt_level: undefined,
+  };
 
   // Get tilt bar color class
   const getTiltBarClass = (tiltLevel: number): string => {
@@ -544,9 +590,15 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
   // Render psychology section (shared between mobile and desktop)
   const renderPsychologySection = (analysis: DecisionAnalysis) => {
-    const hasPsychology = analysis.display_emotion != null || analysis.tilt_level != null ||
-      analysis.valence != null || analysis.arousal != null || analysis.control != null ||
-      analysis.focus != null || analysis.elastic_aggression != null || analysis.elastic_bluff_tendency != null;
+    const hasPsychology =
+      analysis.display_emotion != null ||
+      analysis.tilt_level != null ||
+      analysis.valence != null ||
+      analysis.arousal != null ||
+      analysis.control != null ||
+      analysis.focus != null ||
+      analysis.elastic_aggression != null ||
+      analysis.elastic_bluff_tendency != null;
 
     if (!hasPsychology) return null;
 
@@ -646,7 +698,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
   // Get current capture index in filtered list for prev/next navigation
   const currentCaptureIndex = selectedCapture
-    ? captures.findIndex(c => c.id === selectedCapture.id)
+    ? captures.findIndex((c) => c.id === selectedCapture.id)
     : -1;
 
   const hasPrevCapture = currentCaptureIndex > 0;
@@ -693,14 +745,10 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           <div className="capture-details">
             <span className="capture-phase">{capture.phase}</span>
             <span className="capture-pot">Pot: ${capture.pot_total}</span>
-            <span className="capture-odds">
-              {formatPotOdds(capture.pot_odds)} odds
-            </span>
+            <span className="capture-odds">{formatPotOdds(capture.pot_odds)} odds</span>
           </div>
           {capture.player_hand && capture.player_hand.length > 0 && (
-            <div className="capture-hand">
-              {formatCardsCanonical(capture.player_hand)}
-            </div>
+            <div className="capture-hand">{formatCardsCanonical(capture.player_hand)}</div>
           )}
           {/* Display error info */}
           {capture.error_type && (
@@ -718,15 +766,19 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           {capture.labels && capture.labels.length > 0 && (
             <div className="capture-labels">
               {capture.labels.map(({ label }) => (
-                <span key={label} className={`capture-label capture-label--${getLabelSeverity(label)}`}>
+                <span
+                  key={label}
+                  className={`capture-label capture-label--${getLabelSeverity(label)}`}
+                >
                   {formatLabelName(label)}
                 </span>
               ))}
             </div>
           )}
-          {isSuspiciousFold(capture) && !capture.labels?.some(l => l.label === 'suspicious_fold') && (
-            <div className="suspicious-badge">Suspicious Fold</div>
-          )}
+          {isSuspiciousFold(capture) &&
+            !capture.labels?.some((l) => l.label === 'suspicious_fold') && (
+              <div className="suspicious-badge">Suspicious Fold</div>
+            )}
         </div>
       ))}
 
@@ -735,16 +787,24 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
         <div className="pagination">
           <button
             disabled={filters.offset === 0}
-            onClick={() => setFilters({ ...filters, offset: Math.max(0, (filters.offset || 0) - filters.limit!) })}
+            onClick={() =>
+              setFilters({
+                ...filters,
+                offset: Math.max(0, (filters.offset || 0) - filters.limit!),
+              })
+            }
           >
             Previous
           </button>
           <span>
-            {Math.floor((filters.offset || 0) / filters.limit!) + 1} / {Math.ceil(total / filters.limit!)}
+            {Math.floor((filters.offset || 0) / filters.limit!) + 1} /{' '}
+            {Math.ceil(total / filters.limit!)}
           </span>
           <button
             disabled={(filters.offset || 0) + filters.limit! >= total}
-            onClick={() => setFilters({ ...filters, offset: (filters.offset || 0) + filters.limit! })}
+            onClick={() =>
+              setFilters({ ...filters, offset: (filters.offset || 0) + filters.limit! })
+            }
           >
             Next
           </button>
@@ -754,13 +814,17 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
   );
 
   const content = (
-    <div className={`decision-analyzer${embedded ? ' decision-analyzer--embedded' : ''}${isMobile ? ' decision-analyzer--mobile' : ''}${showMobileDetail ? ' decision-analyzer--showing-detail' : ''}`}>
+    <div
+      className={`decision-analyzer${embedded ? ' decision-analyzer--embedded' : ''}${isMobile ? ' decision-analyzer--mobile' : ''}${showMobileDetail ? ' decision-analyzer--showing-detail' : ''}`}
+    >
       {/* Mobile detail header bar - shows player info and prev/next when viewing detail */}
       {isMobile && showMobileDetail && selectedCapture && (
         <div className="decision-analyzer__detail-bar">
           <div className="decision-analyzer__detail-info">
             <span className="decision-analyzer__detail-player">{selectedCapture.player_name}</span>
-            <span className={`decision-analyzer__detail-action ${getActionColor(ctx.action_taken)}`}>
+            <span
+              className={`decision-analyzer__detail-action ${getActionColor(ctx.action_taken)}`}
+            >
               {ctx.action_taken?.toUpperCase()}
             </span>
           </div>
@@ -774,7 +838,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
             >
               <ChevronLeft size={20} />
             </button>
-            <span className="decision-analyzer__nav-count">{currentCaptureIndex + 1}/{captures.length}</span>
+            <span className="decision-analyzer__nav-count">
+              {currentCaptureIndex + 1}/{captures.length}
+            </span>
             <button
               className="decision-analyzer__nav-btn"
               onClick={goToNextCapture}
@@ -834,7 +900,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
           )}
           {analysisStats.avg_equity_vs_ranges !== null && (
             <div className="stat-item">
-              <span className="stat-value">{(analysisStats.avg_equity_vs_ranges * 100).toFixed(1)}%</span>
+              <span className="stat-value">
+                {(analysisStats.avg_equity_vs_ranges * 100).toFixed(1)}%
+              </span>
               <span className="stat-label">Equity (Ranges)</span>
             </div>
           )}
@@ -883,153 +951,171 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
       {/* Filters - desktop only (mobile filters are in header) */}
       {!isMobile && (
         <div className="debugger-filters">
-            <select
-              value={filters.action || ''}
-              onChange={(e) => setFilters({ ...filters, action: e.target.value || undefined, offset: 0 })}
-            >
-              <option value="">All Actions</option>
-              <option value="fold">Fold</option>
-              <option value="check">Check</option>
-              <option value="call">Call</option>
-              <option value="raise">Raise</option>
-            </select>
+          <select
+            value={filters.action || ''}
+            onChange={(e) =>
+              setFilters({ ...filters, action: e.target.value || undefined, offset: 0 })
+            }
+          >
+            <option value="">All Actions</option>
+            <option value="fold">Fold</option>
+            <option value="check">Check</option>
+            <option value="call">Call</option>
+            <option value="raise">Raise</option>
+          </select>
 
-            <select
-              value={filters.phase || ''}
-              onChange={(e) => setFilters({ ...filters, phase: e.target.value || undefined, offset: 0 })}
-            >
-              <option value="">All Phases</option>
-              <option value="PRE_FLOP">Pre-Flop</option>
-              <option value="FLOP">Flop</option>
-              <option value="TURN">Turn</option>
-              <option value="RIVER">River</option>
-            </select>
+          <select
+            value={filters.phase || ''}
+            onChange={(e) =>
+              setFilters({ ...filters, phase: e.target.value || undefined, offset: 0 })
+            }
+          >
+            <option value="">All Phases</option>
+            <option value="PRE_FLOP">Pre-Flop</option>
+            <option value="FLOP">Flop</option>
+            <option value="TURN">Turn</option>
+            <option value="RIVER">River</option>
+          </select>
 
-            <input
-              type="number"
-              placeholder="Min Pot Odds"
-              value={filters.min_pot_odds || ''}
-              onChange={(e) => setFilters({
+          <input
+            type="number"
+            placeholder="Min Pot Odds"
+            value={filters.min_pot_odds || ''}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 min_pot_odds: e.target.value ? parseFloat(e.target.value) : undefined,
-                offset: 0
-              })}
-            />
+                offset: 0,
+              })
+            }
+          />
 
-            <select
-              value={filters.error_type || ''}
-              onChange={(e) => setFilters({ ...filters, error_type: e.target.value || undefined, offset: 0 })}
-            >
-              <option value="">All Error Types</option>
-              <option value="malformed_json">Malformed JSON</option>
-              <option value="missing_field">Missing Field</option>
-              <option value="invalid_action">Invalid Action</option>
-              <option value="semantic_error">Semantic Error</option>
-            </select>
+          <select
+            value={filters.error_type || ''}
+            onChange={(e) =>
+              setFilters({ ...filters, error_type: e.target.value || undefined, offset: 0 })
+            }
+          >
+            <option value="">All Error Types</option>
+            <option value="malformed_json">Malformed JSON</option>
+            <option value="missing_field">Missing Field</option>
+            <option value="invalid_action">Invalid Action</option>
+            <option value="semantic_error">Semantic Error</option>
+          </select>
 
-            <select
-              value={filters.has_error === undefined ? '' : filters.has_error.toString()}
-              onChange={(e) => setFilters({
+          <select
+            value={filters.has_error === undefined ? '' : filters.has_error.toString()}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 has_error: e.target.value === '' ? undefined : e.target.value === 'true',
-                offset: 0
-              })}
-            >
-              <option value="">All (Errors)</option>
-              <option value="true">Has Error</option>
-              <option value="false">No Error</option>
-            </select>
+                offset: 0,
+              })
+            }
+          >
+            <option value="">All (Errors)</option>
+            <option value="true">Has Error</option>
+            <option value="false">No Error</option>
+          </select>
 
-            <select
-              value={filters.is_correction === undefined ? '' : filters.is_correction.toString()}
-              onChange={(e) => setFilters({
+          <select
+            value={filters.is_correction === undefined ? '' : filters.is_correction.toString()}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 is_correction: e.target.value === '' ? undefined : e.target.value === 'true',
-                offset: 0
-              })}
-            >
-              <option value="">All (Corrections)</option>
-              <option value="false">Original Only</option>
-              <option value="true">Corrections Only</option>
-            </select>
+                offset: 0,
+              })
+            }
+          >
+            <option value="">All (Corrections)</option>
+            <option value="false">Original Only</option>
+            <option value="true">Corrections Only</option>
+          </select>
 
-            <select
-              value={filters.display_emotion || ''}
-              onChange={(e) => setFilters({
+          <select
+            value={filters.display_emotion || ''}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 display_emotion: e.target.value || undefined,
-                offset: 0
-              })}
-            >
-              <option value="">All (Emotion)</option>
-              {availableEmotions.map(e => (
-                <option key={e} value={e}>{formatEmotionName(e)}</option>
-              ))}
-            </select>
+                offset: 0,
+              })
+            }
+          >
+            <option value="">All (Emotion)</option>
+            {availableEmotions.map((e) => (
+              <option key={e} value={e}>
+                {formatEmotionName(e)}
+              </option>
+            ))}
+          </select>
 
-            <input
-              type="number"
-              placeholder="Min Tilt"
-              value={filters.min_tilt_level ?? ''}
-              onChange={(e) => setFilters({
+          <input
+            type="number"
+            placeholder="Min Tilt"
+            value={filters.min_tilt_level ?? ''}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
-                offset: 0
-              })}
-              min={0}
-              max={1}
-              step={0.1}
-              style={{ width: '90px' }}
-            />
+                offset: 0,
+              })
+            }
+            min={0}
+            max={1}
+            step={0.1}
+            style={{ width: '90px' }}
+          />
 
-            <input
-              type="number"
-              placeholder="Max Tilt"
-              value={filters.max_tilt_level ?? ''}
-              onChange={(e) => setFilters({
+          <input
+            type="number"
+            placeholder="Max Tilt"
+            value={filters.max_tilt_level ?? ''}
+            onChange={(e) =>
+              setFilters({
                 ...filters,
                 max_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
-                offset: 0
-              })}
-              min={0}
-              max={1}
-              step={0.1}
-              style={{ width: '90px' }}
-            />
+                offset: 0,
+              })
+            }
+            min={0}
+            max={1}
+            step={0.1}
+            style={{ width: '90px' }}
+          />
 
-            {/* Label filter chips - desktop */}
-            {labelStats && Object.keys(labelStats).length > 0 && (
-              <div className="debugger-filter-chips debugger-filter-chips--inline">
-                {Object.entries(labelStats)
-                  .filter(([, count]) => count > 0)
-                  .map(([label, count]) => (
-                    <button
-                      key={label}
-                      className={`label-chip label-chip--small label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
-                      onClick={() => toggleLabelFilter(label)}
-                      type="button"
-                    >
-                      <span className="label-chip__count">{count}</span>
-                      <span className="label-chip__name">{formatLabelName(label)}</span>
-                    </button>
-                  ))}
-              </div>
-            )}
+          {/* Label filter chips - desktop */}
+          {labelStats && Object.keys(labelStats).length > 0 && (
+            <div className="debugger-filter-chips debugger-filter-chips--inline">
+              {Object.entries(labelStats)
+                .filter(([, count]) => count > 0)
+                .map(([label, count]) => (
+                  <button
+                    key={label}
+                    className={`label-chip label-chip--small label-chip--${getLabelSeverity(label)} ${filters.labels?.includes(label) ? 'label-chip--selected' : ''}`}
+                    onClick={() => toggleLabelFilter(label)}
+                    type="button"
+                  >
+                    <span className="label-chip__count">{count}</span>
+                    <span className="label-chip__name">{formatLabelName(label)}</span>
+                  </button>
+                ))}
+            </div>
+          )}
 
-            <button onClick={() => setFilters(DEFAULT_FILTERS)}>
-              Clear Filters
-            </button>
+          <button onClick={() => setFilters(DEFAULT_FILTERS)}>Clear Filters</button>
 
-            <button
-              className="debugger-refresh-btn debugger-refresh-btn--desktop"
-              onClick={fetchCaptures}
-              disabled={loading}
-              type="button"
-              aria-label="Refresh"
-            >
-              <RefreshCw size={16} className={loading ? 'spinning' : ''} />
-            </button>
-          </div>
+          <button
+            className="debugger-refresh-btn debugger-refresh-btn--desktop"
+            onClick={fetchCaptures}
+            disabled={loading}
+            type="button"
+            aria-label="Refresh"
+          >
+            <RefreshCw size={16} className={loading ? 'spinning' : ''} />
+          </button>
+        </div>
       )}
 
       {error && <div className="debugger-error">{error}</div>}
@@ -1074,7 +1160,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     {selectedCapture.error_type && (
                       <div className="error-info-item">
                         <label>Error Type:</label>
-                        <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
+                        <span className="error-type-value">
+                          {selectedCapture.error_type.replace(/_/g, ' ')}
+                        </span>
                       </div>
                     )}
                     {selectedCapture.error_description && (
@@ -1095,21 +1183,25 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         </button>
                       </div>
                     )}
-                    {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (
-                      <div className="error-info-item">
-                        <label>Correction Attempt:</label>
-                        <span>#{selectedCapture.correction_attempt}</span>
-                      </div>
-                    )}
+                    {selectedCapture.correction_attempt != null &&
+                      selectedCapture.correction_attempt > 0 && (
+                        <div className="error-info-item">
+                          <label>Correction Attempt:</label>
+                          <span>#{selectedCapture.correction_attempt}</span>
+                        </div>
+                      )}
                   </div>
                 )}
 
                 {/* Decision Analysis — equity/EV always, plus pipeline panel for TieredBot */}
                 {selectedAnalysis && (
-                  <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
+                  <div
+                    className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}
+                  >
                     <h4>Decision Analysis</h4>
                     <div className="analysis-grid">
-                      {(selectedAnalysis.player_position || selectedAnalysis.opponent_positions) && (
+                      {(selectedAnalysis.player_position ||
+                        selectedAnalysis.opponent_positions) && (
                         <div className="analysis-item analysis-item--full">
                           <label>Players in hand:</label>
                           <span>
@@ -1124,7 +1216,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                             {(() => {
                               const seats = pairOpponentSeats(
                                 selectedAnalysis.opponent_positions,
-                                selectedAnalysis.opponent_ranges_json,
+                                selectedAnalysis.opponent_ranges_json
                               );
                               if (seats.length === 0) return null;
                               return (
@@ -1156,7 +1248,12 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                             {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                             {selectedAnalysis.opponent_positions && (
                               <span className="opponent-positions">
-                                {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).map(formatPosition).join(', ')})
+                                {' '}
+                                (vs{' '}
+                                {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, [])
+                                  .map(formatPosition)
+                                  .join(', ')}
+                                )
                               </span>
                             )}
                           </span>
@@ -1172,7 +1269,8 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         <div className="analysis-item">
                           <label>EV (Call):</label>
                           <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
-                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}${selectedAnalysis.ev_call.toFixed(0)}
+                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}$
+                            {selectedAnalysis.ev_call.toFixed(0)}
                           </span>
                         </div>
                       )}
@@ -1203,13 +1301,15 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 )}
 
                 {/* TieredBot pipeline trace — additive to the equity view above */}
-                {selectedAnalysis && selectedAnalysis.intervention_trace && selectedAnalysis.intervention_trace.length > 0 && (
-                  <PipelineTracePanel
-                    trace={selectedAnalysis.intervention_trace}
-                    snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
-                    actionTaken={selectedAnalysis.action_taken}
-                  />
-                )}
+                {selectedAnalysis &&
+                  selectedAnalysis.intervention_trace &&
+                  selectedAnalysis.intervention_trace.length > 0 && (
+                    <PipelineTracePanel
+                      trace={selectedAnalysis.intervention_trace}
+                      snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
+                      actionTaken={selectedAnalysis.action_taken}
+                    />
+                  )}
 
                 {/* Psychology */}
                 {selectedAnalysis && renderPsychologySection(selectedAnalysis)}
@@ -1235,12 +1335,14 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                     onClick={() => {
                       setMode('interrogate');
                       if (selectedCapture && interrogationMessages.length === 0) {
-                        setInterrogationMessages([{
-                          id: 'original-decision',
-                          role: 'context',
-                          content: selectedCapture.ai_response,
-                          timestamp: selectedCapture.created_at,
-                        }]);
+                        setInterrogationMessages([
+                          {
+                            id: 'original-decision',
+                            role: 'context',
+                            content: selectedCapture.ai_response,
+                            timestamp: selectedCapture.created_at,
+                          },
+                        ]);
                       }
                     }}
                   >
@@ -1257,23 +1359,47 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           {selectedCapture.provider && <strong>{selectedCapture.provider}</strong>}
                           {selectedCapture.provider && selectedCapture.model && ' / '}
                           {selectedCapture.model}
-                          {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
+                          {selectedCapture.reasoning_effort &&
+                            ` (${selectedCapture.reasoning_effort})`}
                         </span>
                       )}
-                      {selectedCapture.latency_ms && <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>}
+                      {selectedCapture.latency_ms && (
+                        <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>
+                      )}
                       {selectedCapture.estimated_cost != null && (
-                        <span className="cost">Cost: ${selectedCapture.estimated_cost.toFixed(4)}</span>
+                        <span className="cost">
+                          Cost: ${selectedCapture.estimated_cost.toFixed(4)}
+                        </span>
                       )}
                     </div>
                     <div className="token-info-row">
-                      <span className="token-count cached">Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count input">Input: {((selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)).toLocaleString()}</span>
-                      <span className="token-count total-in">Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}</span>
+                      <span className="token-count cached">
+                        Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count input">
+                        Input:{' '}
+                        {(
+                          (selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
+                      <span className="token-count total-in">
+                        Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}
+                      </span>
                     </div>
                     <div className="token-info-row">
-                      <span className="token-count reasoning">Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count output">Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count total-out">Total Out: {((selectedCapture.reasoning_tokens ?? 0) + (selectedCapture.output_tokens ?? 0)).toLocaleString()}</span>
+                      <span className="token-count reasoning">
+                        Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count output">
+                        Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count total-out">
+                        Total Out:{' '}
+                        {(
+                          (selectedCapture.reasoning_tokens ?? 0) +
+                          (selectedCapture.output_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -1285,19 +1411,23 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                       <pre>{selectedCapture.system_prompt}</pre>
                     </div>
 
-                    {selectedCapture.conversation_history && selectedCapture.conversation_history.length > 0 && (
-                      <div className="prompt-section conversation-history">
-                        <h4>Conversation History ({selectedCapture.conversation_history.length} messages)</h4>
-                        <div className="history-messages">
-                          {selectedCapture.conversation_history.map((msg, idx) => (
-                            <div key={idx} className={`history-message ${msg.role}`}>
-                              <span className="message-role">{msg.role}</span>
-                              <pre>{msg.content}</pre>
-                            </div>
-                          ))}
+                    {selectedCapture.conversation_history &&
+                      selectedCapture.conversation_history.length > 0 && (
+                        <div className="prompt-section conversation-history">
+                          <h4>
+                            Conversation History ({selectedCapture.conversation_history.length}{' '}
+                            messages)
+                          </h4>
+                          <div className="history-messages">
+                            {selectedCapture.conversation_history.map((msg, idx) => (
+                              <div key={idx} className={`history-message ${msg.role}`}>
+                                <span className="message-role">{msg.role}</span>
+                                <pre>{msg.content}</pre>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     <div className="prompt-section">
                       <h4>User Message (Current Turn)</h4>
@@ -1338,7 +1468,16 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         <summary>
                           <h4>Raw API Response (click to expand)</h4>
                         </summary>
-                        <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
+                        <pre>
+                          {JSON.stringify(
+                            safeJsonParse<unknown>(
+                              selectedCapture.raw_api_response,
+                              selectedCapture.raw_api_response
+                            ),
+                            null,
+                            2
+                          )}
+                        </pre>
                       </details>
                     )}
                   </div>
@@ -1357,7 +1496,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
                     <div className="prompt-section conversation-history-editor">
                       <div className="history-header">
-                        <h4>Conversation History ({modifiedConversationHistory.length} messages)</h4>
+                        <h4>
+                          Conversation History ({modifiedConversationHistory.length} messages)
+                        </h4>
                         <label className="history-toggle">
                           <input
                             type="checkbox"
@@ -1382,7 +1523,9 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                               </select>
                               <textarea
                                 value={msg.content}
-                                onChange={(e) => updateHistoryMessage(idx, 'content', e.target.value)}
+                                onChange={(e) =>
+                                  updateHistoryMessage(idx, 'content', e.target.value)
+                                }
                                 rows={3}
                                 placeholder="Message content..."
                               />
@@ -1403,7 +1546,8 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
                       {!useHistory && modifiedConversationHistory.length > 0 && (
                         <div className="history-disabled-notice">
-                          {modifiedConversationHistory.length} message(s) will be excluded from replay
+                          {modifiedConversationHistory.length} message(s) will be excluded from
+                          replay
                         </div>
                       )}
                     </div>
@@ -1425,8 +1569,10 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           onChange={(e) => handleReplayProviderChange(e.target.value)}
                         >
                           {providers.length > 0 ? (
-                            providers.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
+                            providers.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
                             ))
                           ) : (
                             <option value="openai">OpenAI</option>
@@ -1439,8 +1585,10 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           value={replayModel}
                           onChange={(e) => setReplayModel(e.target.value)}
                         >
-                          {getModelsForProviderWithFallback(replayProvider).map(model => (
-                            <option key={model} value={model}>{model}</option>
+                          {getModelsForProviderWithFallback(replayProvider).map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -1450,18 +1598,16 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                           value={replayReasoningEffort}
                           onChange={(e) => setReplayReasoningEffort(e.target.value)}
                         >
-                          {reasoningLevels.map(level => (
-                            <option key={level} value={level}>{level}</option>
+                          {reasoningLevels.map((level) => (
+                            <option key={level} value={level}>
+                              {level}
+                            </option>
                           ))}
                         </select>
                       </div>
                     </div>
 
-                    <button
-                      className="replay-button"
-                      onClick={handleReplay}
-                      disabled={replaying}
-                    >
+                    <button className="replay-button" onClick={handleReplay} disabled={replaying}>
                       {replaying ? 'Replaying...' : 'Replay with Changes'}
                     </button>
 
@@ -1479,12 +1625,20 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                         </div>
                         <div className="replay-meta">
                           <strong>{replayResult.provider_used}</strong> / {replayResult.model_used}
-                          {replayResult.reasoning_effort_used && ` (${replayResult.reasoning_effort_used})`}
+                          {replayResult.reasoning_effort_used &&
+                            ` (${replayResult.reasoning_effort_used})`}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
-                          {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
+                          {replayResult.messages_count &&
+                            ` | ${replayResult.messages_count} messages`}
                           {replayResult.used_history !== undefined && (
-                            <span className={replayResult.used_history ? 'history-used' : 'history-skipped'}>
-                              {replayResult.used_history ? ' | History included' : ' | History excluded'}
+                            <span
+                              className={
+                                replayResult.used_history ? 'history-used' : 'history-skipped'
+                              }
+                            >
+                              {replayResult.used_history
+                                ? ' | History included'
+                                : ' | History excluded'}
                             </span>
                           )}
                         </div>
@@ -1513,9 +1667,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 )}
               </>
             ) : (
-              <div className="no-selection">
-                Select a capture from the list to view details
-              </div>
+              <div className="no-selection">Select a capture from the list to view details</div>
             )}
           </div>
         ) : (
@@ -1530,466 +1682,534 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
 
           {/* Detail Panel */}
           <div className="capture-detail">
-          {selectedCapture ? (
-            <>
-              <div className="detail-header">
-                <h3>{selectedCapture.player_name} - {ctx.phase || '-'}</h3>
-                <span className={`detail-action ${getActionColor(ctx.action_taken)}`}>
-                  {ctx.action_taken?.toUpperCase()}
-                  {ctx.raise_amount ? ` $${ctx.raise_amount}` : ''}
-                </span>
-              </div>
+            {selectedCapture ? (
+              <>
+                <div className="detail-header">
+                  <h3>
+                    {selectedCapture.player_name} - {ctx.phase || '-'}
+                  </h3>
+                  <span className={`detail-action ${getActionColor(ctx.action_taken)}`}>
+                    {ctx.action_taken?.toUpperCase()}
+                    {ctx.raise_amount ? ` $${ctx.raise_amount}` : ''}
+                  </span>
+                </div>
 
-              <div className="detail-context">
-                <div className="context-item">
-                  <label>Hand:</label>
-                  <span>{formatCardsCanonical(ctx.player_hand) || '-'}</span>
+                <div className="detail-context">
+                  <div className="context-item">
+                    <label>Hand:</label>
+                    <span>{formatCardsCanonical(ctx.player_hand) || '-'}</span>
+                  </div>
+                  <div className="context-item">
+                    <label>Board:</label>
+                    <span>{formatCardsCanonical(ctx.community_cards) || '-'}</span>
+                  </div>
+                  <div className="context-item">
+                    <label>Pot:</label>
+                    <span>{ctx.pot_total != null ? `$${ctx.pot_total}` : '-'}</span>
+                  </div>
+                  <div className="context-item">
+                    <label>Cost to Call:</label>
+                    <span>{ctx.cost_to_call != null ? `$${ctx.cost_to_call}` : '-'}</span>
+                  </div>
+                  <div className="context-item highlight">
+                    <label>Pot Odds:</label>
+                    <span>{formatPotOdds(ctx.pot_odds)}</span>
+                  </div>
+                  <div className="context-item">
+                    <label>Stack:</label>
+                    <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
+                  </div>
                 </div>
-                <div className="context-item">
-                  <label>Board:</label>
-                  <span>{formatCardsCanonical(ctx.community_cards) || '-'}</span>
-                </div>
-                <div className="context-item">
-                  <label>Pot:</label>
-                  <span>{ctx.pot_total != null ? `$${ctx.pot_total}` : '-'}</span>
-                </div>
-                <div className="context-item">
-                  <label>Cost to Call:</label>
-                  <span>{ctx.cost_to_call != null ? `$${ctx.cost_to_call}` : '-'}</span>
-                </div>
-                <div className="context-item highlight">
-                  <label>Pot Odds:</label>
-                  <span>{formatPotOdds(ctx.pot_odds)}</span>
-                </div>
-                <div className="context-item">
-                  <label>Stack:</label>
-                  <span>{ctx.player_stack != null ? `$${ctx.player_stack}` : '-'}</span>
-                </div>
-              </div>
 
-              {/* Error/Correction Info */}
-              {(selectedCapture.error_type || selectedCapture.parent_id) && (
-                <div className="error-info-panel">
-                  {selectedCapture.error_type && (
-                    <div className="error-info-item">
-                      <label>Error Type:</label>
-                      <span className="error-type-value">{selectedCapture.error_type.replace(/_/g, ' ')}</span>
-                    </div>
-                  )}
-                  {selectedCapture.error_description && (
-                    <div className="error-info-item error-info-item--full">
-                      <label>Error:</label>
-                      <span>{selectedCapture.error_description}</span>
-                    </div>
-                  )}
-                  {selectedCapture.parent_id && (
-                    <div className="error-info-item">
-                      <label>Parent Capture:</label>
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
-                      >
-                        #{selectedCapture.parent_id}
-                      </button>
-                    </div>
-                  )}
-                  {selectedCapture.correction_attempt != null && selectedCapture.correction_attempt > 0 && (
-                    <div className="error-info-item">
-                      <label>Correction Attempt:</label>
-                      <span>#{selectedCapture.correction_attempt}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Decision Analysis — equity/EV always, plus pipeline panel for TieredBot */}
-              {selectedAnalysis && (
-                <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
-                  <h4>Decision Analysis</h4>
-                  <div className="analysis-grid">
-                    {selectedAnalysis.equity != null && (
-                      <div className="analysis-item">
-                        <label>Equity:</label>
-                        <span>{(selectedAnalysis.equity * 100).toFixed(1)}%</span>
-                      </div>
-                    )}
-                    {selectedAnalysis.equity_vs_ranges != null && (
-                      <div className="analysis-item">
-                        <label>Equity vs Ranges:</label>
-                        <span>
-                          {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
-                          {selectedAnalysis.opponent_positions && (
-                            <span className="opponent-positions">
-                              {' '}(vs {safeJsonParse<string[]>(selectedAnalysis.opponent_positions, []).join(', ')})
-                            </span>
-                          )}
+                {/* Error/Correction Info */}
+                {(selectedCapture.error_type || selectedCapture.parent_id) && (
+                  <div className="error-info-panel">
+                    {selectedCapture.error_type && (
+                      <div className="error-info-item">
+                        <label>Error Type:</label>
+                        <span className="error-type-value">
+                          {selectedCapture.error_type.replace(/_/g, ' ')}
                         </span>
                       </div>
                     )}
-                    {selectedAnalysis.required_equity != null && (
-                      <div className="analysis-item">
-                        <label>Required Equity:</label>
-                        <span>{(selectedAnalysis.required_equity * 100).toFixed(1)}%</span>
+                    {selectedCapture.error_description && (
+                      <div className="error-info-item error-info-item--full">
+                        <label>Error:</label>
+                        <span>{selectedCapture.error_description}</span>
                       </div>
                     )}
-                    {selectedAnalysis.ev_call != null && (
-                      <div className="analysis-item">
-                        <label>EV (Call):</label>
-                        <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
-                          {selectedAnalysis.ev_call >= 0 ? '+' : ''}${selectedAnalysis.ev_call.toFixed(0)}
-                        </span>
-                      </div>
-                    )}
-                    {selectedAnalysis.optimal_action && (
-                      <div className="analysis-item">
-                        <label>Optimal Action:</label>
-                        <span className={`optimal-action ${selectedAnalysis.optimal_action}`}>
-                          {selectedAnalysis.optimal_action.toUpperCase()}
-                        </span>
-                      </div>
-                    )}
-                    {selectedAnalysis.decision_quality && (
-                      <div className="analysis-item quality">
-                        <label>Quality:</label>
-                        <span className={`quality-badge ${selectedAnalysis.decision_quality}`}>
-                          {selectedAnalysis.decision_quality.toUpperCase()}
-                        </span>
-                      </div>
-                    )}
-                    {selectedAnalysis.ev_lost != null && selectedAnalysis.ev_lost > 0 && (
-                      <div className="analysis-item">
-                        <label>EV Lost:</label>
-                        <span className="negative">-${selectedAnalysis.ev_lost.toFixed(0)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* TieredBot pipeline trace — additive to the equity view above */}
-              {selectedAnalysis && selectedAnalysis.intervention_trace && selectedAnalysis.intervention_trace.length > 0 && (
-                <PipelineTracePanel
-                  trace={selectedAnalysis.intervention_trace}
-                  snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
-                  actionTaken={selectedAnalysis.action_taken}
-                />
-              )}
-
-              {/* Psychology */}
-              {selectedAnalysis && renderPsychologySection(selectedAnalysis)}
-
-              {/* Prompt Config */}
-              {selectedCapture && renderPromptConfigSection(selectedCapture)}
-
-              <div className="detail-tabs">
-                <button
-                  className={mode === 'view' ? 'active' : ''}
-                  onClick={() => setMode('view')}
-                >
-                  View
-                </button>
-                <button
-                  className={mode === 'replay' ? 'active' : ''}
-                  onClick={() => setMode('replay')}
-                >
-                  Edit & Replay
-                </button>
-                <button
-                  className={mode === 'interrogate' ? 'active' : ''}
-                  onClick={() => {
-                    setMode('interrogate');
-                    // Initialize interrogation with original response as context
-                    if (selectedCapture && interrogationMessages.length === 0) {
-                      setInterrogationMessages([{
-                        id: 'original-decision',
-                        role: 'context',
-                        content: selectedCapture.ai_response,
-                        timestamp: selectedCapture.created_at,
-                      }]);
-                    }
-                  }}
-                >
-                  Interrogate
-                </button>
-              </div>
-
-              {/* Token & Latency Info */}
-              {(selectedCapture.input_tokens || selectedCapture.latency_ms) && (
-                <div className="token-info">
-                  <div className="token-info-row">
-                    {(selectedCapture.provider || selectedCapture.model) && (
-                      <span>
-                        {selectedCapture.provider && <strong>{selectedCapture.provider}</strong>}
-                        {selectedCapture.provider && selectedCapture.model && ' / '}
-                        {selectedCapture.model}
-                        {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
-                      </span>
-                    )}
-                    {selectedCapture.latency_ms && <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>}
-                    {selectedCapture.estimated_cost != null && (
-                      <span className="cost">Cost: ${selectedCapture.estimated_cost.toFixed(4)}</span>
-                    )}
-                  </div>
-                  <div className="token-info-row">
-                    <span className="token-count cached">Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}</span>
-                    <span className="token-count input">Input: {((selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)).toLocaleString()}</span>
-                    <span className="token-count total-in">Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}</span>
-                  </div>
-                  <div className="token-info-row">
-                    <span className="token-count reasoning">Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}</span>
-                    <span className="token-count output">Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}</span>
-                    <span className="token-count total-out">Total Out: {((selectedCapture.reasoning_tokens ?? 0) + (selectedCapture.output_tokens ?? 0)).toLocaleString()}</span>
-                  </div>
-                </div>
-              )}
-
-              {mode === 'view' && (
-                <div className="detail-prompts">
-                  <div className="prompt-section">
-                    <h4>System Prompt</h4>
-                    <pre>{selectedCapture.system_prompt}</pre>
-                  </div>
-
-                  {/* Conversation History */}
-                  {selectedCapture.conversation_history && selectedCapture.conversation_history.length > 0 && (
-                    <div className="prompt-section conversation-history">
-                      <h4>Conversation History ({selectedCapture.conversation_history.length} messages)</h4>
-                      <div className="history-messages">
-                        {selectedCapture.conversation_history.map((msg, idx) => (
-                          <div key={idx} className={`history-message ${msg.role}`}>
-                            <span className="message-role">{msg.role}</span>
-                            <pre>{msg.content}</pre>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="prompt-section">
-                    <h4>User Message (Current Turn)</h4>
-                    <pre>{selectedCapture.user_message}</pre>
-                  </div>
-                  <div className="prompt-section">
-                    <h4>AI Response</h4>
-                    <pre>{selectedCapture.ai_response}</pre>
-                  </div>
-
-                  {/* Download buttons */}
-                  <div className="download-buttons">
-                    <button
-                      className="download-button"
-                      onClick={() => {
-                        const request = buildRawRequest(selectedCapture);
-                        const filename = `request_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
-                        downloadJson(request, filename);
-                      }}
-                    >
-                      Download Request
-                    </button>
-                    {selectedCapture.raw_api_response && (
-                      <button
-                        className="download-button"
-                        onClick={() => {
-                          const response = JSON.parse(selectedCapture.raw_api_response!);
-                          const filename = `response_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
-                          downloadJson(response, filename);
-                        }}
-                      >
-                        Download Response
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Raw API Response - contains reasoning tokens, etc. */}
-                  {selectedCapture.raw_api_response && (
-                    <details className="prompt-section raw-response">
-                      <summary>
-                        <h4>Raw API Response (click to expand)</h4>
-                      </summary>
-                      <pre>{JSON.stringify(safeJsonParse<unknown>(selectedCapture.raw_api_response, selectedCapture.raw_api_response), null, 2)}</pre>
-                    </details>
-                  )}
-                </div>
-              )}
-
-              {mode === 'replay' && (
-                <div className="replay-editor">
-                  <div className="prompt-section">
-                    <h4>System Prompt (editable)</h4>
-                    <textarea
-                      value={modifiedSystemPrompt}
-                      onChange={(e) => setModifiedSystemPrompt(e.target.value)}
-                      rows={10}
-                    />
-                  </div>
-
-                  {/* Conversation History Editor */}
-                  <div className="prompt-section conversation-history-editor">
-                    <div className="history-header">
-                      <h4>Conversation History ({modifiedConversationHistory.length} messages)</h4>
-                      <label className="history-toggle">
-                        <input
-                          type="checkbox"
-                          checked={useHistory}
-                          onChange={(e) => setUseHistory(e.target.checked)}
-                        />
-                        Include in replay
-                      </label>
-                    </div>
-
-                    {useHistory && (
-                      <div className="history-editor">
-                        {modifiedConversationHistory.map((msg, idx) => (
-                          <div key={idx} className="history-message-editor">
-                            <select
-                              value={msg.role}
-                              onChange={(e) => updateHistoryMessage(idx, 'role', e.target.value)}
-                            >
-                              <option value="user">user</option>
-                              <option value="assistant">assistant</option>
-                              <option value="system">system</option>
-                            </select>
-                            <textarea
-                              value={msg.content}
-                              onChange={(e) => updateHistoryMessage(idx, 'content', e.target.value)}
-                              rows={3}
-                              placeholder="Message content..."
-                            />
-                            <button
-                              className="remove-message"
-                              onClick={() => removeHistoryMessage(idx)}
-                              title="Remove message"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        <button className="add-message" onClick={addHistoryMessage}>
-                          + Add Message
+                    {selectedCapture.parent_id && (
+                      <div className="error-info-item">
+                        <label>Parent Capture:</label>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => fetchCaptureDetail(selectedCapture.parent_id!)}
+                        >
+                          #{selectedCapture.parent_id}
                         </button>
                       </div>
                     )}
+                    {selectedCapture.correction_attempt != null &&
+                      selectedCapture.correction_attempt > 0 && (
+                        <div className="error-info-item">
+                          <label>Correction Attempt:</label>
+                          <span>#{selectedCapture.correction_attempt}</span>
+                        </div>
+                      )}
+                  </div>
+                )}
 
-                    {!useHistory && modifiedConversationHistory.length > 0 && (
-                      <div className="history-disabled-notice">
-                        {modifiedConversationHistory.length} message(s) will be excluded from replay
+                {/* Decision Analysis — equity/EV always, plus pipeline panel for TieredBot */}
+                {selectedAnalysis && (
+                  <div
+                    className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}
+                  >
+                    <h4>Decision Analysis</h4>
+                    <div className="analysis-grid">
+                      {selectedAnalysis.equity != null && (
+                        <div className="analysis-item">
+                          <label>Equity:</label>
+                          <span>{(selectedAnalysis.equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.equity_vs_ranges != null && (
+                        <div className="analysis-item">
+                          <label>Equity vs Ranges:</label>
+                          <span>
+                            {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
+                            {selectedAnalysis.opponent_positions && (
+                              <span className="opponent-positions">
+                                {' '}
+                                (vs{' '}
+                                {safeJsonParse<string[]>(
+                                  selectedAnalysis.opponent_positions,
+                                  []
+                                ).join(', ')}
+                                )
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.required_equity != null && (
+                        <div className="analysis-item">
+                          <label>Required Equity:</label>
+                          <span>{(selectedAnalysis.required_equity * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_call != null && (
+                        <div className="analysis-item">
+                          <label>EV (Call):</label>
+                          <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
+                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}$
+                            {selectedAnalysis.ev_call.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.optimal_action && (
+                        <div className="analysis-item">
+                          <label>Optimal Action:</label>
+                          <span className={`optimal-action ${selectedAnalysis.optimal_action}`}>
+                            {selectedAnalysis.optimal_action.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.decision_quality && (
+                        <div className="analysis-item quality">
+                          <label>Quality:</label>
+                          <span className={`quality-badge ${selectedAnalysis.decision_quality}`}>
+                            {selectedAnalysis.decision_quality.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedAnalysis.ev_lost != null && selectedAnalysis.ev_lost > 0 && (
+                        <div className="analysis-item">
+                          <label>EV Lost:</label>
+                          <span className="negative">-${selectedAnalysis.ev_lost.toFixed(0)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* TieredBot pipeline trace — additive to the equity view above */}
+                {selectedAnalysis &&
+                  selectedAnalysis.intervention_trace &&
+                  selectedAnalysis.intervention_trace.length > 0 && (
+                    <PipelineTracePanel
+                      trace={selectedAnalysis.intervention_trace}
+                      snapshot={selectedAnalysis.strategy_pipeline_snapshot ?? null}
+                      actionTaken={selectedAnalysis.action_taken}
+                    />
+                  )}
+
+                {/* Psychology */}
+                {selectedAnalysis && renderPsychologySection(selectedAnalysis)}
+
+                {/* Prompt Config */}
+                {selectedCapture && renderPromptConfigSection(selectedCapture)}
+
+                <div className="detail-tabs">
+                  <button
+                    className={mode === 'view' ? 'active' : ''}
+                    onClick={() => setMode('view')}
+                  >
+                    View
+                  </button>
+                  <button
+                    className={mode === 'replay' ? 'active' : ''}
+                    onClick={() => setMode('replay')}
+                  >
+                    Edit & Replay
+                  </button>
+                  <button
+                    className={mode === 'interrogate' ? 'active' : ''}
+                    onClick={() => {
+                      setMode('interrogate');
+                      // Initialize interrogation with original response as context
+                      if (selectedCapture && interrogationMessages.length === 0) {
+                        setInterrogationMessages([
+                          {
+                            id: 'original-decision',
+                            role: 'context',
+                            content: selectedCapture.ai_response,
+                            timestamp: selectedCapture.created_at,
+                          },
+                        ]);
+                      }
+                    }}
+                  >
+                    Interrogate
+                  </button>
+                </div>
+
+                {/* Token & Latency Info */}
+                {(selectedCapture.input_tokens || selectedCapture.latency_ms) && (
+                  <div className="token-info">
+                    <div className="token-info-row">
+                      {(selectedCapture.provider || selectedCapture.model) && (
+                        <span>
+                          {selectedCapture.provider && <strong>{selectedCapture.provider}</strong>}
+                          {selectedCapture.provider && selectedCapture.model && ' / '}
+                          {selectedCapture.model}
+                          {selectedCapture.reasoning_effort &&
+                            ` (${selectedCapture.reasoning_effort})`}
+                        </span>
+                      )}
+                      {selectedCapture.latency_ms && (
+                        <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>
+                      )}
+                      {selectedCapture.estimated_cost != null && (
+                        <span className="cost">
+                          Cost: ${selectedCapture.estimated_cost.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="token-info-row">
+                      <span className="token-count cached">
+                        Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count input">
+                        Input:{' '}
+                        {(
+                          (selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
+                      <span className="token-count total-in">
+                        Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="token-info-row">
+                      <span className="token-count reasoning">
+                        Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count output">
+                        Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count total-out">
+                        Total Out:{' '}
+                        {(
+                          (selectedCapture.reasoning_tokens ?? 0) +
+                          (selectedCapture.output_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'view' && (
+                  <div className="detail-prompts">
+                    <div className="prompt-section">
+                      <h4>System Prompt</h4>
+                      <pre>{selectedCapture.system_prompt}</pre>
+                    </div>
+
+                    {/* Conversation History */}
+                    {selectedCapture.conversation_history &&
+                      selectedCapture.conversation_history.length > 0 && (
+                        <div className="prompt-section conversation-history">
+                          <h4>
+                            Conversation History ({selectedCapture.conversation_history.length}{' '}
+                            messages)
+                          </h4>
+                          <div className="history-messages">
+                            {selectedCapture.conversation_history.map((msg, idx) => (
+                              <div key={idx} className={`history-message ${msg.role}`}>
+                                <span className="message-role">{msg.role}</span>
+                                <pre>{msg.content}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    <div className="prompt-section">
+                      <h4>User Message (Current Turn)</h4>
+                      <pre>{selectedCapture.user_message}</pre>
+                    </div>
+                    <div className="prompt-section">
+                      <h4>AI Response</h4>
+                      <pre>{selectedCapture.ai_response}</pre>
+                    </div>
+
+                    {/* Download buttons */}
+                    <div className="download-buttons">
+                      <button
+                        className="download-button"
+                        onClick={() => {
+                          const request = buildRawRequest(selectedCapture);
+                          const filename = `request_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
+                          downloadJson(request, filename);
+                        }}
+                      >
+                        Download Request
+                      </button>
+                      {selectedCapture.raw_api_response && (
+                        <button
+                          className="download-button"
+                          onClick={() => {
+                            const response = JSON.parse(selectedCapture.raw_api_response!);
+                            const filename = `response_${selectedCapture.id}_${selectedCapture.player_name}_h${selectedCapture.hand_number || 0}.json`;
+                            downloadJson(response, filename);
+                          }}
+                        >
+                          Download Response
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Raw API Response - contains reasoning tokens, etc. */}
+                    {selectedCapture.raw_api_response && (
+                      <details className="prompt-section raw-response">
+                        <summary>
+                          <h4>Raw API Response (click to expand)</h4>
+                        </summary>
+                        <pre>
+                          {JSON.stringify(
+                            safeJsonParse<unknown>(
+                              selectedCapture.raw_api_response,
+                              selectedCapture.raw_api_response
+                            ),
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+
+                {mode === 'replay' && (
+                  <div className="replay-editor">
+                    <div className="prompt-section">
+                      <h4>System Prompt (editable)</h4>
+                      <textarea
+                        value={modifiedSystemPrompt}
+                        onChange={(e) => setModifiedSystemPrompt(e.target.value)}
+                        rows={10}
+                      />
+                    </div>
+
+                    {/* Conversation History Editor */}
+                    <div className="prompt-section conversation-history-editor">
+                      <div className="history-header">
+                        <h4>
+                          Conversation History ({modifiedConversationHistory.length} messages)
+                        </h4>
+                        <label className="history-toggle">
+                          <input
+                            type="checkbox"
+                            checked={useHistory}
+                            onChange={(e) => setUseHistory(e.target.checked)}
+                          />
+                          Include in replay
+                        </label>
+                      </div>
+
+                      {useHistory && (
+                        <div className="history-editor">
+                          {modifiedConversationHistory.map((msg, idx) => (
+                            <div key={idx} className="history-message-editor">
+                              <select
+                                value={msg.role}
+                                onChange={(e) => updateHistoryMessage(idx, 'role', e.target.value)}
+                              >
+                                <option value="user">user</option>
+                                <option value="assistant">assistant</option>
+                                <option value="system">system</option>
+                              </select>
+                              <textarea
+                                value={msg.content}
+                                onChange={(e) =>
+                                  updateHistoryMessage(idx, 'content', e.target.value)
+                                }
+                                rows={3}
+                                placeholder="Message content..."
+                              />
+                              <button
+                                className="remove-message"
+                                onClick={() => removeHistoryMessage(idx)}
+                                title="Remove message"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <button className="add-message" onClick={addHistoryMessage}>
+                            + Add Message
+                          </button>
+                        </div>
+                      )}
+
+                      {!useHistory && modifiedConversationHistory.length > 0 && (
+                        <div className="history-disabled-notice">
+                          {modifiedConversationHistory.length} message(s) will be excluded from
+                          replay
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="prompt-section">
+                      <h4>User Message (editable)</h4>
+                      <textarea
+                        value={modifiedUserMessage}
+                        onChange={(e) => setModifiedUserMessage(e.target.value)}
+                        rows={15}
+                      />
+                    </div>
+
+                    {/* Provider, Model, and Reasoning Settings */}
+                    <div className="replay-settings">
+                      <div className="setting-group">
+                        <label>Provider:</label>
+                        <select
+                          value={replayProvider}
+                          onChange={(e) => handleReplayProviderChange(e.target.value)}
+                        >
+                          {providers.length > 0 ? (
+                            providers.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="openai">OpenAI</option>
+                          )}
+                        </select>
+                      </div>
+                      <div className="setting-group">
+                        <label>Model:</label>
+                        <select
+                          value={replayModel}
+                          onChange={(e) => setReplayModel(e.target.value)}
+                        >
+                          {getModelsForProviderWithFallback(replayProvider).map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="setting-group">
+                        <label>Reasoning:</label>
+                        <select
+                          value={replayReasoningEffort}
+                          onChange={(e) => setReplayReasoningEffort(e.target.value)}
+                        >
+                          {reasoningLevels.map((level) => (
+                            <option key={level} value={level}>
+                              {level}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <button className="replay-button" onClick={handleReplay} disabled={replaying}>
+                      {replaying ? 'Replaying...' : 'Replay with Changes'}
+                    </button>
+
+                    {replayResult && (
+                      <div className="replay-results">
+                        <div className="replay-comparison">
+                          <div className="comparison-side">
+                            <h4>Original Response</h4>
+                            <pre>{replayResult.original_response}</pre>
+                          </div>
+                          <div className="comparison-side">
+                            <h4>New Response</h4>
+                            <pre>{replayResult.new_response}</pre>
+                          </div>
+                        </div>
+                        <div className="replay-meta">
+                          <strong>{replayResult.provider_used}</strong> / {replayResult.model_used}
+                          {replayResult.reasoning_effort_used &&
+                            ` (${replayResult.reasoning_effort_used})`}
+                          {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
+                          {replayResult.messages_count &&
+                            ` | ${replayResult.messages_count} messages`}
+                          {replayResult.used_history !== undefined && (
+                            <span
+                              className={
+                                replayResult.used_history ? 'history-used' : 'history-skipped'
+                              }
+                            >
+                              {replayResult.used_history
+                                ? ' | History included'
+                                : ' | History excluded'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
+                )}
 
-                  <div className="prompt-section">
-                    <h4>User Message (editable)</h4>
-                    <textarea
-                      value={modifiedUserMessage}
-                      onChange={(e) => setModifiedUserMessage(e.target.value)}
-                      rows={15}
-                    />
-                  </div>
-
-                  {/* Provider, Model, and Reasoning Settings */}
-                  <div className="replay-settings">
-                    <div className="setting-group">
-                      <label>Provider:</label>
-                      <select
-                        value={replayProvider}
-                        onChange={(e) => handleReplayProviderChange(e.target.value)}
-                      >
-                        {providers.length > 0 ? (
-                          providers.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))
-                        ) : (
-                          <option value="openai">OpenAI</option>
-                        )}
-                      </select>
-                    </div>
-                    <div className="setting-group">
-                      <label>Model:</label>
-                      <select
-                        value={replayModel}
-                        onChange={(e) => setReplayModel(e.target.value)}
-                      >
-                        {getModelsForProviderWithFallback(replayProvider).map(model => (
-                          <option key={model} value={model}>{model}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="setting-group">
-                      <label>Reasoning:</label>
-                      <select
-                        value={replayReasoningEffort}
-                        onChange={(e) => setReplayReasoningEffort(e.target.value)}
-                      >
-                        {reasoningLevels.map(level => (
-                          <option key={level} value={level}>{level}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <button
-                    className="replay-button"
-                    onClick={handleReplay}
-                    disabled={replaying}
-                  >
-                    {replaying ? 'Replaying...' : 'Replay with Changes'}
-                  </button>
-
-                  {replayResult && (
-                    <div className="replay-results">
-                      <div className="replay-comparison">
-                        <div className="comparison-side">
-                          <h4>Original Response</h4>
-                          <pre>{replayResult.original_response}</pre>
-                        </div>
-                        <div className="comparison-side">
-                          <h4>New Response</h4>
-                          <pre>{replayResult.new_response}</pre>
-                        </div>
-                      </div>
-                      <div className="replay-meta">
-                        <strong>{replayResult.provider_used}</strong> / {replayResult.model_used}
-                        {replayResult.reasoning_effort_used && ` (${replayResult.reasoning_effort_used})`}
-                        {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
-                        {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
-                        {replayResult.used_history !== undefined && (
-                          <span className={replayResult.used_history ? 'history-used' : 'history-skipped'}>
-                            {replayResult.used_history ? ' | History included' : ' | History excluded'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {mode === 'interrogate' && (
-                <InterrogationChat
-                  capture={selectedCapture}
-                  messages={interrogationMessages}
-                  onMessagesUpdate={setInterrogationMessages}
-                  sessionId={interrogationSessionId}
-                  onSessionIdUpdate={setInterrogationSessionId}
-                  provider={interrogateProvider}
-                  onProviderChange={handleInterrogateProviderChange}
-                  model={interrogateModel}
-                  onModelChange={setInterrogateModel}
-                  reasoningEffort={interrogateReasoningEffort}
-                  onReasoningEffortChange={setInterrogateReasoningEffort}
-                  providers={providers}
-                  getModelsForProvider={getModelsForProviderWithFallback}
-                  reasoningLevels={reasoningLevels}
-                />
-              )}
-            </>
-          ) : (
-            <div className="no-selection">
-              Select a capture from the list to view details
-            </div>
-          )}
+                {mode === 'interrogate' && (
+                  <InterrogationChat
+                    capture={selectedCapture}
+                    messages={interrogationMessages}
+                    onMessagesUpdate={setInterrogationMessages}
+                    sessionId={interrogationSessionId}
+                    onSessionIdUpdate={setInterrogationSessionId}
+                    provider={interrogateProvider}
+                    onProviderChange={handleInterrogateProviderChange}
+                    model={interrogateModel}
+                    onModelChange={setInterrogateModel}
+                    reasoningEffort={interrogateReasoningEffort}
+                    onReasoningEffortChange={setInterrogateReasoningEffort}
+                    providers={providers}
+                    getModelsForProvider={getModelsForProviderWithFallback}
+                    reasoningLevels={reasoningLevels}
+                  />
+                )}
+              </>
+            ) : (
+              <div className="no-selection">Select a capture from the list to view details</div>
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* Mobile Filter Sheet */}
@@ -2001,7 +2221,14 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
         <FilterSheetContent
           accentColor="teal"
           onClear={() => {
-            setFilters({ limit: 50, offset: 0, labels: undefined, error_type: undefined, has_error: undefined, is_correction: undefined });
+            setFilters({
+              limit: 50,
+              offset: 0,
+              labels: undefined,
+              error_type: undefined,
+              has_error: undefined,
+              is_correction: undefined,
+            });
             setFilterSheetOpen(false);
           }}
           onApply={() => setFilterSheetOpen(false)}
@@ -2048,7 +2275,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   min_pot_odds: e.target.value ? parseFloat(e.target.value) : undefined,
-                  offset: 0
+                  offset: 0,
                 });
               }}
             />
@@ -2078,7 +2305,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   has_error: e.target.value === '' ? undefined : e.target.value === 'true',
-                  offset: 0
+                  offset: 0,
                 });
               }}
             >
@@ -2096,7 +2323,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   is_correction: e.target.value === '' ? undefined : e.target.value === 'true',
-                  offset: 0
+                  offset: 0,
                 });
               }}
             >
@@ -2114,13 +2341,15 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   display_emotion: e.target.value || undefined,
-                  offset: 0
+                  offset: 0,
                 });
               }}
             >
               <option value="">All</option>
-              {availableEmotions.map(e => (
-                <option key={e} value={e}>{formatEmotionName(e)}</option>
+              {availableEmotions.map((e) => (
+                <option key={e} value={e}>
+                  {formatEmotionName(e)}
+                </option>
               ))}
             </select>
           </FilterGroup>
@@ -2135,7 +2364,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   min_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
-                  offset: 0
+                  offset: 0,
                 });
               }}
               min={0}
@@ -2154,7 +2383,7 @@ export function DecisionAnalyzer({ onBack, embedded = false, onDetailModeChange,
                 setFilters({
                   ...filters,
                   max_tilt_level: e.target.value ? parseFloat(e.target.value) : undefined,
-                  offset: 0
+                  offset: 0,
                 });
               }}
               min={0}

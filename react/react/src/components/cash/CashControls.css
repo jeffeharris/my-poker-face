@@ -62,7 +62,10 @@
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .cash-controls__leave:hover:not(:disabled) {
@@ -141,4 +144,3 @@
   opacity: 0.7;
   font-style: italic;
 }
-

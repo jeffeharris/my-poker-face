@@ -34,9 +34,9 @@ const SAMPLES: CharacterDossierData[] = [
     affiliation: {
       sponsor: 'Lucius Fox',
       relationship: 'rival',
-      relationshipNote: 'lost a $40k pot to him in March; hasn\'t forgotten',
+      relationshipNote: "lost a $40k pot to him in March; hasn't forgotten",
     },
-    remark: "I don’t bluff. I just let the other players believe whatever they need to.",
+    remark: 'I don’t bluff. I just let the other players believe whatever they need to.',
   },
   {
     name: 'Dolly Parton',
@@ -58,7 +58,7 @@ const SAMPLES: CharacterDossierData[] = [
     name: 'Gordon Ramsay',
     playStyle: 'Maniac',
     attitude: 'volatile — punishes any sign of weakness',
-    remark: "This donkey 3-bet me with seven-deuce off. SEVEN. DEUCE. OFF.",
+    remark: 'This donkey 3-bet me with seven-deuce off. SEVEN. DEUCE. OFF.',
   },
 ];
 
@@ -71,8 +71,7 @@ export function CharacterCardPreview() {
     <div
       style={{
         minHeight: '100vh',
-        background:
-          'radial-gradient(ellipse at top, #1a3a2a 0%, #0c1a14 70%), #050a08',
+        background: 'radial-gradient(ellipse at top, #1a3a2a 0%, #0c1a14 70%), #050a08',
         padding: '64px 24px',
         display: 'grid',
         placeItems: 'center',

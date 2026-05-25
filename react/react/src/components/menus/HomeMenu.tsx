@@ -61,9 +61,7 @@ export function HomeMenu({
             </div>
             <div className="mode-card__content">
               <h2 className="mode-card__title">Tournaments</h2>
-              <p className="mode-card__description">
-                Single table, winner takes all
-              </p>
+              <p className="mode-card__description">Single table, winner takes all</p>
             </div>
             <ChevronRight className="mode-card__arrow" size={22} />
           </button>

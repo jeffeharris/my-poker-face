@@ -20,7 +20,7 @@ export function GameHeader({
   const formatPhase = (p: string): string => {
     return p
       .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join('-');
   };
 
@@ -43,18 +43,14 @@ export function GameHeader({
       {/* Center: Game info */}
       <div className="game-header__center">
         {handNumber !== undefined && (
-          <span className="game-header__info-item">
-            Hand #{handNumber}
-          </span>
+          <span className="game-header__info-item">Hand #{handNumber}</span>
         )}
         <span className="game-header__separator">&#8226;</span>
         <span className="game-header__info-item">
           Blinds {formatCompactCurrency(blinds.small)}/{formatCompactCurrency(blinds.big, false)}
         </span>
         <span className="game-header__separator">&#8226;</span>
-        <span className="game-header__phase-badge">
-          {formatPhase(phase)}
-        </span>
+        <span className="game-header__phase-badge">{formatPhase(phase)}</span>
       </div>
 
       {/* Right: Settings */}

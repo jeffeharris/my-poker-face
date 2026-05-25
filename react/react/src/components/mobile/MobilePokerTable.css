@@ -1,114 +1,126 @@
 /* Register custom property for gradient animation */
 @property --gradient-angle {
-    syntax: '<angle>';
-    initial-value: 0deg;
-    inherits: false;
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
 .mobile-poker-table {
-    display: flex;
-    flex-direction: column;
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh; /* Dynamic viewport height for mobile browsers */
-    background: var(--gradient-bg-main);
-    color: var(--color-text-primary);
-    font-family: var(--font-body);
-    position: fixed;
-    inset: 0;
-    overflow: hidden;
-    /* Fade in slow-to-fast: hides uneven paint during early low-opacity phase,
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile browsers */
+  background: var(--gradient-bg-main);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  /* Fade in slow-to-fast: hides uneven paint during early low-opacity phase,
        then quickly reveals once content has settled. cubic-bezier(0.7, 0, 1, 1)
        keeps opacity low initially, accelerating toward the end. */
-    animation: gameTableFadeIn 2.5s cubic-bezier(0.7, 0, 1, 1);
+  animation: gameTableFadeIn 2.5s cubic-bezier(0.7, 0, 1, 1);
 }
 
 /* Ambient radial glow overlay */
 .mobile-poker-table::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--gradient-bg-radial);
-    pointer-events: none;
-    z-index: 0;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--gradient-bg-radial);
+  pointer-events: none;
+  z-index: 0;
 }
 
 @keyframes gameTableFadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Loading State */
 .mobile-loading {
-    justify-content: center;
-    align-items: center;
+  justify-content: center;
+  align-items: center;
 }
 
 /* Reconnecting Overlay - shows when socket disconnects but we have game state */
 .mobile-reconnecting-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 999;
-    display: flex;
-    justify-content: center;
-    padding-top: max(12px, env(safe-area-inset-top));
-    pointer-events: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
+  display: flex;
+  justify-content: center;
+  padding-top: max(12px, env(safe-area-inset-top));
+  pointer-events: none;
 }
 
 .mobile-reconnecting-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: rgba(10, 11, 16, 0.95);
-    backdrop-filter: blur(12px);
-    border-radius: var(--radius-full);
-    border: 1px solid var(--color-border-default);
-    color: var(--color-text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: var(--font-weight-medium);
-    animation: fadeIn 0.3s var(--ease-out-expo);
-    box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(10, 11, 16, 0.95);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  animation: fadeIn 0.3s var(--ease-out-expo);
+  box-shadow: var(--shadow-lg);
 }
 
 .reconnecting-spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(212, 165, 116, 0.2);
-    border-top-color: var(--color-gold);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(212, 165, 116, 0.2);
+  border-top-color: var(--color-gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .mobile-error {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: #ff6b6b;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #ff6b6b;
 }
 
 /* Header styles now in shared/MobileHeader.css */
 
 /* Spacer for fixed MenuBar (56px + safe area) */
 .menu-bar-spacer {
-    flex-shrink: 0;
-    height: calc(56px + env(safe-area-inset-top, 0px));
-    min-height: calc(56px + env(safe-area-inset-top, 0px));
+  flex-shrink: 0;
+  height: calc(56px + env(safe-area-inset-top, 0px));
+  min-height: calc(56px + env(safe-area-inset-top, 0px));
 }
 
 /* =========================================
@@ -116,10 +128,10 @@
    ========================================= */
 
 .opponents-wrapper {
-    position: relative;
-    height: 35dvh;
-    min-height: 35dvh;
-    max-height: 35dvh;
+  position: relative;
+  height: 35dvh;
+  min-height: 35dvh;
+  max-height: 35dvh;
 }
 
 /* =========================================
@@ -128,457 +140,475 @@
    ========================================= */
 
 .ghost-rail {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 0; /* Behind the main row */
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0; /* Behind the main row */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
 }
 
 /* Individual ghost avatar - small circle */
 .ghost-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    overflow: hidden;
-    /* Faded/spectral effect */
-    opacity: 0.35;
-    filter: saturate(0.25) brightness(0.7);
-    /* Subtle border */
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-    /* For fallback initial */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    /* Entry animation */
-    animation: ghostEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  /* Faded/spectral effect */
+  opacity: 0.35;
+  filter: saturate(0.25) brightness(0.7);
+  /* Subtle border */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  /* For fallback initial */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Entry animation */
+  animation: ghostEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 @keyframes ghostEnter {
-    0% {
-        opacity: 0;
-        transform: scale(1.8) translateY(20px);
-        filter: saturate(0.8) brightness(1);
-    }
-    100% {
-        opacity: 0.35;
-        transform: scale(1) translateY(0);
-        filter: saturate(0.25) brightness(0.7);
-    }
+  0% {
+    opacity: 0;
+    transform: scale(1.8) translateY(20px);
+    filter: saturate(0.8) brightness(1);
+  }
+  100% {
+    opacity: 0.35;
+    transform: scale(1) translateY(0);
+    filter: saturate(0.25) brightness(0.7);
+  }
 }
 
 .ghost-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center 30%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
 }
 
 .ghost-avatar .ghost-initial {
-    font-size: 13px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* Main opponents row sits above the ghost rail */
 .opponents-wrapper .mobile-opponents {
-    position: relative;
-    z-index: 1;
-    height: 100%;
-    min-height: 100%;
-    max-height: 100%;
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
 }
 
 /* Opponents Strip - 35% of viewport */
 .mobile-opponents {
-    display: flex;
-    gap: 8px;
-    padding: 2dvh 16px; /* Top padding accommodates action pills above card edge */
-    padding-bottom: 3dvh; /* Extra space for bet pills below card edge */
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    height: 35dvh;
-    min-height: 35dvh;
-    max-height: 35dvh;
-    align-items: center;
-    /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
-    justify-content: flex-start;
-    box-sizing: border-box;
-    /* z-index layering: dim < avatars < shuffle content < hud < banner < winner */
-    position: relative;
-    z-index: var(--z-dropdown);
+  display: flex;
+  gap: 8px;
+  padding: 2dvh 16px; /* Top padding accommodates action pills above card edge */
+  padding-bottom: 3dvh; /* Extra space for bet pills below card edge */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  height: 35dvh;
+  min-height: 35dvh;
+  max-height: 35dvh;
+  align-items: center;
+  /* Use flex-start to allow full scrolling, center via auto margins on pseudo-elements */
+  justify-content: flex-start;
+  box-sizing: border-box;
+  /* z-index layering: dim < avatars < shuffle content < hud < banner < winner */
+  position: relative;
+  z-index: var(--z-dropdown);
 }
-
 
 /* Spacers that auto-expand to center content when it fits, collapse when it overflows */
 .mobile-opponents::before,
 .mobile-opponents::after {
-    content: '';
-    flex: 1 0 0;
-    min-width: 0;
+  content: '';
+  flex: 1 0 0;
+  min-width: 0;
 }
 
 .mobile-opponents::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
 .mobile-opponent {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end; /* Push info to bottom */
-    padding: 0;
-    background: linear-gradient(
-        145deg,
-        rgba(20, 22, 28, 0.7) 0%,
-        rgba(10, 12, 16, 0.8) 100%
-    );
-    border-radius: var(--radius-xl);
-    width: 30vw;
-    min-width: 30vw;
-    height: calc(35dvh - 5dvh); /* Fill available height minus top (2dvh) + bottom (3dvh) padding */
-    position: relative;
-    border: 1px solid var(--color-border-default);
-    transition: var(--transition-all-base);
-    box-sizing: border-box;
-    overflow: visible; /* Allow bet pills to extend outside */
-    box-shadow: var(--shadow-card);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end; /* Push info to bottom */
+  padding: 0;
+  background: linear-gradient(145deg, rgba(20, 22, 28, 0.7) 0%, rgba(10, 12, 16, 0.8) 100%);
+  border-radius: var(--radius-xl);
+  width: 30vw;
+  min-width: 30vw;
+  height: calc(35dvh - 5dvh); /* Fill available height minus top (2dvh) + bottom (3dvh) padding */
+  position: relative;
+  border: 1px solid var(--color-border-default);
+  transition: var(--transition-all-base);
+  box-sizing: border-box;
+  overflow: visible; /* Allow bet pills to extend outside */
+  box-shadow: var(--shadow-card);
 }
 
 .mobile-opponent.thinking {
-    border-color: var(--color-amber);
-    background: linear-gradient(
-        145deg,
-        rgba(20, 22, 28, 0.8) 0%,
-        rgba(10, 12, 16, 0.9) 100%
-    );
-    width: 50vw;
-    min-width: 50vw;
-    box-shadow: var(--glow-amber), var(--shadow-card);
+  border-color: var(--color-amber);
+  background: linear-gradient(145deg, rgba(20, 22, 28, 0.8) 0%, rgba(10, 12, 16, 0.9) 100%);
+  width: 50vw;
+  min-width: 50vw;
+  box-shadow: var(--glow-amber), var(--shadow-card);
 }
 
 /* Animated border glow around the active player's avatar */
 .mobile-opponent.thinking .opponent-avatar {
-    box-shadow:
-        0 0 0 2px var(--color-amber),
-        0 0 20px rgba(245, 158, 11, 0.4);
+  box-shadow:
+    0 0 0 2px var(--color-amber),
+    0 0 20px rgba(245, 158, 11, 0.4);
 }
 
 /* Sweeping gradient border effect */
 .mobile-opponent.thinking .opponent-avatar::before {
-    content: '';
-    position: absolute;
-    inset: -4px;
-    border-radius: 18px;
-    background: conic-gradient(
-        from var(--gradient-angle, 0deg),
-        transparent 0deg,
-        rgba(245, 158, 11, 0.1) 60deg,
-        var(--color-amber) 120deg,
-        rgba(255, 220, 150, 0.9) 180deg,
-        var(--color-amber) 240deg,
-        rgba(245, 158, 11, 0.1) 300deg,
-        transparent 360deg
-    );
-    animation: sweepGradient 2s linear infinite;
-    z-index: -1;
-    /* Mask to show only the border */
-    -webkit-mask:
-        linear-gradient(#fff 0 0) content-box,
-        linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    padding: 3px;
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 18px;
+  background: conic-gradient(
+    from var(--gradient-angle, 0deg),
+    transparent 0deg,
+    rgba(245, 158, 11, 0.1) 60deg,
+    var(--color-amber) 120deg,
+    rgba(255, 220, 150, 0.9) 180deg,
+    var(--color-amber) 240deg,
+    rgba(245, 158, 11, 0.1) 300deg,
+    transparent 360deg
+  );
+  animation: sweepGradient 2s linear infinite;
+  z-index: -1;
+  /* Mask to show only the border */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 3px;
 }
 
 /* Subtle pulsing glow behind */
 .mobile-opponent.thinking .opponent-avatar::after {
-    content: '';
-    position: absolute;
-    inset: -8px;
-    border-radius: 22px;
-    background: radial-gradient(ellipse, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
-    animation: avatarGlowPulse 2.5s ease-in-out infinite;
-    z-index: -2;
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 22px;
+  background: radial-gradient(ellipse, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
+  animation: avatarGlowPulse 2.5s ease-in-out infinite;
+  z-index: -2;
 }
 
 @keyframes sweepGradient {
-    from { --gradient-angle: 0deg; }
-    to { --gradient-angle: 360deg; }
+  from {
+    --gradient-angle: 0deg;
+  }
+  to {
+    --gradient-angle: 360deg;
+  }
 }
 
 @keyframes avatarGlowPulse {
-    0%, 100% {
-        opacity: 0.5;
-        transform: scale(1);
-    }
-    50% {
-        opacity: 0.8;
-        transform: scale(1.05);
-    }
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
 }
 
 /* Fallback for browsers without @property support (e.g., Safari < 15.4) */
 @supports not (background: conic-gradient(from var(--test, 0deg), red, blue)) {
-    .mobile-opponent.thinking .opponent-avatar::before {
-        background: var(--color-amber);
-        animation: avatarBorderPulse 1.5s ease-in-out infinite;
-    }
+  .mobile-opponent.thinking .opponent-avatar::before {
+    background: var(--color-amber);
+    animation: avatarBorderPulse 1.5s ease-in-out infinite;
+  }
 
-    @keyframes avatarBorderPulse {
-        0%, 100% { opacity: 0.6; }
-        50% { opacity: 1; }
+  @keyframes avatarBorderPulse {
+    0%,
+    100% {
+      opacity: 0.6;
     }
+    50% {
+      opacity: 1;
+    }
+  }
 }
 
 /* Folded players collapse in place with spectral effect */
 .mobile-opponent.folded {
-    width: 14vw;
-    min-width: 14vw;
-    opacity: 0.4;
-    filter: saturate(0.3) brightness(0.85);
-    transition:
-        width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-        min-width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-        opacity 0.3s ease-out,
-        filter 0.3s ease-out;
+  width: 14vw;
+  min-width: 14vw;
+  opacity: 0.4;
+  filter: saturate(0.3) brightness(0.85);
+  transition:
+    width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    min-width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease-out,
+    filter 0.3s ease-out;
 }
 
 /* Hide info section for collapsed folded players */
 .mobile-opponent.folded .opponent-info {
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
 }
 
 /* Keep bet chip visible for folded players so committed amount remains clear */
 .mobile-opponent.folded .opponent-bet {
-    opacity: 0.65;
-    filter: saturate(0.75) brightness(0.9);
+  opacity: 0.65;
+  filter: saturate(0.75) brightness(0.9);
 }
 
 .mobile-opponent.all-in {
-    border-color: var(--color-gold);
-    box-shadow: var(--glow-gold);
+  border-color: var(--color-gold);
+  box-shadow: var(--glow-gold);
 }
 
 .opponent-avatar {
-    /* Fill entire opponent card */
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    border-radius: 14px; /* Match card border radius minus border */
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: clamp(24px, 5dvh, 40px);
-    transition: transform 0.3s ease;
-    overflow: visible; /* Allow dealer badge to overflow */
+  /* Fill entire opponent card */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 14px; /* Match card border radius minus border */
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: clamp(24px, 5dvh, 40px);
+  transition: transform 0.3s ease;
+  overflow: visible; /* Allow dealer badge to overflow */
 }
 
 .opponent-avatar .avatar-image {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center 20%; /* Default: focus on face, tighter crop */
-    border-radius: 14px; /* Match parent to clip image */
-    transition: object-position 0.4s ease;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%; /* Default: focus on face, tighter crop */
+  border-radius: 14px; /* Match parent to clip image */
+  transition: object-position 0.4s ease;
 }
 
 /* Context-aware cropping - wider views for dramatic moments */
 .opponent-avatar .avatar-image--thinking {
-    object-position: center 30%; /* Slightly wider for thinking */
+  object-position: center 30%; /* Slightly wider for thinking */
 }
 
 .opponent-avatar .avatar-image--showdown {
-    object-position: center 40%; /* Even wider for dramatic showdown */
+  object-position: center 40%; /* Even wider for dramatic showdown */
 }
 
 .dealer-badge {
-    position: absolute;
-    bottom: -4px;
-    right: -4px;
-    z-index: 3;
-    width: 27px;
-    height: 27px;
-    background: var(--gradient-gold-shine);
-    color: var(--color-bg-void);
-    border-radius: 50%;
-    font-family: var(--font-display);
-    font-size: 13px;
-    font-weight: var(--font-weight-bold);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 2px solid var(--color-gold-bright);
-    box-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  z-index: 3;
+  width: 27px;
+  height: 27px;
+  background: var(--gradient-gold-shine);
+  color: var(--color-bg-void);
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-gold-bright);
+  box-shadow: 0 0 12px rgba(212, 165, 116, 0.4);
 }
 
 /* Rule-bot badge (CaseBot, GTO-Lite, BaselineSolver) */
 .bot-badge {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    z-index: 3;
-    width: 20px;
-    height: 20px;
-    background: var(--color-bg-void, #0a0a0a);
-    color: var(--color-text-primary, #e5e5e5);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1.5px solid var(--color-text-secondary, #9ca3af);
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  background: var(--color-bg-void, #0a0a0a);
+  color: var(--color-text-primary, #e5e5e5);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--color-text-secondary, #9ca3af);
 }
 
 /* AI Debug mode - tappable avatars */
 .opponent-avatar.debug-enabled {
-    cursor: pointer;
+  cursor: pointer;
 }
 
 .opponent-avatar.debug-enabled:active {
-    transform: scale(0.95);
+  transform: scale(0.95);
 }
 
 /* Dossier mode — every opponent avatar is tappable to open the
    character detail card. Subtle press feedback only, no badge,
    so it doesn't pull focus from gameplay. */
 .opponent-avatar.dossier-enabled {
-    cursor: pointer;
+  cursor: pointer;
 }
 .opponent-avatar.dossier-enabled:active {
-    transform: scale(0.96);
+  transform: scale(0.96);
 }
 .opponent-avatar.dossier-enabled:focus-visible {
-    outline: 2px solid #e2bf6f;
-    outline-offset: 3px;
-    border-radius: 50%;
+  outline: 2px solid #e2bf6f;
+  outline-offset: 3px;
+  border-radius: 50%;
 }
 
 /* Debug badge indicator (phosphor green dot) */
 .debug-badge {
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    z-index: 4;
-    width: 12px;
-    height: 12px;
-    background: #39ff14;
-    border-radius: 50%;
-    border: 2px solid #0a0a0a;
-    box-shadow:
-        0 0 4px rgba(57, 255, 20, 0.8),
-        0 0 8px rgba(57, 255, 20, 0.4);
-    animation: debug-pulse 2s ease-in-out infinite;
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  z-index: 4;
+  width: 12px;
+  height: 12px;
+  background: #39ff14;
+  border-radius: 50%;
+  border: 2px solid #0a0a0a;
+  box-shadow:
+    0 0 4px rgba(57, 255, 20, 0.8),
+    0 0 8px rgba(57, 255, 20, 0.4);
+  animation: debug-pulse 2s ease-in-out infinite;
 }
 
 @keyframes debug-pulse {
-    0%, 100% {
-        box-shadow:
-            0 0 4px rgba(57, 255, 20, 0.8),
-            0 0 8px rgba(57, 255, 20, 0.4);
-    }
-    50% {
-        box-shadow:
-            0 0 6px rgba(57, 255, 20, 1),
-            0 0 12px rgba(57, 255, 20, 0.6);
-    }
+  0%,
+  100% {
+    box-shadow:
+      0 0 4px rgba(57, 255, 20, 0.8),
+      0 0 8px rgba(57, 255, 20, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 6px rgba(57, 255, 20, 1),
+      0 0 12px rgba(57, 255, 20, 0.6);
+  }
 }
 
 .opponent-info {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    position: relative;
-    z-index: 2; /* Above avatar */
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
-    padding: 20px 12px 8px 12px;
-    width: 100%;
-    box-sizing: border-box;
-    border-radius: 0 0 calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px); /* Match card bottom corners */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+  z-index: 2; /* Above avatar */
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  padding: 20px 12px 8px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 0 0 calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px); /* Match card bottom corners */
 }
 
 .opponent-name {
-    font-family: var(--font-display);
-    font-size: clamp(14px, 2.5dvh, 20px);
-    font-weight: var(--font-weight-semibold);
-    max-width: 112px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-    color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(14px, 2.5dvh, 20px);
+  font-weight: var(--font-weight-semibold);
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  color: var(--color-text-primary);
 }
 
 .opponent-stack {
-    font-family: var(--font-mono);
-    font-size: clamp(11px, 1.8dvh, 16px);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-    color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.8dvh, 16px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  color: var(--color-text-secondary);
 }
 
 .opponent-bet {
-    position: absolute;
-    bottom: -2.25dvh;
-    z-index: 10;
-    background: var(--gradient-gold);
-    color: var(--color-bg-void);
-    font-family: var(--font-mono);
-    font-size: clamp(11px, 1.8dvh, 15px);
-    font-weight: var(--font-weight-semibold);
-    padding: clamp(2px, 0.5dvh, 4px) clamp(8px, 1.2dvh, 12px);
-    border-radius: var(--radius-full);
-    box-shadow: 0 0 12px rgba(212, 165, 116, 0.3), var(--shadow-sm);
+  position: absolute;
+  bottom: -2.25dvh;
+  z-index: 10;
+  background: var(--gradient-gold);
+  color: var(--color-bg-void);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.8dvh, 15px);
+  font-weight: var(--font-weight-semibold);
+  padding: clamp(2px, 0.5dvh, 4px) clamp(8px, 1.2dvh, 12px);
+  border-radius: var(--radius-full);
+  box-shadow:
+    0 0 12px rgba(212, 165, 116, 0.3),
+    var(--shadow-sm);
 }
 
 /* Action Badge - mobile layout (colors in shared action-badges.css) */
 .mobile-opponent .action-badge {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 15;
-    font-family: var(--font-display);
-    font-size: clamp(9px, 1.5dvh, 12px);
-    font-weight: var(--font-weight-bold);
-    padding: clamp(3px, 0.5dvh, 5px) clamp(8px, 1.2dvh, 12px);
-    border-radius: var(--radius-full);
-    text-transform: uppercase;
-    letter-spacing: var(--letter-spacing-wide);
-    white-space: nowrap;
-    backdrop-filter: blur(8px);
-    animation: mobileBadgeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  font-family: var(--font-display);
+  font-size: clamp(9px, 1.5dvh, 12px);
+  font-weight: var(--font-weight-bold);
+  padding: clamp(3px, 0.5dvh, 5px) clamp(8px, 1.2dvh, 12px);
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  animation: mobileBadgeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Override shared animations to preserve translate(-50%, -50%) positioning */
 .mobile-opponent .action-badge.fading {
-    animation: mobileBadgeFadeOut 2s ease-out forwards;
+  animation: mobileBadgeFadeOut 2s ease-out forwards;
 }
 
 @keyframes mobileBadgeIn {
-    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
-    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 @keyframes mobileBadgeFadeOut {
-    0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
 }
 
 /* Floating Pot Display - between opponents and community cards */
@@ -599,7 +629,9 @@
   padding: var(--space-1) var(--space-4);
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid rgba(212, 165, 116, 0.3);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 20px rgba(212, 165, 116, 0.15);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(212, 165, 116, 0.15);
 }
 
 .mobile-floating-pot .mobile-pot__label {
@@ -610,247 +642,245 @@
   font-size: var(--font-size-lg);
 }
 
-
 /* Community Cards - 21% of viewport (compact layout) */
 .mobile-community {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 0 8px;
-    height: 21dvh;
-    min-height: 21dvh;
-    max-height: 21dvh;
-    box-sizing: border-box;
-    position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  height: 21dvh;
+  min-height: 21dvh;
+  max-height: 21dvh;
+  box-sizing: border-box;
+  position: relative;
 }
 
 .community-cards-row {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-    width: 100%;
-    padding: 0 4px;
-    box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  width: 100%;
+  padding: 0 4px;
+  box-sizing: border-box;
 }
 
 /* Community cards fill grid cell, constrained by section height */
 .community-cards-row .playing-card.image-card,
 .community-cards-row .playing-card.card-back {
-    box-sizing: border-box !important;
-    width: 100% !important;
-    height: auto !important;
-    max-height: 26dvh;
-    aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: 26dvh;
+  aspect-ratio: 500 / 726; /* Match PNG aspect ratio */
 }
 
 .community-cards-row .playing-card .card-image {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: contain;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
 }
 
 /* Community card slot - stacks placeholder and card */
 .community-card-slot {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 500 / 726;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 500 / 726;
 }
 
 /* Community card placeholder - fills grid cell */
 .community-card-placeholder {
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.05);
-    border: 2px dashed rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    box-sizing: border-box;
-    transition: opacity 0.3s ease-out;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition: opacity 0.3s ease-out;
 }
 
 .community-card-placeholder.hidden {
-    opacity: 0;
+  opacity: 0;
 }
 
 .community-card-placeholder.fade-out-delayed {
-    animation: placeholderFadeOut 0.4s ease-out both;
+  animation: placeholderFadeOut 0.4s ease-out both;
 }
 
 @keyframes placeholderFadeOut {
-    0% { opacity: 1; }
-    100% { opacity: 0; }
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* Card overlay - positioned on top of placeholder */
 .community-card-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
-
 
 /* Hero Section - 29% of viewport (action bar overlays bottom 12%) */
 .mobile-hero {
-    padding: 4px 16px 0 16px;
-    background: linear-gradient(
-        to top,
-        rgba(10, 11, 16, 0.6) 0%,
-        rgba(15, 17, 24, 0.4) 100%
-    );
-    border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
-    border: 2px solid transparent;
-    border-bottom: none;
-    transition: var(--transition-all-base);
-    height: 29dvh;
-    min-height: 29dvh;
-    max-height: 29dvh;
-    box-sizing: border-box;
-    position: relative;
-    z-index: 1;
-    overflow: visible; /* Allow bet chip to overflow above */
+  padding: 4px 16px 0 16px;
+  background: linear-gradient(to top, rgba(10, 11, 16, 0.6) 0%, rgba(15, 17, 24, 0.4) 100%);
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 2px solid transparent;
+  border-bottom: none;
+  transition: var(--transition-all-base);
+  height: 29dvh;
+  min-height: 29dvh;
+  max-height: 29dvh;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+  overflow: visible; /* Allow bet chip to overflow above */
 }
 
 /* Hero active turn state - matches opponent thinking glow */
 .mobile-hero.active-turn {
-    border-color: var(--color-emerald);
-    box-shadow: inset 0 0 30px rgba(52, 211, 153, 0.2);
-    animation: currentPlayerPulse 2s ease-in-out infinite;
+  border-color: var(--color-emerald);
+  box-shadow: inset 0 0 30px rgba(52, 211, 153, 0.2);
+  animation: currentPlayerPulse 2s ease-in-out infinite;
 }
 
 /* Hero folded state */
 .mobile-hero.folded {
-    opacity: 0.5;
-    filter: grayscale(0.3);
+  opacity: 0.5;
+  filter: grayscale(0.3);
 }
 
 .mobile-hero.folded .hero-cards {
-    opacity: 0.4;
+  opacity: 0.4;
 }
 
 .hero-info {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    height: 5.75dvh; /* 25% of usable hero space (23dvh) */
-    min-height: 5.75dvh;
-    flex-shrink: 0;
-    margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 5.75dvh; /* 25% of usable hero space (23dvh) */
+  min-height: 5.75dvh;
+  flex-shrink: 0;
+  margin-top: 8px;
 }
 
 .hero-name {
-    font-family: var(--font-display);
-    font-size: clamp(14px, 2dvh, 18px);
-    font-weight: var(--font-weight-semibold);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: clamp(14px, 2dvh, 18px);
+  font-weight: var(--font-weight-semibold);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-primary);
 }
 
 .dealer-chip {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 10;
-    width: 26px;
-    height: 26px;
-    background: var(--gradient-gold-shine);
-    color: var(--color-bg-void);
-    border-radius: 50%;
-    font-family: var(--font-display);
-    font-size: 12px;
-    font-weight: var(--font-weight-bold);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 2px solid var(--color-gold-bright);
-    box-shadow: 0 0 12px rgba(212, 165, 116, 0.5);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  width: 26px;
+  height: 26px;
+  background: var(--gradient-gold-shine);
+  color: var(--color-bg-void);
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-gold-bright);
+  box-shadow: 0 0 12px rgba(212, 165, 116, 0.5);
 }
 
 .hero-stack {
-    font-family: var(--font-mono);
-    font-size: clamp(16px, 2.5dvh, 22px);
-    font-weight: var(--font-weight-bold);
-    color: var(--color-gold-light);
-    text-shadow: 0 0 16px rgba(212, 165, 116, 0.3);
+  font-family: var(--font-mono);
+  font-size: clamp(16px, 2.5dvh, 22px);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold-light);
+  text-shadow: 0 0 16px rgba(212, 165, 116, 0.3);
 }
 
 .hero-bet {
-    /* Position at top of hero section, above the player name */
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 10;
+  /* Position at top of hero section, above the player name */
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
 
-    font-family: var(--font-mono);
-    font-size: clamp(12px, 2dvh, 16px);
-    font-weight: var(--font-weight-bold);
-    color: var(--color-bg-void);
-    background: var(--gradient-gold);
-    padding: clamp(4px, 0.8dvh, 8px) clamp(12px, 2dvh, 20px);
-    border-radius: var(--radius-full);
-    box-shadow:
-        0 0 16px rgba(212, 165, 116, 0.5),
-        0 4px 12px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    border: 2px solid var(--color-gold-bright);
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 2dvh, 16px);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-bg-void);
+  background: var(--gradient-gold);
+  padding: clamp(4px, 0.8dvh, 8px) clamp(12px, 2dvh, 20px);
+  border-radius: var(--radius-full);
+  box-shadow:
+    0 0 16px rgba(212, 165, 116, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--color-gold-bright);
 }
 
 .hero-cards {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    align-items: flex-end; /* Align to bottom so cards extend behind action bar */
-    flex: 1;
-    overflow: visible; /* Allow cards to extend beyond container */
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: flex-end; /* Align to bottom so cards extend behind action bar */
+  flex: 1;
+  overflow: visible; /* Allow cards to extend beyond container */
 }
 
 /* Hero cards extend behind action bar - show top 50-66% */
 .hero-cards .playing-card.image-card,
 .hero-cards .playing-card.card-back {
-    height: 28dvh !important; /* Smaller cards, bottom aligned */
-    width: auto !important;
-    aspect-ratio: 500 / 726;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  height: 28dvh !important; /* Smaller cards, bottom aligned */
+  width: auto !important;
+  aspect-ratio: 500 / 726;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .hero-cards .playing-card .card-image {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover;
-    object-position: top; /* Show top portion of card */
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  object-position: top; /* Show top portion of card */
 }
 
 .card-placeholder {
-    height: 35dvh;
-    aspect-ratio: 500 / 726;
-    background: linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%);
-    border-radius: 4px;
-    border: 2px dashed rgba(255, 255, 255, 0.2);
+  height: 35dvh;
+  aspect-ratio: 500 / 726;
+  background: linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%);
+  border-radius: 4px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
 }
 
 /* Action Area - 12% of viewport */
 .mobile-action-area {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    z-index: var(--z-sticky);
-    height: 12dvh;
-    min-height: 12dvh;
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: var(--z-sticky);
+  height: 12dvh;
+  min-height: 12dvh;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 /* Chat Sheet - Now handled by MobileChatSheet component */
@@ -869,11 +899,7 @@
 
 .quick-chat-modal {
   width: 100%;
-  background: linear-gradient(
-    180deg,
-    rgba(20, 22, 30, 0.98) 0%,
-    rgba(10, 11, 16, 0.99) 100%
-  );
+  background: linear-gradient(180deg, rgba(20, 22, 30, 0.98) 0%, rgba(10, 11, 16, 0.99) 100%);
   border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
   overflow: hidden;
   animation: slideUp 0.3s var(--ease-out-expo);
@@ -913,8 +939,12 @@
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* Card deal animation - simulates cards sliding across felt table
@@ -927,7 +957,8 @@
 @keyframes dealCardIn {
   0% {
     opacity: 0;
-    transform: translateX(-100px) translateY(var(--deal-offset-y)) rotate(var(--deal-start-rotation)) scale(0.98);
+    transform: translateX(-100px) translateY(var(--deal-offset-y))
+      rotate(var(--deal-start-rotation)) scale(0.98);
     filter: blur(0.5px);
   }
   20% {
@@ -937,12 +968,12 @@
   75% {
     /* Slight overshoot past landing position */
     transform: translateX(calc(var(--deal-offset-x) + 6px)) translateY(var(--deal-offset-y))
-               rotate(calc(var(--deal-rotation) + 1deg)) scale(1);
+      rotate(calc(var(--deal-rotation) + 1deg)) scale(1);
   }
   100% {
     /* Final settled position */
     transform: translateX(var(--deal-offset-x)) translateY(var(--deal-offset-y))
-               rotate(var(--deal-rotation)) scale(1);
+      rotate(var(--deal-rotation)) scale(1);
   }
 }
 
@@ -957,35 +988,36 @@
   0% {
     opacity: 1;
     transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
-               rotate(var(--exit-start-rotation)) scale(1);
+      rotate(var(--exit-start-rotation)) scale(1);
   }
   40% {
     /* Card 1 converges toward card 2 position */
     opacity: 1;
     transform: translateX(var(--exit-converge-x)) translateY(var(--exit-start-y))
-               rotate(calc(var(--exit-start-rotation) + 5deg)) scale(1);
+      rotate(calc(var(--exit-start-rotation) + 5deg)) scale(1);
   }
   100% {
     /* Sweep off right side */
     opacity: 0;
     transform: translateX(150px) translateY(var(--exit-start-y))
-               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+      rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
     filter: blur(0.5px);
   }
 }
 
 @keyframes dealCardOut2 {
-  0%, 40% {
+  0%,
+  40% {
     /* Wait for card 1 to arrive */
     opacity: 1;
     transform: translateX(var(--exit-start-x)) translateY(var(--exit-start-y))
-               rotate(var(--exit-start-rotation)) scale(1);
+      rotate(var(--exit-start-rotation)) scale(1);
   }
   100% {
     /* Sweep off right side together */
     opacity: 0;
     transform: translateX(150px) translateY(var(--exit-start-y))
-               rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
+      rotate(calc(var(--exit-start-rotation) + 15deg)) scale(0.95);
     filter: blur(0.5px);
   }
 }
@@ -1095,7 +1127,8 @@
 }
 
 /* Active player grows while other two naturally shrink */
-.mobile-opponents.three-opponents-mode .mobile-opponent.three-opponents-avatar.thinking:not(.folded) {
+.mobile-opponents.three-opponents-mode
+  .mobile-opponent.three-opponents-avatar.thinking:not(.folded) {
   width: auto;
   min-width: 0;
   max-width: none;
@@ -1133,7 +1166,9 @@
   min-width: 0;
   flex: 0 0 calc(55% - 6px);
   max-width: calc(55% - 6px);
-  transition: flex 0.3s ease-out, max-width 0.3s ease-out;
+  transition:
+    flex 0.3s ease-out,
+    max-width 0.3s ease-out;
 }
 
 /* =================================

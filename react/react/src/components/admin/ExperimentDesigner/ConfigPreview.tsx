@@ -1,6 +1,31 @@
 import { useState, useEffect } from 'react';
-import { Play, Code, Settings, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, AlertTriangle, Loader2, Plus, Trash2, FlaskConical, Zap, Users, Tag, X, Shuffle } from 'lucide-react';
-import type { ExperimentConfig, PromptConfig, ControlConfig, VariantConfig, ConfigVersion, PromptPreset } from './types';
+import {
+  Play,
+  Code,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  AlertCircle,
+  AlertTriangle,
+  Loader2,
+  Plus,
+  Trash2,
+  FlaskConical,
+  Zap,
+  Users,
+  Tag,
+  X,
+  Shuffle,
+} from 'lucide-react';
+import type {
+  ExperimentConfig,
+  PromptConfig,
+  ControlConfig,
+  VariantConfig,
+  ConfigVersion,
+  PromptPreset,
+} from './types';
 import { DEFAULT_PROMPT_CONFIG } from './types';
 import { adminFetch } from '../../../utils/api';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
@@ -51,7 +76,15 @@ const PROMPT_CONFIG_LABELS: Record<keyof PromptConfig, string> = {
   memory_keep_exchanges: 'Memory Exchanges',
 };
 
-export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, configVersions, currentVersionIndex, onVersionChange }: ConfigPreviewProps) {
+export function ConfigPreview({
+  config,
+  onConfigUpdate,
+  onLaunch,
+  sessionId,
+  configVersions,
+  currentVersionIndex,
+  onVersionChange,
+}: ConfigPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('form');
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -106,7 +139,6 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     };
     fetchPresets();
   }, []);
-
 
   // Sync JSON text when config changes (if in form mode)
   useEffect(() => {
@@ -210,7 +242,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
-    onConfigUpdate({ tags: config.tags.filter(t => t !== tagToRemove) });
+    onConfigUpdate({ tags: config.tags.filter((t) => t !== tagToRemove) });
   };
 
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
@@ -224,7 +256,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
   const handlePersonalityToggle = (personality: string) => {
     const current = config.personalities || [];
     if (current.includes(personality)) {
-      const updated = current.filter(p => p !== personality);
+      const updated = current.filter((p) => p !== personality);
       onConfigUpdate({ personalities: updated.length > 0 ? updated : null });
     } else {
       onConfigUpdate({ personalities: [...current, personality] });
@@ -274,7 +306,11 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     onConfigUpdate({ variants: [...variants, newVariant] });
   };
 
-  const handleVariantUpdate = (index: number, field: keyof VariantConfig, value: string | boolean | number | undefined) => {
+  const handleVariantUpdate = (
+    index: number,
+    field: keyof VariantConfig,
+    value: string | boolean | number | undefined
+  ) => {
     const variants = [...(config.variants || [])];
     variants[index] = { ...variants[index], [field]: value };
     onConfigUpdate({ variants });
@@ -305,10 +341,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
     // Base time per hand: ~20 seconds
     // Psychology adds ~5 seconds (emotional state generation)
     // Commentary adds ~5 seconds (LLM commentary generation)
-    const hasPsychology = config.control?.enable_psychology ||
-      config.variants?.some(v => v.enable_psychology);
-    const hasCommentary = config.control?.enable_commentary ||
-      config.variants?.some(v => v.enable_commentary);
+    const hasPsychology =
+      config.control?.enable_psychology || config.variants?.some((v) => v.enable_psychology);
+    const hasCommentary =
+      config.control?.enable_commentary || config.variants?.some((v) => v.enable_commentary);
 
     let secondsPerHand = 20;
     if (hasPsychology) secondsPerHand += 5;
@@ -340,7 +376,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
         method: 'POST',
         body: JSON.stringify({
           config,
-          session_id: sessionId,  // Pass design chat session for history preservation
+          session_id: sessionId, // Pass design chat session for history preservation
         }),
       });
 
@@ -385,7 +421,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
               <button
                 className="config-preview__version-btn"
                 onClick={() => onVersionChange?.(currentVersionIndex! + 1)}
-                disabled={currentVersionIndex === undefined || currentVersionIndex >= configVersions.length - 1}
+                disabled={
+                  currentVersionIndex === undefined ||
+                  currentVersionIndex >= configVersions.length - 1
+                }
                 title="Next version"
                 type="button"
               >
@@ -531,7 +570,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     />
                   </label>
 
-                  <label className="config-preview__toggle-label" title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips.">
+                  <label
+                    className="config-preview__toggle-label"
+                    title="When enabled, stacks reset on elimination ensuring exactly the configured number of hands. When disabled, tournament ends when one player wins all chips."
+                  >
                     <input
                       type="checkbox"
                       checked={config.reset_on_elimination ?? false}
@@ -572,8 +614,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     {providersLoading ? (
                       <option value="">Loading...</option>
                     ) : (
-                      providers.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
+                      providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
                       ))
                     )}
                   </select>
@@ -587,14 +631,18 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                     onChange={(e) => handleFieldChange('model', e.target.value)}
                     disabled={providersLoading}
                   >
-                    {getModelsForProvider(config.provider).map(model => (
-                      <option key={model} value={model}>{model}</option>
+                    {getModelsForProvider(config.provider).map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
                     ))}
                   </select>
                 </label>
               </div>
               {isAbTestingEnabled && (
-                <p className="config-preview__hint">Control uses these settings. Add variants below to test different models.</p>
+                <p className="config-preview__hint">
+                  Control uses these settings. Add variants below to test different models.
+                </p>
               )}
             </div>
 
@@ -609,7 +657,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                 <FlaskConical size={16} />
                 <h5 className="config-preview__section-title">A/B Testing</h5>
                 <span className="config-preview__section-hint">
-                  {isAbTestingEnabled ? `${1 + (config.variants?.length || 0)} variants` : 'Disabled'}
+                  {isAbTestingEnabled
+                    ? `${1 + (config.variants?.length || 0)} variants`
+                    : 'Disabled'}
                 </span>
               </button>
 
@@ -630,15 +680,18 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                       {/* Total tournaments calculation */}
                       <div className="config-preview__ab-info">
                         <span>
-                          Total tournaments: <strong>{getTotalTournaments()}</strong>
-                          {' '}({config.num_tournaments} per variant × {1 + (config.variants?.length || 0)} variants)
+                          Total tournaments: <strong>{getTotalTournaments()}</strong> (
+                          {config.num_tournaments} per variant ×{' '}
+                          {1 + (config.variants?.length || 0)} variants)
                         </span>
                       </div>
 
                       {/* Control Configuration */}
                       <div className="config-preview__variant-card config-preview__variant-card--control">
                         <div className="config-preview__variant-header">
-                          <span className="config-preview__variant-badge config-preview__variant-badge--control">Control</span>
+                          <span className="config-preview__variant-badge config-preview__variant-badge--control">
+                            Control
+                          </span>
                         </div>
                         <div className="config-preview__variant-fields">
                           <label className="config-preview__label config-preview__label--inline">
@@ -655,19 +708,29 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                             Uses Model Settings above ({config.provider}/{config.model})
                           </p>
                           <div className="config-preview__row config-preview__row--toggles">
-                            <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation (~4 LLM calls/hand)">
+                            <label
+                              className="config-preview__toggle-label"
+                              title="Enable tilt + emotional state generation (~4 LLM calls/hand)"
+                            >
                               <input
                                 type="checkbox"
                                 checked={config.control?.enable_psychology ?? false}
-                                onChange={(e) => handleControlUpdate('enable_psychology', e.target.checked)}
+                                onChange={(e) =>
+                                  handleControlUpdate('enable_psychology', e.target.checked)
+                                }
                               />
                               Psychology
                             </label>
-                            <label className="config-preview__toggle-label" title="Enable commentary generation (~4 LLM calls/hand)">
+                            <label
+                              className="config-preview__toggle-label"
+                              title="Enable commentary generation (~4 LLM calls/hand)"
+                            >
                               <input
                                 type="checkbox"
                                 checked={config.control?.enable_commentary ?? false}
-                                onChange={(e) => handleControlUpdate('enable_commentary', e.target.checked)}
+                                onChange={(e) =>
+                                  handleControlUpdate('enable_commentary', e.target.checked)
+                                }
                               />
                               Commentary
                             </label>
@@ -677,9 +740,16 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
 
                       {/* Variants */}
                       {config.variants?.map((variant, index) => (
-                        <div key={index} className={`config-preview__variant-card config-preview__variant-card--color-${index % 5}`}>
+                        <div
+                          key={index}
+                          className={`config-preview__variant-card config-preview__variant-card--color-${index % 5}`}
+                        >
                           <div className="config-preview__variant-header">
-                            <span className={`config-preview__variant-badge config-preview__variant-badge--color-${index % 5}`}>Variant {index + 1}</span>
+                            <span
+                              className={`config-preview__variant-badge config-preview__variant-badge--color-${index % 5}`}
+                            >
+                              Variant {index + 1}
+                            </span>
                             <button
                               type="button"
                               className="config-preview__variant-remove"
@@ -696,7 +766,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 type="text"
                                 className="config-preview__input"
                                 value={variant.label || ''}
-                                onChange={(e) => handleVariantUpdate(index, 'label', e.target.value)}
+                                onChange={(e) =>
+                                  handleVariantUpdate(index, 'label', e.target.value)
+                                }
                                 placeholder={`Variant ${index + 1}`}
                               />
                             </label>
@@ -705,12 +777,20 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                               <select
                                 className="config-preview__select"
                                 value={variant.personality || ''}
-                                onChange={(e) => handleVariantUpdate(index, 'personality', e.target.value || undefined)}
+                                onChange={(e) =>
+                                  handleVariantUpdate(
+                                    index,
+                                    'personality',
+                                    e.target.value || undefined
+                                  )
+                                }
                                 title="Per-variant personality assignment"
                               >
                                 <option value="">Random / Default</option>
-                                {availablePersonalities.map(p => (
-                                  <option key={p} value={p}>{p}</option>
+                                {availablePersonalities.map((p) => (
+                                  <option key={p} value={p}>
+                                    {p}
+                                  </option>
                                 ))}
                               </select>
                             </label>
@@ -720,14 +800,18 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 className="config-preview__select"
                                 value={variant.prompt_preset_id?.toString() || ''}
                                 onChange={(e) => {
-                                  const presetId = e.target.value ? parseInt(e.target.value) : undefined;
+                                  const presetId = e.target.value
+                                    ? parseInt(e.target.value)
+                                    : undefined;
                                   handleVariantUpdate(index, 'prompt_preset_id', presetId);
                                 }}
                                 title="Load prompt configuration from a saved preset"
                               >
                                 <option value="">No preset (use defaults)</option>
-                                {availablePresets.map(preset => (
-                                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                {availablePresets.map((preset) => (
+                                  <option key={preset.id} value={preset.id}>
+                                    {preset.name}
+                                  </option>
                                 ))}
                               </select>
                             </label>
@@ -737,7 +821,13 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 className="config-preview__input config-preview__textarea config-preview__textarea--small"
                                 rows={2}
                                 value={variant.guidance_injection || ''}
-                                onChange={(e) => handleVariantUpdate(index, 'guidance_injection', e.target.value || undefined)}
+                                onChange={(e) =>
+                                  handleVariantUpdate(
+                                    index,
+                                    'guidance_injection',
+                                    e.target.value || undefined
+                                  )
+                                }
                                 placeholder="Extra instructions appended to decision prompts..."
                                 title="Additional guidance text appended to AI decision prompts"
                               />
@@ -767,8 +857,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                                 disabled={providersLoading}
                               >
                                 <option value="">Same as Control</option>
-                                {providers.map(p => (
-                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                {providers.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name}
+                                  </option>
                                 ))}
                               </select>
                             </label>
@@ -777,29 +869,60 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                               <select
                                 className="config-preview__select"
                                 value={variant.model || ''}
-                                onChange={(e) => handleVariantUpdate(index, 'model', e.target.value)}
+                                onChange={(e) =>
+                                  handleVariantUpdate(index, 'model', e.target.value)
+                                }
                                 disabled={providersLoading || !variant.provider}
                               >
                                 <option value="">Same as Control</option>
-                                {variant.provider && getModelsForProvider(variant.provider).map(model => (
-                                  <option key={model} value={model}>{model}</option>
-                                ))}
+                                {variant.provider &&
+                                  getModelsForProvider(variant.provider).map((model) => (
+                                    <option key={model} value={model}>
+                                      {model}
+                                    </option>
+                                  ))}
                               </select>
                             </label>
                             <div className="config-preview__row config-preview__row--toggles">
-                              <label className="config-preview__toggle-label" title="Enable tilt + emotional state generation. Inherits from control if not set.">
+                              <label
+                                className="config-preview__toggle-label"
+                                title="Enable tilt + emotional state generation. Inherits from control if not set."
+                              >
                                 <input
                                   type="checkbox"
-                                  checked={variant.enable_psychology ?? config.control?.enable_psychology ?? false}
-                                  onChange={(e) => handleVariantUpdate(index, 'enable_psychology', e.target.checked)}
+                                  checked={
+                                    variant.enable_psychology ??
+                                    config.control?.enable_psychology ??
+                                    false
+                                  }
+                                  onChange={(e) =>
+                                    handleVariantUpdate(
+                                      index,
+                                      'enable_psychology',
+                                      e.target.checked
+                                    )
+                                  }
                                 />
                                 Psychology
                               </label>
-                              <label className="config-preview__toggle-label" title="Enable commentary generation. Inherits from control if not set.">
+                              <label
+                                className="config-preview__toggle-label"
+                                title="Enable commentary generation. Inherits from control if not set."
+                              >
                                 <input
                                   type="checkbox"
-                                  checked={variant.enable_commentary ?? config.control?.enable_commentary ?? false}
-                                  onChange={(e) => handleVariantUpdate(index, 'enable_commentary', e.target.checked)}
+                                  checked={
+                                    variant.enable_commentary ??
+                                    config.control?.enable_commentary ??
+                                    false
+                                  }
+                                  onChange={(e) =>
+                                    handleVariantUpdate(
+                                      index,
+                                      'enable_commentary',
+                                      e.target.checked
+                                    )
+                                  }
                                 />
                                 Commentary
                               </label>
@@ -872,7 +995,9 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                 <Zap size={16} />
                 <h5 className="config-preview__section-title">Advanced Settings</h5>
                 <span className="config-preview__section-hint">
-                  {config.parallel_tournaments && config.parallel_tournaments > 1 ? `${config.parallel_tournaments}x parallel` : 'Sequential'}
+                  {config.parallel_tournaments && config.parallel_tournaments > 1
+                    ? `${config.parallel_tournaments}x parallel`
+                    : 'Sequential'}
                 </span>
               </button>
 
@@ -880,7 +1005,10 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                 <div className="config-preview__advanced">
                   {/* Deterministic Seeding */}
                   <div className="config-preview__seed-section">
-                    <label className="config-preview__toggle-label" title="Enable deterministic seeding for reproducible experiments. Same seed = same player seating order and card shuffling across all tables. Essential for fair A/B comparisons.">
+                    <label
+                      className="config-preview__toggle-label"
+                      title="Enable deterministic seeding for reproducible experiments. Same seed = same player seating order and card shuffling across all tables. Essential for fair A/B comparisons."
+                    >
                       <input
                         type="checkbox"
                         checked={config.random_seed !== null}
@@ -956,8 +1084,18 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                         type="number"
                         className="config-preview__input config-preview__input--small"
                         value={config.parallel_tournaments ?? 1}
-                        onChange={(e) => handleNumberChange('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
-                        onBlur={(e) => handleNumberBlur('parallel_tournaments' as keyof ExperimentConfig, e.target.value)}
+                        onChange={(e) =>
+                          handleNumberChange(
+                            'parallel_tournaments' as keyof ExperimentConfig,
+                            e.target.value
+                          )
+                        }
+                        onBlur={(e) =>
+                          handleNumberBlur(
+                            'parallel_tournaments' as keyof ExperimentConfig,
+                            e.target.value
+                          )
+                        }
                         min={1}
                         max={10}
                       />
@@ -968,8 +1106,18 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                         type="number"
                         className="config-preview__input config-preview__input--small"
                         value={config.stagger_start_delay ?? 0}
-                        onChange={(e) => handleFloatChange('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
-                        onBlur={(e) => handleFloatBlur('stagger_start_delay' as keyof ExperimentConfig, e.target.value)}
+                        onChange={(e) =>
+                          handleFloatChange(
+                            'stagger_start_delay' as keyof ExperimentConfig,
+                            e.target.value
+                          )
+                        }
+                        onBlur={(e) =>
+                          handleFloatBlur(
+                            'stagger_start_delay' as keyof ExperimentConfig,
+                            e.target.value
+                          )
+                        }
                         min={0}
                         max={60}
                         step={0.5}
@@ -1022,10 +1170,15 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
                   {/* Personalities */}
                   <div className="config-preview__personalities-section">
                     <label className="config-preview__label">
-                      <Users size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                      <Users
+                        size={14}
+                        style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }}
+                      />
                       Personalities
                       <span className="config-preview__label-hint">
-                        {config.personalities ? `${config.personalities.length} selected` : 'Random'}
+                        {config.personalities
+                          ? `${config.personalities.length} selected`
+                          : 'Random'}
                       </span>
                     </label>
                     <div className="config-preview__personalities-grid">
@@ -1106,9 +1259,7 @@ export function ConfigPreview({ config, onConfigUpdate, onLaunch, sessionId, con
           <span className="config-preview__estimate-hands">
             {getTotalHands().toLocaleString()} hands
           </span>
-          <span className="config-preview__estimate-time">
-            {getTimeEstimate()}
-          </span>
+          <span className="config-preview__estimate-time">{getTimeEstimate()}</span>
         </div>
         <button
           className="config-preview__launch-btn"

@@ -2,7 +2,17 @@ import { useState, useEffect, useCallback } from 'react';
 import { PageLayout, PageHeader } from '../../shared';
 import { config } from '../../../config';
 import { useLLMProviders } from '../../../hooks/useLLMProviders';
-import type { PromptCapture, CaptureStats, CaptureFilters, ReplayResponse, DecisionAnalysisStats, ConversationMessage, DecisionAnalysis, DebugMode, InterrogationMessage } from './types';
+import type {
+  PromptCapture,
+  CaptureStats,
+  CaptureFilters,
+  ReplayResponse,
+  DecisionAnalysisStats,
+  ConversationMessage,
+  DecisionAnalysis,
+  DebugMode,
+  InterrogationMessage,
+} from './types';
 import { InterrogationChat } from './InterrogationChat';
 import { logger } from '../../../utils/logger';
 import './PromptDebugger.css';
@@ -33,7 +43,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   // Replay state
   const [modifiedSystemPrompt, setModifiedSystemPrompt] = useState('');
   const [modifiedUserMessage, setModifiedUserMessage] = useState('');
-  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<ConversationMessage[]>([]);
+  const [modifiedConversationHistory, setModifiedConversationHistory] = useState<
+    ConversationMessage[]
+  >([]);
   const [useHistory, setUseHistory] = useState(true);
   const [replayResult, setReplayResult] = useState<ReplayResponse | null>(null);
   const [replaying, setReplaying] = useState(false);
@@ -50,10 +62,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
   // Provider and model configuration (fetched from API)
   // Using 'system' scope to include system-only models for admin tools
-  const {
-    providers,
-    getModelsForProvider,
-  } = useLLMProviders({ scope: 'system' });
+  const { providers, getModelsForProvider } = useLLMProviders({ scope: 'system' });
   const reasoningLevels = ['minimal', 'low', 'medium', 'high'];
 
   // Build the raw request messages array
@@ -109,14 +118,14 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       if (filters.player_name) params.set('player_name', filters.player_name);
       if (filters.action) params.set('action', filters.action);
       if (filters.phase) params.set('phase', filters.phase);
-      if (filters.min_pot_odds !== undefined) params.set('min_pot_odds', filters.min_pot_odds.toString());
+      if (filters.min_pot_odds !== undefined)
+        params.set('min_pot_odds', filters.min_pot_odds.toString());
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/captures?${params}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/captures?${params}`, {
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error('Failed to fetch captures');
@@ -138,10 +147,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
       const params = new URLSearchParams();
       if (filters.game_id) params.set('game_id', filters.game_id);
 
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/analysis-stats?${params}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/analysis-stats?${params}`, {
+        credentials: 'include',
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -159,35 +167,43 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   }, [fetchCaptures, fetchAnalysisStats]);
 
   // Get models for a specific provider (with fallback)
-  const getModelsForProviderWithFallback = useCallback((providerId: string): string[] => {
-    const models = getModelsForProvider(providerId);
-    return models.length > 0 ? models : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
-  }, [getModelsForProvider]);
+  const getModelsForProviderWithFallback = useCallback(
+    (providerId: string): string[] => {
+      const models = getModelsForProvider(providerId);
+      return models.length > 0 ? models : ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'];
+    },
+    [getModelsForProvider]
+  );
 
   // Handle provider change for replay
-  const handleReplayProviderChange = useCallback((newProvider: string) => {
-    setReplayProvider(newProvider);
-    const models = getModelsForProviderWithFallback(newProvider);
-    if (models.length > 0 && !models.includes(replayModel)) {
-      setReplayModel(models[0]);
-    }
-  }, [getModelsForProviderWithFallback, replayModel]);
+  const handleReplayProviderChange = useCallback(
+    (newProvider: string) => {
+      setReplayProvider(newProvider);
+      const models = getModelsForProviderWithFallback(newProvider);
+      if (models.length > 0 && !models.includes(replayModel)) {
+        setReplayModel(models[0]);
+      }
+    },
+    [getModelsForProviderWithFallback, replayModel]
+  );
 
   // Handle provider change for interrogate
-  const handleInterrogateProviderChange = useCallback((newProvider: string) => {
-    setInterrogateProvider(newProvider);
-    const models = getModelsForProviderWithFallback(newProvider);
-    if (models.length > 0 && !models.includes(interrogateModel)) {
-      setInterrogateModel(models[0]);
-    }
-  }, [getModelsForProviderWithFallback, interrogateModel]);
+  const handleInterrogateProviderChange = useCallback(
+    (newProvider: string) => {
+      setInterrogateProvider(newProvider);
+      const models = getModelsForProviderWithFallback(newProvider);
+      if (models.length > 0 && !models.includes(interrogateModel)) {
+        setInterrogateModel(models[0]);
+      }
+    },
+    [getModelsForProviderWithFallback, interrogateModel]
+  );
 
   const fetchCaptureDetail = async (captureId: number) => {
     try {
-      const response = await fetch(
-        `${config.API_URL}/api/prompt-debug/captures/${captureId}`,
-        { credentials: 'include' }
-      );
+      const response = await fetch(`${config.API_URL}/api/prompt-debug/captures/${captureId}`, {
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error('Failed to fetch capture details');
@@ -256,7 +272,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   };
 
   const updateHistoryMessage = (index: number, field: 'role' | 'content', value: string) => {
-    setModifiedConversationHistory(prev => {
+    setModifiedConversationHistory((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value as ConversationMessage['role'] };
       return updated;
@@ -264,11 +280,11 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
   };
 
   const removeHistoryMessage = (index: number) => {
-    setModifiedConversationHistory(prev => prev.filter((_, i) => i !== index));
+    setModifiedConversationHistory((prev) => prev.filter((_, i) => i !== index));
   };
 
   const addHistoryMessage = () => {
-    setModifiedConversationHistory(prev => [...prev, { role: 'user', content: '' }]);
+    setModifiedConversationHistory((prev) => [...prev, { role: 'user', content: '' }]);
   };
 
   const formatPotOdds = (potOdds: number | null) => {
@@ -278,12 +294,18 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
   const getActionColor = (action: string | null) => {
     switch (action) {
-      case 'fold': return 'action-fold';
-      case 'check': return 'action-check';
-      case 'call': return 'action-call';
-      case 'raise': return 'action-raise';
-      case 'all_in': return 'action-allin';
-      default: return '';
+      case 'fold':
+        return 'action-fold';
+      case 'check':
+        return 'action-check';
+      case 'call':
+        return 'action-call';
+      case 'raise':
+        return 'action-raise';
+      case 'all_in':
+        return 'action-allin';
+      default:
+        return '';
     }
   };
 
@@ -347,7 +369,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             )}
             {analysisStats.avg_equity_vs_ranges !== null && (
               <div className="stat-item">
-                <span className="stat-value">{(analysisStats.avg_equity_vs_ranges * 100).toFixed(1)}%</span>
+                <span className="stat-value">
+                  {(analysisStats.avg_equity_vs_ranges * 100).toFixed(1)}%
+                </span>
                 <span className="stat-label">Avg Equity (Ranges)</span>
               </div>
             )}
@@ -358,7 +382,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
         <div className="debugger-filters">
           <select
             value={filters.action || ''}
-            onChange={(e) => setFilters({ ...filters, action: e.target.value || undefined, offset: 0 })}
+            onChange={(e) =>
+              setFilters({ ...filters, action: e.target.value || undefined, offset: 0 })
+            }
           >
             <option value="">All Actions</option>
             <option value="fold">Fold</option>
@@ -369,7 +395,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
           <select
             value={filters.phase || ''}
-            onChange={(e) => setFilters({ ...filters, phase: e.target.value || undefined, offset: 0 })}
+            onChange={(e) =>
+              setFilters({ ...filters, phase: e.target.value || undefined, offset: 0 })
+            }
           >
             <option value="">All Phases</option>
             <option value="PRE_FLOP">Pre-Flop</option>
@@ -382,16 +410,16 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             type="number"
             placeholder="Min Pot Odds"
             value={filters.min_pot_odds || ''}
-            onChange={(e) => setFilters({
-              ...filters,
-              min_pot_odds: e.target.value ? parseFloat(e.target.value) : undefined,
-              offset: 0
-            })}
+            onChange={(e) =>
+              setFilters({
+                ...filters,
+                min_pot_odds: e.target.value ? parseFloat(e.target.value) : undefined,
+                offset: 0,
+              })
+            }
           />
 
-          <button onClick={() => setFilters({ limit: 50, offset: 0 })}>
-            Clear Filters
-          </button>
+          <button onClick={() => setFilters({ limit: 50, offset: 0 })}>Clear Filters</button>
         </div>
 
         {error && <div className="debugger-error">{error}</div>}
@@ -417,14 +445,10 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                 <div className="capture-details">
                   <span className="capture-phase">{capture.phase}</span>
                   <span className="capture-pot">Pot: ${capture.pot_total}</span>
-                  <span className="capture-odds">
-                    {formatPotOdds(capture.pot_odds)} odds
-                  </span>
+                  <span className="capture-odds">{formatPotOdds(capture.pot_odds)} odds</span>
                 </div>
                 {capture.player_hand && (
-                  <div className="capture-hand">
-                    {capture.player_hand.join(' ')}
-                  </div>
+                  <div className="capture-hand">{capture.player_hand.join(' ')}</div>
                 )}
                 {isSuspiciousFold(capture) && (
                   <div className="suspicious-badge">Suspicious Fold</div>
@@ -437,16 +461,24 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
               <div className="pagination">
                 <button
                   disabled={filters.offset === 0}
-                  onClick={() => setFilters({ ...filters, offset: Math.max(0, (filters.offset || 0) - filters.limit!) })}
+                  onClick={() =>
+                    setFilters({
+                      ...filters,
+                      offset: Math.max(0, (filters.offset || 0) - filters.limit!),
+                    })
+                  }
                 >
                   Previous
                 </button>
                 <span>
-                  {Math.floor((filters.offset || 0) / filters.limit!) + 1} / {Math.ceil(total / filters.limit!)}
+                  {Math.floor((filters.offset || 0) / filters.limit!) + 1} /{' '}
+                  {Math.ceil(total / filters.limit!)}
                 </span>
                 <button
                   disabled={(filters.offset || 0) + filters.limit! >= total}
-                  onClick={() => setFilters({ ...filters, offset: (filters.offset || 0) + filters.limit! })}
+                  onClick={() =>
+                    setFilters({ ...filters, offset: (filters.offset || 0) + filters.limit! })
+                  }
                 >
                   Next
                 </button>
@@ -459,7 +491,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
             {selectedCapture ? (
               <>
                 <div className="detail-header">
-                  <h3>{selectedCapture.player_name} - {selectedCapture.phase}</h3>
+                  <h3>
+                    {selectedCapture.player_name} - {selectedCapture.phase}
+                  </h3>
                   <span className={`detail-action ${getActionColor(selectedCapture.action_taken)}`}>
                     {selectedCapture.action_taken?.toUpperCase()}
                     {selectedCapture.raise_amount && ` $${selectedCapture.raise_amount}`}
@@ -495,7 +529,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
                 {/* Decision Analysis */}
                 {selectedAnalysis && (
-                  <div className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}>
+                  <div
+                    className={`decision-analysis ${selectedAnalysis.decision_quality === 'mistake' ? 'mistake' : selectedAnalysis.decision_quality === 'correct' ? 'correct' : ''}`}
+                  >
                     <h4>Decision Analysis</h4>
                     <div className="analysis-grid">
                       {selectedAnalysis.equity != null && (
@@ -511,7 +547,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                             {(selectedAnalysis.equity_vs_ranges * 100).toFixed(1)}%
                             {selectedAnalysis.opponent_positions && (
                               <span className="opponent-positions">
-                                {' '}(vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
+                                {' '}
+                                (vs {JSON.parse(selectedAnalysis.opponent_positions).join(', ')})
                               </span>
                             )}
                           </span>
@@ -527,7 +564,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         <div className="analysis-item">
                           <label>EV (Call):</label>
                           <span className={selectedAnalysis.ev_call >= 0 ? 'positive' : 'negative'}>
-                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}${selectedAnalysis.ev_call.toFixed(0)}
+                            {selectedAnalysis.ev_call >= 0 ? '+' : ''}$
+                            {selectedAnalysis.ev_call.toFixed(0)}
                           </span>
                         </div>
                       )}
@@ -576,12 +614,14 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                       setMode('interrogate');
                       // Initialize interrogation with original response as context
                       if (selectedCapture && interrogationMessages.length === 0) {
-                        setInterrogationMessages([{
-                          id: 'original-decision',
-                          role: 'context',
-                          content: selectedCapture.ai_response,
-                          timestamp: selectedCapture.created_at,
-                        }]);
+                        setInterrogationMessages([
+                          {
+                            id: 'original-decision',
+                            role: 'context',
+                            content: selectedCapture.ai_response,
+                            timestamp: selectedCapture.created_at,
+                          },
+                        ]);
                       }
                     }}
                   >
@@ -598,23 +638,47 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           {selectedCapture.provider && <strong>{selectedCapture.provider}</strong>}
                           {selectedCapture.provider && selectedCapture.model && ' / '}
                           {selectedCapture.model}
-                          {selectedCapture.reasoning_effort && ` (${selectedCapture.reasoning_effort})`}
+                          {selectedCapture.reasoning_effort &&
+                            ` (${selectedCapture.reasoning_effort})`}
                         </span>
                       )}
-                      {selectedCapture.latency_ms && <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>}
+                      {selectedCapture.latency_ms && (
+                        <span>Latency: {selectedCapture.latency_ms.toLocaleString()}ms</span>
+                      )}
                       {selectedCapture.estimated_cost != null && (
-                        <span className="cost">Cost: ${selectedCapture.estimated_cost.toFixed(4)}</span>
+                        <span className="cost">
+                          Cost: ${selectedCapture.estimated_cost.toFixed(4)}
+                        </span>
                       )}
                     </div>
                     <div className="token-info-row">
-                      <span className="token-count cached">Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count input">Input: {((selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)).toLocaleString()}</span>
-                      <span className="token-count total-in">Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}</span>
+                      <span className="token-count cached">
+                        Cached: {(selectedCapture.cached_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count input">
+                        Input:{' '}
+                        {(
+                          (selectedCapture.input_tokens ?? 0) - (selectedCapture.cached_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
+                      <span className="token-count total-in">
+                        Total In: {(selectedCapture.input_tokens ?? 0).toLocaleString()}
+                      </span>
                     </div>
                     <div className="token-info-row">
-                      <span className="token-count reasoning">Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count output">Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}</span>
-                      <span className="token-count total-out">Total Out: {((selectedCapture.reasoning_tokens ?? 0) + (selectedCapture.output_tokens ?? 0)).toLocaleString()}</span>
+                      <span className="token-count reasoning">
+                        Reasoning: {(selectedCapture.reasoning_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count output">
+                        Output: {(selectedCapture.output_tokens ?? 0).toLocaleString()}
+                      </span>
+                      <span className="token-count total-out">
+                        Total Out:{' '}
+                        {(
+                          (selectedCapture.reasoning_tokens ?? 0) +
+                          (selectedCapture.output_tokens ?? 0)
+                        ).toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -627,19 +691,23 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     </div>
 
                     {/* Conversation History */}
-                    {selectedCapture.conversation_history && selectedCapture.conversation_history.length > 0 && (
-                      <div className="prompt-section conversation-history">
-                        <h4>Conversation History ({selectedCapture.conversation_history.length} messages)</h4>
-                        <div className="history-messages">
-                          {selectedCapture.conversation_history.map((msg, idx) => (
-                            <div key={idx} className={`history-message ${msg.role}`}>
-                              <span className="message-role">{msg.role}</span>
-                              <pre>{msg.content}</pre>
-                            </div>
-                          ))}
+                    {selectedCapture.conversation_history &&
+                      selectedCapture.conversation_history.length > 0 && (
+                        <div className="prompt-section conversation-history">
+                          <h4>
+                            Conversation History ({selectedCapture.conversation_history.length}{' '}
+                            messages)
+                          </h4>
+                          <div className="history-messages">
+                            {selectedCapture.conversation_history.map((msg, idx) => (
+                              <div key={idx} className={`history-message ${msg.role}`}>
+                                <span className="message-role">{msg.role}</span>
+                                <pre>{msg.content}</pre>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     <div className="prompt-section">
                       <h4>User Message (Current Turn)</h4>
@@ -682,7 +750,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         <summary>
                           <h4>Raw API Response (click to expand)</h4>
                         </summary>
-                        <pre>{JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}</pre>
+                        <pre>
+                          {JSON.stringify(JSON.parse(selectedCapture.raw_api_response), null, 2)}
+                        </pre>
                       </details>
                     )}
                   </div>
@@ -702,7 +772,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                     {/* Conversation History Editor */}
                     <div className="prompt-section conversation-history-editor">
                       <div className="history-header">
-                        <h4>Conversation History ({modifiedConversationHistory.length} messages)</h4>
+                        <h4>
+                          Conversation History ({modifiedConversationHistory.length} messages)
+                        </h4>
                         <label className="history-toggle">
                           <input
                             type="checkbox"
@@ -727,7 +799,9 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                               </select>
                               <textarea
                                 value={msg.content}
-                                onChange={(e) => updateHistoryMessage(idx, 'content', e.target.value)}
+                                onChange={(e) =>
+                                  updateHistoryMessage(idx, 'content', e.target.value)
+                                }
                                 rows={3}
                                 placeholder="Message content..."
                               />
@@ -748,7 +822,8 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
 
                       {!useHistory && modifiedConversationHistory.length > 0 && (
                         <div className="history-disabled-notice">
-                          {modifiedConversationHistory.length} message(s) will be excluded from replay
+                          {modifiedConversationHistory.length} message(s) will be excluded from
+                          replay
                         </div>
                       )}
                     </div>
@@ -771,8 +846,10 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           onChange={(e) => handleReplayProviderChange(e.target.value)}
                         >
                           {providers.length > 0 ? (
-                            providers.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
+                            providers.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
                             ))
                           ) : (
                             <option value="openai">OpenAI</option>
@@ -785,8 +862,10 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           value={replayModel}
                           onChange={(e) => setReplayModel(e.target.value)}
                         >
-                          {getModelsForProviderWithFallback(replayProvider).map(model => (
-                            <option key={model} value={model}>{model}</option>
+                          {getModelsForProviderWithFallback(replayProvider).map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -796,18 +875,16 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                           value={replayReasoningEffort}
                           onChange={(e) => setReplayReasoningEffort(e.target.value)}
                         >
-                          {reasoningLevels.map(level => (
-                            <option key={level} value={level}>{level}</option>
+                          {reasoningLevels.map((level) => (
+                            <option key={level} value={level}>
+                              {level}
+                            </option>
                           ))}
                         </select>
                       </div>
                     </div>
 
-                    <button
-                      className="replay-button"
-                      onClick={handleReplay}
-                      disabled={replaying}
-                    >
+                    <button className="replay-button" onClick={handleReplay} disabled={replaying}>
                       {replaying ? 'Replaying...' : 'Replay with Changes'}
                     </button>
 
@@ -825,12 +902,20 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                         </div>
                         <div className="replay-meta">
                           <strong>{replayResult.provider_used}</strong> / {replayResult.model_used}
-                          {replayResult.reasoning_effort_used && ` (${replayResult.reasoning_effort_used})`}
+                          {replayResult.reasoning_effort_used &&
+                            ` (${replayResult.reasoning_effort_used})`}
                           {replayResult.latency_ms && ` | ${replayResult.latency_ms}ms`}
-                          {replayResult.messages_count && ` | ${replayResult.messages_count} messages`}
+                          {replayResult.messages_count &&
+                            ` | ${replayResult.messages_count} messages`}
                           {replayResult.used_history !== undefined && (
-                            <span className={replayResult.used_history ? 'history-used' : 'history-skipped'}>
-                              {replayResult.used_history ? ' | History included' : ' | History excluded'}
+                            <span
+                              className={
+                                replayResult.used_history ? 'history-used' : 'history-skipped'
+                              }
+                            >
+                              {replayResult.used_history
+                                ? ' | History included'
+                                : ' | History excluded'}
                             </span>
                           )}
                         </div>
@@ -859,9 +944,7 @@ export function PromptDebugger({ onBack }: PromptDebuggerProps) {
                 )}
               </>
             ) : (
-              <div className="no-selection">
-                Select a capture from the list to view details
-              </div>
+              <div className="no-selection">Select a capture from the list to view details</div>
             )}
           </div>
         </div>

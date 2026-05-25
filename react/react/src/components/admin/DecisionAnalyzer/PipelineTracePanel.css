@@ -135,7 +135,7 @@
 }
 
 .pipeline-final-dist tbody tr.sampled .trace-diff-action::before {
-  content: "→ ";
+  content: '→ ';
   color: #00d4ff;
 }
 

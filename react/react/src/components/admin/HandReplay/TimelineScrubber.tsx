@@ -31,29 +31,28 @@ export const TimelineScrubber = memo(function TimelineScrubber({
     }
   }
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const track = trackRef.current;
-    if (!track || actions.length === 0) return;
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const track = trackRef.current;
+      if (!track || actions.length === 0) return;
 
-    const rect = track.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const index = Math.round(ratio * (actions.length - 1));
-    onSeek(index);
-  }, [actions.length, onSeek]);
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const index = Math.round(ratio * (actions.length - 1));
+      onSeek(index);
+    },
+    [actions.length, onSeek]
+  );
 
   const totalActions = actions.length;
-  const progressPercent = totalActions > 0
-    ? ((currentIndex + 1) / totalActions) * 100
-    : 0;
+  const progressPercent = totalActions > 0 ? ((currentIndex + 1) / totalActions) * 100 : 0;
 
   return (
     <div className="timeline-scrubber">
       {/* Phase labels */}
       <div className="timeline-scrubber__phases">
         {phaseMarkers.map(({ phase, index }) => {
-          const leftPercent = totalActions > 1
-            ? (index / (totalActions - 1)) * 100
-            : 0;
+          const leftPercent = totalActions > 1 ? (index / (totalActions - 1)) * 100 : 0;
           return (
             <span
               key={phase}
@@ -67,16 +66,10 @@ export const TimelineScrubber = memo(function TimelineScrubber({
       </div>
 
       {/* Track */}
-      <div
-        ref={trackRef}
-        className="timeline-scrubber__track"
-        onClick={handleClick}
-      >
+      <div ref={trackRef} className="timeline-scrubber__track" onClick={handleClick}>
         {/* Phase dividers */}
         {phaseMarkers.slice(1).map(({ phase, index }) => {
-          const leftPercent = totalActions > 1
-            ? (index / (totalActions - 1)) * 100
-            : 0;
+          const leftPercent = totalActions > 1 ? (index / (totalActions - 1)) * 100 : 0;
           return (
             <div
               key={phase}
@@ -87,17 +80,11 @@ export const TimelineScrubber = memo(function TimelineScrubber({
         })}
 
         {/* Progress fill */}
-        <div
-          className="timeline-scrubber__fill"
-          style={{ width: `${progressPercent}%` }}
-        />
+        <div className="timeline-scrubber__fill" style={{ width: `${progressPercent}%` }} />
 
         {/* Thumb */}
         {currentIndex >= 0 && (
-          <div
-            className="timeline-scrubber__thumb"
-            style={{ left: `${progressPercent}%` }}
-          />
+          <div className="timeline-scrubber__thumb" style={{ left: `${progressPercent}%` }} />
         )}
       </div>
     </div>

@@ -53,21 +53,16 @@ interface StakeOfferModalProps {
   onAccepted?: (response: StakeOfferAccepted) => void;
 }
 
-const PURE_CUT_DEFAULT = 0.30;
-const MATCH_SHARE_CUT_DEFAULT = 0.40;
-const MIN_CUT = 0.10;
+const PURE_CUT_DEFAULT = 0.3;
+const MATCH_SHARE_CUT_DEFAULT = 0.4;
+const MIN_CUT = 0.1;
 const MAX_CUT = 0.55;
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-export function StakeOfferModal({
-  target,
-  bankroll,
-  onClose,
-  onAccepted,
-}: StakeOfferModalProps) {
+export function StakeOfferModal({ target, bankroll, onClose, onAccepted }: StakeOfferModalProps) {
   const [format, setFormat] = useState<StakeFormat>('pure');
   const [principal, setPrincipal] = useState<number>(0);
   const [cut, setCut] = useState<number>(PURE_CUT_DEFAULT);
@@ -97,17 +92,12 @@ export function StakeOfferModal({
   // so the effective limit is the table's max.
   const matchAmount = format === 'match_share' ? principal : 0;
   const principalMin = target
-    ? Math.max(
-        1,
-        format === 'match_share' ? Math.ceil(target.minBuyIn / 2) : target.minBuyIn,
-      )
+    ? Math.max(1, format === 'match_share' ? Math.ceil(target.minBuyIn / 2) : target.minBuyIn)
     : 0;
   const principalMax = target
     ? Math.min(
         bankroll,
-        format === 'match_share'
-          ? Math.floor(target.maxBuyIn / 2)
-          : target.maxBuyIn,
+        format === 'match_share' ? Math.floor(target.maxBuyIn / 2) : target.maxBuyIn
       )
     : 0;
 
@@ -121,16 +111,11 @@ export function StakeOfferModal({
       setConfirming(false);
       setRefusal(null);
       if (!target) return;
-      const newMin =
-        next === 'match_share'
-          ? Math.ceil(target.minBuyIn / 2)
-          : target.minBuyIn;
+      const newMin = next === 'match_share' ? Math.ceil(target.minBuyIn / 2) : target.minBuyIn;
       setPrincipal(Math.min(newMin, bankroll));
-      setCut(
-        next === 'match_share' ? MATCH_SHARE_CUT_DEFAULT : PURE_CUT_DEFAULT,
-      );
+      setCut(next === 'match_share' ? MATCH_SHARE_CUT_DEFAULT : PURE_CUT_DEFAULT);
     },
-    [format, target, bankroll],
+    [format, target, bankroll]
   );
 
   const handleSubmit = useCallback(async () => {
@@ -166,25 +151,14 @@ export function StakeOfferModal({
     } finally {
       setBusy(false);
     }
-  }, [
-    target,
-    confirming,
-    principal,
-    cut,
-    format,
-    matchAmount,
-    onAccepted,
-  ]);
+  }, [target, confirming, principal, cut, format, matchAmount, onAccepted]);
 
   if (!target) return null;
 
   const totalSeat = principal + matchAmount;
   const principalValid =
-    principalMax >= principalMin &&
-    principal >= principalMin &&
-    principal <= principalMax;
-  const submitDisabled =
-    busy || !principalValid || accepted !== null;
+    principalMax >= principalMin && principal >= principalMin && principal <= principalMax;
+  const submitDisabled = busy || !principalValid || accepted !== null;
 
   const candidate = target.candidate;
   const desperationHint =
@@ -199,10 +173,7 @@ export function StakeOfferModal({
   // paints over the centered sheet's close button. See CharacterDetailCard.
   return createPortal(
     <div className="stake-offer-modal__overlay" onClick={onClose}>
-      <div
-        className="stake-offer-modal__sheet"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="stake-offer-modal__sheet" onClick={(e) => e.stopPropagation()}>
         <div className="stake-offer-modal__header">
           <div className="stake-offer-modal__title-row">
             <h3 className="stake-offer-modal__title">
@@ -219,14 +190,12 @@ export function StakeOfferModal({
             </button>
           </div>
           <p className="stake-offer-modal__subtitle">
-            {candidate.name} plays {candidate.comfort_zone} — fund them
-            into {target.stakeLabel} and split the upside.
+            {candidate.name} plays {candidate.comfort_zone} — fund them into {target.stakeLabel} and
+            split the upside.
             {candidate.relationship_hint && (
               <>
                 {' '}
-                <span className="stake-offer-modal__hint-chip">
-                  {candidate.relationship_hint}
-                </span>
+                <span className="stake-offer-modal__hint-chip">{candidate.relationship_hint}</span>
               </>
             )}
           </p>
@@ -240,16 +209,14 @@ export function StakeOfferModal({
           <section className="stake-offer-modal__field">
             <label className="stake-offer-modal__label">Stake tier</label>
             <div className="stake-offer-modal__locked-tier">
-              <span className="stake-offer-modal__locked-tier-label">
-                {target.stakeLabel}
-              </span>
+              <span className="stake-offer-modal__locked-tier-label">{target.stakeLabel}</span>
               <span className="stake-offer-modal__locked-tier-meta">
                 ${target.minBuyIn.toLocaleString()}–${target.maxBuyIn.toLocaleString()} buy-in
               </span>
             </div>
             <p className="stake-offer-modal__field-help">
-              You can only stake them one tier up from where they
-              normally play. Help-them-grow rule.
+              You can only stake them one tier up from where they normally play. Help-them-grow
+              rule.
             </p>
           </section>
 
@@ -259,10 +226,7 @@ export function StakeOfferModal({
             <div className="stake-offer-modal__format-toggle" role="group">
               <button
                 type="button"
-                className={
-                  'stake-offer-modal__format' +
-                  (format === 'pure' ? ' is-selected' : '')
-                }
+                className={'stake-offer-modal__format' + (format === 'pure' ? ' is-selected' : '')}
                 onClick={() => handleFormatChange('pure')}
                 disabled={busy || accepted !== null}
               >
@@ -274,8 +238,7 @@ export function StakeOfferModal({
               <button
                 type="button"
                 className={
-                  'stake-offer-modal__format' +
-                  (format === 'match_share' ? ' is-selected' : '')
+                  'stake-offer-modal__format' + (format === 'match_share' ? ' is-selected' : '')
                 }
                 onClick={() => handleFormatChange('match_share')}
                 disabled={busy || accepted !== null}
@@ -294,28 +257,17 @@ export function StakeOfferModal({
               <label className="stake-offer-modal__label">
                 {format === 'match_share' ? 'Your half' : 'Principal'}
               </label>
-              <span className="stake-offer-modal__value">
-                ${principal.toLocaleString()}
-              </span>
+              <span className="stake-offer-modal__value">${principal.toLocaleString()}</span>
             </div>
             {principalMax >= principalMin ? (
               <input
                 type="range"
                 min={principalMin}
                 max={principalMax}
-                step={Math.max(
-                  1,
-                  Math.floor((principalMax - principalMin) / 40),
-                )}
+                step={Math.max(1, Math.floor((principalMax - principalMin) / 40))}
                 value={principal}
                 onChange={(e) => {
-                  setPrincipal(
-                    clamp(
-                      Number(e.target.value),
-                      principalMin,
-                      principalMax,
-                    ),
-                  );
+                  setPrincipal(clamp(Number(e.target.value), principalMin, principalMax));
                   setConfirming(false);
                   setRefusal(null);
                 }}
@@ -324,8 +276,7 @@ export function StakeOfferModal({
               />
             ) : (
               <div className="stake-offer-modal__notice stake-offer-modal__notice--info">
-                Bankroll too low for this format — try the other type
-                or build up more chips.
+                Bankroll too low for this format — try the other type or build up more chips.
               </div>
             )}
             <div className="stake-offer-modal__range-meta">
@@ -334,8 +285,7 @@ export function StakeOfferModal({
             </div>
             {format === 'match_share' && (
               <p className="stake-offer-modal__field-help">
-                {candidate.name} matches your half. Seat total:{' '}
-                ${totalSeat.toLocaleString()}.
+                {candidate.name} matches your half. Seat total: ${totalSeat.toLocaleString()}.
               </p>
             )}
           </section>
@@ -344,9 +294,7 @@ export function StakeOfferModal({
           <section className="stake-offer-modal__field">
             <div className="stake-offer-modal__label-row">
               <label className="stake-offer-modal__label">Your cut</label>
-              <span className="stake-offer-modal__value">
-                {Math.round(cut * 100)}%
-              </span>
+              <span className="stake-offer-modal__value">{Math.round(cut * 100)}%</span>
             </div>
             <input
               type="range"
@@ -381,9 +329,7 @@ export function StakeOfferModal({
             </div>
             <div className="stake-offer-modal__term">
               <span>If they 2× the seat</span>
-              <span>
-                +${Math.round(totalSeat * cut).toLocaleString()} to you
-              </span>
+              <span>+${Math.round(totalSeat * cut).toLocaleString()} to you</span>
             </div>
             <div className="stake-offer-modal__term">
               <span>If they bust completely</span>
@@ -423,9 +369,8 @@ export function StakeOfferModal({
 
           {accepted && (
             <div className="stake-offer-modal__notice stake-offer-modal__notice--accepted">
-              {accepted.target_display_name} accepted — they're sitting
-              at the {accepted.stake_label} table.
-              Watch the lobby for their session outcome.
+              {accepted.target_display_name} accepted — they're sitting at the{' '}
+              {accepted.stake_label} table. Watch the lobby for their session outcome.
             </div>
           )}
 
@@ -456,6 +401,6 @@ export function StakeOfferModal({
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

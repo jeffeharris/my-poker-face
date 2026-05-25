@@ -15,7 +15,13 @@ interface TournamentCompleteProps {
   onSendMessage?: (text: string) => void;
 }
 
-export function TournamentComplete({ result, onComplete, gameId, playerName, onSendMessage }: TournamentCompleteProps) {
+export function TournamentComplete({
+  result,
+  onComplete,
+  gameId,
+  playerName,
+  onSendMessage,
+}: TournamentCompleteProps) {
   const [show, setShow] = useState(false);
   const [showFinalHand, setShowFinalHand] = useState(false);
   const { isMobile } = useViewport();
@@ -30,7 +36,7 @@ export function TournamentComplete({ result, onComplete, gameId, playerName, onS
 
   if (!result) return null;
 
-  const humanStanding = result.standings.find(s => s.is_human);
+  const humanStanding = result.standings.find((s) => s.is_human);
   const isWinner = humanStanding?.finishing_position === 1;
   const humanEliminated = result.human_eliminated && !result.winner;
   const sortedStandings = [...result.standings].sort(
@@ -48,13 +54,9 @@ export function TournamentComplete({ result, onComplete, gameId, playerName, onS
             {isWinner ? 'CHAMPION!' : humanEliminated ? 'Eliminated!' : 'Tournament Complete'}
           </h1>
           {result.winner ? (
-            <div className="winner-announcement">
-              {result.winner} wins the tournament!
-            </div>
+            <div className="winner-announcement">{result.winner} wins the tournament!</div>
           ) : humanEliminated ? (
-            <div className="winner-announcement eliminated">
-              Better luck next time!
-            </div>
+            <div className="winner-announcement eliminated">Better luck next time!</div>
           ) : null}
         </div>
 
@@ -64,9 +66,7 @@ export function TournamentComplete({ result, onComplete, gameId, playerName, onS
             <div className="result-label">Your Finish</div>
             <div className="result-position">{getOrdinal(humanStanding.finishing_position)}</div>
             {!isWinner && humanStanding.eliminated_by && (
-              <div className="eliminated-by">
-                Eliminated by {humanStanding.eliminated_by}
-              </div>
+              <div className="eliminated-by">Eliminated by {humanStanding.eliminated_by}</div>
             )}
           </div>
         )}
@@ -116,12 +116,13 @@ export function TournamentComplete({ result, onComplete, gameId, playerName, onS
       </div>
 
       {/* Final Hand Overlay */}
-      {showFinalHand && result.final_hand_data && (
-        isMobile && gameId && playerName && onSendMessage ? (
+      {showFinalHand &&
+        result.final_hand_data &&
+        (isMobile && gameId && playerName && onSendMessage ? (
           <MobileWinnerAnnouncement
             winnerInfo={{
               ...result.final_hand_data,
-              is_final_hand: false  // Allow normal dismiss behavior
+              is_final_hand: false, // Allow normal dismiss behavior
             }}
             onComplete={() => setShowFinalHand(false)}
             gameId={gameId}
@@ -132,12 +133,11 @@ export function TournamentComplete({ result, onComplete, gameId, playerName, onS
           <WinnerAnnouncement
             winnerInfo={{
               ...result.final_hand_data,
-              is_final_hand: false  // Override to enable normal dismiss behavior
+              is_final_hand: false, // Override to enable normal dismiss behavior
             }}
             onComplete={() => setShowFinalHand(false)}
           />
-        )
-      )}
+        ))}
     </div>
   );
 }

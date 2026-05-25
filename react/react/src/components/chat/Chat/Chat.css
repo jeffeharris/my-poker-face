@@ -15,7 +15,6 @@
   transform: translateX(0);
 }
 
-
 /* Chat Panel */
 .chat-panel {
   width: 300px;
@@ -253,12 +252,12 @@
     top: 10px;
     right: 10px;
   }
-  
+
   .chat-panel {
     width: 250px;
     height: 300px;
   }
-  
+
   .chat-container.hidden {
     transform: translateX(250px);
   }

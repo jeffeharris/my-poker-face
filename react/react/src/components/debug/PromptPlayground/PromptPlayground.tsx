@@ -250,7 +250,8 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
           personality_name: personality,
           emotion: emotion,
           use_replayed: !!avatarImageUrl && avatarImageUrl !== selectedCapture.image_url,
-          replayed_image_data: avatarImageUrl !== selectedCapture.image_url ? avatarImageUrl : undefined,
+          replayed_image_data:
+            avatarImageUrl !== selectedCapture.image_url ? avatarImageUrl : undefined,
         }),
       }
     );
@@ -295,9 +296,13 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
         {stats && (
           <div className="stats-summary">
             <span className="stat-badge">{stats.total} captures</span>
-            {Object.entries(stats.by_call_type).slice(0, 3).map(([type, count]) => (
-              <span key={type} className="stat-badge type-badge">{type}: {count}</span>
-            ))}
+            {Object.entries(stats.by_call_type)
+              .slice(0, 3)
+              .map(([type, count]) => (
+                <span key={type} className="stat-badge type-badge">
+                  {type}: {count}
+                </span>
+              ))}
           </div>
         )}
       </div>
@@ -310,21 +315,31 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
           <div className="filters">
             <select
               value={filters.call_type || ''}
-              onChange={(e) => setFilters({ ...filters, call_type: e.target.value || undefined, offset: 0 })}
+              onChange={(e) =>
+                setFilters({ ...filters, call_type: e.target.value || undefined, offset: 0 })
+              }
             >
               <option value="">All call types</option>
-              {stats?.by_call_type && Object.keys(stats.by_call_type).map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
+              {stats?.by_call_type &&
+                Object.keys(stats.by_call_type).map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
             </select>
             <select
               value={filters.provider || ''}
-              onChange={(e) => setFilters({ ...filters, provider: e.target.value || undefined, offset: 0 })}
+              onChange={(e) =>
+                setFilters({ ...filters, provider: e.target.value || undefined, offset: 0 })
+              }
             >
               <option value="">All providers</option>
-              {stats?.by_provider && Object.keys(stats.by_provider).map(provider => (
-                <option key={provider} value={provider}>{provider}</option>
-              ))}
+              {stats?.by_provider &&
+                Object.keys(stats.by_provider).map((provider) => (
+                  <option key={provider} value={provider}>
+                    {provider}
+                  </option>
+                ))}
             </select>
             <button onClick={fetchCaptures} disabled={loading}>
               {loading ? 'Loading...' : 'Refresh'}
@@ -336,7 +351,7 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
 
           {/* Capture list */}
           <div className="capture-list">
-            {captures.map(capture => (
+            {captures.map((capture) => (
               <div
                 key={capture.id}
                 className={`capture-item ${selectedCapture?.id === capture.id ? 'selected' : ''}`}
@@ -344,16 +359,12 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
               >
                 <div className="capture-header">
                   <span className="call-type">{capture.call_type}</span>
-                  <span className="timestamp">
-                    {new Date(capture.created_at).toLocaleString()}
-                  </span>
+                  <span className="timestamp">{new Date(capture.created_at).toLocaleString()}</span>
                 </div>
                 <div className="capture-meta">
                   <span className="provider">{capture.provider}</span>
                   <span className="model">{capture.model}</span>
-                  {capture.latency_ms && (
-                    <span className="latency">{capture.latency_ms}ms</span>
-                  )}
+                  {capture.latency_ms && <span className="latency">{capture.latency_ms}ms</span>}
                 </div>
               </div>
             ))}
@@ -369,16 +380,24 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
             <div className="pagination">
               <button
                 disabled={(filters.offset || 0) === 0}
-                onClick={() => setFilters({ ...filters, offset: Math.max(0, (filters.offset || 0) - (filters.limit || 50)) })}
+                onClick={() =>
+                  setFilters({
+                    ...filters,
+                    offset: Math.max(0, (filters.offset || 0) - (filters.limit || 50)),
+                  })
+                }
               >
                 Previous
               </button>
               <span>
-                {(filters.offset || 0) + 1} - {Math.min((filters.offset || 0) + (filters.limit || 50), total)} of {total}
+                {(filters.offset || 0) + 1} -{' '}
+                {Math.min((filters.offset || 0) + (filters.limit || 50), total)} of {total}
               </span>
               <button
                 disabled={(filters.offset || 0) + (filters.limit || 50) >= total}
-                onClick={() => setFilters({ ...filters, offset: (filters.offset || 0) + (filters.limit || 50) })}
+                onClick={() =>
+                  setFilters({ ...filters, offset: (filters.offset || 0) + (filters.limit || 50) })
+                }
               >
                 Next
               </button>
@@ -435,88 +454,105 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
 
           {selectedCapture ? (
             mode === 'view' ? (
-                /* View mode - conditional for text vs image */
-                selectedCapture.is_image_capture ? (
-                  /* Image View Mode */
-                  <div className="view-mode image-view-mode">
+              /* View mode - conditional for text vs image */
+              selectedCapture.is_image_capture ? (
+                /* Image View Mode */
+                <div className="view-mode image-view-mode">
+                  <div className="image-preview-section">
+                    <h3>Generated Image</h3>
+                    <div className="image-preview-container">
+                      {selectedCapture.image_url || selectedCapture.image_data ? (
+                        <img
+                          src={
+                            selectedCapture.image_url ||
+                            `data:image/png;base64,${selectedCapture.image_data}`
+                          }
+                          alt="Generated"
+                          className="captured-image"
+                        />
+                      ) : (
+                        <div className="no-image">Image data not available</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedCapture.reference_image_id && (
                     <div className="image-preview-section">
-                      <h3>Generated Image</h3>
-                      <div className="image-preview-container">
-                        {selectedCapture.image_url || selectedCapture.image_data ? (
-                          <img
-                            src={selectedCapture.image_url || `data:image/png;base64,${selectedCapture.image_data}`}
-                            alt="Generated"
-                            className="captured-image"
-                          />
-                        ) : (
-                          <div className="no-image">Image data not available</div>
+                      <h3>Reference Image (Source)</h3>
+                      <div className="image-preview-container reference-image">
+                        <img
+                          src={`${config.API_URL}/admin/api/reference-images/${selectedCapture.reference_image_id}`}
+                          alt="Reference"
+                          className="captured-image"
+                        />
+                      </div>
+                      <p className="helper-text">
+                        This image was used as the source for img2img generation.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="prompt-section">
+                    <h3>Image Prompt</h3>
+                    <pre className="prompt-content">
+                      {selectedCapture.image_prompt || selectedCapture.user_message}
+                    </pre>
+                  </div>
+
+                  {(selectedCapture.target_personality || selectedCapture.target_emotion) && (
+                    <div className="prompt-section">
+                      <h3>Target</h3>
+                      <div className="target-info">
+                        {selectedCapture.target_personality && (
+                          <span className="target-badge">
+                            Personality: {selectedCapture.target_personality}
+                          </span>
+                        )}
+                        {selectedCapture.target_emotion && (
+                          <span className="target-badge">
+                            Emotion: {selectedCapture.target_emotion}
+                          </span>
                         )}
                       </div>
                     </div>
+                  )}
 
-                    {selectedCapture.reference_image_id && (
-                      <div className="image-preview-section">
-                        <h3>Reference Image (Source)</h3>
-                        <div className="image-preview-container reference-image">
-                          <img
-                            src={`${config.API_URL}/admin/api/reference-images/${selectedCapture.reference_image_id}`}
-                            alt="Reference"
-                            className="captured-image"
-                          />
-                        </div>
-                        <p className="helper-text">This image was used as the source for img2img generation.</p>
-                      </div>
+                  <div className="metrics">
+                    <span>Provider: {selectedCapture.provider}</span>
+                    <span>Model: {selectedCapture.model}</span>
+                    <span>Size: {selectedCapture.image_size || 'unknown'}</span>
+                    {selectedCapture.image_width && selectedCapture.image_height && (
+                      <span>
+                        Dimensions: {selectedCapture.image_width}x{selectedCapture.image_height}
+                      </span>
                     )}
-
-                    <div className="prompt-section">
-                      <h3>Image Prompt</h3>
-                      <pre className="prompt-content">{selectedCapture.image_prompt || selectedCapture.user_message}</pre>
-                    </div>
-
-                    {(selectedCapture.target_personality || selectedCapture.target_emotion) && (
-                      <div className="prompt-section">
-                        <h3>Target</h3>
-                        <div className="target-info">
-                          {selectedCapture.target_personality && (
-                            <span className="target-badge">Personality: {selectedCapture.target_personality}</span>
-                          )}
-                          {selectedCapture.target_emotion && (
-                            <span className="target-badge">Emotion: {selectedCapture.target_emotion}</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="metrics">
-                      <span>Provider: {selectedCapture.provider}</span>
-                      <span>Model: {selectedCapture.model}</span>
-                      <span>Size: {selectedCapture.image_size || 'unknown'}</span>
-                      {selectedCapture.image_width && selectedCapture.image_height && (
-                        <span>Dimensions: {selectedCapture.image_width}x{selectedCapture.image_height}</span>
-                      )}
-                      <span>Latency: {selectedCapture.latency_ms}ms</span>
-                    </div>
-
-                    {selectedCapture.image_url && (
-                      <button
-                        className="assign-avatar-btn"
-                        onClick={() => openAvatarModal(selectedCapture.image_url!)}
-                      >
-                        Assign as Avatar
-                      </button>
-                    )}
+                    <span>Latency: {selectedCapture.latency_ms}ms</span>
                   </div>
-                ) : (
-                  /* Text View Mode */
-                  <div className="view-mode">
-                    <div className="prompt-section">
-                      <h3>System Prompt</h3>
-                      <pre className="prompt-content">{selectedCapture.system_prompt}</pre>
-                    </div>
 
-                    {selectedCapture.conversation_history && selectedCapture.conversation_history.length > 0 && (
+                  {selectedCapture.image_url && (
+                    <button
+                      className="assign-avatar-btn"
+                      onClick={() => openAvatarModal(selectedCapture.image_url!)}
+                    >
+                      Assign as Avatar
+                    </button>
+                  )}
+                </div>
+              ) : (
+                /* Text View Mode */
+                <div className="view-mode">
+                  <div className="prompt-section">
+                    <h3>System Prompt</h3>
+                    <pre className="prompt-content">{selectedCapture.system_prompt}</pre>
+                  </div>
+
+                  {selectedCapture.conversation_history &&
+                    selectedCapture.conversation_history.length > 0 && (
                       <div className="prompt-section">
-                        <h3>Conversation History ({selectedCapture.conversation_history.length} messages)</h3>
+                        <h3>
+                          Conversation History ({selectedCapture.conversation_history.length}{' '}
+                          messages)
+                        </h3>
                         <div className="history-list">
                           {selectedCapture.conversation_history.map((msg, i) => (
                             <div key={i} className={`history-message ${msg.role}`}>
@@ -528,291 +564,302 @@ export function PromptPlayground({ onBack, embedded = false }: Props) {
                       </div>
                     )}
 
-                    <div className="prompt-section">
-                      <h3>User Message</h3>
-                      <pre className="prompt-content">{selectedCapture.user_message}</pre>
-                    </div>
-
-                    <div className="prompt-section">
-                      <h3>AI Response</h3>
-                      <pre className="prompt-content response">{selectedCapture.ai_response}</pre>
-                    </div>
-
-                    <div className="metrics">
-                      <span>Provider: {selectedCapture.provider}</span>
-                      <span>Model: {selectedCapture.model}</span>
-                      <span>Latency: {selectedCapture.latency_ms}ms</span>
-                      <span>Input: {selectedCapture.input_tokens} tokens</span>
-                      <span>Output: {selectedCapture.output_tokens} tokens</span>
-                      {selectedCapture.estimated_cost && (
-                        <span>Cost: ${selectedCapture.estimated_cost.toFixed(6)}</span>
-                      )}
-                    </div>
+                  <div className="prompt-section">
+                    <h3>User Message</h3>
+                    <pre className="prompt-content">{selectedCapture.user_message}</pre>
                   </div>
-                )
-              ) : (
-                /* Replay mode - conditional for text vs image */
-                selectedCapture.is_image_capture ? (
-                  /* Image Replay Mode */
-                  <div className="replay-mode image-replay-mode">
-                    <div className="replay-controls">
-                      <div className="control-row">
-                        <label>Provider</label>
-                        <select
-                          value={imageReplayProvider}
-                          onChange={(e) => {
-                            setImageReplayProvider(e.target.value);
-                            setImageReplayModel('');
-                          }}
-                        >
-                          {imageProviders.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="control-row">
-                        <label>Model</label>
-                        <select
-                          value={imageReplayModel}
-                          onChange={(e) => setImageReplayModel(e.target.value)}
-                        >
-                          <option value="">Default</option>
-                          {imageProviders.find(p => p.id === imageReplayProvider)?.models.map(m => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="control-row">
-                        <label>Size</label>
-                        <select
-                          value={imageReplaySize}
-                          onChange={(e) => setImageReplaySize(e.target.value)}
-                        >
-                          {(imageProviders.find(p => p.id === imageReplayProvider)?.size_presets || [
-                            { label: '512x512', value: '512x512', cost: '$' },
-                            { label: '1024x1024', value: '1024x1024', cost: '$$' },
-                          ]).map(preset => (
-                            <option key={preset.value} value={preset.value}>
-                              {preset.label} ({preset.cost})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
 
-                    {/* Reference Image for img2img */}
-                    <div className="prompt-section">
-                      <h3>Reference Image (optional)</h3>
-                      <ReferenceImageInput
-                        value={referenceImageId}
-                        onChange={setReferenceImageId}
-                        disabled={replaying}
-                      />
-                      {referenceImageId && (
-                        <p className="helper-text">
-                          The AI will use this image as a starting point and transform it based on your prompt.
-                        </p>
-                      )}
-                      {referenceImageId && (() => {
-                        const selectedModel = imageProviders
-                          .find(p => p.id === imageReplayProvider)
-                          ?.models.find(m => m.id === imageReplayModel);
-                        const providerDefault = imageProviders.find(p => p.id === imageReplayProvider);
-                        const supportsImg2img = selectedModel?.supports_img2img ??
-                          providerDefault?.models[0]?.supports_img2img ?? false;
-                        return !supportsImg2img && (
-                          <div className="img2img-warning">
-                            Selected model doesn't support image-to-image. Reference image will be ignored.
-                          </div>
-                        );
-                      })()}
-                    </div>
+                  <div className="prompt-section">
+                    <h3>AI Response</h3>
+                    <pre className="prompt-content response">{selectedCapture.ai_response}</pre>
+                  </div>
 
-                    <div className="prompt-section">
-                      <h3>Image Prompt</h3>
-                      <textarea
-                        value={modifiedImagePrompt}
-                        onChange={(e) => setModifiedImagePrompt(e.target.value)}
-                        rows={6}
-                      />
-                    </div>
-
-                    <button
-                      className="replay-button"
-                      onClick={handleImageReplay}
-                      disabled={replaying}
-                    >
-                      {replaying ? 'Generating...' : imageReplayResult ? 'Generate Again' : 'Generate Image'}
-                    </button>
-
-                    {imageReplayResult && (
-                      <div className={`replay-result ${imageReplayResult.success ? '' : 'error'}`}>
-                        <div className="replay-result-header">
-                          <span className="result-label">Result</span>
-                          <button
-                            className="clear-result-btn"
-                            onClick={() => setImageReplayResult(null)}
-                            title="Clear result"
-                          >
-                            ×
-                          </button>
-                        </div>
-                        {imageReplayResult.error ? (
-                          <div className="error-message">{imageReplayResult.error}</div>
-                        ) : (
-                          <>
-                            <div className="image-comparison">
-                              <div className="original">
-                                <h4>Original</h4>
-                                {imageReplayResult.original_image_url ? (
-                                  <img src={imageReplayResult.original_image_url} alt="Original" />
-                                ) : (
-                                  <div className="no-image">Not available</div>
-                                )}
-                              </div>
-                              <div className="new">
-                                <h4>Generated ({imageReplayResult.model_used})</h4>
-                                {imageReplayResult.new_image_url ? (
-                                  <img src={imageReplayResult.new_image_url} alt="Generated" />
-                                ) : (
-                                  <div className="no-image">Not available</div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="replay-metrics">
-                              <span>Provider: {imageReplayResult.provider_used}</span>
-                              <span>Model: {imageReplayResult.model_used}</span>
-                              <span>Size: {imageReplayResult.size_used}</span>
-                              <span>Latency: {imageReplayResult.latency_ms}ms</span>
-                            </div>
-                            {imageReplayResult.new_image_url && (
-                              <button
-                                className="assign-avatar-btn"
-                                onClick={() => openAvatarModal(imageReplayResult.new_image_url!)}
-                              >
-                                Assign New Image as Avatar
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
+                  <div className="metrics">
+                    <span>Provider: {selectedCapture.provider}</span>
+                    <span>Model: {selectedCapture.model}</span>
+                    <span>Latency: {selectedCapture.latency_ms}ms</span>
+                    <span>Input: {selectedCapture.input_tokens} tokens</span>
+                    <span>Output: {selectedCapture.output_tokens} tokens</span>
+                    {selectedCapture.estimated_cost && (
+                      <span>Cost: ${selectedCapture.estimated_cost.toFixed(6)}</span>
                     )}
                   </div>
-                ) : (
-                  /* Text Replay Mode */
-                  <div className="replay-mode">
-                    <div className="replay-controls">
-                      <div className="control-row">
-                        <label>Provider</label>
-                        <select
-                          value={replayProvider}
-                          onChange={(e) => {
-                            setReplayProvider(e.target.value);
-                            setReplayModel('');
-                          }}
-                        >
-                          {providers.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="control-row">
-                        <label>Model</label>
-                        <select
-                          value={replayModel}
-                          onChange={(e) => setReplayModel(e.target.value)}
-                        >
-                          <option value="">Default</option>
-                          {providerModels.map(m => (
-                            <option key={m} value={m}>{formatModelLabel(m)}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="control-row">
-                        <label>Reasoning</label>
-                        <select
-                          value={replayEffort}
-                          onChange={(e) => setReplayEffort(e.target.value)}
-                        >
-                          <option value="minimal">Minimal</option>
-                          <option value="low">Low</option>
-                          <option value="medium">Medium</option>
-                          <option value="high">High</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="prompt-section">
-                      <h3>System Prompt</h3>
-                      <textarea
-                        value={modifiedSystemPrompt}
-                        onChange={(e) => setModifiedSystemPrompt(e.target.value)}
-                        rows={6}
-                      />
-                    </div>
-
-                    <div className="prompt-section">
-                      <h3>User Message</h3>
-                      <textarea
-                        value={modifiedUserMessage}
-                        onChange={(e) => setModifiedUserMessage(e.target.value)}
-                        rows={8}
-                      />
-                    </div>
-
-                    <button
-                      className="replay-button"
-                      onClick={handleReplay}
-                      disabled={replaying}
-                    >
-                      {replaying ? 'Replaying...' : replayResult ? 'Replay Again' : 'Replay with Changes'}
-                    </button>
-
-                    {replayResult && (
-                      <div className={`replay-result ${replayResult.success ? '' : 'error'}`}>
-                        <div className="replay-result-header">
-                          <span className="result-label">Result</span>
-                          <button
-                            className="clear-result-btn"
-                            onClick={() => setReplayResult(null)}
-                            title="Clear result"
-                          >
-                            ×
-                          </button>
-                        </div>
-                        {replayResult.error ? (
-                          <div className="error-message">{replayResult.error}</div>
-                        ) : (
-                          <>
-                            <div className="comparison">
-                              <div className="original">
-                                <h4>Original Response</h4>
-                                <pre>{replayResult.original_response}</pre>
-                              </div>
-                              <div className="new">
-                                <h4>New Response ({replayResult.model_used})</h4>
-                                <pre>{replayResult.new_response}</pre>
-                              </div>
-                            </div>
-                            <div className="replay-metrics">
-                              <span>Provider: {replayResult.provider_used}</span>
-                              <span>Model: {replayResult.model_used}</span>
-                              <span>Latency: {replayResult.latency_ms}ms</span>
-                              <span>Input: {replayResult.input_tokens} tokens</span>
-                              <span>Output: {replayResult.output_tokens} tokens</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
+                </div>
               )
-            ) : (
-              <div className="no-selection">
-                Select a capture to view details
+            ) : /* Replay mode - conditional for text vs image */
+            selectedCapture.is_image_capture ? (
+              /* Image Replay Mode */
+              <div className="replay-mode image-replay-mode">
+                <div className="replay-controls">
+                  <div className="control-row">
+                    <label>Provider</label>
+                    <select
+                      value={imageReplayProvider}
+                      onChange={(e) => {
+                        setImageReplayProvider(e.target.value);
+                        setImageReplayModel('');
+                      }}
+                    >
+                      {imageProviders.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="control-row">
+                    <label>Model</label>
+                    <select
+                      value={imageReplayModel}
+                      onChange={(e) => setImageReplayModel(e.target.value)}
+                    >
+                      <option value="">Default</option>
+                      {imageProviders
+                        .find((p) => p.id === imageReplayProvider)
+                        ?.models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="control-row">
+                    <label>Size</label>
+                    <select
+                      value={imageReplaySize}
+                      onChange={(e) => setImageReplaySize(e.target.value)}
+                    >
+                      {(
+                        imageProviders.find((p) => p.id === imageReplayProvider)?.size_presets || [
+                          { label: '512x512', value: '512x512', cost: '$' },
+                          { label: '1024x1024', value: '1024x1024', cost: '$$' },
+                        ]
+                      ).map((preset) => (
+                        <option key={preset.value} value={preset.value}>
+                          {preset.label} ({preset.cost})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Reference Image for img2img */}
+                <div className="prompt-section">
+                  <h3>Reference Image (optional)</h3>
+                  <ReferenceImageInput
+                    value={referenceImageId}
+                    onChange={setReferenceImageId}
+                    disabled={replaying}
+                  />
+                  {referenceImageId && (
+                    <p className="helper-text">
+                      The AI will use this image as a starting point and transform it based on your
+                      prompt.
+                    </p>
+                  )}
+                  {referenceImageId &&
+                    (() => {
+                      const selectedModel = imageProviders
+                        .find((p) => p.id === imageReplayProvider)
+                        ?.models.find((m) => m.id === imageReplayModel);
+                      const providerDefault = imageProviders.find(
+                        (p) => p.id === imageReplayProvider
+                      );
+                      const supportsImg2img =
+                        selectedModel?.supports_img2img ??
+                        providerDefault?.models[0]?.supports_img2img ??
+                        false;
+                      return (
+                        !supportsImg2img && (
+                          <div className="img2img-warning">
+                            Selected model doesn't support image-to-image. Reference image will be
+                            ignored.
+                          </div>
+                        )
+                      );
+                    })()}
+                </div>
+
+                <div className="prompt-section">
+                  <h3>Image Prompt</h3>
+                  <textarea
+                    value={modifiedImagePrompt}
+                    onChange={(e) => setModifiedImagePrompt(e.target.value)}
+                    rows={6}
+                  />
+                </div>
+
+                <button className="replay-button" onClick={handleImageReplay} disabled={replaying}>
+                  {replaying
+                    ? 'Generating...'
+                    : imageReplayResult
+                      ? 'Generate Again'
+                      : 'Generate Image'}
+                </button>
+
+                {imageReplayResult && (
+                  <div className={`replay-result ${imageReplayResult.success ? '' : 'error'}`}>
+                    <div className="replay-result-header">
+                      <span className="result-label">Result</span>
+                      <button
+                        className="clear-result-btn"
+                        onClick={() => setImageReplayResult(null)}
+                        title="Clear result"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {imageReplayResult.error ? (
+                      <div className="error-message">{imageReplayResult.error}</div>
+                    ) : (
+                      <>
+                        <div className="image-comparison">
+                          <div className="original">
+                            <h4>Original</h4>
+                            {imageReplayResult.original_image_url ? (
+                              <img src={imageReplayResult.original_image_url} alt="Original" />
+                            ) : (
+                              <div className="no-image">Not available</div>
+                            )}
+                          </div>
+                          <div className="new">
+                            <h4>Generated ({imageReplayResult.model_used})</h4>
+                            {imageReplayResult.new_image_url ? (
+                              <img src={imageReplayResult.new_image_url} alt="Generated" />
+                            ) : (
+                              <div className="no-image">Not available</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="replay-metrics">
+                          <span>Provider: {imageReplayResult.provider_used}</span>
+                          <span>Model: {imageReplayResult.model_used}</span>
+                          <span>Size: {imageReplayResult.size_used}</span>
+                          <span>Latency: {imageReplayResult.latency_ms}ms</span>
+                        </div>
+                        {imageReplayResult.new_image_url && (
+                          <button
+                            className="assign-avatar-btn"
+                            onClick={() => openAvatarModal(imageReplayResult.new_image_url!)}
+                          >
+                            Assign New Image as Avatar
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
+            ) : (
+              /* Text Replay Mode */
+              <div className="replay-mode">
+                <div className="replay-controls">
+                  <div className="control-row">
+                    <label>Provider</label>
+                    <select
+                      value={replayProvider}
+                      onChange={(e) => {
+                        setReplayProvider(e.target.value);
+                        setReplayModel('');
+                      }}
+                    >
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="control-row">
+                    <label>Model</label>
+                    <select value={replayModel} onChange={(e) => setReplayModel(e.target.value)}>
+                      <option value="">Default</option>
+                      {providerModels.map((m) => (
+                        <option key={m} value={m}>
+                          {formatModelLabel(m)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="control-row">
+                    <label>Reasoning</label>
+                    <select value={replayEffort} onChange={(e) => setReplayEffort(e.target.value)}>
+                      <option value="minimal">Minimal</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="prompt-section">
+                  <h3>System Prompt</h3>
+                  <textarea
+                    value={modifiedSystemPrompt}
+                    onChange={(e) => setModifiedSystemPrompt(e.target.value)}
+                    rows={6}
+                  />
+                </div>
+
+                <div className="prompt-section">
+                  <h3>User Message</h3>
+                  <textarea
+                    value={modifiedUserMessage}
+                    onChange={(e) => setModifiedUserMessage(e.target.value)}
+                    rows={8}
+                  />
+                </div>
+
+                <button className="replay-button" onClick={handleReplay} disabled={replaying}>
+                  {replaying
+                    ? 'Replaying...'
+                    : replayResult
+                      ? 'Replay Again'
+                      : 'Replay with Changes'}
+                </button>
+
+                {replayResult && (
+                  <div className={`replay-result ${replayResult.success ? '' : 'error'}`}>
+                    <div className="replay-result-header">
+                      <span className="result-label">Result</span>
+                      <button
+                        className="clear-result-btn"
+                        onClick={() => setReplayResult(null)}
+                        title="Clear result"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {replayResult.error ? (
+                      <div className="error-message">{replayResult.error}</div>
+                    ) : (
+                      <>
+                        <div className="comparison">
+                          <div className="original">
+                            <h4>Original Response</h4>
+                            <pre>{replayResult.original_response}</pre>
+                          </div>
+                          <div className="new">
+                            <h4>New Response ({replayResult.model_used})</h4>
+                            <pre>{replayResult.new_response}</pre>
+                          </div>
+                        </div>
+                        <div className="replay-metrics">
+                          <span>Provider: {replayResult.provider_used}</span>
+                          <span>Model: {replayResult.model_used}</span>
+                          <span>Latency: {replayResult.latency_ms}ms</span>
+                          <span>Input: {replayResult.input_tokens} tokens</span>
+                          <span>Output: {replayResult.output_tokens} tokens</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="no-selection">Select a capture to view details</div>
+          )}
         </div>
       </div>
 

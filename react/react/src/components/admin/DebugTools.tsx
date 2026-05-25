@@ -8,7 +8,15 @@ import './DebugTools.css';
 // Types
 // ============================================
 
-type DebugTab = 'diagnostic' | 'psychology' | 'tilt' | 'memory' | 'elasticity' | 'pressure' | 'relationships' | 'trajectory';
+type DebugTab =
+  | 'diagnostic'
+  | 'psychology'
+  | 'tilt'
+  | 'memory'
+  | 'elasticity'
+  | 'pressure'
+  | 'relationships'
+  | 'trajectory';
 
 interface AlertState {
   type: 'success' | 'error' | 'info';
@@ -28,7 +36,7 @@ interface ActiveGame {
   players: PlayerInfo[];
   phase: string | null;
   hand_number: number | null;
-  is_active: boolean;  // true = in memory, false = saved only
+  is_active: boolean; // true = in memory, false = saved only
 }
 
 interface DebugToolsProps {
@@ -41,11 +49,7 @@ interface DebugToolsProps {
  *  to the matrix component, which itself iterates defensively.
  */
 function isRelationshipsPayload(v: unknown): v is RelationshipsPayload {
-  return (
-    typeof v === 'object'
-    && v !== null
-    && Array.isArray((v as { pairs?: unknown }).pairs)
-  );
+  return typeof v === 'object' && v !== null && Array.isArray((v as { pairs?: unknown }).pairs);
 }
 
 // ============================================
@@ -117,15 +121,14 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
       return;
     }
 
-    const tab = TABS.find(t => t.id === activeTab);
+    const tab = TABS.find((t) => t.id === activeTab);
     if (!tab) return;
 
     try {
       setLoading(true);
-      const response = await fetch(
-        `${config.API_URL}/api/game/${gameId}/${tab.endpoint}`,
-        { credentials: 'include' },
-      );
+      const response = await fetch(`${config.API_URL}/api/game/${gameId}/${tab.endpoint}`, {
+        credentials: 'include',
+      });
       const data = await response.json();
 
       if (response.ok) {
@@ -178,7 +181,9 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
             {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
           </span>
           <span className="dt-alert__message">{alert.message}</span>
-          <button className="dt-alert__close" onClick={() => setAlert(null)}>×</button>
+          <button className="dt-alert__close" onClick={() => setAlert(null)}>
+            ×
+          </button>
         </div>
       )}
 
@@ -201,17 +206,22 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
               disabled={loadingGames}
             >
               <option value="">
-                {loadingGames ? 'Loading...' : activeGames.length === 0 ? 'No active games' : 'Select a game...'}
+                {loadingGames
+                  ? 'Loading...'
+                  : activeGames.length === 0
+                    ? 'No active games'
+                    : 'Select a game...'}
               </option>
-              {activeGames.map(game => {
-                const humanPlayer = game.players.find(p => p.is_human);
+              {activeGames.map((game) => {
+                const humanPlayer = game.players.find((p) => p.is_human);
                 const playerName = humanPlayer?.name || game.owner_name || 'Unknown';
-                const aiCount = game.players.filter(p => !p.is_human).length;
+                const aiCount = game.players.filter((p) => !p.is_human).length;
                 const phaseLabel = game.phase ? ` - ${game.phase}` : '';
                 const statusIcon = game.is_active ? '🟢' : '💾';
                 return (
                   <option key={game.game_id} value={game.game_id}>
-                    {statusIcon} {playerName} vs {aiCount} AI{aiCount !== 1 ? 's' : ''}{phaseLabel}
+                    {statusIcon} {playerName} vs {aiCount} AI{aiCount !== 1 ? 's' : ''}
+                    {phaseLabel}
                   </option>
                 );
               })}
@@ -263,7 +273,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
 
       {/* Debug Tabs */}
       <div className="dt-tabs">
-        {TABS.map(tab => (
+        {TABS.map((tab) => (
           <button
             key={tab.id}
             className={`dt-tab ${activeTab === tab.id ? 'dt-tab--active' : ''}`}
@@ -285,9 +295,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
               title="Psychology Trajectory Viewer"
             />
           ) : (
-            <div className="dt-result__empty">
-              Select a game to view psychology trajectories
-            </div>
+            <div className="dt-result__empty">Select a game to view psychology trajectories</div>
           )
         ) : loading ? (
           <div className="dt-result__loading">
@@ -295,7 +303,9 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
             <span>Loading...</span>
           </div>
         ) : result ? (
-          activeTab === 'relationships' && !showRelationshipsRaw && isRelationshipsPayload(result) ? (
+          activeTab === 'relationships' &&
+          !showRelationshipsRaw &&
+          isRelationshipsPayload(result) ? (
             <>
               <div className="dt-view-toggle">
                 <button
@@ -325,9 +335,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
             <pre className="dt-result__json">{JSON.stringify(result, null, 2)}</pre>
           )
         ) : (
-          <div className="dt-result__empty">
-            Enter a game ID and click Fetch to view debug data
-          </div>
+          <div className="dt-result__empty">Enter a game ID and click Fetch to view debug data</div>
         )}
       </div>
 
@@ -335,7 +343,7 @@ export function DebugTools({ embedded = false }: DebugToolsProps) {
       <div className="dt-info">
         <div className="dt-info__title">API Endpoint</div>
         <code className="dt-info__code">
-          GET /api/game/{'{game_id}'}/{TABS.find(t => t.id === activeTab)?.endpoint}
+          GET /api/game/{'{game_id}'}/{TABS.find((t) => t.id === activeTab)?.endpoint}
         </code>
       </div>
     </div>

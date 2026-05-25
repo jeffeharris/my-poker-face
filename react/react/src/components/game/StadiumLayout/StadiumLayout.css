@@ -21,8 +21,8 @@
   grid-template-columns: 260px 1fr 280px;
   grid-template-rows: 56px 1fr;
   grid-template-areas:
-    "header header header"
-    "left   table  right";
+    'header header header'
+    'left   table  right';
   height: 100vh;
   width: 100vw;
   background: var(--gradient-bg-main);
@@ -96,8 +96,8 @@
   .stadium-layout {
     grid-template-columns: 1fr 280px;
     grid-template-areas:
-      "header header"
-      "table  right";
+      'header header'
+      'table  right';
   }
 
   .stadium-layout__left {
@@ -111,8 +111,8 @@
     grid-template-columns: 1fr;
     grid-template-rows: 56px 1fr;
     grid-template-areas:
-      "header"
-      "table";
+      'header'
+      'table';
   }
 
   .stadium-layout__left,

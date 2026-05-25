@@ -1,4 +1,16 @@
-import { Users, FlaskConical, Microscope, Beaker, FileText, Bug, Settings, BookMarked, Shield, Film, Coins } from 'lucide-react';
+import {
+  Users,
+  FlaskConical,
+  Microscope,
+  Beaker,
+  FileText,
+  Bug,
+  Settings,
+  BookMarked,
+  Shield,
+  Film,
+  Coins,
+} from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [

@@ -109,7 +109,7 @@ export interface DecisionAnalysis {
   player_name: string;
   hand_number: number | null;
   phase: string | null;
-  player_position: string | null;  // Hero's table position (button, UTG, etc.)
+  player_position: string | null; // Hero's table position (button, UTG, etc.)
   pot_total: number | null;
   cost_to_call: number | null;
   player_stack: number | null;
@@ -119,7 +119,7 @@ export interface DecisionAnalysis {
   action_taken: string | null;
   raise_amount: number | null;
   equity: number | null;
-  equity_vs_ranges: number | null;  // Equity vs position-based ranges
+  equity_vs_ranges: number | null; // Equity vs position-based ranges
   opponent_positions: string | null; // JSON array of opponent positions
   // JSON object {name -> range[]}. Keys give us opponent names (insertion-
   // ordered to match opponent_positions) so we can render "BTN (Tesla)"
@@ -141,7 +141,7 @@ export interface DecisionAnalysis {
   focus: number | null;
   display_emotion: string | null;
   elastic_aggression: number | null;
-  elastic_bluff_tendency: number | null;  // Legacy - kept for historical data
+  elastic_bluff_tendency: number | null; // Legacy - kept for historical data
   // New 5-trait poker-native model
   elastic_tightness: number | null;
   elastic_confidence: number | null;
@@ -154,13 +154,7 @@ export interface DecisionAnalysis {
 }
 
 // Operation taxonomy from poker/strategy/intervention_trace.py:InterventionOperation.
-export type InterventionOperation =
-  | 'no_op'
-  | 'suggest'
-  | 'adjust'
-  | 'clamp'
-  | 'override'
-  | 'veto';
+export type InterventionOperation = 'no_op' | 'suggest' | 'adjust' | 'clamp' | 'override' | 'veto';
 
 // Mirror of poker/strategy/intervention_trace.py:InterventionTrace.
 // One entry per pipeline layer/rule on every TieredBot decision.
@@ -210,7 +204,7 @@ export interface DecisionAnalysisStats {
   total: number;
   total_ev_lost: number;
   avg_equity: number | null;
-  avg_equity_vs_ranges: number | null;  // Average equity vs position-based ranges
+  avg_equity_vs_ranges: number | null; // Average equity vs position-based ranges
   avg_processing_ms: number | null;
   mistakes: number;
   correct: number;

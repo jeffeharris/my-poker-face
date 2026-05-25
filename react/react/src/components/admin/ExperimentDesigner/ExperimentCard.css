@@ -94,8 +94,12 @@
 }
 
 @keyframes experimentCardSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Description */
@@ -186,7 +190,9 @@
 .experiment-card__chevron {
   color: rgba(248, 250, 252, 0.3);
   flex-shrink: 0;
-  transition: transform 0.2s ease, color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    color 0.2s ease;
 }
 
 .experiment-card:active .experiment-card__chevron {
@@ -212,8 +218,13 @@
 }
 
 @keyframes runningPulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 /* Failed status gets a subtle danger border */

@@ -54,7 +54,13 @@ function offerKey(offer: SponsorOffer): string {
   return `house:${offer.archetype_id}`;
 }
 
-export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }: SponsorModalProps) {
+export function SponsorModal({
+  isOpen,
+  stakeLabel,
+  origin,
+  tableName,
+  onClose,
+}: SponsorModalProps) {
   const navigate = useNavigate();
   const [offers, setOffers] = useState<SponsorOffer[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -81,7 +87,7 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
         } else {
           setLoadError(
             `Not eligible for sponsorship at ${stakeLabel}. ` +
-              `Need at least one tier below's bankroll to qualify.`,
+              `Need at least one tier below's bankroll to qualify.`
           );
         }
       } catch (e) {
@@ -125,7 +131,7 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
         setConfirmingKey(null);
       }
     },
-    [stakeLabel, busy, confirmingKey, navigate],
+    [stakeLabel, busy, confirmingKey, navigate]
   );
 
   if (!isOpen) return null;
@@ -135,10 +141,7 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
   // paints over the centered sheet's close button. See CharacterDetailCard.
   return createPortal(
     <div className="sponsor-modal__overlay" onClick={onClose}>
-      <div
-        className="sponsor-modal__sheet"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="sponsor-modal__sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sponsor-modal__header">
           <div className="sponsor-modal__title-row">
             <h3 className="sponsor-modal__title">
@@ -162,12 +165,12 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
 
         <div className="sponsor-modal__body">
           {loadError && (
-            <div className="sponsor-modal__error" role="alert">{loadError}</div>
+            <div className="sponsor-modal__error" role="alert">
+              {loadError}
+            </div>
           )}
 
-          {!offers && !loadError && (
-            <div className="sponsor-modal__loading">Finding sponsors…</div>
-          )}
+          {!offers && !loadError && <div className="sponsor-modal__loading">Finding sponsors…</div>}
 
           {offers?.map((offer) => {
             const key = offerKey(offer);
@@ -189,19 +192,14 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
                 <div className="sponsor-modal__offer-header">
                   <div className="sponsor-modal__offer-identity">
                     {isPersonality && (
-                      <span
-                        className="sponsor-modal__offer-avatar"
-                        aria-hidden="true"
-                      >
+                      <span className="sponsor-modal__offer-avatar" aria-hidden="true">
                         {offer.name.charAt(0).toUpperCase()}
                       </span>
                     )}
                     <div className="sponsor-modal__offer-name-block">
                       <h4 className="sponsor-modal__offer-name">{offer.name}</h4>
                       {isPersonality && offer.relationship_hint && (
-                        <span className="sponsor-modal__offer-hint">
-                          {offer.relationship_hint}
-                        </span>
+                        <span className="sponsor-modal__offer-hint">{offer.relationship_hint}</span>
                       )}
                     </div>
                   </div>
@@ -241,11 +239,13 @@ export function SponsorModal({ isOpen, stakeLabel, origin, tableName, onClose }:
           })}
 
           {submitError && (
-            <div className="sponsor-modal__error" role="alert">{submitError}</div>
+            <div className="sponsor-modal__error" role="alert">
+              {submitError}
+            </div>
           )}
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

@@ -13,15 +13,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import {
-  HandCoins,
-  Coins,
-  Fish,
-  Wallet,
-  Clock,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+import { HandCoins, Coins, Fish, Wallet, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import type { LobbySeat, LobbyTable } from './types';
 import { absolutizeAvatarUrl } from './avatarUrl';
 // type-only import keeps the Lobby ↔ TableCard cycle erased at runtime
@@ -48,12 +40,7 @@ function seatChips(seat: LobbySeat): number {
   return seat.kind === 'ai' || seat.kind === 'human' ? seat.chips : 0;
 }
 
-export function TableCard({
-  table,
-  busy,
-  onSeatTap,
-  onAiSeatClick,
-}: TableCardProps) {
+export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const locked = table.affordability === 'locked';
@@ -62,21 +49,15 @@ export function TableCard({
 
   // --- scouting derivations (pure over seats) ---
   const openSeats = table.seats.filter((s) => s.kind === 'open');
-  const occupied = table.seats.filter(
-    (s) => s.kind === 'ai' || s.kind === 'human',
-  );
+  const occupied = table.seats.filter((s) => s.kind === 'ai' || s.kind === 'human');
   const openCount = openSeats.length;
   const firstOpenIndex = openSeats[0]?.index;
   const mostChips = occupied.reduce((m, s) => Math.max(m, seatChips(s)), 0);
-  const whaleSeat = table.seats.find(
-    (s) => s.kind === 'ai' && s.role === 'whale',
-  );
-  const fishOnlyCount = table.seats.filter(
-    (s) => s.kind === 'ai' && s.role === 'fish',
-  ).length;
+  const whaleSeat = table.seats.find((s) => s.kind === 'ai' && s.role === 'whale');
+  const fishOnlyCount = table.seats.filter((s) => s.kind === 'ai' && s.role === 'fish').length;
   const carryTotal = table.seats.reduce(
-    (sum, s) => sum + (s.kind === 'ai' ? s.carry_amount ?? 0 : 0),
-    0,
+    (sum, s) => sum + (s.kind === 'ai' ? (s.carry_amount ?? 0) : 0),
+    0
   );
 
   const ariaLabel = locked
@@ -90,14 +71,11 @@ export function TableCard({
       if (locked || busy) return;
       onSeatTap(seatIndex);
     },
-    [locked, busy, onSeatTap],
+    [locked, busy, onSeatTap]
   );
 
   const buildDossierClick = useCallback(
-    (
-      seat: Extract<LobbySeat, { kind: 'ai' }>,
-      el: HTMLElement,
-    ): AiSeatClick => {
+    (seat: Extract<LobbySeat, { kind: 'ai' }>, el: HTMLElement): AiSeatClick => {
       const rect = el.getBoundingClientRect();
       return {
         dossier: {
@@ -116,18 +94,12 @@ export function TableCard({
         identifier: seat.personality_id,
       };
     },
-    [],
+    []
   );
 
   // Sit button: taps the first open seat. Disabled when locked/busy/full.
   const canSit = !locked && !busy && firstOpenIndex !== undefined;
-  const sitLabel = locked
-    ? 'Locked'
-    : sponsorOnly
-      ? 'Sponsor'
-      : openCount === 0
-        ? 'Full'
-        : 'Sit';
+  const sitLabel = locked ? 'Locked' : sponsorOnly ? 'Sponsor' : openCount === 0 ? 'Full' : 'Sit';
 
   return (
     <div
@@ -144,10 +116,7 @@ export function TableCard({
           <div className="lobby-table-card__name">
             {table.table_name ?? `${table.stake_label} table`}
             {closing && (
-              <span
-                className="lobby-table-card__closing"
-                title="This table is breaking up"
-              >
+              <span className="lobby-table-card__closing" title="This table is breaking up">
                 <Clock size={11} aria-hidden="true" />
                 closing · {table.closing_hand_countdown}{' '}
                 {table.closing_hand_countdown === 1 ? 'hand' : 'hands'}
@@ -163,9 +132,7 @@ export function TableCard({
           type="button"
           className="lobby-table-card__sit"
           disabled={!canSit}
-          onClick={() =>
-            firstOpenIndex !== undefined && handleSeatClick(firstOpenIndex)
-          }
+          onClick={() => firstOpenIndex !== undefined && handleSeatClick(firstOpenIndex)}
           title={
             locked
               ? `Earn $${table.min_buy_in.toLocaleString()} to unlock`
@@ -177,20 +144,13 @@ export function TableCard({
           }
         >
           {sitLabel}
-          {canSit && (
-            <small>buy-in ${table.min_buy_in.toLocaleString()}</small>
-          )}
+          {canSit && <small>buy-in ${table.min_buy_in.toLocaleString()}</small>}
         </button>
       </div>
 
       {/* Scouting line — the decision drivers at a glance. */}
       <div className="lobby-table-card__scout">
-        <span
-          className={
-            'lobby-table-card__scout-open' +
-            (openCount === 0 ? ' is-full' : '')
-          }
-        >
+        <span className={'lobby-table-card__scout-open' + (openCount === 0 ? ' is-full' : '')}>
           <i aria-hidden="true" />
           {openCount > 0 ? `${openCount} open` : 'full'}
         </span>
@@ -230,9 +190,7 @@ export function TableCard({
                 type="button"
                 className={`lobby-table-card__pip lobby-table-card__pip--emotion-${seat.emotion}`}
                 title={`${seat.name} — ${seat.emotion}. Click for dossier.`}
-                onClick={(e) =>
-                  onAiSeatClick?.(buildDossierClick(seat, e.currentTarget))
-                }
+                onClick={(e) => onAiSeatClick?.(buildDossierClick(seat, e.currentTarget))}
                 aria-label={`Open dossier for ${seat.name}`}
               >
                 {(() => {
@@ -240,9 +198,7 @@ export function TableCard({
                   return src ? (
                     <img src={src} alt={seat.name} loading="lazy" />
                   ) : (
-                    <span aria-hidden="true">
-                      {seat.name.charAt(0).toUpperCase()}
-                    </span>
+                    <span aria-hidden="true">{seat.name.charAt(0).toUpperCase()}</span>
                   );
                 })()}
               </button>
@@ -255,13 +211,10 @@ export function TableCard({
               >
                 ♟
               </span>
-            ),
+            )
           )}
           {openCount > 0 && (
-            <span
-              className="lobby-table-card__pip lobby-table-card__pip--open"
-              aria-hidden="true"
-            >
+            <span className="lobby-table-card__pip lobby-table-card__pip--open" aria-hidden="true">
               +{openCount}
             </span>
           )}
@@ -280,8 +233,7 @@ export function TableCard({
         <>
           <div className="lobby-table-card__roster">
             {table.seats.map((seat) => {
-              const isDealer =
-                table.dealer_index != null && seat.index === table.dealer_index;
+              const isDealer = table.dealer_index != null && seat.index === table.dealer_index;
               if (seat.kind === 'ai') {
                 const title = seat.relationship_hint
                   ? `${seat.name} — ${seat.relationship_hint} (${seat.emotion}). Click for dossier.`
@@ -297,9 +249,7 @@ export function TableCard({
                     }
                     title={title}
                     data-emotion={seat.emotion}
-                    onClick={(e) =>
-                      onAiSeatClick?.(buildDossierClick(seat, e.currentTarget))
-                    }
+                    onClick={(e) => onAiSeatClick?.(buildDossierClick(seat, e.currentTarget))}
                     aria-label={`Open dossier for ${seat.name}`}
                   >
                     {isDealer && (
@@ -347,26 +297,19 @@ export function TableCard({
                         return src ? (
                           <img src={src} alt={seat.name} loading="lazy" />
                         ) : (
-                          <span
-                            className="lobby-table-card__seat-initial"
-                            aria-hidden="true"
-                          >
+                          <span className="lobby-table-card__seat-initial" aria-hidden="true">
                             {seat.name.charAt(0).toUpperCase()}
                           </span>
                         );
                       })()}
                     </div>
                     <div className="lobby-table-card__seat-overlay">
-                      <div className="lobby-table-card__seat-name">
-                        {seat.name}
-                      </div>
+                      <div className="lobby-table-card__seat-name">{seat.name}</div>
                       <div className="lobby-table-card__seat-chips">
                         ${seat.chips.toLocaleString()}
                       </div>
                       {seat.relationship_hint && (
-                        <div className="lobby-table-card__seat-hint">
-                          {seat.relationship_hint}
-                        </div>
+                        <div className="lobby-table-card__seat-hint">{seat.relationship_hint}</div>
                       )}
                     </div>
                   </button>
@@ -437,9 +380,7 @@ export function TableCard({
           Locked — earn ${table.min_buy_in.toLocaleString()}
         </div>
       )}
-      {sponsorOnly && (
-        <div className="cash-entry__stake-sponsor">Sponsor required</div>
-      )}
+      {sponsorOnly && <div className="cash-entry__stake-sponsor">Sponsor required</div>}
     </div>
   );
 }

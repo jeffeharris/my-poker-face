@@ -14,7 +14,9 @@ interface ReplayPokerTableProps {
   visualState: VisualState;
 }
 
-export const ReplayPokerTable = memo(function ReplayPokerTable({ visualState }: ReplayPokerTableProps) {
+export const ReplayPokerTable = memo(function ReplayPokerTable({
+  visualState,
+}: ReplayPokerTableProps) {
   const totalSeats = visualState.players.length;
 
   const getSeatStyle = useMemo(() => {
@@ -43,9 +45,7 @@ export const ReplayPokerTable = memo(function ReplayPokerTable({ visualState }: 
       {/* Table felt */}
       <div className="replay-table__felt">
         {/* Phase badge */}
-        <div className="replay-table__phase-badge">
-          {visualState.phase.replace('_', ' ')}
-        </div>
+        <div className="replay-table__phase-badge">{visualState.phase.replace('_', ' ')}</div>
 
         {/* Community cards */}
         <div className="replay-table__community">

@@ -91,63 +91,80 @@ export function HandReplayBrowser() {
     fetchGames();
   }, [fetchGames]);
 
-  const handleGameSelect = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = e.target.value;
-    setGameId(selected);
-    if (selected) {
-      fetchHandsFor(selected);
-    }
-  }, [fetchHandsFor]);
-
-  const fetchReplay = useCallback(async (handNumber: number) => {
-    const trimmed = gameId.trim();
-    if (!trimmed) return;
-
-    setLoading(true);
-    setError(null);
-    setSelectedHand(handNumber);
-    setReplayData(null);
-
-    try {
-      const res = await fetch(
-        `${config.API_URL}/admin/api/hands/${encodeURIComponent(trimmed)}/${handNumber}/replay`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) {
-        throw new Error(`Failed to fetch replay: ${res.status}`);
+  const handleGameSelect = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const selected = e.target.value;
+      setGameId(selected);
+      if (selected) {
+        fetchHandsFor(selected);
       }
-      const json = await res.json();
-      if (!json.success) {
-        throw new Error(json.error ?? 'Unknown error');
+    },
+    [fetchHandsFor]
+  );
+
+  const fetchReplay = useCallback(
+    async (handNumber: number) => {
+      const trimmed = gameId.trim();
+      if (!trimmed) return;
+
+      setLoading(true);
+      setError(null);
+      setSelectedHand(handNumber);
+      setReplayData(null);
+
+      try {
+        const res = await fetch(
+          `${config.API_URL}/admin/api/hands/${encodeURIComponent(trimmed)}/${handNumber}/replay`,
+          { credentials: 'include' }
+        );
+        if (!res.ok) {
+          throw new Error(`Failed to fetch replay: ${res.status}`);
+        }
+        const json = await res.json();
+        if (!json.success) {
+          throw new Error(json.error ?? 'Unknown error');
+        }
+        // Transform API response: add seat_index and hole_cards to players
+        const replay = json.replay;
+        const holeCards: Record<string, string[]> = replay.hole_cards ?? {};
+        replay.players = replay.players.map(
+          (
+            p: { name: string; starting_stack: number; position: string; is_human: boolean },
+            i: number
+          ) => ({
+            ...p,
+            seat_index: i,
+            hole_cards: holeCards[p.name] ?? null,
+          })
+        );
+        setReplayData(replay);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch replay');
+      } finally {
+        setLoading(false);
       }
-      // Transform API response: add seat_index and hole_cards to players
-      const replay = json.replay;
-      const holeCards: Record<string, string[]> = replay.hole_cards ?? {};
-      replay.players = replay.players.map((p: { name: string; starting_stack: number; position: string; is_human: boolean }, i: number) => ({
-        ...p,
-        seat_index: i,
-        hole_cards: holeCards[p.name] ?? null,
-      }));
-      setReplayData(replay);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch replay');
-    } finally {
-      setLoading(false);
-    }
-  }, [gameId]);
+    },
+    [gameId]
+  );
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      fetchHands();
-    }
-  }, [fetchHands]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        fetchHands();
+      }
+    },
+    [fetchHands]
+  );
 
-  const handleHandSelect = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const num = parseInt(e.target.value, 10);
-    if (!isNaN(num)) {
-      fetchReplay(num);
-    }
-  }, [fetchReplay]);
+  const handleHandSelect = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const num = parseInt(e.target.value, 10);
+      if (!isNaN(num)) {
+        fetchReplay(num);
+      }
+    },
+    [fetchReplay]
+  );
 
   return (
     <div className="hand-replay-browser">
@@ -157,22 +174,27 @@ export function HandReplayBrowser() {
           <label className="hand-replay-browser__picker-label">Game</label>
           <select
             className="hand-replay-browser__select themed-select"
-            value={games.some(g => g.game_id === gameId) ? gameId : ''}
+            value={games.some((g) => g.game_id === gameId) ? gameId : ''}
             onChange={handleGameSelect}
             disabled={loadingGames}
           >
             <option value="">
-              {loadingGames ? 'Loading…' : games.length === 0 ? 'No games found' : `Select a game (${games.length})`}
+              {loadingGames
+                ? 'Loading…'
+                : games.length === 0
+                  ? 'No games found'
+                  : `Select a game (${games.length})`}
             </option>
-            {games.map(game => {
-              const human = game.players.find(p => p.is_human);
+            {games.map((game) => {
+              const human = game.players.find((p) => p.is_human);
               const playerName = human?.name || game.owner_name || 'Unknown';
-              const aiCount = game.players.filter(p => !p.is_human).length;
+              const aiCount = game.players.filter((p) => !p.is_human).length;
               const phaseLabel = game.phase ? ` — ${game.phase}` : '';
               const statusIcon = game.is_active ? '🟢' : '💾';
               return (
                 <option key={game.game_id} value={game.game_id}>
-                  {statusIcon} {playerName} vs {aiCount} AI{aiCount !== 1 ? 's' : ''}{phaseLabel}
+                  {statusIcon} {playerName} vs {aiCount} AI{aiCount !== 1 ? 's' : ''}
+                  {phaseLabel}
                 </option>
               );
             })}
@@ -222,7 +244,8 @@ export function HandReplayBrowser() {
               </option>
               {handList.map((h) => (
                 <option key={h.hand_number} value={h.hand_number}>
-                  Hand #{h.hand_number} — {h.player_count}p — {h.winner_names.join(', ') || 'No winner'}
+                  Hand #{h.hand_number} — {h.player_count}p —{' '}
+                  {h.winner_names.join(', ') || 'No winner'}
                 </option>
               ))}
             </select>
@@ -231,9 +254,7 @@ export function HandReplayBrowser() {
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="hand-replay-browser__error">{error}</div>
-      )}
+      {error && <div className="hand-replay-browser__error">{error}</div>}
 
       {/* Loading state */}
       {loading && !replayData && (

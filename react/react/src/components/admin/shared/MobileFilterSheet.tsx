@@ -81,20 +81,14 @@ export function MobileFilterSheet({
         {title && (
           <div className="mobile-filter-sheet__header">
             <h3 className="mobile-filter-sheet__title">{title}</h3>
-            <button
-              className="mobile-filter-sheet__close-btn"
-              onClick={onClose}
-              aria-label="Close"
-            >
+            <button className="mobile-filter-sheet__close-btn" onClick={onClose} aria-label="Close">
               <X size={20} />
             </button>
           </div>
         )}
 
         {/* Content */}
-        <div className="mobile-filter-sheet__content">
-          {children}
-        </div>
+        <div className="mobile-filter-sheet__content">{children}</div>
       </div>
     </div>
   );

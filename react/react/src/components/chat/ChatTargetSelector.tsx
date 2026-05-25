@@ -42,9 +42,10 @@ export function ChatTargetSelector({
           // Backend already URL-encodes the personality segment of
           // `avatar_url`; only the fallback (built from raw `player.name`)
           // needs encoding here.
-          const path = (typeof player.avatar_url === 'string' && player.avatar_url.length > 0)
-            ? player.avatar_url
-            : `/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
+          const path =
+            typeof player.avatar_url === 'string' && player.avatar_url.length > 0
+              ? player.avatar_url
+              : `/api/avatar/${encodeURIComponent(player.name)}/confident/full`;
           const avatarUrl = `${config.API_URL}${path}`;
           const isFolded = !!player.is_folded;
           const nickname = displayNickname(player);
@@ -57,7 +58,11 @@ export function ChatTargetSelector({
               style={{ backgroundImage: `url(${avatarUrl})` }}
             >
               <span className="target-name">{nickname}</span>
-              {isFolded && <span className="target-folded-badge" aria-hidden="true">folded</span>}
+              {isFolded && (
+                <span className="target-folded-badge" aria-hidden="true">
+                  folded
+                </span>
+              )}
             </button>
           );
         })}

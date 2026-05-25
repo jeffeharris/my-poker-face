@@ -8,7 +8,9 @@ import toast from 'react-hot-toast';
 
 describe('Toast system (T1-15)', () => {
   it('renders the Toaster component without crashing', () => {
-    const { container } = render(<Toaster position="top-right" toastOptions={{ duration: 4000 }} />);
+    const { container } = render(
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+    );
     expect(container).toBeTruthy();
   });
 

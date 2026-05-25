@@ -63,7 +63,14 @@ interface CollapsibleSectionProps {
   badge?: string;
 }
 
-function CollapsibleSection({ title, icon, isOpen, onToggle, children, badge }: CollapsibleSectionProps) {
+function CollapsibleSection({
+  title,
+  icon,
+  isOpen,
+  onToggle,
+  children,
+  badge,
+}: CollapsibleSectionProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);
 
@@ -81,7 +88,13 @@ function CollapsibleSection({ title, icon, isOpen, onToggle, children, badge }: 
         {badge && <span className="pm-section__badge">{badge}</span>}
         <span className="pm-section__chevron">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path
+              d="M5 7.5L10 12.5L15 7.5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </span>
       </button>
@@ -107,14 +120,24 @@ interface TraitSliderProps {
   showElasticity?: boolean;
 }
 
-function TraitSlider({ id, label, value, elasticity, onChange, onElasticityChange, showElasticity = true }: TraitSliderProps) {
+function TraitSlider({
+  id,
+  label,
+  value,
+  elasticity,
+  onChange,
+  onElasticityChange,
+  showElasticity = true,
+}: TraitSliderProps) {
   const minValue = Math.max(0, value - elasticity);
   const maxValue = Math.min(1, value + elasticity);
 
   return (
     <div className="pm-trait">
       <div className="pm-trait__header">
-        <label className="pm-trait__label" htmlFor={id}>{label}</label>
+        <label className="pm-trait__label" htmlFor={id}>
+          {label}
+        </label>
         {showElasticity && (
           <span className="pm-trait__elasticity-badge">±{Math.round(elasticity * 100)}%</span>
         )}
@@ -125,7 +148,7 @@ function TraitSlider({ id, label, value, elasticity, onChange, onElasticityChang
             className="pm-trait__range-indicator"
             style={{
               left: `${minValue * 100}%`,
-              width: `${(maxValue - minValue) * 100}%`
+              width: `${(maxValue - minValue) * 100}%`,
             }}
           />
         )}
@@ -200,7 +223,12 @@ function ArrayInput({ label, items, onChange, placeholder }: ArrayInputProps) {
               aria-label="Remove item"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path
+                  d="M4 4L12 12M12 4L4 12"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
           </div>
@@ -208,7 +236,7 @@ function ArrayInput({ label, items, onChange, placeholder }: ArrayInputProps) {
       </div>
       <button type="button" className="pm-array__add" onClick={handleAdd}>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M7 1V13M1 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          <path d="M7 1V13M1 7H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
         Add {label.replace(/s$/, '')}
       </button>
@@ -226,10 +254,18 @@ interface ConfirmModalProps {
   isLoading?: boolean;
 }
 
-function ConfirmModal({ title, message, confirmLabel, confirmVariant = 'primary', onConfirm, onCancel, isLoading }: ConfirmModalProps) {
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  confirmVariant = 'primary',
+  onConfirm,
+  onCancel,
+  isLoading,
+}: ConfirmModalProps) {
   return (
     <div className="admin-modal-overlay" onClick={onCancel}>
-      <div className="admin-modal" onClick={e => e.stopPropagation()}>
+      <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
         <div className="admin-modal__header">
           <h3 className="admin-modal__title">{title}</h3>
         </div>
@@ -237,7 +273,12 @@ function ConfirmModal({ title, message, confirmLabel, confirmVariant = 'primary'
           <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>{message}</p>
         </div>
         <div className="admin-modal__footer">
-          <button type="button" className="admin-btn admin-btn--secondary" onClick={onCancel} disabled={isLoading}>
+          <button
+            type="button"
+            className="admin-btn admin-btn--secondary"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
             Cancel
           </button>
           <button
@@ -264,7 +305,11 @@ interface ImageLightboxProps {
   initialIndex: number;
   referenceImageId: string | null;
   onClose: () => void;
-  onRegenerate: (emotion: string, referenceImageId?: string | null, strength?: number) => Promise<void>;
+  onRegenerate: (
+    emotion: string,
+    referenceImageId?: string | null,
+    strength?: number
+  ) => Promise<void>;
   onRegenerateAll: (referenceImageId?: string | null, strength?: number) => Promise<void>;
   onReferenceImageChange: (referenceId: string | null) => void;
   regenerating: string | null;
@@ -434,19 +479,44 @@ function ImageLightbox({
         {/* Close button */}
         <button type="button" className="pm-lightbox__close" onClick={onClose}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path
+              d="M6 6L18 18M18 6L6 18"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
 
         {/* Navigation arrows */}
-        <button type="button" className="pm-lightbox__nav pm-lightbox__nav--prev" onClick={handlePrev}>
+        <button
+          type="button"
+          className="pm-lightbox__nav pm-lightbox__nav--prev"
+          onClick={handlePrev}
+        >
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <path d="M20 8L12 16L20 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path
+              d="M20 8L12 16L20 24"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
-        <button type="button" className="pm-lightbox__nav pm-lightbox__nav--next" onClick={handleNext}>
+        <button
+          type="button"
+          className="pm-lightbox__nav pm-lightbox__nav--next"
+          onClick={handleNext}
+        >
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <path d="M12 8L20 16L12 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path
+              d="M12 8L20 16L12 24"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
 
@@ -475,7 +545,9 @@ function ImageLightbox({
         <div className="pm-lightbox__info">
           <span className="pm-lightbox__name">{personalityName}</span>
           <span className="pm-lightbox__emotion">{currentImage.emotion}</span>
-          <span className="pm-lightbox__pagination">{currentIndex + 1} / {emotionCount}</span>
+          <span className="pm-lightbox__pagination">
+            {currentIndex + 1} / {emotionCount}
+          </span>
         </div>
 
         {/* Controls panel */}
@@ -505,7 +577,9 @@ function ImageLightbox({
                 className={`pm-lightbox__reference-upload ${isUploading ? 'uploading' : ''}`}
                 onDragOver={handleDragOver}
                 onDrop={!isUploading && !isRegenerating ? handleDrop : undefined}
-                onClick={() => !isUploading && !isRegenerating && !showUrlInput && fileInputRef.current?.click()}
+                onClick={() =>
+                  !isUploading && !isRegenerating && !showUrlInput && fileInputRef.current?.click()
+                }
               >
                 <input
                   ref={fileInputRef}
@@ -533,10 +607,20 @@ function ImageLightbox({
                       autoFocus
                     />
                     <div className="pm-lightbox__url-actions">
-                      <button type="button" onClick={handleUrlSubmit} disabled={!urlInput.trim() || isRegenerating}>
+                      <button
+                        type="button"
+                        onClick={handleUrlSubmit}
+                        disabled={!urlInput.trim() || isRegenerating}
+                      >
                         Load
                       </button>
-                      <button type="button" onClick={() => { setShowUrlInput(false); setUrlInput(''); }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowUrlInput(false);
+                          setUrlInput('');
+                        }}
+                      >
                         Cancel
                       </button>
                     </div>
@@ -544,13 +628,14 @@ function ImageLightbox({
                 ) : (
                   <div className="pm-lightbox__upload-prompt">
                     <span className="pm-lightbox__upload-icon">📷</span>
-                    <span className="pm-lightbox__upload-text">
-                      Drop image or click to upload
-                    </span>
+                    <span className="pm-lightbox__upload-text">Drop image or click to upload</span>
                     <button
                       type="button"
                       className="pm-lightbox__url-link"
-                      onClick={(e) => { e.stopPropagation(); setShowUrlInput(true); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowUrlInput(true);
+                      }}
                       disabled={isRegenerating}
                     >
                       or paste URL
@@ -567,7 +652,9 @@ function ImageLightbox({
               <div className="pm-lightbox__strength">
                 <label className="pm-lightbox__strength-label">
                   <span>Reference Strength</span>
-                  <span className="pm-lightbox__strength-value">{Math.round((1 - strength) * 100)}%</span>
+                  <span className="pm-lightbox__strength-value">
+                    {Math.round((1 - strength) * 100)}%
+                  </span>
                 </label>
                 <input
                   type="range"
@@ -620,7 +707,13 @@ interface CreateModalProps {
   isLoading?: boolean;
 }
 
-function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, isLoading }: CreateModalProps) {
+function CreateModal({
+  onCreateManual,
+  onCreateWithAI,
+  onCancel,
+  existingNames,
+  isLoading,
+}: CreateModalProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -648,24 +741,36 @@ function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, 
 
   return (
     <div className="admin-modal-overlay" onClick={onCancel}>
-      <div className="admin-modal pm-modal--create" onClick={e => e.stopPropagation()}>
+      <div className="admin-modal pm-modal--create" onClick={(e) => e.stopPropagation()}>
         <div className="admin-modal__header">
           <h3 className="admin-modal__title">Create New Personality</h3>
         </div>
         <div className="admin-modal__body">
           <div className="admin-form-group">
-            <label className="admin-label" htmlFor="new-personality-name">Character Name</label>
+            <label className="admin-label" htmlFor="new-personality-name">
+              Character Name
+            </label>
             <input
               ref={inputRef}
               id="new-personality-name"
               type="text"
               className={`admin-input ${error ? 'admin-input--error' : ''}`}
               value={name}
-              onChange={(e) => { setName(e.target.value); setError(''); }}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError('');
+              }}
               placeholder="e.g., Batman, The Rock, Marie Curie..."
               disabled={isLoading}
             />
-            {error && <span className="admin-text-error" style={{ fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-1)' }}>{error}</span>}
+            {error && (
+              <span
+                className="admin-text-error"
+                style={{ fontSize: 'var(--font-size-sm)', marginTop: 'var(--space-1)' }}
+              >
+                {error}
+              </span>
+            )}
           </div>
           <div className="pm-modal__create-actions">
             <button
@@ -695,7 +800,12 @@ function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, 
           </div>
         </div>
         <div className="admin-modal__footer">
-          <button type="button" className="admin-btn admin-btn--secondary" onClick={onCancel} disabled={isLoading}>
+          <button
+            type="button"
+            className="admin-btn admin-btn--secondary"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
             Cancel
           </button>
         </div>
@@ -707,26 +817,37 @@ function CreateModal({ onCreateManual, onCreateWithAI, onCancel, existingNames, 
 // Shared icons
 const SearchIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
-    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M12 12L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <path d="M4 9L7.5 12.5L14 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path
+      d="M4 9L7.5 12.5L14 5.5"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
 const PlusIcon = ({ size = 18 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 18 18" fill="none">
-    <path d="M9 3V15M3 9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    <path d="M9 3V15M3 9H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-    <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path
+      d="M3 5H17M3 10H17M3 15H17"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
   </svg>
 );
 
@@ -742,16 +863,26 @@ interface MasterListProps {
   personalityMeta?: Record<string, { visibility?: string; owner_id?: string }>;
 }
 
-function MasterList({ characters, groups, selected, onSelect, onCreate, search, onSearchChange, personalityMeta }: MasterListProps) {
+function MasterList({
+  characters,
+  groups,
+  selected,
+  onSelect,
+  onCreate,
+  search,
+  onSearchChange,
+  personalityMeta,
+}: MasterListProps) {
   const searchLower = search.toLowerCase();
 
-  const filteredGroups = useMemo(() =>
-    groups
-      .map(g => ({
-        ...g,
-        names: g.names.filter(name => name.toLowerCase().includes(searchLower))
-      }))
-      .filter(g => g.names.length > 0),
+  const filteredGroups = useMemo(
+    () =>
+      groups
+        .map((g) => ({
+          ...g,
+          names: g.names.filter((name) => name.toLowerCase().includes(searchLower)),
+        }))
+        .filter((g) => g.names.length > 0),
     [groups, searchLower]
   );
 
@@ -780,9 +911,7 @@ function MasterList({ characters, groups, selected, onSelect, onCreate, search, 
       <div className="admin-master__list">
         {filteredGroups.map((group) => (
           <div key={group.label}>
-            {groups.length > 1 && (
-              <div className="admin-master__section-header">{group.label}</div>
-            )}
+            {groups.length > 1 && <div className="admin-master__section-header">{group.label}</div>}
             {group.names.map((name) => {
               const vis = personalityMeta?.[name]?.visibility;
               return (
@@ -836,16 +965,25 @@ interface CharacterSelectorProps {
   personalityMeta?: Record<string, { visibility?: string; owner_id?: string }>;
 }
 
-function CharacterSelector({ characters, groups, selected, onSelect, onCreate, isOpen, onClose, personalityMeta }: CharacterSelectorProps) {
+function CharacterSelector({
+  characters,
+  groups,
+  selected,
+  onSelect,
+  onCreate,
+  isOpen,
+  onClose,
+  personalityMeta,
+}: CharacterSelectorProps) {
   const [search, setSearch] = useState('');
   const searchLower = search.toLowerCase();
 
   const filteredGroups = groups
-    .map(g => ({
+    .map((g) => ({
       ...g,
-      names: g.names.filter(name => name.toLowerCase().includes(searchLower))
+      names: g.names.filter((name) => name.toLowerCase().includes(searchLower)),
     }))
-    .filter(g => g.names.length > 0);
+    .filter((g) => g.names.length > 0);
 
   const totalFiltered = filteredGroups.reduce((sum, g) => sum + g.names.length, 0);
   let itemIndex = 0;
@@ -857,7 +995,10 @@ function CharacterSelector({ characters, groups, selected, onSelect, onCreate, i
 
   return (
     <>
-      <div className={`pm-sheet-backdrop ${isOpen ? 'pm-sheet-backdrop--visible' : ''}`} onClick={onClose} />
+      <div
+        className={`pm-sheet-backdrop ${isOpen ? 'pm-sheet-backdrop--visible' : ''}`}
+        onClick={onClose}
+      />
       <div className={`pm-sheet ${isOpen ? 'pm-sheet--open' : ''}`}>
         <div className="pm-sheet__handle" onClick={onClose}>
           <div className="pm-sheet__handle-bar" />
@@ -913,9 +1054,7 @@ function CharacterSelector({ characters, groups, selected, onSelect, onCreate, i
             </div>
           ))}
           {totalFiltered === 0 && (
-            <div className="pm-sheet__empty">
-              No characters found matching &quot;{search}&quot;
-            </div>
+            <div className="pm-sheet__empty">No characters found matching &quot;{search}&quot;</div>
           )}
         </div>
         <button type="button" className="pm-sheet__create" onClick={onCreate}>
@@ -934,7 +1073,12 @@ interface AvatarImageManagerProps {
   onDescriptionSave: () => Promise<void>;
 }
 
-function AvatarImageManager({ personalityName, avatarDescription, onDescriptionChange, onDescriptionSave }: AvatarImageManagerProps) {
+function AvatarImageManager({
+  personalityName,
+  avatarDescription,
+  onDescriptionChange,
+  onDescriptionSave,
+}: AvatarImageManagerProps) {
   const [images, setImages] = useState<EmotionImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState<string | null>(null);
@@ -949,11 +1093,13 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
     `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full?t=${Date.now()}`;
 
   const markEmotionReady = (emotion: string) => {
-    setImages(prev => prev.map(img => (
-      img.emotion === emotion
-        ? { ...img, url: getEmotionImageUrl(emotion), hasFullImage: true }
-        : img
-    )));
+    setImages((prev) =>
+      prev.map((img) =>
+        img.emotion === emotion
+          ? { ...img, url: getEmotionImageUrl(emotion), hasFullImage: true }
+          : img
+      )
+    );
   };
 
   useEffect(() => {
@@ -968,17 +1114,33 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
       // Fetch available emotions
       const emotionsRes = await fetch(`${config.API_URL}/api/avatar/emotions`);
       const emotionsData = await emotionsRes.json();
-      const emotionsList = emotionsData.emotions || ['confident', 'happy', 'thinking', 'nervous', 'angry', 'shocked', 'smug', 'frustrated', 'elated', 'poker_face'];
+      const emotionsList = emotionsData.emotions || [
+        'confident',
+        'happy',
+        'thinking',
+        'nervous',
+        'angry',
+        'shocked',
+        'smug',
+        'frustrated',
+        'elated',
+        'poker_face',
+      ];
 
       // Check which images exist - use full/square images for the manager
       const imagePromises = emotionsList.map(async (emotion: string) => {
         try {
-          const fullRes = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full`, { method: 'HEAD' });
+          const fullRes = await fetch(
+            `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full`,
+            { method: 'HEAD' }
+          );
           return {
             emotion,
             // Use the full/square image if available
-            url: fullRes.ok ? `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full` : null,
-            hasFullImage: fullRes.ok
+            url: fullRes.ok
+              ? `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/${emotion}/full`
+              : null,
+            hasFullImage: fullRes.ok,
           };
         } catch {
           return { emotion, url: null, hasFullImage: false };
@@ -996,7 +1158,9 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
 
   const loadReferenceImage = async () => {
     try {
-      const res = await fetch(`${config.API_URL}/api/personality/${encodeURIComponent(personalityName)}/reference-image`);
+      const res = await fetch(
+        `${config.API_URL}/api/personality/${encodeURIComponent(personalityName)}/reference-image`
+      );
       const data = await res.json();
       if (data.success) {
         setReferenceImageId(data.reference_image_id || null);
@@ -1010,20 +1174,29 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
     setReferenceImageId(newReferenceId);
     // Save to backend
     try {
-      await fetch(`${config.API_URL}/api/personality/${encodeURIComponent(personalityName)}/reference-image`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference_image_id: newReferenceId })
-      });
+      await fetch(
+        `${config.API_URL}/api/personality/${encodeURIComponent(personalityName)}/reference-image`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reference_image_id: newReferenceId }),
+        }
+      );
     } catch (error) {
       logger.error('Failed to save reference image:', error);
     }
   };
 
-  const handleRegenerate = async (emotion: string, refImageId?: string | null, strengthValue?: number) => {
+  const handleRegenerate = async (
+    emotion: string,
+    refImageId?: string | null,
+    strengthValue?: number
+  ) => {
     setRegenerating(emotion);
     try {
-      const body: { emotions: string[]; reference_image_id?: string; strength?: number } = { emotions: [emotion] };
+      const body: { emotions: string[]; reference_image_id?: string; strength?: number } = {
+        emotions: [emotion],
+      };
       if (refImageId) {
         body.reference_image_id = refImageId;
         if (strengthValue !== undefined) {
@@ -1031,11 +1204,14 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         }
       }
 
-      const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const res = await fetch(
+        `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
       const data = await res.json();
       if (data.success) {
         // Update avatar description if it was auto-generated
@@ -1052,11 +1228,13 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
   };
 
   const handleRegenerateAll = async (refImageId?: string | null, strengthValue?: number) => {
-    const allEmotions = images.map(img => img.emotion);
+    const allEmotions = images.map((img) => img.emotion);
     setRegenerating('all');
     try {
       for (const emotion of allEmotions) {
-        const body: { emotions: string[]; reference_image_id?: string; strength?: number } = { emotions: [emotion] };
+        const body: { emotions: string[]; reference_image_id?: string; strength?: number } = {
+          emotions: [emotion],
+        };
         if (refImageId) {
           body.reference_image_id = refImageId;
           if (strengthValue !== undefined) {
@@ -1065,11 +1243,14 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
         }
 
         try {
-          const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          });
+          const res = await fetch(
+            `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            }
+          );
           const data = await res.json();
           if (data.success) {
             // Update avatar description if it was auto-generated
@@ -1090,18 +1271,21 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
   };
 
   const handleGenerateMissing = async () => {
-    const missing = images.filter(img => !img.url).map(img => img.emotion);
+    const missing = images.filter((img) => !img.url).map((img) => img.emotion);
     if (missing.length === 0) return;
 
     setRegenerating('all');
     try {
       for (const emotion of missing) {
         try {
-          const res = await fetch(`${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ emotions: [emotion] })
-          });
+          const res = await fetch(
+            `${config.API_URL}/api/avatar/${encodeURIComponent(personalityName)}/regenerate`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ emotions: [emotion] }),
+            }
+          );
           const data = await res.json();
           if (data.success) {
             // Update avatar description if it was auto-generated
@@ -1135,7 +1319,7 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
     setLightboxOpen(true);
   };
 
-  const missingCount = images.filter(img => !img.url).length;
+  const missingCount = images.filter((img) => !img.url).length;
 
   if (loading) {
     return (
@@ -1149,9 +1333,15 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
   return (
     <div className="pm-avatar">
       <div className="pm-avatar__description">
-        <label className="admin-label" htmlFor="avatar-desc" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <label
+          className="admin-label"
+          htmlFor="avatar-desc"
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}
+        >
           Image Description
-          <span className="admin-help-text" style={{ margin: 0 }}>Used for AI image generation</span>
+          <span className="admin-help-text" style={{ margin: 0 }}>
+            Used for AI image generation
+          </span>
         </label>
         <textarea
           id="avatar-desc"
@@ -1204,12 +1394,21 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
               <button
                 type="button"
                 className="pm-avatar__refresh"
-                onClick={(e) => { e.stopPropagation(); handleRegenerate(emotion); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRegenerate(emotion);
+                }}
                 disabled={regenerating !== null}
                 title={`Regenerate ${emotion}`}
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M1 7C1 3.686 3.686 1 7 1C9.21 1 11.117 2.214 12.143 4M13 7C13 10.314 10.314 13 7 13C4.79 13 2.883 11.786 1.857 10M12.143 4V1M12.143 4H9.143M1.857 10V13M1.857 10H4.857" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path
+                    d="M1 7C1 3.686 3.686 1 7 1C9.21 1 11.117 2.214 12.143 4M13 7C13 10.314 10.314 13 7 13C4.79 13 2.883 11.786 1.857 10M12.143 4V1M12.143 4H9.143M1.857 10V13M1.857 10H4.857"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -1232,7 +1431,12 @@ function AvatarImageManager({ personalityName, avatarDescription, onDescriptionC
           ) : (
             <>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 1V15M1 8H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path
+                  d="M8 1V15M1 8H15"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
               Generate {missingCount} Missing Image{missingCount > 1 ? 's' : ''}
             </>
@@ -1299,7 +1503,7 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
     setLoading(true);
     try {
       const response = await adminFetch(
-        `/api/personality/${encodeURIComponent(personalityName)}/bankroll-knobs`,
+        `/api/personality/${encodeURIComponent(personalityName)}/bankroll-knobs`
       );
       const data: BankrollKnobsResponse = await response.json();
       if (data.success && data.knobs && data.defaults) {
@@ -1326,12 +1530,13 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
     setKnobs((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
-  const hasChanges = !!knobs && !!original && (
-    knobs.bankroll_cap !== original.bankroll_cap ||
-    knobs.bankroll_rate !== original.bankroll_rate ||
-    knobs.buy_in_multiplier !== original.buy_in_multiplier ||
-    knobs.stake_comfort_zone !== original.stake_comfort_zone
-  );
+  const hasChanges =
+    !!knobs &&
+    !!original &&
+    (knobs.bankroll_cap !== original.bankroll_cap ||
+      knobs.bankroll_rate !== original.bankroll_rate ||
+      knobs.buy_in_multiplier !== original.buy_in_multiplier ||
+      knobs.stake_comfort_zone !== original.stake_comfort_zone);
 
   const handleSave = async () => {
     if (!knobs) return;
@@ -1342,7 +1547,7 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
         {
           method: 'PUT',
           body: JSON.stringify(knobs),
-        },
+        }
       );
       const data: BankrollKnobsResponse = await response.json();
       if (data.success && data.knobs) {
@@ -1382,8 +1587,8 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
   return (
     <div className="pm-bankroll-knobs">
       <p className="admin-help-text" style={{ marginTop: 0 }}>
-        Cash-mode bankroll behavior. The cap is a hard ceiling — table
-        winnings above it evaporate when the AI cashes out.
+        Cash-mode bankroll behavior. The cap is a hard ceiling — table winnings above it evaporate
+        when the AI cashes out.
       </p>
 
       <div className="admin-form-group">
@@ -1391,8 +1596,7 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
         <p className="admin-help-text" style={{ marginTop: 0 }}>
           {currentBankroll !== null
             ? `${currentBankroll.toLocaleString()} chips`
-            : 'No bankroll row yet — AI has never sat at a cash table.'}
-          {' '}
+            : 'No bankroll row yet — AI has never sat at a cash table.'}{' '}
           <button
             type="button"
             className="admin-btn admin-btn--secondary"
@@ -1406,7 +1610,9 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
 
       <div className="admin-form-row">
         <div className="admin-form-group">
-          <label className="admin-label" htmlFor="bankroll_cap">Bankroll cap</label>
+          <label className="admin-label" htmlFor="bankroll_cap">
+            Bankroll cap
+          </label>
           <input
             id="bankroll_cap"
             type="number"
@@ -1415,10 +1621,14 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
             value={knobs.bankroll_cap}
             onChange={(e) => updateField('bankroll_cap', Number(e.target.value))}
           />
-          <p className="admin-help-text">Hard ceiling; default {defaults.bankroll_cap.toLocaleString()}</p>
+          <p className="admin-help-text">
+            Hard ceiling; default {defaults.bankroll_cap.toLocaleString()}
+          </p>
         </div>
         <div className="admin-form-group">
-          <label className="admin-label" htmlFor="bankroll_rate">Bankroll rate</label>
+          <label className="admin-label" htmlFor="bankroll_rate">
+            Bankroll rate
+          </label>
           <input
             id="bankroll_rate"
             type="number"
@@ -1427,13 +1637,17 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
             value={knobs.bankroll_rate}
             onChange={(e) => updateField('bankroll_rate', Number(e.target.value))}
           />
-          <p className="admin-help-text">Chips/day passive regen; default {defaults.bankroll_rate}</p>
+          <p className="admin-help-text">
+            Chips/day passive regen; default {defaults.bankroll_rate}
+          </p>
         </div>
       </div>
 
       <div className="admin-form-row">
         <div className="admin-form-group">
-          <label className="admin-label" htmlFor="buy_in_multiplier">Buy-in multiplier</label>
+          <label className="admin-label" htmlFor="buy_in_multiplier">
+            Buy-in multiplier
+          </label>
           <input
             id="buy_in_multiplier"
             type="number"
@@ -1446,7 +1660,9 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
           <p className="admin-help-text">× min_buy_in; default {defaults.buy_in_multiplier}</p>
         </div>
         <div className="admin-form-group">
-          <label className="admin-label" htmlFor="stake_comfort_zone">Stake comfort zone</label>
+          <label className="admin-label" htmlFor="stake_comfort_zone">
+            Stake comfort zone
+          </label>
           <select
             id="stake_comfort_zone"
             className="admin-input"
@@ -1454,7 +1670,9 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
             onChange={(e) => updateField('stake_comfort_zone', e.target.value)}
           >
             {STAKE_COMFORT_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
           <p className="admin-help-text">v2 — unused in v1</p>
@@ -1474,7 +1692,6 @@ function BankrollKnobsSection({ personalityName, showAlert }: BankrollKnobsSecti
     </div>
   );
 }
-
 
 // ============================================
 // StakingProfileSection (cash mode admin)
@@ -1534,7 +1751,7 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
     setLoading(true);
     try {
       const response = await adminFetch(
-        `/api/personality/${encodeURIComponent(personalityName)}/borrower-profile`,
+        `/api/personality/${encodeURIComponent(personalityName)}/borrower-profile`
       );
       const body = (await response.json()) as BorrowerProfileResponse;
       if (body.success && body.willing !== undefined && body.willingness_threshold !== undefined) {
@@ -1573,7 +1790,7 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
             // clears the explicit override server-side.
             willingness_threshold: editing.threshold_override,
           }),
-        },
+        }
       );
       const body = (await response.json()) as BorrowerProfileResponse;
       if (body.success && body.willing !== undefined && body.willingness_threshold !== undefined) {
@@ -1603,7 +1820,7 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
   }
 
   const isOverride = editing.threshold_override !== null;
-  const egoDerived = data.ego_derived_threshold ?? 0.30;
+  const egoDerived = data.ego_derived_threshold ?? 0.3;
   const hasChanges =
     editing.willing !== data.willing ||
     editing.threshold_override !== (data.willingness_threshold_explicit ?? null);
@@ -1616,27 +1833,35 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
   return (
     <div className="pm-bankroll-knobs">
       <p className="admin-help-text" style={{ marginTop: 0 }}>
-        Whether this personality accepts stakes from the player and how
-        much goodwill they need before saying yes.
+        Whether this personality accepts stakes from the player and how much goodwill they need
+        before saying yes.
       </p>
 
-      <label className="admin-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <label
+        className="admin-checkbox-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+      >
         <input
           type="checkbox"
           checked={editing.willing}
-          onChange={(e) =>
-            setEditing({ ...editing, willing: e.target.checked })
-          }
+          onChange={(e) => setEditing({ ...editing, willing: e.target.checked })}
           disabled={saving}
         />
         <span>Accepts stakes from players</span>
       </label>
       <p className="admin-help-text" style={{ marginTop: 4, marginBottom: 16 }}>
-        Stoic / principled personalities (Lincoln, Buddha) refuse outright.
-        Unchecking blocks stake offers regardless of the threshold below.
+        Stoic / principled personalities (Lincoln, Buddha) refuse outright. Unchecking blocks stake
+        offers regardless of the threshold below.
       </p>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 4,
+        }}
+      >
         <label htmlFor="willingness-threshold-slider" style={{ fontWeight: 600 }}>
           Willingness threshold
         </label>
@@ -1668,18 +1893,27 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
         disabled={saving || !editing.willing}
         style={{ width: '100%' }}
       />
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa' }}
+      >
         <span>0.10 (easy)</span>
         <span>0.60 (selective)</span>
       </div>
       <p className="admin-help-text" style={{ marginTop: 8, fontSize: 11.5 }}>
-        Score = likability × 0.5 + respect × 0.4 − heat × 0.3. The AI
-        accepts iff score &gt; threshold (plus a cut penalty when the
-        offer's cut is steep, minus a desperation relief when broke
-        and proud).
+        Score = likability × 0.5 + respect × 0.4 − heat × 0.3. The AI accepts iff score &gt;
+        threshold (plus a cut penalty when the offer's cut is steep, minus a desperation relief when
+        broke and proud).
       </p>
 
-      <div style={{ marginTop: 12, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 6, fontSize: 12 }}>
+      <div
+        style={{
+          marginTop: 12,
+          padding: '8px 10px',
+          background: 'rgba(0,0,0,0.18)',
+          borderRadius: 6,
+          fontSize: 12,
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: '#aaa' }}>Ego anchor</span>
           <span style={{ fontVariantNumeric: 'tabular-nums' }}>{(data.ego ?? 0.5).toFixed(2)}</span>
@@ -1694,7 +1928,9 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
         <button
           type="button"
           className="admin-btn admin-btn--secondary"
-          onClick={() => setEditing({ ...editing, threshold_override: null, threshold: egoDerived })}
+          onClick={() =>
+            setEditing({ ...editing, threshold_override: null, threshold: egoDerived })
+          }
           disabled={saving || !isOverride}
           title="Drop the explicit override; threshold will derive from ego."
         >
@@ -1707,7 +1943,7 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
             // Revert local edits to last-saved state.
             setEditing({
               willing: data.willing ?? true,
-              threshold: data.willingness_threshold ?? 0.30,
+              threshold: data.willingness_threshold ?? 0.3,
               threshold_override: data.willingness_threshold_explicit ?? null,
             });
           }}
@@ -1728,7 +1964,6 @@ function StakingProfileSection({ personalityName, showAlert }: StakingProfileSec
     </div>
   );
 }
-
 
 // ============================================
 // StakerSideProfileSection (cash mode admin)
@@ -1781,7 +2016,7 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
     setLoading(true);
     try {
       const response = await adminFetch(
-        `/api/personality/${encodeURIComponent(personalityName)}/staker-profile`,
+        `/api/personality/${encodeURIComponent(personalityName)}/staker-profile`
       );
       const body = (await response.json()) as StakerProfileResponse;
       if (body.success && body.profile) {
@@ -1798,7 +2033,9 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
     }
   }, [personalityName, showAlert]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const handleSave = useCallback(async () => {
     if (!editing) return;
@@ -1806,7 +2043,7 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
     try {
       const response = await adminFetch(
         `/api/personality/${encodeURIComponent(personalityName)}/staker-profile`,
-        { method: 'PUT', body: JSON.stringify(editing) },
+        { method: 'PUT', body: JSON.stringify(editing) }
       );
       const body = (await response.json()) as StakerProfileResponse;
       if (body.success && body.profile) {
@@ -1847,7 +2084,12 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
   // Reusable slider+number row. Centralized so all six knobs share
   // the same layout/copy structure without 6x repetition.
   const KnobRow = ({
-    label, field, min, max, step, hint,
+    label,
+    field,
+    min,
+    max,
+    step,
+    hint,
   }: {
     label: string;
     field: keyof Omit<StakerProfileShape, 'willing'>;
@@ -1857,7 +2099,14 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
     hint: string;
   }) => (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          marginBottom: 4,
+        }}
+      >
         <label style={{ fontWeight: 600 }}>{label}</label>
         <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
           {(editing[field] as number).toFixed(2)}
@@ -1890,12 +2139,15 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
   return (
     <div className="pm-bankroll-knobs">
       <p className="admin-help-text" style={{ marginTop: 0 }}>
-        How this personality behaves when ANOTHER player (AI or human) asks
-        them for a stake-up loan. Six knobs that shape the offer terms and
-        the relationship gates that have to clear before they'll lend.
+        How this personality behaves when ANOTHER player (AI or human) asks them for a stake-up
+        loan. Six knobs that shape the offer terms and the relationship gates that have to clear
+        before they'll lend.
       </p>
 
-      <label className="admin-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <label
+        className="admin-checkbox-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+      >
         <input
           type="checkbox"
           checked={editing.willing}
@@ -1905,39 +2157,48 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
         <span>Willing to stake other players</span>
       </label>
       <p className="admin-help-text" style={{ marginTop: 4, marginBottom: 16 }}>
-        Unchecking blocks all offers from this personality regardless of
-        the knobs below. Chaos / hostile personalities (Mime, Cheshire Cat)
-        refuse outright.
+        Unchecking blocks all offers from this personality regardless of the knobs below. Chaos /
+        hostile personalities (Mime, Cheshire Cat) refuse outright.
       </p>
 
       <KnobRow
         label="Max loan (% of bankroll)"
         field="max_loan_pct_of_bankroll"
-        min={0} max={0.30} step={0.01}
+        min={0}
+        max={0.3}
+        step={0.01}
         hint="Largest loan size as a fraction of their projected bankroll. Generous = 0.10–0.20, cautious = 0.03–0.07."
       />
       <KnobRow
         label="Floor anchor (repayment multiple)"
         field="floor_anchor"
-        min={1.0} max={2.0} step={0.05}
+        min={1.0}
+        max={2.0}
+        step={0.05}
         hint="Repayment floor multiple — 1.00 = par, 1.20 = +20%. Saintly = 1.00–1.10, sharks = 1.30–1.50."
       />
       <KnobRow
         label="Rate anchor (cut after floor)"
         field="rate_anchor"
-        min={0} max={0.60} step={0.01}
+        min={0}
+        max={0.6}
+        step={0.01}
         hint="Sponsor's cut of post-floor winnings. Gentle = 0.10–0.20, ruthless = 0.35–0.50."
       />
       <KnobRow
         label="Respect floor"
         field="respect_floor"
-        min={-1.0} max={1.0} step={0.05}
+        min={-1.0}
+        max={1.0}
+        step={0.05}
         hint="Minimum relationship-respect needed before lending. More negative = lends to almost anyone."
       />
       <KnobRow
         label="Heat ceiling"
         field="heat_ceiling"
-        min={0} max={1.0} step={0.05}
+        min={0}
+        max={1.0}
+        step={0.05}
         hint="Maximum active conflict tolerated while lending. 1.00 = never refuses on heat alone; 0.00 = any heat blocks."
       />
 
@@ -1973,7 +2234,6 @@ function StakerSideProfileSection({ personalityName, showAlert }: StakerSideProf
   );
 }
 
-
 // ============================================
 // Main Component
 // ============================================
@@ -1994,8 +2254,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const [originalData, setOriginalData] = useState<PersonalityData | null>(null);
 
   // Categories and metadata
-  const [categories, setCategories] = useState<Record<string, string[]>>({ standard: [], mine: [] });
-  const [personalityMeta, setPersonalityMeta] = useState<Record<string, { visibility?: string; owner_id?: string }>>({});
+  const [categories, setCategories] = useState<Record<string, string[]>>({
+    standard: [],
+    mine: [],
+  });
+  const [personalityMeta, setPersonalityMeta] = useState<
+    Record<string, { visibility?: string; owner_id?: string }>
+  >({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -2036,7 +2301,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const loadPersonalities = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${config.API_URL}/api/personalities`, { credentials: 'include' });
+      const response = await fetch(`${config.API_URL}/api/personalities`, {
+        credentials: 'include',
+      });
       const data = await response.json();
       if (data.success) {
         setPersonalities(data.personalities);
@@ -2059,34 +2326,37 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   };
 
   const toggleSection = (section: string) => {
-    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+    setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const selectPersonality = useCallback((name: string) => {
-    const data = personalities[name];
-    if (data) {
-      setSelectedName(name);
-      setFormData({ ...data });
-      setOriginalData({ ...data });
-      // Open basic section by default
-      setOpenSections(prev => ({ ...prev, basic: true }));
-    }
-  }, [personalities]);
+  const selectPersonality = useCallback(
+    (name: string) => {
+      const data = personalities[name];
+      if (data) {
+        setSelectedName(name);
+        setFormData({ ...data });
+        setOriginalData({ ...data });
+        // Open basic section by default
+        setOpenSections((prev) => ({ ...prev, basic: true }));
+      }
+    },
+    [personalities]
+  );
 
   const updateFormData = useCallback((updates: Partial<PersonalityData>) => {
-    setFormData(prev => prev ? { ...prev, ...updates } : null);
+    setFormData((prev) => (prev ? { ...prev, ...updates } : null));
   }, []);
 
   const updateAnchor = useCallback((field: keyof PersonalityAnchors, value: number) => {
-    setFormData(prev => {
+    setFormData((prev) => {
       if (!prev) return null;
       return {
         ...prev,
         anchors: {
           ...getDefaultAnchors(),
           ...prev.anchors,
-          [field]: value
-        }
+          [field]: value,
+        },
       };
     });
   }, []);
@@ -2094,28 +2364,34 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
   const handleVisibilityChange = async (newVisibility: string) => {
     if (!selectedName) return;
     try {
-      const response = await fetch(`${config.API_URL}/api/personality/${encodeURIComponent(selectedName)}/visibility`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ visibility: newVisibility })
-      });
+      const response = await fetch(
+        `${config.API_URL}/api/personality/${encodeURIComponent(selectedName)}/visibility`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ visibility: newVisibility }),
+        }
+      );
       const data = await response.json();
       if (data.success) {
         showAlert('success', `${selectedName} is now ${newVisibility}`);
-        setPersonalityMeta(prev => ({
+        setPersonalityMeta((prev) => ({
           ...prev,
-          [selectedName]: { ...prev[selectedName], visibility: newVisibility }
+          [selectedName]: { ...prev[selectedName], visibility: newVisibility },
         }));
         // Re-categorize: move personality between categories
-        setCategories(prev => {
+        setCategories((prev) => {
           const updated: Record<string, string[]> = {};
           for (const [key, names] of Object.entries(prev)) {
-            updated[key] = names.filter(n => n !== selectedName);
+            updated[key] = names.filter((n) => n !== selectedName);
           }
-          const targetCategory = newVisibility === 'disabled' ? 'disabled'
-            : newVisibility === 'private' ? 'mine'
-            : 'standard';
+          const targetCategory =
+            newVisibility === 'disabled'
+              ? 'disabled'
+              : newVisibility === 'private'
+                ? 'mine'
+                : 'standard';
           if (!updated[targetCategory]) updated[targetCategory] = [];
           updated[targetCategory].push(selectedName);
           return updated;
@@ -2137,13 +2413,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
       });
       const data = await response.json();
 
       if (data.success) {
         showAlert('success', `Saved ${selectedName} successfully`);
-        setPersonalities(prev => ({ ...prev, [selectedName]: formData }));
+        setPersonalities((prev) => ({ ...prev, [selectedName]: formData }));
         setOriginalData({ ...formData });
       } else {
         showAlert('error', 'Failed to save: ' + data.error);
@@ -2162,13 +2438,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     try {
       const response = await fetch(`${config.API_URL}/api/personality/${selectedName}`, {
         method: 'DELETE',
-        credentials: 'include'
+        credentials: 'include',
       });
       const data = await response.json();
 
       if (data.success) {
         showAlert('success', `Deleted ${selectedName}`);
-        setPersonalities(prev => {
+        setPersonalities((prev) => {
           const next = { ...prev };
           delete next[selectedName];
           return next;
@@ -2198,13 +2474,13 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name: selectedName, force: true })
+        body: JSON.stringify({ name: selectedName, force: true }),
       });
       const data = await response.json();
 
       if (data.success) {
         showAlert('success', `Regenerated ${selectedName} with AI`);
-        setPersonalities(prev => ({ ...prev, [selectedName]: data.personality }));
+        setPersonalities((prev) => ({ ...prev, [selectedName]: data.personality }));
         setFormData({ ...data.personality });
         setOriginalData({ ...data.personality });
       } else {
@@ -2225,10 +2501,10 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
       default_attitude: 'focused',
       anchors: getDefaultAnchors(),
       verbal_tics: [],
-      physical_tics: []
+      physical_tics: [],
     };
 
-    setPersonalities(prev => ({ ...prev, [name]: newPersonality }));
+    setPersonalities((prev) => ({ ...prev, [name]: newPersonality }));
     setSelectedName(name);
     setFormData({ ...newPersonality });
     setOriginalData({ ...newPersonality });
@@ -2245,12 +2521,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name }),
       });
       const data = await response.json();
 
       if (data.success) {
-        setPersonalities(prev => ({ ...prev, [name]: data.personality }));
+        setPersonalities((prev) => ({ ...prev, [name]: data.personality }));
         setSelectedName(name);
         setFormData({ ...data.personality });
         setOriginalData({ ...data.personality });
@@ -2272,12 +2548,15 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     if (!selectedName || !formData) return;
 
     try {
-      const response = await fetch(`${config.API_URL}/api/personality/${selectedName}/avatar-description`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ avatar_description: formData.avatar_description || '' })
-      });
+      const response = await fetch(
+        `${config.API_URL}/api/personality/${selectedName}/avatar-description`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ avatar_description: formData.avatar_description || '' }),
+        }
+      );
       const data = await response.json();
 
       if (data.success) {
@@ -2299,7 +2578,8 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     }
   };
 
-  const hasChanges = formData && originalData && JSON.stringify(formData) !== JSON.stringify(originalData);
+  const hasChanges =
+    formData && originalData && JSON.stringify(formData) !== JSON.stringify(originalData);
 
   // Build grouped character list: mine first, then standard, then disabled (admin only)
   const characterGroups = useMemo(() => {
@@ -2313,22 +2593,20 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
     return groups;
   }, [categories]);
 
-  const characterNames = useMemo(() =>
-    characterGroups.flatMap(g => g.names),
-    [characterGroups]
-  );
+  const characterNames = useMemo(() => characterGroups.flatMap((g) => g.names), [characterGroups]);
 
   // Safely merge API data with defaults to handle missing/partial data
   const anchors: PersonalityAnchors = {
     ...getDefaultAnchors(),
-    ...(formData?.anchors || {})
+    ...(formData?.anchors || {}),
   };
 
   const archetype = classifyArchetype(anchors.baseline_looseness, anchors.baseline_aggression);
 
   // Editor sections (scrollable content)
-  const editorSections = selectedName && formData ? (
-    <div className="pm-sections">
+  const editorSections =
+    selectedName && formData ? (
+      <div className="pm-sections">
         {/* Basic Info */}
         <CollapsibleSection
           title="Basic Info"
@@ -2337,7 +2615,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           onToggle={() => toggleSection('basic')}
         >
           <div className="admin-form-group">
-            <label className="admin-label" htmlFor="play_style">Play Style</label>
+            <label className="admin-label" htmlFor="play_style">
+              Play Style
+            </label>
             <input
               id="play_style"
               type="text"
@@ -2349,7 +2629,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
           </div>
           <div className="admin-form-row">
             <div className="admin-form-group">
-              <label className="admin-label" htmlFor="confidence">Confidence</label>
+              <label className="admin-label" htmlFor="confidence">
+                Confidence
+              </label>
               <input
                 id="confidence"
                 type="text"
@@ -2360,7 +2642,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
               />
             </div>
             <div className="admin-form-group">
-              <label className="admin-label" htmlFor="attitude">Attitude</label>
+              <label className="admin-label" htmlFor="attitude">
+                Attitude
+              </label>
               <input
                 id="attitude"
                 type="text"
@@ -2524,10 +2808,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             isOpen={openSections.bankroll}
             onToggle={() => toggleSection('bankroll')}
           >
-            <BankrollKnobsSection
-              personalityName={selectedName}
-              showAlert={showAlert}
-            />
+            <BankrollKnobsSection personalityName={selectedName} showAlert={showAlert} />
           </CollapsibleSection>
         )}
 
@@ -2540,10 +2821,7 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             isOpen={openSections.staking}
             onToggle={() => toggleSection('staking')}
           >
-            <StakingProfileSection
-              personalityName={selectedName}
-              showAlert={showAlert}
-            />
+            <StakingProfileSection personalityName={selectedName} showAlert={showAlert} />
           </CollapsibleSection>
         )}
 
@@ -2556,66 +2834,73 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             isOpen={openSections.stakerProfile}
             onToggle={() => toggleSection('stakerProfile')}
           >
-            <StakerSideProfileSection
-              personalityName={selectedName}
-              showAlert={showAlert}
-            />
+            <StakerSideProfileSection personalityName={selectedName} showAlert={showAlert} />
           </CollapsibleSection>
         )}
-    </div>
-  ) : null;
+      </div>
+    ) : null;
 
   // Action bar (fixed at bottom)
-  const actionBar = selectedName && formData ? (
-    <div className={isMobile ? "pm-actions" : "admin-detail__footer"}>
-      <div className={isMobile ? "pm-actions__secondary" : "admin-detail__footer-secondary"}>
-        <button
-          type="button"
-          className="admin-btn admin-btn--secondary"
-          onClick={() => setModal({ type: 'regenerate' })}
-          disabled={saving}
-        >
-          ✨ AI Regen
-        </button>
-        <button
-          type="button"
-          className="admin-btn admin-btn--danger"
-          onClick={() => setModal({ type: 'delete' })}
-          disabled={saving}
-        >
-          Delete
-        </button>
-      </div>
-      <div className={isMobile ? "pm-actions__primary" : "admin-detail__footer-primary"}>
-        {hasChanges && (
+  const actionBar =
+    selectedName && formData ? (
+      <div className={isMobile ? 'pm-actions' : 'admin-detail__footer'}>
+        <div className={isMobile ? 'pm-actions__secondary' : 'admin-detail__footer-secondary'}>
           <button
             type="button"
             className="admin-btn admin-btn--secondary"
-            onClick={handleCancel}
+            onClick={() => setModal({ type: 'regenerate' })}
             disabled={saving}
           >
-            Cancel
+            ✨ AI Regen
           </button>
-        )}
-        <button
-          type="button"
-          className="admin-btn admin-btn--primary"
-          onClick={handleSave}
-          disabled={saving || !hasChanges}
-        >
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn--danger"
+            onClick={() => setModal({ type: 'delete' })}
+            disabled={saving}
+          >
+            Delete
+          </button>
+        </div>
+        <div className={isMobile ? 'pm-actions__primary' : 'admin-detail__footer-primary'}>
+          {hasChanges && (
+            <button
+              type="button"
+              className="admin-btn admin-btn--secondary"
+              onClick={handleCancel}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            type="button"
+            className="admin-btn admin-btn--primary"
+            onClick={handleSave}
+            disabled={saving || !hasChanges}
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
   // Empty state content
   const emptyContent = (
-    <div className={isTablet ? "admin-detail__empty" : "admin-empty"}>
-      <div className={isTablet ? "admin-detail__empty-icon" : "admin-empty__icon"} style={{ fontSize: '64px', opacity: 0.5 }}>🎭</div>
-      <h3 className={isTablet ? "admin-detail__empty-title" : "admin-empty__title"}>No Character Selected</h3>
-      <p className={isTablet ? "admin-detail__empty-description" : "admin-empty__description"}>
-        {isTablet ? 'Select a character from the list or create a new one' : 'Choose a character above or create a new one'}
+    <div className={isTablet ? 'admin-detail__empty' : 'admin-empty'}>
+      <div
+        className={isTablet ? 'admin-detail__empty-icon' : 'admin-empty__icon'}
+        style={{ fontSize: '64px', opacity: 0.5 }}
+      >
+        🎭
+      </div>
+      <h3 className={isTablet ? 'admin-detail__empty-title' : 'admin-empty__title'}>
+        No Character Selected
+      </h3>
+      <p className={isTablet ? 'admin-detail__empty-description' : 'admin-empty__description'}>
+        {isTablet
+          ? 'Select a character from the list or create a new one'
+          : 'Choose a character above or create a new one'}
       </p>
       <button
         type="button"
@@ -2639,7 +2924,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
               {alert.type === 'info' && 'ℹ'}
             </span>
             <span className="admin-alert__content">{alert.message}</span>
-            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>×</button>
+            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -2656,7 +2943,9 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
            ========================================== */
         <div className="admin-master-detail">
           {/* Master Panel (sidebar) */}
-          <aside className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}>
+          <aside
+            className={`admin-master ${masterPanelOpen || isDesktop ? 'admin-master--open' : ''}`}
+          >
             <MasterList
               characters={characterNames}
               groups={characterGroups}
@@ -2690,48 +2979,54 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             )}
 
             {/* Detail header when character selected */}
-            {selectedName && formData && (() => {
-              const meta = personalityMeta[selectedName];
-              const currentVis = meta?.visibility || 'public';
-              const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
-              const canChangeVisibility = isAdmin || isOwner;
-              const visibilityOptions = isAdmin
-                ? ['public', 'private', 'disabled'] as const
-                : ['public', 'private'] as const;
-              return (
-                <div className="admin-detail__header">
-                  <div>
-                    <h2 className="admin-detail__title">{selectedName}</h2>
-                    <p className="admin-detail__subtitle">{formData.play_style || 'No play style defined'}</p>
-                  </div>
-                  {canChangeVisibility && (
-                    <div className="pm-visibility-toggle">
-                      {visibilityOptions.map((vis) => (
-                        <button
-                          key={vis}
-                          type="button"
-                          className={`pm-visibility-toggle__btn pm-visibility-toggle__btn--${vis} ${currentVis === vis ? 'pm-visibility-toggle__btn--active' : ''}`}
-                          onClick={() => handleVisibilityChange(vis)}
-                          disabled={currentVis === vis}
-                        >
-                          {vis === 'public' ? 'Public' : vis === 'private' ? 'Private' : 'Disabled'}
-                        </button>
-                      ))}
+            {selectedName &&
+              formData &&
+              (() => {
+                const meta = personalityMeta[selectedName];
+                const currentVis = meta?.visibility || 'public';
+                const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
+                const canChangeVisibility = isAdmin || isOwner;
+                const visibilityOptions = isAdmin
+                  ? (['public', 'private', 'disabled'] as const)
+                  : (['public', 'private'] as const);
+                return (
+                  <div className="admin-detail__header">
+                    <div>
+                      <h2 className="admin-detail__title">{selectedName}</h2>
+                      <p className="admin-detail__subtitle">
+                        {formData.play_style || 'No play style defined'}
+                      </p>
                     </div>
-                  )}
-                  {!canChangeVisibility && currentVis !== 'public' && (
-                    <span className={`pm-visibility-badge pm-visibility-badge--${currentVis}`}>
-                      {currentVis}
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
+                    {canChangeVisibility && (
+                      <div className="pm-visibility-toggle">
+                        {visibilityOptions.map((vis) => (
+                          <button
+                            key={vis}
+                            type="button"
+                            className={`pm-visibility-toggle__btn pm-visibility-toggle__btn--${vis} ${currentVis === vis ? 'pm-visibility-toggle__btn--active' : ''}`}
+                            onClick={() => handleVisibilityChange(vis)}
+                            disabled={currentVis === vis}
+                          >
+                            {vis === 'public'
+                              ? 'Public'
+                              : vis === 'private'
+                                ? 'Private'
+                                : 'Disabled'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!canChangeVisibility && currentVis !== 'public' && (
+                      <span className={`pm-visibility-badge pm-visibility-badge--${currentVis}`}>
+                        {currentVis}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
 
             {/* Detail content (scrollable) */}
-            <div className="admin-detail__content">
-              {editorSections || emptyContent}
-            </div>
+            <div className="admin-detail__content">{editorSections || emptyContent}</div>
 
             {/* Action bar (fixed at bottom) */}
             {actionBar}
@@ -2766,15 +3061,32 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
               <>
                 <span className="pm-selector-trigger__icon">
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <circle cx="10" cy="6" r="4" stroke="currentColor" strokeWidth="1.5"/>
-                    <path d="M3 18C3 14.134 6.134 11 10 11C13.866 11 17 14.134 17 18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="10" cy="6" r="4" stroke="currentColor" strokeWidth="1.5" />
+                    <path
+                      d="M3 18C3 14.134 6.134 11 10 11C13.866 11 17 14.134 17 18"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
                   </svg>
                 </span>
                 <span className="pm-selector-trigger__placeholder">Select a character to edit</span>
               </>
             )}
-            <svg className="pm-selector-trigger__chevron" width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg
+              className="pm-selector-trigger__chevron"
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+            >
+              <path
+                d="M5 7.5L10 12.5L15 7.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
 
@@ -2784,7 +3096,10 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             groups={characterGroups}
             selected={selectedName}
             onSelect={selectPersonality}
-            onCreate={() => { setSelectorOpen(false); setModal({ type: 'create' }); }}
+            onCreate={() => {
+              setSelectorOpen(false);
+              setModal({ type: 'create' });
+            }}
             isOpen={selectorOpen}
             onClose={() => setSelectorOpen(false)}
             personalityMeta={personalityMeta}
@@ -2808,7 +3123,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
             aria-label="Create new character"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+              <path
+                d="M12 5V19M5 12H19"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
         </div>
@@ -2890,11 +3210,11 @@ function getDefaultAnchors(): PersonalityAnchors {
 
 function classifyArchetype(looseness: number, aggression: number): { key: string; label: string } {
   if (looseness < 0.45) {
-    return aggression < 0.50
+    return aggression < 0.5
       ? { key: 'tight_passive', label: 'Rock' }
       : { key: 'tight_aggressive', label: 'TAG' };
   } else if (looseness > 0.65) {
-    return aggression < 0.50
+    return aggression < 0.5
       ? { key: 'loose_passive', label: 'Fish' }
       : { key: 'loose_aggressive', label: 'LAG' };
   }

@@ -52,7 +52,7 @@ export interface PersonalityBlock {
 export function dossierFromPlayer(
   player: Player,
   personality?: PersonalityBlock,
-  remark?: string,
+  remark?: string
 ): CharacterDossierData {
   return {
     name: personality?.name ?? player.name,
@@ -63,10 +63,10 @@ export function dossierFromPlayer(
     attitude: personality?.attitude,
     confidence: personality?.confidence,
     observed: player.observation && {
-      handsObserved:     player.observation.hands_observed,
-      vpip:              player.observation.vpip,
-      pfr:               player.observation.pfr,
-      aggressionFactor:  player.observation.aggression_factor,
+      handsObserved: player.observation.hands_observed,
+      vpip: player.observation.vpip,
+      pfr: player.observation.pfr,
+      aggressionFactor: player.observation.aggression_factor,
     },
     chips: {
       atTable: player.stack,
@@ -99,8 +99,12 @@ export function dossierFromLobbySeat(seat: LobbyAISeat): CharacterDossierData {
   };
 }
 
-function inferRelationshipKind(hint: string): CharacterDossierData['affiliation'] extends infer A
-  ? A extends { relationship?: infer R } ? R : never
+function inferRelationshipKind(
+  hint: string
+): CharacterDossierData['affiliation'] extends infer A
+  ? A extends { relationship?: infer R }
+    ? R
+    : never
   : never {
   const h = hint.toLowerCase();
   if (h.includes('rival') || h.includes('grudge')) return 'rival' as const;

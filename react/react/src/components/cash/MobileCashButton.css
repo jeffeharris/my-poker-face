@@ -34,7 +34,9 @@
     0 0 16px rgba(212, 165, 116, 0.5),
     0 4px 12px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: transform 0.15s ease-out, box-shadow 0.15s;
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s;
 }
 
 .mobile-cash-button:hover {

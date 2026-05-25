@@ -1,10 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import type {
-  InterventionOperation,
-  InterventionTrace,
-  StrategyPipelineSnapshot,
-} from './types';
+import type { InterventionOperation, InterventionTrace, StrategyPipelineSnapshot } from './types';
 import './PipelineTracePanel.css';
 
 interface PipelineTracePanelProps {
@@ -160,7 +156,7 @@ function TraceRow({ trace }: { trace: InterventionTrace }) {
 //      (the common "all no_op" case).
 function findFinalStrategy(
   sortedTrace: InterventionTrace[],
-  snapshot: StrategyPipelineSnapshot | null,
+  snapshot: StrategyPipelineSnapshot | null
 ): Record<string, number> | null {
   for (let i = sortedTrace.length - 1; i >= 0; i -= 1) {
     const out = sortedTrace[i].output_strategy_summary;
@@ -191,10 +187,8 @@ function FinalRollPanel({
   resolvedRaiseTo: number | null;
 }) {
   const entries = useMemo(
-    () =>
-      Object.entries(finalStrategy)
-        .sort(([, a], [, b]) => b - a),
-    [finalStrategy],
+    () => Object.entries(finalStrategy).sort(([, a], [, b]) => b - a),
+    [finalStrategy]
   );
 
   // Strategy keys use abstract names (`check`, `bet_67`, `raise_2.5bb`).
@@ -244,10 +238,7 @@ function FinalRollPanel({
                 <td className="trace-diff-action">{action}</td>
                 <td>{pct.toFixed(1)}%</td>
                 <td className="pipeline-prob-bar-cell">
-                  <span
-                    className="pipeline-prob-bar"
-                    style={{ width: `${barPx.toFixed(1)}px` }}
-                  />
+                  <span className="pipeline-prob-bar" style={{ width: `${barPx.toFixed(1)}px` }} />
                 </td>
               </tr>
             );
@@ -259,16 +250,10 @@ function FinalRollPanel({
 }
 
 export function PipelineTracePanel({ trace, snapshot, actionTaken }: PipelineTracePanelProps) {
-  const sorted = useMemo(
-    () => [...trace].sort((a, b) => a.layer_order - b.layer_order),
-    [trace],
-  );
+  const sorted = useMemo(() => [...trace].sort((a, b) => a.layer_order - b.layer_order), [trace]);
 
   const firedCount = sorted.filter((t) => t.fired).length;
-  const finalStrategy = useMemo(
-    () => findFinalStrategy(sorted, snapshot),
-    [sorted, snapshot],
-  );
+  const finalStrategy = useMemo(() => findFinalStrategy(sorted, snapshot), [sorted, snapshot]);
 
   return (
     <div className="pipeline-trace-panel">
@@ -298,7 +283,9 @@ export function PipelineTracePanel({ trace, snapshot, actionTaken }: PipelineTra
       )}
 
       <details className="pipeline-section">
-        <summary>Pipeline trace ({firedCount} / {sorted.length} layers fired)</summary>
+        <summary>
+          Pipeline trace ({firedCount} / {sorted.length} layers fired)
+        </summary>
         <table className="trace-table">
           <thead>
             <tr>

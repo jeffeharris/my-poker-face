@@ -16,16 +16,17 @@ interface FilterSheetContentProps {
  *
  * Renders filter groups followed by a divider and Clear All / Apply action buttons.
  */
-export function FilterSheetContent({ children, onClear, onApply, accentColor = 'gold' }: FilterSheetContentProps) {
+export function FilterSheetContent({
+  children,
+  onClear,
+  onApply,
+  accentColor = 'gold',
+}: FilterSheetContentProps) {
   return (
     <div className="mobile-filter-sheet__body">
       {children}
       <div className="mobile-filter-sheet__actions">
-        <button
-          className="mobile-filter-sheet__clear-btn"
-          onClick={onClear}
-          type="button"
-        >
+        <button className="mobile-filter-sheet__clear-btn" onClick={onClear} type="button">
           Clear All
         </button>
         <button

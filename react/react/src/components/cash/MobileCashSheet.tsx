@@ -249,15 +249,11 @@ export function MobileCashSheet({
         <div className="mobile-cash-sheet__body">
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">Bankroll</span>
-            <span className="mobile-cash-sheet__value">
-              ${cashMode.bankroll.toLocaleString()}
-            </span>
+            <span className="mobile-cash-sheet__value">${cashMode.bankroll.toLocaleString()}</span>
           </div>
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">At table</span>
-            <span className="mobile-cash-sheet__value">
-              ${playerStack.toLocaleString()}
-            </span>
+            <span className="mobile-cash-sheet__value">${playerStack.toLocaleString()}</span>
           </div>
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">Stake</span>
@@ -285,16 +281,12 @@ export function MobileCashSheet({
                     {netWorth.payables.length === 1 ? 'Carry' : 'Carries'}
                   </span>
                   <span className="mobile-cash-sheet__value">
-                    ${netWorth.payables
-                      .reduce((s, p) => s + p.carry_amount, 0)
-                      .toLocaleString()}{' '}
+                    ${netWorth.payables.reduce((s, p) => s + p.carry_amount, 0).toLocaleString()}{' '}
                     owed
                   </span>
                 </div>
               )}
-              <div className="mobile-cash-sheet__net-worth-hint">
-                Manage from the cash lobby.
-              </div>
+              <div className="mobile-cash-sheet__net-worth-hint">Manage from the cash lobby.</div>
             </div>
           )}
 
@@ -320,10 +312,7 @@ export function MobileCashSheet({
           )}
 
           {confirmLeave && cashMode.active_loan && (
-            <LeaveBreakdownPanel
-              stack={playerStack}
-              loan={cashMode.active_loan}
-            />
+            <LeaveBreakdownPanel stack={playerStack} loan={cashMode.active_loan} />
           )}
           <button
             type="button"
@@ -358,6 +347,6 @@ export function MobileCashSheet({
         />
       )}
     </div>,
-    document.body,
+    document.body
   );
 }

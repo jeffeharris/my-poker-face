@@ -51,17 +51,18 @@ export function ActivityFeed({
   }, []);
 
   // Transform messages for activity feed (include all types)
-  const activityItems = useMemo(() =>
-    messages
-      .slice(-50) // Keep last 50 for performance
-      .map(msg => {
-        // Try to parse action from table messages (e.g., "Batman chose to raise by $100")
-        const parsed = msg.type === 'table' ? parseActionMessage(msg.message) : null;
-        return {
-          ...msg,
-          parsed,
-        };
-      }),
+  const activityItems = useMemo(
+    () =>
+      messages
+        .slice(-50) // Keep last 50 for performance
+        .map((msg) => {
+          // Try to parse action from table messages (e.g., "Batman chose to raise by $100")
+          const parsed = msg.type === 'table' ? parseActionMessage(msg.message) : null;
+          return {
+            ...msg,
+            parsed,
+          };
+        }),
     [messages, parseActionMessage]
   );
 
@@ -105,9 +106,7 @@ export function ActivityFeed({
 
       <div className="activity-feed__list" ref={listRef} onScroll={handleListScroll}>
         {activityItems.length === 0 ? (
-          <div className="activity-feed__empty">
-            Waiting for action...
-          </div>
+          <div className="activity-feed__empty">Waiting for action...</div>
         ) : (
           activityItems.map((item, idx) => {
             // Parsed action from table message
@@ -184,10 +183,7 @@ export function ActivityFeed({
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => setIsInputExpanded(true)}
-            className="activity-feed__expand-btn"
-          >
+          <button onClick={() => setIsInputExpanded(true)} className="activity-feed__expand-btn">
             Chat...
           </button>
         )}

@@ -33,11 +33,7 @@
   /* Override inline's transparent background for betting interface */
   width: 100%;
   max-width: none;
-  background: linear-gradient(
-    165deg,
-    rgba(28, 32, 38, 0.98) 0%,
-    rgba(18, 20, 24, 0.99) 100%
-  );
+  background: linear-gradient(165deg, rgba(28, 32, 38, 0.98) 0%, rgba(18, 20, 24, 0.99) 100%);
   border: 1px solid rgba(212, 175, 55, 0.25);
   border-radius: 1rem;
   box-shadow:
@@ -87,75 +83,47 @@
 
 /* Button Colors - Refined Casino Palette */
 .action-button.fold {
-  background: linear-gradient(
-    135deg,
-    rgba(244, 63, 94, 0.15) 0%,
-    rgba(244, 63, 94, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.15) 0%, rgba(244, 63, 94, 0.08) 100%);
   border-color: rgba(244, 63, 94, 0.4);
   color: var(--color-ruby);
   box-shadow: 0 2px 8px rgba(244, 63, 94, 0.1);
 }
 
 .action-button.fold:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(244, 63, 94, 0.25) 0%,
-    rgba(244, 63, 94, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.25) 0%, rgba(244, 63, 94, 0.15) 100%);
   border-color: rgba(244, 63, 94, 0.6);
   box-shadow: 0 4px 16px rgba(244, 63, 94, 0.2);
 }
 
 .action-button.check {
-  background: linear-gradient(
-    135deg,
-    rgba(52, 211, 153, 0.15) 0%,
-    rgba(52, 211, 153, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.15) 0%, rgba(52, 211, 153, 0.08) 100%);
   border-color: rgba(52, 211, 153, 0.4);
   color: var(--color-emerald);
   box-shadow: 0 2px 8px rgba(52, 211, 153, 0.1);
 }
 
 .action-button.check:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(52, 211, 153, 0.25) 0%,
-    rgba(52, 211, 153, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.25) 0%, rgba(52, 211, 153, 0.15) 100%);
   border-color: rgba(52, 211, 153, 0.6);
   box-shadow: 0 4px 16px rgba(52, 211, 153, 0.2);
 }
 
 .action-button.call {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.15) 0%,
-    rgba(59, 130, 246, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
   border-color: rgba(59, 130, 246, 0.4);
   color: var(--color-sapphire);
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
 }
 
 .action-button.call:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.25) 0%,
-    rgba(59, 130, 246, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.15) 100%);
   border-color: rgba(59, 130, 246, 0.6);
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
 }
 
 .action-button.bet,
 .action-button.raise {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.15) 0%,
-    rgba(212, 165, 116, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.15) 0%, rgba(212, 165, 116, 0.08) 100%);
   border-color: rgba(212, 165, 116, 0.5);
   color: var(--color-gold-light);
   box-shadow: 0 2px 8px rgba(212, 165, 116, 0.15);
@@ -163,21 +131,13 @@
 
 .action-button.bet:hover:not(:disabled),
 .action-button.raise:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.25) 0%,
-    rgba(212, 165, 116, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.25) 0%, rgba(212, 165, 116, 0.15) 100%);
   border-color: rgba(212, 165, 116, 0.7);
   box-shadow: 0 4px 16px rgba(212, 165, 116, 0.25);
 }
 
 .action-button.all-in {
-  background: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.2) 0%,
-    rgba(168, 85, 247, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(168, 85, 247, 0.1) 100%);
   border-color: rgba(168, 85, 247, 0.5);
   color: var(--color-amethyst);
   box-shadow: 0 2px 12px rgba(168, 85, 247, 0.15);
@@ -185,17 +145,14 @@
 }
 
 .action-button.all-in:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.3) 0%,
-    rgba(168, 85, 247, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.3) 0%, rgba(168, 85, 247, 0.15) 100%);
   border-color: rgba(168, 85, 247, 0.7);
   box-shadow: 0 4px 20px rgba(168, 85, 247, 0.3);
 }
 
 @keyframes allInGlow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 2px 12px rgba(168, 85, 247, 0.15);
   }
   50% {
@@ -209,11 +166,7 @@
   max-width: 420px;
   animation: slideUp 0.3s ease-out;
   overflow: visible;
-  background: linear-gradient(
-    165deg,
-    rgba(28, 32, 38, 0.98) 0%,
-    rgba(18, 20, 24, 0.99) 100%
-  );
+  background: linear-gradient(165deg, rgba(28, 32, 38, 0.98) 0%, rgba(18, 20, 24, 0.99) 100%);
   border: 1px solid rgba(212, 175, 55, 0.3);
   border-radius: 1rem;
   box-shadow:
@@ -285,11 +238,7 @@
   padding: 0.625rem 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(255, 255, 255, 0.02) 100%
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
   color: var(--color-text-secondary);
   font-family: var(--font-display);
   font-size: 0.7rem;
@@ -303,11 +252,7 @@
 
 .bet-button:hover:not(:disabled) {
   border-color: rgba(212, 165, 116, 0.4);
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.1) 0%,
-    rgba(212, 165, 116, 0.05) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.1) 0%, rgba(212, 165, 116, 0.05) 100%);
   color: var(--color-gold-light);
   transform: translateY(-1px);
 }
@@ -321,32 +266,20 @@
 
 .bet-button.selected {
   border-color: rgba(212, 165, 116, 0.6);
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.15) 0%,
-    rgba(212, 165, 116, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.15) 0%, rgba(212, 165, 116, 0.08) 100%);
   color: var(--color-gold-light);
   box-shadow: 0 0 12px rgba(212, 165, 116, 0.2);
 }
 
 .bet-button.all-in {
   border-color: rgba(168, 85, 247, 0.4);
-  background: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.12) 0%,
-    rgba(168, 85, 247, 0.05) 100%
-  );
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(168, 85, 247, 0.05) 100%);
   color: var(--color-amethyst);
 }
 
 .bet-button.all-in:hover:not(:disabled) {
   border-color: rgba(168, 85, 247, 0.6);
-  background: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.2) 0%,
-    rgba(168, 85, 247, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(168, 85, 247, 0.1) 100%);
   color: #c4b5fd;
   box-shadow: 0 0 16px rgba(168, 85, 247, 0.25);
 }
@@ -361,11 +294,7 @@
   width: 100%;
   height: 8px;
   border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(212, 175, 55, 0.15) 100%
-  );
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0%, rgba(212, 175, 55, 0.15) 100%);
   outline: none;
   -webkit-appearance: none;
   cursor: pointer;
@@ -383,7 +312,9 @@
     0 2px 8px rgba(0, 0, 0, 0.4),
     0 0 0 3px rgba(212, 175, 55, 0.2);
   border: 2px solid rgba(255, 255, 255, 0.3);
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .bet-slider::-webkit-slider-thumb:hover {
@@ -491,32 +422,20 @@
 }
 
 .action-button.cancel {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.06) 0%,
-    rgba(255, 255, 255, 0.02) 100%
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--color-text-tertiary);
   backdrop-filter: blur(8px);
 }
 
 .action-button.cancel:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 100%
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
   color: var(--color-text-secondary);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
 .action-button.confirm {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.2) 0%,
-    rgba(212, 165, 116, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.2) 0%, rgba(212, 165, 116, 0.1) 100%);
   border: 1px solid rgba(212, 165, 116, 0.5);
   color: var(--color-gold-light);
   box-shadow: 0 2px 12px rgba(212, 165, 116, 0.2);
@@ -524,11 +443,7 @@
 }
 
 .action-button.confirm:hover:not(:disabled) {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.3) 0%,
-    rgba(212, 165, 116, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.3) 0%, rgba(212, 165, 116, 0.15) 100%);
   border-color: rgba(212, 165, 116, 0.7);
   box-shadow: 0 4px 20px rgba(212, 165, 116, 0.3);
 }
@@ -603,11 +518,7 @@
 
 /* New Unified Bet Display */
 .unified-bet-display {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 175, 55, 0.08) 0%,
-    rgba(212, 175, 55, 0.02) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(212, 175, 55, 0.02) 100%);
   border: 1px solid rgba(212, 175, 55, 0.2);
   border-radius: 0.75rem;
   padding: 1rem 1.25rem;

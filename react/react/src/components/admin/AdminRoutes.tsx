@@ -17,7 +17,19 @@ import { logger } from '../../utils/logger';
 import type { AdminTab } from './AdminSidebar';
 import './AdminShared.css';
 
-const VALID_TABS: AdminTab[] = ['users', 'personalities', 'analyzer', 'hand-replay', 'playground', 'experiments', 'presets', 'templates', 'settings', 'debug', 'chip-ledger'];
+const VALID_TABS: AdminTab[] = [
+  'users',
+  'personalities',
+  'analyzer',
+  'hand-replay',
+  'playground',
+  'experiments',
+  'presets',
+  'templates',
+  'settings',
+  'debug',
+  'chip-ledger',
+];
 
 /**
  * Shared hook for capture selection with URL updates.
@@ -43,9 +55,11 @@ function ExperimentDetailWrapper() {
   const [showAssistant, setShowAssistant] = useState(false);
   const [assistantMode, setAssistantMode] = useState<'overlay' | 'docked'>(() => {
     const saved = localStorage.getItem('experimentAssistantMode');
-    return (saved === 'overlay' || saved === 'docked') ? saved : 'docked';
+    return saved === 'overlay' || saved === 'docked' ? saved : 'docked';
   });
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: 'user' | 'assistant'; content: string }>
+  >([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
@@ -56,7 +70,9 @@ function ExperimentDetailWrapper() {
     setShowAssistant(true);
     if (chatMessages.length === 0 && !isNaN(experimentIdNum)) {
       try {
-        const response = await fetch(`${config.API_URL}/api/experiments/${experimentIdNum}/chat/history`);
+        const response = await fetch(
+          `${config.API_URL}/api/experiments/${experimentIdNum}/chat/history`
+        );
         const data = await response.json();
         if (data.success && data.history) {
           setChatMessages(data.history);
@@ -72,7 +88,7 @@ function ExperimentDetailWrapper() {
 
     const message = chatInput.trim();
     setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: message }]);
+    setChatMessages((prev) => [...prev, { role: 'user', content: message }]);
     setChatLoading(true);
 
     try {
@@ -83,12 +99,18 @@ function ExperimentDetailWrapper() {
       });
       const data = await response.json();
       if (data.success) {
-        setChatMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: data.response }]);
       } else {
-        setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error}` }]);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Error: ${data.error}` },
+        ]);
       }
     } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error: Failed to connect to server' }]);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Error: Failed to connect to server' },
+      ]);
     } finally {
       setChatLoading(false);
     }
@@ -127,13 +149,21 @@ function ExperimentDetailWrapper() {
     navigate('/admin/experiments');
   };
 
-  const handleEditInLabAssistant = (experiment: Parameters<NonNullable<React.ComponentProps<typeof ExperimentDetail>['onEditInLabAssistant']>>[0]) => {
+  const handleEditInLabAssistant = (
+    experiment: Parameters<
+      NonNullable<React.ComponentProps<typeof ExperimentDetail>['onEditInLabAssistant']>
+    >[0]
+  ) => {
     navigate('/admin/experiments', { state: { editExperiment: experiment } });
   };
 
   const handleBuildFromSuggestion = (
-    experiment: Parameters<NonNullable<React.ComponentProps<typeof ExperimentDetail>['onBuildFromSuggestion']>>[0],
-    suggestion: Parameters<NonNullable<React.ComponentProps<typeof ExperimentDetail>['onBuildFromSuggestion']>>[1]
+    experiment: Parameters<
+      NonNullable<React.ComponentProps<typeof ExperimentDetail>['onBuildFromSuggestion']>
+    >[0],
+    suggestion: Parameters<
+      NonNullable<React.ComponentProps<typeof ExperimentDetail>['onBuildFromSuggestion']>
+    >[1]
   ) => {
     navigate('/admin/experiments', { state: { buildFromSuggestion: { experiment, suggestion } } });
   };
@@ -212,7 +242,10 @@ function ExperimentDetailWrapper() {
       </div>
       <form
         className="admin-assistant-panel__input-area"
-        onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSendMessage();
+        }}
       >
         <input
           type="text"
@@ -260,7 +293,9 @@ function ExperimentDetailWrapper() {
 
   // Desktop layout with sidebar + content + optional docked assistant
   return (
-    <div className={`admin-dashboard-layout ${showDockedAssistant ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+    <div
+      className={`admin-dashboard-layout ${showDockedAssistant ? 'admin-dashboard-layout--with-assistant' : ''}`}
+    >
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab="experiments"
@@ -332,10 +367,7 @@ function ReplayResultsWrapper() {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
         <div className="admin-main__content admin-main__content--mobile">
-          <ReplayResults
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-          />
+          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
         </div>
       </div>
     );
@@ -366,10 +398,7 @@ function ReplayResultsWrapper() {
           </div>
         </header>
         <div className="admin-main__content">
-          <ReplayResults
-            experimentId={experimentIdNum}
-            onBack={handleBack}
-          />
+          <ReplayResults experimentId={experimentIdNum} onBack={handleBack} />
         </div>
       </main>
     </div>
@@ -406,7 +435,9 @@ function NewExperimentWrapper() {
 
   // Desktop layout with sidebar + content + assistant panel
   return (
-    <div className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}>
+    <div
+      className={`admin-dashboard-layout ${assistantPanelProps ? 'admin-dashboard-layout--with-assistant' : ''}`}
+    >
       <AdminSidebar
         items={SIDEBAR_ITEMS}
         activeTab="experiments"
@@ -545,18 +576,18 @@ function SettingsWrapper() {
     }
   };
 
-  const handleCategoryChange = useCallback((newCategory: SettingsCategory) => {
-    navigate(`/admin/settings/${newCategory}`, { replace: true });
-  }, [navigate]);
+  const handleCategoryChange = useCallback(
+    (newCategory: SettingsCategory) => {
+      navigate(`/admin/settings/${newCategory}`, { replace: true });
+    },
+    [navigate]
+  );
 
   // Mobile layout
   if (isMobile) {
     return (
       <div className="admin-dashboard-layout admin-dashboard-layout--mobile">
-        <AdminMenuContainer
-          title="Settings"
-          onBack={handleBack}
-        >
+        <AdminMenuContainer title="Settings" onBack={handleBack}>
           <div className="admin-main__content admin-main__content--mobile">
             <UnifiedSettings
               embedded
@@ -581,11 +612,7 @@ function SettingsWrapper() {
       />
       <main className="admin-main">
         <header className="admin-main__header">
-          <button
-            className="admin-main__back"
-            onClick={handleBack}
-            aria-label="Go back"
-          >
+          <button className="admin-main__back" onClick={handleBack} aria-label="Go back">
             <ArrowLeft size={20} />
           </button>
           <div className="admin-main__header-text">
@@ -666,11 +693,7 @@ function AdminIndex() {
   };
 
   return (
-    <AdminDashboard
-      onBack={handleBack}
-      initialTab={undefined}
-      onTabChange={handleTabChange}
-    />
+    <AdminDashboard onBack={handleBack} initialTab={undefined} onTabChange={handleTabChange} />
   );
 }
 
@@ -681,7 +704,15 @@ export function AdminRoutes() {
   // Show loading while checking auth
   if (isLoading) {
     return (
-      <div className="admin-loading" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        className="admin-loading"
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div className="admin-loading__spinner" />
       </div>
     );

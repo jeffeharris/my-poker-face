@@ -181,11 +181,7 @@ export function AvatarAssignmentModal({
           </div>
 
           {error && <div className="avatar-error">{error}</div>}
-          {success && (
-            <div className="avatar-success">
-              Avatar assigned successfully!
-            </div>
-          )}
+          {success && <div className="avatar-success">Avatar assigned successfully!</div>}
         </div>
 
         <div className="avatar-modal-actions">

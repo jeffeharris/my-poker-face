@@ -84,20 +84,33 @@
 
 /* Fade in for backdrops */
 @keyframes mobileFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Fade out for backdrops */
 @keyframes mobileFadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* Scale pulse for FAB */
 @keyframes mobileFabPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
 }
 
 /* Stagger animation for list items */
@@ -114,15 +127,25 @@
 
 /* Pull to refresh spinner */
 @keyframes mobileSpinnerRotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Card press feedback */
 @keyframes mobileCardPress {
-  0% { transform: scale(1); }
-  50% { transform: scale(0.98); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.98);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* ===========================================
@@ -392,19 +415,41 @@
   animation: mobileListItemSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-.mobile-list-animated > *:nth-child(1) { animation-delay: 0ms; }
-.mobile-list-animated > *:nth-child(2) { animation-delay: 30ms; }
-.mobile-list-animated > *:nth-child(3) { animation-delay: 60ms; }
-.mobile-list-animated > *:nth-child(4) { animation-delay: 90ms; }
-.mobile-list-animated > *:nth-child(5) { animation-delay: 120ms; }
-.mobile-list-animated > *:nth-child(6) { animation-delay: 150ms; }
-.mobile-list-animated > *:nth-child(7) { animation-delay: 180ms; }
-.mobile-list-animated > *:nth-child(8) { animation-delay: 210ms; }
-.mobile-list-animated > *:nth-child(9) { animation-delay: 240ms; }
-.mobile-list-animated > *:nth-child(10) { animation-delay: 270ms; }
+.mobile-list-animated > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.mobile-list-animated > *:nth-child(2) {
+  animation-delay: 30ms;
+}
+.mobile-list-animated > *:nth-child(3) {
+  animation-delay: 60ms;
+}
+.mobile-list-animated > *:nth-child(4) {
+  animation-delay: 90ms;
+}
+.mobile-list-animated > *:nth-child(5) {
+  animation-delay: 120ms;
+}
+.mobile-list-animated > *:nth-child(6) {
+  animation-delay: 150ms;
+}
+.mobile-list-animated > *:nth-child(7) {
+  animation-delay: 180ms;
+}
+.mobile-list-animated > *:nth-child(8) {
+  animation-delay: 210ms;
+}
+.mobile-list-animated > *:nth-child(9) {
+  animation-delay: 240ms;
+}
+.mobile-list-animated > *:nth-child(10) {
+  animation-delay: 270ms;
+}
 
 /* For items beyond 10, use same delay */
-.mobile-list-animated > *:nth-child(n+11) { animation-delay: 300ms; }
+.mobile-list-animated > *:nth-child(n + 11) {
+  animation-delay: 300ms;
+}
 
 /* ===========================================
    Safe Area Utilities

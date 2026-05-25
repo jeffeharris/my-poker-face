@@ -64,30 +64,30 @@ export function useCardAnimation({ hand }: UseCardAnimationProps): UseCardAnimat
   // Y offset: +/-8px, X offset: +/-3px, Gap: 10px base +/-10px range
   // Start rotation: tilted into slide direction (~12-18deg more negative)
   const randomTransforms = useMemo(() => {
-    const card1Rotation = -3 + (Math.random() * 14 - 7);  // -10 to +4
-    const card2Rotation = 3 + (Math.random() * 14 - 7);   // -4 to +10
+    const card1Rotation = -3 + (Math.random() * 14 - 7); // -10 to +4
+    const card2Rotation = 3 + (Math.random() * 14 - 7); // -4 to +10
 
     // Start rotations: tilted toward direction of travel (from left)
     // Cards sliding right naturally tilt counterclockwise (-) during motion
-    const card1StartRotation = card1Rotation - 12 - (Math.random() * 6);  // ~12-18deg more tilted
-    const card2StartRotation = card2Rotation - 12 - (Math.random() * 6);
+    const card1StartRotation = card1Rotation - 12 - Math.random() * 6; // ~12-18deg more tilted
+    const card2StartRotation = card2Rotation - 12 - Math.random() * 6;
 
     return {
       card1: {
         rotation: card1Rotation,
         startRotation: card1StartRotation,
-        offsetY: Math.random() * 16 - 8,          // -8 to +8
-        offsetX: Math.random() * 6 - 3,           // -3 to +3
+        offsetY: Math.random() * 16 - 8, // -8 to +8
+        offsetX: Math.random() * 6 - 3, // -3 to +3
       },
       card2: {
         rotation: card2Rotation,
         startRotation: card2StartRotation,
-        offsetY: Math.random() * 16 - 8,          // -8 to +8
-        offsetX: Math.random() * 6 - 3,           // -3 to +3
+        offsetY: Math.random() * 16 - 8, // -8 to +8
+        offsetX: Math.random() * 6 - 3, // -3 to +3
       },
-      gap: 10 + (Math.random() * 20 - 10),        // 0 to 20
+      gap: 10 + (Math.random() * 20 - 10), // 0 to 20
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card1Id, card2Id]);
 
   // Handle card transitions
@@ -115,7 +115,7 @@ export function useCardAnimation({ hand }: UseCardAnimationProps): UseCardAnimat
     if (!handId && prevHandId.current) {
       prevHandId.current = null;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handId]);
 
   // Cleanup timer on unmount
@@ -137,7 +137,7 @@ export function useCardAnimation({ hand }: UseCardAnimationProps): UseCardAnimat
   }, []);
 
   const toggleCardsNeat = useCallback(() => {
-    setCardsNeat(n => !n);
+    setCardsNeat((n) => !n);
   }, []);
 
   // Use neat or random transforms based on state

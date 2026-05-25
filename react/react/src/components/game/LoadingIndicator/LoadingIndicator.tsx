@@ -7,14 +7,18 @@ interface LoadingIndicatorProps {
   totalPlayers: number;
 }
 
-export function LoadingIndicator({ currentPlayerName, playerIndex: _playerIndex, totalPlayers }: LoadingIndicatorProps) {
+export function LoadingIndicator({
+  currentPlayerName,
+  playerIndex: _playerIndex,
+  totalPlayers,
+}: LoadingIndicatorProps) {
   const [dots, setDots] = useState(1);
   const [showThinkingBubble, setShowThinkingBubble] = useState(false);
 
   // Animate dots
   useEffect(() => {
     const interval = setInterval(() => {
-      setDots(prev => (prev % 3) + 1);
+      setDots((prev) => (prev % 3) + 1);
     }, 500);
     return () => clearInterval(interval);
   }, []);
@@ -28,12 +32,12 @@ export function LoadingIndicator({ currentPlayerName, playerIndex: _playerIndex,
   }, [currentPlayerName]);
 
   const thinkingPhrases = [
-    "Calculating odds...",
-    "Analyzing opponents...",
-    "Considering the pot...",
-    "Reading the table...",
-    "Planning next move...",
-    "Evaluating hand strength..."
+    'Calculating odds...',
+    'Analyzing opponents...',
+    'Considering the pot...',
+    'Reading the table...',
+    'Planning next move...',
+    'Evaluating hand strength...',
   ];
 
   const randomPhrase = thinkingPhrases[Math.floor(Math.random() * thinkingPhrases.length)];
@@ -51,22 +55,20 @@ export function LoadingIndicator({ currentPlayerName, playerIndex: _playerIndex,
             <div className="thinking-dot dot-3"></div>
           </div>
         </div>
-        
+
         <h3 className="player-thinking-name">{currentPlayerName}</h3>
-        <p className="thinking-status">
-          Making a decision{'.'.repeat(dots)}
-        </p>
-        
+        <p className="thinking-status">Making a decision{'.'.repeat(dots)}</p>
+
         {showThinkingBubble && (
           <div className="thinking-bubble">
             <p>{randomPhrase}</p>
           </div>
         )}
-        
+
         <div className="progress-bar">
           <div className="progress-fill"></div>
         </div>
-        
+
         <div className="other-players">
           <p>Next up: {totalPlayers - 1} other players</p>
         </div>

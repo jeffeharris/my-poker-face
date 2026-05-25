@@ -34,21 +34,13 @@ export function GameMonitorTable({ games, onPlayerClick }: GameMonitorTableProps
           {games.map((game) => (
             <tr key={game.game_id} className="game-monitor-table__row">
               <td>
-                <span className="game-monitor-table__variant">
-                  {game.variant || 'Default'}
-                </span>
+                <span className="game-monitor-table__variant">{game.variant || 'Default'}</span>
               </td>
-              <td className="game-monitor-table__hand">
-                {game.hand_number}
-              </td>
+              <td className="game-monitor-table__hand">{game.hand_number}</td>
               <td>
-                <span className="game-monitor-table__phase">
-                  {game.phase.replace(/_/g, ' ')}
-                </span>
+                <span className="game-monitor-table__phase">{game.phase.replace(/_/g, ' ')}</span>
               </td>
-              <td className="game-monitor-table__pot">
-                {formatStack(game.pot)}
-              </td>
+              <td className="game-monitor-table__pot">{formatStack(game.pot)}</td>
               <td>
                 <div className="game-monitor-table__players">
                   {game.players.map((player) => (
@@ -63,9 +55,7 @@ export function GameMonitorTable({ games, onPlayerClick }: GameMonitorTableProps
                       type="button"
                       title={`${player.name}: ${formatStack(player.stack)} chips`}
                     >
-                      <span className="game-monitor-table__player-name">
-                        {player.name}
-                      </span>
+                      <span className="game-monitor-table__player-name">{player.name}</span>
                       <span className="game-monitor-table__player-stack">
                         {formatStack(player.stack)}
                       </span>

@@ -1,5 +1,20 @@
 import { useState } from 'react';
-import { Zap, Users, Shuffle, Settings, Sparkles, FolderOpen, BarChart3, ChevronRight, Trophy, Target, Flame, TrendingUp, Lock, Crown } from 'lucide-react';
+import {
+  Zap,
+  Users,
+  Shuffle,
+  Settings,
+  Sparkles,
+  FolderOpen,
+  BarChart3,
+  ChevronRight,
+  Trophy,
+  Target,
+  Flame,
+  TrendingUp,
+  Lock,
+  Crown,
+} from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, UpgradeBanner } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
 import { useAuth } from '../../hooks/useAuth';
@@ -32,9 +47,10 @@ function StatsSidebar({ onViewFullStats, isGuest = false }: StatsSidebarProps) {
   }
 
   // Get top nemesis (most eliminated)
-  const topNemesis = eliminatedPersonalities.length > 0
-    ? eliminatedPersonalities.reduce((a, b) => a.times_eliminated > b.times_eliminated ? a : b)
-    : null;
+  const topNemesis =
+    eliminatedPersonalities.length > 0
+      ? eliminatedPersonalities.reduce((a, b) => (a.times_eliminated > b.times_eliminated ? a : b))
+      : null;
 
   // Get last game result
   const lastGame = tournaments.length > 0 ? tournaments[0] : null;
@@ -83,12 +99,18 @@ function StatsSidebar({ onViewFullStats, isGuest = false }: StatsSidebarProps) {
           </h3>
           <div className="sidebar__recent-game">
             <div className="sidebar__game-result">
-              <span className={`sidebar__position sidebar__position--${lastGame.your_position === 1 ? 'win' : lastGame.your_position <= 2 ? 'top' : 'other'}`}>
-                {lastGame.your_position === 1 ? '1st' : lastGame.your_position === 2 ? '2nd' : lastGame.your_position === 3 ? '3rd' : `${lastGame.your_position}th`}
+              <span
+                className={`sidebar__position sidebar__position--${lastGame.your_position === 1 ? 'win' : lastGame.your_position <= 2 ? 'top' : 'other'}`}
+              >
+                {lastGame.your_position === 1
+                  ? '1st'
+                  : lastGame.your_position === 2
+                    ? '2nd'
+                    : lastGame.your_position === 3
+                      ? '3rd'
+                      : `${lastGame.your_position}th`}
               </span>
-              <span className="sidebar__game-meta">
-                of {lastGame.player_count} players
-              </span>
+              <span className="sidebar__game-meta">of {lastGame.player_count} players</span>
             </div>
             {lastGame.your_position === 1 ? (
               <p className="sidebar__game-detail sidebar__game-detail--win">Victory!</p>
@@ -127,7 +149,9 @@ function StatsSidebar({ onViewFullStats, isGuest = false }: StatsSidebarProps) {
             {stats.biggest_pot_ever > 0 && (
               <div className="sidebar__highlight">
                 <span className="sidebar__highlight-label">Biggest Pot</span>
-                <span className="sidebar__highlight-value">${stats.biggest_pot_ever.toLocaleString()}</span>
+                <span className="sidebar__highlight-value">
+                  ${stats.biggest_pot_ever.toLocaleString()}
+                </span>
               </div>
             )}
             {stats.best_finish === 1 && (
@@ -166,7 +190,16 @@ interface LockedMenuOptionProps {
   className: string;
 }
 
-function LockedMenuOption({ icon, title, description, onClick, isGuest, isCreatingGame, hoverHandlers, className }: LockedMenuOptionProps) {
+function LockedMenuOption({
+  icon,
+  title,
+  description,
+  onClick,
+  isGuest,
+  isCreatingGame,
+  hoverHandlers,
+  className,
+}: LockedMenuOptionProps) {
   return (
     <button
       className={`menu-option ${className} ${isGuest ? 'menu-option--locked' : ''}`}
@@ -178,7 +211,11 @@ function LockedMenuOption({ icon, title, description, onClick, isGuest, isCreati
       <div className="option-content">
         <h3>
           {title}
-          {isGuest && <span className="pro-badge"><Crown size={12} /> Pro</span>}
+          {isGuest && (
+            <span className="pro-badge">
+              <Crown size={12} /> Pro
+            </span>
+          )}
         </h3>
         <p>{isGuest ? 'Sign in with Google to unlock' : description}</p>
       </div>
@@ -224,7 +261,7 @@ export function TournamentMenu({
   onAdminDashboard,
   onBack,
   savedGamesCount,
-  isCreatingGame = false
+  isCreatingGame = false,
 }: TournamentMenuProps) {
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const { isDesktop } = useViewport();
@@ -234,14 +271,23 @@ export function TournamentMenu({
   const classicPlayers = isGuest ? 3 : 4;
 
   // Only use hover handlers on desktop
-  const getHoverHandlers = (option: string) => isDesktop ? {
-    onMouseEnter: () => setHoveredOption(option),
-    onMouseLeave: () => setHoveredOption(null)
-  } : {};
+  const getHoverHandlers = (option: string) =>
+    isDesktop
+      ? {
+          onMouseEnter: () => setHoveredOption(option),
+          onMouseLeave: () => setHoveredOption(null),
+        }
+      : {};
 
   return (
     <>
-      <MenuBar onBack={onBack} title="Tournaments" showUserInfo onMainMenu={onBack} onAdminTools={onAdminDashboard} />
+      <MenuBar
+        onBack={onBack}
+        title="Tournaments"
+        showUserInfo
+        onMainMenu={onBack}
+        onAdminTools={onAdminDashboard}
+      />
       <PageLayout variant="top" glowColor="gold" maxWidth={isDesktop ? undefined : 'md'} hasMenuBar>
         <PageHeader
           title="Pick a Format"
@@ -249,127 +295,162 @@ export function TournamentMenu({
           titleVariant="primary"
         />
 
-      <div className={`game-menu__layout ${isDesktop ? 'game-menu__layout--split' : ''}`}>
-        {/* Main Menu Options */}
-        <div className="game-menu__options">
-          {/* Quick Start Variants */}
-          <div className="quick-play-section">
-            <h4 className="quick-play-section__title">Quick Start</h4>
-            <div className="quick-play-section__buttons">
-              <button
-                className="quick-play-btn quick-play-btn--lightning"
-                onClick={() => onQuickPlay({ mode: 'lightning', opponents: lightningPlayers, startingBB: 10, gameMode: 'competitive', blindGrowth: 2, blindsIncrease: 4, maxBlind: 800 })}
-                disabled={isCreatingGame}
-                {...getHoverHandlers('lightning')}
-              >
-                <Zap className="quick-play-btn__icon" size={22} />
-                <span className="quick-play-btn__label">Lightning</span>
-                <span className="quick-play-btn__meta">10BB • {lightningPlayers} players</span>
-              </button>
+        <div className={`game-menu__layout ${isDesktop ? 'game-menu__layout--split' : ''}`}>
+          {/* Main Menu Options */}
+          <div className="game-menu__options">
+            {/* Quick Start Variants */}
+            <div className="quick-play-section">
+              <h4 className="quick-play-section__title">Quick Start</h4>
+              <div className="quick-play-section__buttons">
+                <button
+                  className="quick-play-btn quick-play-btn--lightning"
+                  onClick={() =>
+                    onQuickPlay({
+                      mode: 'lightning',
+                      opponents: lightningPlayers,
+                      startingBB: 10,
+                      gameMode: 'competitive',
+                      blindGrowth: 2,
+                      blindsIncrease: 4,
+                      maxBlind: 800,
+                    })
+                  }
+                  disabled={isCreatingGame}
+                  {...getHoverHandlers('lightning')}
+                >
+                  <Zap className="quick-play-btn__icon" size={22} />
+                  <span className="quick-play-btn__label">Lightning</span>
+                  <span className="quick-play-btn__meta">10BB • {lightningPlayers} players</span>
+                </button>
 
-              <button
-                className="quick-play-btn quick-play-btn--1v1"
-                onClick={() => onQuickPlay({ mode: '1v1', opponents: 1, startingBB: 20, gameMode: 'competitive', blindGrowth: 1.5, blindsIncrease: 6, maxBlind: 0 })}
-                disabled={isCreatingGame}
-                {...getHoverHandlers('1v1')}
-              >
-                <Users className="quick-play-btn__icon" size={22} />
-                <span className="quick-play-btn__label">1v1</span>
-                <span className="quick-play-btn__meta">Heads up</span>
-              </button>
+                <button
+                  className="quick-play-btn quick-play-btn--1v1"
+                  onClick={() =>
+                    onQuickPlay({
+                      mode: '1v1',
+                      opponents: 1,
+                      startingBB: 20,
+                      gameMode: 'competitive',
+                      blindGrowth: 1.5,
+                      blindsIncrease: 6,
+                      maxBlind: 0,
+                    })
+                  }
+                  disabled={isCreatingGame}
+                  {...getHoverHandlers('1v1')}
+                >
+                  <Users className="quick-play-btn__icon" size={22} />
+                  <span className="quick-play-btn__label">1v1</span>
+                  <span className="quick-play-btn__meta">Heads up</span>
+                </button>
 
-              <button
-                className="quick-play-btn quick-play-btn--random"
-                onClick={() => onQuickPlay({ mode: 'random', opponents: classicPlayers, startingBB: 20, gameMode: 'casual', blindGrowth: 1.25, blindsIncrease: 8, maxBlind: 0 })}
-                disabled={isCreatingGame}
-                {...getHoverHandlers('random')}
-              >
-                <Shuffle className="quick-play-btn__icon" size={22} />
-                <span className="quick-play-btn__label">Classic</span>
-                <span className="quick-play-btn__meta">20BB • {classicPlayers} players</span>
-              </button>
+                <button
+                  className="quick-play-btn quick-play-btn--random"
+                  onClick={() =>
+                    onQuickPlay({
+                      mode: 'random',
+                      opponents: classicPlayers,
+                      startingBB: 20,
+                      gameMode: 'casual',
+                      blindGrowth: 1.25,
+                      blindsIncrease: 8,
+                      maxBlind: 0,
+                    })
+                  }
+                  disabled={isCreatingGame}
+                  {...getHoverHandlers('random')}
+                >
+                  <Shuffle className="quick-play-btn__icon" size={22} />
+                  <span className="quick-play-btn__label">Classic</span>
+                  <span className="quick-play-btn__meta">20BB • {classicPlayers} players</span>
+                </button>
+              </div>
             </div>
+
+            {/* Upgrade Banner for mobile guests - between quick play and custom */}
+            {isGuest && !isDesktop && <UpgradeBanner variant="compact" />}
+
+            <LockedMenuOption
+              icon={<Settings className="option-icon" size={24} />}
+              title="Custom Game"
+              description="Choose your opponents and game settings"
+              onClick={onCustomGame}
+              isGuest={isGuest}
+              isCreatingGame={isCreatingGame}
+              hoverHandlers={getHoverHandlers('custom')}
+              className="custom-game"
+            />
+
+            <LockedMenuOption
+              icon={<Sparkles className="option-icon" size={24} />}
+              title="Themed Game"
+              description="Play with a surprise cast of personalities!"
+              onClick={onThemedGame}
+              isGuest={isGuest}
+              isCreatingGame={isCreatingGame}
+              hoverHandlers={getHoverHandlers('themed')}
+              className="themed-game"
+            />
+
+            <button
+              className="menu-option continue-game"
+              onClick={onContinueGame}
+              {...getHoverHandlers('continue')}
+              disabled={savedGamesCount === 0}
+            >
+              <FolderOpen className="option-icon" size={24} />
+              <div className="option-content">
+                <h3>Continue Game</h3>
+                <p>
+                  {savedGamesCount > 0
+                    ? `Resume from ${savedGamesCount} saved game${savedGamesCount > 1 ? 's' : ''}`
+                    : 'No saved games yet'}
+                </p>
+              </div>
+              {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
+            </button>
+
+            {/* Tournament Stats */}
+            {onViewStats && (
+              <button
+                className="menu-option view-stats"
+                onClick={onViewStats}
+                {...getHoverHandlers('stats')}
+              >
+                <BarChart3 className="option-icon" size={24} />
+                <div className="option-content">
+                  <h3>Tournament Stats</h3>
+                  <p>Your wins, eliminations, and history</p>
+                </div>
+                <ChevronRight className="option-arrow" size={20} />
+              </button>
+            )}
           </div>
 
-          {/* Upgrade Banner for mobile guests - between quick play and custom */}
-          {isGuest && !isDesktop && <UpgradeBanner variant="compact" />}
-
-          <LockedMenuOption
-            icon={<Settings className="option-icon" size={24} />}
-            title="Custom Game"
-            description="Choose your opponents and game settings"
-            onClick={onCustomGame}
-            isGuest={isGuest}
-            isCreatingGame={isCreatingGame}
-            hoverHandlers={getHoverHandlers('custom')}
-            className="custom-game"
-          />
-
-          <LockedMenuOption
-            icon={<Sparkles className="option-icon" size={24} />}
-            title="Themed Game"
-            description="Play with a surprise cast of personalities!"
-            onClick={onThemedGame}
-            isGuest={isGuest}
-            isCreatingGame={isCreatingGame}
-            hoverHandlers={getHoverHandlers('themed')}
-            className="themed-game"
-          />
-
-          <button
-            className="menu-option continue-game"
-            onClick={onContinueGame}
-            {...getHoverHandlers('continue')}
-            disabled={savedGamesCount === 0}
-          >
-            <FolderOpen className="option-icon" size={24} />
-            <div className="option-content">
-              <h3>Continue Game</h3>
-              <p>{savedGamesCount > 0
-                ? `Resume from ${savedGamesCount} saved game${savedGamesCount > 1 ? 's' : ''}`
-                : 'No saved games yet'
-              }</p>
-            </div>
-            {savedGamesCount > 0 && <ChevronRight className="option-arrow" size={20} />}
-          </button>
-
-          {/* Tournament Stats */}
-          {onViewStats && (
-            <button
-              className="menu-option view-stats"
-              onClick={onViewStats}
-              {...getHoverHandlers('stats')}
-            >
-              <BarChart3 className="option-icon" size={24} />
-              <div className="option-content">
-                <h3>Tournament Stats</h3>
-                <p>Your wins, eliminations, and history</p>
-              </div>
-              <ChevronRight className="option-arrow" size={20} />
-            </button>
-          )}
-
-
+          {/* Stats Sidebar - Desktop only */}
+          {isDesktop && <StatsSidebar onViewFullStats={onViewStats} isGuest={isGuest} />}
         </div>
-
-        {/* Stats Sidebar - Desktop only */}
-        {isDesktop && (
-          <StatsSidebar onViewFullStats={onViewStats} isGuest={isGuest} />
-        )}
-      </div>
 
         {/* Footer tips - desktop only */}
         {isDesktop && (
           <div className="game-menu__footer">
             <p className="tip">
-              {hoveredOption === 'lightning' && "Fast and furious! Short stacks mean quick decisions and big swings."}
-              {hoveredOption === '1v1' && "Test your skills head-to-head against a single AI opponent."}
-              {hoveredOption === 'random' && "The classic experience with a comfortable stack and 4 opponents."}
-              {hoveredOption === 'custom' && "Take full control - choose exactly who sits at your table."}
-              {hoveredOption === 'themed' && "Each theme brings together personalities that create unique dynamics!"}
-              {hoveredOption === 'continue' && savedGamesCount > 0 && "Pick up right where you left off."}
-              {hoveredOption === 'stats' && "Track your wins, eliminations, and tournament history."}
-              {!hoveredOption && "Ready to test your poker face?"}
+              {hoveredOption === 'lightning' &&
+                'Fast and furious! Short stacks mean quick decisions and big swings.'}
+              {hoveredOption === '1v1' &&
+                'Test your skills head-to-head against a single AI opponent.'}
+              {hoveredOption === 'random' &&
+                'The classic experience with a comfortable stack and 4 opponents.'}
+              {hoveredOption === 'custom' &&
+                'Take full control - choose exactly who sits at your table.'}
+              {hoveredOption === 'themed' &&
+                'Each theme brings together personalities that create unique dynamics!'}
+              {hoveredOption === 'continue' &&
+                savedGamesCount > 0 &&
+                'Pick up right where you left off.'}
+              {hoveredOption === 'stats' &&
+                'Track your wins, eliminations, and tournament history.'}
+              {!hoveredOption && 'Ready to test your poker face?'}
             </p>
           </div>
         )}

@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Sparkles, GitCompare, Beaker, Repeat2 } from 'lucide-react';
-import type { ExperimentConfig, LabAssistantContext, ConfigVersion, ChatMessage, ExperimentType } from './types';
+import type {
+  ExperimentConfig,
+  LabAssistantContext,
+  ConfigVersion,
+  ChatMessage,
+  ExperimentType,
+} from './types';
 import { adminFetch } from '../../../utils/api';
 import { logger } from '../../../utils/logger';
 
@@ -82,82 +88,99 @@ export function ExperimentChat({
   }, [messages]);
 
   // Define sendMessage BEFORE the useEffect that uses it
-  const sendMessage = useCallback(async (messageText: string, contextForFailure?: LabAssistantContext | null, forceExperimentType?: ExperimentType) => {
-    if (!messageText.trim() || loading) return;
+  const sendMessage = useCallback(
+    async (
+      messageText: string,
+      contextForFailure?: LabAssistantContext | null,
+      forceExperimentType?: ExperimentType
+    ) => {
+      if (!messageText.trim() || loading) return;
 
-    // Add user message to display
-    const userMessage: ChatMessage = { role: 'user', content: messageText };
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setLoading(true);
+      // Add user message to display
+      const userMessage: ChatMessage = { role: 'user', content: messageText };
+      setMessages((prev) => [...prev, userMessage]);
+      setInput('');
+      setLoading(true);
 
-    try {
-      const response = await adminFetch('/api/experiments/chat', {
-        method: 'POST',
-        body: JSON.stringify({
-          message: messageText,
-          session_id: sessionId,
-          current_config: config,
-          failure_context: contextForFailure || null,
-          experiment_type: forceExperimentType || experimentType,
-        }),
-      });
+      try {
+        const response = await adminFetch('/api/experiments/chat', {
+          method: 'POST',
+          body: JSON.stringify({
+            message: messageText,
+            session_id: sessionId,
+            current_config: config,
+            failure_context: contextForFailure || null,
+            experiment_type: forceExperimentType || experimentType,
+          }),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (data.success) {
-        // Update session ID if new
-        if (data.session_id && data.session_id !== sessionId) {
-          onSessionIdChange(data.session_id);
-        }
-
-        // Update experiment type if returned from backend
-        if (data.experiment_type && data.experiment_type !== experimentType) {
-          onExperimentTypeChange?.(data.experiment_type);
-        }
-
-        // Add assistant response with optional config diff
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: data.response,
-          configDiff: data.config_diff || undefined,
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-
-        // Apply config updates if present
-        if (data.config_updates) {
-          onConfigUpdate(data.config_updates);
-        }
-
-        // Update config versions if present
-        if (data.config_versions && onConfigVersionsChange) {
-          onConfigVersionsChange(data.config_versions);
-          if (data.current_version_index !== undefined && onCurrentVersionIndexChange) {
-            onCurrentVersionIndexChange(data.current_version_index);
+        if (data.success) {
+          // Update session ID if new
+          if (data.session_id && data.session_id !== sessionId) {
+            onSessionIdChange(data.session_id);
           }
+
+          // Update experiment type if returned from backend
+          if (data.experiment_type && data.experiment_type !== experimentType) {
+            onExperimentTypeChange?.(data.experiment_type);
+          }
+
+          // Add assistant response with optional config diff
+          const assistantMessage: ChatMessage = {
+            role: 'assistant',
+            content: data.response,
+            configDiff: data.config_diff || undefined,
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
+
+          // Apply config updates if present
+          if (data.config_updates) {
+            onConfigUpdate(data.config_updates);
+          }
+
+          // Update config versions if present
+          if (data.config_versions && onConfigVersionsChange) {
+            onConfigVersionsChange(data.config_versions);
+            if (data.current_version_index !== undefined && onCurrentVersionIndexChange) {
+              onCurrentVersionIndexChange(data.current_version_index);
+            }
+          }
+        } else {
+          // Add error message
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `Error: ${data.error || 'Failed to get response'}`,
+            },
+          ]);
         }
-      } else {
-        // Add error message
-        setMessages(prev => [
+      } catch {
+        setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: `Error: ${data.error || 'Failed to get response'}`,
+            content: 'Error: Failed to connect to server. Please try again.',
           },
         ]);
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Error: Failed to connect to server. Please try again.',
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }, [config, loading, onConfigUpdate, onSessionIdChange, sessionId, onConfigVersionsChange, onCurrentVersionIndexChange, experimentType, onExperimentTypeChange]);
+    },
+    [
+      config,
+      loading,
+      onConfigUpdate,
+      onSessionIdChange,
+      sessionId,
+      onConfigVersionsChange,
+      onCurrentVersionIndexChange,
+      experimentType,
+      onExperimentTypeChange,
+    ]
+  );
 
   // Handle initial message on mount (e.g., for failure analysis)
   // Use ref to prevent double-send in React StrictMode (state checks are unreliable due to async updates)
@@ -171,11 +194,12 @@ export function ExperimentChat({
   // Add initial welcome message (only on mount when messages is empty and no initial history)
   useEffect(() => {
     if (messages.length === 0 && !initialMessage && !initialChatHistory) {
-      const welcomeMessage = experimentType === 'undetermined'
-        ? "Hi! I'm your Lab Assistant. What would you like to test?\n\nChoose an experiment type below, or just describe what you want to figure out and I'll help you design the right experiment."
-        : experimentType === 'tournament'
-        ? "Great! Let's design a tournament experiment. Tell me what you want to test, or use one of the quick prompts below to get started."
-        : "Great! Let's design a replay experiment. Tell me what you want to test with captured decisions, or use one of the quick prompts below to get started.";
+      const welcomeMessage =
+        experimentType === 'undetermined'
+          ? "Hi! I'm your Lab Assistant. What would you like to test?\n\nChoose an experiment type below, or just describe what you want to figure out and I'll help you design the right experiment."
+          : experimentType === 'tournament'
+            ? "Great! Let's design a tournament experiment. Tell me what you want to test, or use one of the quick prompts below to get started."
+            : "Great! Let's design a replay experiment. Tell me what you want to test with captured decisions, or use one of the quick prompts below to get started.";
 
       setMessages([
         {
@@ -233,9 +257,7 @@ export function ExperimentChat({
                   <GitCompare size={14} />
                   <span>Config updated</span>
                 </div>
-                <pre className="experiment-chat__config-diff-content">
-                  {message.configDiff}
-                </pre>
+                <pre className="experiment-chat__config-diff-content">{message.configDiff}</pre>
               </div>
             )}
           </div>
@@ -256,9 +278,7 @@ export function ExperimentChat({
       {/* Type Selection Buttons (shown when type is undetermined) */}
       {messages.length <= 1 && experimentType === 'undetermined' && (
         <div className="experiment-chat__type-selection">
-          <div className="experiment-chat__type-selection-label">
-            Choose experiment type:
-          </div>
+          <div className="experiment-chat__type-selection-label">Choose experiment type:</div>
           <div className="experiment-chat__type-selection-buttons">
             <button
               className="experiment-chat__type-btn experiment-chat__type-btn--tournament"
@@ -269,7 +289,9 @@ export function ExperimentChat({
               <Beaker size={18} />
               <div className="experiment-chat__type-btn-content">
                 <span className="experiment-chat__type-btn-title">Tournament</span>
-                <span className="experiment-chat__type-btn-desc">Run AI players against each other</span>
+                <span className="experiment-chat__type-btn-desc">
+                  Run AI players against each other
+                </span>
               </div>
             </button>
             <button

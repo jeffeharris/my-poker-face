@@ -119,12 +119,20 @@ const CHART_PAD_BOTTOM = 28;
 // `chip-ledger-card` dark theme tokens — bright enough to read on
 // near-black, distinct enough to tell 8 lines apart at a glance.
 const CHART_COLORS = [
-  '#d4a574', '#56d364', '#79b8ff', '#f6a5c0', '#f5d76e',
-  '#a78bfa', '#5cdbd3', '#ff8c5a', '#b8b8b8', '#73c991',
+  '#d4a574',
+  '#56d364',
+  '#79b8ff',
+  '#f6a5c0',
+  '#f5d76e',
+  '#a78bfa',
+  '#5cdbd3',
+  '#ff8c5a',
+  '#b8b8b8',
+  '#73c991',
 ];
 
 const REFRESH_MS = 30_000;
-const ALL_SANDBOXES = '';  // sentinel for the cross-sandbox admin view
+const ALL_SANDBOXES = ''; // sentinel for the cross-sandbox admin view
 
 function fmt(n: number | undefined | null): string {
   if (n === undefined || n === null || Number.isNaN(n)) return '—';
@@ -151,19 +159,15 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const fetchAll = useCallback(async () => {
     setError(null);
     const scope = sandboxId ? `?sandbox_id=${encodeURIComponent(sandboxId)}` : '';
-    const recentScope = sandboxId
-      ? `&sandbox_id=${encodeURIComponent(sandboxId)}`
-      : '';
-    const historyScope = sandboxId
-      ? `&sandbox_id=${encodeURIComponent(sandboxId)}`
-      : '';
+    const recentScope = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
+    const historyScope = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
       const [auditResp, recentResp, holdingsResp, historyResp] = await Promise.all([
         adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${recentScope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
         adminAPI.fetch(
-          `/api/admin/chip-ledger/holdings/history?days=${historyDays}${historyScope}`,
+          `/api/admin/chip-ledger/holdings/history?days=${historyDays}${historyScope}`
         ),
       ]);
       if (!auditResp.ok) {
@@ -206,7 +210,9 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         // without it (dropdown just shows "All sandboxes").
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -238,15 +244,19 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   // (e.g. the Flask process hasn't been restarted to pick up the new
   // route, or a future schema rename). Render "—" for absent values
   // rather than crashing the whole panel.
-  const ledgerTotals = audit.ledger_totals ?? {} as Partial<LedgerTotals>;
-  const actualTotals = audit.actual_totals ?? {} as Partial<ActualTotals>;
+  const ledgerTotals = audit.ledger_totals ?? ({} as Partial<LedgerTotals>);
+  const actualTotals = audit.actual_totals ?? ({} as Partial<ActualTotals>);
   const byReason = audit.by_reason ?? {};
   const byReason24h = audit.by_reason_window_24h ?? {};
   const drift = audit.drift;
   const isMissing = drift === undefined || drift === null;
   const driftClass = isMissing
     ? 'drift-missing'
-    : drift === 0 ? 'drift-zero' : drift > 0 ? 'drift-pos' : 'drift-neg';
+    : drift === 0
+      ? 'drift-zero'
+      : drift > 0
+        ? 'drift-pos'
+        : 'drift-neg';
 
   return (
     <div className={`chip-ledger-panel ${embedded ? 'embedded' : ''}`}>
@@ -260,7 +270,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
             onChange={(e) => setSandboxId(e.target.value)}
           >
             <option value={ALL_SANDBOXES}>All sandboxes (admin view)</option>
-            {sandboxes.map(s => (
+            {sandboxes.map((s) => (
               <option key={s.sandbox_id} value={s.sandbox_id}>
                 {s.name} — {s.sandbox_id.slice(0, 8)}
               </option>
@@ -268,7 +278,9 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           </select>
         </label>
         <span className="chip-ledger-asof">as of {new Date(audit.as_of).toLocaleString()}</span>
-        <button className="chip-ledger-refresh" onClick={fetchAll}>Refresh</button>
+        <button className="chip-ledger-refresh" onClick={fetchAll}>
+          Refresh
+        </button>
       </div>
 
       <div className={`chip-ledger-drift ${driftClass}`}>
@@ -288,7 +300,9 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <strong>Partial data:</strong>
           <ul>
             {Object.entries(audit.errors).map(([source, msg]) => (
-              <li key={source}><code>{source}</code> — {msg}</li>
+              <li key={source}>
+                <code>{source}</code> — {msg}
+              </li>
             ))}
           </ul>
         </div>
@@ -298,22 +312,36 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         <section className="chip-ledger-card">
           <h3>Ledger view</h3>
           <dl>
-            <dt>Created</dt><dd>{fmt(ledgerTotals.chips_created)}</dd>
-            <dt>Destroyed</dt><dd>{fmt(ledgerTotals.chips_destroyed)}</dd>
-            <dt>Outstanding</dt><dd>{fmt(ledgerTotals.outstanding)}</dd>
+            <dt>Created</dt>
+            <dd>{fmt(ledgerTotals.chips_created)}</dd>
+            <dt>Destroyed</dt>
+            <dd>{fmt(ledgerTotals.chips_destroyed)}</dd>
+            <dt>Outstanding</dt>
+            <dd>{fmt(ledgerTotals.outstanding)}</dd>
           </dl>
         </section>
 
         <section className="chip-ledger-card">
           <h3>Actual view</h3>
           <dl>
-            <dt>Player bankrolls</dt><dd>{fmt(actualTotals.player_bankrolls)}</dd>
-            <dt>AI bankrolls (stored)</dt><dd>{fmt(actualTotals.ai_bankrolls_stored)}</dd>
-            <dt>Cash table AI seats</dt><dd>{fmt(actualTotals.cash_table_seats_ai)}</dd>
-            <dt>Active loan principal</dt><dd>{fmt(actualTotals.active_loans_principal)}</dd>
-            <dt>Live session AI stacks</dt><dd>{fmt(actualTotals.live_session_ai_stacks)}</dd>
-            <dt><strong>Outstanding</strong></dt><dd><strong>{fmt(actualTotals.actual_outstanding)}</strong></dd>
-            <dt className="muted">Uncommitted regen</dt><dd className="muted">{fmt(actualTotals.uncommitted_ai_regen)}</dd>
+            <dt>Player bankrolls</dt>
+            <dd>{fmt(actualTotals.player_bankrolls)}</dd>
+            <dt>AI bankrolls (stored)</dt>
+            <dd>{fmt(actualTotals.ai_bankrolls_stored)}</dd>
+            <dt>Cash table AI seats</dt>
+            <dd>{fmt(actualTotals.cash_table_seats_ai)}</dd>
+            <dt>Active loan principal</dt>
+            <dd>{fmt(actualTotals.active_loans_principal)}</dd>
+            <dt>Live session AI stacks</dt>
+            <dd>{fmt(actualTotals.live_session_ai_stacks)}</dd>
+            <dt>
+              <strong>Outstanding</strong>
+            </dt>
+            <dd>
+              <strong>{fmt(actualTotals.actual_outstanding)}</strong>
+            </dd>
+            <dt className="muted">Uncommitted regen</dt>
+            <dd className="muted">{fmt(actualTotals.uncommitted_ai_regen)}</dd>
           </dl>
         </section>
 
@@ -321,10 +349,16 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <section className="chip-ledger-card">
             <h3>Bank pool</h3>
             <dl>
-              <dt><strong>Reserves</strong></dt>
-              <dd><strong>{fmt(audit.bank_pool.reserves)}</strong></dd>
-              <dt>Deposits</dt><dd>{fmt(audit.bank_pool.deposits_total)}</dd>
-              <dt>Draws</dt><dd>{fmt(audit.bank_pool.draws_total)}</dd>
+              <dt>
+                <strong>Reserves</strong>
+              </dt>
+              <dd>
+                <strong>{fmt(audit.bank_pool.reserves)}</strong>
+              </dd>
+              <dt>Deposits</dt>
+              <dd>{fmt(audit.bank_pool.deposits_total)}</dd>
+              <dt>Draws</dt>
+              <dd>{fmt(audit.bank_pool.draws_total)}</dd>
               <dt className="muted">Net flow (24h)</dt>
               <dd className="muted">{signed(audit.bank_pool.net_flow_24h)}</dd>
               <dt className="muted">Deposits (24h)</dt>
@@ -334,17 +368,14 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
             </dl>
             <p className="chip-ledger-bank-pool-caveat">
               Closed-economy recyclable reserve. Deposits come from{' '}
-              <code>{audit.bank_pool.deposit_reasons.join(', ')}</code>;
-              draws from <code>{audit.bank_pool.draw_reasons.join(', ')}</code>.
-              Positive net flow → pool growing (vice outpacing tourists);
-              negative → tourists draining the pool.
+              <code>{audit.bank_pool.deposit_reasons.join(', ')}</code>; draws from{' '}
+              <code>{audit.bank_pool.draw_reasons.join(', ')}</code>. Positive net flow → pool
+              growing (vice outpacing tourists); negative → tourists draining the pool.
             </p>
           </section>
         )}
 
-        {audit.bank_pool && (
-          <BankPoolFlow pool={audit.bank_pool} byReason={byReason} />
-        )}
+        {audit.bank_pool && <BankPoolFlow pool={audit.bank_pool} byReason={byReason} />}
 
         <section className="chip-ledger-card">
           <h3>By reason (all-time)</h3>
@@ -363,12 +394,11 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <div className="chip-ledger-holdings-controls">
             <label className="chip-ledger-holdings-range">
               History
-              <select
-                value={historyDays}
-                onChange={(e) => setHistoryDays(Number(e.target.value))}
-              >
-                {HISTORY_DAYS_OPTIONS.map(d => (
-                  <option key={d} value={d}>{d}d</option>
+              <select value={historyDays} onChange={(e) => setHistoryDays(Number(e.target.value))}>
+                {HISTORY_DAYS_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}d
+                  </option>
                 ))}
               </select>
             </label>
@@ -388,24 +418,24 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
         />
 
         <p className="chip-ledger-holdings-caveat">
-          The chart shows <em>net chips received from the central bank</em>
-          {' '}per player (seed, regen, stake settlements, rake). Intra-table
-          chip movement between players isn't tracked in the ledger and isn't
-          plotted here — for true balance-over-time, a snapshot table would
-          need to be added.
+          The chart shows <em>net chips received from the central bank</em> per player (seed, regen,
+          stake settlements, rake). Intra-table chip movement between players isn't tracked in the
+          ledger and isn't plotted here — for true balance-over-time, a snapshot table would need to
+          be added.
           <br />
-          <em>Won / Lost / Net</em> columns aggregate cash-mode pair PnL
-          {' '}(from <code>cash_pair_stats</code>) — scoped to the selected
-          sandbox, or lifetime cross-sandbox in the "All sandboxes" view.
-          Pre-v109 rows aren't migrated, so totals reflect activity from
-          the v109 schema upgrade onward.
+          <em>Won / Lost / Net</em> columns aggregate cash-mode pair PnL (from{' '}
+          <code>cash_pair_stats</code>) — scoped to the selected sandbox, or lifetime cross-sandbox
+          in the "All sandboxes" view. Pre-v109 rows aren't migrated, so totals reflect activity
+          from the v109 schema upgrade onward.
         </p>
       </section>
 
       <section className="chip-ledger-card chip-ledger-recent">
         <h3>Recent entries</h3>
         {entries.length === 0 ? (
-          <p className="chip-ledger-empty">No entries yet — the ledger fires on cash-mode events.</p>
+          <p className="chip-ledger-empty">
+            No entries yet — the ledger fires on cash-mode events.
+          </p>
         ) : (
           <table>
             <thead>
@@ -418,7 +448,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
               </tr>
             </thead>
             <tbody>
-              {entries.map(e => (
+              {entries.map((e) => (
                 <tr key={e.entry_id}>
                   <td>{new Date(e.created_at).toLocaleString()}</td>
                   <td>{e.reason}</td>
@@ -442,8 +472,15 @@ interface HoldingsTableProps {
 }
 
 type SortKey =
-  | 'name' | 'kind' | 'stored_chips' | 'projected_chips' | 'uncommitted_regen'
-  | 'chips_won' | 'chips_lost' | 'net_pnl' | 'sandbox_id';
+  | 'name'
+  | 'kind'
+  | 'stored_chips'
+  | 'projected_chips'
+  | 'uncommitted_regen'
+  | 'chips_won'
+  | 'chips_lost'
+  | 'net_pnl'
+  | 'sandbox_id';
 type SortDir = 'asc' | 'desc';
 
 interface SortableHeaderProps {
@@ -455,7 +492,14 @@ interface SortableHeaderProps {
   onSort: (key: SortKey) => void;
 }
 
-function SortableHeader({ label, sortKey, currentKey, currentDir, align, onSort }: SortableHeaderProps) {
+function SortableHeader({
+  label,
+  sortKey,
+  currentKey,
+  currentDir,
+  align,
+  onSort,
+}: SortableHeaderProps) {
   const isActive = currentKey === sortKey;
   const arrow = isActive ? (currentDir === 'asc' ? '▲' : '▼') : '';
   return (
@@ -491,7 +535,7 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
       // First click on a new column: numeric columns default to desc
@@ -516,15 +560,75 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
       <table>
         <thead>
           <tr>
-            <SortableHeader label="Player" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Kind" sortKey="kind" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Stored" sortKey="stored_chips" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Projected" sortKey="projected_chips" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Δ regen" sortKey="uncommitted_regen" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Won*" sortKey="chips_won" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Lost*" sortKey="chips_lost" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Net*" sortKey="net_pnl" currentKey={sortKey} currentDir={sortDir} align="right" onSort={handleSort} />
-            <SortableHeader label="Sandbox" sortKey="sandbox_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader
+              label="Player"
+              sortKey="name"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Kind"
+              sortKey="kind"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Stored"
+              sortKey="stored_chips"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Projected"
+              sortKey="projected_chips"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Δ regen"
+              sortKey="uncommitted_regen"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Won*"
+              sortKey="chips_won"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Lost*"
+              sortKey="chips_lost"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Net*"
+              sortKey="net_pnl"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              align="right"
+              onSort={handleSort}
+            />
+            <SortableHeader
+              label="Sandbox"
+              sortKey="sandbox_id"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              onSort={handleSort}
+            />
           </tr>
         </thead>
         <tbody>
@@ -540,7 +644,7 @@ function HoldingsTable({ rows, highlightedEntity, onSelectEntity }: HoldingsTabl
             // dropdown is set to a specific sandbox each personality
             // already appears once, so this is a no-op there.
             const pnlShown = new Set<string>();
-            return sortedRows.map(row => {
+            return sortedRows.map((row) => {
               const isHighlighted = highlightedEntity === row.entity_id;
               const drift = row.uncommitted_regen;
               const net = row.net_pnl;
@@ -596,11 +700,7 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
     return <p className="chip-ledger-empty">Loading history…</p>;
   }
   if (history.series.length === 0) {
-    return (
-      <p className="chip-ledger-empty">
-        No central-bank events in the selected window.
-      </p>
-    );
+    return <p className="chip-ledger-empty">No central-bank events in the selected window.</p>;
   }
 
   // Cap at the top-N by absolute net flow so the chart stays
@@ -633,8 +733,7 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
     const ms = new Date(tIso).getTime();
     return CHART_PAD_LEFT + ((ms - sinceMs) / xSpan) * innerW;
   };
-  const yOf = (v: number) =>
-    CHART_PAD_TOP + (1 - (v - yMin) / ySpan) * innerH;
+  const yOf = (v: number) => CHART_PAD_TOP + (1 - (v - yMin) / ySpan) * innerH;
 
   // Y-axis ticks: 4 evenly-spaced gridlines that include zero when
   // the series spans both positive and negative net flow.
@@ -648,7 +747,7 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
         role="img"
         aria-label="Player holdings over time"
       >
-        {yTicks.map(tick => {
+        {yTicks.map((tick) => {
           const y = yOf(tick);
           return (
             <g key={tick} className="chip-ledger-holdings-gridline">
@@ -668,11 +767,11 @@ function HoldingsChart({ history, highlightedEntity, onSelectEntity }: HoldingsC
             // origin instead of jumping in at its first event — matches
             // the cumulative-net-flow semantic ("since `since`").
             { x: xOf(history.since), y: yOf(0) },
-            ...series.points.map(p => ({ x: xOf(p.t), y: yOf(p.value) })),
+            ...series.points.map((p) => ({ x: xOf(p.t), y: yOf(p.value) })),
           ];
-          const d = points.map((pt, i) =>
-            `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`,
-          ).join(' ');
+          const d = points
+            .map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`)
+            .join(' ');
           return (
             <path
               key={series.entity_id}
@@ -764,13 +863,7 @@ function labelFor(reason: string): string {
 // Grouped deposits→pool→draws view so the closed-economy loop is legible
 // at a glance. Deposits are destructions (negative in by_reason); draws
 // are creations (positive). We show absolute magnitudes per direction.
-function BankPoolFlow({
-  pool,
-  byReason,
-}: {
-  pool: BankPool;
-  byReason: Record<string, number>;
-}) {
+function BankPoolFlow({ pool, byReason }: { pool: BankPool; byReason: Record<string, number> }) {
   const rows = (reasons: string[]) =>
     reasons
       .map((r) => ({ reason: r, amount: Math.abs(byReason[r] ?? 0) }))
@@ -784,7 +877,7 @@ function BankPoolFlow({
   const directionTable = (
     items: { reason: string; amount: number }[],
     sign: '+' | '-',
-    totalLabel: string,
+    totalLabel: string
   ) =>
     items.length === 0 ? (
       <p className="chip-ledger-empty">none yet</p>
@@ -801,9 +894,14 @@ function BankPoolFlow({
             </tr>
           ))}
           <tr className="chip-ledger-pool-flow__subtotal">
-            <td><strong>{totalLabel}</strong></td>
+            <td>
+              <strong>{totalLabel}</strong>
+            </td>
             <td className={`amount ${sign === '+' ? 'pos' : 'neg'}`}>
-              <strong>{sign}{fmt(sum(items))}</strong>
+              <strong>
+                {sign}
+                {fmt(sum(items))}
+              </strong>
             </td>
           </tr>
         </tbody>
@@ -818,10 +916,9 @@ function BankPoolFlow({
       <h4>Pool → draws</h4>
       {directionTable(draws, '-', 'Total out')}
       <p className="chip-ledger-bank-pool-caveat">
-        Reserves = deposits − draws = <strong>{fmt(pool.reserves)}</strong>.
-        Rake + vice feed the pool; the side hustle + tourist injection draw
-        it down. A dry pool starves the side hustle (broke AIs stay broke
-        until rake/vice refill it).
+        Reserves = deposits − draws = <strong>{fmt(pool.reserves)}</strong>. Rake + vice feed the
+        pool; the side hustle + tourist injection draw it down. A dry pool starves the side hustle
+        (broke AIs stay broke until rake/vice refill it).
       </p>
     </section>
   );

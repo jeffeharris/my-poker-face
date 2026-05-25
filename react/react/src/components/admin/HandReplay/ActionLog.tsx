@@ -39,9 +39,7 @@ export const ActionLog = memo(function ActionLog({ actions, currentIndex }: Acti
   return (
     <div className="action-log" ref={scrollRef}>
       <h4 className="action-log__title">Action Log</h4>
-      {visibleActions.length === 0 && (
-        <div className="action-log__empty">No actions yet</div>
-      )}
+      {visibleActions.length === 0 && <div className="action-log__empty">No actions yet</div>}
       {visibleActions.map((action, i) => {
         const showPhaseHeader = action.phase !== lastPhase;
         lastPhase = action.phase;
@@ -51,11 +49,11 @@ export const ActionLog = memo(function ActionLog({ actions, currentIndex }: Acti
         return (
           <div key={action.index}>
             {showPhaseHeader && (
-              <div className="action-log__phase-header">
-                {action.phase.replace('_', ' ')}
-              </div>
+              <div className="action-log__phase-header">{action.phase.replace('_', ' ')}</div>
             )}
-            <div className={`action-log__entry ${colorClass} ${isCurrent ? 'action-log__entry--current' : ''}`}>
+            <div
+              className={`action-log__entry ${colorClass} ${isCurrent ? 'action-log__entry--current' : ''}`}
+            >
               <span className="action-log__player">{action.player_name}</span>
               <span className="action-log__action-text">
                 {action.action.toUpperCase()}

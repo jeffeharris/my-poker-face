@@ -18,15 +18,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(16px, env(safe-area-inset-top, 0px))
-           16px
-           max(16px, env(safe-area-inset-bottom, 0px));
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
   animation: net-worth-drawer-fade-in 0.18s ease-out;
 }
 
 @keyframes net-worth-drawer-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .net-worth-drawer__sheet {
@@ -88,10 +90,18 @@
   font-weight: 600;
 }
 
-.net-worth-drawer__tier--premium { color: #6ed68f; }
-.net-worth-drawer__tier--standard { color: #d6c46e; }
-.net-worth-drawer__tier--restricted { color: #d69a6e; }
-.net-worth-drawer__tier--house_only { color: #d66e6e; }
+.net-worth-drawer__tier--premium {
+  color: #6ed68f;
+}
+.net-worth-drawer__tier--standard {
+  color: #d6c46e;
+}
+.net-worth-drawer__tier--restricted {
+  color: #d69a6e;
+}
+.net-worth-drawer__tier--house_only {
+  color: #d66e6e;
+}
 
 .net-worth-drawer__close {
   background: none;
@@ -435,7 +445,7 @@
 }
 
 .net-worth-drawer__notice--rate_limited {
-  background: rgba(150, 150, 150, 0.10);
+  background: rgba(150, 150, 150, 0.1);
   color: var(--text-secondary, #aaa);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
