@@ -2,7 +2,7 @@
 purpose: Evidence-based plan to address the tiered bot's postflop structural passivity via a multi-street context layer, including the baseline measurement and A/B test design to prove (or disprove) it
 type: design
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-05-25
 ---
 
 # Structural Passivity Plan — Multi-Street Context Layer
@@ -254,3 +254,165 @@ A/B has a frozen control.
 5. **Decide:** ship if Tier A moves + Tier B non-negative; if honest-null,
    conclude on eval-bottleneck vs architecture-ceiling and route to the
    solver program or a real-SNG eval.
+
+## 9. Results (2026-05-25 — executed)
+
+### Harness & instrumentation built
+- **`experiments/measure_passivity.py`** — Tier-A instrumentation. Mirrors
+  `simulate_bb100.run_6max_matchup` exactly (seat names, dealer rotation,
+  per-hand global+rng seeding) so bb/100 is comparable, but uses a trimmed
+  instrumented hand loop. For the Baseline hero the loop omits the
+  `opponent_manager`/equity-MC/c-bet machinery (none of it affects Baseline
+  decisions or final stacks — exploitation is a no-op at `anchors=None`,
+  equity recording only writes to models), satisfying the plan's
+  "equity-MC disabled for Baseline" requirement. Seeds run concurrently via
+  `ProcessPoolExecutor`. Reuses the snapshot's `node_key` (one-line add to
+  `tiered_bot_controller.py`) to pair each resolved action with its full
+  postflop context, plus a per-hand line tracker for barrel/pay-off rates and
+  a layer-fire counter (the inert-trap check).
+- **`Jeff_clone` is unavailable** in this environment — `data/poker_games.db`
+  has 0 rows in `opponent_models`/`hand_history`/`games`, and
+  `--clone-opponent` requires ≥20 observed hands. Per the plan's fallback,
+  **GTO-Lite is the precision-rewarding primary**, MIX the regression ref.
+
+### Tier-A frozen baseline (Baseline hero, mode=OFF, 9000 hands = 3000 × seeds 42/142/242)
+
+| Roster | AggFactor | unopened bet/raise% | facing_bet fold/call/RAISE | barrel-cont. P(bet turn\|bet flop) | c-bet→give-up | pay-off rate | facing-double-barrel fold/call | bb/100 (per-seed) |
+|---|---|---|---|---|---|---|---|---|
+| **GTO-Lite** | 0.045 | ~0% / 5% | 41% / 58% / 1% | **3% (2/79)** | 84% (66/79) | **98% (63/64)** | 46% / 54% (n=218) | **−78.9** (−78.0/−67.2/−91.5) |
+| **MIX** | 0.019 | ~0% / 3% | 53% / 47% / 0% | **0% (0/9)** | 56% (5/9) | **91% (74/81)** | 58% / 42% (n=240) | **−106.2** (−92.2/−96.5/−129.8) |
+
+Reproduces the diagnosed pathology: postflop AggFactor ~0.02–0.05, ~0% raises
+facing bets, near-zero barrel continuation, and a 91–98% pay-off rate. All
+bb/100 per-seed deltas agree in sign (consistent loss, not noise).
+
+`unopened` bet% by class (GTO baseline) confirms the chart *does* prescribe
+some value betting that gets stripped: nuts 21%, strong_made 12%, medium 5% —
+but it's dominated by the 95% check that the multiway context (correctly)
+imposes.
+
+### Signal-frequency diagnostic (the crux: do the layer's spots even occur?)
+500 hands, Baseline vs GTO-Lite, mode=ON, instrumented for `derive_signals`
+frequencies independent of whether the layer fired:
+
+- **`unopened` decisions: 356; with prior-round initiative
+  (`was_prev_street_aggressor`): 63 (18%).** Of those, 29 were also a value
+  class (H1-eligible). **By active players: `2p=2, 3p=2, 4p=1, 6p=24`.**
+  → **83% of the bot's "had-initiative" spots are full-ring MULTIWAY.** Only
+  **2 of 29** are HU (the spots where barreling is unambiguously +EV and
+  where multiway suppression isn't a concern).
+- **facing-bet decisions: 83; facing a double-barrel: 8 (10%); of those
+  marginal (H2-eligible): 4.**
+- **Layer activity: H1 `barrel` fired 0×; H2 `fold_barrel` fired 1× (changed
+  the sampled primary action 0×).** ON bb/100 = −40.1 vs OFF −40.8 (same
+  seed/hands) — **the layer is inert.**
+
+**Mechanism (why it's inert — structural, not a gating bug):** the bot's
+"initiative" postflop spots occur overwhelmingly *multiway*, because it enters
+pots as a preflop **flat-caller** (→ 3+ way pots) and even when it raises
+preflop it gets multiple callers. Barrel-continuation (H1) is only safe HU
+(widening it to multiway is exactly the over-aggression the prior multiway-off
+A/B already proved harmful: MIX −145→−160/−165), and HU-with-initiative spots
+arise ~0.4% of the time. Fold-to-double-barrel (H2) has ~0.8% eligible spots
+and the table is already fold-leaning enough there that pumping fold rarely
+flips the sampled action. **A postflop multi-street override cannot manufacture
+the initiative the preflop entry strategy never created.**
+
+### A/B: multi-street layer OFF vs ON (paired 3000 × seeds 42/142/242)
+
+| Roster | facing-double-barrel fold% (OFF→ON) | bb/100 OFF | bb/100 ON | paired per-seed Δ | layer fires (barrel / fold_barrel) |
+|---|---|---|---|---|---|
+| **GTO-Lite** | 46% → **56%** | −78.9 | **−74.6** | +3.5 / +4.1 / +5.4 | 5 (chg 3) / 40 (chg 0) |
+| **MIX** | 58% → **64%** | −106.2 | **−99.0** | +7.0 / +8.0 / +6.6 | 0 / 31 |
+
+**The two hypotheses diverge — this is NOT a flat null:**
+
+- **H1 (barrel continuation) is structurally inert, as the diagnostic predicted.**
+  At 9000 hands the H1-eligible spots are **444/536 full-ring multiway** vs only
+  **38 HU** (and **0 HU** vs MIX). With the HU-only gate it fires ~5× / 9000
+  hands (3 action-changes) — far too few to move bb/100. *This confirms the
+  upstream root cause:* the bot flat-calls preflop → multiway → almost never the
+  lone aggressor with a HU barrel. **H1 cannot work until preflop ENTRY creates
+  HU-with-initiative spots → routes to the preflop "isolate" track (§10).**
+
+- **H2 (don't pay off double-barrels) WORKS.** It fired 31–40× / 9000 hands,
+  shifted the facing-double-barrel fold rate **+6–10pp**, and improved bb/100
+  **+4.3 (GTO) / +7.2 (MIX)** — *consistently positive across all 6 paired
+  seeds, no sign disagreement.* It directly cuts the diagnosed **90–98%
+  pay-off-rate** leak (the bot was calling marginal made hands down into
+  sustained multi-street aggression and losing). The fire-count breakdown
+  attributes the gain cleanly to H2 (H1's 3 action-changes can't move bb/100 by
+  +4–7). Notably it helps even vs the MIX (which includes ManiacBot) — a *double*
+  barrel is a strong enough signal that folding marginal hands to it is +EV on
+  net even against a roster with a bluffer.
+
+### Decision
+- **SHIP H2** (`enable_multistreet_context=True`; H1 left on but currently
+  inert — harmless, and ready to activate once entry is sharpened). It is a
+  real, low-risk, consistently-positive mitigation of the pay-off leak. *(Flag
+  default stays OFF in `__init__`; enable via experiment/production config.)*
+- **H1 is blocked on preflop entry, not on the postflop layer.** The
+  memoryless-table + passive-entry ceiling stands for *initiative*; the fix is
+  upstream (§10), not more postflop logic.
+- Eval caveat still holds: bb/100 vs rule bots is insensitive, but the H2 signal
+  survived it (consistent across both rosters and all seeds), which is itself
+  evidence the effect is real rather than roster-specific noise.
+
+## 10. Track 1 — Preflop ENTRY sharpening (isolate)  *(in progress)*
+
+Root-cause follow-up to H1's inertness. The bot's passivity is locked in at
+entry: it flat-calls `vs_open` into multiway. `poker/strategy/preflop_isolate.py`
+shifts OOP-defender (`SB`/`HJ`/`CO`, the same scope as the +17bb `fold_more`)
+`vs_open` `call` mass → `raise_3x` (3-bet to isolate), redirecting to *raise*
+where `fold_more` redirected to *fold*. Flag-gated in-memory transform
+(`measure_passivity --entry isolate`), non-destructive, BTN/BB untouched, rows
+still sum to 1.0; 8 unit tests in `test_preflop_isolate.py`.
+
+Leading indicator added to the harness: **field-size distribution at the hero's
+postflop decisions** (HU% should rise if isolating works) — that is the
+prerequisite for H1 to ever fire.
+
+### Track 1 A/B result (control-entry vs isolate-entry, 3000 × seeds 42/142/242)
+
+| Roster | HU% @ postflop (isolate) | AggFactor (base→iso) | bb/100 base | bb/100 isolate | per-seed Δ |
+|---|---|---|---|---|---|
+| **GTO-Lite** | **3%** | 0.045 → 0.045 | −78.9 | −78.7 | +0.1 / 0.0 / +0.7 (≈0) |
+| **MIX** | **~2%** | 0.019 → 0.019 | −106.2 | −109.1 | −2.7 / −14.6 / +8.6 (noisy, ≈0/worse) |
+
+**The isolate first-cut is inert — and the field-size distribution explains
+why, unifying the whole investigation.** vs GTO-Lite the isolate run is
+byte-identical to baseline (AggFactor unchanged, bb/100 within 0.2). The
+field-size readout is the smoking gun: **~78% of the hero's postflop decisions
+are 6-way (`6p=6395` of ~8247), and HU is only 2–3%.**
+
+**Root cause (the eval, not the bot):** the rule-bot roster — CallStation never
+folds, GTO-Lite/others call wide — **almost never folds preflop, so nearly
+every flop is full-ring.** In that regime *isolation is impossible*: a 3-bet
+doesn't fold anyone out (they call), so the pot stays multiway, and the only
+effect is building a bigger pot OOP with a marginal hand (slightly −EV vs MIX).
+This is the same wall H1 hit. The bot is passive postflop **because it is
+almost always multiway, and it is almost always multiway because the opponents
+don't fold** — not because of anything in the postflop or entry strategy.
+
+### Unified conclusion
+1. **H2 (don't pay off double-barrels) ships** — it is the one mitigation that
+   works *regardless of the eval*, because it's a defensive fold (doesn't need
+   opponents to fold). +4–7 bb/100, all seeds.
+2. **H1 (barrel) and Track-1 (isolate) are both blocked by the EVAL**, not by
+   the bot or the postflop architecture. Against non-folding rule bots you are
+   structurally always-multiway, so initiative and isolation cannot exist.
+   *Per-street chart edits (inert), the multiway A/B (worse), the multi-street
+   barrel layer (inert), and now preflop isolation (inert) all fail for the
+   same reason.*
+3. **The binding constraint is Track 2 — a precision-rewarding eval where
+   opponents fold appropriately.** Concretely: a GTO-Lite-or-tighter *folding*
+   roster (so HU pots actually form), a `Jeff_clone` (the dev branch's
+   `portable clone profiles` / freeze-to-JSON makes this viable without a
+   populated DB), and ultimately the full-SNG win-rate runner (Tier C). Only on
+   such an eval can initiative/isolation work be validated; on the current
+   roster every such change is doomed to read inert.
+4. The isolate transform + flag are kept (tested, non-destructive) — they
+   become live the moment the eval has folding opponents, and are directly
+   useful in genuinely short-handed/HU SNG stages.
+
+

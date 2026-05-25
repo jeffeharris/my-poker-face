@@ -528,6 +528,12 @@ def run_hand(
     if hero_controller is not None:
         hero_controller._sim_last_preflop_aggressor = None
         hero_controller._sim_recent_aggressor = None
+        # Multi-street context layer (STRUCTURAL_PASSIVITY_PLAN.md): per-hand
+        # split of hero's own line vs opponents' line, by street. Drives the
+        # layer's sim-path signal derivation (production uses MemoryManager).
+        # Reset each hand alongside the existing _sim_* aggressor fields.
+        hero_controller._sim_hero_bet_by_street = {}
+        hero_controller._sim_opp_bet_by_street = {}
     # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
     # on each street transition.
     sim_current_street: Optional[str] = None
@@ -703,6 +709,11 @@ def run_hand(
                 and action in ('bet', 'raise', 'all_in')
             ):
                 hero_controller._sim_recent_aggressor = current_player.name
+                # Multi-street layer: split hero's own line from opponents'.
+                if current_player.name == hero_name:
+                    hero_controller._sim_hero_bet_by_street[phase_name] = True
+                else:
+                    hero_controller._sim_opp_bet_by_street[phase_name] = True
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
 

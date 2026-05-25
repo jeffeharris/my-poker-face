@@ -67,6 +67,7 @@ _LAYER_NAMES = frozenset({
     'exploitation',
     'strong_hand_override',
     'bluff_catch_override',
+    'multistreet_context',   # STRUCTURAL_PASSIVITY_PLAN.md
     'defense_floor',         # Plan §2
     'short_stack',
     'math_floor',
@@ -83,6 +84,7 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     }),
     'strong_hand_override':   frozenset({'default'}),
     'bluff_catch_override':   frozenset({'default'}),
+    'multistreet_context':    frozenset({'default', 'barrel', 'fold_barrel'}),
     'defense_floor':          frozenset({'default'}),
     'short_stack':            frozenset({'default'}),
     'math_floor':             frozenset({'default'}),
@@ -110,6 +112,7 @@ _LAYER_ORDER: Dict[str, int] = {
     'induce_override':       2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
     'strong_hand_override':  2,
     'bluff_catch_override':  3,
+    'multistreet_context':   4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
     'defense_floor':         4,  # Plan §2: price-sensitive call floor
     'short_stack':           5,
     'math_floor':            6,
