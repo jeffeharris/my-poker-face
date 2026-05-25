@@ -67,13 +67,40 @@ from experiments.simulate_bb100 import (
     _make_seat_names,
 )
 
-# Opponent roster presets. Per the plan, GTO-Lite is the precision-rewarding
-# primary (Jeff_clone is unavailable — the DB has no observed hands). The MIX
-# is the regression / guardrail reference.
+# Default frozen clone profile (Track 2 eval). Resolved relative to this
+# module so it works regardless of cwd / worktree.
+DEFAULT_CLONE_PROFILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'clone_profiles', 'jeff.json'
+)
+
+# Opponent roster presets. GTO-Lite / MIX are rule bots (never fold preflop →
+# always-multiway, insensitive to postflop quality — see STRUCTURAL_PASSIVITY
+# §9-10). `jeff` is the Track-2 precision-rewarding eval: 5 Jeff_clones (a
+# human model that folds ~45% to c-bets), which should create HU/short-handed
+# pots and reward initiative.
 ROSTERS = {
     'gto': ['GTO-Lite'] * 5,
     'mix': DEFAULT_RULE_OPPONENTS,
+    'jeff': ['Jeff_clone'] * 5,
 }
+
+
+def _ensure_clone_registered(profile_path: str) -> str:
+    """Load + register a frozen CloneProfile as a rule-bot ARCHETYPE.
+
+    Idempotent. Mirrors simulate_bb100's --clone-profile wiring. Must run in
+    each worker process (the ProcessPool children re-register so the ARCHETYPE
+    + strategy registry exist before the matchup looks them up).
+    Returns the archetype key (e.g. 'Jeff_clone').
+    """
+    from poker.human_clone import load_profile_from_file, register_clone_strategy
+    profile = load_profile_from_file(profile_path)
+    player_name = profile.source_player
+    strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
+    register_clone_strategy(strategy_key, profile)
+    archetype_key = f"{player_name}_clone"
+    ARCHETYPES[archetype_key] = {'kind': 'rule_bot', 'strategy': strategy_key}
+    return archetype_key
 
 _AGGRESSIVE = {'bet', 'raise', 'all_in'}
 _POSTFLOP_STREETS = ('FLOP', 'TURN', 'RIVER')
@@ -125,6 +152,15 @@ class PassivityStats:
     # If sharpening preflop ENTRY (isolate) works, this distribution shifts
     # toward HU (2 players), creating the initiative spots the bot lacks.
     postflop_active_count: Counter = field(default_factory=Counter)
+
+    # Per-signature leak surface: bucket the bot's decisions by a multi-street
+    # LINE-SIGNATURE (street, action_context, hand_class, prev-aggressor bit,
+    # double-barrel bit) and compare realized aggression to the chart's OWN
+    # intended aggression (base_strategy_probs). A large gap = where the
+    # pipeline/policy diverges from the chart for that signature → the input
+    # to "which spots need a better policy" (vs hand-authoring 2^K on faith).
+    sig_action: Dict[tuple, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    sig_chart_agg_sum: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
 
     def record_decision(self, node_key: str, action: str,
                         opp_bet_flop: bool, opp_bet_prev: bool, street: str):
@@ -183,19 +219,25 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
     into.facing_double_barrel += src.facing_double_barrel
     into.h2_spot_marginal += src.h2_spot_marginal
     into.postflop_active_count.update(src.postflop_active_count)
+    for sig, c in src.sig_action.items():
+        into.sig_action[sig].update(c)
+    for sig, v in src.sig_chart_agg_sum.items():
+        into.sig_chart_agg_sum[sig] += v
+
+
+MODES = ('off', 'h1', 'h2', 'on', 'vbf', 'vbfon')
 
 
 def _apply_mode(controller, mode: str):
-    """Set the multi-street-context A/B arm on the hero controller.
+    """Set the A/B arm on the hero controller.
 
-    Inert until the layer + flag land on TieredBotController (plan Step 3).
-    'off' is the current behavior (no flag set). The other arms set the flag
-    plus per-hypothesis sub-toggles the layer reads.
+    'off' = current behavior. h1/h2/on = multi-street layer arms. vbf =
+    value-bet floor only. vbfon = value-bet floor + full multi-street layer.
     """
-    controller.enable_multistreet_context = (mode != 'off')
-    # Per-hypothesis gating the layer honors (default both on for 'on').
-    controller.multistreet_h1_barrel = mode in ('h1', 'on')
-    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
+    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on', 'vbfon')
+    controller.multistreet_h1_barrel = mode in ('h1', 'on', 'vbfon')
+    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on', 'vbfon')
+    controller.enable_value_bet_floor = mode in ('vbf', 'vbfon')
 
 
 def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
@@ -293,6 +335,15 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
                         stats.facing_double_barrel += 1
                         if hand_strength in H2_FOLD_TARGET:
                             stats.h2_spot_marginal += 1
+                # Per-signature leak surface: realized action vs chart intent.
+                signature = (phase_name, action_context, hand_strength,
+                             sig.was_prev_street_aggressor, sig.facing_double_barrel)
+                stats.sig_action[signature][action] += 1
+                base = snap.get('base_strategy_probs', {})
+                stats.sig_chart_agg_sum[signature] += sum(
+                    p for a, p in base.items()
+                    if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
+                )
             hero_actions_by_street[phase_name].append(action)
             if phase_name == 'RIVER':
                 hero_reached_river = True
@@ -370,6 +421,7 @@ def run_passivity_matchup(
     base_seed: int = 42,
     mode: str = 'off',
     entry: str = 'default',
+    h1_classes: Optional[frozenset] = None,
 ) -> Tuple[List[float], PassivityStats]:
     """Run n_hands of 6-max (hero + 5 opponents); return (deltas, Tier-A stats).
 
@@ -426,6 +478,7 @@ def run_passivity_matchup(
         # for decisions/stacks and disables equity-MC (plan requirement).
         controllers[0].opponent_model_manager = None
         _apply_mode(controllers[0], mode)
+        controllers[0].multistreet_h1_classes = h1_classes
 
         for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
             controllers.append(
@@ -466,10 +519,45 @@ def _fmt_ctx(label: str, counter: Counter) -> str:
             f"RAISE {raise_pct:4.0f}%")
 
 
+def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
+    """Per-signature leak surface: where realized aggression diverges most
+    from the chart's intent, ranked by |gap| × volume.
+
+    Signature = (street, action_context, hand_class, prev_aggressor,
+    double_barrel). For each (with n >= min_n): the realized action split, the
+    chart's intended aggression (mean base_strategy bet+raise mass), and the
+    gap (realized − chart). Negative gap = pipeline/multiway STRIPPED the
+    chart's aggression; positive = added. A passive realized policy where the
+    chart *also* wanted passive (gap≈0) points at the chart itself, not the
+    pipeline — i.e. a candidate for a better situation policy.
+    """
+    rows = []
+    for sig, counter in stats.sig_action.items():
+        n = sum(counter.values())
+        if n < min_n:
+            continue
+        agg = sum(counter[a] for a in _AGGRESSIVE)
+        realized = agg / n
+        chart = stats.sig_chart_agg_sum[sig] / n
+        rows.append((sig, n, counter, realized, chart, realized - chart))
+    rows.sort(key=lambda r: -abs(r[5]) * r[1])  # biggest systematic divergence first
+
+    print(f"\n── PER-SIGNATURE LEAK SURFACE (n≥{min_n}, top {top} by |gap|×vol) ──")
+    print(f"  {'street':<6} {'ctx':<12} {'class':<14} {'agg?':<4} {'dbl?':<4} "
+          f"{'n':>5}  {'fold':>4} {'chk':>4} {'call':>4} {'AGG':>4} | {'chart':>5} {'gap':>5}")
+    for sig, n, counter, realized, chart, gap in rows[:top]:
+        street, ctx, cls, prev_aggr, dbl = sig
+        print(f"  {street:<6} {ctx:<12} {cls:<14} "
+              f"{'Y' if prev_aggr else '-':<4} {'Y' if dbl else '-':<4} "
+              f"{n:>5}  {_pct(counter,'fold'):>4.0f} {_pct(counter,'check'):>4.0f} "
+              f"{_pct(counter,'call'):>4.0f} {100*realized:>4.0f} | "
+              f"{100*chart:>5.0f} {100*gap:>+5.0f}")
+
+
 def print_report(hero: str, opponents: List[str], n_hands: int,
                  seeds: List[int], stats: PassivityStats,
                  per_seed_bb100: List[Tuple[int, float]], mode: str,
-                 entry: str = 'default'):
+                 entry: str = 'default', leak_report: bool = False):
     opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
@@ -575,19 +663,24 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     print(f"  MEAN:    {mean_bb:+8.1f} bb/100"
           + ("   ⚠ per-seed SIGN DISAGREEMENT (noise)" if sign_disagree else ""))
 
+    if leak_report:
+        print_leak_surface(stats)
 
-def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str]):
+
+def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset]]):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
     """
-    hero, opponents, n_hands, seed, mode, entry = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
+    if clone_profile:
+        _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
     deltas, stats = run_passivity_matchup(
         hero, opponents, n_hands, strategy_table, base_seed=seed, mode=mode,
-        entry=entry,
+        entry=entry, h1_classes=h1_classes,
     )
     return seed, deltas, stats
 
@@ -599,11 +692,25 @@ def main():
                    help="roster preset (gto|mix) or comma-separated 5 archetypes")
     p.add_argument('--hands', type=int, default=2000, help='hands per seed')
     p.add_argument('--seeds', default='42', help='comma-separated base seeds (e.g. 42,142,242)')
-    p.add_argument('--mode', default='off', choices=['off', 'h1', 'h2', 'on'],
-                   help='multi-street-context A/B arm (postflop layer)')
+    p.add_argument('--mode', default='off', choices=list(MODES),
+                   help='A/B arm: off | h1 | h2 | on (multi-street) | '
+                        'vbf (value-bet floor) | vbfon (both)')
     p.add_argument('--entry', default='default', choices=['default', 'isolate'],
                    help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)")
+    p.add_argument('--clone-profile', default=None,
+                   help=f"frozen CloneProfile JSON for a *_clone opponent "
+                        f"(default {DEFAULT_CLONE_PROFILE} when roster uses a clone)")
+    p.add_argument('--h1-classes', default='all', choices=['all', 'value'],
+                   help="H1 barrel classes: 'all' (incl. air_strong_draw bluff-barrel) "
+                        "or 'value' (nuts/strong/medium only — for high-WtSD opponents)")
+    p.add_argument('--leak-report', action='store_true',
+                   help="print the per-signature leak surface (realized vs chart "
+                        "aggression by line-signature) — the leak finder")
     args = p.parse_args()
+    h1_classes = (
+        frozenset({'nuts', 'strong_made', 'medium_made'})
+        if args.h1_classes == 'value' else None
+    )
 
     if args.opponents in ROSTERS:
         opponents = ROSTERS[args.opponents]
@@ -612,6 +719,17 @@ def main():
     if len(opponents) != 5:
         print(f"opponents must resolve to 5 entries, got {opponents}")
         sys.exit(1)
+
+    # Track 2: if the roster references a *_clone opponent, register the frozen
+    # CloneProfile so it exists as an ARCHETYPE (in the parent for the
+    # single-seed path + validation; workers re-register themselves).
+    clone_profile = args.clone_profile
+    if any(o.endswith('_clone') for o in opponents) and clone_profile is None:
+        clone_profile = DEFAULT_CLONE_PROFILE
+    if clone_profile:
+        key = _ensure_clone_registered(clone_profile)
+        print(f"[CLONE] registered {key!r} from {clone_profile}")
+
     for o in opponents:
         if o not in ARCHETYPES:
             print(f"Unknown opponent archetype: {o}")
@@ -624,7 +742,9 @@ def main():
 
     # Run seeds concurrently (one child process per seed). The cost is the
     # opponents' equity-MC, so seeds are CPU-bound and parallelize cleanly.
-    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry) for s in seeds]
+    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry,
+             clone_profile, h1_classes)
+            for s in seeds]
     results = []
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -640,7 +760,7 @@ def main():
         per_seed_bb100.append((seed, ms.bb100))
 
     print_report(args.hero, opponents, args.hands, sorted(seeds), agg_stats,
-                 per_seed_bb100, args.mode, args.entry)
+                 per_seed_bb100, args.mode, args.entry, leak_report=args.leak_report)
 
 
 if __name__ == '__main__':

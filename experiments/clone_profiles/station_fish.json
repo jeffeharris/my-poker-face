@@ -1,0 +1,15 @@
+{
+  "source_player": "Station",
+  "hands_observed": 3000,
+  "vpip": 0.85,
+  "pfr": 0.05,
+  "aggression_factor": 0.3,
+  "fold_to_cbet": 0.10,
+  "bluff_frequency": 0.05,
+  "showdown_win_rate": 0.42,
+  "flop_af": 0.3,
+  "turn_af": 0.3,
+  "river_af": 0.3,
+  "threebet_rate": 0.01,
+  "wtsd": 0.78
+}

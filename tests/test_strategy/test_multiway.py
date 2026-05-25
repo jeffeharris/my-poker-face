@@ -3,11 +3,52 @@
 import pytest
 
 from poker.strategy.multiway import (
+    VALUE_CLASSES,
     apply_multiway_adjustment,
     _bluff_mult,
     _check_mult,
 )
 from poker.strategy.strategy_profile import StrategyProfile
+
+
+def _agg(p: StrategyProfile) -> float:
+    return sum(
+        v for a, v in p.action_probabilities.items()
+        if a == 'jam' or a == 'all_in' or a.startswith(('bet_', 'raise_'))
+    )
+
+
+class TestValueExemption:
+    """§13: value classes are exempt from multiway suppression."""
+
+    def _value_sp(self):
+        return StrategyProfile(action_probabilities={
+            'bet_33': 0.4, 'bet_67': 0.35, 'check': 0.25,
+        })
+
+    def test_nuts_exempt_in_6way(self):
+        sp = self._value_sp()
+        out = apply_multiway_adjustment(sp, 6, 'IP', hand_class='nuts')
+        assert out is sp  # unchanged — value-bets into the field
+        assert _agg(out) == pytest.approx(0.75)
+
+    def test_strong_made_exempt(self):
+        sp = self._value_sp()
+        out = apply_multiway_adjustment(sp, 6, 'IP', hand_class='strong_made')
+        assert out is sp
+
+    def test_marginal_still_suppressed(self):
+        sp = self._value_sp()
+        out = apply_multiway_adjustment(sp, 6, 'IP', hand_class='medium_made')
+        assert _agg(out) < 0.5  # suppressed
+
+    def test_none_hand_class_is_legacy_suppression(self):
+        sp = self._value_sp()
+        out = apply_multiway_adjustment(sp, 6, 'IP')
+        assert _agg(out) < 0.5  # backward-compatible: suppress everything
+
+    def test_value_classes_membership(self):
+        assert VALUE_CLASSES == {'nuts', 'strong_made'}
 
 
 class TestBluffMult:
