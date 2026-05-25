@@ -7,3 +7,6 @@
 
 # style: apply ruff --fix + ruff format across the codebase (2026-05-25)
 0eef948c
+
+# style: apply prettier --write across react/react/src (2026-05-25)
+4c29c22c
