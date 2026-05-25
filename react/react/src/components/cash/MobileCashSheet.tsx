@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { X, LogOut } from 'lucide-react';
 import { config } from '../../config';
@@ -219,7 +220,9 @@ export function MobileCashSheet({
 
   if (!isOpen) return null;
 
-  return (
+  // Portaled to <body> so the fixed overlay escapes any ancestor
+  // stacking context (e.g. PageLayout). See CharacterDetailCard.
+  return createPortal(
     <div
       className={`mobile-cash-sheet__overlay${closing ? ' is-closing' : ''}`}
       onClick={handleClose}
@@ -354,6 +357,7 @@ export function MobileCashSheet({
           onContinue={() => navigate('/cash')}
         />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

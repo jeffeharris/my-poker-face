@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Keyboard, Zap, Send } from 'lucide-react';
 import type { ChatMessage, WinResult } from '../../types';
 import type { Player } from '../../types/player';
@@ -303,7 +304,9 @@ export function MobileChatSheet({
     .filter(msg => msg.type !== 'system')
     .slice(-80);
 
-  return (
+  // Portaled to <body> so the fixed overlay escapes any ancestor
+  // stacking context (e.g. PageLayout). See CharacterDetailCard.
+  return createPortal(
     <div
       className={`mcs-overlay ${isClosing ? 'mcs-closing' : ''}`}
       onClick={handleClose}
@@ -474,6 +477,7 @@ export function MobileChatSheet({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
