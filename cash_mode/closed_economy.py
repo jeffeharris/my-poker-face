@@ -297,6 +297,49 @@ def list_hungry_grinders(
     return [pid for _, pid in ratios]
 
 
+def list_affordable_predators(
+    bankroll_repo,
+    *,
+    sandbox_id: str,
+    min_buy_in: int,
+    now: datetime,
+    exclude: Optional[Set[str]] = None,
+) -> List[str]:
+    """Return non-fish AIs that can afford `min_buy_in`, richest first.
+
+    The whale's predator pool. A whale sits at a high-stakes cardroom
+    ($50 / $200), so the casino-tier "hungry grinder" signal (bankroll
+    below 80% of starting AND comfort zone in {$2, $10}) doesn't fit —
+    nobody hungry for $2 can sit at $200. Here the gate is simply
+    affordability: whoever can buy into the whale's table is a candidate,
+    and the deepest-pocketed come first (they can stay and grind the deep
+    stack down rather than busting out after one cooler).
+
+    Fish are excluded (a fish farms nobody, and the whale itself is a
+    fish — we never pull it toward its own table). Sort: descending
+    projected bankroll, ties broken by personality_id for determinism.
+    `exclude` skips pids (e.g. the globally-seated set).
+    """
+    if bankroll_repo is None:
+        return []
+    exclude = exclude or set()
+    fish = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
+    pids = bankroll_repo.iter_personality_ids_with_bankrolls(sandbox_id=sandbox_id)
+    scored: List[tuple] = []  # (projected, pid)
+    for pid in pids:
+        if pid in exclude or pid in fish:
+            continue
+        knobs = bankroll_repo.load_personality_knobs(pid)
+        state = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+        projected = project_bankroll(
+            state, knobs.starting_bankroll, knobs.bankroll_rate, now,
+        )
+        if projected >= min_buy_in:
+            scored.append((projected, pid))
+    scored.sort(key=lambda s: (-s[0], s[1]))
+    return [pid for _, pid in scored]
+
+
 def load_fish_ids(bankroll_repo, *, sandbox_id: Optional[str] = None) -> Set[str]:
     """Personality_ids tagged `archetype: "fish"` in `config_json`.
 

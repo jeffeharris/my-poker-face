@@ -30,8 +30,14 @@ from cash_mode.casino_provisioning import (
     CASINO_FISH_MIN,
     CASINO_MIN_HUNGRY_GRINDERS,
     CASINO_SPAWN_THRESHOLDS,
+    WHALE_POOL_FLOORS,
+    WHALE_POOL_THRESHOLDS,
+    WHALE_PREFUND_MAX_MULT,
+    WHALE_PREFUND_MIN_MULT,
     CasinoRefill,
     CasinoSpawn,
+    WhaleSpawn,
+    WhaleTeardown,
     _casino_table_id,
     _shed_excess_fish,
     clear_closing,
@@ -40,17 +46,19 @@ from cash_mode.casino_provisioning import (
     get_closing_countdown,
     is_closing,
     resolve_casino_provisioning,
+    resolve_whale_provisioning,
 )
 from cash_mode.closed_economy import (
     GRINDER_COMFORT_ZONES,
     GRINDER_HUNGER_THRESHOLD,
     compute_bank_pool_reserves,
     is_hungry_grinder,
+    list_affordable_predators,
     list_hungry_grinders,
     seed_bank_pool,
 )
 from cash_mode.stakes_ladder import table_buy_in_window
-from cash_mode.tables import CashTableState, ai_slot_fish, open_slot
+from cash_mode.tables import CashTableState, ai_slot, ai_slot_fish, open_slot
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
     BANK_POOL_DRAW_REASONS,
@@ -543,24 +551,69 @@ class TestDamLadder:
         }
 
     def test_shallow_pool_opens_only_low_tiers(self, db_setup):
-        # 60k covers $2 (5k) and $10 (50k) but not $50 (100k) / $200 (250k).
+        # 60k covers $2 (5k) and $10 (50k) but not the $50 gate (100k).
         stakes = self._resolve(db_setup, seed=60_000)
+        assert "$2" in stakes
+        assert "$10" in stakes
         assert "$50" not in stakes
-        assert "$200" not in stakes
 
     def test_deep_pool_cascades_without_gaps(self, db_setup):
         stakes = self._resolve(db_setup, seed=2_000_000)
         # No gaps: present tiers must be a prefix of the ladder (you can't
-        # have $200 without $50, $50 without $10, ...).
-        order = ["$2", "$10", "$50", "$200"]
+        # have $50 without $10, $10 without $2). Casinos cap at $50 — the
+        # $200+ band is whale-only now (see TestWhaleProvisioning).
+        order = ["$2", "$10", "$50"]
         present = [s for s in order if s in stakes]
         assert present == order[: len(present)]
-        # A deep pool reaches the top gate.
-        assert "$200" in stakes
+        # A deep pool reaches the top casino gate ($50).
+        assert "$50" in stakes
 
 
 class TestDamWindDown:
-    """High-stakes gates close as the pool drains below their floor."""
+    """The high-stakes gate ($50) closes as the pool drains below its floor."""
+
+    def _make_50_casino(self, db_setup, n_fish=2, buy_in=2000):
+        fish = db_setup["fish_pids"][:n_fish]
+        seats = [ai_slot_fish(p, buy_in) for p in fish]
+        while len(seats) < 6:
+            seats.append(open_slot())
+        casino = CashTableState(
+            table_id="cash-casino-50-001", stake_label="$50", seats=seats,
+            created_at=ANCHOR, last_activity_at=ANCHOR,
+            name="Casino — $50", table_type="casino",
+        )
+        db_setup["tables"].save_table(casino, sandbox_id=SBX, now=ANCHOR)
+
+    def _resolve(self, db_setup, seed):
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=seed)
+        resolve_casino_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(1), now=ANCHOR,
+        )
+
+    def test_winds_down_below_floor(self, db_setup):
+        self._make_50_casino(db_setup)
+        # Pool below the $50 floor (45k) → wind down even with fish seated.
+        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$50"] - 10_000)
+        assert get_closing_countdown(
+            db_setup["tables"], SBX, "cash-casino-50-001"
+        ) is not None
+
+    def test_stays_open_above_floor(self, db_setup):
+        self._make_50_casino(db_setup)
+        # Pool comfortably above the floor → stays open (not closing).
+        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$50"] + 120_000)
+        assert get_closing_countdown(
+            db_setup["tables"], SBX, "cash-casino-50-001"
+        ) is None
+
+
+class TestRetiredTierWindDown:
+    """A casino at a retired stake ($200 — now whale-only) winds down even
+    with fish seated and a fat pool. Pass 1 won't refill it; Pass 2 closes
+    it; the closing countdown plays out and teardown deletes it. Covers a
+    pre-existing $200 casino in a DB created before the tier was retired."""
 
     def _make_200_casino(self, db_setup, n_fish=2, buy_in=8000):
         fish = db_setup["fish_pids"][:n_fish]
@@ -574,29 +627,40 @@ class TestDamWindDown:
         )
         db_setup["tables"].save_table(casino, sandbox_id=SBX, now=ANCHOR)
 
-    def _resolve(self, db_setup, seed):
-        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=seed)
-        resolve_casino_provisioning(
+    def _resolve(self, db_setup, rng_seed=1):
+        return resolve_casino_provisioning(
             cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
             personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
-            sandbox_id=SBX, rng=random.Random(1), now=ANCHOR,
+            sandbox_id=SBX, rng=random.Random(rng_seed), now=ANCHOR,
         )
 
-    def test_winds_down_below_floor(self, db_setup):
+    def test_enters_closing_despite_fat_pool_and_fish(self, db_setup):
         self._make_200_casino(db_setup)
-        # Pool below the $200 floor (80k) → wind down even with fish seated.
-        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$200"] - 10_000)
+        # A fat pool would normally keep a high-stakes casino open — but the
+        # retired tier winds down regardless.
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=1_000_000)
+        self._resolve(db_setup)
         assert get_closing_countdown(
             db_setup["tables"], SBX, "cash-casino-200-001"
         ) is not None
+        # And it was NOT refilled past its existing fish (Pass 1 skips it).
+        casino = next(
+            t for t in db_setup["tables"].list_all_tables(sandbox_id=SBX)
+            if t.table_id == "cash-casino-200-001"
+        )
+        assert sum(1 for s in casino.seats if s.get("archetype") == "fish") == 2
 
-    def test_stays_open_above_floor(self, db_setup):
+    def test_tears_down_after_countdown(self, db_setup):
         self._make_200_casino(db_setup)
-        # Pool comfortably above the floor → stays open (not closing).
-        self._resolve(db_setup, seed=CASINO_CLOSE_THRESHOLDS["$200"] + 120_000)
-        assert get_closing_countdown(
-            db_setup["tables"], SBX, "cash-casino-200-001"
-        ) is None
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=1_000_000)
+        # Resolve enough times for the closing countdown to elapse + delete.
+        for _ in range(CASINO_CLOSING_HAND_COUNTDOWN + 3):
+            self._resolve(db_setup)
+        gone = all(
+            t.table_id != "cash-casino-200-001"
+            for t in db_setup["tables"].list_all_tables(sandbox_id=SBX)
+        )
+        assert gone
 
 
 class TestClosingState:
@@ -1179,3 +1243,249 @@ class TestUnstampedFishSeatHealing:
         assert not unstamped
         # And refill seated at least one properly-stamped fish.
         assert _count_seated_fish(reloaded) >= 1
+
+
+# --- Whale provisioning (the $200+ relief gate) ------------------------------
+
+
+def _seated_fish_at_lobby(tables, *, stake_label=None):
+    """Return (table, seat_idx, pid) for the whale (a fish seat at a lobby
+    table), or None. The whale's single source of truth — regular fish are
+    casino-only, so a fish stamp at a cardroom table is the whale."""
+    for table in tables.list_all_tables(sandbox_id=SBX):
+        if table.table_type != "lobby":
+            continue
+        if stake_label is not None and table.stake_label != stake_label:
+            continue
+        for idx, slot in enumerate(table.seats):
+            if slot.get("kind") == "ai" and slot.get("archetype") == "fish":
+                return table, idx, slot.get("personality_id")
+    return None
+
+
+class TestWhaleProvisioning:
+    """A whale = a fish persona at a LOBBY table with a deep prefund."""
+
+    def _make_lobby_table(self, db_setup, stake_label="$200", suffix="001", seats=None):
+        slug = stake_label[1:]
+        table = CashTableState(
+            table_id=f"cash-table-{slug}-{suffix}",
+            stake_label=stake_label,
+            seats=seats if seats is not None else [open_slot() for _ in range(6)],
+            created_at=ANCHOR, last_activity_at=ANCHOR,
+            name=f"Cardroom — {stake_label}", table_type="lobby",
+        )
+        db_setup["tables"].save_table(table, sandbox_id=SBX, now=ANCHOR)
+        return table.table_id
+
+    def _resolve_whale(self, db_setup, rng_seed=1):
+        return resolve_whale_provisioning(
+            cash_table_repo=db_setup["tables"], bankroll_repo=db_setup["bankroll"],
+            personality_repo=db_setup["personality"], chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX, rng=random.Random(rng_seed), now=ANCHOR,
+        )
+
+    def test_spawns_when_pool_clears_threshold_and_seat_open(self, db_setup):
+        table_id = self._make_lobby_table(db_setup, "$200")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.spawn is not None
+        assert batch.spawn.stake_label == "$200"
+        _, _, max_buy_in = table_buy_in_window("$200")
+        assert batch.spawn.buy_in == max_buy_in  # deep stack on the felt
+        # A fish-stamped seat now sits at the cardroom table.
+        seated = _seated_fish_at_lobby(db_setup["tables"], stake_label="$200")
+        assert seated is not None
+        table, _, pid = seated
+        assert table.table_id == table_id
+        assert pid == batch.spawn.whale_id
+        assert batch.spawn.name  # display name resolved for the ticker
+
+    def test_no_spawn_below_threshold(self, db_setup):
+        self._make_lobby_table(db_setup, "$200")
+        # 400k < $200 threshold (500k); no $50 cardroom table exists to
+        # absorb the lower gate, so nothing spawns.
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=400_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.spawn is None
+        assert _seated_fish_at_lobby(db_setup["tables"]) is None
+
+    def test_no_spawn_without_open_lobby_seat(self, db_setup):
+        # All seats taken by grinders — no open cardroom seat for the whale.
+        full = [ai_slot(f"reg_{i}", 20_000) for i in range(6)]
+        self._make_lobby_table(db_setup, "$200", seats=full)
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.spawn is None
+
+    def test_prefers_higher_stake_when_both_eligible(self, db_setup):
+        self._make_lobby_table(db_setup, "$50", suffix="001")
+        self._make_lobby_table(db_setup, "$200", suffix="001")
+        # Clears both $50 (150k) and $200 (500k) — prefer the bigger release.
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.spawn is not None
+        assert batch.spawn.stake_label == "$200"
+
+    def test_falls_back_to_lower_stake_when_top_seat_full(self, db_setup):
+        # $200 cardroom full, $50 cardroom open. Pool clears $200, but with
+        # no open $200 seat the whale takes the open $50 cardroom instead.
+        full = [ai_slot(f"reg_{i}", 20_000) for i in range(6)]
+        self._make_lobby_table(db_setup, "$200", seats=full)
+        self._make_lobby_table(db_setup, "$50", suffix="001")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.spawn is not None
+        assert batch.spawn.stake_label == "$50"
+
+    def test_prefund_is_deep(self, db_setup):
+        self._make_lobby_table(db_setup, "$200")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        batch = self._resolve_whale(db_setup)
+
+        _, _, max_buy_in = table_buy_in_window("$200")
+        drawn = batch.spawn.bank_pool_drawn
+        # 10-18x the max buy-in (the dormant whale prefund band).
+        assert WHALE_PREFUND_MIN_MULT * max_buy_in <= drawn <= WHALE_PREFUND_MAX_MULT * max_buy_in
+        # Buy-in sits on the felt; the rest is rebuy reserve in the bankroll.
+        whale_bk = db_setup["bankroll"].load_ai_bankroll(batch.spawn.whale_id, sandbox_id=SBX)
+        assert whale_bk is not None
+        assert whale_bk.chips == drawn - batch.spawn.buy_in
+
+    def test_one_whale_at_a_time(self, db_setup):
+        self._make_lobby_table(db_setup, "$200")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+
+        first = self._resolve_whale(db_setup)
+        assert first.spawn is not None
+
+        # Second resolve: whale already live, pool still well above floor →
+        # no new whale, no wind-down.
+        second = self._resolve_whale(db_setup)
+        assert second.spawn is None
+        assert second.teardown is None
+        # Exactly one fish seat across all cardroom tables.
+        n_whale_seats = sum(
+            1
+            for t in db_setup["tables"].list_all_tables(sandbox_id=SBX)
+            if t.table_type == "lobby"
+            for s in t.seats
+            if s.get("kind") == "ai" and s.get("archetype") == "fish"
+        )
+        assert n_whale_seats == 1
+
+    def test_spawn_conservation(self, db_setup):
+        self._make_lobby_table(db_setup, "$200")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+        ledger = db_setup["ledger"]
+
+        before_c = sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+        before_d = sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        before_outstanding = before_c - before_d
+
+        batch = self._resolve_whale(db_setup)
+        assert batch.spawn is not None
+        drawn = batch.spawn.bank_pool_drawn
+
+        after_c = sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+        after_d = sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        # Outstanding chips grew by exactly the pool draw.
+        assert (after_c - after_d) - before_outstanding == drawn
+        # And those chips are split between the whale's felt seat and its
+        # (deep) bankroll reserve — nothing minted or lost.
+        seated = _seated_fish_at_lobby(db_setup["tables"], stake_label="$200")
+        _, seat_idx, pid = seated
+        seat_chips = int(seated[0].seats[seat_idx].get("chips", 0))
+        whale_bk = db_setup["bankroll"].load_ai_bankroll(pid, sandbox_id=SBX)
+        assert seat_chips + int(whale_bk.chips) == drawn
+
+    def test_wind_down_below_floor_returns_chips(self, db_setup, monkeypatch):
+        self._make_lobby_table(db_setup, "$200")
+        seed_bank_pool(db_setup["ledger"], sandbox_id=SBX, amount=600_000)
+        ledger = db_setup["ledger"]
+
+        spawn = self._resolve_whale(db_setup).spawn
+        assert spawn is not None
+        pid = spawn.whale_id
+        drawn = spawn.bank_pool_drawn
+
+        outstanding_after_spawn = (
+            sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+            - sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        )
+        pool_after_spawn = compute_bank_pool_reserves(ledger, sandbox_id=SBX)
+
+        # Force the dam below the floor: raise the floor above the current
+        # pool so the live whale is recalled on the next resolve.
+        monkeypatch.setitem(WHALE_POOL_FLOORS, "$200", pool_after_spawn + 1)
+
+        batch = self._resolve_whale(db_setup)
+
+        assert batch.teardown is not None
+        assert batch.teardown.whale_id == pid
+        # Seat vacated; whale bankroll emptied.
+        assert _seated_fish_at_lobby(db_setup["tables"], stake_label="$200") is None
+        whale_bk = db_setup["bankroll"].load_ai_bankroll(pid, sandbox_id=SBX)
+        assert whale_bk is None or int(whale_bk.chips) == 0
+        # The whale never played, so its full draw returns to the pool:
+        # outstanding falls back by exactly `drawn`, pool recovers it.
+        outstanding_after_windown = (
+            sum(ledger.sum_creations_by_reason(sandbox_id=SBX).values())
+            - sum(ledger.sum_destructions_by_reason(sandbox_id=SBX).values())
+        )
+        assert outstanding_after_spawn - outstanding_after_windown == drawn
+        assert compute_bank_pool_reserves(ledger, sandbox_id=SBX) - pool_after_spawn == drawn
+
+
+class TestAffordablePredators:
+    """`list_affordable_predators` — the whale's predator pool (by wealth)."""
+
+    def test_orders_affordable_non_fish_richest_first(self, db_setup):
+        bankroll = db_setup["bankroll"]
+        personality = db_setup["personality"]
+        # Three non-fish AIs of varying wealth + one too-poor to afford $200.
+        wealth = {"rich_rita": 300_000, "mid_max": 40_000, "broke_bob": 1_000}
+        for pid, chips in wealth.items():
+            personality.save_personality(pid.title(), _grinder_config("$200"), personality_id=pid)
+            bankroll.save_ai_bankroll(
+                AIBankrollState(personality_id=pid, chips=chips, last_regen_tick=ANCHOR),
+                sandbox_id=SBX,
+            )
+
+        _, min_buy_in, _ = table_buy_in_window("$200")  # 8_000
+        predators = list_affordable_predators(
+            bankroll, sandbox_id=SBX, min_buy_in=min_buy_in, now=ANCHOR,
+        )
+
+        # Richest affordable first; the broke AI and all fish excluded.
+        assert predators[0] == "rich_rita"
+        assert "mid_max" in predators
+        assert "broke_bob" not in predators
+        for fish_pid in db_setup["fish_pids"]:
+            assert fish_pid not in predators
+
+    def test_excludes_set(self, db_setup):
+        bankroll = db_setup["bankroll"]
+        personality = db_setup["personality"]
+        personality.save_personality("Rich Rita", _grinder_config("$200"), personality_id="rich_rita")
+        bankroll.save_ai_bankroll(
+            AIBankrollState(personality_id="rich_rita", chips=300_000, last_regen_tick=ANCHOR),
+            sandbox_id=SBX,
+        )
+        _, min_buy_in, _ = table_buy_in_window("$200")
+        predators = list_affordable_predators(
+            bankroll, sandbox_id=SBX, min_buy_in=min_buy_in, now=ANCHOR,
+            exclude={"rich_rita"},
+        )
+        assert "rich_rita" not in predators

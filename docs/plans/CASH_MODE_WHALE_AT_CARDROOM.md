@@ -151,3 +151,52 @@ High-stakes *cardroom* tables are sparse, so a whale needs grinders to
   `project_table_attractiveness` memory; commit `33fb1ed4` and prior).
 - This doc: the `$200`+ whale replacement for the (to-be-retired) `$200`
   casino tier.
+
+## Implementation status — IMPLEMENTED 2026-05-25
+
+All three phases built on `career-mode-v0_1`. Decisions taken (see the
+session that implemented this):
+
+- **No `whale` archetype, no seat flag.** A whale is just an
+  `archetype='fish'` persona seated at a **lobby** table — regular fish
+  are casino-only, so "a fish seat at a cardroom table" IS the whale. The
+  only difference is the depth of the stack. 100% reuse of the fish
+  machinery (movement, predator-retention, conservation, drain-on-exit).
+- **Phase 1** — `$200` dropped from `CASINO_SPAWN_THRESHOLDS` /
+  `CASINO_CLOSE_THRESHOLDS`; casinos ladder `$2→$10→$50`. Dam tests
+  repointed to `$50` (`TestDamLadder`, `TestDamWindDown`).
+- **Phase 2** — `resolve_whale_provisioning` (+ `_spawn_whale_at`,
+  `_wind_down_whale`, `_find_seated_whale`) in `casino_provisioning.py`,
+  called from `refresh_unseated_tables` right after the casino pass. Deep
+  `_fish_prefund(whale=True)` (10–18×), seated at **max buy-in** (deep
+  felt stack; the rest is rebuy reserve). Per-stake thresholds
+  `WHALE_POOL_THRESHOLDS = {'$50': 150k, '$200': 500k}` — restrict to one
+  stake to A/B a $50-cardroom whale vs a $200-cardroom whale. One whale at
+  a time; prefers the highest eligible stake, falls back to a lower one if
+  the top cardroom has no open seat. Low-watermark wind-down
+  `WHALE_POOL_FLOORS = {'$50': 30k, '$200': 80k}` recalls the whale's
+  unused stake to the pool. Ticker: `EVENT_WHALE_ARRIVAL` /
+  `EVENT_WHALE_DEPARTURE` emitted from `lobby.py:_emit_whale_events`.
+- **Phase 3** — predator pull in `lobby.py` live-fill: a parallel branch
+  to the casino hungry-grinder reorder, keyed on "this lobby table has a
+  fish (whale)". Boosts live-fill prob ×2 and reorders the idle pool via
+  new `closed_economy.list_affordable_predators` (non-fish AIs that can
+  afford the stake, richest first — the casino-tier $2/$10 hunger signal
+  doesn't fit a $50/$200 whale).
+- **Bug fixed en route**: the rebuy path (`movement.py:1028`) rewrote the
+  seat with a bare `ai_slot`, **stripping the `archetype='fish'` stamp on
+  reload**. Harmless at casinos (zombie-reclaim re-seats a fresh fish) but
+  fatal for a lobby whale (reclaim is casino-gated) — it'd de-stamp on
+  first rebuy and wander off as a grinder with a deep pool-funded stack.
+  Now preserves the stamp for all fish (`ai_slot_fish` on rebuy when
+  `is_fish`). This is also what lets the whale rebuy-until-broke (go to
+  $0 possible, leave only when short with no bankroll left).
+- **Conservation**: identical loop to a casino fish (pool→bankroll seed →
+  seat buy-in; on exit seat residual + bankroll → pool). `credit_ai_cash_out`
+  has no cap, so a whale's full residual returns. Unit conservation tests
+  on spawn + wind-down assert drift-neutral.
+- **Tests**: `TestWhaleProvisioning` (spawn gating, deep funding, prefers
+  higher stake, falls back when full, one-at-a-time, spawn conservation,
+  wind-down returns chips) + `TestAffordablePredators` +
+  `test_fish_rebuy_preserves_archetype_stamp`. `fish_money_flow.py`
+  extended with a cardroom-composition block (🐋 = whale).

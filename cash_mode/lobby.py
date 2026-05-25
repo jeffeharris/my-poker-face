@@ -1038,11 +1038,16 @@ def refresh_unseated_tables(
             else:
                 _table_idle_pool = idle_pool
 
-            # Casino-tier grinder pull: at casino tables, hungry
-            # grinders get priority and the live-fill probability is
-            # boosted so seats fill faster. Hungry grinders are AIs
-            # with bankroll < starting × 0.8 and comfort zone in the
-            # casino tier — they have economic pressure to farm fish.
+            # Predator pull. Two flavors, both boost the live-fill
+            # probability so seats fill faster and reorder the idle pool so
+            # the predators we want are seated first:
+            #   • Casino tables: hungry grinders (bankroll < starting × 0.8,
+            #     comfort zone in {$2,$10}) — economic pressure to farm fish.
+            #   • Cardroom (lobby) tables with a whale: AIs who can AFFORD
+            #     the stake, richest first. A whale sits at $50/$200, so the
+            #     casino-tier hunger signal doesn't fit — affordability does.
+            #     "A fish seat at a lobby table" IS the whale (regular fish
+            #     are casino-only). See `resolve_whale_provisioning`.
             _effective_live_fill_prob = live_fill_prob
             if table.table_type == 'casino':
                 from cash_mode.closed_economy import list_hungry_grinders
@@ -1069,6 +1074,35 @@ def refresh_unseated_tables(
                         key=lambda e: _order_index.get(e.personality_id, 1_000_000)
                     )
                     _table_idle_pool = _hungry_entries + _other_entries
+            elif table.table_type == 'lobby' and any(
+                s.get('kind') == 'ai' and s.get('archetype') == 'fish'
+                for s in table.seats
+            ):
+                from cash_mode.closed_economy import list_affordable_predators
+                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
+                _predator_ids = list_affordable_predators(
+                    bankroll_repo, sandbox_id=sandbox_id,
+                    min_buy_in=table_min_buy_in, now=now,
+                )
+                _predator_set = set(_predator_ids)
+                if _predator_set:
+                    _pred_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id in _predator_set
+                    ]
+                    _other_entries = [
+                        e for e in _table_idle_pool
+                        if e.personality_id not in _predator_set
+                    ]
+                    # Sort by the affordability ranking (richest first);
+                    # ties broken by personality_id.
+                    _order_index = {
+                        pid: i for i, pid in enumerate(_predator_ids)
+                    }
+                    _pred_entries.sort(
+                        key=lambda e: _order_index.get(e.personality_id, 1_000_000)
+                    )
+                    _table_idle_pool = _pred_entries + _other_entries
             per_hand = refresh_table_roster(
                 table,
                 idle_pool=_table_idle_pool,
@@ -1873,7 +1907,80 @@ def refresh_unseated_tables(
                 "[CASH][LOBBY] casino provisioning failed: %s", exc,
             )
 
+    # Whale provisioning: the $200+ relief gate. A rare, deep pool-funded
+    # high roller seated at a real cardroom (lobby) table — the top of the
+    # bank-pool dam, replacing the retired $200 casino. Runs after casino
+    # provisioning (so the drain-on-exit sweep there has already zeroed any
+    # just-departed whale's bankroll and the pool-depth check sees fresh
+    # reserves) and surfaces its spawn / wind-down on the ticker. Gated on
+    # `chip_ledger_repo` like the casino pass. Best-effort.
+    if chip_ledger_repo is not None:
+        try:
+            from cash_mode.casino_provisioning import resolve_whale_provisioning
+
+            whale_batch = resolve_whale_provisioning(
+                cash_table_repo=cash_table_repo,
+                bankroll_repo=bankroll_repo,
+                personality_repo=personality_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                rng=rng,
+                now=now,
+            )
+            _emit_whale_events(whale_batch, sandbox_id=sandbox_id, now=now)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] whale provisioning failed: %s", exc,
+            )
+
     return out
+
+
+def _emit_whale_events(whale_batch, *, sandbox_id: Optional[str], now: datetime) -> None:
+    """Surface whale spawn / wind-down on the lobby ticker.
+
+    Kept separate from the provisioner (which stays free of the activity
+    ring) so emission lives with the rest of lobby.py's ticker hooks.
+    Best-effort: a buffer hiccup must not tank the refresh.
+    """
+    if whale_batch is None:
+        return
+    try:
+        from cash_mode.activity import (
+            EVENT_WHALE_ARRIVAL,
+            EVENT_WHALE_DEPARTURE,
+            LobbyEvent,
+            record_event,
+        )
+
+        spawn = whale_batch.spawn
+        if spawn is not None:
+            record_event(LobbyEvent(
+                type=EVENT_WHALE_ARRIVAL,
+                table_id=spawn.table_id,
+                stake_label=spawn.stake_label,
+                personality_id=spawn.whale_id,
+                name=spawn.name,
+                reason='',
+                message=f"🐋 {spawn.name} just sat down at {spawn.stake_label}",
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+            ))
+        teardown = whale_batch.teardown
+        if teardown is not None:
+            record_event(LobbyEvent(
+                type=EVENT_WHALE_DEPARTURE,
+                table_id=teardown.table_id,
+                stake_label=teardown.stake_label,
+                personality_id=teardown.whale_id,
+                name=teardown.name,
+                reason=teardown.reason,
+                message=f"🐋 {teardown.name} cashed out and left {teardown.stake_label}",
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+            ))
+    except Exception as exc:
+        logger.warning("[CASH][LOBBY] whale ticker emit failed: %s", exc)
 
 
 def _emit_activity_events(

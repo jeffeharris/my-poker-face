@@ -158,6 +158,22 @@ EVENT_HUSTLE_END = "hustle_end"
 phrase ("{name} is back with $X" / "{name} is back"); `reason` is the
 duration_bucket that just finished. Mirror of EVENT_VICE_END."""
 
+EVENT_WHALE_ARRIVAL = "whale_arrival"
+"""A rare pool-funded high roller (a whale) just sat down at a real
+cardroom (lobby) table — the top gate of the bank-pool dam. Mechanically
+a whale is just a fish (archetype='fish') with a much deeper prefund, so
+this is the flavor *and* the pull signal: grinders should come farm it.
+`table_id`/`stake_label` point at the cardroom seat. See
+`cash_mode/casino_provisioning.py:resolve_whale_provisioning` and
+`docs/plans/CASH_MODE_WHALE_AT_CARDROOM.md`."""
+
+EVENT_WHALE_DEPARTURE = "whale_departure"
+"""A whale left the cardroom. Fires on the dam wind-down (pool drained
+below the stake's floor → the relief valve recalls the whale's unused
+stake to the pool). A whale that leaves via its own movement (busted,
+or stormed off on tilt) surfaces as the usual EVENT_BUST / EVENT_LEAVE
+instead — this event is only the provisioning-driven recall."""
+
 
 @dataclass(frozen=True)
 class LobbyEvent:

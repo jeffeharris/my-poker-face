@@ -39,6 +39,7 @@ from cash_mode.tables import (
     CashTableState,
     IdlePoolEntry,
     ai_slot,
+    ai_slot_fish,
     open_slot,
 )
 
@@ -1025,7 +1026,20 @@ def refresh_table_roster(
             if rebuy_amount <= 0:
                 continue
             new_chips = ai_chips + rebuy_amount
-            new_seats[i] = ai_slot(pid, new_chips)
+            # Preserve the `archetype='fish'` stamp across a rebuy. The
+            # stamp is what gates `_coerce_fish_movement` (no tier-drift /
+            # no wander) and predator-retention's `table_has_fish`, and
+            # what the teardown/reclaim chip-return paths key on. Rewriting
+            # with a bare `ai_slot` would silently de-stamp a fish on its
+            # first reload — at a casino the zombie-reclaim re-seats a fresh
+            # fish, but a whale at a lobby table (reclaim is casino-gated)
+            # would quietly turn into a wandering grinder holding a deep
+            # pool-funded stack. A fish reloads until its bankroll is dry,
+            # so this fires often; keep it a fish the whole way down.
+            new_seats[i] = (
+                ai_slot_fish(pid, new_chips) if is_fish
+                else ai_slot(pid, new_chips)
+            )
             rebuy_changes.append(RebuyChange(
                 personality_id=pid,
                 seat_index=i,
