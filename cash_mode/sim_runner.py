@@ -201,6 +201,11 @@ def run_sim(
     relationship_repo = repos['relationship_repo']
     stake_repo = repos['stake_repo']
     chip_ledger_repo = repos['chip_ledger_repo']
+    # Side-hustle repo (optional in the dict for back-compat). With
+    # passive regen retired, the side hustle is the broke-AI recovery
+    # path, so the closed-loop sim drives it. Vice stays sim-faked
+    # (resolve_closed_economy) so no vice_repo is wired here.
+    side_hustle_repo = repos.get('side_hustle_state_repo')
     db_path = repos['db_path']
 
     rng = random.Random(config.rng_seed)
@@ -247,6 +252,7 @@ def run_sim(
             chip_ledger_repo=chip_ledger_repo,
             relationship_repo=relationship_repo,
             stake_repo=stake_repo,
+            side_hustle_repo=side_hustle_repo,
         )
 
         # 2. Metrics capture (every N ticks). The very first and very

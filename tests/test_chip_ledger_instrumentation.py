@@ -117,8 +117,13 @@ def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> No
 
 class TestCreditAICashOutLedger:
     def test_regen_recorded_when_projected_exceeds_stored(
-        self, bankroll_repo, ledger_repo, db_path,
+        self, bankroll_repo, ledger_repo, db_path, monkeypatch,
     ):
+        # Passive regen is retired as a default (REGEN_ENABLED=False) per
+        # CASH_MODE_SIDE_HUSTLE.md, but the projection + ai_regen ledger
+        # mechanism is kept. This test exercises that mechanism, so enable
+        # the flag for it; the "off" behaviour is covered elsewhere.
+        monkeypatch.setattr("cash_mode.economy_flags.REGEN_ENABLED", True)
         _insert_personality(db_path, "napoleon", knobs={
             "starting_bankroll": 50_000, "bankroll_rate": 500,
             "buy_in_multiplier": 1.0,
