@@ -2,7 +2,7 @@
 purpose: Extend the per-player sandbox foundation (Phase 2.5) to support multiple sandboxes per account as a power-user feature, each with its own starting conditions and tunable knobs, so players can run distinct cash-mode playthroughs without losing earlier worlds.
 type: guide
 created: 2026-05-24
-last_updated: 2026-05-24
+last_updated: 2026-05-25
 ---
 
 # Cash Mode — Multi-Sandbox Support (Power-User Feature)
@@ -51,20 +51,24 @@ The work splits into three tiers. Tiers 0 and 1 ship together as
 Phase 1 of this feature. Tier 2 is deferred.
 
 - **Tier 0 — Cheap correctness fixes (~half a day).** Auth-leak
-  guards on the resolver, deterministic fallback ordering,
-  mid-session activation block, fixing the knob-wiring hooks.
-  Independent of any data-model change; should ship regardless.
+  guards on the resolver (per-request owner+live revalidation),
+  deterministic fallback ordering, durable-`cash_sessions`
+  activation block, fixing the knob-wiring hooks. Independent
+  of any data-model change; should ship regardless.
 - **Tier 1 — Staking scoping (~2-3 days).** Destructive migration
-  on `stakes` (and audit the related staking tables) to add
+  on `stakes` and the related staking tables to add
   `sandbox_id`. Thread it through `stake_repository.py` and the
   Phase 3+ business logic. Same shape as the v109
-  `cash_pair_stats` migration.
+  `cash_pair_stats` migration. **Must ship before the UI** —
+  see "Sequencing inside Phase 1" below.
 - **Tier 2 — Human-bankroll scoping (deferred, ~3-5 days if we
   ever do it).** Scope `player_bankroll_state` per sandbox. See
   "Deferred" below for the design rationale on skipping this.
 
 Honest effort estimate: original draft suggested "~1 week MVP."
-Real cost with staking scoping included is closer to **~2 weeks**.
+Real cost with staking scoping, route classification, and
+`RakePolicy` extraction included is closer to **~2 weeks**, with
+the audit pass being the bottleneck.
 
 ## Goals
 
@@ -156,16 +160,41 @@ owner's Napoleon-stakes-Bezos history would bleed across every
 sandbox unless we scope them now.
 
 **Audit list** (verify before writing the migration — these are
-the call sites the staking system touches; some may already
-carry `sandbox_id` via `cash_sessions` joins and only need a
-filter, not a column):
+the call sites and call patterns the staking system touches;
+some may already carry `sandbox_id` via `cash_sessions` joins
+and only need a filter, not a column):
 
-- `stakes` (the carry-relationship rows)
-- Stake-event / settlement / forgiveness tables under
-  `poker/repositories/stake_repository.py`
-- Net-worth history rows
-- Borrower-tier / lender-tier degradation state
-- Any staking-derived view materialized into another table
+- **Tables / state:**
+  - `stakes` (carry-relationship rows)
+  - Stake-event / settlement tables under
+    `poker/repositories/stake_repository.py`
+  - Forgiveness ask / payoff / default resolution state
+  - Net-worth history rows
+  - Borrower-tier / lender-tier degradation state
+  - Sponsor-offer queue (if persisted)
+  - Any staking-derived view materialized into another table
+- **Query patterns to scrub:**
+  - Lookups by `borrower_id` — currently global, must filter on
+    `sandbox_id` (or join through `cash_sessions`)
+  - Lookups by `staker_id` — same
+  - "Active stakes for session" — should be sandbox-implicit via
+    the session, but verify the join
+  - Carry-list queries (whose carries are live?)
+  - Sponsor-offer filtering (which AIs are eligible to back this
+    player?)
+  - Stakable-AI lookup (which AIs accept backing right now?)
+  - Player-as-staker candidate validation
+  - AI payoff / forgiveness / default resolution paths
+
+**Repo-signature rule:** after the migration, any
+`stake_repository` method whose key is not the immutable
+`stake_id` must take `sandbox_id` as a required parameter — not
+optional, not derived inside. This prevents future callers from
+"forgetting" sandbox context and silently leaking. For
+`load_stake(stake_id)` (and similar single-row by-id reads),
+the caller is responsible for owner+sandbox authorization
+*before* acting on the result; the repo cannot enforce that
+because the caller may legitimately be the audit layer.
 
 **Migration shape:** modeled on the v109 `cash_pair_stats`
 destructive migration. Add `sandbox_id` to the PK (or as a NOT
@@ -183,26 +212,67 @@ in this whole plan.
 
 ## The knobs — Phase 1 MVP
 
-Five knobs, all backed by mechanisms that already exist as globals
-or per-personality fields. Each one is a small refactor to read
-from sandbox context instead of a module constant.
+Four knobs, all backed by mechanisms that already exist as globals
+or per-personality fields. `rng_seed` was demoted to Phase 2
+during the second review pass — see Phase 2 for why.
 
 | Knob | Effect | Backed by | Default |
 |---|---|---|---|
 | `wealth_multiplier` | Scales every personality's `starting_bankroll` and `bankroll_rate` on first AI seed in this sandbox | `personalities.config_json.bankroll_knobs`, applied via a sandbox-aware overlay on `load_personality_knobs(...)` so every seeding path (`ensure_ai_bankrolls_seeded`, `save_ai_bankroll` first-write, fresh-seat fallback) gets the multiplier consistently | `1.0` |
 | `default_bot_type` | Sandbox-wide default for AI controller (`chaos` / `standard` / `lean` / `sharp` / `baseline_solver` / `casebot`); per-game override still wins | `flask_app/routes/game_routes.py` bot_type dispatch | `standard` |
-| `economy_flags` | Per-sandbox override for `REGEN_ENABLED`, `RAKE_ENABLED`, `RAKE_PLAYER_TABLES`, `RAKE_RATE`, `RAKE_CAP_BB` | `cash_mode/economy_flags.py` module globals | inherit current globals |
+| `economy_flags` | Per-sandbox override for `REGEN_ENABLED`, `RAKE_ENABLED`, `RAKE_PLAYER_TABLES`, `RAKE_RATE`, `RAKE_CAP_BB` — but **wired through two different paths** (see "Economy-flag wiring" below) | `cash_mode/economy_flags.py` module globals, projected via per-personality knobs OR through a `RakePolicy` at the hand boundary depending on the flag | inherit current globals |
 | `personality_pool` | Optional allowlist of personality IDs (or tier labels) eligible to spawn in this sandbox's lobby | `cash_mode/seating.py` query | `None` (all eligible) |
-| `rng_seed` | Sandbox-level seed for table/seating randomness — enables reproducible scenarios | `poker/poker_game.py` per-game seed parameter | `None` (current per-game randomness) |
 
-These five together already give "playthroughs feel distinct"
-without touching any of the harder-to-decouple subsystems.
+These four already give "playthroughs feel distinct" without
+touching any of the harder-to-decouple subsystems.
+
+### Economy-flag wiring (the coupling problem)
+
+Not all economy flags are wired the same way, and a flat
+`economy_flag(name, sandbox_id)` helper would actively break
+the rake path. Split them:
+
+- **Projection flags** (`REGEN_ENABLED`, future regen-rate
+  variants) — affect AI bankroll projection over time. These
+  *can* be baked into the per-personality knobs at load time so
+  `project_bankroll(...)` and similar callers don't need
+  sandbox threading. Overlay-at-the-source via
+  `load_personality_knobs(...)`, same seam as
+  `wealth_multiplier`.
+- **Hand-boundary flags** (`RAKE_ENABLED`, `RAKE_RATE`,
+  `RAKE_CAP_BB`, `RAKE_PLAYER_TABLES`) — table/hand/action-time
+  behavior. `compute_rake(pot, big_blind)` runs at hand
+  resolution and needs a *policy* input, not a flat flag
+  lookup. Introduce a `RakePolicy` dataclass passed at the hand
+  boundary, resolved from sandbox settings (and, eventually,
+  per-table type — lobby vs casino, human vs AI table). Even if
+  the policy is just a snapshot of the four flags in v1, having
+  it as a parameter at the hand boundary leaves the door open
+  for table-type variation without another refactor.
+- **Why this matters:** "bake everything into knobs" was the
+  shortcut suggested in the first revision, but it breaks
+  rake-per-table immediately. Doing the split now adds maybe
+  half a day; doing it later means revisiting every rake call
+  site.
 
 ## Phase 2 (after Phase 1 lands and gets used)
 
 These are higher-value but need real engineering. Worth doing only
 after we see which knobs Phase 1 users actually reach for.
 
+- **`rng_seed`** (demoted from Phase 1 during second review). The
+  intent was "set a sandbox seed → reproducible scenarios", but
+  the code has at least seven independent random streams (lobby
+  seeding, full-sim hand dealing, sponsor sampling, vice rolls,
+  casino spawning, movement/pressure, controller randomness).
+  Wiring one master seed through all of them is not a small
+  refactor, and a partial wiring is worse than nothing (false
+  promise of reproducibility). Two paths in Phase 2:
+  - **Narrow option**: seed only the lobby/seating stream
+    (`cash_mode/seating.py` + table assignment). Honest about
+    what's reproducible. Maybe a day.
+  - **Full option**: thread a `SandboxRng` factory through every
+    random consumer in cash mode. Several days.
 - **Per-personality bankroll overrides** — instead of a single
   multiplier, let a sandbox override `starting_bankroll` per
   personality (JSON map). Useful for "Napoleon starts broke"
@@ -221,6 +291,9 @@ after we see which knobs Phase 1 users actually reach for.
 - **Event severity floors** — direct override of
   `zone_config._get_severity_floor()` per event for fine-grained
   drama tuning.
+- **Per-table-type `RakePolicy`** — once the `RakePolicy` dataclass
+  exists (Phase 1), let it vary by table type (lobby vs casino,
+  human vs AI table). Cheap extension once the seam is in place.
 
 ## Deferred (intentionally out of scope)
 
@@ -287,22 +360,58 @@ than just `owner_id`. Cache invalidation triggers:
   settings cache, not the active-sandbox cache)
 
 **Mid-session activation guard.** Active cash games persist their
-own `sandbox_id`. If the user switches active sandbox while a
-cash session is live, lobby refresh / stake settlement / chip
-ledger writes could resolve a different sandbox than the game's.
-Two rules:
+own `sandbox_id` in the `cash_sessions` table. If the user
+switches active sandbox while a cash session is live, lobby
+refresh / stake settlement / chip ledger writes could resolve a
+different sandbox than the game's. The guard rule:
 
-- `POST /api/sandboxes/<id>/activate` returns 409 if the caller
-  has any live cash session (busy tables, mid-hand state). They
-  must leave the table first.
-- Any in-game route resolves sandbox from `game.sandbox_id`, not
-  from session state. The session's active sandbox is for *lobby
-  and pre-game* resolution only.
+- `POST /api/sandboxes/<id>/activate` queries `cash_sessions`
+  (the durable row, **not** in-memory game state — restart
+  recovery paths exist) for any non-terminal session owned by
+  the caller. Returns 409 if found. They must leave the table
+  first.
 
-All existing cash routes already call
-`_resolve_sandbox_id(owner_id)`; they point at the new function.
-No route signature changes outside in-game routes that need to
-prefer `game.sandbox_id`.
+### Route classification (sandbox source per cash-mode route)
+
+A binary "in-game uses game.sandbox_id, lobby uses session" rule
+is too coarse. Cash-mode routes touch sandbox state in at least
+three distinct ways, and the wrong default in any class is a
+correctness bug. Classify each route into one of:
+
+- **Class A — Bound to active session/game** (sandbox comes
+  from the `cash_sessions` / `games` row): in-game actions
+  (bet/call/fold), mid-session forgiveness asks, payoff /
+  default / carry resolution, stake settlement, mid-hand chip
+  ledger writes. Even if the user has switched their session
+  active sandbox to something else, these routes must stay
+  pinned to the row they were dispatched from.
+- **Class B — Bound to session-active sandbox** (sandbox comes
+  from `session['active_sandbox_id']` via the resolver): lobby
+  list, lobby refresh, sponsor offers, stakable-AI candidate
+  list, net-worth dashboard for the active sandbox, casino
+  spawn/provisioning that targets the active world.
+- **Class C — Requires explicit `sandbox_id` param +
+  ownership check**: admin views ("show me sandbox X's
+  dossier"), cross-sandbox audit views, `PATCH /api/sandboxes/<id>`,
+  `POST /api/sandboxes/<id>/archive`, the
+  `sandbox_id=None`-aggregate Track Record view. These take the
+  id from the URL/body and verify caller ownership; they must
+  not fall back to session-active resolution because the user
+  may legitimately be acting on a non-active sandbox.
+
+**Implementation rule:** the audit pass that produces the
+staking-table list (above) also produces this route
+classification. Each cash-mode route gets tagged A / B / C and
+its handler reads from the appropriate source. The default
+resolver helper `_resolve_sandbox_id(owner_id)` only serves
+Class B; routes in A and C must not call it.
+
+All existing cash routes today implicitly resolve to Class B
+because there's only one sandbox per owner. The audit reveals
+which of them are actually Class A (a real correctness bug
+waiting to happen as soon as multi-sandbox ships) and which are
+Class C (rare today, but archive/activate are already this
+shape).
 
 ### Where settings get consumed
 
@@ -385,11 +494,21 @@ rows. Three to four named presets cover most use cases:
     leak), and the bad id is dropped from session
   - Resolver: deterministic fallback ordering across multiple
     "default" sandboxes (multi-worker race aftermath)
-  - Activation: 409 when caller has live cash session
-  - In-game routes use `game.sandbox_id`, not session active id,
-    even when those differ
-  - Settings overlay: economy_flag honors sandbox override; falls
-    back to module global when absent
+  - Activation guard: 409 when caller has a non-terminal
+    `cash_sessions` row, even if in-memory game state is empty
+    (simulates post-restart recovery case)
+  - Class A routes use the game's `sandbox_id` from `cash_sessions`
+    / `games`, not session active id, even when those differ
+    (mid-session activate-then-act scenario)
+  - Class C routes (admin, archive, PATCH) honor explicit
+    `sandbox_id` param + ownership check; reject cross-owner
+    access; do not fall through to session-active resolution
+  - Settings overlay: projection-flag overrides land in
+    `load_personality_knobs` output; defaults inherited when
+    sandbox setting is absent
+  - `RakePolicy` resolution: sandbox flag overrides reflected in
+    `compute_rake()` output; default behavior preserved when
+    sandbox has no override
   - AI seed honors `wealth_multiplier` regardless of which seeding
     path runs (`ensure_ai_bankrolls_seeded`, first-write,
     fresh-seat fallback); existing pre-feature seeds untouched
@@ -398,12 +517,52 @@ rows. Three to four named presets cover most use cases:
   - Personality pool filter narrows seating query
   - **Staking-migration tests:** staking events created in
     sandbox A don't appear in sandbox B's repository queries;
-    forgiveness / settlement flows scope correctly; tier
-    degradation history is sandbox-local
+    forgiveness / settlement / payoff / default flows scope
+    correctly; tier degradation history is sandbox-local; sponsor
+    offer filtering scoped; player-as-staker validation scoped;
+    repo signature rule enforced (non-`stake_id` reads reject
+    missing `sandbox_id`)
 - **Estimated effort:** ~2 weeks total. Tier 0 (~half day) +
-  Tier 1 (~2-3 days) + knobs implementation + API + UI + tests.
-  Half of that is the staking-migration audit and the migration
-  itself; don't underestimate it.
+  Tier 1 (~2-3 days) + `RakePolicy` extraction (~half day) +
+  knobs implementation + API + UI + tests. Roughly half of that
+  is the staking-migration audit and the migration itself;
+  don't underestimate it.
+
+### Sequencing inside Phase 1 (do in this order)
+
+The second review pass flagged a real failure mode: ship the UI
+first and the user gets a visibly working sandbox picker while
+staking, carries, and net-worth bleed silently across worlds.
+Order matters:
+
+1. **Audit pass** — read `stake_repository.py` and adjacent code
+   end-to-end. Produce two artifacts: the staking-table column
+   list and the cash-mode route Class A/B/C classification.
+   Nothing else can be sized correctly until this is done.
+2. **Staking migration (Tier 1)** — destructive migration with
+   backfill, repo signatures updated to require `sandbox_id` on
+   non-`stake_id` reads. Tests for cross-sandbox isolation.
+3. **Resolver hardening (Tier 0)** — per-request revalidation,
+   deterministic fallback ordering, durable-session activation
+   guard, Class A/B/C route refactors. Tests for auth-leak and
+   pin-to-game-sandbox cases.
+4. **`RakePolicy` extraction** — pull rake flag reads out of
+   `economy_flags` module globals and into a policy passed at
+   hand boundary. No behavior change yet; sandbox just resolves
+   to current globals.
+5. **Settings storage** — add `settings_json` column to
+   `sandboxes`, `SandboxSettings` dataclass, overlay seams on
+   `load_personality_knobs` and `RakePolicy` resolution.
+6. **Individual knobs** — wire `wealth_multiplier`,
+   `default_bot_type`, `economy_flags`, `personality_pool`. Each
+   is small once the seams from step 5 exist.
+7. **API surface** — `GET/POST/PATCH /api/sandboxes`,
+   `activate`, `archive`. Behind feature flag.
+8. **UI** — `/sandboxes` admin page, header chip, presets.
+   Behind feature flag.
+
+Steps 1-4 are correctness-critical and ship invisibly. Steps
+5-8 are user-facing and gated on the feature flag.
 
 ## Open questions
 
