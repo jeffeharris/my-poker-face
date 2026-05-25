@@ -178,9 +178,21 @@ def main() -> int:
             if args.execute:
                 print(f"           pool {pool_before} -> {pool_after} (+{pool_after - pool_before}); "
                       f"outstanding {out_before} -> {out_after}")
-                if out_after != out_before:
+                # Conservation = DRIFT neutrality, not in-play neutrality.
+                # Returning chips to the pool is a destruction: it drops
+                # in-play `outstanding` AND raises pool reserves by the same
+                # amount (chips move from a surface into the virtual pool),
+                # while drift (ledger_outstanding - actual_outstanding) is
+                # unchanged. The invariant that proves no chip was lost is
+                # that the in-play drop and the pool rise both equal exactly
+                # what we returned for this sandbox.
+                expected = seat_chips + bankroll_chips
+                in_play_drop = out_before - out_after
+                pool_rise = pool_after - pool_before
+                if in_play_drop != expected or pool_rise != expected:
                     drift_errors.append(
-                        f"{sandbox_id}: outstanding changed {out_before} -> {out_after} (NON-NEUTRAL)")
+                        f"{sandbox_id}: expected -{expected} in-play / +{expected} pool, "
+                        f"got in_play_drop={in_play_drop} pool_rise={pool_rise} (NON-NEUTRAL)")
             grand_seat += seat_chips
             grand_bankroll += bankroll_chips
 
