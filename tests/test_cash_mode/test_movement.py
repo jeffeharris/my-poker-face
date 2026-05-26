@@ -528,14 +528,18 @@ class TestRefreshFishAreCasinoBound:
 
 
 class TestCoercePredatorRetention:
-    """Grinders stay to farm a seated fish until they tire; rotation
-    exits (take_break/bust) and tired predators still leave."""
+    """Grinders won't *drift* off a seated fish out of boredom, but the
+    `stake_up` graduation exit always stands so a winner books the win and
+    moves up (no permanent hoarding). Rotation exits (take_break/bust) and
+    tired predators still leave."""
 
-    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
+    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → boredom retained
     TIRED = 0.1  # energy < floor → released to cycle out
 
-    def test_stake_up_suppressed_at_fish_table(self):
-        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stay"
+    def test_stake_up_not_suppressed_at_fish_table(self):
+        # stake_up is the healthy release: farm enough, then move up. It is
+        # never gated by retention — gating it caused permanent hoarding.
+        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stake_up"
 
     def test_bored_move_suppressed_at_fish_table(self):
         assert _coerce_predator_retention("bored_move", True, self.FRESH) == "stay"
@@ -556,17 +560,21 @@ class TestCoercePredatorRetention:
         assert _coerce_predator_retention("bored_move", False, self.FRESH) == "bored_move"
 
     def test_tired_predator_released_to_cycle_out(self):
-        # Worn down past the fatigue floor → retention lifts, predator leaves.
+        # Worn down past the fatigue floor → even boredom-drift stands.
         assert _coerce_predator_retention("stake_up", True, self.TIRED) == "stake_up"
         assert _coerce_predator_retention("bored_move", True, self.TIRED) == "bored_move"
 
     def test_fatigue_boundary(self):
+        # Only bored_move is energy-gated now (stake_up always stands), so
+        # the boundary is exercised through bored_move.
         from cash_mode.movement import CASINO_PREDATOR_FATIGUE_FLOOR
 
         at = CASINO_PREDATOR_FATIGUE_FLOOR
         below = CASINO_PREDATOR_FATIGUE_FLOOR - 0.01
-        assert _coerce_predator_retention("stake_up", True, at) == "stay"  # at floor → retained
-        assert _coerce_predator_retention("stake_up", True, below) == "stake_up"  # below → released
+        assert _coerce_predator_retention("bored_move", True, at) == "stay"  # at floor → retained
+        assert (
+            _coerce_predator_retention("bored_move", True, below) == "bored_move"
+        )  # below → released
 
 
 class TestCoerceFishMovement:
