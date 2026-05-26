@@ -1,8 +1,8 @@
 ---
-purpose: Give cash tables an AI-facing attractiveness score so grinders hunt where the fish/whales are, the rich are drawn up to prestigious high-stakes rooms, restrict fish movement, and turn whales into a pool relief valve
+purpose: Give cash tables an AI-facing attractiveness score so grinders hunt where the fish/whales are, the rich are drawn up to prestigious high-stakes rooms, a status cohort chases marquee tables built on the social standing of who's sitting there, restrict fish movement, and turn whales into a pool relief valve
 type: spec
 created: 2026-05-25
-last_updated: 2026-05-25
+last_updated: 2026-05-26
 ---
 
 # Cash Mode: Table Attractiveness
@@ -89,9 +89,16 @@ attractiveness(table, ai) =
     − W_CROWD × (other grinders at table)         # self-balancing term
 
 base_attractor(ai, table) =
-      stake_fit(ai, table_stake)                  # personality anchor ∩ affordable band
-    + W_PRESTIGE × prestige(table) × wealth(ai)   # the rich are pulled UPWARD
+      stake_fit(ai, table_stake)                       # personality anchor ∩ affordable band
+    + W_CLIMB   × room_prestige(table)  × wealth(ai)          # the rich are pulled UPWARD
+    + W_MARQUEE × occ_prestige(table)   × status_appetite(ai) # chase where the respected sit
 ```
+
+`room_prestige` is the **static, tier-derived** draw (below); `occ_prestige`
+is the **earned, social** draw built from who's sitting there (the
+"Occupant prestige" section). The two are complementary: room prestige
+**seeds** a cold table and pulls the rich to climb; occupant prestige is
+the **flywheel** that compounds once respected figures sit and hold court.
 
 The AI then makes a **weighted probability roll** over *affordable*
 tables by this score — replacing today's "flat `live_fill_prob` roll →
@@ -128,7 +135,15 @@ priority seating + 2× fill (`lobby.py:1055-1079`). Generalize that to a
 amplifies the fish/whale draw. A flush grinder is mildly drawn to fish; a
 near-broke one is pulled hard toward the casino to recover.
 
-#### Prestige: wealth bends the band upward
+#### Room prestige: wealth bends the band upward
+
+Prestige has **two layers**. This one — **room prestige** — is the
+*static, tier-derived* glamour of the venue itself (the `$1000` High
+Roller Pit is a draw because it's the Pit). It pulls the *rich* upward
+and seeds a cold table. The second layer — **occupant prestige**, the
+earned social standing of who's actually sitting there — is the section
+after this one. Room prestige is the seed; occupant prestige is the
+flywheel.
 
 The model so far is *lateral* — find your comfortable stake, then chase
 the juiciest table at it. Nothing pulls a rich AI to climb. **Observed
@@ -155,7 +170,7 @@ attractor** — it does *not* gate (decision: **pure soft pull**, no
 net-worth floor; the normal buy-in window stays the only hard
 affordability check). Three pieces:
 
-**(a) `prestige(table)` — a per-room draw value.** Defaults to a
+**(a) `room_prestige(table)` — a per-room draw value.** Defaults to a
 tier-normalized scalar derived from `STAKES_ORDER` index (`$2`≈0 →
 `$1000`≈1; curve it so the top stands out, e.g. squared), with an
 **optional per-room override** in `lobby_config.py` (`LobbyTableEntry`
@@ -206,6 +221,105 @@ after the rich get unstuck) the Pit may stay empty for a while before
 the first qualifying AI climbs all the way up. Revisit only if sim shows
 fill is unacceptably slow.
 
+#### Occupant prestige: social standing (the marquee layer)
+
+> **Status (2026-05-26): LOCKED, parked (sleeper).** The
+> relationship-derived model below is the settled design — prestige =
+> earned social standing from the `relationship_states` graph, *not*
+> wealth/stakes/celebrity-config. **Not building now:** it rides on the
+> still-unbuilt core `attractiveness()`/`stake_fit()` layer (the real
+> prerequisite), so it sits as a sleeper until that lands. Everything
+> still open is **tuning-only** (weights, `heat` sign, `status_appetite`
+> source) — the *model* is not up for revisit.
+
+A *second, non-EV attractor*. Everything else in the economy pulls on
+**money** (fish draw grinders; the whale drains the pool; room prestige
+pulls the rich). Occupant prestige is different in kind — **"I want to
+play where the respected sit"** — social, aspirational, not +EV. It's
+what makes a real high-stakes game glamorous: the Big Game draws
+gamblers who want to *say they played it*, not just sharks hunting the
+soft seat. So it's a **distinct axis** (decision: only a
+**status-seeking cohort** responds — grinders keep chasing fish/EV;
+marquee tables and fish tables coexist), not folded into the fish term.
+
+**Prestige = earned social standing** (decision: derived from the
+relationship layer — "the likability and respect of the others who know
+them"), **not** wealth/stakes/celebrity-config. The relationship layer
+already carries the substrate: `relationship_states` is a **directed**
+graph keyed `(observer_id, opponent_id)` with axes
+`{likability, respect, heat}` (`relationship_repository.py:5,89`) —
+*observer's view of opponent*. A person's prestige is their **inbound
+regard**: aggregate over everyone who knows them.
+
+```
+regard(o→p)   = W_RESPECT × respect(o→p) + W_LIKE × likability(o→p)   # projected/decayed values
+social_prestige(p) = saturate( Σ_{o knows p} weight(o) × regard(o→p) )
+```
+
+- **Respect-weighted** (`W_RESPECT > W_LIKE`): standing is more about
+  being respected than liked. `heat` (conflict/rivalry intensity) is
+  **neutral in v1** — a feared rival arguably carries a *dark* prestige;
+  whether heat adds or subtracts is an open fork (below), not a v1
+  commitment.
+- **`weight(o)` — whose opinion counts.** v1: **flat** (`weight(o)=1`)
+  to bootstrap. v2: `weight(o) = social_prestige(o)` from the *previous*
+  tick — "respected by the respected" matters more (eigenvector/
+  PageRank flavor). Using the prior tick's value sidesteps a fixpoint
+  solve; it's recomputed every world tick anyway, so it converges.
+- **`saturate`** keeps it 0→1 so a handful of strong regards don't blow
+  it up; `Σ` (not avg) rewards **breadth × depth** — known by many *and*
+  regarded highly — which is what "prestige" means.
+
+**Bootstrapping is a feature, not a bug.** A brand-new persona (or one
+nobody has sat with) has no inbound edges → prestige ≈ 0 → it must
+*earn* standing through play. That's correct, but it means social
+prestige **can't cold-start an empty Pit** — which is exactly why
+**room prestige seeds and occupant prestige is the flywheel**: the room
+is glamorous on its own and pulls the rich up via the climb term; once a
+respected figure sits and holds court (`tenure_mult` below), occupant
+prestige compounds and pulls the status cohort in.
+
+**Table-level rollup** — *headliner-dominant* so one revered figure
+beats a table of six unknowns, and amplified by **tenure** (the longer a
+respected figure holds court, the more the table becomes an
+*institution* — the original ask):
+
+```
+tenure_mult(occ, table) = 1 + P_TENURE × (1 − exp(−hands_here / TENURE_SCALE))
+occ_prestige(table)     = max_seat( social_prestige(occ) × tenure_mult(occ, table) )   # the headliner
+                        + P_LINEUP × Σ_others( social_prestige × tenure_mult )         # a stacked lineup adds a little
+```
+
+`tenure_mult` starts at 1 the moment they sit, climbs fast, saturates at
+`1 + P_TENURE`. It needs the **one piece of new state**: a `seated_at`
+(or `seated_hand`) stamp on the seat slot — *free*, since seats are a
+JSON blob (`tables.py:115`), **no migration**. When the headliner
+leaves, `occ_prestige` drops (it's a live sum); v2 could add an
+**afterglow** so a table that *was* the big game keeps cachet briefly.
+
+**The human is in the graph.** AIs' regard for the human is already
+updated from play, so the human accrues social prestige the same way —
+their **reputation literally pulls AIs to their table**. Surface
+`room_prestige + occ_prestige` in the lobby as a "🔥 the big game"
+marquee badge + a ticker event ("the big game is forming at the High
+Roller Pit") so the human chases the action too. Plugs straight into the
+existing rivalry-seek seating.
+
+**Personal regard (complement, likely v2).** Global `social_prestige` is
+"a Big Deal *to everyone*." Distinct from it is the chaser's **own
+outbound** edge to a seated player — "*I* admire / rival this specific
+person" — which should also pull that AI toward that table (affinity/
+rivalry-seek, which the relationship layer already supports). v1 ships
+the global aggregate; the personal pull is the natural v2 extension.
+
+**Plumbing.** One new read: inbound regard (`WHERE opponent_id = ?`, or a
+single grouped pass over the sandbox's relationship rows per tick — the
+repo today only exposes *outbound* `load_all_relationships(observer_id)`,
+`relationship_repository.py:176`). Compute on the existing world ticker
+(where holdings snapshots already run); **sandbox-scoped** (reputation
+within your world). `status_appetite(ai)` gates *who* chases it — derive
+v1 from confidence/ego-ish traits (glory-hunters), optional config later.
+
 #### Notes
 
 - **`W_CROWD` is load-bearing.** Without it, every grinder dogpiles the
@@ -218,11 +332,12 @@ fill is unacceptably slow.
   the comfort-zone adjacency gate, the hungry-grinder priority reorder,
   and the casino `×2` live-fill hack all collapse into
   `attractiveness()`.
-- **v2 (deferred):** human-keyed terms — likability/rivalry from the
-  relationship layer, the human's win/loss streak (motivator vs
-  avoidance), and expected edge from the grinder's history vs known
-  opponents. The relationship layer already exists
-  (`CASH_MODE_AND_RELATIONSHIPS.md`), so this is additive, not
+- **v2 (deferred):** the *personal* human-keyed terms — the chaser's own
+  outbound affinity/rivalry toward a specific seated player (vs the
+  global `social_prestige` aggregate, which IS v1), the human's
+  win/loss streak (motivator vs avoidance), and expected edge from the
+  grinder's history vs known opponents. The relationship layer already
+  exists (`CASH_MODE_AND_RELATIONSHIPS.md`), so this is additive, not
   foundational. Out of scope for v1.
 
 ### 2. Plug-in surfaces
@@ -305,12 +420,16 @@ only fires when the pool is genuinely over-full.
 | File | Change |
 |---|---|
 | *(precondition ✅)* | eph-fix `fb339db6`+`6a4a296e` (stamp-based `_count_seated_fish`) — merged into `career-mode-v0_1` 2026-05-25 |
-| `cash_mode/movement.py` | new `table_attractiveness()` (base_attractor × hunger × fish/whale − crowd); `stake_fit()` band; `hunger()` curve; **`prestige`-bent `base_attractor`**; **`wealth(ai)` + `wealth_over_tier(ai)` curves**; **wealth term in the `stake_up` source of `compute_leave_pressure`**; attractiveness term in `compute_leave_pressure`; **`_coerce_predator_retention` override at `PRESTIGE_RETENTION_OVERRIDE`**; coerce fish `take_break → rebuy`; **weighted-probability** live-fill target selection (replaces oldest-first) |
-| `cash_mode/lobby.py` | drop `×2` casino hack (`1054-1057`) **and** the hungry-grinder reorder (`1058-1079`) — both subsumed by `attractiveness()`; flip refill-before-live-fill ordering at casinos; fish seat reservation |
+| `cash_mode/movement.py` | new `table_attractiveness()` (base_attractor × hunger × fish/whale − crowd); `stake_fit()` band; `hunger()` curve; **`base_attractor` = stake_fit + climb (room_prestige×wealth) + marquee (occ_prestige×status_appetite)**; **`wealth(ai)` + `wealth_over_tier(ai)` curves**; **`status_appetite(ai)`**; **wealth term in the `stake_up` source of `compute_leave_pressure`**; attractiveness term in `compute_leave_pressure`; **`_coerce_predator_retention` override at `PRESTIGE_RETENTION_OVERRIDE`**; coerce fish `take_break → rebuy`; **weighted-probability** live-fill target selection (replaces oldest-first) |
+| `cash_mode/lobby.py` | drop `×2` casino hack (`1054-1057`) **and** the hungry-grinder reorder (`1058-1079`) — both subsumed by `attractiveness()`; flip refill-before-live-fill ordering at casinos; fish seat reservation; **stamp `seated_at` on the seat slot at sit-down; recompute `social_prestige` on the world ticker** |
 | `cash_mode/lobby_config.py` | add optional `prestige` field to `LobbyTableEntry` for per-room overrides (v1 leaves it unset → tier-derived) |
+| `cash_mode/tables.py` | **add `seated_at`/`seated_hand` to the seat slot dict (JSON blob — no migration); `tenure_mult` helper** |
+| `poker/repositories/relationship_repository.py` | **new inbound read — aggregate regard `WHERE opponent_id = ?` (or one grouped pass per sandbox) to feed `social_prestige`** |
+| `cash_mode/social_prestige.py` *(new)* | **`regard(o→p)`, `social_prestige(p)` rollup (saturate(Σ weight·regard)), `occ_prestige(table)` headliner-dominant + tenure; sandbox-scoped; flat regarder-weight v1 → prestige-weighted v2** |
 | `cash_mode/casino_provisioning.py` | pool-depth whale trigger; pass `whale=True` to `_fish_prefund`; whale `world_event` emit |
-| `cash_mode/closed_economy.py` | `WHALE_POOL_THRESHOLD`, attractiveness weights (`W_FISH`/`W_WHALE`/`W_CROWD`/`W_HUNGER`), **`W_PRESTIGE`/`W_SLUM`/`PRESTIGE_RETENTION_OVERRIDE`**, **`prestige(table)` helper (tier-normalized + per-room override) + `wealth`/`wealth_over_tier` constants**, affordable-band `N`, hunger curve constants |
+| `cash_mode/closed_economy.py` | `WHALE_POOL_THRESHOLD`, attractiveness weights (`W_FISH`/`W_WHALE`/`W_CROWD`/`W_HUNGER`), **`W_CLIMB`/`W_MARQUEE`/`W_SLUM`/`PRESTIGE_RETENTION_OVERRIDE`**, **`room_prestige(table)` helper (tier-normalized + per-room override) + `wealth`/`wealth_over_tier` + `status_appetite` constants**, **`W_RESPECT`/`W_LIKE`/`P_TENURE`/`TENURE_SCALE`/`P_LINEUP` social-prestige weights**, affordable-band `N`, hunger curve constants |
 | `cash_mode/bankroll.py` | derive affordable stake band from bankroll + `stake_comfort_zone` anchor (knobs already load here) |
+| frontend lobby | **"🔥 the big game" marquee badge from `room_prestige + occ_prestige`; ticker event on a marquee table forming** |
 
 ## Validation (sim)
 
@@ -330,6 +449,12 @@ Run the cash economy sim (`cash_mode/sim_runner.py`) and assert:
    pressure, graduate past fish-retention, and the `$1000` High Roller
    Pit goes from empty to populated — without dragging the broke up with
    them (low-`wealth` AIs stay anchored near `stake_comfort_zone`).
+6. **The marquee forms.** Seed a respected figure (high inbound regard)
+   into a table; over N ticks assert `occ_prestige` rises with their
+   tenure, status-appetite AIs cluster there, and `social_prestige`
+   tracks the relationship graph (a persona others respect scores high;
+   an unknown scores ~0 until it earns regard). Grinders **don't**
+   abandon fish tables to chase the marquee (the two axes stay distinct).
 
 ## Open questions
 
@@ -352,6 +477,21 @@ Run the cash economy sim (`cash_mode/sim_runner.py`) and assert:
   they stay stuck (today's bug).
 - Net worth vs bankroll for `wealth(ai)` (v1 uses bankroll; see decision
   box in §1) — revisit if staker-heavy AIs should feel the pull.
+- **`W_RESPECT` : `W_LIKE` split** in `regard(o→p)` — how much standing is
+  respect vs being liked.
+- **Does `heat` count toward prestige?** Neutral in v1. Fork: a feared
+  rival carries a *dark* prestige (heat adds), or heat is purely
+  conflict and should subtract / stay out. Tune in sim.
+- **`status_appetite(ai)`** — derive from which traits (confidence, ego,
+  chattiness)? Dedicated config field vs derived. And how sharply
+  `W_MARQUEE` must out-pull fish/whale draw for the *status cohort*
+  without the cohort ever abandoning real EV.
+- **Flat vs prestige-weighted regarders** (`weight(o)`) — when to turn on
+  the recursive "respected-by-the-respected" weighting (v2), and whether
+  it stays stable tick-over-tick.
+- **`P_TENURE` / `TENURE_SCALE`** — how fast a table becomes an
+  "institution," and whether a departed headliner leaves an **afterglow**
+  (v2) or `occ_prestige` drops immediately (v1).
 - Should attractiveness-weighted selection apply to lobby tables in v1
   (scope = "all cash tables") or stay casino-only until v2 brings the
   human terms? Leaning: compute the score for all tables in v1 but the
