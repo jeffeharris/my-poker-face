@@ -23,9 +23,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -33,6 +33,7 @@ import { TableCard } from './TableCard';
 import { ActivityTicker, feedEventKey } from './ActivityTicker';
 import { CareerHero } from './CareerHero';
 import { NetWorthDrawer } from './NetWorthDrawer';
+import { WhereaboutsDrawer } from './WhereaboutsDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -157,24 +158,14 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
 
 export function Lobby() {
   const navigate = useNavigate();
-  const location = useLocation();
-  // One-shot signal from the in-game "back" button: land on the lobby
-  // instead of auto-resuming into the still-alive session. Captured at
-  // mount via useRef so it survives re-renders without re-triggering the
-  // mount effect (its only dep is `navigate`). A later fresh navigation
-  // to /cash carries no state, so resume-on-load works normally again.
-  const skipResumeRef = useRef(
-    (location.state as { skipResume?: boolean } | null)?.skipResume ?? false
-  );
-  // Set only when the player reached the lobby via the in-game "back"
-  // button (skipResume) while a session is still live. Drives the
-  // "Resume session" banner — the explicit way back into the game,
-  // since tapping a table seat tries to *sit*, not resume.
-  const [resume, setResume] = useState<{ gameId: string; stakeLabel: string | null } | null>(null);
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
+  /** The table the player currently has a live session at, or null. Drives
+   *  the "you're here" pin + Resume on the matching TableCard. Only ever
+   *  set when the lobby is reachable while seated (see the mount redirect). */
+  const [seatedTableId, setSeatedTableId] = useState<string | null>(null);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -186,6 +177,7 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
+  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -285,6 +277,7 @@ export function Lobby() {
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setTables(lobby.tables);
+        setSeatedTableId(lobby.seated_table_id ?? null);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
         // prior self last-stand line first so the poll snapshot stays
@@ -310,24 +303,14 @@ export function Lobby() {
     };
     reloadLobbyRef.current = load;
 
+    // The lobby is an always-browsable hub: we no longer bounce a player
+    // with a live session straight back into their game. Instead the
+    // `seated_table_id` from the load drives a "you're here" pin on that
+    // table card + a persistent Resume bar — so resume is always one tap
+    // away, survives refresh, and is consistent from every entry point
+    // (the old auto-redirect only ever "helped" the Career menu button,
+    // at the cost of never showing the player which table they were at).
     (async () => {
-      try {
-        const state = await getState();
-        if (cancelled) return;
-        if (state.state?.game_id) {
-          if (skipResumeRef.current) {
-            // Player backed out of a live session on purpose — show the
-            // lobby with a Resume banner instead of bouncing them back in.
-            setResume({ gameId: state.state.game_id, stakeLabel: state.state.stake_label });
-          } else {
-            navigate(`/game/${state.state.game_id}`, { replace: true });
-            return;
-          }
-        }
-      } catch (e) {
-        if (cancelled) return;
-        logger.warn('Failed to read cash state:', e);
-      }
       await load();
       if (cancelled) return;
       interval = setInterval(load, LOBBY_REFRESH_INTERVAL_MS);
@@ -337,7 +320,9 @@ export function Lobby() {
       cancelled = true;
       if (interval !== null) clearInterval(interval);
     };
-  }, [navigate]);
+    // Mount-only: sets up the load + fallback poll. `load` is defined
+    // inline and the lobby no longer reads any reactive value here.
+  }, []);
 
   // Realtime push. The backend's `connect` handler joins this user's
   // lobby room (auth comes from the session cookie via withCredentials),
@@ -424,6 +409,18 @@ export function Lobby() {
     [busy, navigate]
   );
 
+  /** Resume the player's in-progress game. The lobby knows the seated
+   *  table_id but not the game_id, so we resolve it via /api/cash/state
+   *  (same source the mount redirect uses) and navigate. */
+  const handleResume = useCallback(async () => {
+    try {
+      const state = await getState();
+      if (state.state?.game_id) navigate(`/game/${state.state.game_id}`);
+    } catch (e) {
+      logger.error('Resume failed:', e instanceof Error ? e.message : String(e));
+    }
+  }, [navigate]);
+
   /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
    *  the target tier's [min, max] window from the lobby's tables so
    *  the modal doesn't need its own fetch. */
@@ -448,6 +445,13 @@ export function Lobby() {
     [tables]
   );
 
+  // Stake label of the table the player is seated at (for the Resume bar
+  // text). Derived from the live lobby snapshot so it stays in sync as the
+  // session ends — when `seatedTableId` clears, the bar disappears.
+  const seatedStakeLabel = seatedTableId
+    ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
+    : null;
+
   return (
     <>
       <MenuBar
@@ -469,21 +473,28 @@ export function Lobby() {
             />
           )}
 
-          {resume && (
-            <button
-              type="button"
-              className="cash-entry__resume"
-              onClick={() => navigate(`/game/${resume.gameId}`)}
-            >
+          {seatedTableId && (
+            <button type="button" className="cash-entry__resume" onClick={handleResume}>
               <Play size={18} aria-hidden="true" />
               <span className="cash-entry__resume-text">
-                Resume your{resume.stakeLabel ? ` ${resume.stakeLabel}` : ''} session
+                Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
               </span>
               <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
             </button>
           )}
 
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
+
+          <div className="cash-entry__whereabouts-row">
+            <button
+              type="button"
+              className="cash-entry__whereabouts-trigger"
+              onClick={() => setWhereaboutsOpen(true)}
+            >
+              <MapPin size={13} aria-hidden="true" />
+              Who's around
+            </button>
+          </div>
 
           {loadError && (
             <div className="cash-entry__error" role="alert">
@@ -599,6 +610,8 @@ export function Lobby() {
                                 busy={busy}
                                 onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
                                 onAiSeatClick={setDossier}
+                                isSeated={seatedTableId === t.table_id}
+                                onResume={handleResume}
                               />
                             ))}
                           </div>
@@ -628,6 +641,8 @@ export function Lobby() {
                         busy={busy}
                         onSeatTap={(seatIndex) => handleSeatTap(t, seatIndex)}
                         onAiSeatClick={setDossier}
+                        isSeated={seatedTableId === t.table_id}
+                        onResume={handleResume}
                       />
                     ))}
                   </div>
@@ -670,6 +685,11 @@ export function Lobby() {
           onPayoff={() => {
             void reloadLobbyRef.current();
           }}
+        />
+        <WhereaboutsDrawer
+          isOpen={whereaboutsOpen}
+          onClose={() => setWhereaboutsOpen(false)}
+          refreshTick={stakablePanelTick}
         />
         <StakeOfferModal
           target={stakeTarget}

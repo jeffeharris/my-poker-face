@@ -1,0 +1,240 @@
+/* CashWhereaboutsPanel — admin world-state monitor + stuck tripwire.
+ * Dark admin theme; mirrors the ChipLedgerPanel look. */
+
+.cwp {
+  color: #e6e6e6;
+  font-size: 13px;
+}
+
+.cwp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.cwp-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.cwp-summary__total {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cwp-summary__stuck {
+  font-size: 13px;
+  color: #8a8f99;
+}
+
+.cwp-summary__stuck--alert {
+  color: #ff7a7a;
+  font-weight: 700;
+}
+
+.cwp-summary__watch {
+  font-size: 13px;
+  color: #e0b020;
+  font-weight: 600;
+}
+
+.cwp-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cwp-select {
+  background: #14161b;
+  color: #e6e6e6;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  max-width: 280px;
+}
+
+.cwp-refresh {
+  background: #2a2e37;
+  color: #e6e6e6;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.cwp-refresh:hover {
+  background: #343945;
+}
+
+.cwp-error {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(214, 110, 110, 0.14);
+  color: #e69a9a;
+}
+
+.cwp-loading,
+.cwp-empty {
+  padding: 20px 4px;
+  color: #8a8f99;
+}
+
+.cwp-section {
+  margin-bottom: 22px;
+}
+
+.cwp-section__title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #b8bcc4;
+  margin: 0 0 4px;
+}
+
+.cwp-section--stuck .cwp-section__title {
+  color: #ff9a9a;
+}
+
+.cwp-section__hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #8a8f99;
+}
+
+.cwp-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.cwp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.cwp-table th,
+.cwp-table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  white-space: nowrap;
+}
+
+.cwp-table th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8f99;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cwp-table .cwp-num {
+  text-align: right;
+}
+
+.cwp-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cwp-row--stuck {
+  background: rgba(255, 122, 122, 0.06);
+}
+
+.cwp-row--watch {
+  background: rgba(224, 176, 32, 0.05);
+}
+
+.cwp-name {
+  font-weight: 600;
+}
+
+.cwp-where {
+  color: #b8bcc4;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cwp-muted {
+  color: #6a6f78;
+}
+
+.cwp-time--overdue {
+  color: #ff7a7a;
+  font-weight: 700;
+}
+
+.cwp-sandbox {
+  color: #8a8f99;
+  font-size: 12px;
+}
+
+/* status pills */
+.cwp-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cwp-status--seated {
+  background: rgba(121, 184, 255, 0.16);
+  color: #9ec9ff;
+}
+.cwp-status--idle {
+  background: rgba(214, 196, 110, 0.16);
+  color: #e0d07a;
+}
+.cwp-status--side_hustle {
+  background: rgba(110, 214, 143, 0.16);
+  color: #7fdc9a;
+}
+.cwp-status--vice {
+  background: rgba(196, 139, 250, 0.16);
+  color: #c4a9ff;
+}
+.cwp-status--unknown {
+  background: rgba(255, 122, 122, 0.16);
+  color: #ff9a9a;
+}
+
+/* flag chips */
+.cwp-flags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.cwp-flag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* hard = real bug (red); soft = temporal/expected-when-away (amber) */
+.cwp-flag--stuck {
+  background: rgba(255, 122, 122, 0.18);
+  color: #ff9a9a;
+}
+
+.cwp-flag--watch {
+  background: rgba(224, 176, 32, 0.16);
+  color: #e6c558;
+}

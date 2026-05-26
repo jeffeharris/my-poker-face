@@ -53,7 +53,7 @@ from experiments.champion_challenger import (
     _challenger_seat_indices,
     run_cc_hand,
 )
-from experiments.simulate_bb100 import ARCHETYPES, TERMINAL_PHASES, make_controller, make_game_state
+from experiments.simulate_bb100 import ARCHETYPES, make_controller, make_game_state
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.strategy.strategy_table import load_strategy_table
 
@@ -132,7 +132,9 @@ def play_sng(
 # ── Seat construction per mode ──────────────────────────────────────────────
 
 
-def _field_seat_specs(field: List[str], table, rotation: int) -> List[Tuple[str, dict, object, dict]]:
+def _field_seat_specs(
+    field: List[str], table, rotation: int
+) -> List[Tuple[str, dict, object, dict]]:
     """One archetype per seat, rotated by `rotation` so the field's starting
     seats (and thus first-button assignment) vary across SNGs."""
     rotated = field[rotation:] + field[:rotation]
@@ -188,7 +190,17 @@ def _field_worker(args) -> Counter:
 
 
 def _cc_worker(args) -> Tuple[int, int]:
-    change, n_seats, n_challenger, archetype, blind_config, starting_stack, big_blind, seed_start, count = args
+    (
+        change,
+        n_seats,
+        n_challenger,
+        archetype,
+        blind_config,
+        starting_stack,
+        big_blind,
+        seed_start,
+        count,
+    ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     spec = CHANGES[change]
     champion_table = spec.champion_table()
@@ -271,7 +283,9 @@ def report_cc(change: str, n_seats: int, n_challenger: int, chal_wins: int, tota
     print(f"  {n_challenger} challenger vs {n_seats - n_challenger} champion seats | {total} SNGs")
     print(f"  null (equal skill): challenger group wins {100*null:.1f}% of SNGs")
     print("=" * 70)
-    print(f"\n  challenger win-rate: {100*p:.1f}%  ({chal_wins}/{total})  95% CI [{100*lo:.1f}, {100*hi:.1f}]")
+    print(
+        f"\n  challenger win-rate: {100*p:.1f}%  ({chal_wins}/{total})  95% CI [{100*lo:.1f}, {100*hi:.1f}]"
+    )
     if lo > null:
         verdict = "✅ CI-CLEAR ABOVE null — challenger wins more SNGs (real improvement)"
     elif hi < null:
@@ -296,13 +310,24 @@ def main():
         default='Baseline,TAG,LAG,Rock,Nit,GTO-Lite',
         help='field mode: comma-separated archetypes, one per seat',
     )
-    p.add_argument('--change', choices=sorted(CHANGES), help='champion_challenger mode: the change to A/B')
-    p.add_argument('--archetype', default='Baseline', help='champion_challenger mode: archetype for all seats')
+    p.add_argument(
+        '--change', choices=sorted(CHANGES), help='champion_challenger mode: the change to A/B'
+    )
+    p.add_argument(
+        '--archetype', default='Baseline', help='champion_challenger mode: archetype for all seats'
+    )
     p.add_argument('--seats', type=int, default=6, help='champion_challenger mode: table size')
-    p.add_argument('--challenger-seats', type=int, default=3, help='champion_challenger mode: seats with change ON')
+    p.add_argument(
+        '--challenger-seats',
+        type=int,
+        default=3,
+        help='champion_challenger mode: seats with change ON',
+    )
     p.add_argument('--sngs', type=int, default=400, help='number of SNGs to run')
     p.add_argument('--seed', type=int, default=42, help='base seed')
-    p.add_argument('--start-bb', type=int, default=100, help='starting stack in big blinds (bb=100)')
+    p.add_argument(
+        '--start-bb', type=int, default=100, help='starting stack in big blinds (bb=100)'
+    )
     p.add_argument('--blind-growth', type=float, default=DEFAULT_BLIND['growth'])
     p.add_argument('--hands-per-level', type=int, default=DEFAULT_BLIND['hands_per_level'])
     p.add_argument('--max-blind', type=int, default=DEFAULT_BLIND['max_blind'])
@@ -335,7 +360,9 @@ def main():
             print("--change is required for champion_challenger mode")
             sys.exit(1)
         if ARCHETYPES.get(args.archetype, {}).get('kind') == 'rule_bot':
-            print(f"{args.archetype!r} is a rule_bot — it ignores tables/flags; the A/B is a no-op.")
+            print(
+                f"{args.archetype!r} is a rule_bot — it ignores tables/flags; the A/B is a no-op."
+            )
             sys.exit(1)
         _challenger_seat_indices(args.seats, args.challenger_seats)  # validates the split
         work = [

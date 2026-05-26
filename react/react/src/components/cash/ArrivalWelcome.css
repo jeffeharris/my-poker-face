@@ -1,0 +1,96 @@
+/**
+ * ArrivalWelcome — brief centered "you walked into a room" card on
+ * cash-mode sit-down. Auto-fades in ~2.5s; non-blocking.
+ */
+
+.arrival-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Non-blocking: the live table behind stays clickable. Only the card
+     itself opts back into pointer events (for tap-to-dismiss). */
+  pointer-events: none;
+}
+
+.arrival-welcome__card {
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 220px;
+  padding: 24px 36px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(12, 16, 24, 0.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  color: var(--color-text-primary);
+  text-align: center;
+  animation: arrival-welcome-fade 2500ms ease-in-out forwards;
+}
+
+.arrival-welcome__icon {
+  color: var(--color-gold, #f5c451);
+  margin-bottom: 2px;
+}
+
+.arrival-welcome__name {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.arrival-welcome__sub {
+  font-size: 0.85rem;
+  color: var(--color-text-tertiary);
+  text-transform: capitalize;
+  letter-spacing: 0.04em;
+}
+
+/* Fade in, hold, fade out over the card's 2.5s life. */
+@keyframes arrival-welcome-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrival-welcome__card {
+    /* Skip the motion; still fade so it appears + clears gracefully. */
+    animation: arrival-welcome-fade-plain 2500ms ease-in-out forwards;
+  }
+  @keyframes arrival-welcome-fade-plain {
+    0% {
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    78% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}

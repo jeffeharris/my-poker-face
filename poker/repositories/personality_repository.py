@@ -271,6 +271,30 @@ class PersonalityRepository(BaseRepository):
             ).fetchone()
             return row['personality_id'] if row and row['personality_id'] else None
 
+    def display_names_by_ids(self, personality_ids) -> Dict[str, str]:
+        """Map a set of personality_ids → display names in one query.
+
+        Side-effect-free (unlike `load_personality_by_id`, which bumps
+        `times_used`) so it's safe on hot read paths like the lobby
+        whereabouts view that resolve many ids per poll. Ids absent from
+        the table are simply omitted from the result; callers fall back
+        to the id as the display name and can treat the gap as an orphan.
+        """
+        ids = [pid for pid in dict.fromkeys(personality_ids) if pid]
+        if not ids:
+            return {}
+        with self._get_connection() as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)")]
+            if 'personality_id' not in columns:
+                return {}
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT personality_id, name FROM personalities "
+                f"WHERE personality_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+            return {row['personality_id']: row['name'] for row in rows if row['personality_id']}
+
     def list_personalities(
         self, limit: int = 50, user_id: Optional[str] = None, include_disabled: bool = False
     ) -> List[Dict[str, Any]]:

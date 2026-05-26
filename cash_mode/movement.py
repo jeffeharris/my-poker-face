@@ -254,29 +254,34 @@ def _coerce_predator_retention(
     table_has_fish: bool,
     energy: float,
 ) -> MovementDecision:
-    """Keep a grinder seated while there's a fish to farm (the predator
-    side of table attractiveness) — until it tires and cycles out.
+    """Keep a grinder from *drifting* off a fish table out of boredom —
+    but never block the `stake_up` graduation exit.
 
-    A grinder up enough to book the win (`stake_up`) or drifting off out
-    of boredom (`bored_move`) would normally leave — but a table holding a
-    seated fish is a feeding ground, and a predator that walks away from
-    it leaves money on the felt. Suppress those *discretionary* exits so
-    predators stay and farm. This is what staffs a high-stakes casino:
-    without it, rich AIs win a pot off the fish and immediately leave
-    (the $200 table sat half-empty in sim).
+    A table holding a seated fish is a feeding ground, and a predator that
+    wanders away from it (`bored_move`) after a pot or two leaves money on
+    the felt. Suppress that one discretionary drift so predators stay and
+    farm. This is what staffs a high-stakes casino: without it, rich AIs
+    win a pot off the fish and immediately drift away (the $200 table sat
+    half-empty in sim).
 
-    Retention is gated on energy: once a predator is worn down past
-    `CASINO_PREDATOR_FATIGUE_FLOOR` it's released (its discretionary exits
-    stand) so it cycles out and a fresh predator takes the seat — the
-    fish's pool-funded chips redistribute across predators rather than
-    piling into one permanent stack. `take_break`/`forced_leave` always
-    stand, so losing/short predators rotate regardless.
+    `stake_up` is deliberately NOT suppressed — it's the healthy release.
+    A predator that has farmed enough to buy into the next stake should
+    book the win and move up; that rising stack pressure is exactly what
+    stops a single grinder from hoarding the table forever. (When this
+    exit *was* gated, winning predators never tired below the energy floor
+    and one stack ran past 500k chips at a $50 seat — the bug this guard
+    now avoids.) `take_break`/`forced_leave` also always stand, so
+    losing/short predators rotate regardless.
+
+    Boredom suppression is gated on energy: once a predator is worn down
+    past `CASINO_PREDATOR_FATIGUE_FLOOR` even its `bored_move` stands, so a
+    tired grinder cycles out too.
     """
     if not table_has_fish:
         return decision
     if energy < CASINO_PREDATOR_FATIGUE_FLOOR:
         return decision  # worn down — let it cycle out
-    if decision in ("stake_up", "bored_move"):
+    if decision == "bored_move":
         return "stay"
     return decision
 
@@ -1199,13 +1204,21 @@ def refresh_table_roster(
                 amount=buy_in,
             )
         )
-        if source == "idle":
-            idle_changes.append(
-                IdlePoolChange(
-                    kind="remove",
-                    personality_id=pid,
-                )
+        # Clear any idle-pool row for the AI we just seated. For the
+        # `idle` source this is the matching removal. For the `eligible`
+        # source it self-heals a stale row: a `stake_up_queued` AI whose
+        # target tier doesn't match this table is rejected by
+        # `_idle_candidate_filter` but is still in `eligible_candidates`
+        # (which is filtered only by off-grid, not idle membership), so
+        # it can be seated here below its target — leaving a live idle
+        # row = the `seated_and_idle` split-brain. The caller's
+        # delete_idle is a harmless no-op when no row exists.
+        idle_changes.append(
+            IdlePoolChange(
+                kind="remove",
+                personality_id=pid,
             )
+        )
 
     new_table = CashTableState(
         table_id=table.table_id,

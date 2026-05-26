@@ -69,6 +69,9 @@ export interface GameInfoDisplayProps {
   smallBlind: number;
   bigBlind: number;
   handNumber?: number;
+  /** Cash-mode room name ("The Lodge"). Shown as the leading item so the
+   *  player knows which table they're at. Omitted for tournaments. */
+  tableName?: string | null;
 }
 
 /**
@@ -79,6 +82,7 @@ export const GameInfoDisplay = memo(function GameInfoDisplay({
   smallBlind,
   bigBlind,
   handNumber,
+  tableName,
 }: GameInfoDisplayProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string) => {
@@ -93,6 +97,11 @@ export const GameInfoDisplay = memo(function GameInfoDisplay({
 
   return (
     <div className="mobile-game-info">
+      {tableName && (
+        <span className="mobile-game-info__location" title={tableName}>
+          {tableName}
+        </span>
+      )}
       {handNumber !== undefined && <span className="mobile-game-info__hand">#{handNumber}</span>}
       <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
       <span className="mobile-game-info__blinds">

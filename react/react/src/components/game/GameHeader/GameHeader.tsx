@@ -5,6 +5,11 @@ interface GameHeaderProps {
   handNumber?: number;
   blinds: { small: number; big: number };
   phase: string;
+  /** Cash-mode location: the friendly room name ("The Lodge") and stake
+   *  tier ("$50"). When present, the room becomes the leading identity
+   *  item. Omitted for tournament games. The room name is plain text for
+   *  now — its click target is reserved for a future hand-replay view. */
+  location?: { tableName?: string | null; stakeLabel?: string | null };
   onBackClick?: () => void;
   onSettingsClick?: () => void;
 }
@@ -13,6 +18,7 @@ export function GameHeader({
   handNumber,
   blinds,
   phase,
+  location,
   onBackClick,
   onSettingsClick,
 }: GameHeaderProps) {
@@ -42,6 +48,20 @@ export function GameHeader({
 
       {/* Center: Game info */}
       <div className="game-header__center">
+        {location?.tableName && (
+          <>
+            <span className="game-header__location" title={location.tableName}>
+              {location.tableName}
+            </span>
+            <span className="game-header__separator">&#8226;</span>
+          </>
+        )}
+        {location?.stakeLabel && (
+          <>
+            <span className="game-header__info-item">{location.stakeLabel}</span>
+            <span className="game-header__separator">&#8226;</span>
+          </>
+        )}
         {handNumber !== undefined && (
           <span className="game-header__info-item">Hand #{handNumber}</span>
         )}

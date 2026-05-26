@@ -528,14 +528,18 @@ class TestRefreshFishAreCasinoBound:
 
 
 class TestCoercePredatorRetention:
-    """Grinders stay to farm a seated fish until they tire; rotation
-    exits (take_break/bust) and tired predators still leave."""
+    """Grinders won't *drift* off a seated fish out of boredom, but the
+    `stake_up` graduation exit always stands so a winner books the win and
+    moves up (no permanent hoarding). Rotation exits (take_break/bust) and
+    tired predators still leave."""
 
-    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
+    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → boredom retained
     TIRED = 0.1  # energy < floor → released to cycle out
 
-    def test_stake_up_suppressed_at_fish_table(self):
-        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stay"
+    def test_stake_up_not_suppressed_at_fish_table(self):
+        # stake_up is the healthy release: farm enough, then move up. It is
+        # never gated by retention — gating it caused permanent hoarding.
+        assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stake_up"
 
     def test_bored_move_suppressed_at_fish_table(self):
         assert _coerce_predator_retention("bored_move", True, self.FRESH) == "stay"
@@ -556,17 +560,21 @@ class TestCoercePredatorRetention:
         assert _coerce_predator_retention("bored_move", False, self.FRESH) == "bored_move"
 
     def test_tired_predator_released_to_cycle_out(self):
-        # Worn down past the fatigue floor → retention lifts, predator leaves.
+        # Worn down past the fatigue floor → even boredom-drift stands.
         assert _coerce_predator_retention("stake_up", True, self.TIRED) == "stake_up"
         assert _coerce_predator_retention("bored_move", True, self.TIRED) == "bored_move"
 
     def test_fatigue_boundary(self):
+        # Only bored_move is energy-gated now (stake_up always stands), so
+        # the boundary is exercised through bored_move.
         from cash_mode.movement import CASINO_PREDATOR_FATIGUE_FLOOR
 
         at = CASINO_PREDATOR_FATIGUE_FLOOR
         below = CASINO_PREDATOR_FATIGUE_FLOOR - 0.01
-        assert _coerce_predator_retention("stake_up", True, at) == "stay"  # at floor → retained
-        assert _coerce_predator_retention("stake_up", True, below) == "stake_up"  # below → released
+        assert _coerce_predator_retention("bored_move", True, at) == "stay"  # at floor → retained
+        assert (
+            _coerce_predator_retention("bored_move", True, below) == "bored_move"
+        )  # below → released
 
 
 class TestCoerceFishMovement:
@@ -763,6 +771,51 @@ class TestRefreshLiveFill:
     def test_default_live_fill_prob_is_per_hand_rate(self):
         # The constant exposed as the default must match the per-hand rate.
         assert DEFAULT_LIVE_FILL_PROB == 0.05
+
+    def test_eligible_fill_clears_stale_idle_row(self):
+        """Regression: an AI queued to stake up ($50 target) that gets
+        eligible-filled at a non-target ($10) table must have its idle
+        row cleared. Before the fix the idle-remove fired only for the
+        `idle` source, so the eligible path left a live idle row →
+        the `seated_and_idle` split-brain (napoleon/joan/queen live cases).
+        """
+        seats = [open_slot()] * 6
+        table = _make_table(seats)  # $10 table
+        # Napoleon is BOTH idle (queued for $50) and in the eligible pool.
+        # His $50 target ≠ this $10 table and he can still afford $50
+        # (5000 ≥ 2000), so `_idle_candidate_filter` rejects him from the
+        # idle path — he can only be seated here via the eligible branch.
+        idle_pool = [
+            IdlePoolEntry(
+                personality_id="napoleon",
+                left_at=datetime(2026, 5, 18, 11, 0, 0),
+                reason="stake_up_queued",
+                target_stake="$50",
+            )
+        ]
+        rng = _force_rng([0.0] + [0.99] * 5)  # fill the first open seat only
+        result = refresh_table_roster(
+            table,
+            idle_pool=idle_pool,
+            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
+            seated_globally=set(),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+        )
+        # Seated via the eligible branch...
+        assert result.freshly_seated_personality_ids == ["napoleon"]
+        assert result.new_table.seats[0]["personality_id"] == "napoleon"
+        # ...and the stale idle row is scheduled for removal.
+        removes = [
+            c for c in result.idle_changes if c.kind == "remove" and c.personality_id == "napoleon"
+        ]
+        assert removes, "eligible-fill must emit an idle-remove to clear the stale row"
 
     def test_cooldown_skips_recent_leaver_at_same_table(self):
         seats = [open_slot()] * 6

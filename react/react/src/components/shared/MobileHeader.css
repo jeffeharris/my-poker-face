@@ -90,6 +90,19 @@
   border: 1px solid var(--color-border-default);
 }
 
+.mobile-game-info__location {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  max-width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--color-border-default);
+}
+
 .mobile-game-info__phase {
   font-family: var(--font-display);
   font-size: var(--font-size-sm);

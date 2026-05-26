@@ -279,6 +279,14 @@ export function PokerTable({
             handNumber={gameState.hand_number}
             blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
             phase={gameState.phase}
+            location={
+              gameState.cash_mode
+                ? {
+                    tableName: gameState.cash_mode.table_name,
+                    stakeLabel: gameState.cash_mode.stake_label,
+                  }
+                : undefined
+            }
             onBackClick={
               onBack ??
               (() => {

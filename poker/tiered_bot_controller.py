@@ -802,7 +802,9 @@ class TieredBotController(AIPlayerController):
         # and CI-clear regress heads-up (wider HU 3-bet/shallow ranges run
         # through narrow 6-max charts), so HU uses the 6-max base instead.
         base_strategy = self.strategy_table.lookup_postflop_with_fallback(
-            node, valid_actions, allow_shallow=len(game_state.players) > 2,
+            node,
+            valid_actions,
+            allow_shallow=len(game_state.players) > 2,
         )
 
         if self.debug_logging:

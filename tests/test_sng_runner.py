@@ -58,8 +58,12 @@ class TestSeatSpecs:
     def test_cc_specs_split_is_correct(self):
         full = load_strategy_table()
         specs, challenger_names = _cc_seat_specs(
-            'multistreet', n_seats=6, n_challenger=3, champion_table=full,
-            challenger_table=full, archetype='Baseline',
+            'multistreet',
+            n_seats=6,
+            n_challenger=3,
+            champion_table=full,
+            challenger_table=full,
+            archetype='Baseline',
         )
         assert len(specs) == 6
         assert len(challenger_names) == 3

@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { HandCoins, Coins, Fish, Wallet, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { HandCoins, Coins, Fish, Wallet, Clock, MapPin, ChevronDown, ChevronUp } from 'lucide-react';
 import type { LobbySeat, LobbyTable } from './types';
 import { absolutizeAvatarUrl } from './avatarUrl';
 // type-only import keeps the Lobby ↔ TableCard cycle erased at runtime
@@ -25,6 +25,12 @@ interface TableCardProps {
   onSeatTap: (seatIndex: number) => void;
   /** Fires when the player clicks an AI portrait — parent opens dossier. */
   onAiSeatClick?: (click: AiSeatClick) => void;
+  /** True when this is the table the player is currently seated at. Flips
+   *  the card to a "you're here" pin: Sit becomes Resume. */
+  isSeated?: boolean;
+  /** Resume the in-progress game on this table. Required to do anything
+   *  useful when `isSeated`. */
+  onResume?: () => void;
 }
 
 /** "$4.2k" / "$980" — compact chip count for the scouting line. */
@@ -40,7 +46,14 @@ function seatChips(seat: LobbySeat): number {
   return seat.kind === 'ai' || seat.kind === 'human' ? seat.chips : 0;
 }
 
-export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardProps) {
+export function TableCard({
+  table,
+  busy,
+  onSeatTap,
+  onAiSeatClick,
+  isSeated = false,
+  onResume,
+}: TableCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const locked = table.affordability === 'locked';
@@ -107,14 +120,21 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
         'lobby-table-card' +
         (locked ? ' is-disabled' : '') +
         (sponsorOnly ? ' is-sponsor' : '') +
-        (closing ? ' is-closing' : '')
+        (closing ? ' is-closing' : '') +
+        (isSeated ? ' is-seated' : '')
       }
-      aria-label={ariaLabel}
+      aria-label={isSeated ? `${ariaLabel} — you're seated here` : ariaLabel}
     >
       <div className="lobby-table-card__head">
         <div className="lobby-table-card__title">
           <div className="lobby-table-card__name">
             {table.table_name ?? `${table.stake_label} table`}
+            {isSeated && (
+              <span className="lobby-table-card__here" title="You're seated at this table">
+                <MapPin size={11} aria-hidden="true" />
+                You're here
+              </span>
+            )}
             {closing && (
               <span className="lobby-table-card__closing" title="This table is breaking up">
                 <Clock size={11} aria-hidden="true" />
@@ -128,24 +148,35 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
             {table.min_buy_in.toLocaleString()}–${table.max_buy_in.toLocaleString()}
           </div>
         </div>
-        <button
-          type="button"
-          className="lobby-table-card__sit"
-          disabled={!canSit}
-          onClick={() => firstOpenIndex !== undefined && handleSeatClick(firstOpenIndex)}
-          title={
-            locked
-              ? `Earn $${table.min_buy_in.toLocaleString()} to unlock`
-              : sponsorOnly
-                ? 'Sponsor required to sit'
-                : openCount === 0
-                  ? 'No open seats'
-                  : `Sit — buy in $${table.min_buy_in.toLocaleString()}`
-          }
-        >
-          {sitLabel}
-          {canSit && <small>buy-in ${table.min_buy_in.toLocaleString()}</small>}
-        </button>
+        {isSeated ? (
+          <button
+            type="button"
+            className="lobby-table-card__sit lobby-table-card__sit--resume"
+            onClick={() => onResume?.()}
+            title="Return to your game at this table"
+          >
+            Resume
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="lobby-table-card__sit"
+            disabled={!canSit}
+            onClick={() => firstOpenIndex !== undefined && handleSeatClick(firstOpenIndex)}
+            title={
+              locked
+                ? `Earn $${table.min_buy_in.toLocaleString()} to unlock`
+                : sponsorOnly
+                  ? 'Sponsor required to sit'
+                  : openCount === 0
+                    ? 'No open seats'
+                    : `Sit — buy in $${table.min_buy_in.toLocaleString()}`
+            }
+          >
+            {sitLabel}
+            {canSit && <small>buy-in ${table.min_buy_in.toLocaleString()}</small>}
+          </button>
+        )}
       </div>
 
       {/* Scouting line — the decision drivers at a glance. */}
@@ -337,25 +368,35 @@ export function TableCard({ table, busy, onSeatTap, onAiSeatClick }: TableCardPr
                   </div>
                 );
               }
-              // open seat
+              // open seat. On the table you're already seated at, an open
+              // seat can't be sat (you can't sit twice) — tapping it resumes
+              // your game instead of starting a second session.
               return (
                 <button
                   key={seat.index}
                   type="button"
                   className="lobby-table-card__seat lobby-table-card__seat--open"
-                  disabled={locked || busy}
-                  onClick={() => handleSeatClick(seat.index)}
+                  disabled={!isSeated && (locked || busy)}
+                  onClick={() => (isSeated ? onResume?.() : handleSeatClick(seat.index))}
                   title={
-                    locked
-                      ? `Earn $${table.min_buy_in.toLocaleString()} to unlock`
-                      : sponsorOnly
-                        ? 'Sponsor required'
-                        : 'Sit here'
+                    isSeated
+                      ? 'Resume your game at this table'
+                      : locked
+                        ? `Earn $${table.min_buy_in.toLocaleString()} to unlock`
+                        : sponsorOnly
+                          ? 'Sponsor required'
+                          : 'Sit here'
                   }
                 >
                   <div className="lobby-table-card__seat-name">Open seat</div>
                   <div className="lobby-table-card__seat-cta">
-                    {locked ? 'Locked' : sponsorOnly ? 'Sponsor' : 'Tap to sit'}
+                    {isSeated
+                      ? 'Resume'
+                      : locked
+                        ? 'Locked'
+                        : sponsorOnly
+                          ? 'Sponsor'
+                          : 'Tap to sit'}
                   </div>
                 </button>
               );

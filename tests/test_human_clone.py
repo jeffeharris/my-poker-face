@@ -509,9 +509,9 @@ class TestBluffAirBranch:
         strat = self._make(0.0)
         random.seed(7)
         actions = {
-            strat(_ctx(phase='FLOP', cost_to_call=0, equity=0.30, valid_actions=['check', 'raise']))[
-                'action'
-            ]
+            strat(
+                _ctx(phase='FLOP', cost_to_call=0, equity=0.30, valid_actions=['check', 'raise'])
+            )['action']
             for _ in range(200)
         }
         assert actions == {'check'}

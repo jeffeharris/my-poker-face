@@ -740,6 +740,12 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
         'min_buy_in': big_blind * 40,
         'max_buy_in': big_blind * 100,
         'active_loan': active_loan,
+        # Table identity for the in-game location chip + arrival toast.
+        # Stamped on game_data alongside cash_table_id at seat-in /
+        # cold-load; both nullable, so the frontend degrades to "no chip"
+        # for legacy sessions where the name wasn't resolved.
+        'table_id': current_game_data.get('cash_table_id'),
+        'table_name': current_game_data.get('cash_table_name'),
     }
 
 
@@ -907,6 +913,25 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
         # Persist AI bankroll debit
         bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
+
+        # Clear any idle-pool row for the AI we just seated into this
+        # live game. The eligible pool is filtered only by occupied
+        # name, not idle-pool membership, so an AI resting in the idle
+        # pool (take_break / stake_up_queued elsewhere) can be picked
+        # here; leaving its idle row standing is the `seated_and_idle`
+        # split-brain. Best-effort — a stale row is tripwire noise, not
+        # worth failing the refill; delete_idle no-ops when no row exists.
+        if sandbox_id:
+            from flask_app.extensions import cash_table_repo
+
+            try:
+                cash_table_repo.delete_idle(replacement['personality_id'], sandbox_id=sandbox_id)
+            except Exception as exc:
+                logger.debug(
+                    "[CASH] Refill idle-row clear failed for pid=%r: %s",
+                    replacement['personality_id'],
+                    exc,
+                )
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
         from core.economy import ledger as chip_ledger

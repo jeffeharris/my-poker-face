@@ -58,7 +58,13 @@ from cash_mode.closed_economy import (
     seed_bank_pool,
 )
 from cash_mode.stakes_ladder import table_buy_in_window
-from cash_mode.tables import CashTableState, ai_slot, ai_slot_fish, open_slot
+from cash_mode.tables import (
+    CashTableState,
+    IdlePoolEntry,
+    ai_slot,
+    ai_slot_fish,
+    open_slot,
+)
 from core.economy.ledger import (
     BANK_POOL_DEPOSIT_REASONS,
     BANK_POOL_DRAW_REASONS,
@@ -478,6 +484,75 @@ class TestCasinoRefill:
         # One refill = exactly one CasinoRefill entry.
         assert len(refill_batch.refills) == 1
         assert refill_batch.refills[0].table_id == casino.table_id
+
+    def test_refill_clears_seated_fish_idle_row(self, db_setup):
+        """Regression: a fish that left a casino on `take_break` keeps an
+        idle-pool row; when refill re-seats it, that row must be cleared.
+        Casino provisioning seats straight into `cash_tables` (not via the
+        lobby live-fill path), so without an explicit clear the fish ends
+        up both seated and idle — the `seated_and_idle` split-brain seen
+        live for the casino fish cluster.
+        """
+        tables = db_setup["tables"]
+        bankroll = db_setup["bankroll"]
+        ledger = db_setup["ledger"]
+        seed_bank_pool(ledger, sandbox_id=SBX, amount=10_000)
+
+        resolve_casino_provisioning(
+            cash_table_repo=tables,
+            bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            rng=random.Random(1),
+            now=ANCHOR,
+        )
+        casino = next(
+            (t for t in tables.list_all_tables(sandbox_id=SBX) if t.table_type == "casino"),
+            None,
+        )
+        if casino is None:
+            pytest.skip("rng did not produce a spawn")
+        seated_count = sum(1 for s in casino.seats if s.get("kind") == "ai")
+        if seated_count >= CASINO_FISH_MAX:
+            pytest.skip("spawn already at max fish; no refill possible")
+
+        # Open one seat (simulate a bust) so refill has somewhere to seat.
+        for i, slot in enumerate(casino.seats):
+            if slot.get("kind") == "ai":
+                casino.seats[i] = open_slot()
+                break
+        tables.save_table(casino, sandbox_id=SBX, now=ANCHOR)
+
+        # Every fish carries a stale `take_break` idle row — whichever one
+        # refill picks, its row should be gone afterward.
+        for pid in db_setup["fish_pids"]:
+            tables.save_idle(
+                IdlePoolEntry(
+                    personality_id=pid,
+                    left_at=ANCHOR,
+                    reason="take_break",
+                ),
+                sandbox_id=SBX,
+            )
+        idle_before = {e.personality_id for e in tables.list_idle(sandbox_id=SBX)}
+
+        refill_batch = resolve_casino_provisioning(
+            cash_table_repo=tables,
+            bankroll_repo=bankroll,
+            personality_repo=db_setup["personality"],
+            chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            rng=random.Random(2),
+            now=ANCHOR,
+        )
+        assert len(refill_batch.refills) == 1
+        refilled_pid = refill_batch.refills[0].fish_id
+        idle_after = {e.personality_id for e in tables.list_idle(sandbox_id=SBX)}
+        # The re-seated fish's idle row is cleared; the others remain.
+        assert refilled_pid in idle_before
+        assert refilled_pid not in idle_after
+        assert (idle_before - idle_after) == {refilled_pid}
 
     def test_no_refill_when_pool_empty(self, db_setup):
         tables = db_setup["tables"]

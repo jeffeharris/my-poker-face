@@ -156,9 +156,11 @@ CHANGES: Dict[str, ChangeSpec] = {
         description='core postflop fix (SPR fallback + postflop_commit, no '
         'precision slices) vs the pre-fix passive default (re-judges 760d89e5)',
         champion_table=lambda: load_strategy_table(
-            spr_fallback=False, include_low_spr=False, include_3bp=False),
+            spr_fallback=False, include_low_spr=False, include_3bp=False
+        ),
         challenger_table=lambda: load_strategy_table(
-            spr_fallback=True, include_low_spr=False, include_3bp=False),
+            spr_fallback=True, include_low_spr=False, include_3bp=False
+        ),
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),
@@ -491,7 +493,15 @@ def main():
 
     seeds = [int(s) for s in args.seeds.split(',')]
     work = [
-        (args.change, args.archetype, args.seats, args.challenger_seats, args.hands, s, args.stack_bb)
+        (
+            args.change,
+            args.archetype,
+            args.seats,
+            args.challenger_seats,
+            args.hands,
+            s,
+            args.stack_bb,
+        )
         for s in seeds
     ]
     if len(seeds) > 1:

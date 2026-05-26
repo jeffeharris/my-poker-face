@@ -348,7 +348,8 @@ class TestSPRFallbackToggle:
     def test_fallback_off_low_spr_hits_passive_default(self, high_only):
         table = StrategyTable(preflop_data={}, postflop_data=high_only, spr_fallback=False)
         out = table.lookup_postflop_with_fallback(
-            _pf_node('low', facing='facing_bet'), ['fold', 'call', 'raise'])
+            _pf_node('low', facing='facing_bet'), ['fold', 'call', 'raise']
+        )
         # No degrade → miss → context-aware default (fold-heavy facing a bet).
         assert out.action_probabilities.get('fold', 0) == pytest.approx(0.7)
         assert 'raise_67' not in out.action_probabilities
@@ -356,7 +357,8 @@ class TestSPRFallbackToggle:
     def test_fallback_on_low_spr_degrades_to_high(self, high_only):
         table = StrategyTable(preflop_data={}, postflop_data=high_only, spr_fallback=True)
         out = table.lookup_postflop_with_fallback(
-            _pf_node('low', facing='facing_bet'), ['fold', 'call', 'raise'])
+            _pf_node('low', facing='facing_bet'), ['fold', 'call', 'raise']
+        )
         # Degrades to the high entry — never folds the nuts.
         assert out.action_probabilities.get('raise_67', 0) > 0
         assert out.action_probabilities.get('fold', 0) == pytest.approx(0.0)
@@ -379,12 +381,14 @@ class TestAllowShallowGating:
 
     def test_allow_shallow_uses_slice(self, with_low_slice):
         out = with_low_slice.lookup_postflop_with_fallback(
-            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=True)
+            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=True
+        )
         assert out.action_probabilities.get('jam', 0) == pytest.approx(1.0)
 
     def test_gated_ignores_slice_uses_base(self, with_low_slice):
         out = with_low_slice.lookup_postflop_with_fallback(
-            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=False)
+            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=False
+        )
         # HU: routes to the 6-max base (high), not the authored low slice.
         assert out.action_probabilities.get('bet_67', 0) == pytest.approx(0.7)
         assert 'jam' not in out.action_probabilities

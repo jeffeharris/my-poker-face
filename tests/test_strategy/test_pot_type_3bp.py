@@ -8,12 +8,12 @@
 
 import pytest
 
-from poker.poker_game import initialize_game_state, setup_hand, player_raise
+from poker.poker_game import initialize_game_state, player_raise, setup_hand
 from poker.repositories.serialization import restore_state_from_dict
-from poker.strategy.postflop_classifier import _determine_pot_type
-from poker.strategy.strategy_table import load_strategy_table, StrategyTable
-from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.nodes import PostflopNode
+from poker.strategy.postflop_classifier import _determine_pot_type
+from poker.strategy.strategy_profile import StrategyProfile
+from poker.strategy.strategy_table import StrategyTable, load_strategy_table
 
 
 def _preflop_state():
@@ -22,6 +22,7 @@ def _preflop_state():
 
 
 # ── preflop_raise_count increment ────────────────────────────────────────
+
 
 class TestPreflopRaiseCount:
     def test_starts_at_zero(self):
@@ -36,35 +37,45 @@ class TestPreflopRaiseCount:
 
     def test_successive_preflop_raises_accumulate(self):
         gs = _preflop_state()
-        gs = player_raise(gs, gs.highest_bet * 3)   # open → 1
-        gs = player_raise(gs, gs.highest_bet * 3)   # 3-bet → 2
+        gs = player_raise(gs, gs.highest_bet * 3)  # open → 1
+        gs = player_raise(gs, gs.highest_bet * 3)  # 3-bet → 2
         assert gs.preflop_raise_count == 2
 
     def test_postflop_raise_does_not_increment(self):
         gs = _preflop_state()
         # Simulate being on the flop: community cards present, count carried over.
-        gs = gs.update(community_cards=({'rank': '2', 'suit': 'Hearts'},),
-                       preflop_raise_count=1)
+        gs = gs.update(community_cards=({'rank': '2', 'suit': 'Hearts'},), preflop_raise_count=1)
         gs = player_raise(gs, gs.highest_bet * 3)
         assert gs.preflop_raise_count == 1  # unchanged postflop
 
 
 # ── pot_type classification ──────────────────────────────────────────────
 
+
 class TestDeterminePotType:
-    @pytest.mark.parametrize('raises,expected', [
-        (0, 'SRP'), (1, 'SRP'), (2, '3BP'), (3, '3BP'), (5, '3BP'),
-    ])
+    @pytest.mark.parametrize(
+        'raises,expected',
+        [
+            (0, 'SRP'),
+            (1, 'SRP'),
+            (2, '3BP'),
+            (3, '3BP'),
+            (5, '3BP'),
+        ],
+    )
     def test_mapping(self, raises, expected):
         from types import SimpleNamespace
+
         assert _determine_pot_type(SimpleNamespace(preflop_raise_count=raises)) == expected
 
     def test_missing_attr_defaults_srp(self):
         from types import SimpleNamespace
+
         assert _determine_pot_type(SimpleNamespace()) == 'SRP'
 
 
 # ── serialization ────────────────────────────────────────────────────────
+
 
 class TestSerialization:
     def test_round_trip_preserves_count(self):
@@ -80,6 +91,7 @@ class TestSerialization:
 
 # ── 3BP chart merge + fallback ───────────────────────────────────────────
 
+
 class TestThreeBetChart:
     @pytest.fixture(scope='class')
     def table(self):
@@ -91,34 +103,58 @@ class TestThreeBetChart:
 
     def test_3bp_lookup_hits_exact(self, table):
         n = PostflopNode(
-            street='flop', position='IP', pot_type='3BP', board_texture='dry_high',
-            made_tier='nuts', draw_modifier='no_draw', facing_action='unopened',
-            spr_bucket='high')
+            street='flop',
+            position='IP',
+            pot_type='3BP',
+            board_texture='dry_high',
+            made_tier='nuts',
+            draw_modifier='no_draw',
+            facing_action='unopened',
+            spr_bucket='high',
+        )
         assert table.lookup_postflop(n) is not None
 
     def test_3bp_medium_falls_back_to_3bp_high(self, table):
         # No 3BP medium authored → degrades to 3BP high (keeps pot_type).
         n = PostflopNode(
-            street='flop', position='IP', pot_type='3BP', board_texture='dry_high',
-            made_tier='nuts', draw_modifier='no_draw', facing_action='unopened',
-            spr_bucket='medium')
+            street='flop',
+            position='IP',
+            pot_type='3BP',
+            board_texture='dry_high',
+            made_tier='nuts',
+            draw_modifier='no_draw',
+            facing_action='unopened',
+            spr_bucket='medium',
+        )
         out = table.lookup_postflop_with_fallback(n, ['check', 'raise', 'all_in'])
         # 3BP-high nuts unopened is bet-heavy (value).
-        assert sum(p for a, p in out.action_probabilities.items()
-                   if a.startswith('bet_')) > 0.5
+        assert sum(p for a, p in out.action_probabilities.items() if a.startswith('bet_')) > 0.5
 
     def test_3bp_missing_degrades_to_srp(self):
         # A table with only an SRP entry: a 3BP lookup degrades to it, not the
         # passive default.
         srp = PostflopNode(
-            street='river', position='OOP', pot_type='SRP', board_texture='monotone',
-            made_tier='nuts', draw_modifier='no_draw', facing_action='facing_bet',
-            spr_bucket='high')
+            street='river',
+            position='OOP',
+            pot_type='SRP',
+            board_texture='monotone',
+            made_tier='nuts',
+            draw_modifier='no_draw',
+            facing_action='facing_bet',
+            spr_bucket='high',
+        )
         tbp = PostflopNode(
-            street='river', position='OOP', pot_type='3BP', board_texture='monotone',
-            made_tier='nuts', draw_modifier='no_draw', facing_action='facing_bet',
-            spr_bucket='high')
-        t = StrategyTable(preflop_data={}, postflop_data={
-            srp.key: StrategyProfile({'jam': 0.8, 'call': 0.2})})
+            street='river',
+            position='OOP',
+            pot_type='3BP',
+            board_texture='monotone',
+            made_tier='nuts',
+            draw_modifier='no_draw',
+            facing_action='facing_bet',
+            spr_bucket='high',
+        )
+        t = StrategyTable(
+            preflop_data={}, postflop_data={srp.key: StrategyProfile({'jam': 0.8, 'call': 0.2})}
+        )
         out = t.lookup_postflop_with_fallback(tbp, ['fold', 'call', 'all_in'])
         assert out.action_probabilities.get('jam', 0) == pytest.approx(0.8, abs=0.01)
