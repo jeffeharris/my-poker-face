@@ -884,26 +884,9 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
         # Persist AI bankroll debit
         bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
-
-        # Clear any idle-pool row for the AI we just seated into this
-        # live game. The eligible pool is filtered only by occupied
-        # name, not idle-pool membership, so an AI resting in the idle
-        # pool (take_break / stake_up_queued elsewhere) can be picked
-        # here; leaving its idle row standing is the `seated_and_idle`
-        # split-brain. Best-effort — a stale row is tripwire noise, not
-        # worth failing the refill; delete_idle no-ops when no row exists.
-        if sandbox_id:
-            from flask_app.extensions import cash_table_repo
-            try:
-                cash_table_repo.delete_idle(
-                    replacement['personality_id'], sandbox_id=sandbox_id
-                )
-            except Exception as exc:
-                logger.debug(
-                    "[CASH] Refill idle-row clear failed for pid=%r: %s",
-                    replacement['personality_id'],
-                    exc,
-                )
+        # (The seated⇒not-idle invariant is enforced when this seat is
+        # persisted to cash_tables by `_refresh_lobby_table_for_session`'s
+        # save_table — see CashTableRepository.save_table.)
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
         from core.economy import ledger as chip_ledger

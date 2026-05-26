@@ -360,16 +360,9 @@ def ensure_lobby_seeded(
                 seat_position = next(position_iter)
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
-                # Seeding draws from the eligible pool, which isn't
-                # filtered by idle-pool membership — so when this runs on
-                # an already-live sandbox it can seat an AI that's resting
-                # in the idle pool. Clear the row to avoid the
-                # `seated_and_idle` split-brain. Best-effort; no-op when
-                # absent (the common fresh-sandbox case).
-                try:
-                    cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
-                except Exception:
-                    pass
+                # (If this AI was idle, the seated⇒not-idle invariant is
+                # enforced by the save_table call after this loop — see
+                # CashTableRepository.save_table.)
                 filled += 1
                 # Debit the AI's bankroll to fund their initial seat
                 # chips. Without this debit the chip-ledger audit

@@ -489,9 +489,11 @@ class TestCasinoRefill:
         """Regression: a fish that left a casino on `take_break` keeps an
         idle-pool row; when refill re-seats it, that row must be cleared.
         Casino provisioning seats straight into `cash_tables` (not via the
-        lobby live-fill path), so without an explicit clear the fish ends
-        up both seated and idle — the `seated_and_idle` split-brain seen
-        live for the casino fish cluster.
+        lobby live-fill path), so without the invariant the fish ends up
+        both seated and idle — the `seated_and_idle` split-brain seen live
+        for the casino fish cluster. The clear now happens centrally in
+        `CashTableRepository.save_table` (refill persists via save_table),
+        so this is the end-to-end check that refill leaves no split-brain.
         """
         tables = db_setup["tables"]
         bankroll = db_setup["bankroll"]
@@ -549,10 +551,18 @@ class TestCasinoRefill:
         assert len(refill_batch.refills) == 1
         refilled_pid = refill_batch.refills[0].fish_id
         idle_after = {e.personality_id for e in tables.list_idle(sandbox_id=SBX)}
-        # The re-seated fish's idle row is cleared; the others remain.
+        # The re-seated fish's idle row is gone (save_table cleared it as
+        # part of persisting the seat). No fish that ended this resolve
+        # seated at the casino is left with an idle row.
         assert refilled_pid in idle_before
         assert refilled_pid not in idle_after
-        assert (idle_before - idle_after) == {refilled_pid}
+        seated_now = {
+            s["personality_id"]
+            for t in tables.list_all_tables(sandbox_id=SBX)
+            for s in t.seats
+            if s.get("kind") == "ai" and s.get("personality_id")
+        }
+        assert not (seated_now & idle_after), "no seated AI may retain an idle row"
 
     def test_no_refill_when_pool_empty(self, db_setup):
         tables = db_setup["tables"]

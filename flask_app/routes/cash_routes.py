@@ -3436,15 +3436,10 @@ def offer_stake_to_ai():
         open_seat_index,
         ai_slot(target_pid, seat_chips),
     )
+    # save_table enforces the seated⇒not-idle invariant: if the staked AI
+    # was resting in the idle pool, its row is cleared in the same write
+    # (see CashTableRepository.save_table).
     cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
-    # The staked AI may have been resting in the idle pool when the
-    # player picked it; clear that row so it isn't both seated here and
-    # idle (the `seated_and_idle` split-brain). Best-effort no-op when
-    # no row exists.
-    try:
-        cash_table_repo.delete_idle(target_pid, sandbox_id=sandbox_id)
-    except Exception:
-        pass
 
     import uuid as _uuid
 
