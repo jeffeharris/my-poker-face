@@ -46,6 +46,11 @@ from .controllers import (
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .poker_state_machine import PokerStateMachine
+from .strategy.hand_classification import (
+    RANK_VALUES,
+    _classify_straight_draw,
+    classify_hand_full,
+)
 from .rule_strategies import (
     BUILT_IN_STRATEGIES,
     CHAOS_BOTS,
@@ -266,6 +271,46 @@ class RuleBasedController:
             else 'PRE_FLOP'
         )
 
+        # Hand-shape derivations for the fish strategy + its leaks. Mirrors
+        # RuleBotController so `_strategy_fish` runs faithfully in sims /
+        # experiments (this pure controller is the one experiments use).
+        # NOTE: committed_fraction_of_stack / is_losing_at_table are not
+        # tracked here (no per-hand stack history), so they default neutral
+        # — the POT_COMMITTED_EARLY and SPITE_RAISES_WHEN_LOSING leaks won't
+        # fire in this path. Every other fish behavior (honest value
+        # betting, draws, and the made-tier aggression leaks) is faithful.
+        canonical_hand = _get_canonical_hand(hole_cards) if hole_cards else ''
+        is_pair = (
+            bool(canonical_hand)
+            and len(canonical_hand) == 2
+            and canonical_hand[0] == canonical_hand[1]
+        )
+        is_suited = canonical_hand.endswith('s')
+        has_face_card = any(c[0] in 'JQKA' for c in hole_cards)
+        made_tier = 'air'
+        has_top_pair_or_better = False
+        has_flush_draw = False
+        has_oesd = False
+        if community_cards:
+            try:
+                classification = classify_hand_full(hole_cards, community_cards)
+                made_tier = classification.made_tier
+                has_top_pair_or_better = made_tier in ('nuts', 'strong_made', 'medium_made')
+            except Exception:
+                pass
+            suit_counts: Dict[str, int] = {}
+            for c in hole_cards + community_cards:
+                if len(c) >= 2:
+                    suit_counts[c[1]] = suit_counts.get(c[1], 0) + 1
+            hole_suits = {c[1] for c in hole_cards if len(c) >= 2}
+            has_flush_draw = any(cnt >= 4 and s in hole_suits for s, cnt in suit_counts.items())
+            try:
+                all_ranks = sorted({RANK_VALUES[c[0]] for c in hole_cards + community_cards})
+                has_oesd = _classify_straight_draw(all_ranks) == 'oesd'
+            except (KeyError, ValueError):
+                pass
+        street = phase.lower().replace('_', '')
+
         # Get opponent stats if available (for adaptive strategies)
         opp_stats = self._get_opponent_stats(opponents, player.name)
 
@@ -281,16 +326,29 @@ class RuleBasedController:
             'max_raise': max_raise_to,
             'big_blind': big_blind,
             'equity': equity,
-            'canonical_hand': _get_canonical_hand(hole_cards) if hole_cards else '',
+            'canonical_hand': canonical_hand,
             'hole_cards': hole_cards,
             'community_cards': community_cards,
             'phase': phase,
+            'street': street,
             'position': position,
             'num_opponents': num_opponents,
             'effective_stack': effective_stack,
             'effective_stack_bb': effective_stack_bb_val,
             'spr': spr,
             'valid_actions': game_state.current_player_options,
+            # Hand-shape derivations (fish strategy + leaks)
+            'is_pair': is_pair,
+            'is_suited': is_suited,
+            'has_face_card': has_face_card,
+            'has_flush_draw': has_flush_draw,
+            'has_oesd': has_oesd,
+            'has_top_pair_or_better': has_top_pair_or_better,
+            'made_tier': made_tier,
+            # Fish-leak fields (committed/losing not tracked here → neutral)
+            'fish_leak': self.config.fish_leak,
+            'committed_fraction_of_stack': 0.0,
+            'is_losing_at_table': False,
             # Opponent modeling stats (for adaptive strategies)
             'opp_vpip': opp_stats.get('vpip', 0.5),
             'opp_aggression': opp_stats.get('aggression', 1.0),

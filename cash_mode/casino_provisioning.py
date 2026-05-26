@@ -773,24 +773,6 @@ def _open_seat_indices(table: CashTableState) -> List[int]:
     return [i for i, slot in enumerate(table.seats) if slot.get('kind') == 'open']
 
 
-def _clear_idle_row(cash_table_repo, pid: str, sandbox_id: str) -> None:
-    """Drop any `cash_idle_pool` row for an AI we just seated.
-
-    Casino/whale provisioning seats personas straight into `cash_tables`
-    without going through the lobby live-fill path, so a persona that
-    left a casino (e.g. `take_break`) keeps its idle row when refill
-    re-seats it — the `seated_and_idle` split-brain. Clearing the row at
-    every seating commit enforces the seated⇒not-idle invariant here too.
-    Best-effort: a stale idle row is a tripwire nuisance, not worth
-    tanking the provisioning resolve, and `delete_idle` is a no-op when
-    no row exists.
-    """
-    try:
-        cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
-    except Exception as exc:
-        logger.debug("[CASH][CASINO] idle-row clear failed for pid=%r: %s", pid, exc)
-
-
 def _refill_one_fish(
     table: CashTableState,
     *,
@@ -909,7 +891,6 @@ def _refill_one_fish(
         )
         return None
     already_seated.add(pid)
-    _clear_idle_row(cash_table_repo, pid, sandbox_id)
     return CasinoRefill(
         table_id=table.table_id,
         stake_label=stake_label,
@@ -1461,7 +1442,6 @@ def resolve_casino_provisioning(
                 now=now,
             )
             already_seated.add(pid)
-            _clear_idle_row(cash_table_repo, pid, sandbox_id)
 
         clear_closing(cash_table_repo, sandbox_id, table_id)
         batch.spawns.append(
@@ -1754,7 +1734,6 @@ def _spawn_whale_at(
         )
         return None
 
-    _clear_idle_row(cash_table_repo, personality_id, sandbox_id)
     return WhaleSpawn(
         table_id=table.table_id,
         stake_label=stake_label,

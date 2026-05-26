@@ -12,6 +12,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { CashControls } from '../../cash/CashControls';
 import { BustModal } from '../../cash/BustModal';
+import { SoloTableModal } from '../../cash/SoloTableModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
@@ -273,6 +274,7 @@ export function PokerTable({
   return (
     <>
       <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+      <SoloTableModal cashMode={gameState.cash_mode} />
       <StadiumLayout
         header={
           <GameHeader

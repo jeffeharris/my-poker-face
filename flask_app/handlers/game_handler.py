@@ -746,6 +746,14 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
         # for legacy sessions where the name wasn't resolved.
         'table_id': current_game_data.get('cash_table_id'),
         'table_name': current_game_data.get('cash_table_name'),
+        # "Everyone left" solo-table state. Set deliberately at the
+        # hand-boundary pause in `progress_game` (after refill has had
+        # its chance) — never recomputed live here, so a normal heads-up
+        # win (last opponent at 0 chips for one HAND_OVER frame, about to
+        # be refilled) can't flash the prompt. `rejoin_candidates` names
+        # the AIs the "Stay & play" option would seat.
+        'human_alone': bool(current_game_data.get('cash_solo_paused')),
+        'rejoin_candidates': current_game_data.get('cash_rejoin_candidates') or [],
     }
 
 
@@ -813,7 +821,6 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     """
     from datetime import datetime
 
-    from cash_mode.bankroll import AIBankrollState, project_bankroll
     from flask_app.extensions import (
         bankroll_repo,
         capture_label_repo,
@@ -858,35 +865,23 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         replacement_state = None
         replacement_pre_regen_chips = 0
 
-        # Find an affordable, eligible replacement
+        # Find an affordable, eligible replacement. Affordability +
+        # projected-regen math lives in `_project_candidate_buy_in` so
+        # this path and the rejoin path (`select_rejoin_candidates` /
+        # `/api/cash/reseat`) can't drift.
         for candidate in list(eligible_pool):
-            pid = candidate['personality_id']
-            knobs = bankroll_repo.load_personality_knobs(pid)
-            threshold = round(min_buy_in * knobs.buy_in_multiplier)
-            buy_in = min(threshold, max_buy_in)
-
-            stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
-            if stored is None:
-                projected = knobs.starting_bankroll
-                stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
-            else:
-                projected = project_bankroll(
-                    stored,
-                    knobs.starting_bankroll,
-                    knobs.bankroll_rate,
-                    now,
-                )
-            if projected < threshold:
-                continue
-
-            replacement = candidate
-            replacement_buy_in = buy_in
-            replacement_state = AIBankrollState(
-                personality_id=pid,
-                chips=projected - buy_in,
-                last_regen_tick=now,
+            proj = _project_candidate_buy_in(
+                candidate['personality_id'],
+                min_buy_in,
+                max_buy_in,
+                sandbox_id,
+                now,
+                bankroll_repo,
             )
-            replacement_pre_regen_chips = stored.chips
+            if proj is None:
+                continue
+            replacement = candidate
+            replacement_buy_in, replacement_state, replacement_pre_regen_chips = proj
             eligible_pool.remove(candidate)
             break
 
@@ -913,25 +908,9 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
         # Persist AI bankroll debit
         bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
-
-        # Clear any idle-pool row for the AI we just seated into this
-        # live game. The eligible pool is filtered only by occupied
-        # name, not idle-pool membership, so an AI resting in the idle
-        # pool (take_break / stake_up_queued elsewhere) can be picked
-        # here; leaving its idle row standing is the `seated_and_idle`
-        # split-brain. Best-effort — a stale row is tripwire noise, not
-        # worth failing the refill; delete_idle no-ops when no row exists.
-        if sandbox_id:
-            from flask_app.extensions import cash_table_repo
-
-            try:
-                cash_table_repo.delete_idle(replacement['personality_id'], sandbox_id=sandbox_id)
-            except Exception as exc:
-                logger.debug(
-                    "[CASH] Refill idle-row clear failed for pid=%r: %s",
-                    replacement['personality_id'],
-                    exc,
-                )
+        # (The seated⇒not-idle invariant is enforced when this seat is
+        # persisted to cash_tables by `_refresh_lobby_table_for_session`'s
+        # save_table — see CashTableRepository.save_table.)
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
         from core.economy import ledger as chip_ledger
@@ -1004,6 +983,83 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         # Sync the updated game_state back to the service
         game_data['state_machine'] = state_machine
         game_state_service.set_game(game_id, game_data)
+
+
+def _project_candidate_buy_in(pid, min_buy_in, max_buy_in, sandbox_id, now, bankroll_repo):
+    """Affordability check for seating an AI from its bankroll.
+
+    Returns ``(buy_in, post_debit_state, pre_regen_chips)`` when the
+    personality's projected (regen-applied) bankroll covers a fresh
+    buy-in at this table, else ``None``. Mirrors the inner affordability
+    gate of ``_refill_cash_seats`` so the rejoin path
+    (``select_rejoin_candidates`` + ``/api/cash/reseat``) seats only AIs
+    that can actually fund the seat, using the same projected-regen math.
+    """
+    from cash_mode.bankroll import AIBankrollState, project_bankroll
+
+    knobs = bankroll_repo.load_personality_knobs(pid)
+    threshold = round(min_buy_in * knobs.buy_in_multiplier)
+    buy_in = min(threshold, max_buy_in)
+    stored = bankroll_repo.load_ai_bankroll(pid, sandbox_id=sandbox_id)
+    if stored is None:
+        projected = knobs.starting_bankroll
+        stored = AIBankrollState(personality_id=pid, chips=projected, last_regen_tick=None)
+    else:
+        projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
+    if projected < threshold:
+        return None
+    return (
+        buy_in,
+        AIBankrollState(personality_id=pid, chips=projected - buy_in, last_regen_tick=now),
+        stored.chips,
+    )
+
+
+def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
+    """Pick eligible AIs to offer when the human is alone at a cash table.
+
+    Returns up to ``limit`` ``{'personality_id', 'name'}`` dicts for AIs
+    that are (a) not already seated and (b) can fund a buy-in at this
+    table. Used to name the "Stay & play with X & Y" option on the
+    solo-table prompt; ``/api/cash/reseat`` re-runs the same gate at seat
+    time. ``prefer_pids`` (the personalities the player was shown) are
+    tried first so the prompt's promise holds when they re-seat.
+    """
+    from datetime import datetime
+
+    from flask_app.extensions import bankroll_repo, personality_repo
+
+    big_blind = game_state.current_ante
+    min_buy_in = big_blind * 40
+    max_buy_in = big_blind * 100
+    owner_id = game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(game_data)
+    # Busted AIs (stack 0) linger in the tuple until the reseat route
+    # prunes them, so exclude them from "occupied" — otherwise a small
+    # eligible pool could be emptied and the prompt would hide the Stay
+    # option even though those personalities are re-seatable.
+    occupied = {p.name for p in game_state.players if p.is_human or p.stack > 0}
+
+    eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
+    pool = [e for e in eligible if e['name'] not in occupied]
+    if prefer_pids:
+        order = {pid: i for i, pid in enumerate(prefer_pids)}
+        pool.sort(key=lambda e: order.get(e['personality_id'], len(order)))
+
+    now = datetime.utcnow()
+    picks = []
+    for cand in pool:
+        if len(picks) >= limit:
+            break
+        if (
+            _project_candidate_buy_in(
+                cand['personality_id'], min_buy_in, max_buy_in, sandbox_id, now, bankroll_repo
+            )
+            is None
+        ):
+            continue
+        picks.append({'personality_id': cand['personality_id'], 'name': cand['name']})
+    return picks
 
 
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
@@ -2915,6 +2971,45 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # it.
         chip_holders = sum(1 for p in state_machine.game_state.players if p.stack > 0)
         if chip_holders < 2:
+            # Distinguish the two dead-table shapes so the frontend shows
+            # the right prompt:
+            #   - human busted (stack 0): the bust/rebuy modal, already
+            #     emitted by _detect_human_cash_bust above.
+            #   - human still has chips but every opponent left or busted
+            #     without a refill: the "everyone left" solo prompt, which
+            #     offers Stay (reseat named AIs) or Leave (cash out).
+            # Set the flag HERE — after _refill_cash_seats had its chance
+            # — so a normal heads-up win (last opponent at 0 chips for one
+            # HAND_OVER frame, about to be refilled) never trips it.
+            paused_players = state_machine.game_state.players
+            human = next((p for p in paused_players if p.is_human), None)
+            others_have_chips = any(
+                p.stack > 0 and not p.is_human for p in paused_players
+            )
+            if human is not None and human.stack > 0 and not others_have_chips:
+                candidates = []
+                try:
+                    candidates = select_rejoin_candidates(
+                        game_data, state_machine.game_state, limit=2
+                    )
+                except Exception as e:
+                    logger.error(
+                        "[CASH] rejoin-candidate selection failed for %r: %s",
+                        game_id,
+                        e,
+                        exc_info=True,
+                    )
+                game_data['cash_solo_paused'] = True
+                game_data['cash_rejoin_candidates'] = candidates
+                logger.info(
+                    "[CASH] Solo table game_id=%r — all opponents gone, "
+                    "human has chips; offering %d rejoin candidate(s)",
+                    game_id,
+                    len(candidates),
+                )
+            else:
+                game_data['cash_solo_paused'] = False
+                game_data['cash_rejoin_candidates'] = []
             game_data['state_machine'] = state_machine
             game_state_service.set_game(game_id, game_data)
             update_and_emit_game_state(game_id)
@@ -2927,6 +3022,12 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 chip_holders,
             )
             return state_machine.game_state, True
+
+        # Quorum is intact — clear any stale solo-pause flag so a table
+        # that was just re-seated (via /api/cash/reseat) doesn't re-show
+        # the "everyone left" prompt on the next state frame.
+        game_data.pop('cash_solo_paused', None)
+        game_data.pop('cash_rejoin_candidates', None)
 
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:

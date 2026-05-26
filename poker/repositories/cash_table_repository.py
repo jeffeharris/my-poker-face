@@ -256,6 +256,42 @@ class CashTableRepository(BaseRepository):
                             ),
                         )
 
+            # Enforce the seated⇒not-idle invariant in the SAME transaction
+            # as the seat write. An AI present in this table's seats cannot
+            # also be resting in `cash_idle_pool` — that's the recurring
+            # `seated_and_idle` split-brain. Every seating path funnels
+            # through save_table (it's the sole writer of `seats_json`), so
+            # clearing here is the single chokepoint that keeps the two
+            # tables consistent without each caller having to remember. AIs
+            # that just LEFT are already gone from `state.seats`, so their
+            # freshly-added idle rows are untouched. No-op when the idle
+            # table is absent (pre-v92 fixtures) or no AI is seated.
+            if _has_column(conn, "cash_idle_pool", "personality_id"):
+                seated_pids = [
+                    slot["personality_id"]
+                    for slot in state.seats
+                    if slot.get("kind") == "ai" and slot.get("personality_id")
+                ]
+                if seated_pids:
+                    placeholders = ", ".join("?" * len(seated_pids))
+                    if _has_column(conn, "cash_idle_pool", "sandbox_id"):
+                        conn.execute(
+                            f"""
+                            DELETE FROM cash_idle_pool
+                            WHERE sandbox_id = ?
+                              AND personality_id IN ({placeholders})
+                            """,
+                            (sandbox_id, *seated_pids),
+                        )
+                    else:
+                        conn.execute(
+                            f"""
+                            DELETE FROM cash_idle_pool
+                            WHERE personality_id IN ({placeholders})
+                            """,
+                            tuple(seated_pids),
+                        )
+
     def load_table(
         self,
         table_id: str,

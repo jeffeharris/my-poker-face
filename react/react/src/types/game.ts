@@ -54,6 +54,15 @@ export interface CashModeInfo {
    *  wasn't resolved — the chip then simply doesn't render. */
   table_id?: string | null;
   table_name?: string | null;
+  /** True when every opponent has left/busted and only the human (with
+   *  chips) remains — the table is paused. Drives the "everyone left"
+   *  SoloTableModal. Set server-side at the hand-boundary pause, so it
+   *  never flashes during a normal heads-up win. */
+  human_alone?: boolean;
+  /** When `human_alone`, the AIs the "Stay & play" option would seat.
+   *  Empty (or absent) means no one is available, so the prompt offers
+   *  only "Return to lobby". */
+  rejoin_candidates?: { personality_id: string; name: string }[];
 }
 
 export interface GameState {

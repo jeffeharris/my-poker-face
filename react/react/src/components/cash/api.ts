@@ -8,6 +8,7 @@
  */
 
 import { config } from '../../config';
+import type { SessionSummary } from './CashOutSummary';
 import type {
   CashAction,
   CashApiResponse,
@@ -89,7 +90,20 @@ export async function topUp(amount: number): Promise<{ stack: number; bankroll: 
   return postJson('/topup', { amount });
 }
 
-export async function leaveTable(): Promise<CashApiResponse> {
+/** The /api/cash/leave settlement response. Canonical home for the
+ *  shape the leave flow reads (chips returned, sponsor cut, session
+ *  summary). Components should import this rather than redeclaring it. */
+export interface LeaveResponse {
+  session_ended: boolean;
+  chips_at_table: number;
+  had_active_loan: boolean;
+  sponsor_repaid: number;
+  returned_chips: number;
+  bankroll: number;
+  session_summary: SessionSummary | null;
+}
+
+export async function leaveTable(): Promise<LeaveResponse> {
   return postJson('/leave');
 }
 
@@ -120,6 +134,14 @@ export async function sponsorAndSit(
 
 export async function rebuy(amount: number): Promise<{ stack: number; bankroll: number }> {
   return postJson('/rebuy', { amount });
+}
+
+/** "Stay & play" from the everyone-left prompt: seat fresh AIs at the
+ *  solo table and resume play. `personalityIds` are the candidates the
+ *  prompt named — the server prefers them but falls back to any
+ *  eligible AI. Returns the personality_ids actually seated. */
+export async function reseatTable(personalityIds: string[]): Promise<{ seated: string[] }> {
+  return postJson('/reseat', { personality_ids: personalityIds });
 }
 
 // --- Lobby v1.5 ---

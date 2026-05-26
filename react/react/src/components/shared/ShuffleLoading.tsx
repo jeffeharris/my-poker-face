@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import './ShuffleLoading.css';
 
 /** Static card positions for the shuffle animation. */
@@ -16,11 +16,23 @@ export interface ShuffleQuote {
   attribution: string;
 }
 
+/** One row of the interhand world ticker (cash/career mode). The parent
+ *  owns icon + message so this component stays free of feature-specific
+ *  event knowledge. */
+export interface TickerLine {
+  key: string;
+  icon?: ReactNode;
+  message: string;
+}
+
 interface ShuffleLoadingProps {
   isVisible: boolean;
   message: string;
   submessage?: string;
   handNumber?: number;
+  /** When non-empty, a "meanwhile, elsewhere" world-ticker strip renders in
+   *  place of the hand-number badge (cash/career mode). */
+  ticker?: TickerLine[];
   /** Optional quote rendered above the shuffling deck. Parent owns selection
    *  so the quote stays stable across re-renders. */
   quote?: ShuffleQuote;
@@ -43,6 +55,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   message,
   submessage,
   handNumber,
+  ticker,
   variant = 'overlay',
   exitStyle = 'fade',
   quote,
@@ -127,12 +140,29 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
       {submessage && <p className="shuffle-loading-submessage">{submessage}</p>}
 
-      {/* Hand number badge */}
-      {handNumber != null && handNumber > 0 && (
-        <div className="shuffle-loading-badge">
-          <span className="shuffle-loading-badge-label">Next Hand</span>
-          <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
+      {/* Cash/career mode: a "meanwhile, elsewhere" world ticker replaces the
+          hand-number badge. Falls through to the hand badge when no ticker is
+          supplied (tournament mode). */}
+      {ticker && ticker.length > 0 ? (
+        <div className="shuffle-loading-ticker" aria-label="Meanwhile, around the room">
+          <span className="shuffle-loading-ticker-label">Meanwhile…</span>
+          <ul className="shuffle-loading-ticker-list">
+            {ticker.map((line) => (
+              <li key={line.key} className="shuffle-loading-ticker-item">
+                {line.icon}
+                <span className="shuffle-loading-ticker-message">{line.message}</span>
+              </li>
+            ))}
+          </ul>
         </div>
+      ) : (
+        handNumber != null &&
+        handNumber > 0 && (
+          <div className="shuffle-loading-badge">
+            <span className="shuffle-loading-badge-label">Next Hand</span>
+            <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
+          </div>
+        )
       )}
     </div>
   );

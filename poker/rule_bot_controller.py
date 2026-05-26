@@ -272,9 +272,11 @@ class RuleBotController(AIPlayerController):
         has_top_pair_or_better = False
         has_flush_draw = False
         has_oesd = False
+        made_tier = 'air'  # nuts | strong_made | medium_made | weak_made | air
         if community_cards:
             try:
                 classification = classify_hand_full(hole_cards, community_cards)
+                made_tier = classification.made_tier
                 has_top_pair_or_better = classification.made_tier in (
                     'nuts',
                     'strong_made',
@@ -349,6 +351,7 @@ class RuleBotController(AIPlayerController):
             'has_flush_draw': has_flush_draw,
             'has_oesd': has_oesd,
             'has_top_pair_or_better': has_top_pair_or_better,
+            'made_tier': made_tier,
             # Hand-investment derivations (fish-leak triggers)
             'committed_fraction_of_stack': committed_fraction,
             'is_losing_at_table': is_losing_at_table,
