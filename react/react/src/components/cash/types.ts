@@ -344,6 +344,9 @@ export interface WhereaboutsPerson {
   /** Recharge fraction 0..1 toward the AI's baseline while resting in the idle
    *  pool (1.0 = fully rested); null for seated/off-grid AIs. */
   recharge: number | null;
+  /** The AI's last few notable hand events (bust/suckout/big pot), newest
+   *  last — the world's short-term memory. [] when no recent drama. */
+  recent: { type: string; amount: number; opponent: string | null }[];
   // --- player route enrichment ---
   emotion?: string;
   avatar_url?: string | null;

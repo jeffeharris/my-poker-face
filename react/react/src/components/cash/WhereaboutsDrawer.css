@@ -311,6 +311,17 @@
   overflow: visible;
 }
 
+/* The world's short-term memory — newest notable event, a touch dimmer than
+   the activity detail so it reads as background flavor. */
+.whereabouts-row__memory {
+  font-size: 11.5px;
+  color: var(--text-tertiary, #6f757e);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .whereabouts-row__pnl {
   font-size: 11.5px;
   font-weight: 600;

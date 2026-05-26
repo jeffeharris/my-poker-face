@@ -121,6 +121,26 @@ function timingBadge(p: WhereaboutsPerson): string | null {
   return null;
 }
 
+/** A short "what recently happened to them" memory from the newest event in
+ *  the AI's ring buffer. null when there's no recent drama. */
+function recentMemory(p: WhereaboutsPerson): string | null {
+  const ev = p.recent?.length ? p.recent[p.recent.length - 1] : null;
+  if (!ev) return null;
+  const vs = ev.opponent ? ` ${ev.opponent}` : '';
+  switch (ev.type) {
+    case 'bust':
+      return '💥 just busted out';
+    case 'suckout':
+      return `🎣 sucked out${vs ? ` on${vs}` : ''}`;
+    case 'all_in':
+      return `🃏 went all-in${vs ? ` vs${vs}` : ''}`;
+    case 'nice_pot':
+      return '💰 scooped a big pot';
+    default:
+      return null;
+  }
+}
+
 /** PnL chip — the player's lifetime result vs this opponent. The muted
  *  "vs. you" suffix is what makes the number self-describing in-row, so a
  *  lay user reads "+$420 vs. you" as "you're up $420 against this person"
@@ -146,6 +166,7 @@ function PnlChip({ netPnl, hands }: { netPnl: number; hands: number }) {
 function PersonRow({ person }: { person: WhereaboutsPerson }) {
   const [expanded, setExpanded] = useState(false);
   const badge = timingBadge(person);
+  const memory = recentMemory(person);
   // Backend returns a relative avatar path ("/api/avatar/..."); absolutize
   // it (same as TableCard) or it 404s to the SPA fallback in dev.
   const avatarSrc = absolutizeAvatarUrl(person.avatar_url ?? null);
@@ -190,6 +211,7 @@ function PersonRow({ person }: { person: WhereaboutsPerson }) {
         <div className={`whereabouts-row__detail${expanded ? ' is-expanded' : ''}`}>
           {detailLine(person)}
         </div>
+        {memory && <div className="whereabouts-row__memory">{memory}</div>}
       </div>
       {badge && <span className="whereabouts-row__timing">{badge}</span>}
       {expandable && (

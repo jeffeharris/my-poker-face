@@ -131,6 +131,37 @@ def _idle_recharge_fraction(
     return round(min(1.0, projected / baseline), 3)
 
 
+def _recent_events_for(
+    bankroll_repo: Any,
+    pid: str,
+    sandbox_id: str,
+    names: Dict[str, str],
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    """The AI's last few notable hand events (bust/suckout/big pot), newest
+    last, with the opponent pid resolved to a display name. [] when none —
+    the ring buffer only holds drama, so most AIs have nothing. Best-effort."""
+    if bankroll_repo is None:
+        return []
+    try:
+        events = bankroll_repo.load_recent_events(pid, sandbox_id=sandbox_id)
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for ev in events[-limit:]:
+        if not isinstance(ev, dict):
+            continue
+        opp = ev.get("opponent")
+        out.append(
+            {
+                "type": ev.get("type"),
+                "amount": ev.get("amount"),
+                "opponent": names.get(opp, opp) if opp else None,
+            }
+        )
+    return out
+
+
 def _seat_location(table: Any, seat_index: int, slot: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "table_id": table.table_id,
@@ -310,6 +341,9 @@ def build_whereabouts(
             # Lets the lobby show how rested an idle AI is (1.0 = fully
             # recharged, ~ready to return to a seat).
             "recharge": None,
+            # recent notable hand events (bust/suckout/big pot), newest last;
+            # [] for AIs with no recent drama. The world's short-term memory.
+            "recent": _recent_events_for(bankroll_repo, pid, sandbox_id, names),
             # health — partitioned below into hard (stuck) vs soft (watch)
             "stuck": [],
             "watch": [],

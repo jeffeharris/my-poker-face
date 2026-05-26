@@ -218,6 +218,82 @@ class BankrollRepository(BaseRepository):
                 return None
             return row["emotional_state_json"]
 
+    def load_recent_events(self, personality_id: str, *, sandbox_id: str) -> list:
+        """Load the per-AI recent-events ring buffer (list of compact dicts).
+
+        Returns [] when absent/empty/malformed — best-effort flavor data.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT recent_events_json
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+        if not row or not row["recent_events_json"]:
+            return []
+        try:
+            parsed = json.loads(row["recent_events_json"])
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+
+    def push_recent_events(
+        self,
+        personality_id: str,
+        new_events: List[dict],
+        *,
+        sandbox_id: str,
+        cap: int = 8,
+    ) -> None:
+        """Append events to the AI's recent-events ring buffer, keeping the
+        most recent `cap` (oldest fall off — the "pop the last one" buffer).
+
+        Bounded size; event-driven (callers pass only notable hand events, so
+        writes are rare). Upserts the runtime row if it doesn't exist yet.
+        """
+        if not new_events:
+            return
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT recent_events_json
+                FROM ai_bankroll_state
+                WHERE personality_id = ? AND sandbox_id = ?
+                """,
+                (personality_id, sandbox_id),
+            ).fetchone()
+            existing: list = []
+            if row and row["recent_events_json"]:
+                try:
+                    parsed = json.loads(row["recent_events_json"])
+                    if isinstance(parsed, list):
+                        existing = parsed
+                except (ValueError, TypeError):
+                    existing = []
+            blob = json.dumps((existing + list(new_events))[-cap:])
+            if row:
+                conn.execute(
+                    """
+                    UPDATE ai_bankroll_state
+                    SET recent_events_json = ?
+                    WHERE personality_id = ? AND sandbox_id = ?
+                    """,
+                    (blob, personality_id, sandbox_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO ai_bankroll_state
+                        (personality_id, sandbox_id, chips, last_regen_tick,
+                         recent_events_json)
+                    VALUES (?, ?, 0, NULL, ?)
+                    """,
+                    (personality_id, sandbox_id, blob),
+                )
+
     def load_emotional_state_json_for_pids(
         self,
         personality_ids: List[str],

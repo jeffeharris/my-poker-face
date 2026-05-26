@@ -898,6 +898,23 @@ def _play_one_hand_inner(
         loser_pid=loser_pid,
     )
 
+    # Ring buffer: persist notable events to each subject AI's recent-events
+    # memory (bounded, capped, "pop the oldest"). Event-driven — fires only on
+    # drama (bust/suckout/big pot), which is rare per hand, so this isn't the
+    # pressure_events firehose. Gives the lobby/dossier "what recently happened
+    # to this character" without the full per-decision write volume.
+    if bankroll_repo is not None and sandbox_id and hand_events:
+        by_pid: Dict[str, List[dict]] = {}
+        for ev in hand_events:
+            by_pid.setdefault(ev.personality_id, []).append(
+                {"type": ev.type, "amount": int(ev.amount), "opponent": ev.opponent_pid}
+            )
+        for pid, evs in by_pid.items():
+            try:
+                bankroll_repo.push_recent_events(pid, evs, sandbox_id=sandbox_id)
+            except Exception as exc:
+                logger.debug("[FULL_SIM] recent-events push failed for %s: %s", pid, exc)
+
     # Map the engine's post-hand dealer back to the cash-table seat
     # index. The engine doesn't rotate during a single hand, so this
     # equals the seat we set as dealer at hand start (when the caller

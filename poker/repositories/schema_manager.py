@@ -182,7 +182,7 @@ logger = logging.getLogger(__name__)
 #       instead of the ledger-derived bank-flow curve. net_worth = chips +
 #       receivable - outstanding; components stored alongside. See
 #       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
-SCHEMA_VERSION = 116
+SCHEMA_VERSION = 117
 
 
 class SchemaManager:
@@ -1872,6 +1872,10 @@ class SchemaManager:
             116: (
                 self._migrate_v116_create_holdings_snapshots,
                 "Create holdings_snapshots table — per-entity net-worth points captured by the background ticker so the admin Player Holdings chart plots real net worth over time",
+            ),
+            117: (
+                self._migrate_v117_add_recent_events,
+                "Add nullable recent_events_json column to ai_bankroll_state — a small per-AI ring buffer of recent notable hand events (bust/suckout) so the world carries recent memories without the pressure_events firehose",
             ),
         }
 
@@ -6037,3 +6041,22 @@ class SchemaManager:
                 ON holdings_snapshots(sandbox_id, entity_id, captured_at)
         """)
         logger.info("Migration v116 complete: holdings_snapshots table created")
+
+    def _migrate_v117_add_recent_events(self, conn: sqlite3.Connection) -> None:
+        """Migration v117: add `recent_events_json` to ai_bankroll_state.
+
+        A small per-AI ring buffer (capped JSON list) of recent notable hand
+        events — bust, suckout, big pot — so the lobby/dossier can show "what
+        recently happened to this character" and the world carries memory.
+        Deliberately NOT the full pressure_events firehose: bounded size,
+        event-driven writes (only on drama, which is rare per hand). Stored on
+        the (sandbox_id, personality_id) runtime row rather than the
+        psychology blob, which `PlayerPsychology.from_dict` would drop.
+
+        NULL on existing rows — purely additive. Idempotent: PRAGMA-guarded ADD.
+        """
+        cursor = conn.execute("PRAGMA table_info(ai_bankroll_state)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'recent_events_json' not in cols:
+            conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN recent_events_json TEXT")
+        logger.info("Migration v117 complete: ai_bankroll_state.recent_events_json added")
