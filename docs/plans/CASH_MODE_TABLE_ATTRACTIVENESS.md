@@ -1,5 +1,5 @@
 ---
-purpose: Give cash tables an AI-facing attractiveness score so grinders hunt where the fish/whales are, restrict fish movement, and turn whales into a pool relief valve
+purpose: Give cash tables an AI-facing attractiveness score so grinders hunt where the fish/whales are, the rich are drawn up to prestigious high-stakes rooms, restrict fish movement, and turn whales into a pool relief valve
 type: spec
 created: 2026-05-25
 last_updated: 2026-05-25
@@ -81,12 +81,16 @@ headcount** — a fish down to 20 chips isn't worth chasing; a whale on
 
 ```
 attractiveness(table, ai) =
-      stake_fit(ai, table_stake)                  # BASE — bankroll-derived band
+      base_attractor(ai, table)                   # BASE — stake_fit + prestige bend (below)
     × (1 + W_HUNGER × hunger(ai) × fish_here)     # low bankroll → fish pull harder
     × ( W_FISH  × Σ(fish seat chips)
       + W_WHALE × Σ(whale seat chips)             # whales weighted higher AND
       + BASE_DRAW )                               #   deeper-stacked → dominate
     − W_CROWD × (other grinders at table)         # self-balancing term
+
+base_attractor(ai, table) =
+      stake_fit(ai, table_stake)                  # personality anchor ∩ affordable band
+    + W_PRESTIGE × prestige(table) × wealth(ai)   # the rich are pulled UPWARD
 ```
 
 The AI then makes a **weighted probability roll** over *affordable*
@@ -123,6 +127,84 @@ priority seating + 2× fill (`lobby.py:1055-1079`). Generalize that to a
 **continuous `hunger(ai)` term** (0 at full roll → 1 when desperate) that
 amplifies the fish/whale draw. A flush grinder is mildly drawn to fish; a
 near-broke one is pulled hard toward the casino to recover.
+
+#### Prestige: wealth bends the band upward
+
+The model so far is *lateral* — find your comfortable stake, then chase
+the juiciest table at it. Nothing pulls a rich AI to climb. **Observed
+failure (2026-05-25):** the `$1000` "High Roller Pit" (the single top
+table, `lobby_config.py:62-64`) sat empty while several AIs held
+**300k+ net worth**. Affordability wasn't the gate — a 300k AI clears
+the $1000 min buy-in (40bb = 40k) trivially. The gaps:
+
+1. **`stake_up` reads the seat stack, not wealth** (`movement.py:149`,
+   `stake_up_raw = ai_chips/max_buy_in − 1`). A 300k AI sitting on a 5k
+   stack at $50 generates *zero* climb pressure. Bankroll only gates
+   whether it *can* move up (`movement.py:209-212`); it never *wants* to.
+2. **One tier at a time, by lottery.** Climbing $2→$1000 means winning
+   the leave-pressure roll with `stake_up` dominant *four* times in
+   sequence. Nothing routes the rich straight up.
+3. **Predator retention pins the rich low** (`movement.py:253-282`):
+   any grinder at a table holding a fish has `stake_up`/`bored_move`
+   coerced to `stay`. The wealthier an AI (the more it out-farms fish at
+   mid-stakes), the *more* it's nailed in place. The rich are the most
+   stuck.
+
+Prestige fills that gap as an **aspirational pull layered on the base
+attractor** — it does *not* gate (decision: **pure soft pull**, no
+net-worth floor; the normal buy-in window stays the only hard
+affordability check). Three pieces:
+
+**(a) `prestige(table)` — a per-room draw value.** Defaults to a
+tier-normalized scalar derived from `STAKES_ORDER` index (`$2`≈0 →
+`$1000`≈1; curve it so the top stands out, e.g. squared), with an
+**optional per-room override** in `lobby_config.py` (`LobbyTableEntry`
+gets a `prestige` field) so two same-stake rooms can differ in flavor
+("The Lodge" classier than "Tuesday Night Reg"). v1 ships tier-derived;
+the override is the hook, not required.
+
+**(b) `wealth(ai)` — who feels the pull.** Continuous 0→1, rising as the
+AI's wealth exceeds a multiple of the *current* tier. So the prestige
+term only fires for the genuinely rich, and the product
+`prestige × wealth` is meaningful only at high tiers held by wealthy AIs
+(a broke AI at $2 has `wealth≈0` → no prestige distortion; the model
+reduces to the plain anchor). Because `wealth` bends the *base
+attractor* — which `stake_fit` would otherwise taper toward zero far
+above the personality's static `stake_comfort_zone` anchor — the rich
+get drawn *above* their anchor, while the anchor still shapes everyone
+else. Character preserved; the wealthy graduate.
+
+> **Wealth signal (v1 decision):** use `projected_bankroll` (already in
+> `MovementContext`) as the wealth proxy, not full net worth. Net worth
+> (`holdings_view`, chips + receivable − outstanding) is the "truer"
+> figure the 300k symptom was quoted in, but plumbing receivable/
+> outstanding into the movement hot path is added cost for a number that
+> ≈ bankroll for everyone except big stakers. **v2:** swap in net worth
+> if staker-rich AIs need to feel the pull too.
+
+**(c) Push + retention override.** The pull above governs *which* table
+an idle AI targets, but a rich AI already seated and content never
+enters the idle pool. Two complementary edits:
+
+- **Wealth-driven `stake_up` pressure.** Add a wealth term to the
+  `stake_up` source in `compute_leave_pressure` (`movement.py:149`):
+  `stake_up_raw = max(ai_chips/max_buy_in − 1, W_SLUM × wealth_over_tier(ai))`.
+  A 300k AI at $50 (max buy-in 5k) is ~60× over tier → strong "I'm
+  slumming it" pressure → it leaves → idle pool → prestige routes it up.
+- **Prestige beats fish-retention for the truly rich** (decision:
+  *prestige wins eventually*). In `_coerce_predator_retention`, lift the
+  `stake_up` suppression once `wealth_over_tier(ai) ≥
+  PRESTIGE_RETENTION_OVERRIDE`: fish still hold ordinary winners, but a
+  bona-fide high-roller graduates rather than babysitting small fish.
+  Keep `bored_move` suppression intact — the rich don't wander
+  *sideways*, they go *up*.
+
+**Cold start (decision: none).** No targeted seeding of an empty
+high-prestige table. The Pit fills organically via the pull + wealth
+stake-up pressure. Tradeoff acknowledged: on a fresh world (or right
+after the rich get unstuck) the Pit may stay empty for a while before
+the first qualifying AI climbs all the way up. Revisit only if sim shows
+fill is unacceptably slow.
 
 #### Notes
 
@@ -223,10 +305,11 @@ only fires when the pool is genuinely over-full.
 | File | Change |
 |---|---|
 | *(precondition ✅)* | eph-fix `fb339db6`+`6a4a296e` (stamp-based `_count_seated_fish`) — merged into `career-mode-v0_1` 2026-05-25 |
-| `cash_mode/movement.py` | new `table_attractiveness()` (stake_fit × hunger × fish/whale − crowd); `stake_fit()` band; `hunger()` curve; attractiveness term in `compute_leave_pressure`; coerce fish `take_break → rebuy`; **weighted-probability** live-fill target selection (replaces oldest-first) |
+| `cash_mode/movement.py` | new `table_attractiveness()` (base_attractor × hunger × fish/whale − crowd); `stake_fit()` band; `hunger()` curve; **`prestige`-bent `base_attractor`**; **`wealth(ai)` + `wealth_over_tier(ai)` curves**; **wealth term in the `stake_up` source of `compute_leave_pressure`**; attractiveness term in `compute_leave_pressure`; **`_coerce_predator_retention` override at `PRESTIGE_RETENTION_OVERRIDE`**; coerce fish `take_break → rebuy`; **weighted-probability** live-fill target selection (replaces oldest-first) |
 | `cash_mode/lobby.py` | drop `×2` casino hack (`1054-1057`) **and** the hungry-grinder reorder (`1058-1079`) — both subsumed by `attractiveness()`; flip refill-before-live-fill ordering at casinos; fish seat reservation |
+| `cash_mode/lobby_config.py` | add optional `prestige` field to `LobbyTableEntry` for per-room overrides (v1 leaves it unset → tier-derived) |
 | `cash_mode/casino_provisioning.py` | pool-depth whale trigger; pass `whale=True` to `_fish_prefund`; whale `world_event` emit |
-| `cash_mode/closed_economy.py` | `WHALE_POOL_THRESHOLD`, attractiveness weights (`W_FISH`/`W_WHALE`/`W_CROWD`/`W_HUNGER`), affordable-band `N`, hunger curve constants |
+| `cash_mode/closed_economy.py` | `WHALE_POOL_THRESHOLD`, attractiveness weights (`W_FISH`/`W_WHALE`/`W_CROWD`/`W_HUNGER`), **`W_PRESTIGE`/`W_SLUM`/`PRESTIGE_RETENTION_OVERRIDE`**, **`prestige(table)` helper (tier-normalized + per-room override) + `wealth`/`wealth_over_tier` constants**, affordable-band `N`, hunger curve constants |
 | `cash_mode/bankroll.py` | derive affordable stake band from bankroll + `stake_comfort_zone` anchor (knobs already load here) |
 
 ## Validation (sim)
@@ -242,6 +325,11 @@ Run the cash economy sim (`cash_mode/sim_runner.py`) and assert:
 4. **Chip conservation holds.** Audit drift stays flat (no new leak from
    whale prefund / seat-reservation paths) — guard against the
    `vice_spending` / fish-accounting class of bugs.
+5. **The rich climb.** Seed several AIs with bankrolls ≫ a mid tier
+   (the 300k-at-$50 case). Over N ticks, assert they generate `stake_up`
+   pressure, graduate past fish-retention, and the `$1000` High Roller
+   Pit goes from empty to populated — without dragging the broke up with
+   them (low-`wealth` AIs stay anchored near `stake_comfort_zone`).
 
 ## Open questions
 
@@ -252,6 +340,18 @@ Run the cash economy sim (`cash_mode/sim_runner.py`) and assert:
   near broke? Reuse `GRINDER_HUNGER_THRESHOLD` (0.8) as the knee?
 - `WHALE_POOL_THRESHOLD` — multiple of normal operating pool; and whether
   it's per-sandbox or global.
+- `W_PRESTIGE` strength vs `W_FISH`/`W_WHALE` — prestige must out-pull a
+  juicy lower table for a *rich* AI without making *everyone* abandon
+  fish. The `wealth(ai)` gate should keep this clean, but tune in sim.
+- `prestige(table)` curve — linear in tier index, or convex (squared) so
+  the top room dominates? And the multiple-of-tier knee for `wealth(ai)`
+  / `wealth_over_tier(ai)` (how rich is "rich enough" to feel the pull
+  and to override retention, `PRESTIGE_RETENTION_OVERRIDE`).
+- `W_SLUM` — how hard wealth-over-tier pushes a parked rich AI to leave.
+  Too high and the rich never settle anywhere below the Pit; too low and
+  they stay stuck (today's bug).
+- Net worth vs bankroll for `wealth(ai)` (v1 uses bankroll; see decision
+  box in §1) — revisit if staker-heavy AIs should feel the pull.
 - Should attractiveness-weighted selection apply to lobby tables in v1
   (scope = "all cash tables") or stay casino-only until v2 brings the
   human terms? Leaning: compute the score for all tables in v1 but the
