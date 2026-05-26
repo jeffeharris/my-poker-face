@@ -10,6 +10,7 @@ import {
   Shield,
   Film,
   Coins,
+  Radar,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -79,5 +80,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Chip economy',
     icon: <Coins size={24} />,
     description: 'Audit chip creation, destruction, and drift',
+  },
+  {
+    id: 'whereabouts',
+    label: 'Whereabouts',
+    icon: <Radar size={24} />,
+    description: 'Where AIs are off-table + stuck-state tripwire',
   },
 ];

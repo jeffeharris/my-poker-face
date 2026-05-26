@@ -27,6 +27,7 @@ import type {
   StakeLabel,
   StakeOfferResponse,
   StakerForgiveResponse,
+  WhereaboutsResponse,
   WorldPace,
 } from './types';
 
@@ -141,6 +142,13 @@ export async function setWorldPace(pace: WorldPace): Promise<{ world_pace: World
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+/** Fetch where the AIs you've met are right now — at another table,
+ *  recharging in the idle pool, on a side hustle, or on a vice. Scoped
+ *  server-side to met personas; safe to poll while the drawer is open. */
+export async function getWhereabouts(): Promise<WhereaboutsResponse> {
+  return getJson('/whereabouts');
 }
 
 // --- Net Worth (Phase 3) ---

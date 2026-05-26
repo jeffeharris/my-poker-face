@@ -25,8 +25,10 @@ from ..extensions import (
     personality_repo,
     relationship_repo,
     sandbox_repo,
+    side_hustle_state_repo,
     stake_repo,
     user_repo,
+    vice_state_repo,
 )
 from ..services import game_state_service
 from ..services.chip_ledger_audit import compute_audit
@@ -226,3 +228,82 @@ def list_sandboxes():
     except Exception as e:
         logger.error("admin sandbox list failed: %s", e, exc_info=True)
         return jsonify({'error': 'Sandbox list failed'}), 500
+
+
+@chip_ledger_bp.route('/api/admin/cash/whereabouts')
+@_admin_required
+def cash_whereabouts():
+    """Unfiltered world-state + stuck tripwire for the admin panel.
+
+    Lists every AI that's somewhere trackable — seated, idle, on a side
+    hustle, or on a vice — with its location, timing, and any invariant
+    `stuck` flags (double-seat, seated-and-idle split-brain, overdue
+    return, stale idle, orphan). This is the live debug surface for the
+    ghost-seat / cold-load bug classes that keep recurring.
+
+    `?sandbox_id=<uuid>` scopes to one save; `?sandbox_id=` (empty, the
+    "All sandboxes" dropdown option) scans every live sandbox and tags
+    each person with their sandbox so a bug in any world surfaces here.
+    Unlike the player route this keeps `stuck` and does NOT filter to
+    "met" — admins need the whole picture.
+    """
+    from datetime import datetime
+
+    from cash_mode.whereabouts import build_whereabouts
+
+    def _for_sandbox(sb_id: str, owner_id: str) -> list:
+        data = build_whereabouts(
+            sandbox_id=sb_id,
+            owner_id=owner_id,
+            now=datetime.utcnow(),
+            cash_table_repo=cash_table_repo,
+            side_hustle_repo=side_hustle_state_repo,
+            vice_repo=vice_state_repo,
+            relationship_repo=relationship_repo,
+            bankroll_repo=bankroll_repo,
+            personality_repo=personality_repo,
+        )
+        people = data['people']
+        for person in people:
+            person['sandbox_id'] = sb_id
+            person['sandbox_owner_id'] = owner_id
+        return people
+
+    try:
+        sandbox_id = _sandbox_arg()
+        if sandbox_id is not None:
+            # Single sandbox. Met-stats are computed from the sandbox
+            # owner's POV so the "met"/PnL annotation is meaningful.
+            owner_id = ''
+            try:
+                sb = sandbox_repo.load(sandbox_id)
+                owner_id = sb.owner_id if sb is not None else ''
+            except Exception:
+                owner_id = ''
+            people = _for_sandbox(sandbox_id, owner_id)
+        else:
+            # All live sandboxes — a cross-world stuck scan.
+            people = []
+            for sb in sandbox_repo.list_all():
+                people.extend(_for_sandbox(sb.sandbox_id, sb.owner_id))
+            # Re-sort the merged list: stuck first, then by sandbox.
+            people.sort(
+                key=lambda r: (
+                    0 if r.get('stuck') else 1,
+                    r.get('sandbox_id') or '',
+                    (r.get('name') or '').lower(),
+                )
+            )
+
+        stuck_count = sum(1 for p in people if p.get('stuck'))
+        return jsonify(
+            {
+                'people': people,
+                'stuck_count': stuck_count,
+                'total': len(people),
+                'sandbox_id': sandbox_id,
+            }
+        )
+    except Exception as e:
+        logger.error("cash whereabouts failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Whereabouts computation failed'}), 500

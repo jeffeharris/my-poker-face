@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, Lock, Spade, Dices, Clock } from 'lucide-react';
+import { ChevronDown, Lock, Spade, Dices, Clock, MapPin } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -33,6 +33,7 @@ import { TableCard } from './TableCard';
 import { ActivityTicker, feedEventKey } from './ActivityTicker';
 import { CareerHero } from './CareerHero';
 import { NetWorthDrawer } from './NetWorthDrawer';
+import { WhereaboutsDrawer } from './WhereaboutsDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -172,6 +173,7 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
+  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -451,6 +453,17 @@ export function Lobby() {
 
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
 
+          <div className="cash-entry__whereabouts-row">
+            <button
+              type="button"
+              className="cash-entry__whereabouts-trigger"
+              onClick={() => setWhereaboutsOpen(true)}
+            >
+              <MapPin size={13} aria-hidden="true" />
+              Who's around
+            </button>
+          </div>
+
           {loadError && (
             <div className="cash-entry__error" role="alert">
               {loadError}
@@ -636,6 +649,11 @@ export function Lobby() {
           onPayoff={() => {
             void reloadLobbyRef.current();
           }}
+        />
+        <WhereaboutsDrawer
+          isOpen={whereaboutsOpen}
+          onClose={() => setWhereaboutsOpen(false)}
+          refreshTick={stakablePanelTick}
         />
         <StakeOfferModal
           target={stakeTarget}

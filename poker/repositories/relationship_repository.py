@@ -426,6 +426,59 @@ class RelationshipRepository(BaseRepository):
                 hands_played_cash=int(row['hands_played_cash'] or 0),
             )
 
+    def list_cash_pair_stats_for_observer(
+        self,
+        observer_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> list[CashPairStats]:
+        """Return every opponent this observer has tangled with in cash.
+
+        "Tangled with" = at least one confrontation hand where chips
+        flowed (`hands_played_cash > 0`) — the durable proxy for "have I
+        met this persona." Used by the whereabouts feature to scope the
+        player-facing view to opponents they've actually played, and to
+        annotate each with the player's lifetime PnL against them.
+
+        `sandbox_id=None` sums across every sandbox (the cross-sandbox
+        lifetime view); an explicit `sandbox_id` returns just that
+        sandbox's rows. Pairs with `load_cash_pair_stats`' scoping.
+        """
+        with self._get_connection() as conn:
+            if sandbox_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        opponent_id,
+                        SUM(cumulative_pnl) AS cumulative_pnl,
+                        SUM(hands_played_cash) AS hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE observer_id = ?
+                    GROUP BY opponent_id
+                    HAVING SUM(hands_played_cash) > 0
+                    """,
+                    (observer_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT opponent_id, cumulative_pnl, hands_played_cash
+                    FROM cash_pair_stats
+                    WHERE observer_id = ? AND sandbox_id = ?
+                      AND hands_played_cash > 0
+                    """,
+                    (observer_id, sandbox_id),
+                ).fetchall()
+            return [
+                CashPairStats(
+                    observer_id=observer_id,
+                    opponent_id=row["opponent_id"],
+                    cumulative_pnl=int(row["cumulative_pnl"] or 0),
+                    hands_played_cash=int(row["hands_played_cash"] or 0),
+                )
+                for row in rows
+            ]
+
     # --- notes (v95) ---
 
     def load_note(self, observer_id: str, opponent_id: str) -> Optional[str]:

@@ -285,6 +285,76 @@ export interface LobbyResponse {
 /** How fast the background world ticks for unseated tables. */
 export type WorldPace = 'subtle' | 'lively' | 'bustling';
 
+/** Where an AI is right now, from the whereabouts view.
+ *  `unknown` is a degenerate state (referenced but untrackable). */
+export type WhereaboutsStatus = 'seated' | 'idle' | 'side_hustle' | 'vice' | 'unknown';
+
+/** Idle-pool reason — why an AI stepped away from the tables.
+ *  Mirrors `cash_mode/tables.py::IDLE_REASONS`. */
+export type IdleReason = 'forced_leave' | 'stake_up_queued' | 'take_break' | 'bored_move';
+
+/** One AI's location + state for the whereabouts surfaces. The player
+ *  drawer reads the `met`-filtered subset (with `emotion`/`avatar_url`);
+ *  the admin panel reads the full set (with `stuck`/`sandbox_id`). */
+export interface WhereaboutsPerson {
+  personality_id: string;
+  name: string;
+  status: WhereaboutsStatus;
+  /** Has the human tangled with them in cash (chips flowed)? */
+  met: boolean;
+  hands_played: number;
+  /** Player's lifetime PnL vs them — positive = you're up on them. */
+  net_pnl: number;
+  bankroll: number | null;
+  // --- location (status === 'seated') ---
+  table_id: string | null;
+  table_name: string | null;
+  stake_label: string | null;
+  seat_index: number | null;
+  /** >1 only on the double-seat bug; null otherwise. */
+  seat_count: number | null;
+  chips_on_table: number;
+  // --- off-grid detail (idle / side_hustle / vice) ---
+  reason: IdleReason | null;
+  target_stake: string | null;
+  narration: string | null;
+  amount: number | null;
+  started_at: string | null;
+  ends_at: string | null;
+  left_at: string | null;
+  /** Seconds since entering the current state. */
+  seconds_in_state: number | null;
+  /** Seconds until hustle/vice ends; negative = overdue. */
+  seconds_remaining: number | null;
+  // --- player route enrichment ---
+  emotion?: string;
+  avatar_url?: string | null;
+  // --- admin route only ---
+  /** Hard invariant-violation flags (real bugs); empty/absent = healthy. */
+  stuck?: string[];
+  /** Soft/temporal flags (overdue/stale) — expected after the player's
+   *  been away; informational, not alarms. */
+  watch?: string[];
+  sandbox_id?: string;
+  sandbox_owner_id?: string;
+}
+
+/** GET /api/cash/whereabouts — met-filtered player view. */
+export interface WhereaboutsResponse {
+  now: string;
+  people: WhereaboutsPerson[];
+  /** Count of trackable AIs around that the player hasn't met yet —
+   *  a teaser only, no identities (fog of war). */
+  unmet_count: number;
+  counts: {
+    total: number;
+    idle: number;
+    side_hustle: number;
+    vice: number;
+    seated: number;
+  };
+}
+
 /** Socket `lobby_tick` payload — a lightweight nudge telling a mounted
  *  lobby to refetch its snapshot. The world itself advances server-side
  *  in the ticker; this just says "something may have changed." */

@@ -4842,6 +4842,118 @@ def get_lobby():
     )
 
 
+@cash_bp.route("/api/cash/whereabouts", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
+def get_whereabouts():
+    """GET /api/cash/whereabouts — where are the people I've met?
+
+    Player-facing companion to the lobby. Lists every AI the player has
+    actually tangled with in cash (a `cash_pair_stats` row with chip
+    flow) and says where each one is right now: at another table,
+    resting in the idle pool (recharging / waiting to stake up), off on
+    a side hustle (earning back a buy-in), or indulging a vice. Scoped
+    to "met" personas so it doesn't spoil opponents the player hasn't
+    discovered yet, and so the list stays personal rather than a roster
+    dump.
+
+    The admin tripwire variant (`/api/admin/cash/whereabouts`) returns
+    the unfiltered world + invariant `stuck` flags; this route strips
+    `stuck` — a player shouldn't see "this persona is bugged."
+
+    Response: `{"now", "people": [...], "counts": {...}}`. Each person
+    carries name, status, location/timing, the player's PnL vs them,
+    plus `avatar_url` + `emotion` for rendering.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from cash_mode.whereabouts import (
+        STUCK_UNKNOWN_PERSONALITY,
+        build_whereabouts,
+    )
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_table_repo,
+        personality_repo,
+        relationship_repo,
+        side_hustle_state_repo,
+        vice_state_repo,
+    )
+    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+
+    data = build_whereabouts(
+        sandbox_id=sandbox_id,
+        owner_id=owner_id,
+        now=datetime.utcnow(),
+        cash_table_repo=cash_table_repo,
+        side_hustle_repo=side_hustle_state_repo,
+        vice_repo=vice_state_repo,
+        relationship_repo=relationship_repo,
+        bankroll_repo=bankroll_repo,
+        personality_repo=personality_repo,
+    )
+
+    met_people = [p for p in data["people"] if p.get("met")]
+
+    # Bulk-resolve persisted emotion for the met pids (schema v97), same
+    # source the lobby uses for unseated AIs. Drives both the emotion chip
+    # and the avatar fallback's expression.
+    emotions: Dict[str, str] = {}
+    try:
+        pids = [p["personality_id"] for p in met_people]
+        blobs = bankroll_repo.load_emotional_state_json_for_pids(
+            pids,
+            sandbox_id=sandbox_id,
+        )
+        for pid, blob in (blobs or {}).items():
+            if blob:
+                emotions[pid] = _resolve_emotion_from_blob(blob, pid)
+    except Exception as exc:
+        logger.warning("[CASH][WHEREABOUTS] emotion resolution failed: %s", exc)
+
+    enriched = []
+    for person in met_people:
+        emotion = emotions.get(person["personality_id"], "confident")
+        # Never feed the personality_id as a name to the avatar fallback
+        # (that path can auto-create a zombie persona); orphans are
+        # filtered out of the met set anyway, but guard regardless.
+        avatar_url = None
+        if STUCK_UNKNOWN_PERSONALITY not in person.get("stuck", []):
+            try:
+                avatar_url = get_avatar_url_with_fallback(None, person["name"], emotion)
+            except Exception:
+                avatar_url = None
+        # Strip the internal health flags from the player payload — a
+        # player shouldn't see "this persona is bugged / overdue".
+        clean = {k: v for k, v in person.items() if k not in ("stuck", "watch")}
+        clean["emotion"] = emotion
+        clean["avatar_url"] = avatar_url
+        enriched.append(clean)
+
+    # Fog of war: how many trackable AIs are around that the player
+    # hasn't met yet. A count only — never their names/locations — so it
+    # teases the wider world without spoiling undiscovered personas.
+    unmet_count = len(data["people"]) - len(enriched)
+
+    return jsonify(
+        {
+            "now": data["now"],
+            "people": enriched,
+            "unmet_count": unmet_count,
+            "counts": {
+                "total": len(enriched),
+                "idle": sum(1 for p in enriched if p["status"] == "idle"),
+                "side_hustle": sum(1 for p in enriched if p["status"] == "side_hustle"),
+                "vice": sum(1 for p in enriched if p["status"] == "vice"),
+                "seated": sum(1 for p in enriched if p["status"] == "seated"),
+            },
+        }
+    )
+
+
 @cash_bp.route("/api/cash/world-pace", methods=["PUT"])
 def set_world_pace():
     """PUT /api/cash/world-pace — set how fast the background world ticks.
