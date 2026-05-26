@@ -1285,6 +1285,16 @@ def api_new_game():
 
     requested_personalities = data.get('personalities', [])
     default_llm_config = data.get('llm_config', {})
+    # Quick Play / themed games omit llm_config — fall back to the configured
+    # system default (groq llama for the tiered bot's narration) instead of the
+    # hardcoded 'openai' the controllers would otherwise default to.
+    if not default_llm_config:
+        from core.llm.settings import get_default_model, get_default_provider
+
+        default_llm_config = {
+            'provider': get_default_provider(),
+            'model': get_default_model(),
+        }
     starting_stack = data.get('starting_stack', 5000)
     big_blind = data.get('big_blind', 100)
     blind_growth = data.get('blind_growth', 1.5)

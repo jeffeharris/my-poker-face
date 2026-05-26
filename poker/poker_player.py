@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from core.card import Card, CardSet
 from core.llm import Assistant, CallType, LLMClient
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import get_assistant_model, get_assistant_provider
 
 from .config import MEMORY_TRIM_KEEP_EXCHANGES, is_development_mode
 from .personality_generator import PersonalityGenerator
@@ -264,8 +264,10 @@ class AIPokerPlayer(PokerPlayer):
             f'{{"responses": ["string", "string", "string"]}}'
         )
 
-        # Use stateless LLMClient for one-off attribute generation
-        client = LLMClient(model=get_default_model(), provider=get_default_provider())
+        # Use stateless LLMClient for one-off attribute generation. Uses the
+        # Assistant tier (stronger model) to match personality generation; the
+        # Default tier is the cheap groq llama used for in-game narration.
+        client = LLMClient(model=get_assistant_model(), provider=get_assistant_provider())
         response = client.complete(
             messages=[{"role": "user", "content": formatted_message}],
             json_format=True,

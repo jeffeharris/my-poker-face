@@ -321,8 +321,8 @@ The LLM module provides a unified abstraction over LLM providers with built-in u
    | `COMMENTARY` | Default | |
    | `CHAT_SUGGESTION` | Fast | |
    | `CATEGORIZATION` | Fast | |
-   | `PERSONALITY_GENERATION` | Default | |
-   | `PERSONALITY_PREVIEW` | Default | |
+   | `PERSONALITY_GENERATION` | Assistant | Stronger model; Default is the cheap in-game LLM |
+   | `PERSONALITY_PREVIEW` | Assistant | Matches personality generation |
    | `THEME_GENERATION` | Default | |
    | `IMAGE_GENERATION` | Image | |
    | `IMAGE_DESCRIPTION` | Default | |
