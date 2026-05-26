@@ -13,6 +13,7 @@ from .image_routes import image_bp
 from .personality_routes import personality_bp
 from .prompt_debug_routes import prompt_debug_bp
 from .prompt_preset_routes import prompt_preset_bp
+from .range_explorer_routes import range_explorer_bp
 from .replay_experiment_routes import replay_experiment_bp
 from .stats_routes import stats_bp
 from .user_routes import user_bp
@@ -27,6 +28,7 @@ __all__ = [
     'prompt_debug_bp',
     'experiment_bp',
     'prompt_preset_bp',
+    'range_explorer_bp',
     'capture_label_bp',
     'replay_experiment_bp',
     'user_bp',

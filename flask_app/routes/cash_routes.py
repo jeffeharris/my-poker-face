@@ -1924,9 +1924,7 @@ def sponsor_and_sit():
             # Friendly room name for the header chip / arrival toast.
             # claimed_table may be None on this sponsor path; degrade to
             # None so the frontend simply omits the chip.
-            game_data["cash_table_name"] = (
-                claimed_table.name if claimed_table is not None else None
-            )
+            game_data["cash_table_name"] = claimed_table.name if claimed_table is not None else None
             game_state_service.set_game(game_id, game_data)
 
     # Persist the stake row that leave_table will settle. `stake_id`

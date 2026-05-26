@@ -250,6 +250,7 @@ def restore_ai_controllers(
     capture_label_repo=None,
     decision_analysis_repo=None,
     bot_types: Dict[str, str] = None,
+    ai_chat: bool = True,
 ) -> Dict[str, Any]:
     """Restore AI controllers with their saved state.
 
@@ -321,11 +322,12 @@ def restore_ai_controllers(
                         owner_id=owner_id,
                         capture_label_repo=capture_label_repo,
                         decision_analysis_repo=decision_analysis_repo,
-                        expression_enabled=True,
+                        expression_enabled=ai_chat,
                         debug_logging=True,
                     )
                     logger.info(
-                        f"[RESTORE] Created TieredBotController for {player.name} (with expression)"
+                        f"[RESTORE] Created TieredBotController for {player.name} "
+                        f"(expression={'on' if ai_chat else 'off'})"
                     )
                 elif strategy == 'baseline_solver':
                     # Pure solver, no personality distortion, no expression layer
@@ -404,12 +406,12 @@ def restore_ai_controllers(
                     )
             else:
                 # No bot_types entry — match the new-game route's default of
-                # 'standard' (HybridAIController). Without this, games where
-                # the front-end omitted bot_types (all opponents on the
-                # default) rehydrated every AI as plain chaos, losing
-                # bounded options.
+                # 'sharp' (the tiered solver bot, the core engine). Legacy
+                # saves with no bot_types stamp fall through here.
+                from flask_app.handlers.tiered_factory import build_tiered_controller
+
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
-                controller = HybridAIController(
+                controller = build_tiered_controller(
                     player_name=player.name,
                     state_machine=state_machine,
                     llm_config=llm_config,
@@ -417,9 +419,10 @@ def restore_ai_controllers(
                     owner_id=owner_id,
                     capture_label_repo=capture_label_repo,
                     decision_analysis_repo=decision_analysis_repo,
+                    expression_enabled=ai_chat,
                 )
                 logger.info(
-                    f"[RESTORE] Created HybridAIController for {player.name} (default fall-through)"
+                    f"[RESTORE] Created TieredBotController for {player.name} (default fall-through)"
                 )
 
             # Restore persisted state (psychology, prompt_config, assistant
@@ -488,6 +491,27 @@ def restore_ai_controllers(
             ai_controllers[player.name] = controller
 
     return ai_controllers
+
+
+def _all_ai_no_llm(ai_controllers: dict) -> bool:
+    """True iff every AI seat resolves with ZERO LLM calls.
+
+    Tiered ("Solver") bots make no LLM call when expression (chat) is off;
+    rule bots never call an LLM. Any LLM-driven seat (Guided/Improv/Lean) or a
+    tiered bot with chat on (which narrates) → False. Used to surface
+    `ai_instant` so the UI can hide the pointless fast-forward button.
+    """
+    if not ai_controllers:
+        return False
+    from poker.tiered_bot_controller import TieredBotController
+
+    for ctrl in ai_controllers.values():
+        if isinstance(ctrl, TieredBotController):
+            if getattr(ctrl, 'expression_generator', None) is not None:
+                return False  # tiered with chat on → one narration LLM call
+        elif not isinstance(ctrl, RuleBotController | RuleBasedController):
+            return False  # LLM-driven decision (chaos/hybrid/lean)
+    return True
 
 
 def update_and_emit_game_state(game_id: str) -> None:
@@ -656,6 +680,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # resolving via the no-LLM tiered path. Auto-clears in progress_game
     # when action returns to the human.
     game_state_dict['fast_forward'] = bool(current_game_data.get('fast_forward'))
+
+    # Instant mode: every AI seat resolves with ZERO LLM calls (tiered/Solver
+    # with chat off, or pure rule bots). When true there's no deliberation to
+    # skip, so the UI hides the fast-forward button.
+    game_state_dict['ai_instant'] = _all_ai_no_llm(current_game_data.get('ai_controllers') or {})
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -899,18 +928,20 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
             sandbox_id=sandbox_id,
         )
 
-        # Swap controller registry: remove old, build new
+        # Swap controller registry: remove old, build new (tiered = core engine)
+        from flask_app.handlers.tiered_factory import build_tiered_controller
+
         ai_controllers = game_data.get('ai_controllers', {})
         ai_controllers.pop(old_player.name, None)
-        new_controller = HybridAIController(
-            replacement['name'],
-            state_machine,
+        new_controller = build_tiered_controller(
+            player_name=replacement['name'],
+            state_machine=state_machine,
             llm_config=game_data.get('llm_config', {}),
-            prompt_config=None,  # default
             game_id=game_id,
             owner_id=owner_id,
             capture_label_repo=capture_label_repo,
             decision_analysis_repo=decision_analysis_repo,
+            expression_enabled=True,
         )
         ai_controllers[replacement['name']] = new_controller
 
@@ -1843,15 +1874,17 @@ def _seat_freshly_filled_ais(
                 fish_leak=fish_leak,
             )
         else:
-            controller = HybridAIController(
-                name,
-                state_machine,
+            from flask_app.handlers.tiered_factory import build_tiered_controller
+
+            controller = build_tiered_controller(
+                player_name=name,
+                state_machine=state_machine,
                 llm_config=game_data.get('llm_config', {}),
-                prompt_config=None,
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
+                expression_enabled=True,
             )
         ai_controllers[name] = controller
 

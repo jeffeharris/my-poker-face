@@ -9,13 +9,17 @@ import os
 # OpenAI Configuration
 # =============================================================================
 
-# Default model for all LLM operations
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", os.environ.get("OPENAI_MODEL", "gpt-5-nano"))
-DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "openai")
+# Default model for all LLM operations. The tiered ("Solver") bot is the
+# default opponent and only calls the LLM for table-talk/narration, so a cheap,
+# fast model (groq llama-3.1-8b-instant) is the right baseline. Override per-tier
+# via env or the admin Settings (DB app_settings) for design-time tasks that
+# want a stronger model (e.g. personality generation).
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "llama-3.1-8b-instant")
+DEFAULT_PROVIDER = os.environ.get("DEFAULT_PROVIDER", "groq")
 
 # Fast model for quick operations (chat suggestions, categorization, etc.)
 FAST_MODEL = os.environ.get("FAST_MODEL", DEFAULT_MODEL)
-FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "openai")
+FAST_PROVIDER = os.environ.get("FAST_PROVIDER", "groq")
 
 # Model for assistants (experiment designer, etc.)
 # Default: DeepSeek Chat (supports tools + optional thinking mode)

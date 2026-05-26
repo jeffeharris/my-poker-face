@@ -45,6 +45,8 @@ interface GameStore {
   // table, each tagged with the hand it arrived during. Feeds the interhand
   // "meanwhile, elsewhere" ticker. Empty in tournament mode.
   worldEvents: BufferedWorldEvent[];
+  /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
+  aiInstant: boolean;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -76,6 +78,7 @@ const initialState = {
   cashMode: null as CashModeInfo | null,
   fastForward: false,
   worldEvents: [] as BufferedWorldEvent[],
+  aiInstant: false,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -174,6 +177,7 @@ export const useGameStore = create<GameStore>((set) => ({
         runItOut: state.run_it_out,
         cashMode: state.cash_mode ?? null,
         fastForward: state.fast_forward ?? false,
+        aiInstant: state.ai_instant ?? false,
       };
     });
   },

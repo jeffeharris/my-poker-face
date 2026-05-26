@@ -1,0 +1,17 @@
+{
+  "source_player": "Punisher",
+  "hands_observed": 1000,
+  "vpip": 0.26,
+  "pfr": 0.20,
+  "aggression_factor": 3.0,
+  "fold_to_cbet": 0.70,
+  "bluff_frequency": 0.40,
+  "showdown_win_rate": 0.55,
+  "wtsd": 0.25,
+  "threebet_rate": 0.10,
+  "flop_af": 2.5,
+  "turn_af": 3.0,
+  "river_af": 2.0,
+  "bluff_air_freq": 0.45,
+  "_comment": "Hand-authored 'punisher' for EVAL_HARNESS_PLAN.md P0.5 — the non-station opponent that complements jeff.json (a loose-passive calling station). A disciplined aggressive reg: tight raise-first range (vpip 26% / pfr 20%), folds near textbook (fold_to_cbet 0.70) and tighter on later streets (low wtsd 0.25) so it PUNISHES OVER-CALLING; barrels value hard (per-street AF 2.0-3.0) and barrels AIR at bluff_air_freq 0.45 so it PUNISHES OVER-FOLDING. bluff_air_freq is the synthetic lever (see poker/human_clone.py); the DB-derived stats here are hand-set, not mined. NOTE: it barrels air when checked to but does not bluff-RAISE into bets — it is a proxy for an aggressive reg, not a solver."
+}

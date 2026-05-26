@@ -178,6 +178,7 @@ def register_blueprints(app: Flask) -> None:
         personality_bp,
         prompt_debug_bp,
         prompt_preset_bp,
+        range_explorer_bp,
         replay_experiment_bp,
         stats_bp,
         user_bp,
@@ -192,6 +193,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(prompt_debug_bp)
     app.register_blueprint(experiment_bp)
     app.register_blueprint(prompt_preset_bp)
+    app.register_blueprint(range_explorer_bp)
     app.register_blueprint(capture_label_bp)
     app.register_blueprint(replay_experiment_bp)
     app.register_blueprint(user_bp)

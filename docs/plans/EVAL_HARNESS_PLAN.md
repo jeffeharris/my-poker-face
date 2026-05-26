@@ -1,0 +1,216 @@
+---
+purpose: Prioritized plan to build a discriminating eval for the tiered bot, so chart/strategy changes can be judged "correct" vs merely "station-beating" before more charts are authored
+type: design
+created: 2026-05-25
+last_updated: 2026-05-26
+---
+
+# Eval Harness Plan — make the yardstick trustworthy
+
+> **Why now:** Per `CHART_COVERAGE_AND_GENERATION.md` ("Next concrete step")
+> and the whole tiered-bot investigation, **the eval is the binding
+> constraint — not the charts.** Every postflop win to date was measured vs
+> *exploitable* opponents, so we cannot tell whether a change is *correct* or
+> just *station-beating*. That ambiguity **gates whether finer charts (3BP,
+> medium-SPR, LLM-refined grids) are worth authoring at all.** Build the eval
+> first. Read with the `tieredbot-bb100-lookup-tables` memory note.
+
+## Status — P0 + P0.5 + P1 implemented (2026-05-25 / P1 2026-05-26)
+
+All three priorities built and tested.
+
+**What landed:**
+- `experiments/champion_challenger.py` — the **P0** harness. One table, some
+  seats challenger (change ON) vs champion (change OFF), all the same archetype
+  (default `Baseline`); reports challenger net bb/100 with paired seeds, a
+  pooled 95%-CI verdict, per-seed + per-seat sign-disagreement, and a
+  chips-conserved check. Both flavors are `--change` presets: **flag flavor**
+  (`multistreet`, `multistreet_h1`, `multistreet_h2`) and **chart flavor**
+  (`low_spr` / `three_bp`, champion loads the table *without* the authored
+  slice via `load_strategy_table(include_low_spr=False)` / `include_3bp=False`).
+  Defaults to 6-max 3v3; `--seats 2 --challenger-seats 1` gives HU.
+- `experiments/clone_profiles/punisher.json` + a `bluff_air_freq` lever on
+  `CloneProfile` (`poker/human_clone.py`, default 0.0 → **Jeff byte-identical**)
+  — the **P0.5** non-station opponent: a disciplined reg that folds correctly
+  (punishes over-calling) *and* barrels air (punishes over-folding). Run via
+  `measure_passivity --opponents punisher`.
+- `load_strategy_table(include_low_spr=False)` — champion table for the chart
+  flavor. Tests: `tests/test_champion_challenger.py` (+ bluff/punisher cases in
+  `tests/test_human_clone.py`); full clone + strategy-table suites green.
+- `experiments/sng_runner.py` — the **P1** gold-standard absolute eval:
+  single-table **WTA SNG** (escalating blinds via `BlindConfig`, elimination,
+  play-to-one-winner, **win-rate** not bb/100), exercising the full
+  100→50→25→push-fold depth progression. Two modes: `--mode field` (which
+  archetype wins) and `--mode champion_challenger --change X` (challenger-group
+  win-rate vs the n_challenger/N null, WTA version of the P0 gate). Thin driver
+  over the engine's native continuous play — it already carries stacks, drops
+  busted players, and escalates blinds. Tests: `tests/test_sng_runner.py`
+  (whole-tournament chip conservation, determinism, termination).
+
+**First results — the eval immediately re-grounded a shipped change.** The
+P0 gate (challenger = change ON vs champion = change OFF) and the P0.5
+absolute checks agree: **the multistreet layer is not an improvement**, and the
+prior "wins" were station-inflation exactly as the plan feared.
+
+| Lens (opponent) | mode OFF | mode ON | Δ multistreet | read |
+|---|---|---|---|---|
+| **P0 self-play, HU** (`multistreet`) | — | — | **−18.6** CI [−32.5,−4.7] | **CI-clear NEGATIVE** |
+| ⮑ H1 only (HU) | — | — | **−19.8** CI [−33.9,−5.7] | **CI-clear NEGATIVE** |
+| ⮑ H2 only (HU) | — | — | **−17.7** CI [−31.9,−3.6] | **CI-clear NEGATIVE** |
+| P0 self-play, 6-max | — | — | ~0 | spots are HU-gated → rare |
+| Abs. vs `jeff` station | +48.9 | +50.1 | +1.2 | ~noise (station can't punish) |
+| Abs. vs `punisher` reg | +10.1 | +8.5 | **−1.6** | hurts (it bluffs the barrels) |
+
+Reading:
+- **Both H1 *and* H2 independently regress vs the bot itself in HU** — the
+  layer over-barrels thin value (H1) and over-folds to barrels (H2) against a
+  coherent opponent. The +EV it showed historically came from value-bots /
+  stations that don't punish either error.
+- **The punisher discriminates as designed:** the bot beats it by only +10.1
+  (vs +48.9 off the station), and it generates **331 facing-double-barrel
+  spots vs the station's 33** because it actually barrels air — so multistreet's
+  fold-to-barrel knob is finally tested against real bluffs, and it loses.
+- **`low_spr` chart flavor: +2.5 bb/100, CI [−5.3, +10.4] → INCONCLUSIVE**
+  (24k hands, 6-max) — the authored low-SPR chart is *not* a clear win over the
+  bare always-on SPR fallback; a wash at this sample.
+- **`three_bp` chart flavor: 6-max +3.4 (CI [−4.6, +11.3], INCONCLUSIVE);
+  HU −18.6 (CI [−32.8, −4.4], CI-clear NEGATIVE).** The authored 3BP chart is a
+  wash where 3-bet pots are rare (6-max) and a *regression* where they're
+  common (HU) — measured against the 3BP→SRP fallback. **Likely structural,
+  not proof the chart is wrong:** the 3BP chart is 6-max-derived, HU 3-bet
+  ranges are far wider, and there is no HU postflop chart — so HU applies the
+  6-max 3BP chart to HU-wide 3-bet pots and it transfers worse than the SRP
+  chart does. Reads as "don't route HU 3-bet pots through the 6-max 3BP chart"
+  more than "the 3BP chart is bad for its intended 6-max spots."
+
+**P1 SNG first results (400 single-table 6-max WTA SNGs each):**
+- **Field (`Baseline,TAG,LAG,Rock,Nit,GTO-Lite`):** **LAG wins 26.2%**
+  (CI [22.2, 30.8], CI-clear above the 16.7% null) — aggression accumulates
+  chips under escalating blinds. **GTO-Lite worst at 8.2%** (CI-clear below).
+  **Baseline is middling (17.0%, ~null)** — its bb/100 "competence" (+10.3
+  self-play) does *not* translate into SNG dominance; survival/accumulation is
+  a different skill, and the WTA format rewards LAG's aggression.
+- **`multistreet` gate (3v3): challenger 49.0%, CI [44.1, 53.9] →
+  INCONCLUSIVE.** Consistent with the bb/100 picture: multistreet is ~0 at
+  6-max (its HU-gated spots barely fire in a mostly-6-max SNG), and win-rate at
+  400 SNGs is too coarse (±5%) to resolve the HU-only regression the bb/100 HU
+  gate caught. Lesson: the SNG runner is the right tool for **large effects /
+  overall competence**; for an HU-specific change, the **HU bb/100 gate is far
+  more sensitive** (and cheaper). Run ≥1000 SNGs when using it as a gate.
+
+**Recommendation:** gate/re-examine the multistreet layer before trusting any
+bb/100 that credited it; treat the low-SPR and 3BP charts as unproven (the 3BP
+chart specifically should not be applied to HU until an HU 3BP slice exists).
+This is the eval doing its job — every prior result measured only vs
+stations/value-bots needs re-grounding through the P0 gate before more charts
+are authored.
+
+## The problem
+
+All current opponents reward the *same* thing — value extraction from a
+caller — and punish nothing:
+- **`Jeff_clone`** (the "unlock") is a **calling station** (vpip .39 / **ftc
+  .45** / WtSD .59). It *inflates* "stop under-betting value" fixes and
+  **cannot punish over-folding, reward bluffing, or reward balance.**
+- **`gto` / `mix` rule bots** are **always-calling** — the postflop fix scored
+  `+200` vs them (conservation-verified: real chips, just exploiting
+  always-callers).
+
+So a bb/100 gain vs these can mean "the change is correct" **or** "the change
+extracts more from a station." We can't distinguish them. This is the wall the
+entire investigation kept hitting (multiway "passivity" was an artifact; the
+push/fold table washed; the SPR coverage hole hid under a "−4.2, 100bb is fine"
+baseline; H2 was +EV vs value-bots but −EV vs the bluffier read of Jeff). **The
+recurring failure mode is an eval that can't see the thing we changed.**
+
+## The plan (prioritized by cost / ROI)
+
+The key distinction: **relative** evals ("is the new version better than the
+old?") are cheap and gate authoring; **absolute** evals ("is the bot actually
+good?") are the final word and cost more.
+
+### P0 — Champion-vs-Challenger (relative, cheap, do FIRST)
+Run the **current bot vs the changed bot head-to-head** at one table (some
+seats champion = change OFF, some challenger = change ON). The better strategy
+**wins chips off the worse one** → net bb/100 of challenger-vs-champion = the
+improvement. **Discriminating by construction** (the opponent is a *coherent*
+strategy, not a station) and **immune to station-inflation** — there's no
+station, they're playing each other.
+
+Two flavors:
+- **Flag-gated changes (trivial):** the recent work is already flag-gated
+  (`enable_multistreet_context`, `enable_value_bet_floor`). Just set the flag
+  per-controller — champion seats off, challenger seats on. ~no new code.
+- **Chart-file changes (small build):** load two strategy tables and assign
+  **per-controller** (`make_controller` currently assigns one
+  `strategy_table` to all). Add a per-seat table arg. Mirrors the per-controller
+  toggle pattern used on the `push-fold-6max` branch.
+
+Metric: challenger net bb/100 vs champion, **paired seeds**, ≥3 seeds; require
+CI-clear positive (watch for per-seat sign-disagreement = noise, as in the
+push/fold A/B). **This becomes the gate every chart/strategy change must pass.**
+
+### P0.5 — A non-station clone (absolute, cheap)
+Author a **punishing** clone profile to complement Jeff (loose-passive): an
+aggressive/disciplined "winning reg" — folds correctly (so we can't bluff-less
+our way to value), **bluffs/barrels** (so it *punishes over-folding*), and
+value-bets thin (so it *punishes over-calling*). Mirror
+`experiments/clone_profiles/jeff.json`; register via the portable-clone path
+(`_ensure_clone_registered` / the `human_clone` derive logic — works without a
+populated DB). Run it alongside `jeff` in `measure_passivity` as a second
+opponent type so wins must hold vs *both* a station and a punisher (or they're
+overfit).
+
+### P1 — Full WTA-SNG runner (absolute, gold standard, bigger build)
+The honest final eval and the one that matches the real game: **escalating
+blinds, elimination, play-to-one-winner, win-rate** (not fixed-depth bb/100).
+Exercises the depth progression (100→50→25→push-fold) that fixed-depth runs
+miss, and rewards survival/accumulation correctly (WTA ⇒ chip-EV = $EV).
+Sequence **after** P0/P0.5 — it's the most work; don't block early iteration on it.
+
+## How they fit together
+- **P0** answers "is this change an improvement?" — cheap, run on every change,
+  **gates chart authoring**.
+- **P0.5 + P1** answer "is the bot actually good / correct?" — run periodically
+  and at milestones.
+- Keep the **existing** `jeff` + `gto`/`mix` runs as a generalization band (a
+  win must not *regress* vs any opponent type), and always watch
+  `--leak-report` + per-hand-class postflop splits (confirm the change expresses
+  *intent*, not just moves bb/100).
+
+## Risks
+- **Champion-vs-challenger is relative** — both versions can share a blind spot
+  it won't reveal (e.g. both fold the nuts → head-to-head looks even). Pair it
+  with the absolute evals for blind-spot coverage.
+- **Clone fidelity** — a stats profile isn't a real player; the punisher clone
+  is a proxy. Good enough to catch over-folding/over-calling, not a substitute
+  for the SNG runner / real data.
+- **SNG runner scope** — escalating blinds + elimination + multi-table-ish
+  bookkeeping is real work; scope it tightly (single-table WTA first).
+
+## References (verify file:line — point-in-time 2026-05-25)
+- `experiments/measure_passivity.py` — the current eval harness (`--opponents
+  jeff|gto|mix`, `--stack-bb`, `--leak-report`, ProcessPool paired seeds).
+- `experiments/simulate_bb100.py` — `make_controller` (assigns one
+  `strategy_table` to all seats — the hook to make per-controller); the
+  flag-gating pattern (`enable_multistreet_context`, `enable_value_bet_floor`).
+- `experiments/clone_profiles/jeff.json` + the portable-clone registration
+  (`_ensure_clone_registered`; `poker/human_clone.py` derive/register).
+- `push-fold-6max` branch — per-controller push/fold toggle (the pattern for
+  per-seat config in the harness).
+- `docs/plans/CHART_COVERAGE_AND_GENERATION.md` — the chart work this eval gates.
+- `docs/plans/STRUCTURAL_PASSIVITY_PLAN.md` §3 — the Tier-A/B/C baseline metrics
+  (this doc is the *opponent/harness* half; that doc is the *metrics* half).
+
+## Recommended order for the fresh context
+1. **P0 champion-vs-challenger, flag flavor** (trivial) — re-judge the *already
+   shipped* flag-gated changes (multistreet H2, value-bet floor, SPR fallback)
+   head-to-head: are they improvements vs the bot itself, or only vs stations?
+   This alone re-grounds every result so far.
+2. **P0 chart-file flavor** (per-controller table) — so chart-file changes
+   (depth charts, future SPR/3BP slices) are judgeable the same way.
+3. **P0.5 punisher clone** — add the non-station opponent; re-run the shipped
+   changes vs it. Anything that only wins vs the station is overfit.
+4. **Gate all further chart authoring** (P2 3BP, medium-SPR, LLM grids in
+   `CHART_COVERAGE`) behind P0/P0.5.
+5. **P1 SNG runner** when ready — the final word.

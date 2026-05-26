@@ -24,9 +24,14 @@ Limitations (V1):
 - Postflop policy is single-stat (AF); no bet-size-conditional folds or
   street-specific tendencies. Real humans defend differently against half-pot
   vs pot-sized bets — this clone treats all bet sizes the same.
-- Bluff frequency / WtSD% / 3-bet rate are read from the row but only
-  bluff_frequency influences decisions today. Richer mining of `hand_history`
-  could feed those columns once we have a real consumer for them.
+- Bluff frequency / WtSD% / 3-bet rate are read from the row. `wtsd` and the
+  per-street AFs influence decisions; `bluff_frequency` and `threebet_rate`
+  are stored-but-unused (mined for future consumers). Richer mining of
+  `hand_history` could feed those columns once we have a real consumer.
+- DB-derived profiles never bluff (they only bet/raise with real equity). The
+  synthetic `bluff_air_freq` lever (default 0.0, never set by DB derivation)
+  adds air-barreling so a hand-authored "punisher" profile can *punish
+  over-folding* — see experiments/clone_profiles/punisher.json.
 """
 
 from __future__ import annotations
@@ -78,6 +83,14 @@ class CloneProfile:
     flop_af: Optional[float] = None  # flop-only aggression factor
     turn_af: Optional[float] = None  # turn-only aggression factor
     river_af: Optional[float] = None  # river-only aggression factor
+
+    # ── Synthetic lever (hand-authored profiles only; never DB-derived) ──
+    # P(bet/barrel air | checked to with sub-value equity). Default 0.0 keeps
+    # DB-derived and existing JSON profiles (e.g. jeff.json) byte-identical —
+    # they only bet with real equity. A "punisher" profile sets this high so it
+    # barrels air and thereby *punishes a bot that over-folds* (the eval gap
+    # noted in docs/plans/EVAL_HARNESS_PLAN.md, P0.5).
+    bluff_air_freq: float = 0.0
 
     @property
     def display_name(self) -> str:
@@ -384,6 +397,12 @@ def build_clone_strategy(profile: CloneProfile):
     # threebet_rate gates whether to widen or tighten when facing a preflop raise.
     # Default of 0.05 is "rarely 3-bets"; humans typically 5-12%.
 
+    # Air-barrel rate: P(bet | checked to with sub-value equity). 0.0 for every
+    # DB-derived / existing profile, so the bluff branch below is dead code for
+    # them; a hand-authored punisher sets it high to barrel air. Clamp guards a
+    # hand-edited negative in a JSON profile.
+    bluff_air_freq = max(0.0, profile.bluff_air_freq)
+
     def strategy(context: Dict) -> Dict:
         valid = context.get('valid_actions', [])
         cost_to_call = context.get('cost_to_call', 0)
@@ -435,6 +454,19 @@ def build_clone_strategy(profile: CloneProfile):
         # Free to act: aggression-driven betting on equity.
         if cost_to_call == 0:
             if equity >= 0.55 and 'raise' in valid and random.random() < street_rate:
+                return _raise()
+            # Air-barrel branch (punisher profiles only — bluff_air_freq is 0.0
+            # for every DB-derived / existing profile, so this is unreachable
+            # for them). Betting with sub-value equity is what lets an
+            # aggressive reg punish over-folding: a bot that folds too much
+            # bleeds to these barrels. Fires per street, so a single rate
+            # naturally produces multi-street barrels.
+            if (
+                bluff_air_freq > 0.0
+                and equity < 0.55
+                and 'raise' in valid
+                and random.random() < bluff_air_freq
+            ):
                 return _raise()
             if 'check' in valid:
                 return _check()

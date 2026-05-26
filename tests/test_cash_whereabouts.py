@@ -149,7 +149,11 @@ def _by_pid(result):
 
 
 def test_classifies_each_status():
-    tables = [_Table("t1", "$10", [_seat("ai", "seated_guy", chips=1000), _seat("open")], name="The Lodge")]
+    tables = [
+        _Table(
+            "t1", "$10", [_seat("ai", "seated_guy", chips=1000), _seat("open")], name="The Lodge"
+        )
+    ]
     result = _run(
         tables=tables,
         idle=[_idle("idle_guy")],

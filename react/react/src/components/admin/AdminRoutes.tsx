@@ -30,6 +30,7 @@ const VALID_TABS: AdminTab[] = [
   'debug',
   'chip-ledger',
   'whereabouts',
+  'range-explorer',
 ];
 
 /**

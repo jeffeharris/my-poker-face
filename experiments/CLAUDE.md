@@ -95,6 +95,10 @@ To disable telemetry (saves compute on large experiments):
 | `resume_stalled.py` | CLI for detecting and resuming stalled variants |
 | `run_from_config.py` | Run experiments from JSON config files |
 | `run_minimal_prompt_test.py` | Quick baseline prompt test script |
+| `champion_challenger.py` | Champion-vs-challenger A/B harness — runs the bot's current vs changed strategy head-to-head at one table (the EVAL_HARNESS_PLAN §P0 gate; immune to station-inflation) |
+| `sng_runner.py` | Single-table winner-take-all SNG eval (EVAL_HARNESS_PLAN §P1) — escalating blinds, elimination, play-to-one-winner, win-rate. `--mode field` (which archetype wins) or `--mode champion_challenger` (challenger win-rate, WTA version of the gate) |
+| `measure_passivity.py` | Tier-A passivity eval; `--opponents jeff` (station) / `punisher` (aggressive reg) for the EVAL_HARNESS_PLAN §P0.5 absolute checks |
+| `clone_profiles/` | Frozen human-clone profiles (`jeff.json` station, `punisher.json` reg) usable DB-free via `--clone-profile` |
 | `variant_config.py` | Variant configuration utilities |
 | `configs/` | Example experiment configuration files |
 | `results/` | Default output directory for tournament results |

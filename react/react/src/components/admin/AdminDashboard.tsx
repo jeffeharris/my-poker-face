@@ -10,6 +10,7 @@ import { TemplateEditor } from './TemplateEditor';
 import { DebugTools } from './DebugTools';
 import { ChipLedgerPanel } from './ChipLedgerPanel';
 import { CashWhereaboutsPanel } from './CashWhereaboutsPanel';
+import { RangeExplorer } from './RangeExplorer';
 import { HandReplayBrowser } from './HandReplay';
 import { UnifiedSettings } from './UnifiedSettings';
 import { AdminMenuContainer } from './AdminMenuContainer';
@@ -127,6 +128,7 @@ export function AdminDashboard({
       {activeTab === 'debug' && <DebugTools embedded />}
       {activeTab === 'chip-ledger' && <ChipLedgerPanel embedded />}
       {activeTab === 'whereabouts' && <CashWhereaboutsPanel embedded />}
+      {activeTab === 'range-explorer' && <RangeExplorer embedded />}
     </>
   );
 

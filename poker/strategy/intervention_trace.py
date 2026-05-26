@@ -72,6 +72,7 @@ _LAYER_NAMES = frozenset(
         'multistreet_context',  # STRUCTURAL_PASSIVITY_PLAN.md
         'defense_floor',  # Plan §2
         'short_stack',
+        'postflop_commit',  # low-SPR value commitment (SOLVER_CHART_SCOPE)
         'math_floor',
         'value_vs_station',  # Phase 8
         'steal_pressure',  # Phase 8
@@ -96,6 +97,7 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel'}),
     'defense_floor': frozenset({'default'}),
     'short_stack': frozenset({'default'}),
+    'postflop_commit': frozenset({'default'}),
     'math_floor': frozenset({'default'}),
     'value_vs_station': frozenset({'default'}),
     'steal_pressure': frozenset({'default'}),
@@ -124,6 +126,7 @@ _LAYER_ORDER: Dict[str, int] = {
     'multistreet_context': 4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
     'defense_floor': 4,  # Plan §2: price-sensitive call floor
     'short_stack': 5,
+    'postflop_commit': 5,  # low-SPR value commitment (runs just before math_floor)
     'math_floor': 6,
 }
 MAX_LAYER_ORDER = max(_LAYER_ORDER.values())

@@ -33,7 +33,7 @@ the leave mechanism (movement → idle pool → re-seat).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 # --- status values (single source of truth for the wire contract) ---
 
@@ -153,8 +153,7 @@ def build_whereabouts(
 
     # 2. Idle pool.
     idle: Dict[str, Any] = {
-        entry.personality_id: entry
-        for entry in cash_table_repo.list_idle(sandbox_id=sandbox_id)
+        entry.personality_id: entry for entry in cash_table_repo.list_idle(sandbox_id=sandbox_id)
     }
 
     # 3. Side hustle — active + expired. "Expired but still present" is
@@ -185,9 +184,7 @@ def build_whereabouts(
     }
 
     all_pids: List[str] = list(
-        dict.fromkeys(
-            [*seated.keys(), *idle.keys(), *hustle.keys(), *vice.keys()]
-        )
+        dict.fromkeys([*seated.keys(), *idle.keys(), *hustle.keys(), *vice.keys()])
     )
 
     # 6. Names in one query (side-effect-free; does not bump times_used).

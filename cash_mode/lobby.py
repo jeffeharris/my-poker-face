@@ -809,16 +809,6 @@ def refresh_unseated_tables(
                 _starting_bankroll_cache[pid] = None
         return _starting_bankroll_cache[pid]
 
-    def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
-        """Display name for an AI personality on lobby ticker events."""
-        try:
-            personality = personality_repo.load_personality_by_id(pid)
-        except Exception:
-            return None
-        if not personality:
-            return None
-        return personality.get("name") or pid
-
     def _carry_lookup(staker_id: str, borrower_id: str) -> int:
         """Phase 4.5 Commit 1 — total outstanding carry borrower → staker.
 
@@ -876,16 +866,16 @@ def refresh_unseated_tables(
 
         def _buy_in_for(
             pid: str,
-            _cache=_current_table_buy_in,
-            _min=table_min_buy_in,
-            _max=table_max_buy_in,
+            _table_buy_in=_current_table_buy_in,
+            _min_buy_in=table_min_buy_in,
+            _max_buy_in=table_max_buy_in,
         ) -> int:
-            if pid in _cache:
-                return _cache[pid]
+            if pid in _table_buy_in:
+                return _table_buy_in[pid]
             knobs = bankroll_repo.load_personality_knobs(pid)
-            threshold = round(_min * knobs.buy_in_multiplier)
-            value = min(threshold, _max)
-            _cache[pid] = value
+            threshold = round(_min_buy_in * knobs.buy_in_multiplier)
+            value = min(threshold, _max_buy_in)
+            _table_buy_in[pid] = value
             return value
 
         # Phase 4.5 Commit 2 — tier-gated take_stake. Wrap the borrower
@@ -956,8 +946,8 @@ def refresh_unseated_tables(
 
         controller_cache = _get_default_controller_cache()
 
-        def _psych_lookup_sim(pid: str, _cache=controller_cache) -> Dict[str, Any]:
-            ctrl = _cache.get(pid)
+        def _psych_lookup_sim(pid: str, _controller_cache=controller_cache) -> Dict[str, Any]:
+            ctrl = _controller_cache.get(pid)
             if ctrl is None:
                 return {}
             psych = getattr(ctrl, 'psychology', None)
@@ -1269,6 +1259,16 @@ def refresh_unseated_tables(
         # same pid — a take_stake earlier in the burst emits its
         # own from_seat for the bust chips, which must still credit).
         settled_from_seat_indices: set = set()
+
+        def _ticker_name_for(pid: str, personality_repo) -> Optional[str]:
+            try:
+                personality = personality_repo.load_personality_by_id(pid)
+            except Exception:
+                return None
+            if not personality:
+                return None
+            return personality.get("name") or pid
+
         if stake_repo is not None:
             from cash_mode.activity import AI_STAKE_TICKER_THRESHOLD
             from cash_mode.stake_chip_flow import (
@@ -1878,12 +1878,7 @@ def refresh_unseated_tables(
                 pid = e.personality_id
                 # Same split-brain guard as the vice pass: never send a
                 # seated AI off-grid on a hustle (seated_and_offgrid).
-                if (
-                    pid in on_vice
-                    or pid in on_hustle
-                    or pid in _fish_ids
-                    or pid in _seated_pids
-                ):
+                if pid in on_vice or pid in on_hustle or pid in _fish_ids or pid in _seated_pids:
                     continue
                 try:
                     projected = bankroll_repo.load_ai_bankroll_current(
@@ -2992,7 +2987,7 @@ def _process_aspiration_asks(
     stake_repo,
     relationship_repo,
     personality_repo,
-    chip_ledger_repo,
+    chip_ledger_repo=None,
     sandbox_id: Optional[str],
     now: datetime,
     rng: random.Random,
