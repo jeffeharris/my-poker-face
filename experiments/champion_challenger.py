@@ -124,41 +124,22 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'enable_multistreet_context': False},
         challenger_flags=_multistreet_flags(h1=False, h2=True),
     ),
-    # ── Chart flavor: champion loads a table WITHOUT the authored low-SPR
-    # slice (relies on the always-on SPR fallback); challenger loads it WITH. ──
-    'low_spr': ChangeSpec(
-        description='authored low-SPR postflop chart merged on top of the '
-        'always-on SPR fallback (chart flavor; re-judges c5aa0d07)',
-        champion_table=lambda: load_strategy_table(include_low_spr=False),
-        challenger_table=lambda: load_strategy_table(include_low_spr=True),
-    ),
-    'three_bp': ChangeSpec(
-        description='authored 3-bet-pot (3BP) postflop chart vs the bare '
-        'pot_type fallback (3BP→SRP) (chart flavor; re-judges 4be11e93)',
-        champion_table=lambda: load_strategy_table(include_3bp=False),
-        challenger_table=lambda: load_strategy_table(include_3bp=True),
-    ),
-    'slices': ChangeSpec(
-        description='BOTH authored precision slices (low-SPR + 3BP) on top of '
-        'the SPR/pot_type fallbacks — the "is the precision worth keeping?" '
-        'bloat question (chart flavor; champion = neither slice)',
-        champion_table=lambda: load_strategy_table(include_low_spr=False, include_3bp=False),
-        challenger_table=lambda: load_strategy_table(include_low_spr=True, include_3bp=True),
-    ),
+    # NB: the chart-flavor `low_spr` / `three_bp` / `slices` A/Bs were removed
+    # when the precision slices were cut — the hardened SNG gate measured them
+    # neutral (no win-rate benefit), so the slices no longer exist to A/B. See
+    # docs/plans/SNG_RUNNER_HARDENING.md. The SPR/pot_type *fallback* (the real
+    # win) stays and is re-judgeable via `core_fix` below.
     # ── The core postflop fix vs the PRE-fix passive default. Champion =
-    # pre-760d89e5 behavior (no SPR degrade ladder, postflop_commit off, no
-    # authored slices) → low/med-SPR & 3BP misses hit the hand-blind default
-    # (fold-the-nuts ~70%). Challenger = the core fix alone (SPR fallback +
-    # postflop_commit, still no precision slices). Isolates whether the big
-    # +32/+48-vs-Jeff fold-the-nuts fix is real vs the bot itself, separate from
-    # the (known neutral/negative) low_spr / three_bp precision slices. ──
+    # pre-760d89e5 behavior (no SPR degrade ladder, postflop_commit off) →
+    # low/med-SPR & 3BP misses hit the hand-blind default (fold-the-nuts ~70%).
+    # Challenger = the core fix (SPR fallback + postflop_commit). Isolates
+    # whether the big +32/+48-vs-Jeff fold-the-nuts fix is real vs the bot
+    # itself. ──
     'core_fix': ChangeSpec(
-        description='core postflop fix (SPR fallback + postflop_commit, no '
-        'precision slices) vs the pre-fix passive default (re-judges 760d89e5)',
-        champion_table=lambda: load_strategy_table(
-            spr_fallback=False, include_low_spr=False, include_3bp=False),
-        challenger_table=lambda: load_strategy_table(
-            spr_fallback=True, include_low_spr=False, include_3bp=False),
+        description='core postflop fix (SPR fallback + postflop_commit) vs the '
+        'pre-fix passive default (re-judges 760d89e5)',
+        champion_table=lambda: load_strategy_table(spr_fallback=False),
+        challenger_table=lambda: load_strategy_table(spr_fallback=True),
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),

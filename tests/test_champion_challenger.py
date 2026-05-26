@@ -34,10 +34,19 @@ class TestChallengerSeatIndices:
 
 class TestChangeRegistry:
     def test_known_changes_present(self):
-        # The two flavors the plan names must exist.
+        # Flag-flavor multistreet + the calibration changes the SNG gate needs.
         assert 'multistreet' in CHANGES  # flag flavor
-        assert 'low_spr' in CHANGES  # chart flavor
-        assert 'three_bp' in CHANGES  # chart flavor (3BP, post lookup-tables merge)
+        assert 'core_fix' in CHANGES  # SPR-fallback A/B (the slices' replacement)
+        assert 'null' in CHANGES  # A-A calibration
+        assert 'cripple_challenger' in CHANGES  # known-extreme calibration
+
+    def test_cut_slice_changes_absent(self):
+        # The low_spr/3BP precision slices were cut (hardened SNG gate measured
+        # them neutral — docs/plans/SNG_RUNNER_HARDENING.md), so their A/Bs are
+        # gone too. Guards against re-adding a dead chart-flavor A/B.
+        assert 'low_spr' not in CHANGES
+        assert 'three_bp' not in CHANGES
+        assert 'slices' not in CHANGES
 
     def test_every_change_is_well_formed(self):
         for name, spec in CHANGES.items():
@@ -45,16 +54,6 @@ class TestChangeRegistry:
             # Table builders are callables that produce a usable table.
             assert callable(spec.champion_table)
             assert callable(spec.challenger_table)
-
-    @pytest.mark.parametrize("change", ['low_spr', 'three_bp'])
-    def test_chart_flavor_tables_actually_differ(self, change):
-        # A chart flavor must load genuinely different postflop tables (the
-        # challenger has the extra authored slice), else the A/B is a silent
-        # no-op.
-        spec = CHANGES[change]
-        champ = spec.champion_table()
-        chal = spec.challenger_table()
-        assert len(chal._postflop) > len(champ._postflop)
 
     def test_flag_flavor_shares_one_table_builder(self):
         # multistreet differs by flags, not charts.
@@ -68,7 +67,7 @@ class TestMatchupConservation:
     zero. This is the load-bearing correctness check for the bb/100 it reports.
     """
 
-    @pytest.mark.parametrize("change", ['multistreet', 'low_spr', 'three_bp'])
+    @pytest.mark.parametrize("change", ['multistreet', 'core_fix', 'depth_charts'])
     def test_per_hand_deltas_sum_to_zero(self, change):
         spec = CHANGES[change]
         result = run_cc_matchup(

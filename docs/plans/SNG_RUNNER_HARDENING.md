@@ -7,11 +7,15 @@ last_updated: 2026-05-26
 
 # SNG runner hardening — make it a cut-grade gate
 
-> **STATUS (2026-05-26): P0–P4 DONE — the gate is cut-grade.** See
-> "Implementation status & results" at the bottom for what shipped, the
-> calibration evidence, and the binding verdict on the precision slices
-> (decision: **cut** — no measurable win-rate benefit). P5–P8 remain optional
-> integrity/quality follow-ups.
+> **STATUS (2026-05-26): P0–P4 DONE — the gate is cut-grade, and the cut was
+> EXECUTED.** See "Implementation status & results" at the bottom for what
+> shipped, the calibration evidence, and the binding verdict on the precision
+> slices (decision: **cut** — no measurable win-rate benefit). The low-SPR / 3BP
+> slices, their generators, and the `allow_shallow` HU gate have now been
+> removed (data, loader, callers, tests, docs); the SPR/pot_type fallback ladder
+> + `postflop_commit` stay. The chart-flavor `low_spr`/`three_bp`/`slices` A/Bs
+> are gone from `CHANGES` (nothing left to A/B); `core_fix` still re-judges the
+> fallback. P5–P8 remain optional integrity/quality follow-ups.
 
 > **For a fresh context.** This is a self-contained execution plan. Read
 > `docs/plans/EVAL_HARNESS_PLAN.md` (the parent — P0/P0.5/P1 eval program) and

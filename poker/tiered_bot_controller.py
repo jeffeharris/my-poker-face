@@ -797,12 +797,12 @@ class TieredBotController(AIPlayerController):
         # re-deriving the node. Cheap; the snapshot already exists for replay.
         self._last_pipeline_snapshot['node_key'] = node.key
 
-        # 3. Lookup base strategy (with texture fallback). Gate the authored
-        # low-SPR / 3BP slices to 6-max (num_seated > 2): they're 6-max-derived
-        # and CI-clear regress heads-up (wider HU 3-bet/shallow ranges run
-        # through narrow 6-max charts), so HU uses the 6-max base instead.
+        # 3. Lookup base strategy. Only the (SRP, high) chart is authored;
+        # shallow-SPR / 3-bet-pot spots ride the degrade ladder (low → high,
+        # 3BP → SRP). The authored precision slices were cut after the hardened
+        # SNG gate measured them neutral (docs/plans/SNG_RUNNER_HARDENING.md).
         base_strategy = self.strategy_table.lookup_postflop_with_fallback(
-            node, valid_actions, allow_shallow=len(game_state.players) > 2,
+            node, valid_actions,
         )
 
         if self.debug_logging:
