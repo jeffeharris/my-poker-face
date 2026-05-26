@@ -185,9 +185,10 @@ class TestBluffCatchFireTrace:
         assert decoded['operation'] == 'override'
 
     def test_fire_trace_records_call_action_when_all_in(self):
-        """Short-stack spots expose all_in not call. Trace must record
-        which call-equivalent action was used so attribution can
-        distinguish call-off from cold call."""
+        """Short-stack spots expose all_in not call. The call-equivalent must be
+        recorded as the ABSTRACT token 'jam' (the resolver maps it to engine
+        all_in) — never the raw engine 'all_in', which would crash the
+        action_mapper when the profile is re-sampled. See action_vocab.py."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
 
@@ -199,7 +200,7 @@ class TestBluffCatchFireTrace:
             legal_actions=['fold', 'all_in'],
         )
 
-        assert trace.extra['call_action'] == 'all_in'
+        assert trace.extra['call_action'] == 'jam'
 
     def test_fire_trace_amount_buckets_are_empty_for_call_fold(self):
         """Bluff-catch produces a {call, fold} distribution — neither

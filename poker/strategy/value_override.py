@@ -32,6 +32,7 @@ offset framework can't express it. This module does.
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
+from .action_vocab import abstract_call_token
 from .exploitation import (
     GATING_FLOOR,
     MIN_HANDS_DEFAULT,
@@ -763,10 +764,12 @@ def compute_bluff_catch_strategy(
     )
     fold_prob = max(0.0, 1.0 - call_prob)
 
-    legal = set(legal_actions or ())
-    call_action = 'call'
-    if legal and 'call' not in legal and 'all_in' in legal:
-        call_action = 'all_in'
+    # A call-off when 'call' is illegal but 'all_in' is must enter the abstract
+    # profile as the abstract JAM token, NOT the engine 'all_in' — this profile
+    # is sampled and re-resolved by the action_mapper, which only knows 'jam'.
+    # (Copying the raw engine token here crashed resolve_postflop_sizing on
+    # deep-stack call-offs.) See poker/strategy/action_vocab.py.
+    call_action = abstract_call_token(legal_actions)
 
     proposed = StrategyProfile(
         action_probabilities={

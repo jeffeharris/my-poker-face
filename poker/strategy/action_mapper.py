@@ -15,6 +15,26 @@ expectation (the band is symmetric around the table's intent).
 import random
 from typing import Optional, Tuple
 
+from .action_vocab import ENGINE_ONLY_TOKENS, AbstractAction, EngineAction
+
+
+def _raise_unknown_abstract(abstract_action: str):
+    """Raise for an abstract token the resolvers can't size.
+
+    We do NOT alias engine tokens to their abstract equivalents — that would
+    hide a real producer bug. Instead, when an engine-only token (``all_in`` /
+    ``bet`` / ``raise``) leaked into the abstract vocabulary, say so precisely so
+    the fix lands on the producer, not here. See poker/strategy/action_vocab.py.
+    """
+    if abstract_action.strip().lower() in ENGINE_ONLY_TOKENS:
+        raise ValueError(
+            f"Engine action {abstract_action!r} leaked into the abstract strategy "
+            f"vocabulary — a producer wrote an engine token into a StrategyProfile. "
+            f"Emit the abstract token instead (e.g. {AbstractAction.JAM.value!r} for "
+            f"a shove); see poker/strategy/action_vocab.py."
+        )
+    raise ValueError(f"Unknown abstract action: {abstract_action!r}")
+
 
 def _compute_raise_to(
     multiplier: float,
@@ -81,8 +101,8 @@ def resolve_preflop_sizing(
     player_total = player.stack + player.bet  # total chips including current bet
     big_blind = game_state.current_ante
 
-    if action == 'jam':
-        return ('all_in', player_total)
+    if action == AbstractAction.JAM:
+        return (EngineAction.ALL_IN.value, player_total)
 
     # Raise actions: determine multiplier and base amount.
     # NL hold'em rule: re-raise increment must be >= the size of the
@@ -116,7 +136,7 @@ def resolve_preflop_sizing(
             jitter=sizing_jitter,
         )
     else:
-        raise ValueError(f"Unknown abstract action: {abstract_action!r}")
+        _raise_unknown_abstract(abstract_action)
 
     # If raise_to consumes entire stack, convert to all-in
     if raise_to >= player_total:
@@ -159,8 +179,8 @@ def resolve_postflop_sizing(
     player = game_state.players[player_idx]
     player_total = player.stack + player.bet
 
-    if action == 'jam':
-        return ('all_in', player_total)
+    if action == AbstractAction.JAM:
+        return (EngineAction.ALL_IN.value, player_total)
 
     highest_bet = game_state.highest_bet
     # See preflop comment: re-raise increment must >= prior raise size.
@@ -193,7 +213,7 @@ def resolve_postflop_sizing(
             target = rng.uniform(target * (1.0 - sizing_jitter), target * (1.0 + sizing_jitter))
         raise_to = highest_bet + int(target)
     else:
-        raise ValueError(f"Unknown abstract action: {abstract_action!r}")
+        _raise_unknown_abstract(abstract_action)
 
     # Clamp to legal bounds
     raise_to = max(min_raise, min(raise_to, player_total))
