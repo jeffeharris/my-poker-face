@@ -84,13 +84,26 @@ class TestOnJoinAuth:
     """Tests for ownership checks in on_join handler."""
 
     @patch('flask_app.routes.game_routes.emit')
+    # A non-owner triggers the admin-override check (_is_admin → the global
+    # authorization service). Patch it to None so this test exercises only the
+    # ownership branch and never touches the real singleton — which, left to a
+    # prior test's create_app(), can be pinned to a deleted temp DB and raise
+    # "no such table: permissions". Mirrors test_non_owner_cannot_send_message.
+    @patch('flask_app.routes.game_routes.get_authorization_service', return_value=None)
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
     @patch('flask_app.routes.game_routes.auth_manager')
     def test_non_owner_cannot_join(
-        self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
+        self,
+        mock_auth,
+        mock_gss,
+        mock_join_room,
+        mock_socketio,
+        mock_progress,
+        _mock_authz,
+        mock_emit,
     ):
         """Non-owner user is rejected with auth_error — no room join, no game start."""
         mock_auth.get_current_user.return_value = {'id': 'other-user'}

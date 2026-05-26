@@ -62,6 +62,24 @@ class TestExperimentRoutes(unittest.TestCase):
             ext.coach_repo = repos['coach_repo']
             ext.persistence_db_path = repos['db_path']
 
+        # Bind the route module's `experiment_repo` to this test's repo for
+        # the whole test. experiment_routes does `from ..extensions import
+        # experiment_repo`, which captures the value at first import — so the
+        # name stays pinned to whichever test first triggered the import. If
+        # that earlier test's tearDown closed the connection and deleted its
+        # temp DB (e.g. test_chip_ledger_routes does), the repo reconnects to
+        # the now-missing path and silently creates a fresh, empty DB →
+        # "no such table: experiments / experiment_chat_sessions". Starting
+        # this before create_app() also covers detect_orphaned_experiments(),
+        # which runs during app startup. The per-test `with patch(...)` blocks
+        # below remain (harmless re-patch of the same object).
+        self._exp_repo_patcher = patch(
+            'flask_app.routes.experiment_routes.experiment_repo',
+            self.experiment_repo,
+        )
+        self._exp_repo_patcher.start()
+        self.addCleanup(self._exp_repo_patcher.stop)
+
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
         self.app.testing = True
