@@ -14,7 +14,8 @@ export type AdminTab =
   | 'settings'
   | 'debug'
   | 'chip-ledger'
-  | 'whereabouts';
+  | 'whereabouts'
+  | 'range-explorer';
 
 export interface SidebarItem {
   id: AdminTab;

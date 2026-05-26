@@ -11,6 +11,7 @@ import {
   Film,
   Coins,
   Radar,
+  Grid3x3,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -86,5 +87,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Whereabouts',
     icon: <Radar size={24} />,
     description: 'Where AIs are off-table + stuck-state tripwire',
+  },
+  {
+    id: 'range-explorer',
+    label: 'Range Explorer',
+    icon: <Grid3x3 size={24} />,
+    description: 'VPIP starting-hand ranges by player, archetype, and bot',
   },
 ];
