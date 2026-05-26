@@ -772,6 +772,52 @@ class TestRefreshLiveFill:
         # The constant exposed as the default must match the per-hand rate.
         assert DEFAULT_LIVE_FILL_PROB == 0.05
 
+    def test_eligible_fill_clears_stale_idle_row(self):
+        """Regression: an AI queued to stake up ($50 target) that gets
+        eligible-filled at a non-target ($10) table must have its idle
+        row cleared. Before the fix the idle-remove fired only for the
+        `idle` source, so the eligible path left a live idle row →
+        the `seated_and_idle` split-brain (napoleon/joan/queen live cases).
+        """
+        seats = [open_slot()] * 6
+        table = _make_table(seats)  # $10 table
+        # Napoleon is BOTH idle (queued for $50) and in the eligible pool.
+        # His $50 target ≠ this $10 table and he can still afford $50
+        # (5000 ≥ 2000), so `_idle_candidate_filter` rejects him from the
+        # idle path — he can only be seated here via the eligible branch.
+        idle_pool = [
+            IdlePoolEntry(
+                personality_id="napoleon",
+                left_at=datetime(2026, 5, 18, 11, 0, 0),
+                reason="stake_up_queued",
+                target_stake="$50",
+            )
+        ]
+        rng = _force_rng([0.0] + [0.99] * 5)  # fill the first open seat only
+        result = refresh_table_roster(
+            table,
+            idle_pool=idle_pool,
+            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
+            seated_globally=set(),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+        )
+        # Seated via the eligible branch...
+        assert result.freshly_seated_personality_ids == ["napoleon"]
+        assert result.new_table.seats[0]["personality_id"] == "napoleon"
+        # ...and the stale idle row is scheduled for removal.
+        removes = [
+            c for c in result.idle_changes
+            if c.kind == "remove" and c.personality_id == "napoleon"
+        ]
+        assert removes, "eligible-fill must emit an idle-remove to clear the stale row"
+
     def test_cooldown_skips_recent_leaver_at_same_table(self):
         seats = [open_slot()] * 6
         table = _make_table(seats)

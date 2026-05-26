@@ -360,6 +360,16 @@ def ensure_lobby_seeded(
                 seat_position = next(position_iter)
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
+                # Seeding draws from the eligible pool, which isn't
+                # filtered by idle-pool membership — so when this runs on
+                # an already-live sandbox it can seat an AI that's resting
+                # in the idle pool. Clear the row to avoid the
+                # `seated_and_idle` split-brain. Best-effort; no-op when
+                # absent (the common fresh-sandbox case).
+                try:
+                    cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
+                except Exception:
+                    pass
                 filled += 1
                 # Debit the AI's bankroll to fund their initial seat
                 # chips. Without this debit the chip-ledger audit
@@ -1762,6 +1772,19 @@ def refresh_unseated_tables(
     # in the bank pool on the same tick they're available for tourist
     # injection / casino seeding (vice_spending is in
     # BANK_POOL_DEPOSIT_REASONS).
+    # Sandbox-wide seated pids — the off-grid (vice / side-hustle) passes
+    # below draw from `list_idle`, but a seating-path bug could leave a
+    # seated AI with a stale idle row (the `seated_and_idle` split-brain).
+    # Never send a *seated* AI off-grid: that would compound it into
+    # `seated_and_offgrid`. Defense-in-depth — the seat-write paths now
+    # clear idle rows, but this guard keeps the invariant locally.
+    _seated_pids: Set[str] = {
+        slot.get("personality_id")
+        for tbl in cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+        for slot in tbl.seats
+        if slot.get("kind") == "ai" and slot.get("personality_id")
+    }
+
     vice_starts: list = []
     if (
         vice_mode == 'real'
@@ -1778,9 +1801,17 @@ def refresh_unseated_tables(
             # idle_pool was already filtered to exclude on_vice AIs at
             # the top of this function. Refresh from the current idle
             # snapshot so any AIs who entered idle during the table
-            # loop are eligible too.
+            # loop are eligible too. Exclude seated AIs (split-brain
+            # guard) and fish (a casino-only, pool-funded class that
+            # never goes off-grid — mirrors the side-hustle pass).
             current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-            candidates = {e.personality_id for e in current_idle if e.personality_id not in on_vice}
+            candidates = {
+                e.personality_id
+                for e in current_idle
+                if e.personality_id not in on_vice
+                and e.personality_id not in _seated_pids
+                and e.personality_id not in _fish_ids
+            }
 
             def _vice_narrate(pid, amount, snapshot):
                 # Bind the personality_repo so the LLM prompt can
@@ -1852,7 +1883,14 @@ def refresh_unseated_tables(
             candidates: Set[str] = set()
             for e in current_idle:
                 pid = e.personality_id
-                if pid in on_vice or pid in on_hustle or pid in _fish_ids:
+                # Same split-brain guard as the vice pass: never send a
+                # seated AI off-grid on a hustle (seated_and_offgrid).
+                if (
+                    pid in on_vice
+                    or pid in on_hustle
+                    or pid in _fish_ids
+                    or pid in _seated_pids
+                ):
                     continue
                 try:
                     projected = bankroll_repo.load_ai_bankroll_current(

@@ -1204,13 +1204,21 @@ def refresh_table_roster(
                 amount=buy_in,
             )
         )
-        if source == "idle":
-            idle_changes.append(
-                IdlePoolChange(
-                    kind="remove",
-                    personality_id=pid,
-                )
+        # Clear any idle-pool row for the AI we just seated. For the
+        # `idle` source this is the matching removal. For the `eligible`
+        # source it self-heals a stale row: a `stake_up_queued` AI whose
+        # target tier doesn't match this table is rejected by
+        # `_idle_candidate_filter` but is still in `eligible_candidates`
+        # (which is filtered only by off-grid, not idle membership), so
+        # it can be seated here below its target — leaving a live idle
+        # row = the `seated_and_idle` split-brain. The caller's
+        # delete_idle is a harmless no-op when no row exists.
+        idle_changes.append(
+            IdlePoolChange(
+                kind="remove",
+                personality_id=pid,
             )
+        )
 
     new_table = CashTableState(
         table_id=table.table_id,
