@@ -15,9 +15,9 @@ last_updated: 2026-05-26
 > medium-SPR, LLM-refined grids) are worth authoring at all.** Build the eval
 > first. Read with the `tieredbot-bb100-lookup-tables` memory note.
 
-## Status — P0 + P0.5 implemented (2026-05-25)
+## Status — P0 + P0.5 + P1 implemented (2026-05-25 / P1 2026-05-26)
 
-Built and tested; **P1 (SNG runner) deferred** per the plan's own ordering.
+All three priorities built and tested.
 
 **What landed:**
 - `experiments/champion_challenger.py` — the **P0** harness. One table, some
@@ -37,6 +37,15 @@ Built and tested; **P1 (SNG runner) deferred** per the plan's own ordering.
 - `load_strategy_table(include_low_spr=False)` — champion table for the chart
   flavor. Tests: `tests/test_champion_challenger.py` (+ bluff/punisher cases in
   `tests/test_human_clone.py`); full clone + strategy-table suites green.
+- `experiments/sng_runner.py` — the **P1** gold-standard absolute eval:
+  single-table **WTA SNG** (escalating blinds via `BlindConfig`, elimination,
+  play-to-one-winner, **win-rate** not bb/100), exercising the full
+  100→50→25→push-fold depth progression. Two modes: `--mode field` (which
+  archetype wins) and `--mode champion_challenger --change X` (challenger-group
+  win-rate vs the n_challenger/N null, WTA version of the P0 gate). Thin driver
+  over the engine's native continuous play — it already carries stacks, drops
+  busted players, and escalates blinds. Tests: `tests/test_sng_runner.py`
+  (whole-tournament chip conservation, determinism, termination).
 
 **First results — the eval immediately re-grounded a shipped change.** The
 P0 gate (challenger = change ON vs champion = change OFF) and the P0.5
@@ -73,6 +82,21 @@ Reading:
   6-max 3BP chart to HU-wide 3-bet pots and it transfers worse than the SRP
   chart does. Reads as "don't route HU 3-bet pots through the 6-max 3BP chart"
   more than "the 3BP chart is bad for its intended 6-max spots."
+
+**P1 SNG first results (400 single-table 6-max WTA SNGs each):**
+- **Field (`Baseline,TAG,LAG,Rock,Nit,GTO-Lite`):** **LAG wins 26.2%**
+  (CI [22.2, 30.8], CI-clear above the 16.7% null) — aggression accumulates
+  chips under escalating blinds. **GTO-Lite worst at 8.2%** (CI-clear below).
+  **Baseline is middling (17.0%, ~null)** — its bb/100 "competence" (+10.3
+  self-play) does *not* translate into SNG dominance; survival/accumulation is
+  a different skill, and the WTA format rewards LAG's aggression.
+- **`multistreet` gate (3v3): challenger 49.0%, CI [44.1, 53.9] →
+  INCONCLUSIVE.** Consistent with the bb/100 picture: multistreet is ~0 at
+  6-max (its HU-gated spots barely fire in a mostly-6-max SNG), and win-rate at
+  400 SNGs is too coarse (±5%) to resolve the HU-only regression the bb/100 HU
+  gate caught. Lesson: the SNG runner is the right tool for **large effects /
+  overall competence**; for an HU-specific change, the **HU bb/100 gate is far
+  more sensitive** (and cheaper). Run ≥1000 SNGs when using it as a gate.
 
 **Recommendation:** gate/re-examine the multistreet layer before trusting any
 bb/100 that credited it; treat the low-SPR and 3BP charts as unproven (the 3BP
