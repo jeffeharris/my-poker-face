@@ -69,6 +69,7 @@ from poker.memory.cbet_detector import CbetDetector
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_game import advance_to_next_active_player, play_turn
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.strategy.exploitation import RULE_ORDER as _EXPLOIT_RULE_ORDER
 from poker.strategy.strategy_table import StrategyTable, load_strategy_table
 
 _AGGRESSIVE = frozenset({'bet', 'raise', 'all_in'})
@@ -208,6 +209,43 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'_cripple': 'fold'},
     ),
 }
+
+
+# ── Per-sub-rule exploitation ablation (isolate flavor) ─────────────────────
+# The `exploitation` bundle measured a flat null; these isolate each offset
+# rule so a cancelling pair (one rule +EV, another −EV → net zero) becomes
+# visible. Each `exploit_<rule>` change runs the challenger with ONLY that rule
+# live (all other exploitation rules disabled) against a champion with
+# exploitation fully off (strength 0) — so the win-rate is the rule's STANDALONE
+# contribution vs no exploitation. Same prerequisites as `exploitation`:
+# SNG-runner, --opponent-model, a non-Baseline --archetype, exploitable
+# --backdrop. `steal_pressure` is excluded — STEAL_PRESSURE_PLAYSTYLES is empty,
+# so it's dormant for every archetype and would read a degenerate null.
+# `value_vs_station` / `bluff_reduction` additionally need a value_vs_station
+# archetype (nit/rock/tag).
+_ALL_EXPLOIT_RULE_KEYS = frozenset(_EXPLOIT_RULE_ORDER)
+_ABLATABLE_EXPLOIT_RULES = tuple(
+    key for key in _EXPLOIT_RULE_ORDER if key != ('steal_pressure', 'default')
+)
+for _layer, _rule in _ABLATABLE_EXPLOIT_RULES:
+    # The five 'exploitation'-layer rules have distinct rule_ids; the Phase-8
+    # rules share rule_id='default' and are distinguished by their layer.
+    _name = _rule if _layer == 'exploitation' else _layer
+    CHANGES[f'exploit_{_name}'] = ChangeSpec(
+        description=f'ISOLATE exploitation rule {_layer}/{_rule}: challenger runs ONLY '
+        f'this offset rule (every other exploitation rule disabled) vs a champion '
+        f'with exploitation fully off — the rule\'s standalone win-rate contribution. '
+        f'SNG-runner only; needs --opponent-model + a non-Baseline --archetype + '
+        f'exploitable --backdrop (value_vs_station/bluff_reduction need nit/rock/tag).',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'exploitation_strength': 0.0},
+        challenger_flags={
+            'exploitation_strength': 1.0,
+            'disable_rules': _ALL_EXPLOIT_RULE_KEYS - {(_layer, _rule)},
+        },
+    )
+del _layer, _rule, _name
 
 
 # ── Controller construction ─────────────────────────────────────────────────

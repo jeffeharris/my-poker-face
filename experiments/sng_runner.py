@@ -697,19 +697,23 @@ def main():
             sys.exit(1)
         # The exploitation layer reads anchors.adaptation_bias (Baseline has
         # anchors=None → it no-ops) and needs something exploitable to detect.
+        # Covers both the full `exploitation` bundle and the per-rule `exploit_*`
+        # isolation presets.
+        is_exploit_change = args.change == 'exploitation' or args.change.startswith('exploit_')
         opponent_model = args.opponent_model
-        if args.change == 'exploitation':
+        if is_exploit_change:
             opponent_model = True
             if args.archetype == 'Baseline':
                 print(
-                    "--change exploitation needs a personality archetype with "
+                    f"--change {args.change} needs a personality archetype with "
                     "adaptation_bias (Baseline has anchors=None → the layer no-ops). "
-                    "Use --archetype TAG (or LAG/Rock/Nit)."
+                    "Use --archetype TAG (or LAG/Rock/Nit). value_vs_station/"
+                    "bluff_reduction additionally need nit/rock/tag."
                 )
                 sys.exit(1)
             if not backdrop:
                 print(
-                    "⚠ --change exploitation with no --backdrop: an all-A/B table has no "
+                    f"⚠ --change {args.change} with no --backdrop: an all-A/B table has no "
                     "exploitable opponents, so the layer finds nothing to exploit and the "
                     "A/B will read ~neutral. Add e.g. --backdrop CallStation,CallStation,"
                     "FoldyBot,FoldyBot."
