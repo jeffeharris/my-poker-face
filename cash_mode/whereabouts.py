@@ -32,8 +32,11 @@ the leave mechanism (movement → idle pool → re-seat).
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from cash_mode.movement import project_idle_energy
 
 # --- status values (single source of truth for the wire contract) ---
 
@@ -102,6 +105,30 @@ def _seconds_between(later: datetime, earlier: Optional[datetime]) -> Optional[i
     if earlier is None:
         return None
     return int((later - earlier).total_seconds())
+
+
+def _idle_recharge_fraction(
+    bankroll_repo: Any, pid: str, sandbox_id: str, idle_seconds: Optional[int]
+) -> Optional[float]:
+    """Recharge fraction (0..1) for an idle AI: how far its energy has sprung
+    back toward its *own* baseline through the rest it's had — 1.0 = fully
+    rested, matching the (baseline-relative) re-seat gate's view. None when
+    there's no persisted psychology to read. Best-effort."""
+    if bankroll_repo is None:
+        return None
+    try:
+        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+        if not blob:
+            return None
+        state = json.loads(blob)
+        stored = float(state.get("axes", {}).get("energy", 0.5))
+        baseline = float(state.get("anchors", {}).get("baseline_energy", stored))
+    except Exception:
+        return None
+    if baseline <= 0:
+        return 1.0
+    projected = project_idle_energy(stored, baseline, float(idle_seconds or 0))
+    return round(min(1.0, projected / baseline), 3)
 
 
 def _seat_location(table: Any, seat_index: int, slot: Dict[str, Any]) -> Dict[str, Any]:
@@ -278,6 +305,11 @@ def build_whereabouts(
             "left_at": None,
             "seconds_in_state": None,
             "seconds_remaining": None,
+            # recovery — recharge fraction (0..1, toward the AI's baseline)
+            # while resting in the idle pool; None for seated/off-grid AIs.
+            # Lets the lobby show how rested an idle AI is (1.0 = fully
+            # recharged, ~ready to return to a seat).
+            "recharge": None,
             # health — partitioned below into hard (stuck) vs soft (watch)
             "stuck": [],
             "watch": [],
@@ -297,6 +329,9 @@ def build_whereabouts(
             record["target_stake"] = entry.target_stake
             record["left_at"] = _iso(entry.left_at)
             record["seconds_in_state"] = _seconds_between(now, entry.left_at)
+            record["recharge"] = _idle_recharge_fraction(
+                bankroll_repo, pid, sandbox_id, record["seconds_in_state"]
+            )
             # Stale-idle only applies to genuinely-idle AIs (status==idle);
             # a forced-leave hustler reads as side_hustle and isn't "stale".
             age = record["seconds_in_state"]

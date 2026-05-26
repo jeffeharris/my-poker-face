@@ -98,6 +98,19 @@ CASINO_PREDATOR_FATIGUE_FLOOR = 0.2
 # extension on top of this is computed at leave time.
 MIN_COOLDOWN_SECONDS = 10
 
+# Idle recovery (spec: docs/plans/CASH_MODE_MOVEMENT_PRESSURE_DESIGN.md).
+# The leave side is energy-driven (tired AIs walk to the idle pool), but
+# energy never recovered while idle and re-seating ignored it — so AIs
+# returned just as drained. These close that loop: while idle, energy
+# springs back toward baseline on wall-clock time (same projection-on-read
+# pattern as bankroll regen), and re-seating gates on the recovered value.
+IDLE_ENERGY_RECOVERY_PER_HOUR = 0.5  # +energy/hour idle, toward baseline
+# Re-seat gate is RELATIVE to each AI's own baseline, not an absolute energy
+# value — low-baseline personas (e.g. baseline 0.32) recover only up to their
+# baseline, so an absolute floor would strand them in the idle pool forever.
+# An idle AI must recharge to this fraction of its baseline before returning.
+RESEAT_RECOVERY_FLOOR = 0.85
+
 # Phase 4.5 Commit 1 — per-staker garnishment on AI take_stake.
 # Mirrors `cash_mode.sponsor_offers.GARNISHMENT_RATE_CAP` so AI-side
 # and human-side garnishment surfaces stay calibrated together. The
@@ -162,6 +175,41 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
         "detached": W_DETACHED * detached_raw,
         "tenure": W_TENURE * tenure_raw,
     }
+
+
+def project_idle_energy(
+    stored_energy: float,
+    baseline_energy: float,
+    idle_seconds: float,
+    recovery_per_hour: float = IDLE_ENERGY_RECOVERY_PER_HOUR,
+) -> float:
+    """Project an idle AI's energy forward through wall-clock rest.
+
+    Springs `stored_energy` toward `baseline_energy` at `recovery_per_hour`,
+    clamped so rest never pushes energy *past* baseline (a worn-down AI
+    recovers to its natural level, not beyond). Pure — mirrors the
+    projection-on-read used for bankroll regen.
+    """
+    if idle_seconds <= 0 or stored_energy >= baseline_energy:
+        return min(stored_energy, max(stored_energy, baseline_energy))
+    recovered = stored_energy + recovery_per_hour * (idle_seconds / 3600.0)
+    return min(baseline_energy, recovered)
+
+
+def reseat_readiness(recovery: float) -> float:
+    """Per-tick probability an idle, recovered AI returns to a seat.
+
+    `recovery` is the fraction recharged toward the AI's baseline (1.0 = back
+    to baseline). 0 below `RESEAT_RECOVERY_FLOOR` ("still resting"), then ramps
+    linearly to 1.0 at full recovery — so the more rested an AI is, the likelier
+    it leaves the idle pool this tick. Augments (not replaces) the live-fill roll.
+    """
+    if recovery < RESEAT_RECOVERY_FLOOR:
+        return 0.0
+    span = 1.0 - RESEAT_RECOVERY_FLOOR
+    if span <= 0:
+        return 1.0
+    return max(0.0, min(1.0, (recovery - RESEAT_RECOVERY_FLOOR) / span))
 
 
 def evaluate_ai_movement(
@@ -749,6 +797,12 @@ def refresh_table_roster(
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
     defer_freshly_vacated_live_fill: bool = True,
     psych_lookup: Optional[Callable[[str], Dict[str, Any]]] = None,
+    # Idle-recovery gate: recovery fraction toward baseline for an idle AI
+    # (caller computes projected-energy ÷ baseline from emotional_state_json +
+    # time-since-left; 1.0 = fully rested). When provided, idle candidates
+    # below RESEAT_RECOVERY_FLOOR are still resting and won't be picked; above
+    # it, return chance ramps with recovery. Omit → no gate (pre-idle behavior).
+    energy_lookup: Optional[Callable[[str], float]] = None,
     # Phase 4: optional callbacks to intercept `forced_leave` with a
     # `take_stake` decision when a peer AI is willing and able to
     # stake the busting borrower. Omit (default None) → never tries
@@ -1163,6 +1217,14 @@ def refresh_table_roster(
             projected = bankroll_lookup(entry.personality_id) or 0
             if projected < buy_in:
                 continue
+            # Idle-recovery gate: still-tired AIs keep resting; more-recovered
+            # ones are likelier to return this tick. `energy_lookup` returns the
+            # recovery fraction toward baseline (1.0 = fully rested). No-op when
+            # energy_lookup omitted.
+            if energy_lookup is not None:
+                recovery = energy_lookup(entry.personality_id)
+                if recovery < RESEAT_RECOVERY_FLOOR or rng.random() >= reseat_readiness(recovery):
+                    continue
             chosen = ("idle", entry.personality_id, buy_in)
             used_idle.add(entry.personality_id)
             break

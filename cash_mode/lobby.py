@@ -40,6 +40,7 @@ from cash_mode.full_sim import (
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RosterRefreshResult,
+    project_idle_energy,
     refresh_table_roster,
 )
 from cash_mode.staker_history import StakerHistoryStats
@@ -487,6 +488,35 @@ def _select_new_last_stands(
     newly = now_qualifying - prev
     _last_stand_announced[key] = set(now_qualifying)
     return newly
+
+
+def _persist_reseat_recovery(bankroll_repo, personality_id, sandbox_id, recovered_energy) -> None:
+    """Write recovered idle energy back to emotional_state_json so the AI's
+    rebuilt controller hydrates the rested value rather than the drained
+    leave-time energy (otherwise it would re-seat and immediately generate
+    tenure leave-pressure again). Best-effort — failures are swallowed.
+    """
+    if bankroll_repo is None:
+        return
+    try:
+        import json as _json
+
+        blob = bankroll_repo.load_emotional_state_json(personality_id, sandbox_id=sandbox_id)
+        if not blob:
+            return
+        state = _json.loads(blob)
+        axes = state.get("axes")
+        if isinstance(axes, dict):
+            axes["energy"] = round(float(recovered_energy), 4)
+            bankroll_repo.save_emotional_state_json(
+                personality_id, _json.dumps(state), sandbox_id=sandbox_id
+            )
+    except Exception as exc:  # noqa: BLE001 — recovery write-back is best-effort
+        logger.debug(
+            "[CASH][LOBBY] reseat energy write-back failed for %s: %s",
+            personality_id,
+            exc,
+        )
 
 
 def refresh_unseated_tables(
@@ -1126,6 +1156,49 @@ def refresh_unseated_tables(
                     _order_index = {pid: i for i, pid in enumerate(_predator_ids)}
                     _pred_entries.sort(key=lambda e: _order_index.get(e.personality_id, 1_000_000))
                     _table_idle_pool = _pred_entries + _other_entries
+
+            # Idle-recovery gate: project each idle candidate's energy forward
+            # through the rest it's had (now − left_at) toward its baseline, so
+            # the re-seat path can keep still-tired AIs resting and bring
+            # rested ones back. Energy lives in the blob for idle AIs; memoize
+            # per table-refresh to avoid re-reading it for every open seat.
+            _reseat_left_at = {e.personality_id: e.left_at for e in _table_idle_pool}
+            _reseat_energy_memo: Dict[str, float] = {}
+
+            def _reseat_energy_lookup(
+                pid: str, _la=_reseat_left_at, _memo=_reseat_energy_memo
+            ) -> float:
+                import json as _json
+
+                if pid in _memo:
+                    return _memo[pid]
+                stored = baseline = 0.5
+                if bankroll_repo is not None:
+                    try:
+                        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+                        if blob:
+                            state = _json.loads(blob)
+                            stored = float(state.get("axes", {}).get("energy", 0.5))
+                            baseline = float(
+                                state.get("anchors", {}).get("baseline_energy", stored)
+                            )
+                    except Exception:
+                        stored = baseline = 0.5
+                la = _la.get(pid)
+                if la is None:
+                    projected = stored
+                else:
+                    try:
+                        idle_seconds = max(0.0, (now - la).total_seconds())
+                    except Exception:
+                        idle_seconds = 0.0
+                    projected = project_idle_energy(stored, baseline, idle_seconds)
+                # Recovery fraction toward baseline (1.0 = fully rested); the
+                # re-seat gate is relative so low-baseline AIs aren't stranded.
+                frac = 1.0 if baseline <= 0 else min(1.0, projected / baseline)
+                _memo[pid] = frac
+                return frac
+
             per_hand = refresh_table_roster(
                 table,
                 idle_pool=_table_idle_pool,
@@ -1142,6 +1215,7 @@ def refresh_unseated_tables(
                 live_fill_prob=_effective_live_fill_prob,
                 defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
+                energy_lookup=_reseat_energy_lookup,
                 # Phase 4: intercept forced_leave with take_stake when
                 # peer AIs are willing to fund the busting borrower.
                 # Wired only when callers pass relationship_repo and
@@ -1190,6 +1264,14 @@ def refresh_unseated_tables(
             agg_idle_changes.extend(per_hand.idle_changes)
             agg_bankroll_changes.extend(per_hand.bankroll_changes)
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
+            # Persist recovered energy for AIs that just returned from the idle
+            # pool, so their rebuilt controller starts rested (the gate already
+            # ensured they recovered past the floor before re-seating).
+            for _pid in per_hand.freshly_seated_personality_ids:
+                if _pid in _reseat_left_at:
+                    _persist_reseat_recovery(
+                        bankroll_repo, _pid, sandbox_id, _reseat_energy_lookup(_pid)
+                    )
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)

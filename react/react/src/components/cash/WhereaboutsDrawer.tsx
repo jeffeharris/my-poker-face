@@ -54,7 +54,11 @@ const SECTIONS: {
   icon: React.ReactNode;
 }[] = [
   { status: 'idle', label: 'Recharging', icon: <Coffee size={15} aria-hidden="true" /> },
-  { status: 'side_hustle', label: 'On a side hustle', icon: <Briefcase size={15} aria-hidden="true" /> },
+  {
+    status: 'side_hustle',
+    label: 'On a side hustle',
+    icon: <Briefcase size={15} aria-hidden="true" />,
+  },
   { status: 'vice', label: 'Out indulging', icon: <Dice5 size={15} aria-hidden="true" /> },
   { status: 'seated', label: 'At another table', icon: <Armchair size={15} aria-hidden="true" /> },
 ];
@@ -77,9 +81,16 @@ function fmtDuration(seconds: number | null): string {
 function detailLine(p: WhereaboutsPerson): string {
   switch (p.status) {
     case 'idle': {
-      const base = p.reason ? REASON_LABEL[p.reason] : 'Idle';
-      if (p.reason === 'stake_up_queued' && p.target_stake) {
-        return `Looking for a ${p.target_stake} seat`;
+      const base =
+        p.reason === 'stake_up_queued' && p.target_stake
+          ? `Looking for a ${p.target_stake} seat`
+          : p.reason
+            ? REASON_LABEL[p.reason]
+            : 'Idle';
+      // Recharge is fraction-toward-baseline — the idle pool *is* "Recharging",
+      // so show how rested they are (100% = fully recharged, ~ready to return).
+      if (p.recharge != null) {
+        return `${base} · ${Math.round(p.recharge * 100)}% charged`;
       }
       const since = fmtDuration(p.seconds_in_state);
       return since ? `${base} · ${since}` : base;
@@ -118,9 +129,7 @@ function PnlChip({ netPnl, hands }: { netPnl: number; hands: number }) {
   if (!hands) return null;
   const suffix = <span className="whereabouts-row__pnl-label"> vs. you</span>;
   if (netPnl === 0) {
-    return (
-      <span className="whereabouts-row__pnl whereabouts-row__pnl--even">even{suffix}</span>
-    );
+    return <span className="whereabouts-row__pnl whereabouts-row__pnl--even">even{suffix}</span>;
   }
   const up = netPnl > 0;
   return (
@@ -184,11 +193,7 @@ function PersonRow({ person }: { person: WhereaboutsPerson }) {
       </div>
       {badge && <span className="whereabouts-row__timing">{badge}</span>}
       {expandable && (
-        <ChevronDown
-          size={14}
-          className="whereabouts-row__chevron"
-          aria-hidden="true"
-        />
+        <ChevronDown size={14} className="whereabouts-row__chevron" aria-hidden="true" />
       )}
     </li>
   );
@@ -316,8 +321,8 @@ export function WhereaboutsDrawer({ isOpen, onClose, refreshTick = 0 }: Whereabo
             <div className="whereabouts-drawer__empty">
               <p>Nobody you've played is off doing their own thing right now.</p>
               <p className="whereabouts-drawer__empty-hint">
-                Play a few hands against the regulars — once you've tangled with someone, you'll
-                see where they wander off to between sessions.
+                Play a few hands against the regulars — once you've tangled with someone, you'll see
+                where they wander off to between sessions.
               </p>
             </div>
           )}

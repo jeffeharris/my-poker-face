@@ -28,6 +28,7 @@ from cash_mode.movement import (
     FORCED_LEAVE_RATIO,
     LEAVE_K,
     MIN_COOLDOWN_SECONDS,
+    RESEAT_RECOVERY_FLOOR,
     W_DETACHED,
     W_SHORT,
     W_STAKE_UP,
@@ -44,8 +45,10 @@ from cash_mode.movement import (
     evaluate_ai_movement,
     is_in_cooldown,
     pick_rebuy_amount,
+    project_idle_energy,
     record_leave_cooldown,
     refresh_table_roster,
+    reseat_readiness,
 )
 from cash_mode.tables import (
     CashTableState,
@@ -911,3 +914,72 @@ class TestRefreshDeferFreshlyVacated:
         # Seat 1 was an existing open → zeus fills it.
         assert result.new_table.seats[1]["kind"] == "ai"
         assert result.new_table.seats[1]["personality_id"] == "zeus"
+
+
+# ---------------------------------------------------------------------------
+# Idle recovery (a): energy springs back toward baseline while idle, and the
+# re-seat path gates on the recovered value.
+# ---------------------------------------------------------------------------
+
+
+def test_project_idle_energy_recovers_toward_baseline():
+    # No elapsed time → unchanged.
+    assert project_idle_energy(0.2, 0.6, 0) == 0.2
+    # Half an hour at the default 0.5/hr rate → +0.25.
+    assert project_idle_energy(0.2, 0.6, 1800) == pytest.approx(0.45)
+    # Enough rest overshoots baseline → clamped to baseline (no over-recovery).
+    assert project_idle_energy(0.2, 0.6, 3600 * 5) == pytest.approx(0.6)
+    # Already at/above baseline → rest never pushes it higher.
+    assert project_idle_energy(0.8, 0.6, 3600 * 5) == 0.8
+
+
+def test_reseat_readiness_floor_and_ramp():
+    # `reseat_readiness` takes a recovery fraction toward baseline (1.0 = rested).
+    assert reseat_readiness(RESEAT_RECOVERY_FLOOR - 0.01) == 0.0  # still resting
+    assert reseat_readiness(RESEAT_RECOVERY_FLOOR) == 0.0  # at floor: 0
+    assert reseat_readiness(1.0) == pytest.approx(1.0)  # fully recharged: certain
+    mid = (1.0 + RESEAT_RECOVERY_FLOOR) / 2
+    assert reseat_readiness(mid) == pytest.approx(0.5)  # halfway: ~half
+
+
+def _idle_reseat_result(recovery: float):
+    """Run a single-open-seat refresh where one affordable idle AI ('zeus',
+    target_stake matching this $10 table) is the only candidate, gated by a
+    fixed recovery-fraction lookup. rng passes the fill roll and readiness roll."""
+    seats = [open_slot()] + [ai_slot("napoleon", 500)] * 5
+    table = _make_table(seats)
+    idle_pool = [
+        IdlePoolEntry(
+            personality_id="zeus",
+            left_at=datetime(2026, 5, 19, 11, 0, 0),
+            reason="take_break",
+            target_stake=None,  # accepts any table
+        )
+    ]
+    return refresh_table_roster(
+        table,
+        idle_pool=idle_pool,
+        eligible_candidates=[],
+        seated_globally=set(),
+        bankroll_lookup=_bankroll_lookup_factory({"zeus": 5000}),
+        buy_in_lookup=_buy_in_lookup_factory(400),
+        rng=_force_rng([0.0, 0.0] + [0.99] * 6),  # fill roll + readiness roll pass
+        now=datetime(2026, 5, 19, 12, 0, 0),
+        stake_idx=1,
+        table_min_buy_in=400,
+        table_max_buy_in=1000,
+        psych_lookup=_neutral_psych,
+        energy_lookup=lambda _pid: recovery,
+    )
+
+
+def test_idle_reseat_blocked_when_still_tired():
+    result = _idle_reseat_result(recovery=0.2)  # well below RESEAT_RECOVERY_FLOOR
+    assert result.freshly_seated_personality_ids == []
+    assert result.new_table.seats[0]["kind"] == "open"
+
+
+def test_idle_reseat_allowed_when_recovered():
+    result = _idle_reseat_result(recovery=1.0)  # fully recharged → readiness 1.0
+    assert result.freshly_seated_personality_ids == ["zeus"]
+    assert result.new_table.seats[0]["personality_id"] == "zeus"

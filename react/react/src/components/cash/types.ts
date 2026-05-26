@@ -341,6 +341,9 @@ export interface WhereaboutsPerson {
   seconds_in_state: number | null;
   /** Seconds until hustle/vice ends; negative = overdue. */
   seconds_remaining: number | null;
+  /** Recharge fraction 0..1 toward the AI's baseline while resting in the idle
+   *  pool (1.0 = fully rested); null for seated/off-grid AIs. */
+  recharge: number | null;
   // --- player route enrichment ---
   emotion?: string;
   avatar_url?: string | null;
