@@ -248,3 +248,45 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
                     assert "name" in seat
                     assert "relationship_hint" in seat
                     assert seat["chips"] > 0
+
+    def test_no_session_reports_inactive(self):
+        """With no cash-* game row, the lobby reports no active session and
+        null seated fields — the Resume bar stays hidden."""
+        resp = self.client.get("/api/cash/lobby")
+        data = resp.get_json()
+        assert data["has_active_session"] is False
+        assert data["seated_table_id"] is None
+        assert data["seated_stake_label"] is None
+
+    def test_cold_session_surfaces_resume(self):
+        """A cash-* games row that ISN'T in memory (abandoned mid-hand,
+        surviving a restart as a DB-only row) must still report
+        has_active_session, with the table id / stake label pulled from the
+        durable cash_sessions row. Otherwise the player is wedged: the sit
+        guard 409s every new session while the lobby shows no Resume bar and
+        no way back in or out. Regression for the orphaned-cold-session
+        wedge."""
+        fake_cs = MagicMock()
+        fake_cs.cash_table_id = "cash-table-10-001"
+        fake_cs.stake_label = "$10"
+        cs_repo = MagicMock()
+        cs_repo.load.return_value = fake_cs
+
+        # The game id resolves (DB fallback) but is NOT in memory, so
+        # game_state_service.get_game returns None and the route takes the
+        # cold-session branch.
+        with patch(
+            "flask_app.routes.cash_routes._find_active_cash_game_id",
+            return_value="cash-cold-abandoned",
+        ), patch(
+            "flask_app.extensions.cash_session_repo",
+            cs_repo,
+        ):
+            resp = self.client.get("/api/cash/lobby")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["has_active_session"] is True
+        assert data["seated_table_id"] == "cash-table-10-001"
+        assert data["seated_stake_label"] == "$10"
+        cs_repo.load.assert_called_once_with("cash-cold-abandoned")
