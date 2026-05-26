@@ -1,3 +1,10 @@
+---
+purpose: Deferred issues and tech debt identified during review, triaged by priority tier
+type: reference
+created: 2026-02-04
+last_updated: 2026-05-26
+---
+
 # Triage: Deferred Issues
 
 Issues identified during code review but deferred for future work.
@@ -60,6 +67,24 @@ isolated, ~6K LOC). Make each module strict, then freeze it and expand outward.
   expand to the next package once green. Full codebase is many multiples of
   this (`poker/` alone is 69K LOC), hence the per-module rollout.
 - **Added:** CI/maintainability pass, 2026-05-25.
+
+## Fragile cash-game detection via `gameId.startsWith('cash-')`
+
+Cash/career games are distinguished from tournament games by string-matching
+the game id prefix (`gameId.startsWith('cash-')`). This is used to decide
+navigation (the in-game "back" button routes career → `/cash`, tournament →
+`/menu/tournament`) and 404 recovery.
+
+- **Why fragile:** Couples routing/UX logic to an id naming convention. A
+  future change to how cash game ids are minted would silently misroute the
+  back button and the game-not-found fallback with no type error to catch it.
+- **Where:** `react/react/src/components/game/GamePage.tsx` (`handleBack`,
+  `handleGameLoadFailed`). Likely also worth auditing other `'cash-'` prefix
+  checks across the frontend.
+- **Better:** Surface an explicit `game_mode` / `mode: 'cash' | 'tournament'`
+  field on the game state from the backend and branch on that instead of the
+  id shape.
+- **Added:** Career back-nav feature, 2026-05-26.
 
 ---
 

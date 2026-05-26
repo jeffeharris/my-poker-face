@@ -23,9 +23,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, Lock, Spade, Dices, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -157,6 +157,20 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
 
 export function Lobby() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // One-shot signal from the in-game "back" button: land on the lobby
+  // instead of auto-resuming into the still-alive session. Captured at
+  // mount via useRef so it survives re-renders without re-triggering the
+  // mount effect (its only dep is `navigate`). A later fresh navigation
+  // to /cash carries no state, so resume-on-load works normally again.
+  const skipResumeRef = useRef(
+    (location.state as { skipResume?: boolean } | null)?.skipResume ?? false
+  );
+  // Set only when the player reached the lobby via the in-game "back"
+  // button (skipResume) while a session is still live. Drives the
+  // "Resume session" banner — the explicit way back into the game,
+  // since tapping a table seat tries to *sit*, not resume.
+  const [resume, setResume] = useState<{ gameId: string; stakeLabel: string | null } | null>(null);
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
@@ -301,8 +315,14 @@ export function Lobby() {
         const state = await getState();
         if (cancelled) return;
         if (state.state?.game_id) {
-          navigate(`/game/${state.state.game_id}`, { replace: true });
-          return;
+          if (skipResumeRef.current) {
+            // Player backed out of a live session on purpose — show the
+            // lobby with a Resume banner instead of bouncing them back in.
+            setResume({ gameId: state.state.game_id, stakeLabel: state.state.stake_label });
+          } else {
+            navigate(`/game/${state.state.game_id}`, { replace: true });
+            return;
+          }
         }
       } catch (e) {
         if (cancelled) return;
@@ -447,6 +467,20 @@ export function Lobby() {
               pendingForgivenessCount={pendingForgivenessCount}
               onOpenNetWorth={() => setNetWorthOpen(true)}
             />
+          )}
+
+          {resume && (
+            <button
+              type="button"
+              className="cash-entry__resume"
+              onClick={() => navigate(`/game/${resume.gameId}`)}
+            >
+              <Play size={18} aria-hidden="true" />
+              <span className="cash-entry__resume-text">
+                Resume your{resume.stakeLabel ? ` ${resume.stakeLabel}` : ''} session
+              </span>
+              <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
+            </button>
           )}
 
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />

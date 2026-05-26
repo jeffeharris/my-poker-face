@@ -226,6 +226,37 @@
   border-radius: 8px;
 }
 
+/* Resume banner: shown when the player backed out of a live session to
+ * look at the lobby. The explicit way back into the game. */
+.cash-entry__resume {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.875rem 1.25rem;
+  background: #4ade80;
+  color: #052e16;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cash-entry__resume:hover {
+  background: #22c55e;
+}
+
+.cash-entry__resume-text {
+  flex: 1;
+  text-align: left;
+}
+
+.cash-entry__resume-arrow {
+  opacity: 0.7;
+}
+
 .cash-entry__sit-button {
   padding: 0.875rem 1.5rem;
   background: #4ade80;

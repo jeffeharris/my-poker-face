@@ -11,14 +11,22 @@ export function GamePage({ playerName }: GamePageProps) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
 
-  // Back button = pause. The cash session stays alive in
-  // game_state_service for its TTL window; the player can return by
-  // visiting /cash (which auto-redirects if an active session
-  // exists). To actually cash out — return chips to bankroll, free
-  // the table to sit at a different stake — use the "Leave table"
-  // button in the cash HUD/sheet, which hits /api/cash/leave.
+  // Back button = pause, routed to the menu the game was launched
+  // from: career games return to the cash lobby, tournaments to the
+  // tournament menu. The cash session stays alive in
+  // game_state_service for its TTL window — `skipResume` tells the
+  // lobby to show itself once instead of auto-redirecting straight
+  // back into the still-alive session. To actually cash out — return
+  // chips to bankroll, free the table to sit at a different stake —
+  // use the "Leave table" button in the cash HUD/sheet, which hits
+  // /api/cash/leave.
   const handleBack = () => {
-    navigate('/menu');
+    const isCashGame = gameId?.startsWith('cash-') ?? false;
+    if (isCashGame) {
+      navigate('/cash', { state: { skipResume: true } });
+    } else {
+      navigate('/menu/tournament');
+    }
   };
 
   const handleGameCreated = (newGameId: string) => {
