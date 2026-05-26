@@ -138,6 +138,13 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_table=lambda: load_strategy_table(include_3bp=False),
         challenger_table=lambda: load_strategy_table(include_3bp=True),
     ),
+    'slices': ChangeSpec(
+        description='BOTH authored precision slices (low-SPR + 3BP) on top of '
+        'the SPR/pot_type fallbacks — the "is the precision worth keeping?" '
+        'bloat question (chart flavor; champion = neither slice)',
+        champion_table=lambda: load_strategy_table(include_low_spr=False, include_3bp=False),
+        challenger_table=lambda: load_strategy_table(include_low_spr=True, include_3bp=True),
+    ),
     # ── The core postflop fix vs the PRE-fix passive default. Champion =
     # pre-760d89e5 behavior (no SPR degrade ladder, postflop_commit off, no
     # authored slices) → low/med-SPR & 3BP misses hit the hand-blind default
