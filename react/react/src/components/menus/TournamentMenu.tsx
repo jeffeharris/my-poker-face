@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
   Zap,
-  Users,
-  Shuffle,
+  Medal,
+  Coins,
   Settings,
   Sparkles,
   FolderOpen,
@@ -17,6 +17,21 @@ import {
 } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, UpgradeBanner } from '../shared';
 import { useCareerStats } from '../../hooks/useCareerStats';
+import { BLIND_PRESETS, type BlindPresetId } from '../../constants/gameStructure';
+
+// Per-preset icon + accent class (visual only; the structure lives in
+// gameStructure.ts so the tournament menu and Custom Game stay in sync).
+const PRESET_VARIANT: Record<BlindPresetId, string> = {
+  quick: 'quick-play-btn--lightning',
+  tournament: 'quick-play-btn--random',
+  deep: 'quick-play-btn--1v1',
+};
+
+function presetIcon(id: BlindPresetId) {
+  if (id === 'quick') return <Zap className="quick-play-btn__icon" size={22} />;
+  if (id === 'tournament') return <Medal className="quick-play-btn__icon" size={22} />;
+  return <Coins className="quick-play-btn__icon" size={22} />;
+}
 import { useAuth } from '../../hooks/useAuth';
 import { useViewport } from '../../hooks/useViewport';
 import './TournamentMenu.css';
@@ -229,7 +244,7 @@ function LockedMenuOption({
 // ============================================
 
 export interface QuickPlayConfig {
-  mode: 'lightning' | '1v1' | 'random';
+  mode: 'quick' | 'tournament' | 'deep';
   opponents: number;
   startingBB: number;
   gameMode: string;
@@ -267,8 +282,7 @@ export function TournamentMenu({
   const { isDesktop } = useViewport();
   const { user } = useAuth();
   const isGuest = user?.is_guest ?? true;
-  const lightningPlayers = isGuest ? 3 : 5;
-  const classicPlayers = isGuest ? 3 : 4;
+  const tablePlayers = isGuest ? 3 : 5;
 
   // Only use hover handlers on desktop
   const getHoverHandlers = (option: string) =>
@@ -302,68 +316,31 @@ export function TournamentMenu({
             <div className="quick-play-section">
               <h4 className="quick-play-section__title">Quick Start</h4>
               <div className="quick-play-section__buttons">
-                <button
-                  className="quick-play-btn quick-play-btn--lightning"
-                  onClick={() =>
-                    onQuickPlay({
-                      mode: 'lightning',
-                      opponents: lightningPlayers,
-                      startingBB: 10,
-                      gameMode: 'casual',
-                      blindGrowth: 2,
-                      blindsIncrease: 4,
-                      maxBlind: 800,
-                    })
-                  }
-                  disabled={isCreatingGame}
-                  {...getHoverHandlers('lightning')}
-                >
-                  <Zap className="quick-play-btn__icon" size={22} />
-                  <span className="quick-play-btn__label">Lightning</span>
-                  <span className="quick-play-btn__meta">10BB • {lightningPlayers} players</span>
-                </button>
-
-                <button
-                  className="quick-play-btn quick-play-btn--1v1"
-                  onClick={() =>
-                    onQuickPlay({
-                      mode: '1v1',
-                      opponents: 1,
-                      startingBB: 20,
-                      gameMode: 'casual',
-                      blindGrowth: 1.5,
-                      blindsIncrease: 6,
-                      maxBlind: 0,
-                    })
-                  }
-                  disabled={isCreatingGame}
-                  {...getHoverHandlers('1v1')}
-                >
-                  <Users className="quick-play-btn__icon" size={22} />
-                  <span className="quick-play-btn__label">1v1</span>
-                  <span className="quick-play-btn__meta">Heads up</span>
-                </button>
-
-                <button
-                  className="quick-play-btn quick-play-btn--random"
-                  onClick={() =>
-                    onQuickPlay({
-                      mode: 'random',
-                      opponents: classicPlayers,
-                      startingBB: 20,
-                      gameMode: 'casual',
-                      blindGrowth: 1.25,
-                      blindsIncrease: 8,
-                      maxBlind: 0,
-                    })
-                  }
-                  disabled={isCreatingGame}
-                  {...getHoverHandlers('random')}
-                >
-                  <Shuffle className="quick-play-btn__icon" size={22} />
-                  <span className="quick-play-btn__label">Classic</span>
-                  <span className="quick-play-btn__meta">20BB • {classicPlayers} players</span>
-                </button>
+                {BLIND_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    className={`quick-play-btn ${PRESET_VARIANT[preset.id]}`}
+                    onClick={() =>
+                      onQuickPlay({
+                        mode: preset.id,
+                        opponents: tablePlayers,
+                        startingBB: preset.startingBB,
+                        gameMode: 'casual',
+                        blindGrowth: preset.blindGrowth,
+                        blindsIncrease: preset.blindsIncrease,
+                        maxBlind: preset.maxBlind,
+                      })
+                    }
+                    disabled={isCreatingGame}
+                    {...getHoverHandlers(preset.id)}
+                  >
+                    {presetIcon(preset.id)}
+                    <span className="quick-play-btn__label">{preset.label}</span>
+                    <span className="quick-play-btn__meta">
+                      {preset.startingBB} BB • ~{preset.estMinutes} min
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -435,12 +412,7 @@ export function TournamentMenu({
         {isDesktop && (
           <div className="game-menu__footer">
             <p className="tip">
-              {hoveredOption === 'lightning' &&
-                'Fast and furious! Short stacks mean quick decisions and big swings.'}
-              {hoveredOption === '1v1' &&
-                'Test your skills head-to-head against a single AI opponent.'}
-              {hoveredOption === 'random' &&
-                'The classic experience with a comfortable stack and 4 opponents.'}
+              {BLIND_PRESETS.find((p) => p.id === hoveredOption)?.blurb}
               {hoveredOption === 'custom' &&
                 'Take full control - choose exactly who sits at your table.'}
               {hoveredOption === 'themed' &&

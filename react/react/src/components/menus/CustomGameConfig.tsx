@@ -31,6 +31,18 @@ import { PageLayout, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import { useAuth } from '../../hooks/useAuth';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
+import {
+  STACK_OPTIONS as stackOptions,
+  BLIND_OPTIONS as blindOptions,
+  BLIND_GROWTH_OPTIONS as blindGrowthOptions,
+  BLINDS_INCREASE_OPTIONS as blindsIncreaseOptions,
+  MAX_BLIND_OPTIONS as maxBlindOptions,
+  BLIND_PRESETS,
+  DEFAULT_PRESET,
+  PRESET_BIG_BLIND,
+  presetStack,
+  type BlindPresetId,
+} from '../../constants/gameStructure';
 import './CustomGameConfig.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -138,7 +150,7 @@ interface GamePreset {
   id: string;
   name: string;
   icon: React.ReactNode;
-  desc: string;
+  desc: string[];
   starting_stack: number;
   big_blind: number;
   blind_growth: number;
@@ -146,41 +158,25 @@ interface GamePreset {
   max_blind: number;
 }
 
-const GAME_PRESETS: GamePreset[] = [
-  {
-    id: 'quick',
-    name: 'Quick & Dirty',
-    icon: <Zap size={28} />,
-    desc: '50BB deep, fast blinds. Games end quick.',
-    starting_stack: 10000,
-    big_blind: 200,
-    blind_growth: 1.5,
-    blinds_increase: 4,
-    max_blind: 0,
-  },
-  {
-    id: 'tournament',
-    name: 'Tournament',
-    icon: <Trophy size={28} />,
-    desc: '100BB deep, steady growth. Classic feel.',
-    starting_stack: 10000,
-    big_blind: 100,
-    blind_growth: 1.5,
-    blinds_increase: 6,
-    max_blind: 0,
-  },
-  {
-    id: 'deep',
-    name: 'Deep Stack',
-    icon: <Layers size={28} />,
-    desc: '200BB deep, slow blinds. Play the long game.',
-    starting_stack: 10000,
-    big_blind: 50,
-    blind_growth: 1.25,
-    blinds_increase: 10,
-    max_blind: 0,
-  },
-];
+// Icons are UI-only; the structure values come from the shared source of
+// truth (gameStructure.ts) so the tournament menu and Custom Game never drift.
+const PRESET_ICONS: Record<BlindPresetId, React.ReactNode> = {
+  quick: <Zap size={28} />,
+  tournament: <Trophy size={28} />,
+  deep: <Layers size={28} />,
+};
+
+const GAME_PRESETS: GamePreset[] = BLIND_PRESETS.map((p) => ({
+  id: p.id,
+  name: p.label,
+  icon: PRESET_ICONS[p.id],
+  desc: p.desc,
+  starting_stack: presetStack(p),
+  big_blind: PRESET_BIG_BLIND,
+  blind_growth: p.blindGrowth,
+  blinds_increase: p.blindsIncrease,
+  max_blind: p.maxBlind,
+}));
 
 // ─── Component ───────────────────────────────────────────────────────
 
@@ -208,12 +204,14 @@ export function CustomGameConfig({
   const [expandedConfigSlot, setExpandedConfigSlot] = useState<number | null>(null);
 
   // Step 2: Game settings
-  const [selectedPreset, setSelectedPreset] = useState<string>('tournament');
-  const [startingStack, setStartingStack] = useState(10000);
-  const [bigBlind, setBigBlind] = useState(100);
-  const [blindGrowth, setBlindGrowth] = useState(1.5);
-  const [blindsIncrease, setBlindsIncrease] = useState(6);
-  const [maxBlind, setMaxBlind] = useState(0);
+  // Defaults = the shared "Tournament" preset, so a fresh Custom Game opens on
+  // the same sane structure the tournament menu uses.
+  const [selectedPreset, setSelectedPreset] = useState<string>(DEFAULT_PRESET.id);
+  const [startingStack, setStartingStack] = useState(presetStack(DEFAULT_PRESET));
+  const [bigBlind, setBigBlind] = useState(PRESET_BIG_BLIND);
+  const [blindGrowth, setBlindGrowth] = useState(DEFAULT_PRESET.blindGrowth);
+  const [blindsIncrease, setBlindsIncrease] = useState(DEFAULT_PRESET.blindsIncrease);
+  const [maxBlind, setMaxBlind] = useState(DEFAULT_PRESET.maxBlind);
   const [showAdvanced, setShowAdvanced] = useState(false);
   // AI table talk. Off → the Solver bot makes no LLM call (instant play).
   const [aiChat, setAiChat] = useState(true);
@@ -763,12 +761,7 @@ export function CustomGameConfig({
   );
 
   // ─── Step 2: Game Settings ─────────────────────────────────────────
-
-  const stackOptions = [1000, 2500, 5000, 10000, 20000];
-  const blindOptions = [10, 25, 50, 100, 200];
-  const blindGrowthOptions = [1.25, 1.5, 2];
-  const blindsIncreaseOptions = [4, 6, 8, 10];
-  const maxBlindOptions = [200, 500, 1000, 2000, 5000, 0];
+  // Stack / blind / growth / cap option ranges live in gameStructure.ts.
 
   const renderStep1 = () => (
     <div className="wizard-step-panel" key="step-1">
@@ -787,28 +780,42 @@ export function CustomGameConfig({
               )}
               <div className="preset-card__icon">{preset.icon}</div>
               <div className="preset-card__name">{preset.name}</div>
-              <div className="preset-card__desc">{preset.desc}</div>
+              <div className="preset-card__desc">
+                {preset.desc.map((line) => (
+                  <span key={line} className="preset-card__desc-line">
+                    {line}
+                  </span>
+                ))}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* AI Chat toggle — off makes the Solver bot instant (no LLM calls) */}
+      {/* AI Chat: pick the table feel. "Faster" turns off AI chat so the
+          Solver bot makes zero LLM calls (instant play). */}
       <div className="game-mode-section">
         <p className="presets-section__label">AI Chat</p>
-        <button
-          type="button"
-          className={`selectable-card game-mode-card ${aiChat ? 'selectable-card--selected' : ''}`}
-          onClick={() => setAiChat(!aiChat)}
-          aria-pressed={aiChat}
-        >
-          <div className="game-mode-card__name">{aiChat ? 'On' : 'Off'}</div>
-          <div className="game-mode-card__desc">
-            {aiChat
-              ? 'Opponents react and trash-talk'
-              : 'Silent — Solver plays instantly, no AI chat'}
-          </div>
-        </button>
+        <div className="ai-chat-toggle">
+          <button
+            type="button"
+            className={`selectable-card game-mode-card ${aiChat ? 'selectable-card--selected' : ''}`}
+            onClick={() => setAiChat(true)}
+            aria-pressed={aiChat}
+          >
+            <div className="game-mode-card__name">Funner</div>
+            <div className="game-mode-card__desc">w/ AI chat — they react &amp; trash-talk</div>
+          </button>
+          <button
+            type="button"
+            className={`selectable-card game-mode-card ${!aiChat ? 'selectable-card--selected' : ''}`}
+            onClick={() => setAiChat(false)}
+            aria-pressed={!aiChat}
+          >
+            <div className="game-mode-card__name">Faster</div>
+            <div className="game-mode-card__desc">no AI chat — instant Solver play</div>
+          </button>
+        </div>
       </div>
 
       {/* Advanced toggle */}
