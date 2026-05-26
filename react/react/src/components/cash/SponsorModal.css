@@ -15,15 +15,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(16px, env(safe-area-inset-top, 0px))
-           16px
-           max(16px, env(safe-area-inset-bottom, 0px));
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
   animation: sponsor-modal-fade-in 0.18s ease-out;
 }
 
 @keyframes sponsor-modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .sponsor-modal__sheet {
@@ -123,7 +125,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .sponsor-modal__offer.is-confirming {

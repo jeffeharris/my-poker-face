@@ -19,11 +19,11 @@ See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md §Tests.
 
 import pytest
 
-from poker.memory.opponent_model import OpponentTendencies, OpponentModel
+from poker.memory.opponent_model import OpponentModel, OpponentTendencies
 from poker.strategy.phase_7_5_config import CONFIG
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def t() -> OpponentTendencies:
@@ -32,6 +32,7 @@ def t() -> OpponentTendencies:
 
 
 # ── Postflop counters: response axis ─────────────────────────────────────
+
 
 class TestFacingBetOpportunities:
     def test_facing_bet_call_increments_opportunity_only(self, t):
@@ -68,6 +69,7 @@ class TestFacingBetOpportunities:
 
 # ── Postflop counters: open axis ─────────────────────────────────────────
 
+
 class TestPostflopOpenOpportunities:
     def test_check_into_no_bet_increments_opportunity(self, t):
         t.update_from_action('check', 'FLOP', was_facing_bet=False)
@@ -103,11 +105,13 @@ class TestPostflopOpenOpportunities:
 
 # ── Preflop exclusion ────────────────────────────────────────────────────
 
+
 class TestPreflopExclusion:
     def test_preflop_jam_does_not_increment_postflop_counters(self, t):
         # Opponent jams preflop (e.g. short-stack 3-bet jam).
         t.update_from_action(
-            'all_in', 'PRE_FLOP',
+            'all_in',
+            'PRE_FLOP',
             was_facing_bet=True,  # caller may pass either; phase gates the update
         )
         assert t._postflop_jam_opens == 0
@@ -125,6 +129,7 @@ class TestPreflopExclusion:
 
 # ── was_facing_bet=None semantics ────────────────────────────────────────
 
+
 class TestUnknownContext:
     def test_was_facing_bet_none_skips_postflop_counters(self, t):
         """When caller can't determine context, postflop counters are
@@ -139,6 +144,7 @@ class TestUnknownContext:
 
 
 # ── Postflop AF + raw-count cap from day one ─────────────────────────────
+
 
 class TestAggressionFactorPostflop:
     def test_zero_actions_returns_neutral(self, t):
@@ -178,6 +184,7 @@ class TestAggressionFactorPostflop:
 
 
 # ── Legacy aggression_factor UNCHANGED in Step 0 ─────────────────────────
+
 
 class TestLegacyAfCapInItem2:
     def test_legacy_af_raw_count_capped_at_medium_threshold(self, t):
@@ -220,6 +227,7 @@ class TestLegacyAfCapInItem2:
 
 # ── Per-opponent isolation ───────────────────────────────────────────────
 
+
 class TestPerOpponentIsolation:
     def test_counters_do_not_leak_between_opponents(self):
         """Each OpponentTendencies has independent counter state."""
@@ -237,6 +245,7 @@ class TestPerOpponentIsolation:
 
 
 # ── Missing-field tolerance for old records ──────────────────────────────
+
 
 class TestMissingFieldTolerance:
     def test_from_dict_with_legacy_record_defaults_new_fields_to_zero(self):

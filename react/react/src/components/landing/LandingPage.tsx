@@ -30,7 +30,10 @@ export function LandingPage() {
             </div>
             <div className="landing__feature-text">
               <h3>Real Personalities</h3>
-              <p>Each opponent has a distinct personality - they remember how you play and form rivalries with each other</p>
+              <p>
+                Each opponent has a distinct personality - they remember how you play and form
+                rivalries with each other
+              </p>
             </div>
           </div>
 
@@ -40,7 +43,10 @@ export function LandingPage() {
             </div>
             <div className="landing__feature-text">
               <h3>Emotions Matter</h3>
-              <p>Opponents can go on tilt after a bad beat, get rattled by big losses, or play erratically when frustrated</p>
+              <p>
+                Opponents can go on tilt after a bad beat, get rattled by big losses, or play
+                erratically when frustrated
+              </p>
             </div>
           </div>
 
@@ -50,7 +56,10 @@ export function LandingPage() {
             </div>
             <div className="landing__feature-text">
               <h3>Table Talk</h3>
-              <p>Chat with your opponents - goad them into calling, get under their skin, or just enjoy the banter</p>
+              <p>
+                Chat with your opponents - goad them into calling, get under their skin, or just
+                enjoy the banter
+              </p>
             </div>
           </div>
 
@@ -60,7 +69,10 @@ export function LandingPage() {
             </div>
             <div className="landing__feature-text">
               <h3>Play Anywhere</h3>
-              <p>Pick up your game anytime - your opponents are waiting, and they remember where you left off</p>
+              <p>
+                Pick up your game anytime - your opponents are waiting, and they remember where you
+                left off
+              </p>
             </div>
           </div>
         </div>

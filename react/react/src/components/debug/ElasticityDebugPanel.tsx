@@ -83,26 +83,29 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
   };
 
   const formatTraitName = (name: string) => {
-    return name.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
+    return name
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   return (
     <div className="elasticity-debug-panel">
       <h3>Personality Elasticity Debug</h3>
       {loading && <div className="loading">Loading...</div>}
-      
+
       {Object.entries(elasticityData).map(([playerName, playerData]) => (
         <div key={playerName} className="edp-player">
           <h4>{playerName}</h4>
-          <div className="edp-mood">Mood: <span className="edp-mood-value">{playerData.mood}</span></div>
-          
+          <div className="edp-mood">
+            Mood: <span className="edp-mood-value">{playerData.mood}</span>
+          </div>
+
           <div className="edp-traits">
             {Object.entries(playerData.traits).map(([traitName, trait]) => {
               const percentage = ((trait.current - trait.min) / (trait.max - trait.min)) * 100;
               const anchorPercentage = ((trait.anchor - trait.min) / (trait.max - trait.min)) * 100;
-              
+
               return (
                 <div key={traitName} className="edp-trait">
                   <div className="edp-trait-header">
@@ -111,39 +114,36 @@ export function ElasticityDebugPanel({ gameId, isOpen, socket }: ElasticityDebug
                       {trait.current.toFixed(2)}
                     </span>
                   </div>
-                  
+
                   <div className="edp-trait-bar-container">
                     <div className="edp-trait-bar-background">
                       {/* Elasticity range */}
-                      <div 
+                      <div
                         className="edp-elasticity-range"
                         style={{
                           left: `${((trait.anchor - trait.elasticity - trait.min) / (trait.max - trait.min)) * 100}%`,
-                          width: `${(trait.elasticity * 2 / (trait.max - trait.min)) * 100}%`
+                          width: `${((trait.elasticity * 2) / (trait.max - trait.min)) * 100}%`,
                         }}
                       />
-                      
+
                       {/* Anchor line */}
-                      <div 
-                        className="edp-anchor-line"
-                        style={{ left: `${anchorPercentage}%` }}
-                      />
-                      
+                      <div className="edp-anchor-line" style={{ left: `${anchorPercentage}%` }} />
+
                       {/* Current value */}
-                      <div 
-                        className="edp-trait-bar"
-                        style={{ width: `${percentage}%` }}
-                      />
+                      <div className="edp-trait-bar" style={{ width: `${percentage}%` }} />
                     </div>
-                    
+
                     <div className="edp-trait-labels">
                       <span className="min-label">{trait.min.toFixed(1)}</span>
                       <span className="max-label">{trait.max.toFixed(1)}</span>
                     </div>
                   </div>
-                  
+
                   <div className="edp-trait-details">
-                    <span>Pressure: {trait.pressure > 0 ? '+' : ''}{trait.pressure.toFixed(2)}</span>
+                    <span>
+                      Pressure: {trait.pressure > 0 ? '+' : ''}
+                      {trait.pressure.toFixed(2)}
+                    </span>
                     <span>Anchor: {trait.anchor.toFixed(2)}</span>
                   </div>
                 </div>

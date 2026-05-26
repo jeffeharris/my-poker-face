@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from flask_app.handlers.message_handler import send_message, MAX_MESSAGES_IN_MEMORY
+from flask_app.handlers.message_handler import MAX_MESSAGES_IN_MEMORY, send_message
 from flask_app.services import game_state_service
 
 
@@ -15,8 +15,13 @@ def _reset_state():
 def _make_game_data(num_messages=0):
     """Create a game_data dict with a given number of pre-existing messages."""
     messages = [
-        {"id": str(i), "sender": "test", "content": f"msg_{i}",
-         "timestamp": "12:00", "message_type": "table"}
+        {
+            "id": str(i),
+            "sender": "test",
+            "content": f"msg_{i}",
+            "timestamp": "12:00",
+            "message_type": "table",
+        }
         for i in range(num_messages)
     ]
     return {"messages": messages}

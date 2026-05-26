@@ -22,8 +22,8 @@ Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2.
 """
 
 from cash_mode.bankroll import (
-    AIBankrollState,
     BANKROLL_KNOB_DEFAULTS,
+    AIBankrollState,
     BankrollKnobs,
     PlayerBankrollState,
     credit_ai_cash_out,
@@ -49,11 +49,11 @@ from cash_mode.table import (
 )
 from cash_mode.tables import (
     BASELINE_AI_SEATS,
-    CashTableState,
     IDLE_REASONS,
-    IdlePoolEntry,
     OPEN_SEATS,
     TABLE_SEAT_COUNT,
+    CashTableState,
+    IdlePoolEntry,
     ai_slot,
     human_slot,
     open_slot,

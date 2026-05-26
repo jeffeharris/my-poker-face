@@ -58,22 +58,26 @@ class TestOverride:
 
     def test_override_wins_over_anchors(self):
         # poise 0.80 would route to sharp, but override forces chaos.
-        result = assign_bot(_personality(
-            poise=0.80,
-            bot_profile={"bot_type": "chaos"},
-        ))
+        result = assign_bot(
+            _personality(
+                poise=0.80,
+                bot_profile={"bot_type": "chaos"},
+            )
+        )
         assert result.bot_type == "chaos"
         assert result.llm_config == BUCKET_DEFAULTS["chaos"]
 
     def test_override_can_swap_llm_provider(self):
-        result = assign_bot(_personality(
-            poise=0.20,
-            bot_profile={
-                "bot_type": "sharp",
-                "provider": "openai",
-                "model": "gpt-5-nano",
-            },
-        ))
+        result = assign_bot(
+            _personality(
+                poise=0.20,
+                bot_profile={
+                    "bot_type": "sharp",
+                    "provider": "openai",
+                    "model": "gpt-5-nano",
+                },
+            )
+        )
         assert result == BotAssignment(
             "sharp",
             {"provider": "openai", "model": "gpt-5-nano"},
@@ -86,10 +90,12 @@ class TestOverride:
 
     def test_unknown_bot_type_in_override_falls_through(self):
         # Falls through to anchor-derived (here: standard).
-        result = assign_bot(_personality(
-            poise=0.50,
-            bot_profile={"bot_type": "wizard"},
-        ))
+        result = assign_bot(
+            _personality(
+                poise=0.50,
+                bot_profile={"bot_type": "wizard"},
+            )
+        )
         assert result.bot_type == "standard"
 
     def test_unknown_bot_type_with_no_anchors_uses_default(self):
@@ -102,12 +108,14 @@ class TestFallback:
 
     def test_none_config_uses_default(self):
         assert assign_bot(None) == BotAssignment(
-            DEFAULT_BOT_TYPE, dict(DEFAULT_LLM_CONFIG),
+            DEFAULT_BOT_TYPE,
+            dict(DEFAULT_LLM_CONFIG),
         )
 
     def test_empty_config_uses_default(self):
         assert assign_bot({}) == BotAssignment(
-            DEFAULT_BOT_TYPE, dict(DEFAULT_LLM_CONFIG),
+            DEFAULT_BOT_TYPE,
+            dict(DEFAULT_LLM_CONFIG),
         )
 
     def test_anchors_without_poise_uses_default(self):

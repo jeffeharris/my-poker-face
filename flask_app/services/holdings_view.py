@@ -37,7 +37,7 @@ VICE_REASON = 'vice_spending'
 SIDE_HUSTLE_REASON = 'side_hustle_earning'
 RAKE_REASON = 'table_rake'
 
-MAX_SERIES = 12          # plotted-line cap; rest still appear in the holdings table
+MAX_SERIES = 12  # plotted-line cap; rest still appear in the holdings table
 MAX_POINTS_PER_SERIES = 400
 DEFAULT_RETENTION_DAYS = 30
 
@@ -93,7 +93,10 @@ def compute_holdings_snapshot(
                 logger.warning("holdings: stake aggregate failed: %s", e)
         vice = _aggregate_ledger_by_entity(db_path, VICE_REASON, 'source', sandbox_id)
         side_hustle = _aggregate_ledger_by_entity(
-            db_path, SIDE_HUSTLE_REASON, 'sink', sandbox_id,
+            db_path,
+            SIDE_HUSTLE_REASON,
+            'sink',
+            sandbox_id,
         )
         rake = _aggregate_ledger_by_entity(db_path, RAKE_REASON, 'source', sandbox_id)
         seat_stacks = _collect_seat_stacks_by_entity(cash_table_repo, sandbox_id)
@@ -188,9 +191,7 @@ def record_holdings_snapshot(
     ]
     written = snapshots_repo.record(rows, captured_at=captured_at)
     try:
-        cutoff = _normalize_to_utc_iso(
-            (now - timedelta(days=retention_days)).isoformat()
-        )
+        cutoff = _normalize_to_utc_iso((now - timedelta(days=retention_days)).isoformat())
         snapshots_repo.prune(cutoff)
     except Exception as e:
         logger.warning("holdings: snapshot prune failed: %s", e)
@@ -240,10 +241,12 @@ def compute_holdings_history(
 
     series_by_entity: Dict[str, List[Dict[str, Any]]] = {}
     for p in points:
-        series_by_entity.setdefault(p['entity_id'], []).append({
-            't': _normalize_to_utc_iso(p['captured_at']),
-            'value': p['net_worth'],
-        })
+        series_by_entity.setdefault(p['entity_id'], []).append(
+            {
+                't': _normalize_to_utc_iso(p['captured_at']),
+                'value': p['net_worth'],
+            }
+        )
 
     # Extend each series flat to `now` with its latest value. Two reasons:
     # the curve shouldn't visually end at the last capture (feels stale when
@@ -261,9 +264,7 @@ def compute_holdings_history(
         (pts[0]['t'] for pts in series_by_entity.values() if pts),
         default=None,
     )
-    effective_since = (
-        earliest if (earliest and earliest > since_iso) else since_iso
-    )
+    effective_since = earliest if (earliest and earliest > since_iso) else since_iso
 
     labels = _resolve_entity_labels(
         entity_ids=list(series_by_entity.keys()),
@@ -305,7 +306,10 @@ def compute_holdings_history(
 
 
 def _aggregate_ledger_by_entity(
-    db_path: str, reason: str, side: str, sandbox_id: str,
+    db_path: str,
+    reason: str,
+    side: str,
+    sandbox_id: str,
 ) -> Dict[str, int]:
     """Sum chip-ledger `amount` per entity for one reason, scoped to a sandbox.
 
@@ -335,7 +339,8 @@ def _aggregate_ledger_by_entity(
 
 
 def _collect_seat_stacks_by_entity(
-    cash_table_repo, sandbox_id: str,
+    cash_table_repo,
+    sandbox_id: str,
 ) -> Dict[str, int]:
     """Sum chips currently in play on cash-table seats, per entity.
 
@@ -397,7 +402,8 @@ def _normalize_to_utc_iso(value: Optional[str]) -> Optional[str]:
 
 
 def _downsample(
-    points: List[Dict[str, Any]], target: int,
+    points: List[Dict[str, Any]],
+    target: int,
 ) -> List[Dict[str, Any]]:
     """Cap a time-ordered point list to `target` points, preserving shape.
 
@@ -479,9 +485,7 @@ def _collect_ai_rows(
     pairs: List[Tuple[str, str]] = []
     if sandbox_id is None:
         try:
-            pairs = list(
-                bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox()
-            )
+            pairs = list(bankroll_repo.iter_personality_ids_with_bankrolls_by_sandbox())
         except AttributeError:
             pids = bankroll_repo.iter_personality_ids_with_bankrolls(
                 sandbox_id=None,
@@ -504,20 +508,28 @@ def _collect_ai_rows(
                 stored = int(state.chips) if state else 0
             except Exception as e:
                 logger.warning(
-                    "holdings: load_ai_bankroll(%r, %r) failed: %s", pid, loadable_sid, e,
+                    "holdings: load_ai_bankroll(%r, %r) failed: %s",
+                    pid,
+                    loadable_sid,
+                    e,
                 )
         projected = stored
         if loadable_sid is not None:
             try:
                 projected = int(
                     bankroll_repo.load_ai_bankroll_current(
-                        pid, sandbox_id=loadable_sid, now=now,
-                    ) or stored
+                        pid,
+                        sandbox_id=loadable_sid,
+                        now=now,
+                    )
+                    or stored
                 )
             except Exception as e:
                 logger.warning(
                     "holdings: load_ai_bankroll_current(%r, %r) failed: %s",
-                    pid, loadable_sid, e,
+                    pid,
+                    loadable_sid,
+                    e,
                 )
 
         name = _resolve_personality_name(personality_repo, pid)
@@ -536,17 +548,23 @@ def _collect_ai_rows(
             'chips': chips,
             'uncommitted_regen': projected - stored,
             'last_regen_tick': (
-                state.last_regen_tick.isoformat()
-                if state and state.last_regen_tick else None
+                state.last_regen_tick.isoformat() if state and state.last_regen_tick else None
             ),
         }
         if scoped:
-            row.update(_net_worth_for(
-                entity_id, pid, chips,
-                receivables=receivables, outstanding=outstanding,
-                staking_pnl=staking_pnl, vice=vice, side_hustle=side_hustle,
-                rake=rake,
-            ))
+            row.update(
+                _net_worth_for(
+                    entity_id,
+                    pid,
+                    chips,
+                    receivables=receivables,
+                    outstanding=outstanding,
+                    staking_pnl=staking_pnl,
+                    vice=vice,
+                    side_hustle=side_hustle,
+                    rake=rake,
+                )
+            )
         rows.append(row)
     return rows
 
@@ -600,12 +618,19 @@ def _collect_player_rows(
             'last_regen_tick': None,
         }
         if scoped:
-            record.update(_net_worth_for(
-                entity_id, player_id, total,
-                receivables=receivables, outstanding=outstanding,
-                staking_pnl=staking_pnl, vice=vice, side_hustle=side_hustle,
-                rake=rake,
-            ))
+            record.update(
+                _net_worth_for(
+                    entity_id,
+                    player_id,
+                    total,
+                    receivables=receivables,
+                    outstanding=outstanding,
+                    staking_pnl=staking_pnl,
+                    vice=vice,
+                    side_hustle=side_hustle,
+                    rake=rake,
+                )
+            )
         out.append(record)
     return out
 
@@ -646,13 +671,11 @@ def _resolve_entity_labels(
     labels: Dict[str, str] = {}
     for entity_id in entity_ids:
         if entity_id.startswith('ai:'):
-            pid = entity_id[len('ai:'):]
+            pid = entity_id[len('ai:') :]
             labels[entity_id] = _resolve_personality_name(personality_repo, pid)
         elif entity_id.startswith('player:'):
-            pid = entity_id[len('player:'):]
-            labels[entity_id] = (
-                _resolve_player_name(user_repo, pid) or pid
-            )
+            pid = entity_id[len('player:') :]
+            labels[entity_id] = _resolve_player_name(user_repo, pid) or pid
         else:
             labels[entity_id] = entity_id
     return labels

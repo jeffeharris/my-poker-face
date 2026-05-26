@@ -70,8 +70,11 @@ def test_bluff_catch_dampener_caps():
     """All dampener multipliers in (0, 1]."""
     d = cfg.CONFIG.bluff_catch.dampener
     for value in (
-        d.street_river, d.street_turn, d.street_flop,
-        d.dangerous_texture_mult, d.weak_made_on_paired_mult,
+        d.street_river,
+        d.street_turn,
+        d.street_flop,
+        d.dangerous_texture_mult,
+        d.weak_made_on_paired_mult,
     ):
         assert 0 < value <= 1
     # River is harsher than turn is harsher than flop.
@@ -107,15 +110,22 @@ def test_reload_for_testing_replaces_singleton():
         },
         'bluff_catch': {
             'medium_made': {
-                'cap_le_50_pct': 0.9, 'cap_le_100_pct': 0.7,
-                'cap_le_200_pct': 0.4, 'cap_gt_200_pct': 0.1,
+                'cap_le_50_pct': 0.9,
+                'cap_le_100_pct': 0.7,
+                'cap_le_200_pct': 0.4,
+                'cap_gt_200_pct': 0.1,
             },
             'weak_made': {
-                'cap_le_33_pct': 0.6, 'cap_le_67_pct': 0.3, 'cap_gt_67_pct': 0.05,
+                'cap_le_33_pct': 0.6,
+                'cap_le_67_pct': 0.3,
+                'cap_gt_67_pct': 0.05,
             },
             'dampener': {
-                'street_river': 0.5, 'street_turn': 0.8, 'street_flop': 1.0,
-                'dangerous_texture_mult': 0.4, 'weak_made_on_paired_mult': 0.4,
+                'street_river': 0.5,
+                'street_turn': 0.8,
+                'street_flop': 1.0,
+                'dangerous_texture_mult': 0.4,
+                'weak_made_on_paired_mult': 0.4,
             },
         },
     }

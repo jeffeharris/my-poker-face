@@ -74,22 +74,25 @@ export function MobileExperimentList({
   }, []);
 
   // Handle touch move
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (!isPullingRef.current || loading) return;
+  const handleTouchMove = useCallback(
+    (e: TouchEvent) => {
+      if (!isPullingRef.current || loading) return;
 
-    const currentY = e.touches[0].clientY;
-    const diff = currentY - startYRef.current;
+      const currentY = e.touches[0].clientY;
+      const diff = currentY - startYRef.current;
 
-    if (diff > 0) {
-      // Prevent default scroll and show pull indicator
-      e.preventDefault();
-      // Apply resistance to pull
-      const resistance = 0.4;
-      const distance = Math.min(diff * resistance, PULL_THRESHOLD * 1.5);
-      setPullDistance(distance);
-      setIsPulling(true);
-    }
-  }, [loading]);
+      if (diff > 0) {
+        // Prevent default scroll and show pull indicator
+        e.preventDefault();
+        // Apply resistance to pull
+        const resistance = 0.4;
+        const distance = Math.min(diff * resistance, PULL_THRESHOLD * 1.5);
+        setPullDistance(distance);
+        setIsPulling(true);
+      }
+    },
+    [loading]
+  );
 
   // Handle touch end
   const handleTouchEnd = useCallback(() => {
@@ -141,11 +144,7 @@ export function MobileExperimentList({
     return (
       <div className="mobile-experiment-list__error">
         <p>{error}</p>
-        <button
-          className="mobile-experiment-list__retry-btn"
-          onClick={onRefresh}
-          type="button"
-        >
+        <button className="mobile-experiment-list__retry-btn" onClick={onRefresh} type="button">
           <RefreshCw size={16} />
           Try Again
         </button>
@@ -174,10 +173,7 @@ export function MobileExperimentList({
 
       {/* Pull-to-refresh indicator */}
       {isPulling && (
-        <div
-          className="mobile-experiment-list__pull-indicator"
-          style={{ height: pullDistance }}
-        >
+        <div className="mobile-experiment-list__pull-indicator" style={{ height: pullDistance }}>
           <RefreshCw
             size={20}
             className={pullDistance >= PULL_THRESHOLD ? 'mobile-experiment-list__pull-ready' : ''}
@@ -250,7 +246,9 @@ export function MobileExperimentList({
             <button
               key={option.value}
               className={`mobile-experiment-list__filter-option ${
-                statusFilter === option.value ? 'mobile-experiment-list__filter-option--selected' : ''
+                statusFilter === option.value
+                  ? 'mobile-experiment-list__filter-option--selected'
+                  : ''
               }`}
               onClick={() => handleFilterSelect(option.value)}
               type="button"

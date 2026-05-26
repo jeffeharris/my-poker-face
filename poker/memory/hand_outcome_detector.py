@@ -29,19 +29,19 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
 
-logger = logging.getLogger(__name__)
-
+from ..moment_analyzer import MomentAnalyzer
 from .chip_flow import ChipFlow, PotShare, allocate_chip_flow
 from .hand_history import RecordedHand
 from .relationship_events import RelationshipEvent
-from ..moment_analyzer import MomentAnalyzer
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from .opponent_model import OpponentModelManager
     from ..equity_snapshot import HandEquityHistory
     from ..repositories.relationship_repository import RelationshipRepository
+    from .opponent_model import OpponentModelManager
 
 
 # BAD_BEAT detection threshold: loser was favorite at some pre-river
@@ -135,19 +135,15 @@ class HandOutcomeDetector:
         # manager registers a new player id, the detector sees it on
         # the next `detect_events` call without an explicit sync.
         # `None` becomes a fresh dict owned by the detector.
-        self._name_to_id: Dict[str, Optional[str]] = (
-            name_to_id if name_to_id is not None else {}
-        )
+        self._name_to_id: Dict[str, Optional[str]] = name_to_id if name_to_id is not None else {}
         # Dedup set; key shape: (hand_number, actor_id, target_id, event)
-        self._emitted: Set[
-            Tuple[int, str, str, RelationshipEvent]
-        ] = set()
+        self._emitted: Set[Tuple[int, str, str, RelationshipEvent]] = set()
 
     def detect_events(
         self,
         recorded_hand: RecordedHand,
         *,
-        equity_history: "Optional[HandEquityHistory]" = None,
+        equity_history: Optional[HandEquityHistory] = None,
         max_buy_in: Optional[int] = None,
         cash_pnl_lookup: Optional[Callable[[str, str], int]] = None,
     ) -> List[DetectedEvent]:
@@ -185,9 +181,13 @@ class HandOutcomeDetector:
         if equity_history is not None:
             events.extend(self._detect_bad_beats(recorded_hand, equity_history))
         if max_buy_in is not None and max_buy_in > 0:
-            events.extend(self._detect_stack_dominance(
-                recorded_hand, max_buy_in, cash_pnl_lookup,
-            ))
+            events.extend(
+                self._detect_stack_dominance(
+                    recorded_hand,
+                    max_buy_in,
+                    cash_pnl_lookup,
+                )
+            )
         # Apply dedup AFTER detection so detection logic stays a
         # pure mapping. Each surviving event marks its key as
         # emitted; re-running the same hand returns no events.
@@ -204,7 +204,10 @@ class HandOutcomeDetector:
         surviving: List[DetectedEvent] = []
         for event in events:
             key = (
-                hand_number, event.actor_id, event.target_id, event.event,
+                hand_number,
+                event.actor_id,
+                event.target_id,
+                event.event,
             )
             if key in self._emitted:
                 continue
@@ -235,9 +238,7 @@ class HandOutcomeDetector:
             return []
         winner_amounts: Dict[str, int] = {}
         for w in hand.winners:
-            winner_amounts[w.name] = (
-                winner_amounts.get(w.name, 0) + w.amount_won
-            )
+            winner_amounts[w.name] = winner_amounts.get(w.name, 0) + w.amount_won
         if not winner_amounts:
             return []
         contributions = hand.get_player_contributions()
@@ -249,7 +250,8 @@ class HandOutcomeDetector:
         return allocate_chip_flow([pot])
 
     def _detect_big_pot_events(
-        self, hand: RecordedHand,
+        self,
+        hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit BIG_WIN / BIG_LOSS pairs for big-pot hands.
 
@@ -280,13 +282,8 @@ class HandOutcomeDetector:
         # to the average-stack comparison, matching pressure detector's
         # invocation (it doesn't bind to any single player's stack at
         # showdown — the pot's bigness is observer-agnostic).
-        starting_stacks = [
-            p.starting_stack for p in hand.players if p.starting_stack > 0
-        ]
-        avg_stack = (
-            sum(starting_stacks) / len(starting_stacks)
-            if starting_stacks else 0
-        )
+        starting_stacks = [p.starting_stack for p in hand.players if p.starting_stack > 0]
+        avg_stack = sum(starting_stacks) / len(starting_stacks) if starting_stacks else 0
         if not MomentAnalyzer.is_big_pot(hand.pot_size, 0, avg_stack):
             return []
 
@@ -306,26 +303,26 @@ class HandOutcomeDetector:
             # table. The calibration in `relationship_events.py`
             # assumes both events fire — emitting only one would
             # understate the axis movement for one side of the pair.
-            events.append(DetectedEvent(
-                actor_id=winner_id,
-                target_id=loser_id,
-                event=RelationshipEvent.BIG_WIN,
-                narrative=(
-                    f"{flow.winner} won a big pot from {flow.loser}"
-                ),
-                hand_summary=summary,
-                chips_won=flow.chips,
-            ))
-            events.append(DetectedEvent(
-                actor_id=loser_id,
-                target_id=winner_id,
-                event=RelationshipEvent.BIG_LOSS,
-                narrative=(
-                    f"{flow.loser} lost a big pot to {flow.winner}"
-                ),
-                hand_summary=summary,
-                chips_won=-flow.chips,
-            ))
+            events.append(
+                DetectedEvent(
+                    actor_id=winner_id,
+                    target_id=loser_id,
+                    event=RelationshipEvent.BIG_WIN,
+                    narrative=(f"{flow.winner} won a big pot from {flow.loser}"),
+                    hand_summary=summary,
+                    chips_won=flow.chips,
+                )
+            )
+            events.append(
+                DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.BIG_LOSS,
+                    narrative=(f"{flow.loser} lost a big pot to {flow.winner}"),
+                    hand_summary=summary,
+                    chips_won=-flow.chips,
+                )
+            )
         return events
 
     def _detect_hero_calls(self, hand: RecordedHand) -> List[DetectedEvent]:
@@ -444,16 +441,18 @@ class HandOutcomeDetector:
             if winner_id is None or loser_id is None:
                 continue
 
-            events.append(DetectedEvent(
-                actor_id=winner_id,
-                target_id=loser_id,
-                event=RelationshipEvent.HERO_CALL,
-                narrative=(
-                    f"{winner} called {called_against}'s river bet "
-                    f"and showed down the winner"
-                ),
-                hand_summary=summary,
-            ))
+            events.append(
+                DetectedEvent(
+                    actor_id=winner_id,
+                    target_id=loser_id,
+                    event=RelationshipEvent.HERO_CALL,
+                    narrative=(
+                        f"{winner} called {called_against}'s river bet "
+                        f"and showed down the winner"
+                    ),
+                    hand_summary=summary,
+                )
+            )
 
         return events
 
@@ -505,19 +504,13 @@ class HandOutcomeDetector:
             return []
 
         # Players who reached showdown and have visible cards.
-        fold_actors = {
-            a.player_name for a in hand.actions if a.action == 'fold'
-        }
-        showdown_with_cards = {
-            name for name in hand.hole_cards
-            if name not in fold_actors
-        }
+        fold_actors = {a.player_name for a in hand.actions if a.action == 'fold'}
+        showdown_with_cards = {name for name in hand.hole_cards if name not in fold_actors}
         if not showdown_with_cards:
             return []
 
         postflop_folds = [
-            a for a in hand.actions
-            if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
+            a for a in hand.actions if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
         ]
         if not postflop_folds:
             return []
@@ -570,9 +563,7 @@ class HandOutcomeDetector:
                 continue
 
             try:
-                folder_cards = [
-                    Card.from_short(c) for c in hand.hole_cards[folder]
-                ] + community
+                folder_cards = [Card.from_short(c) for c in hand.hole_cards[folder]] + community
                 bettor_cards = [
                     Card.from_short(c) for c in hand.hole_cards[prior_bettor]
                 ] + community
@@ -593,21 +584,24 @@ class HandOutcomeDetector:
             if folder_id is None or bettor_id is None:
                 continue
 
-            events.append(DetectedEvent(
-                actor_id=folder_id,
-                target_id=bettor_id,
-                event=RelationshipEvent.BLUFFED_OFF,
-                narrative=(
-                    f"{folder} folded a winner to {prior_bettor}'s "
-                    f"{fold_action.phase.lower()} bet"
-                ),
-                hand_summary=summary,
-            ))
+            events.append(
+                DetectedEvent(
+                    actor_id=folder_id,
+                    target_id=bettor_id,
+                    event=RelationshipEvent.BLUFFED_OFF,
+                    narrative=(
+                        f"{folder} folded a winner to {prior_bettor}'s "
+                        f"{fold_action.phase.lower()} bet"
+                    ),
+                    hand_summary=summary,
+                )
+            )
 
         return events
 
     def _detect_dominated_showdown(
-        self, hand: RecordedHand,
+        self,
+        hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit DOMINATED_SHOWDOWN for committed losers who got outclassed.
 
@@ -709,21 +703,24 @@ class HandOutcomeDetector:
                 if winner_id is None or loser_id is None:
                     continue
 
-                events.append(DetectedEvent(
-                    actor_id=loser_id,
-                    target_id=winner_id,
-                    event=RelationshipEvent.DOMINATED_SHOWDOWN,
-                    narrative=(
-                        f"{loser} called postflop and showed down "
-                        f"a weaker hand than {winner}"
-                    ),
-                    hand_summary=summary,
-                ))
+                events.append(
+                    DetectedEvent(
+                        actor_id=loser_id,
+                        target_id=winner_id,
+                        event=RelationshipEvent.DOMINATED_SHOWDOWN,
+                        narrative=(
+                            f"{loser} called postflop and showed down "
+                            f"a weaker hand than {winner}"
+                        ),
+                        hand_summary=summary,
+                    )
+                )
 
         return events
 
     def _detect_coolers(
-        self, hand: RecordedHand,
+        self,
+        hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit COOLER when both showdown hands are strong and the
         category gap is real.
@@ -800,21 +797,23 @@ class HandOutcomeDetector:
                 if winner_id is None or loser_id is None:
                     continue
 
-                events.append(DetectedEvent(
-                    actor_id=loser_id,
-                    target_id=winner_id,
-                    event=RelationshipEvent.COOLER,
-                    narrative=(
-                        f"{loser} had a strong hand but ran into {winner}'s "
-                        f"stronger one"
-                    ),
-                    hand_summary=summary,
-                ))
+                events.append(
+                    DetectedEvent(
+                        actor_id=loser_id,
+                        target_id=winner_id,
+                        event=RelationshipEvent.COOLER,
+                        narrative=(
+                            f"{loser} had a strong hand but ran into {winner}'s " f"stronger one"
+                        ),
+                        hand_summary=summary,
+                    )
+                )
 
         return events
 
     def _detect_strong_fold_shown(
-        self, hand: RecordedHand,
+        self,
+        hand: RecordedHand,
     ) -> List[DetectedEvent]:
         """Emit STRONG_FOLD_SHOWN for postflop folds that were correct.
 
@@ -847,19 +846,13 @@ class HandOutcomeDetector:
         if not hand.was_showdown:
             return []
 
-        fold_actors = {
-            a.player_name for a in hand.actions if a.action == 'fold'
-        }
-        showdown_with_cards = {
-            name for name in hand.hole_cards
-            if name not in fold_actors
-        }
+        fold_actors = {a.player_name for a in hand.actions if a.action == 'fold'}
+        showdown_with_cards = {name for name in hand.hole_cards if name not in fold_actors}
         if not showdown_with_cards:
             return []
 
         postflop_folds = [
-            a for a in hand.actions
-            if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
+            a for a in hand.actions if a.action == 'fold' and a.phase in ('FLOP', 'TURN', 'RIVER')
         ]
         if not postflop_folds:
             return []
@@ -899,9 +892,7 @@ class HandOutcomeDetector:
                 continue
 
             try:
-                folder_cards = [
-                    Card.from_short(c) for c in hand.hole_cards[folder]
-                ] + community
+                folder_cards = [Card.from_short(c) for c in hand.hole_cards[folder]] + community
                 bettor_cards = [
                     Card.from_short(c) for c in hand.hole_cards[prior_bettor]
                 ] + community
@@ -921,23 +912,25 @@ class HandOutcomeDetector:
             if folder_id is None or bettor_id is None:
                 continue
 
-            events.append(DetectedEvent(
-                actor_id=folder_id,
-                target_id=bettor_id,
-                event=RelationshipEvent.STRONG_FOLD_SHOWN,
-                narrative=(
-                    f"{folder} folded to {prior_bettor}'s "
-                    f"{fold_action.phase.lower()} bet and would have lost"
-                ),
-                hand_summary=summary,
-            ))
+            events.append(
+                DetectedEvent(
+                    actor_id=folder_id,
+                    target_id=bettor_id,
+                    event=RelationshipEvent.STRONG_FOLD_SHOWN,
+                    narrative=(
+                        f"{folder} folded to {prior_bettor}'s "
+                        f"{fold_action.phase.lower()} bet and would have lost"
+                    ),
+                    hand_summary=summary,
+                )
+            )
 
         return events
 
     def _detect_bad_beats(
         self,
         hand: RecordedHand,
-        equity_history: "HandEquityHistory",
+        equity_history: HandEquityHistory,
     ) -> List[DetectedEvent]:
         """Emit BAD_BEAT when a favorite at the final betting round loses.
 
@@ -980,12 +973,9 @@ class HandOutcomeDetector:
             return []
 
         winner_name = hand.winners[0].name
-        fold_actors = {
-            a.player_name for a in hand.actions if a.action == 'fold'
-        }
+        fold_actors = {a.player_name for a in hand.actions if a.action == 'fold'}
         losers = [
-            p.name for p in hand.players
-            if p.name != winner_name and p.name not in fold_actors
+            p.name for p in hand.players if p.name != winner_name and p.name not in fold_actors
         ]
         if not losers:
             return []
@@ -1012,16 +1002,18 @@ class HandOutcomeDetector:
             if winner_id is None or loser_id is None:
                 continue
 
-            events.append(DetectedEvent(
-                actor_id=loser_id,
-                target_id=winner_id,
-                event=RelationshipEvent.BAD_BEAT,
-                narrative=(
-                    f"{loser_name} had {int(max_pre_river * 100)}% equity "
-                    f"pre-river but lost to {winner_name}"
-                ),
-                hand_summary=summary,
-            ))
+            events.append(
+                DetectedEvent(
+                    actor_id=loser_id,
+                    target_id=winner_id,
+                    event=RelationshipEvent.BAD_BEAT,
+                    narrative=(
+                        f"{loser_name} had {int(max_pre_river * 100)}% equity "
+                        f"pre-river but lost to {winner_name}"
+                    ),
+                    hand_summary=summary,
+                )
+            )
 
         return events
 
@@ -1097,9 +1089,10 @@ class HandOutcomeDetector:
                         # A persistent lookup failure surfaces only as
                         # absent resentment, not as wrong resentment.
                         logger.debug(
-                            "stack_dominance pnl lookup failed "
-                            "(observer=%s deep=%s): %s",
-                            observer_id, deep_id, exc,
+                            "stack_dominance pnl lookup failed " "(observer=%s deep=%s): %s",
+                            observer_id,
+                            deep_id,
+                            exc,
                         )
                         continue
                     if pnl >= 0:
@@ -1107,17 +1100,19 @@ class HandOutcomeDetector:
                         # no resentment. Strangers and net winners
                         # against the deep stack stay neutral.
                         continue
-                events.append(DetectedEvent(
-                    actor_id=observer_id,
-                    target_id=deep_id,
-                    event=RelationshipEvent.STACK_DOMINANCE,
-                    context_multiplier=excess,
-                    narrative=(
-                        f"{observer.name} watched {deep.name} sit deep "
-                        f"({deep.starting_stack} chips, "
-                        f"{deep.starting_stack / max_buy_in:.1f}× cap)"
-                    ),
-                ))
+                events.append(
+                    DetectedEvent(
+                        actor_id=observer_id,
+                        target_id=deep_id,
+                        event=RelationshipEvent.STACK_DOMINANCE,
+                        context_multiplier=excess,
+                        narrative=(
+                            f"{observer.name} watched {deep.name} sit deep "
+                            f"({deep.starting_stack} chips, "
+                            f"{deep.starting_stack / max_buy_in:.1f}× cap)"
+                        ),
+                    )
+                )
         return events
 
     def _resolve_id(self, name: str) -> Optional[str]:
@@ -1138,9 +1133,9 @@ class HandOutcomeDetector:
 
 def dispatch_events(
     events: List[DetectedEvent],
-    manager: "OpponentModelManager",
+    manager: OpponentModelManager,
     *,
-    cash_pair_repo: Optional["RelationshipRepository"] = None,
+    cash_pair_repo: Optional[RelationshipRepository] = None,
     chip_flows: Optional[List[ChipFlow]] = None,
     id_resolver: Optional[Callable[[str], Optional[str]]] = None,
     hand_id: Optional[int] = None,

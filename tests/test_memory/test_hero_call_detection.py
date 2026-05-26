@@ -27,14 +27,20 @@ from poker.memory.relationship_events import RelationshipEvent
 
 def _player(name: str, stack: int = 1000, position: str = "BTN") -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position=position, is_human=False,
+        name=name,
+        starting_stack=stack,
+        position=position,
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="RIVER", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -91,16 +97,19 @@ class TestHeroCallFiresOnRiverCall:
                 _action("bob", "bet", 100, phase="RIVER", pot_after=150),
                 _action("alice", "call", 100, phase="RIVER", pot_after=250),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=250, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=250,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=250,
         )
 
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert len(hero_calls) == 1
         hc = hero_calls[0]
         assert hc.actor_id == "alice"
@@ -116,15 +125,18 @@ class TestHeroCallFiresOnRiverCall:
                 _action("bob", "raise", 300, phase="RIVER", pot_after=300),
                 _action("alice", "call", 200, phase="RIVER", pot_after=500),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=500, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=500,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=500,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert len(hero_calls) == 1
         assert hero_calls[0].actor_id == "alice"
         assert hero_calls[0].target_id == "bob"
@@ -140,23 +152,31 @@ class TestHeroCallDoesNotFire:
                 _action("alice", "bet", 100, phase="RIVER", pot_after=100),
                 _action("bob", "fold", 0, phase="RIVER", pot_after=100),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=100, hand_name=None, hand_rank=None,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=100,
+                    hand_name=None,
+                    hand_rank=None,
+                )
+            ],
             pot_size=100,
         )
         # Override was_showdown via constructor for clarity.
         hand_no_showdown = RecordedHand(
-            game_id=hand.game_id, hand_number=hand.hand_number,
-            timestamp=hand.timestamp, players=hand.players,
-            hole_cards=hand.hole_cards, community_cards=hand.community_cards,
-            actions=hand.actions, winners=hand.winners,
-            pot_size=hand.pot_size, was_showdown=False,
+            game_id=hand.game_id,
+            hand_number=hand.hand_number,
+            timestamp=hand.timestamp,
+            players=hand.players,
+            hole_cards=hand.hole_cards,
+            community_cards=hand.community_cards,
+            actions=hand.actions,
+            winners=hand.winners,
+            pot_size=hand.pot_size,
+            was_showdown=False,
         )
         events = HandOutcomeDetector().detect_events(hand_no_showdown)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert hero_calls == []
 
     def test_winner_raised_river_not_a_hero_call(self):
@@ -169,15 +189,18 @@ class TestHeroCallDoesNotFire:
                 _action("alice", "raise", 300, phase="RIVER", pot_after=400),
                 _action("bob", "call", 200, phase="RIVER", pot_after=600),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=600, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=600,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=600,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert hero_calls == []
 
     def test_check_check_river_no_hero_call(self):
@@ -189,15 +212,18 @@ class TestHeroCallDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=50),
                 _action("bob", "check", 0, phase="RIVER", pot_after=50),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=50, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=50,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=50,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert hero_calls == []
 
     def test_winner_called_but_had_worse_hand_no_hero_call(self):
@@ -218,16 +244,18 @@ class TestHeroCallDoesNotFire:
                 _action("alice", "call", 100, phase="RIVER", pot_after=200),
             ],
             # Pathological: alice recorded as winner despite worse hand.
-            winners=[WinnerInfo(
-                name="alice", amount_won=200,
-                hand_name="High", hand_rank=10,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="High",
+                    hand_rank=10,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         assert hero_calls == []
 
     def test_turn_call_then_river_check_no_hero_call(self):
@@ -241,15 +269,18 @@ class TestHeroCallDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=200),
                 _action("bob", "check", 0, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         events = HandOutcomeDetector().detect_events(hand)
-        hero_calls = [
-            e for e in events if e.event is RelationshipEvent.HERO_CALL
-        ]
+        hero_calls = [e for e in events if e.event is RelationshipEvent.HERO_CALL]
         # v1 restriction documented in detector docstring.
         assert hero_calls == []
 
@@ -267,9 +298,14 @@ class TestHeroCallEmittedAlongsideBigPot:
                 _action("bob", "bet", 200, phase="RIVER", pot_after=600),
                 _action("alice", "call", 200, phase="RIVER", pot_after=800),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=800, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=800,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=800,
         )
         events = HandOutcomeDetector().detect_events(hand)
@@ -288,9 +324,14 @@ class TestHeroCallDedupAndIdResolution:
                 _action("bob", "bet", 100, phase="RIVER", pot_after=100),
                 _action("alice", "call", 100, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         detector = HandOutcomeDetector()
@@ -307,9 +348,14 @@ class TestHeroCallDedupAndIdResolution:
                 _action("bob", "bet", 100, phase="RIVER", pot_after=100),
                 _action("alice", "call", 100, phase="RIVER", pot_after=200),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=200, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=200,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             pot_size=200,
         )
         registry = {"alice": "alice_v1", "bob": "bob_v1"}

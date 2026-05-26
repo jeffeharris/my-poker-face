@@ -9,31 +9,33 @@ Tests the zone detection system:
 - PlayerPsychology integration
 """
 
-import pytest
 import math
+
+import pytest
+
 from poker.player_psychology import (
-    PersonalityAnchors,
-    EmotionalAxes,
-    PlayerPsychology,
-    ZoneEffects,
-    get_zone_effects,
-    _calculate_sweet_spot_strength,
-    _detect_sweet_spots,
-    _detect_penalty_zones,
-    _get_zone_manifestation,
+    ENERGY_HIGH_THRESHOLD,
+    ENERGY_LOW_THRESHOLD,
+    PENALTY_OVERCONFIDENT_THRESHOLD,
+    PENALTY_TILTED_THRESHOLD,
+    ZONE_AGGRO_CENTER,
+    ZONE_AGGRO_RADIUS,
+    ZONE_COMMANDING_CENTER,
+    ZONE_COMMANDING_RADIUS,
     # Zone constants
     ZONE_GUARDED_CENTER,
     ZONE_GUARDED_RADIUS,
     ZONE_POKER_FACE_CENTER,
     ZONE_POKER_FACE_RADIUS,
-    ZONE_COMMANDING_CENTER,
-    ZONE_COMMANDING_RADIUS,
-    ZONE_AGGRO_CENTER,
-    ZONE_AGGRO_RADIUS,
-    PENALTY_TILTED_THRESHOLD,
-    PENALTY_OVERCONFIDENT_THRESHOLD,
-    ENERGY_LOW_THRESHOLD,
-    ENERGY_HIGH_THRESHOLD,
+    EmotionalAxes,
+    PersonalityAnchors,
+    PlayerPsychology,
+    ZoneEffects,
+    _calculate_sweet_spot_strength,
+    _detect_penalty_zones,
+    _detect_sweet_spots,
+    _get_zone_manifestation,
+    get_zone_effects,
 )
 
 
@@ -77,13 +79,9 @@ class TestSweetSpotStrength:
 
         strength_at_center = _calculate_sweet_spot_strength(0.5, 0.7, center, radius)
         # 50% of radius is in the linear falloff region (inner_radius = 40%)
-        strength_at_half = _calculate_sweet_spot_strength(
-            0.5 + radius * 0.5, 0.7, center, radius
-        )
+        strength_at_half = _calculate_sweet_spot_strength(0.5 + radius * 0.5, 0.7, center, radius)
         # 80% of radius is deep in the falloff region
-        strength_at_80pct = _calculate_sweet_spot_strength(
-            0.5 + radius * 0.8, 0.7, center, radius
-        )
+        strength_at_80pct = _calculate_sweet_spot_strength(0.5 + radius * 0.8, 0.7, center, radius)
 
         assert strength_at_center > strength_at_half > strength_at_80pct
 
@@ -94,9 +92,7 @@ class TestSweetSpotStrength:
 
         # 25% of radius is within inner_radius (40%)
         inner_point = (0.5 + radius * 0.25, 0.7)
-        strength = _calculate_sweet_spot_strength(
-            inner_point[0], inner_point[1], center, radius
-        )
+        strength = _calculate_sweet_spot_strength(inner_point[0], inner_point[1], center, radius)
         assert strength == pytest.approx(1.0, abs=0.001)
 
     def test_linear_falloff_in_outer_region(self):
@@ -106,9 +102,7 @@ class TestSweetSpotStrength:
 
         # 70% of radius is the midpoint of the falloff region (40% to 100%)
         mid_falloff = (0.5 + radius * 0.7, 0.7)
-        strength = _calculate_sweet_spot_strength(
-            mid_falloff[0], mid_falloff[1], center, radius
-        )
+        strength = _calculate_sweet_spot_strength(mid_falloff[0], mid_falloff[1], center, radius)
 
         # At 70% of radius, distance from inner = 0.3*radius, falloff range = 0.6*radius
         # strength = 1.0 - 0.3/0.6 = 0.5
@@ -120,36 +114,28 @@ class TestSweetSpotDetection:
 
     def test_detect_poker_face_zone_at_center(self):
         """Should detect Poker Face zone when at its center."""
-        sweet_spots = _detect_sweet_spots(
-            ZONE_POKER_FACE_CENTER[0], ZONE_POKER_FACE_CENTER[1]
-        )
+        sweet_spots = _detect_sweet_spots(ZONE_POKER_FACE_CENTER[0], ZONE_POKER_FACE_CENTER[1])
 
         assert 'poker_face' in sweet_spots
         assert sweet_spots['poker_face'] == pytest.approx(1.0, abs=0.001)
 
     def test_detect_guarded_zone_at_center(self):
         """Should detect Guarded zone when at its center."""
-        sweet_spots = _detect_sweet_spots(
-            ZONE_GUARDED_CENTER[0], ZONE_GUARDED_CENTER[1]
-        )
+        sweet_spots = _detect_sweet_spots(ZONE_GUARDED_CENTER[0], ZONE_GUARDED_CENTER[1])
 
         assert 'guarded' in sweet_spots
         assert sweet_spots['guarded'] == pytest.approx(1.0, abs=0.001)
 
     def test_detect_commanding_zone_at_center(self):
         """Should detect Commanding zone when at its center."""
-        sweet_spots = _detect_sweet_spots(
-            ZONE_COMMANDING_CENTER[0], ZONE_COMMANDING_CENTER[1]
-        )
+        sweet_spots = _detect_sweet_spots(ZONE_COMMANDING_CENTER[0], ZONE_COMMANDING_CENTER[1])
 
         assert 'commanding' in sweet_spots
         assert sweet_spots['commanding'] == pytest.approx(1.0, abs=0.001)
 
     def test_detect_aggro_zone_at_center(self):
         """Should detect Aggro zone when at its center."""
-        sweet_spots = _detect_sweet_spots(
-            ZONE_AGGRO_CENTER[0], ZONE_AGGRO_CENTER[1]
-        )
+        sweet_spots = _detect_sweet_spots(ZONE_AGGRO_CENTER[0], ZONE_AGGRO_CENTER[1])
 
         assert 'aggro' in sweet_spots
         assert sweet_spots['aggro'] == pytest.approx(1.0, abs=0.001)
@@ -195,6 +181,7 @@ class TestPenaltyZoneDetection:
     def test_detect_overconfident_when_high_confidence(self):
         """Should detect Overconfident penalty when confidence exceeds threshold."""
         from poker.zone_config import get_zone_param
+
         threshold = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
         # Use a value clearly above the threshold
         test_conf = min(threshold + 0.03, 0.99)
@@ -207,6 +194,7 @@ class TestPenaltyZoneDetection:
     def test_no_overconfident_when_confidence_below_threshold(self):
         """Should not detect Overconfident when confidence is below threshold."""
         from poker.zone_config import get_zone_param
+
         threshold = get_zone_param('PENALTY_OVERCONFIDENT_THRESHOLD')
         penalties = _detect_penalty_zones(threshold - 0.05, 0.7)
 
@@ -283,9 +271,7 @@ class TestGetZoneEffects:
     def test_sweet_spots_normalized_to_one(self):
         """Sweet spot weights should sum to 1.0 when any are active."""
         # At Poker Face center
-        effects = get_zone_effects(
-            ZONE_POKER_FACE_CENTER[0], ZONE_POKER_FACE_CENTER[1], 0.5
-        )
+        effects = get_zone_effects(ZONE_POKER_FACE_CENTER[0], ZONE_POKER_FACE_CENTER[1], 0.5)
 
         if effects.sweet_spots:
             total = sum(effects.sweet_spots.values())
@@ -437,9 +423,18 @@ class TestPlayerPsychologyIntegration:
 
         assert isinstance(zone, str)
         # Could be a zone name or 'neutral'
-        valid_zones = ['poker_face', 'guarded', 'commanding', 'aggro',
-                       'tilted', 'shaken', 'overheated', 'overconfident',
-                       'detached', 'neutral']
+        valid_zones = [
+            'poker_face',
+            'guarded',
+            'commanding',
+            'aggro',
+            'tilted',
+            'shaken',
+            'overheated',
+            'overconfident',
+            'detached',
+            'neutral',
+        ]
         assert zone in valid_zones
 
     def test_to_dict_includes_zone_effects(self, batman_anchors):

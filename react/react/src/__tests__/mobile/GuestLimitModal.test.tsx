@@ -6,19 +6,29 @@ import { GuestLimitModal } from '../../components/shared/GuestLimitModal';
 // Mock lucide-react
 vi.mock('lucide-react', () => ({
   Crown: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
-    <span data-testid="crown-icon" {...props}>Crown</span>
+    <span data-testid="crown-icon" {...props}>
+      Crown
+    </span>
   ),
   Shield: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
-    <span data-testid="shield-icon" {...props}>Shield</span>
+    <span data-testid="shield-icon" {...props}>
+      Shield
+    </span>
   ),
   Users: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
-    <span data-testid="users-icon" {...props}>Users</span>
+    <span data-testid="users-icon" {...props}>
+      Users
+    </span>
   ),
   Sparkles: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
-    <span data-testid="sparkles-icon" {...props}>Sparkles</span>
+    <span data-testid="sparkles-icon" {...props}>
+      Sparkles
+    </span>
   ),
   Settings: ({ size: _size, ...props }: { size?: number } & Record<string, unknown>) => (
-    <span data-testid="settings-icon" {...props}>Settings</span>
+    <span data-testid="settings-icon" {...props}>
+      Settings
+    </span>
   ),
 }));
 
@@ -147,7 +157,9 @@ describe('VT-08: GuestLimitModal — content, CTA, benefits grid', () => {
     it('calls onReturnToMenu when clicked', () => {
       const props = makeProps();
       const { container } = render(<GuestLimitModal {...props} />);
-      const secondary = container.querySelector('.guest-limit-modal__secondary') as HTMLButtonElement;
+      const secondary = container.querySelector(
+        '.guest-limit-modal__secondary'
+      ) as HTMLButtonElement;
       fireEvent.click(secondary);
       expect(props.onReturnToMenu).toHaveBeenCalledTimes(1);
     });

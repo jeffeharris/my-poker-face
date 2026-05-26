@@ -17,7 +17,10 @@ from typing import Optional, Tuple
 
 
 def _compute_raise_to(
-    multiplier: float, base_amount: int, min_raise: int, max_raise: int,
+    multiplier: float,
+    base_amount: int,
+    min_raise: int,
+    max_raise: int,
     rng: Optional[random.Random] = None,
     jitter: float = 0.0,
 ) -> int:
@@ -46,7 +49,9 @@ def _compute_raise_to(
 
 
 def resolve_preflop_sizing(
-    abstract_action: str, game_state, player_idx: int,
+    abstract_action: str,
+    game_state,
+    player_idx: int,
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
 ) -> Tuple[str, int]:
@@ -92,15 +97,23 @@ def resolve_preflop_sizing(
         # BB-relative sizing: raise_2.5bb, raise_3bb
         multiplier = float(action.replace('raise_', '').replace('bb', ''))
         raise_to = _compute_raise_to(
-            multiplier, big_blind, min_raise, player_total,
-            rng=rng, jitter=sizing_jitter,
+            multiplier,
+            big_blind,
+            min_raise,
+            player_total,
+            rng=rng,
+            jitter=sizing_jitter,
         )
     elif action.endswith('x'):
         # Multiplier of current bet: raise_3x, raise_4x, raise_2.2x
         multiplier = float(action.replace('raise_', '').replace('x', ''))
         raise_to = _compute_raise_to(
-            multiplier, highest_bet, min_raise, player_total,
-            rng=rng, jitter=sizing_jitter,
+            multiplier,
+            highest_bet,
+            min_raise,
+            player_total,
+            rng=rng,
+            jitter=sizing_jitter,
         )
     else:
         raise ValueError(f"Unknown abstract action: {abstract_action!r}")
@@ -113,7 +126,9 @@ def resolve_preflop_sizing(
 
 
 def resolve_postflop_sizing(
-    abstract_action: str, game_state, player_idx: int,
+    abstract_action: str,
+    game_state,
+    player_idx: int,
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
 ) -> Tuple[str, int]:
@@ -147,7 +162,6 @@ def resolve_postflop_sizing(
     if action == 'jam':
         return ('all_in', player_total)
 
-    big_blind = game_state.current_ante
     highest_bet = game_state.highest_bet
     # See preflop comment: re-raise increment must >= prior raise size.
     min_raise = highest_bet + game_state.min_raise_amount
@@ -164,8 +178,7 @@ def resolve_postflop_sizing(
         pct = int(action.replace('bet_', '')) / 100.0
         target = pot_total * pct
         if rng is not None and sizing_jitter > 0.0:
-            target = rng.uniform(target * (1.0 - sizing_jitter),
-                                 target * (1.0 + sizing_jitter))
+            target = rng.uniform(target * (1.0 - sizing_jitter), target * (1.0 + sizing_jitter))
         # `player.bet` is the hero's cumulative commitment this hand; a bet of
         # `pct` of pot must be ADDED on top of it (mirrors the raise branch's
         # `highest_bet + ...`). Omitting it under-bet by the prior commitment.
@@ -177,8 +190,7 @@ def resolve_postflop_sizing(
         pot_after_call = pot_total + call_amount
         target = pot_after_call * pct
         if rng is not None and sizing_jitter > 0.0:
-            target = rng.uniform(target * (1.0 - sizing_jitter),
-                                 target * (1.0 + sizing_jitter))
+            target = rng.uniform(target * (1.0 - sizing_jitter), target * (1.0 + sizing_jitter))
         raise_to = highest_bet + int(target)
     else:
         raise ValueError(f"Unknown abstract action: {abstract_action!r}")

@@ -15,7 +15,9 @@
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.4),
     0 0 12px rgba(212, 165, 116, 0.15);
-  transition: box-shadow 0.2s ease, transform 0.15s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
@@ -49,8 +51,15 @@
 }
 
 @keyframes coachBadgePulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.2); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.2);
+  }
 }
 
 /* Gold pulsing indicator when coach is generating/thinking */
@@ -67,7 +76,8 @@
 }
 
 @keyframes coachThinkingPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.6;
     transform: scale(1);
     box-shadow: 0 0 4px rgba(212, 165, 116, 0.4);

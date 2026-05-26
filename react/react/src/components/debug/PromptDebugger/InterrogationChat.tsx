@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import type { InterrogationMessage, PromptCapture, InterrogationResponse, ProviderInfo } from './types';
+import type {
+  InterrogationMessage,
+  PromptCapture,
+  InterrogationResponse,
+  ProviderInfo,
+} from './types';
 import { config } from '../../../config';
 
 interface InterrogationChatProps {
@@ -22,29 +27,29 @@ interface InterrogationChatProps {
 // Suggested quick questions based on action type
 const QUICK_QUESTIONS: Record<string, string[]> = {
   fold: [
-    "Why did you fold instead of calling?",
-    "What would you have needed to stay in?",
-    "Were you bluffing on previous rounds?",
+    'Why did you fold instead of calling?',
+    'What would you have needed to stay in?',
+    'Were you bluffing on previous rounds?',
   ],
   call: [
-    "Why call instead of raising?",
-    "What hands were you putting your opponent on?",
-    "How did pot odds influence your decision?",
+    'Why call instead of raising?',
+    'What hands were you putting your opponent on?',
+    'How did pot odds influence your decision?',
   ],
   raise: [
-    "Why did you raise that specific amount?",
-    "Were you trying to build the pot or push players out?",
-    "What was your read on the table?",
+    'Why did you raise that specific amount?',
+    'Were you trying to build the pot or push players out?',
+    'What was your read on the table?',
   ],
   check: [
-    "Why check instead of betting?",
-    "Were you trapping or genuinely weak?",
-    "What would have made you bet?",
+    'Why check instead of betting?',
+    'Were you trapping or genuinely weak?',
+    'What would have made you bet?',
   ],
   default: [
-    "Walk me through your reasoning.",
-    "What factors influenced your decision most?",
-    "What were you thinking about the other players?",
+    'Walk me through your reasoning.',
+    'What factors influenced your decision most?',
+    'What were you thinking about the other players?',
   ],
 };
 
@@ -143,17 +148,20 @@ export function InterrogationChat({
   };
 
   const handleReset = () => {
-    onMessagesUpdate([{
-      id: 'original-decision',
-      role: 'context',
-      content: capture.ai_response,
-      timestamp: capture.created_at,
-    }]);
+    onMessagesUpdate([
+      {
+        id: 'original-decision',
+        role: 'context',
+        content: capture.ai_response,
+        timestamp: capture.created_at,
+      },
+    ]);
     onSessionIdUpdate(null);
     setError(null);
   };
 
-  const quickQuestions = QUICK_QUESTIONS[capture.action_taken || 'default'] || QUICK_QUESTIONS.default;
+  const quickQuestions =
+    QUICK_QUESTIONS[capture.action_taken || 'default'] || QUICK_QUESTIONS.default;
 
   return (
     <div className="interrogation-chat">
@@ -183,14 +191,14 @@ export function InterrogationChat({
       {/* Messages */}
       <div className="interrogation-messages">
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`interrogation-message ${msg.role}`}
-          >
+          <div key={msg.id} className={`interrogation-message ${msg.role}`}>
             <div className="message-header">
               <span className="message-role">
-                {msg.role === 'context' ? 'Original Decision' :
-                 msg.role === 'user' ? 'You' : capture.player_name}
+                {msg.role === 'context'
+                  ? 'Original Decision'
+                  : msg.role === 'user'
+                    ? 'You'
+                    : capture.player_name}
               </span>
             </div>
             <div className="message-content">{msg.content}</div>
@@ -199,7 +207,9 @@ export function InterrogationChat({
         {loading && (
           <div className="interrogation-message assistant loading">
             <div className="typing-indicator">
-              <span></span><span></span><span></span>
+              <span></span>
+              <span></span>
+              <span></span>
             </div>
           </div>
         )}
@@ -213,11 +223,7 @@ export function InterrogationChat({
         <div className="quick-questions">
           <span className="quick-label">Quick questions:</span>
           {quickQuestions.map((q, i) => (
-            <button
-              key={i}
-              className="quick-question-btn"
-              onClick={() => handleQuickQuestion(q)}
-            >
+            <button key={i} className="quick-question-btn" onClick={() => handleQuickQuestion(q)}>
               {q}
             </button>
           ))}
@@ -232,11 +238,13 @@ export function InterrogationChat({
             value={provider}
             onChange={(e) => onProviderChange(e.target.value)}
             disabled={sessionId !== null}
-            title={sessionId ? "Reset to change provider" : "Select provider"}
+            title={sessionId ? 'Reset to change provider' : 'Select provider'}
           >
             {providers.length > 0 ? (
-              providers.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+              providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
               ))
             ) : (
               <option value="openai">OpenAI</option>
@@ -249,10 +257,12 @@ export function InterrogationChat({
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
             disabled={sessionId !== null}
-            title={sessionId ? "Reset to change model" : "Select model"}
+            title={sessionId ? 'Reset to change model' : 'Select model'}
           >
-            {getModelsForProvider(provider).map(m => (
-              <option key={m} value={m}>{m}</option>
+            {getModelsForProvider(provider).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
         </div>
@@ -262,16 +272,16 @@ export function InterrogationChat({
             value={reasoningEffort}
             onChange={(e) => onReasoningEffortChange(e.target.value)}
             disabled={sessionId !== null}
-            title={sessionId ? "Reset to change reasoning" : "Select reasoning level"}
+            title={sessionId ? 'Reset to change reasoning' : 'Select reasoning level'}
           >
-            {reasoningLevels.map(level => (
-              <option key={level} value={level}>{level}</option>
+            {reasoningLevels.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
             ))}
           </select>
         </div>
-        {sessionId && (
-          <span className="settings-note">Reset to change settings</span>
-        )}
+        {sessionId && <span className="settings-note">Reset to change settings</span>}
       </div>
 
       {/* Input */}

@@ -25,24 +25,24 @@ import sqlite3
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 from poker.bounded_options import (
-    generate_bounded_options,
-    BoundedOption,
     STYLE_PROFILES,
+    BoundedOption,
+    generate_bounded_options,
 )
+from poker.controllers import _get_canonical_hand
+from poker.hand_tiers import is_hand_in_range
+from poker.lean_bounded_controller import LeanBoundedController
 from poker.nudge_phrases import apply_composed_nudges
 from poker.range_guidance import looseness_to_range_pct
-from poker.hand_tiers import is_hand_in_range
-from poker.controllers import _get_canonical_hand
-from poker.lean_bounded_controller import LeanBoundedController
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ PROFILE_LOOSENESS = {
 @dataclass
 class ReplayResult:
     """Result from replaying a single capture/variant/sample."""
+
     capture_id: int
     variant: str
     sample_number: int
@@ -130,18 +131,23 @@ def reconstruct_rule_context(capture: Dict, metadata: Dict) -> Dict:
         'max_raise': metadata.get('max_raise') or player_stack,
         'big_blind': big_blind,
         'equity': metadata.get('equity') or capture.get('equity') or 0.5,
-        'required_equity': metadata.get('required_equity') or (
-            cost_to_call / (pot_total + cost_to_call) if (pot_total + cost_to_call) > 0 else 0
-        ),
+        'required_equity': metadata.get('required_equity')
+        or (cost_to_call / (pot_total + cost_to_call) if (pot_total + cost_to_call) > 0 else 0),
         'canonical_hand': canonical_hand,
-        'hole_cards': _parse_json_field(metadata.get('player_hand') or capture.get('player_hand'), []),
-        'community_cards': _parse_json_field(metadata.get('community_cards') or capture.get('community_cards'), []),
+        'hole_cards': _parse_json_field(
+            metadata.get('player_hand') or capture.get('player_hand'), []
+        ),
+        'community_cards': _parse_json_field(
+            metadata.get('community_cards') or capture.get('community_cards'), []
+        ),
         'phase': metadata.get('phase') or capture.get('phase') or 'PRE_FLOP',
         'position': position,
         'num_opponents': metadata.get('num_opponents') or 3,
         'effective_stack': metadata.get('effective_stack') or player_stack,
         'spr': metadata.get('spr') or float('inf'),
-        'valid_actions': _parse_json_field(metadata.get('valid_actions') or capture.get('valid_actions'), ['fold', 'call', 'raise']),
+        'valid_actions': _parse_json_field(
+            metadata.get('valid_actions') or capture.get('valid_actions'), ['fold', 'call', 'raise']
+        ),
     }
 
 
@@ -452,8 +458,12 @@ class BoundedReplayRunner:
             futures = {
                 executor.submit(
                     replay_single_sample,
-                    capture_id, variant_label, sample_num, prepared,
-                    model, provider,
+                    capture_id,
+                    variant_label,
+                    sample_num,
+                    prepared,
+                    model,
+                    provider,
                 ): (capture_id, variant_label, sample_num)
                 for capture_id, variant_label, sample_num, prepared in sample_items
             }
@@ -497,14 +507,16 @@ class BoundedReplayRunner:
         # Rough cost estimate (gpt-5-nano ~$0.00002/call)
         cost_estimate = total_calls * 0.00002
 
-        print(f"\n=== Bounded Replay Dry Run ===")
+        print("\n=== Bounded Replay Dry Run ===")
         print(f"Source experiment: {source_experiment_id}")
         print(f"Captures found:   {total_captures}")
         print(f"Filters:          {json.dumps(capture_filters)}")
         print(f"Variants:         {len(variants)}")
         for v in variants:
-            print(f"  - {v.get('label', '?')}: style_aware={v.get('style_aware_options')}, "
-                  f"nudges={v.get('composed_nudges')}, rangegate={v.get('preflop_range_gate')}")
+            print(
+                f"  - {v.get('label', '?')}: style_aware={v.get('style_aware_options')}, "
+                f"nudges={v.get('composed_nudges')}, rangegate={v.get('preflop_range_gate')}"
+            )
         print(f"Samples/variant:  {samples_per_variant}")
         print(f"Model:            {provider}/{model}")
         print(f"Total LLM calls:  {total_calls}")
@@ -529,13 +541,14 @@ class BoundedReplayRunner:
         with sqlite3.connect(self.db_path) as conn:
             # Use a unique name to avoid conflicts
             import datetime
+
             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
             unique_name = f"{name}_{timestamp}"
 
             cursor = conn.execute(
                 """INSERT INTO experiments (name, description, config_json, status)
                    VALUES (?, ?, ?, 'running')""",
-                (unique_name, description, json.dumps(config, default=str))
+                (unique_name, description, json.dumps(config, default=str)),
             )
             return cursor.lastrowid
 
@@ -592,7 +605,8 @@ class BoundedReplayRunner:
         """Store a single replay result."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO bounded_replay_results (
                         experiment_id, capture_id, variant, sample_number,
                         option_config_json, generated_options_json,
@@ -601,15 +615,27 @@ class BoundedReplayRunner:
                         input_tokens, output_tokens, latency_ms,
                         error_message
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    experiment_id, result.capture_id, result.variant, result.sample_number,
-                    result.option_config_json, result.generated_options_json,
-                    result.new_response, result.choice_number, result.new_action,
-                    result.new_raise_amount,
-                    result.reasoning, result.provider, result.model,
-                    result.input_tokens, result.output_tokens, result.latency_ms,
-                    result.error_message,
-                ))
+                """,
+                    (
+                        experiment_id,
+                        result.capture_id,
+                        result.variant,
+                        result.sample_number,
+                        result.option_config_json,
+                        result.generated_options_json,
+                        result.new_response,
+                        result.choice_number,
+                        result.new_action,
+                        result.new_raise_amount,
+                        result.reasoning,
+                        result.provider,
+                        result.model,
+                        result.input_tokens,
+                        result.output_tokens,
+                        result.latency_ms,
+                        result.error_message,
+                    ),
+                )
         except Exception as e:
             logger.error(f"Failed to store result: {e}")
 
@@ -619,7 +645,8 @@ class BoundedReplayRunner:
             conn.row_factory = sqlite3.Row
 
             # Get player name for each capture
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT
                     brr.variant,
                     pc.player_name,
@@ -631,7 +658,9 @@ class BoundedReplayRunner:
                   AND brr.error_message IS NULL
                 GROUP BY brr.variant, pc.player_name, brr.new_action
                 ORDER BY brr.variant, pc.player_name
-            """, (experiment_id,)).fetchall()
+            """,
+                (experiment_id,),
+            ).fetchall()
 
             # Build summary: variant -> player -> {action: count}
             summary = {}
@@ -689,7 +718,7 @@ class BoundedReplayRunner:
         print("-" * len(header))
 
         # Action breakdown per variant
-        print(f"\nAction Distribution:")
+        print("\nAction Distribution:")
         for variant_label in variants:
             variant_data = summary.get(variant_label, {})
             total_actions = {}
@@ -701,8 +730,7 @@ class BoundedReplayRunner:
 
             if grand_total > 0:
                 action_str = ", ".join(
-                    f"{a}: {c} ({c/grand_total*100:.0f}%)"
-                    for a, c in sorted(total_actions.items())
+                    f"{a}: {c} ({c/grand_total*100:.0f}%)" for a, c in sorted(total_actions.items())
                 )
                 print(f"  {variant_label}: {action_str}")
 
@@ -710,11 +738,11 @@ class BoundedReplayRunner:
         with sqlite3.connect(self.db_path) as conn:
             error_count = conn.execute(
                 "SELECT COUNT(*) FROM bounded_replay_results WHERE experiment_id = ? AND error_message IS NOT NULL",
-                (experiment_id,)
+                (experiment_id,),
             ).fetchone()[0]
             total_count = conn.execute(
                 "SELECT COUNT(*) FROM bounded_replay_results WHERE experiment_id = ?",
-                (experiment_id,)
+                (experiment_id,),
             ).fetchone()[0]
 
         print(f"\nTotal samples: {total_count} ({error_count} errors)")
@@ -727,7 +755,7 @@ class BoundedReplayRunner:
             conn.execute(
                 """UPDATE experiments SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
                    summary_json = ? WHERE id = ?""",
-                (json.dumps(summary, default=str), experiment_id)
+                (json.dumps(summary, default=str), experiment_id),
             )
 
 
@@ -735,7 +763,7 @@ def _parse_json_field(value, default):
     """Parse a JSON string field, returning default on failure."""
     if value is None:
         return default
-    if isinstance(value, (list, dict)):
+    if isinstance(value, list | dict):
         return value
     try:
         return json.loads(value)
@@ -747,25 +775,16 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run bounded replay experiment on captured AI decisions"
     )
+    parser.add_argument('config_path', help='Path to experiment config JSON file')
     parser.add_argument(
-        'config_path',
-        help='Path to experiment config JSON file'
-    )
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would happen without executing'
+        '--dry-run', action='store_true', help='Show what would happen without executing'
     )
     parser.add_argument(
         '--db-path',
         default='/app/data/poker_games.db',
-        help='Database path (default: /app/data/poker_games.db)'
+        help='Database path (default: /app/data/poker_games.db)',
     )
-    parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Enable verbose logging'
-    )
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
 
     args = parser.parse_args()
 

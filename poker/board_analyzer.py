@@ -148,7 +148,7 @@ def _is_connected(rank_indices: List[int]) -> bool:
 
     # Standard connectivity check: any 3 consecutive cards within 4-rank span
     for i in range(len(rank_indices) - 2):
-        window = rank_indices[i:i + 3]
+        window = rank_indices[i : i + 3]
         if window[-1] - window[0] <= 4:
             return True
 

@@ -13,12 +13,13 @@ from collections import Counter
 from typing import Dict, List, Optional
 
 from core.card import Card
-from .hand_evaluator import HandEvaluator, rank_to_display
 
+from .hand_evaluator import HandEvaluator, rank_to_display
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def narrate_hand_breakdown(
     hole_cards: List[Card],
@@ -189,20 +190,13 @@ def narrate_hand_recap(
             folded = {a.player_name for a in hand.actions if a.action == "fold"}
             acted = {a.player_name for a in hand.actions}
             raw_winners = [w.name for w in hand.winners]
-            at_showdown = [
-                p.name for p in hand.players
-                if p.name in acted and p.name not in folded
-            ]
+            at_showdown = [p.name for p in hand.players if p.name in acted and p.name not in folded]
             # Winners first, then everyone else who saw the showdown
-            ordered = list(raw_winners) + [
-                n for n in at_showdown if n not in raw_winners
-            ]
+            ordered = list(raw_winners) + [n for n in at_showdown if n not in raw_winners]
 
             # Winners' hand names come from WinnerInfo; for losers we
             # evaluate live so the recap names every showdown hand.
-            winner_hand_names = {
-                w.name: w.hand_name for w in hand.winners if w.hand_name
-            }
+            winner_hand_names = {w.name: w.hand_name for w in hand.winners if w.hand_name}
 
             shown = []
             for name in ordered:
@@ -212,9 +206,7 @@ def narrate_hand_recap(
                 hand_label = winner_hand_names.get(name) or evaluate_hand_label(
                     hand.hole_cards[name], hand.community_cards
                 )
-                line = (
-                    f"{_display_name(name, perspective)} showed [{cards_str}]"
-                )
+                line = f"{_display_name(name, perspective)} showed [{cards_str}]"
                 if hand_label:
                     line += f" ({hand_label})"
                 shown.append(line)
@@ -252,9 +244,7 @@ def narrate_key_moments(
     is_player_in_split = is_split and player_won
 
     # All-in is always notable
-    all_in_action = next(
-        (a for a in hand.actions if a.action == "all_in"), None
-    )
+    all_in_action = next((a for a in hand.actions if a.action == "all_in"), None)
     if all_in_action:
         if is_player_in_split:
             other_winners = [w.name for w in hand.winners if w.name != player_name]
@@ -271,13 +261,15 @@ def narrate_key_moments(
                 hand_desc = _get_hand_desc(hand, player_name)
                 return f"You went all-in and won {pot}{hand_desc}"
             elif outcome == "folded":
-                return f"You went all-in but folded later (side pot scenario)"
+                return "You went all-in but folded later (side pot scenario)"
             else:
                 return f"You went all-in and lost ({pot} pot)"
         else:
             if player_won:
                 hand_desc = _get_hand_desc(hand, player_name)
-                return f"{all_in_action.player_name} went all-in — you called and won {pot}{hand_desc}"
+                return (
+                    f"{all_in_action.player_name} went all-in — you called and won {pot}{hand_desc}"
+                )
             elif outcome == "lost":
                 return f"{all_in_action.player_name} went all-in — you called and lost ({pot} pot)"
 
@@ -294,7 +286,9 @@ def narrate_key_moments(
                     f"Split pot at showdown — you and {partner} both had {hand_name} "
                     f"and split {pot} ({share_amt} each)"
                 )
-            return f"Split pot at showdown — you and {partner} tied and split {pot} ({share_amt} each)"
+            return (
+                f"Split pot at showdown — you and {partner} tied and split {pot} ({share_amt} each)"
+            )
         if player_won:
             hand_desc = _get_hand_desc(hand, player_name)
             return f"You won {pot} at showdown{hand_desc}"
@@ -313,8 +307,11 @@ def narrate_key_moments(
             return f"You folded in a {pot} pot"
 
     # Simple preflop fold — not notable
-    if (len(player_actions) == 1 and player_actions[0].action == "fold"
-            and player_actions[0].phase == "PRE_FLOP"):
+    if (
+        len(player_actions) == 1
+        and player_actions[0].action == "fold"
+        and player_actions[0].phase == "PRE_FLOP"
+    ):
         return None
 
     # Won a modest pot
@@ -327,6 +324,7 @@ def narrate_key_moments(
 # ---------------------------------------------------------------------------
 # Hand description helpers (one per hand type)
 # ---------------------------------------------------------------------------
+
 
 def _describe_pair(
     hole_cards: List[Card],
@@ -347,13 +345,15 @@ def _describe_pair(
     board_match = [c for c in community_cards if c.value == pair_rank]
 
     if len(hole_match) == 2:
-        lines.append(f"You have a pocket pair of {pair_name}'s ({_cs(hole_match[0])}, {_cs(hole_match[1])}).")
-    elif len(hole_match) == 1 and len(board_match) >= 1:
         lines.append(
-            f"Your {_cs(hole_match[0])} pairs with {_cs(board_match[0])} on the board."
+            f"You have a pocket pair of {pair_name}'s ({_cs(hole_match[0])}, {_cs(hole_match[1])})."
         )
+    elif len(hole_match) == 1 and len(board_match) >= 1:
+        lines.append(f"Your {_cs(hole_match[0])} pairs with {_cs(board_match[0])} on the board.")
     elif len(board_match) >= 2:
-        lines.append(f"The board has a pair of {pair_name}'s ({_cs(board_match[0])}, {_cs(board_match[1])}).")
+        lines.append(
+            f"The board has a pair of {pair_name}'s ({_cs(board_match[0])}, {_cs(board_match[1])})."
+        )
 
     _add_kickers(lines, kicker_values, hole_cards, community_cards)
     return lines
@@ -631,6 +631,7 @@ _HAND_DESCRIBERS = {
 # Draw detection (for high-card / marginal hands)
 # ---------------------------------------------------------------------------
 
+
 def _detect_draws(hole_cards: List[Card], community_cards: List[Card]) -> List[str]:
     """Detect flush and straight draws."""
     draws = []
@@ -650,7 +651,7 @@ def _detect_draws(hole_cards: List[Card], community_cards: List[Card]) -> List[s
     # Open-ended straight draw: 4 consecutive ranks
     all_values = sorted(set(c.value for c in all_cards))
     for i in range(len(all_values) - 3):
-        window = all_values[i:i + 4]
+        window = all_values[i : i + 4]
         if window[-1] - window[0] == 3 and len(window) == 4:
             hole_in_run = [c for c in hole_cards if c.value in window]
             if hole_in_run:
@@ -666,6 +667,7 @@ def _detect_draws(hole_cards: List[Card], community_cards: List[Card]) -> List[s
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _ace_low_to_high(values: List[int]) -> List[int]:
     """Convert Ace-low values (1) to Ace-high (14) for Card.value matching.
@@ -890,9 +892,7 @@ def _parse_card_str(s: str) -> Card:
     return Card(s[:-1], suit)
 
 
-def evaluate_hand_label(
-    hole_strs, community_strs
-) -> Optional[str]:
+def evaluate_hand_label(hole_strs, community_strs) -> Optional[str]:
     """Return the hand_name (e.g. 'Two Pair, A's and 3's') or None.
 
     Needs at least 5 total cards. Used for non-winner hands at showdown

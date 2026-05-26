@@ -12,20 +12,21 @@ import logging
 from functools import lru_cache
 
 from .config import (
+    ASSISTANT_MODEL,
+    ASSISTANT_PROVIDER,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
     FAST_MODEL,
     FAST_PROVIDER,
-    ASSISTANT_MODEL,
-    ASSISTANT_PROVIDER,
-    IMAGE_PROVIDER,
     IMAGE_MODEL,
+    IMAGE_PROVIDER,
 )
 
 
 def _get_db_path() -> str:
     """Get the database path based on environment."""
     from poker.db_utils import get_default_db_path
+
     return get_default_db_path()
 
 
@@ -39,6 +40,7 @@ def _get_config_persistence():
     its own connection.
     """
     from poker.repositories import SchemaManager, SettingsRepository
+
     db_path = _get_db_path()
     SchemaManager(db_path).ensure_schema()
     return SettingsRepository(db_path)

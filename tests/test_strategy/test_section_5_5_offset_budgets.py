@@ -15,9 +15,9 @@ retroactively re-calibrate behavior).
 import pytest
 
 from poker.strategy.exploitation import (
+    MAX_L1_SHIFT_BY_RULE,
     AggregatedOpponentStats,
     DecisionContext,
-    MAX_L1_SHIFT_BY_RULE,
     compute_exploitation_offsets,
     compute_exploitation_offsets_with_traces,
 )
@@ -26,7 +26,8 @@ from poker.strategy.exploitation import (
 def _stats() -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=100,
-        vpip=0.50, pfr=0.20,
+        vpip=0.50,
+        pfr=0.20,
         aggression_factor=1.5,
         all_in_frequency=0.0,
     )
@@ -71,15 +72,21 @@ class TestBudgetClampActivates:
         # emits L1 ≈ 1.15 at full intensity (multiplier=1.0). Budget
         # is 1.30, so default firing should NOT clamp.
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
-            available_actions=['fold', 'check', 'bet_33', 'bet_67', 'bet_100',
-                               'raise_67', 'raise_150'],
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
+            available_actions=[
+                'fold',
+                'check',
+                'bet_33',
+                'bet_67',
+                'bet_100',
+                'raise_67',
+                'raise_150',
+            ],
             bluff_reduction_intensity=1.0,
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         assert br.fired is True
         assert br.inputs.get('budget_clamped') is not True
 
@@ -90,19 +97,26 @@ class TestBudgetClampActivates:
         scales the rule's contributions to fit exactly within budget.
         """
         wide_menu = [
-            'fold', 'check',
-            'bet_25', 'bet_33', 'bet_50', 'bet_67', 'bet_100',
-            'raise_50', 'raise_67', 'raise_100', 'raise_150',
+            'fold',
+            'check',
+            'bet_25',
+            'bet_33',
+            'bet_50',
+            'bet_67',
+            'bet_100',
+            'raise_50',
+            'raise_67',
+            'raise_100',
+            'raise_150',
         ]
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=wide_menu,
             bluff_reduction_intensity=1.0,
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         assert br.fired is True
         if br.inputs.get('budget_clamped'):
             # If the clamp fired, the post-clamp L1 should equal the
@@ -119,30 +133,37 @@ class TestBudgetClampActivates:
         scaled by the same factor — no action gets preferential
         treatment."""
         wide_menu = [
-            'fold', 'check',
-            'bet_25', 'bet_33', 'bet_50', 'bet_67', 'bet_100',
-            'raise_50', 'raise_67', 'raise_100', 'raise_150',
+            'fold',
+            'check',
+            'bet_25',
+            'bet_33',
+            'bet_50',
+            'bet_67',
+            'bet_100',
+            'raise_50',
+            'raise_67',
+            'raise_100',
+            'raise_150',
         ]
         offsets, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=wide_menu,
             bluff_reduction_intensity=1.0,
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         if not br.inputs.get('budget_clamped'):
-            pytest.skip('Synthetic menu did not trigger clamp — '
-                        'wider menu needed to exercise this assertion')
+            pytest.skip(
+                'Synthetic menu did not trigger clamp — '
+                'wider menu needed to exercise this assertion'
+            )
         # All bet_* offsets had the same raw value (-0.20 * scale).
         # Post-clamp they should all be equal too.
-        bet_offsets = [
-            offsets[a] for a in wide_menu if a.startswith('bet_')
-        ]
-        assert len(set(round(v, 4) for v in bet_offsets)) == 1, (
-            f'Non-uniform scaling across bet_* actions: {bet_offsets}'
-        )
+        bet_offsets = [offsets[a] for a in wide_menu if a.startswith('bet_')]
+        assert (
+            len(set(round(v, 4) for v in bet_offsets)) == 1
+        ), f'Non-uniform scaling across bet_* actions: {bet_offsets}'
 
 
 class TestBudgetClampWithDisable:
@@ -150,19 +171,24 @@ class TestBudgetClampWithDisable:
 
     def test_disabled_rule_no_budget_clamp(self):
         wide_menu = [
-            'fold', 'check', 'bet_33', 'bet_50', 'bet_67', 'bet_100',
-            'raise_67', 'raise_150',
+            'fold',
+            'check',
+            'bet_33',
+            'bet_50',
+            'bet_67',
+            'bet_100',
+            'raise_67',
+            'raise_150',
         ]
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=wide_menu,
             bluff_reduction_intensity=1.0,
             disable_rules={('bluff_reduction', 'default')},
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         # Disabled — no firing, no budget clamp
         assert br.fired is False
         assert br.reason_code == 'disabled_by_ablation'
@@ -174,19 +200,26 @@ class TestBudgetClampMath:
 
     def test_scale_equals_budget_divided_by_raw(self):
         wide_menu = [
-            'fold', 'check',
-            'bet_25', 'bet_33', 'bet_50', 'bet_67', 'bet_100',
-            'raise_50', 'raise_67', 'raise_100', 'raise_150',
+            'fold',
+            'check',
+            'bet_25',
+            'bet_33',
+            'bet_50',
+            'bet_67',
+            'bet_100',
+            'raise_50',
+            'raise_67',
+            'raise_100',
+            'raise_150',
         ]
         _, traces = compute_exploitation_offsets_with_traces(
-            stats=_stats(), adaptation_bias=1.0, decision_context=_ctx(),
+            stats=_stats(),
+            adaptation_bias=1.0,
+            decision_context=_ctx(),
             available_actions=wide_menu,
             bluff_reduction_intensity=1.0,
         )
-        br = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('bluff_reduction', 'default')
-        )
+        br = next(t for t in traces if (t.layer, t.rule_id) == ('bluff_reduction', 'default'))
         if not br.inputs.get('budget_clamped'):
             pytest.skip('Synthetic menu did not trigger clamp')
         budget = br.inputs['budget_max_l1']
@@ -204,23 +237,32 @@ class TestBudgetClampPreservesLinearityWithinBudget:
         # Use the high_fold_to_cbet path with a small menu so raw L1
         # stays under budget at intensity=1.0.
         stats = AggregatedOpponentStats(
-            hands_observed=100, fold_to_cbet=0.85, cbet_faced_count=10,
+            hands_observed=100,
+            fold_to_cbet=0.85,
+            cbet_faced_count=10,
         )
         ctx = DecisionContext(
-            is_preflop=False, is_flop_as_preflop_aggressor=True,
+            is_preflop=False,
+            is_flop_as_preflop_aggressor=True,
             active_opponent_count=1,
         )
         full = compute_exploitation_offsets(
-            stats=stats, adaptation_bias=1.0, decision_context=ctx,
+            stats=stats,
+            adaptation_bias=1.0,
+            decision_context=ctx,
             available_actions=['check', 'bet_33'],  # 2 actions: L1 ≤ 0.7
         )
         # 0.5x intensity not directly settable — but for cbet rule the
         # intensity ramp ties to stats. Use a partial stats fixture.
         partial_stats = AggregatedOpponentStats(
-            hands_observed=100, fold_to_cbet=0.85, cbet_faced_count=7,
+            hands_observed=100,
+            fold_to_cbet=0.85,
+            cbet_faced_count=7,
         )
         partial = compute_exploitation_offsets(
-            stats=partial_stats, adaptation_bias=1.0, decision_context=ctx,
+            stats=partial_stats,
+            adaptation_bias=1.0,
+            decision_context=ctx,
             available_actions=['check', 'bet_33'],
         )
         # Both below budget → exact 0.5x relationship preserved by the

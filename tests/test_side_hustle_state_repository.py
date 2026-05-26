@@ -33,8 +33,16 @@ def repo():
         r.close()
 
 
-def _state(pid="napoleon", *, sandbox_id=SBX, started=NOW, ends=None,
-           amount=500, bucket="medium", narration="off to flip a small business"):
+def _state(
+    pid="napoleon",
+    *,
+    sandbox_id=SBX,
+    started=NOW,
+    ends=None,
+    amount=500,
+    bucket="medium",
+    narration="off to flip a small business",
+):
     return SideHustleState(
         personality_id=pid,
         sandbox_id=sandbox_id,
@@ -72,10 +80,8 @@ class TestInsertAndLoad:
 
 class TestActiveVsExpired:
     def test_active_and_expired_split_on_ends_at(self, repo):
-        repo.insert_side_hustle_state(
-            _state("active_guy", ends=NOW + timedelta(minutes=30)))
-        repo.insert_side_hustle_state(
-            _state("expired_guy", ends=NOW - timedelta(minutes=1)))
+        repo.insert_side_hustle_state(_state("active_guy", ends=NOW + timedelta(minutes=30)))
+        repo.insert_side_hustle_state(_state("expired_guy", ends=NOW - timedelta(minutes=1)))
 
         active = repo.list_active(sandbox_id=SBX, now=NOW)
         expired = repo.list_expired(sandbox_id=SBX, now=NOW)

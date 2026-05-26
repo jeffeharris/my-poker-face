@@ -15,9 +15,7 @@ import {
   type RelationshipsPayload,
 } from '../../components/admin/RelationshipMatrix';
 
-function makePayload(
-  overrides: Partial<RelationshipsPayload> = {},
-): RelationshipsPayload {
+function makePayload(overrides: Partial<RelationshipsPayload> = {}): RelationshipsPayload {
   return {
     game_id: 'test',
     pair_count: 2,
@@ -59,7 +57,6 @@ function makePayload(
     ...overrides,
   };
 }
-
 
 describe('RelationshipMatrix', () => {
   it('renders a row for each player and a header row', () => {

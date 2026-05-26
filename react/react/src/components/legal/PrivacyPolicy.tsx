@@ -26,34 +26,46 @@ export function PrivacyPolicy() {
           <h2>Information We Collect</h2>
           <p>We collect the following information:</p>
           <ul>
-            <li><strong>Account Information:</strong> Your name and email address when you sign in with Google</li>
-            <li><strong>Game Data:</strong> Your gameplay actions, decisions, and game history</li>
+            <li>
+              <strong>Account Information:</strong> Your name and email address when you sign in
+              with Google
+            </li>
+            <li>
+              <strong>Game Data:</strong> Your gameplay actions, decisions, and game history
+            </li>
           </ul>
         </section>
 
         <section>
           <h2>How We Use Your Information</h2>
           <ul>
-            <li><strong>Authentication:</strong> To identify you and maintain your account</li>
-            <li><strong>Game Functionality:</strong> To save your games and track your progress</li>
-            <li><strong>Analysis and Improvement:</strong> To analyze gameplay patterns and improve the game experience</li>
+            <li>
+              <strong>Authentication:</strong> To identify you and maintain your account
+            </li>
+            <li>
+              <strong>Game Functionality:</strong> To save your games and track your progress
+            </li>
+            <li>
+              <strong>Analysis and Improvement:</strong> To analyze gameplay patterns and improve
+              the game experience
+            </li>
           </ul>
         </section>
 
         <section>
           <h2>Third-Party Services</h2>
           <p>
-            We use AI services (such as OpenAI and Anthropic) to power our AI poker players.
-            When you play, game context may be sent to these services to generate AI responses.
-            These services have their own privacy policies governing how they handle data.
+            We use AI services (such as OpenAI and Anthropic) to power our AI poker players. When
+            you play, game context may be sent to these services to generate AI responses. These
+            services have their own privacy policies governing how they handle data.
           </p>
         </section>
 
         <section>
           <h2>Data Storage</h2>
           <p>
-            Your data is stored securely on our servers. We retain your account information and
-            game data for as long as your account is active.
+            Your data is stored securely on our servers. We retain your account information and game
+            data for as long as your account is active.
           </p>
         </section>
 
@@ -70,17 +82,19 @@ export function PrivacyPolicy() {
         <section>
           <h2>Contact Us</h2>
           <p>
-            If you have questions about this Privacy Policy or wish to exercise your rights,
-            please contact us at:{' '}
-            <a href="mailto:jeff.harris@jeffharrisconsulting.com">jeff.harris@jeffharrisconsulting.com</a>
+            If you have questions about this Privacy Policy or wish to exercise your rights, please
+            contact us at:{' '}
+            <a href="mailto:jeff.harris@jeffharrisconsulting.com">
+              jeff.harris@jeffharrisconsulting.com
+            </a>
           </p>
         </section>
 
         <section>
           <h2>Changes to This Policy</h2>
           <p>
-            We may update this Privacy Policy from time to time. We will notify you of any
-            changes by posting the new Privacy Policy on this page and updating the effective date.
+            We may update this Privacy Policy from time to time. We will notify you of any changes
+            by posting the new Privacy Policy on this page and updating the effective date.
           </p>
         </section>
       </div>

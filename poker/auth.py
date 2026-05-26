@@ -3,19 +3,20 @@ Authentication module for My Poker Face.
 
 Provides session-based authentication with optional Google OAuth support.
 """
-import os
-import secrets
+
 import logging
+import os
+import re
+import secrets
 import sqlite3
 import uuid
-import re
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from flask import session, request, jsonify, redirect, url_for
 import jwt
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from flask import jsonify, redirect, request, session
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -55,26 +56,27 @@ class AuthManager:
         self.oauth = oauth
         if app:
             self.init_app(app)
-    
+
     def init_app(self, app):
         """Initialize the auth manager with a Flask app."""
         self.app = app
-        
+
         # Configure session
         app.config['SESSION_TYPE'] = 'filesystem'
         app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
         app.config['SESSION_COOKIE_HTTPONLY'] = True
         app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-        app.config['SESSION_COOKIE_SECURE'] = (os.environ.get('FLASK_ENV') == 'production')
-        
+        app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
+
         # Add auth endpoints
         self._register_routes()
-    
+
     @staticmethod
     def _exempt_from_rate_limit(f):
         """Mark a route as exempt from rate limiting."""
         try:
             from flask_app.extensions import limiter
+
             if limiter:
                 return limiter.exempt(f)
         except ImportError:
@@ -83,11 +85,12 @@ class AuthManager:
 
     def _register_routes(self):
         """Register authentication routes."""
+
         @self.app.route('/api/auth/login', methods=['POST'])
         def login():
             """Login with username/password or as guest."""
             data = request.json or {}
-            
+
             if data.get('guest'):
                 # Guest login
                 guest_name = data.get('name', 'Guest')
@@ -96,9 +99,7 @@ class AuthManager:
                 # Read and verify the existing guest_id cookie (signed since T1-26 fix).
                 # Unsigning returns None for forged / expired / unsigned values;
                 # callers fall through to create_guest_user generating a fresh ID.
-                existing_guest_id = self._unsign_guest_id(
-                    request.cookies.get('guest_id')
-                )
+                existing_guest_id = self._unsign_guest_id(request.cookies.get('guest_id'))
                 guest_id = existing_guest_id if self._is_valid_guest_id(existing_guest_id) else None
                 user_data = self.create_guest_user(guest_name, guest_id=guest_id)
 
@@ -108,11 +109,9 @@ class AuthManager:
                     tracking_id = str(uuid.uuid4())
                 user_data['tracking_id'] = tracking_id
 
-                response = jsonify({
-                    'success': True,
-                    'user': user_data,
-                    'token': self.generate_token(user_data)
-                })
+                response = jsonify(
+                    {'success': True, 'user': user_data, 'token': self.generate_token(user_data)}
+                )
 
                 # Set a long-lived cookie for guest ID (30 days), signed
                 # with the app SECRET_KEY so the value can't be forged by
@@ -121,43 +120,40 @@ class AuthManager:
                 response.set_cookie(
                     'guest_id',
                     self._sign_guest_id(user_data['id']),
-                    max_age=30*24*60*60,  # 30 days
+                    max_age=30 * 24 * 60 * 60,  # 30 days
                     httponly=True,
                     secure=is_prod,
-                    samesite='Lax'
+                    samesite='Lax',
                 )
 
                 # Set tracking cookie for hand counting (30 days)
                 response.set_cookie(
                     'guest_tracking_id',
                     tracking_id,
-                    max_age=30*24*60*60,
+                    max_age=30 * 24 * 60 * 60,
                     httponly=True,
                     secure=is_prod,
-                    samesite='Lax'
+                    samesite='Lax',
                 )
 
                 response.set_cookie(
                     'guest_name',
                     guest_name,
-                    max_age=30*24*60*60,
+                    max_age=30 * 24 * 60 * 60,
                     httponly=True,
                     secure=is_prod,
-                    samesite='Lax'
+                    samesite='Lax',
                 )
 
                 return response
-            
+
             # Username/password login (for future implementation)
             username = data.get('username')
             password = data.get('password')
-            
+
             if not username or not password:
-                return jsonify({
-                    'success': False,
-                    'error': 'Username and password required'
-                }), 400
-            
+                return jsonify({'success': False, 'error': 'Username and password required'}), 400
+
             # For now, just create a user session
             # In production, this would validate against a user database
             user_data = {
@@ -165,35 +161,33 @@ class AuthManager:
                 'username': username,
                 'name': username,
                 'is_guest': False,
-                'created_at': datetime.utcnow().isoformat()
+                'created_at': datetime.utcnow().isoformat(),
             }
-            
+
             session['user'] = user_data
             session.permanent = True
-            
-            return jsonify({
-                'success': True,
-                'user': user_data,
-                'token': self.generate_token(user_data)
-            })
-        
+
+            return jsonify(
+                {'success': True, 'user': user_data, 'token': self.generate_token(user_data)}
+            )
+
         @self.app.route('/api/auth/logout', methods=['POST'])
         def logout():
             """Logout the current user."""
             # Get user before removing from session
             user = session.get('user')
             session.pop('user', None)
-            
+
             response = jsonify({'success': True})
-            
+
             # Clear guest_id cookie if logging out a guest
             if user and user.get('is_guest'):
                 response.set_cookie('guest_id', '', expires=0)
                 response.set_cookie('guest_tracking_id', '', expires=0)
                 response.set_cookie('guest_name', '', expires=0)
-            
+
             return response
-        
+
         @self.app.route('/api/auth/me', methods=['GET'])
         @self._exempt_from_rate_limit
         def get_current_user_route():
@@ -209,16 +203,13 @@ class AuthManager:
                     user['permissions'] = []
                 return jsonify({'user': user})
             return jsonify({'user': None})
-        
+
         @self.app.route('/api/auth/google/login', methods=['GET'])
         def google_login():
             """Initiate Google OAuth flow."""
             # Check if OAuth is configured
             if not self.oauth or not hasattr(self.oauth, 'google'):
-                return jsonify({
-                    'success': False,
-                    'error': 'Google OAuth not configured'
-                }), 503
+                return jsonify({'success': False, 'error': 'Google OAuth not configured'}), 503
 
             # Store current guest_id if user is a guest (for linking)
             current_user = self.get_current_user()
@@ -233,6 +224,7 @@ class AuthManager:
             # Build redirect URI from FRONTEND_URL to ensure correct domain
             # (url_for may not have correct host behind reverse proxy)
             from flask_app import config
+
             frontend_url = config.FRONTEND_URL.rstrip('/')
             # Replace frontend URL with backend callback path
             # FRONTEND_URL is like https://mypokerfacegame.com
@@ -277,7 +269,9 @@ class AuthManager:
 
                 google_sub = user_info.get('sub')
                 email = user_info.get('email')
-                name = user_info.get('name', email.split('@')[0] if email and '@' in email else 'User')
+                name = user_info.get(
+                    'name', email.split('@')[0] if email and '@' in email else 'User'
+                )
                 picture = user_info.get('picture')
 
                 if not google_sub or not email:
@@ -299,7 +293,9 @@ class AuthManager:
                             guest_id, existing_user['id'], existing_user['name']
                         )
                         if games_transferred > 0:
-                            logger.info(f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}")
+                            logger.info(
+                                f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}"
+                            )
 
                     # Update last login
                     self.user_repo.update_user_last_login(existing_user['id'])
@@ -313,7 +309,7 @@ class AuthManager:
                             email=email,
                             name=name,
                             picture=picture,
-                            linked_guest_id=guest_id
+                            linked_guest_id=guest_id,
                         )
 
                         # Transfer games from guest if linking
@@ -322,7 +318,9 @@ class AuthManager:
                                 guest_id, user_data['id'], user_data['name']
                             )
                             if games_transferred > 0:
-                                logger.info(f"Transferred {games_transferred} games from {guest_id} to {user_data['id']}")
+                                logger.info(
+                                    f"Transferred {games_transferred} games from {guest_id} to {user_data['id']}"
+                                )
 
                     except sqlite3.IntegrityError as e:
                         # Email already exists (race condition)
@@ -331,7 +329,9 @@ class AuthManager:
                         if existing_user:
                             user_data = existing_user
                         else:
-                            return redirect(f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed")
+                            return redirect(
+                                f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed"
+                            )
 
                 # Security: Regenerate session before setting authenticated user
                 session.clear()
@@ -343,7 +343,7 @@ class AuthManager:
                     'name': user_data['name'],
                     'picture': user_data.get('picture'),
                     'is_guest': False,
-                    'created_at': user_data.get('created_at', datetime.utcnow().isoformat())
+                    'created_at': user_data.get('created_at', datetime.utcnow().isoformat()),
                 }
                 session.permanent = True
 
@@ -355,7 +355,7 @@ class AuthManager:
             except Exception as e:
                 logger.exception(f"Google OAuth callback error: {e}")
                 return redirect(f"{config.FRONTEND_URL}/?auth=error&message=oauth_failed")
-    
+
     @staticmethod
     def _is_valid_guest_id(guest_id: Optional[str]) -> bool:
         """Validate guest ID format."""
@@ -392,7 +392,9 @@ class AuthManager:
         return self._get_guest_id_signer().dumps(guest_id)
 
     def _unsign_guest_id(
-        self, signed_value: Optional[str], max_age_seconds: int = 30 * 24 * 60 * 60,
+        self,
+        signed_value: Optional[str],
+        max_age_seconds: int = 30 * 24 * 60 * 60,
     ) -> Optional[str]:
         """Verify a signed guest_id cookie and return the raw id.
 
@@ -411,7 +413,8 @@ class AuthManager:
             return None
         try:
             return self._get_guest_id_signer().loads(
-                signed_value, max_age=max_age_seconds,
+                signed_value,
+                max_age=max_age_seconds,
             )
         except SignatureExpired:
             logger.debug("Guest ID cookie expired")
@@ -441,14 +444,14 @@ class AuthManager:
             'id': guest_id,
             'name': name,
             'is_guest': True,
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.utcnow().isoformat(),
         }
 
         session['user'] = user_data
         session.permanent = True
 
         return user_data
-    
+
     def get_current_user(self) -> Optional[Dict[str, Any]]:
         """Get the current user from session, JWT token, or guest cookie."""
         user = None
@@ -476,12 +479,14 @@ class AuthManager:
                 guest_id = self._unsign_guest_id(request.cookies.get('guest_id'))
                 if self._is_valid_guest_id(guest_id):
                     display_name = request.cookies.get('guest_name', 'Guest')
-                    display_name = re.sub(r'[\x00-\x1f\x7f]', '', str(display_name)).strip()[:50] or 'Guest'
+                    display_name = (
+                        re.sub(r'[\x00-\x1f\x7f]', '', str(display_name)).strip()[:50] or 'Guest'
+                    )
                     user = {
                         'id': guest_id,
                         'name': display_name,
                         'is_guest': True,
-                        'created_at': datetime.utcnow().isoformat()
+                        'created_at': datetime.utcnow().isoformat(),
                     }
                     session['user'] = user
                     session.permanent = True
@@ -497,33 +502,31 @@ class AuthManager:
                     logger.warning("Invalid guest_tracking_id cookie value")
 
         return user
-    
+
     def generate_token(self, user_data: Dict[str, Any]) -> str:
         """Generate a JWT token for the user."""
-        payload = {
-            'user': user_data,
-            'exp': datetime.utcnow() + JWT_EXPIRATION_DELTA
-        }
+        payload = {'user': user_data, 'exp': datetime.utcnow() + JWT_EXPIRATION_DELTA}
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    
+
     def require_auth(self, f):
         """Decorator to require authentication for a route."""
+
         @wraps(f)
         def decorated_function(*args, **kwargs):
             user = self.get_current_user()
             if not user:
-                return jsonify({
-                    'error': 'Authentication required',
-                    'code': 'AUTH_REQUIRED'
-                }), 401
+                return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
             return f(*args, **kwargs)
+
         return decorated_function
-    
+
     def optional_auth(self, f):
         """Decorator to optionally check authentication."""
+
         @wraps(f)
         def decorated_function(*args, **kwargs):
             # Just ensure user info is available if authenticated
             # but don't require it
             return f(*args, **kwargs)
+
         return decorated_function

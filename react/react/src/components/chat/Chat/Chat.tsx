@@ -13,7 +13,14 @@ interface ChatProps {
   guestChatDisabled?: boolean;
 }
 
-export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, playerName = 'Player', guestChatDisabled = false }: ChatProps) {
+export function Chat({
+  messages,
+  onSendMessage,
+  isVisible,
+  onToggleVisibility,
+  playerName = 'Player',
+  guestChatDisabled = false,
+}: ChatProps) {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -36,12 +43,12 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString([], {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
   const getMessageIcon = (type: string, sender: string): ReactNode => {
-    const iconProps = { size: 14, className: "message-type-icon" };
+    const iconProps = { size: 14, className: 'message-type-icon' };
     switch (type) {
       case 'table':
         return <Users {...iconProps} />;
@@ -68,61 +75,55 @@ export function Chat({ messages, onSendMessage, isVisible, onToggleVisibility, p
               <button onClick={onToggleVisibility}>×</button>
             </div>
 
-          {/* Messages */}
-          <div className="chat-messages">
-            {messages.length === 0 ? (
-              <div className="no-messages">
-                <p>No messages yet...</p>
-                <p>Say hello to start the conversation!</p>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <div 
-                  key={msg.id} 
-                  className={`chat-message ${msg.type} ${msg.sender === playerName ? 'own-message' : ''}`}
-                >
-                  <div className="message-header">
-                    <span className="message-icon">
-                      {getMessageIcon(msg.type, msg.sender)}
-                    </span>
-                    <span className="message-sender">{msg.sender}</span>
-                    <span className="message-time">
-                      {formatTimestamp(msg.timestamp)}
-                    </span>
-                  </div>
-                  <div className="message-content">
-                    {parseMessageBlock(msg.message)}
-                  </div>
+            {/* Messages */}
+            <div className="chat-messages">
+              {messages.length === 0 ? (
+                <div className="no-messages">
+                  <p>No messages yet...</p>
+                  <p>Say hello to start the conversation!</p>
                 </div>
-              ))
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Message Input */}
-          <form className="chat-input-form" onSubmit={handleSendMessage}>
-            {guestChatDisabled && (
-              <div className="chat-disabled-notice">Chat available next turn</div>
-            )}
-            <div className="input-container">
-              <input
-                type="text"
-                className="chat-input"
-                placeholder={guestChatDisabled ? 'Chat available next turn' : 'Type a message...'}
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                maxLength={200}
-                disabled={guestChatDisabled}
-              />
-              <button
-                type="submit"
-                className="send-button"
-                disabled={!newMessage.trim() || guestChatDisabled}
-              >
-                Send
-              </button>
+              ) : (
+                messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`chat-message ${msg.type} ${msg.sender === playerName ? 'own-message' : ''}`}
+                  >
+                    <div className="message-header">
+                      <span className="message-icon">{getMessageIcon(msg.type, msg.sender)}</span>
+                      <span className="message-sender">{msg.sender}</span>
+                      <span className="message-time">{formatTimestamp(msg.timestamp)}</span>
+                    </div>
+                    <div className="message-content">{parseMessageBlock(msg.message)}</div>
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef} />
             </div>
-          </form>
+
+            {/* Message Input */}
+            <form className="chat-input-form" onSubmit={handleSendMessage}>
+              {guestChatDisabled && (
+                <div className="chat-disabled-notice">Chat available next turn</div>
+              )}
+              <div className="input-container">
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder={guestChatDisabled ? 'Chat available next turn' : 'Type a message...'}
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  maxLength={200}
+                  disabled={guestChatDisabled}
+                />
+                <button
+                  type="submit"
+                  className="send-button"
+                  disabled={!newMessage.trim() || guestChatDisabled}
+                >
+                  Send
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </div>

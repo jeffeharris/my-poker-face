@@ -65,14 +65,16 @@ class TestRecordEventInvariants:
         mgr = OpponentModelManager()
         with pytest.raises(RuntimeError, match="relationship_repo"):
             mgr.record_event(
-                "alice", "bob",
+                "alice",
+                "bob",
                 RelationshipEvent.BIG_LOSS,
                 now=datetime(2026, 5, 17),
             )
 
     def test_unknown_event_is_silent_no_op(self, manager, repo):
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.UNKNOWN,
             now=datetime(2026, 5, 17),
         )
@@ -88,7 +90,8 @@ class TestBilateralUpdate:
     def test_both_pair_rows_written(self, manager, repo):
         now = datetime(2026, 5, 17, 12, 0)
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BLUFFED_OFF,
             now=now,
         )
@@ -102,7 +105,8 @@ class TestBilateralUpdate:
         now = datetime(2026, 5, 17, 12, 0)
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.BLUFFED_OFF]
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BLUFFED_OFF,
             now=now,
         )
@@ -119,7 +123,8 @@ class TestBilateralUpdate:
         now = datetime(2026, 5, 17, 12, 0)
         expected = MIRROR_AXIS_SHIFTS[RelationshipEvent.BAD_BEAT]
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BAD_BEAT,
             now=now,
         )
@@ -153,7 +158,8 @@ class TestProjectFirstThenApply:
 
         # New event today.
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BLUFFED_OFF,  # actor heat +0.20
             now=now,
         )
@@ -164,18 +170,20 @@ class TestProjectFirstThenApply:
         # Bad ordering would be: 0.8 + 0.20 = 1.0 (saturated)
         # Good ordering: ~0.255 + 0.20 ≈ ~0.455
         assert result.heat < 0.6  # decayed + shifted, well under saturation
-        assert result.heat > 0.4   # but not at the freshly-decayed baseline either
+        assert result.heat > 0.4  # but not at the freshly-decayed baseline either
 
     def test_last_decay_tick_advances_to_now(self, manager, repo):
         old_tick = datetime(2026, 4, 1, 12, 0)
         now = datetime(2026, 5, 17, 12, 0)
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.3, last_decay_tick=old_tick, last_seen=old_tick),
         )
 
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BIG_LOSS,
             now=now,
         )
@@ -194,11 +202,13 @@ class TestClamping:
         # Pre-seed with heat near max, then apply a BAD_BEAT (+0.30) —
         # uncapped would be 1.2, clamped should stay at 1.0.
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.9, last_decay_tick=now),
         )
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BAD_BEAT,
             now=now,
         )
@@ -211,7 +221,8 @@ class TestClamping:
         # six times — would go negative, but should clamp to 0.0.
         for _ in range(6):
             manager.record_event(
-                "alice", "bob",
+                "alice",
+                "bob",
                 RelationshipEvent.BAD_BEAT,
                 now=now,
             )
@@ -223,7 +234,8 @@ class TestClamping:
         # likability starts at 0.5. COMPLIMENT (+0.05) twenty times.
         for _ in range(20):
             manager.record_event(
-                "alice", "bob",
+                "alice",
+                "bob",
                 RelationshipEvent.COMPLIMENT,
                 now=now,
             )
@@ -240,7 +252,8 @@ class TestContextMultiplier:
         # BIG_LOSS actor shift heat +0.15. With context_multiplier=2.0
         # the applied shift is +0.30.
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BIG_LOSS,
             context_multiplier=2.0,
             now=now,
@@ -255,11 +268,13 @@ class TestContextMultiplier:
         # at 0.0 — so we use a state with higher starting heat to
         # see the actual scaled shift survive the clamp.
         repo.save_relationship_state(
-            "bob", "alice",
+            "bob",
+            "alice",
             RelationshipState(heat=0.5, last_decay_tick=now),
         )
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.BIG_LOSS,
             context_multiplier=2.0,
             now=now,
@@ -280,7 +295,8 @@ class TestMemorableHandSidecar:
         manager.get_model("alice", "bob")
 
         manager.record_event(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipEvent.BAD_BEAT,
             impact_score=MEMORABLE_HAND_THRESHOLD + 0.1,
             narrative="A bad beat indeed",
@@ -302,7 +318,8 @@ class TestMemorableHandSidecar:
         manager.get_model("alice", "bob")
 
         manager.record_event(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipEvent.BAD_BEAT,
             impact_score=MEMORABLE_HAND_THRESHOLD - 0.1,
             narrative="Minor",
@@ -319,7 +336,8 @@ class TestMemorableHandSidecar:
         manager.get_model("alice", "bob")
 
         manager.record_event(
-            "alice_id", "bob_id",
+            "alice_id",
+            "bob_id",
             RelationshipEvent.BAD_BEAT,
             impact_score=MEMORABLE_HAND_THRESHOLD + 0.1,
             # no hand_id
@@ -332,7 +350,8 @@ class TestMemorableHandSidecar:
         # Don't register names or create a model. The relationship
         # state still persists; memorable hand is skipped.
         manager.record_event(
-            "ghost_id", "phantom_id",
+            "ghost_id",
+            "phantom_id",
             RelationshipEvent.BAD_BEAT,
             impact_score=MEMORABLE_HAND_THRESHOLD + 0.1,
             hand_id=99,
@@ -354,7 +373,8 @@ class TestStateAccumulation:
         # — all at same `now`).
         for _ in range(3):
             manager.record_event(
-                "alice", "bob",
+                "alice",
+                "bob",
                 RelationshipEvent.BIG_LOSS,
                 now=now,
             )
@@ -366,11 +386,12 @@ class TestStateAccumulation:
         # DOMINATED_SHOWDOWN actor shift: heat 0, respect -0.15, lik 0.
         now = datetime(2026, 5, 17, 12, 0)
         manager.record_event(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipEvent.DOMINATED_SHOWDOWN,
             now=now,
         )
         result = repo.load_raw_relationship_state("alice", "bob")
-        assert result.heat == 0.0      # unchanged
+        assert result.heat == 0.0  # unchanged
         assert result.respect == pytest.approx(0.5 - 0.15)
         assert result.likability == 0.5  # unchanged

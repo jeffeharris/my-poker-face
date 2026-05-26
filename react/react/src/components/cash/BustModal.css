@@ -11,8 +11,12 @@
 }
 
 @keyframes bust-modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .bust-modal__sheet {
@@ -118,7 +122,9 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
 }
 .bust-modal__leave:hover:not(:disabled) {
   background: rgba(220, 90, 90, 0.22);

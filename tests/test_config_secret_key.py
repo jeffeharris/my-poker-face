@@ -21,12 +21,12 @@ def _reload_config(env_overrides: dict):
         # Prevent load_dotenv from loading .env file during reload
         with mock.patch('dotenv.load_dotenv'):
             import flask_app.config as config_module
+
             importlib.reload(config_module)
             return config_module
 
 
 class TestSecretKeyConfig:
-
     def test_dev_mode_uses_stable_default_when_no_env_var(self):
         """In development mode without SECRET_KEY env var, a stable default is used."""
         config = _reload_config({'FLASK_ENV': 'development'})

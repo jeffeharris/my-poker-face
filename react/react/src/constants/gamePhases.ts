@@ -13,14 +13,15 @@ export const NON_BETTING_PHASES = [
   'GAME_OVER',
 ] as const;
 
-export type NonBettingPhase = typeof NON_BETTING_PHASES[number];
+export type NonBettingPhase = (typeof NON_BETTING_PHASES)[number];
 
 /**
  * Returns true when the game is in an active betting phase where
  * the current player highlight and action buttons should be shown.
  */
-export function isBettingPhase(phase: string | undefined | null, runItOut: boolean | undefined): boolean {
-  return Boolean(phase) &&
-    !runItOut &&
-    !NON_BETTING_PHASES.includes(phase as NonBettingPhase);
+export function isBettingPhase(
+  phase: string | undefined | null,
+  runItOut: boolean | undefined
+): boolean {
+  return Boolean(phase) && !runItOut && !NON_BETTING_PHASES.includes(phase as NonBettingPhase);
 }

@@ -41,7 +41,6 @@ import random
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-
 # Pot size cap as multiples of the table's big blind. 15 BB is a
 # generous-but-realistic ceiling — actual poker pots above this are
 # rare. Caps stack swings so a single fake hand can't wipe a seat.
@@ -106,10 +105,7 @@ def roll_fake_hand(
 
     Pure: only RNG consumption is observable.
     """
-    ai_indices = [
-        i for i, s in enumerate(seats)
-        if s.get("kind") == "ai" and s.get("chips", 0) > 0
-    ]
+    ai_indices = [i for i, s in enumerate(seats) if s.get("kind") == "ai" and s.get("chips", 0) > 0]
     if len(ai_indices) < 2:
         return FakeHandResult(new_seats=_copy_seats(seats))
 

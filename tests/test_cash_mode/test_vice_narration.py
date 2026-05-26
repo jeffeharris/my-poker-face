@@ -46,33 +46,41 @@ def _patch_client_raises(exc: Exception):
 
 
 def test_happy_path_returns_narration_and_duration():
-    content = json.dumps({
-        "narration": "Napoleon commissioned an oversized bronze bust",
-        "duration": "long",
-    })
+    content = json.dumps(
+        {
+            "narration": "Napoleon commissioned an oversized bronze bust",
+            "duration": "long",
+        }
+    )
     with _patch_client(content):
         narration, bucket = narrate_vice(
-            "napoleon", 2500, {"confidence": 0.7, "composure": 0.7, "energy": 0.6},
+            "napoleon",
+            2500,
+            {"confidence": 0.7, "composure": 0.7, "energy": 0.6},
         )
     assert narration == "Napoleon commissioned an oversized bronze bust"
     assert bucket == "long"
 
 
 def test_unknown_duration_falls_back_to_medium():
-    content = json.dumps({
-        "narration": "Hemingway did something",
-        "duration": "forever",  # not a recognized bucket
-    })
+    content = json.dumps(
+        {
+            "narration": "Hemingway did something",
+            "duration": "forever",  # not a recognized bucket
+        }
+    )
     with _patch_client(content):
         _, bucket = narrate_vice("hemingway", 500, None)
     assert bucket == "medium"
 
 
 def test_uppercase_duration_normalized():
-    content = json.dumps({
-        "narration": "X did Y",
-        "duration": "SHORT",
-    })
+    content = json.dumps(
+        {
+            "narration": "X did Y",
+            "duration": "SHORT",
+        }
+    )
     with _patch_client(content):
         _, bucket = narrate_vice("x", 100, None)
     assert bucket == "short"
@@ -112,10 +120,12 @@ def test_llm_failure_falls_back_to_template():
 
 
 def test_strips_stray_quotes_from_narration():
-    content = json.dumps({
-        "narration": "\"Napoleon did a thing\"",
-        "duration": "short",
-    })
+    content = json.dumps(
+        {
+            "narration": "\"Napoleon did a thing\"",
+            "duration": "short",
+        }
+    )
     with _patch_client(content):
         narration, _ = narrate_vice("napoleon", 500, None)
     assert not narration.startswith('"')
@@ -138,7 +148,9 @@ def test_passes_personality_config_to_prompt():
     with patch("core.llm.LLMClient") as ClientCls:
         ClientCls.return_value.complete.return_value = _FakeResponse(content)
         narrate_vice(
-            "napoleon", 2500, None,
+            "napoleon",
+            2500,
+            None,
             personality_repo=personality_repo,
         )
         # Inspect the user message that was sent

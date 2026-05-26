@@ -7,24 +7,22 @@ import logging
 import time
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_from_directory, Response
-
-from ..extensions import limiter, auth_manager
-from .. import config
+from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
-
 from poker.character_images import (
-    has_character_images,
+    EMOTIONS,
     generate_character_images,
+    get_available_emotions,
+    get_character_image_service,
+    has_character_images,
     load_avatar_image,
     load_full_avatar_image,
     regenerate_avatar_emotion,
-    get_available_emotions,
-    get_character_image_service,
-    EMOTIONS,
 )
-from ..extensions import personality_repo, persistence_db_path
+
+from .. import config
+from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
@@ -44,6 +42,7 @@ def _detect_image_mimetype(image_data: bytes) -> str:
         return 'image/webp'
     # Default to PNG if unknown
     return 'image/png'
+
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
 
@@ -93,12 +92,14 @@ def list_character_images():
             parts = f.stem.split('_')
             emotion = parts[-1] if len(parts) > 1 else 'unknown'
             character = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
-            images.append({
-                'filename': f.name,
-                'character': character,
-                'emotion': emotion,
-                'url': f'/api/character-images/{f.name}'
-            })
+            images.append(
+                {
+                    'filename': f.name,
+                    'character': character,
+                    'emotion': emotion,
+                    'url': f'/api/character-images/{f.name}',
+                }
+            )
 
         icons_dir = GENERATED_IMAGES_DIR / 'icons'
         if icons_dir.exists():
@@ -107,12 +108,14 @@ def list_character_images():
                 parts = stem.split('_')
                 style = parts[-1] if len(parts) > 1 else 'default'
                 character = ' '.join(parts[:-1]) if len(parts) > 1 else parts[0]
-                icons.append({
-                    'filename': f.name,
-                    'character': character,
-                    'style': style,
-                    'url': f'/api/character-images/icons/{f.name}'
-                })
+                icons.append(
+                    {
+                        'filename': f.name,
+                        'character': character,
+                        'style': style,
+                        'url': f'/api/character-images/icons/{f.name}',
+                    }
+                )
 
         return jsonify({'images': images, 'icons': icons})
     except Exception as e:
@@ -173,11 +176,7 @@ def get_character_grid():
         characters = sorted(data.keys())
         emotions = list(EMOTIONS)
 
-        return jsonify({
-            'characters': characters,
-            'emotions': emotions,
-            'grid': data
-        })
+        return jsonify({'characters': characters, 'emotions': emotions, 'grid': data})
     except Exception as e:
         logger.error(f"Error getting character grid: {e}")
         return jsonify({'error': str(e)}), 500
@@ -209,7 +208,7 @@ def serve_grid_icon(filename):
                 return Response(
                     image_data,
                     mimetype=mimetype,
-                    headers={'Cache-Control': 'public, max-age=86400'}
+                    headers={'Cache-Control': 'public, max-age=86400'},
                 )
 
         # Fall back to filesystem
@@ -243,7 +242,9 @@ def serve_avatar(personality_name: str, emotion: str):
             emotion = 'confident'
 
         image_data, served_emotion, is_fallback = _load_with_priority_fallback(
-            personality_name, emotion, load_avatar_image,
+            personality_name,
+            emotion,
+            load_avatar_image,
         )
 
         if image_data:
@@ -302,11 +303,15 @@ def serve_full_avatar(personality_name: str, emotion: str):
         # Prefer full images across priority emotions, then fall back to
         # cropped icons. Both pass through the same priority-emotion ladder.
         image_data, served_emotion, is_fallback = _load_with_priority_fallback(
-            personality_name, emotion, load_full_avatar_image,
+            personality_name,
+            emotion,
+            load_full_avatar_image,
         )
         if image_data is None:
             image_data, served_emotion, is_fallback = _load_with_priority_fallback(
-                personality_name, emotion, load_avatar_image,
+                personality_name,
+                emotion,
+                load_avatar_image,
             )
 
         if image_data:
@@ -341,9 +346,7 @@ def list_emotions():
 
     Returns the list of emotions dynamically from the EMOTIONS constant.
     """
-    return jsonify({
-        'emotions': get_available_emotions()
-    })
+    return jsonify({'emotions': get_available_emotions()})
 
 
 @image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
@@ -371,24 +374,25 @@ def regenerate_avatar(personality_name: str):
         # Clamp to valid range
         strength = max(0.0, min(1.0, float(strength)))
 
-        logger.info(f"Regenerate avatar request for {personality_name}: emotions={emotions}, reference_image_id={reference_image_id}, strength={strength}")
+        logger.info(
+            f"Regenerate avatar request for {personality_name}: emotions={emotions}, reference_image_id={reference_image_id}, strength={strength}"
+        )
 
         # Validate emotions
         valid_emotions = get_available_emotions()
         invalid = [e for e in emotions if e not in valid_emotions]
         if invalid:
-            return jsonify({
-                'success': False,
-                'error': f'Invalid emotions: {invalid}. Valid: {valid_emotions}'
-            }), 400
+            return jsonify(
+                {'success': False, 'error': f'Invalid emotions: {invalid}. Valid: {valid_emotions}'}
+            ), 400
 
         # Validate personality exists before expensive API calls
         from ..extensions import personality_generator
+
         if personality_generator and not personality_generator.get_personality(personality_name):
-            return jsonify({
-                'success': False,
-                'error': f'Personality {personality_name} not found'
-            }), 404
+            return jsonify(
+                {'success': False, 'error': f'Personality {personality_name} not found'}
+            ), 404
 
         # If reference_image_id provided, convert to data URL for img2img
         seed_image_url = None
@@ -398,7 +402,9 @@ def regenerate_avatar(personality_name: str):
             if seed_image_url:
                 logger.info(f"Found reference image, data URL length: {len(seed_image_url)}")
             else:
-                logger.warning(f"Reference image {reference_image_id} not found, proceeding without it")
+                logger.warning(
+                    f"Reference image {reference_image_id} not found, proceeding without it"
+                )
         else:
             logger.info("No reference_image_id provided in request")
 
@@ -409,7 +415,9 @@ def regenerate_avatar(personality_name: str):
         for i, emotion in enumerate(emotions):
             # Add delay between requests to respect rate limits (skip first request)
             if i > 0 and POLLINATIONS_RATE_LIMIT_DELAY > 0:
-                logger.info(f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image")
+                logger.info(
+                    f"Rate limit delay: waiting {POLLINATIONS_RATE_LIMIT_DELAY}s before next image"
+                )
                 time.sleep(POLLINATIONS_RATE_LIMIT_DELAY)
 
             result = regenerate_avatar_emotion(
@@ -417,13 +425,15 @@ def regenerate_avatar(personality_name: str):
                 emotion,
                 seed_image_url=seed_image_url,
                 strength=strength,
-                reference_image_id=reference_image_id
+                reference_image_id=reference_image_id,
             )
-            results.append({
-                'emotion': emotion,
-                'success': result.get('success', False),
-                'message': result.get('message') or result.get('error')
-            })
+            results.append(
+                {
+                    'emotion': emotion,
+                    'success': result.get('success', False),
+                    'message': result.get('message') or result.get('error'),
+                }
+            )
             if result.get('success'):
                 success_count += 1
             else:
@@ -431,23 +441,27 @@ def regenerate_avatar(personality_name: str):
 
         # Get the current avatar_description (may have been auto-generated during regeneration)
         from ..extensions import personality_generator
-        avatar_description = personality_generator.get_avatar_description(personality_name) if personality_generator else None
 
-        return jsonify({
-            'success': error_count == 0,
-            'personality': personality_name,
-            'generated': success_count,
-            'failed': error_count,
-            'results': results,
-            'avatar_description': avatar_description
-        })
+        avatar_description = (
+            personality_generator.get_avatar_description(personality_name)
+            if personality_generator
+            else None
+        )
+
+        return jsonify(
+            {
+                'success': error_count == 0,
+                'personality': personality_name,
+                'generated': success_count,
+                'failed': error_count,
+                'results': results,
+                'avatar_description': avatar_description,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error regenerating avatars for {personality_name}: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 def _get_reference_image_data_url(reference_id: str) -> str | None:
@@ -466,7 +480,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
         with sqlite3.connect(persistence_db_path) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
-                (reference_id,)
+                (reference_id,),
             )
             row = cursor.fetchone()
             if row:
@@ -505,38 +519,40 @@ def generate_character_images_endpoint(personality_name):
         api_key = data.get('api_key')
 
         if has_character_images(personality_name):
-            return jsonify({
-                'status': 'exists',
-                'message': f'Images already exist for {personality_name}',
-                'personality': personality_name
-            })
+            return jsonify(
+                {
+                    'status': 'exists',
+                    'message': f'Images already exist for {personality_name}',
+                    'personality': personality_name,
+                }
+            )
 
         logger.info(f"Starting on-demand image generation for {personality_name}")
         result = generate_character_images(personality_name, emotions=emotions, api_key=api_key)
 
         if result.get('success'):
-            return jsonify({
-                'status': 'generated',
-                'message': f'Successfully generated images for {personality_name}',
-                'personality': personality_name,
-                'images': result.get('images', {}),
-                'errors': result.get('errors', [])
-            })
+            return jsonify(
+                {
+                    'status': 'generated',
+                    'message': f'Successfully generated images for {personality_name}',
+                    'personality': personality_name,
+                    'images': result.get('images', {}),
+                    'errors': result.get('errors', []),
+                }
+            )
         else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to generate images',
-                'personality': personality_name,
-                'errors': result.get('errors', ['Unknown error'])
-            }), 500
+            return jsonify(
+                {
+                    'status': 'error',
+                    'message': 'Failed to generate images',
+                    'personality': personality_name,
+                    'errors': result.get('errors', ['Unknown error']),
+                }
+            ), 500
 
     except Exception as e:
         logger.error(f"Error generating character images for {personality_name}: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e),
-            'personality': personality_name
-        }), 500
+        return jsonify({'status': 'error', 'message': str(e), 'personality': personality_name}), 500
 
 
 @image_bp.route('/api/character-images/status/<personality_name>')
@@ -544,10 +560,7 @@ def character_images_status(personality_name):
     """Check if images exist for a personality."""
     try:
         has_images = has_character_images(personality_name)
-        return jsonify({
-            'personality': personality_name,
-            'has_images': has_images
-        })
+        return jsonify({'personality': personality_name, 'has_images': has_images})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

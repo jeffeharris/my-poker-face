@@ -50,11 +50,7 @@
   gap: 2px;
   height: 42px;
   padding: 0 14px 0 8px;
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.15) 0%,
-    rgba(212, 165, 116, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.15) 0%, rgba(212, 165, 116, 0.08) 100%);
   border: 1px solid rgba(212, 165, 116, 0.35);
   border-radius: 21px;
   color: var(--color-gold, #d4a574);
@@ -82,11 +78,7 @@
 }
 
 .menu-bar__back:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.25) 0%,
-    rgba(212, 165, 116, 0.15) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.25) 0%, rgba(212, 165, 116, 0.15) 100%);
   border-color: rgba(212, 165, 116, 0.5);
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.25),

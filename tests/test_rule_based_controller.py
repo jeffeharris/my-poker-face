@@ -1,16 +1,17 @@
 """Tests for the rule-based controller (chaos monkey bots)."""
 
 import pytest
+
 from poker.rule_based_controller import (
-    RuleConfig,
-    RuleBasedController,
-    _evaluate_condition,
-    _calculate_raise_size,
-    _strategy_always_fold,
-    _strategy_always_call,
-    _strategy_always_raise,
-    _strategy_abc,
     CHAOS_BOTS,
+    RuleBasedController,
+    RuleConfig,
+    _calculate_raise_size,
+    _evaluate_condition,
+    _strategy_abc,
+    _strategy_always_call,
+    _strategy_always_fold,
+    _strategy_always_raise,
 )
 
 
@@ -24,23 +25,27 @@ class TestRuleConfig:
         assert config.name == "RuleBot"
 
     def test_from_dict(self):
-        config = RuleConfig.from_dict({
-            'strategy': 'abc',
-            'name': 'TestBot',
-            'raise_size': 'pot',
-        })
+        config = RuleConfig.from_dict(
+            {
+                'strategy': 'abc',
+                'name': 'TestBot',
+                'raise_size': 'pot',
+            }
+        )
         assert config.strategy == 'abc'
         assert config.name == 'TestBot'
         assert config.raise_size == 'pot'
 
     def test_from_dict_with_rules(self):
-        config = RuleConfig.from_dict({
-            'strategy': 'custom',
-            'rules': [
-                {'condition': 'is_premium', 'action': 'raise'},
-                {'condition': 'default', 'action': 'fold'},
-            ],
-        })
+        config = RuleConfig.from_dict(
+            {
+                'strategy': 'custom',
+                'rules': [
+                    {'condition': 'is_premium', 'action': 'raise'},
+                    {'condition': 'default', 'action': 'fold'},
+                ],
+            }
+        )
         assert config.strategy == 'custom'
         assert len(config.rules) == 2
 
@@ -176,8 +181,13 @@ class TestChaosBots:
 
     def test_chaos_bots_exist(self):
         expected = [
-            'always_fold', 'always_call', 'always_raise',
-            'always_all_in', 'abc', 'position_aware', 'pot_odds_robot'
+            'always_fold',
+            'always_call',
+            'always_raise',
+            'always_all_in',
+            'abc',
+            'position_aware',
+            'pot_odds_robot',
         ]
         for name in expected:
             assert name in CHAOS_BOTS

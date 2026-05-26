@@ -2,14 +2,16 @@
 
 Handles table creation and schema migrations.
 """
-import sqlite3
+
 import json
-import random
 import logging
+import random
+import sqlite3
+from typing import Dict
 
 from poker.personality_id import (
-    slugify_personality_name as _slugify_personality_name,
     assign_unique_personality_id as _assign_unique_personality_id,
+    slugify_personality_name as _slugify_personality_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,7 +185,6 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 116
 
 
-
 class SchemaManager:
     """Manages database schema creation and migrations.
 
@@ -295,7 +296,9 @@ class SchemaManager:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_game_id ON game_messages(game_id, timestamp)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_game_id ON game_messages(game_id, timestamp)"
+            )
 
             # 4. AI player state
             conn.execute("""
@@ -310,7 +313,9 @@ class SchemaManager:
                     UNIQUE(game_id, player_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_player_game ON ai_player_state(game_id, player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_player_game ON ai_player_state(game_id, player_name)"
+            )
 
             # 5. Personality snapshots (v84 added UNIQUE constraint so retried
             #    save_personality_snapshot writes can be deduplicated by INSERT OR IGNORE)
@@ -327,7 +332,9 @@ class SchemaManager:
                     UNIQUE (game_id, player_name, hand_number)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_personality_snapshots ON personality_snapshots(game_id, hand_number)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_personality_snapshots ON personality_snapshots(game_id, hand_number)"
+            )
 
             # 6. Pressure events
             conn.execute("""
@@ -341,9 +348,15 @@ class SchemaManager:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_game ON pressure_events(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_player ON pressure_events(player_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_type ON pressure_events(event_type)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pressure_events_game ON pressure_events(game_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pressure_events_player ON pressure_events(player_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pressure_events_type ON pressure_events(event_type)"
+            )
 
             # 7. Personalities (v5 added elasticity_config, v85 added personality_id;
             #    bankroll knobs live inside config_json as a `bankroll_knobs` sub-dict,
@@ -383,8 +396,12 @@ class SchemaManager:
                     UNIQUE(game_id, hand_number)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_game ON hand_history(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp ON hand_history(timestamp DESC)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_history_game ON hand_history(game_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_history_timestamp ON hand_history(timestamp DESC)"
+            )
 
             # 8b. Hand equity (v68) - equity snapshots for pressure detection and analytics
             conn.execute("""
@@ -405,9 +422,15 @@ class SchemaManager:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_game ON hand_equity(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)"
+            )
 
             # 9. Opponent models (v21 added game_id, v25 added notes, v27 fixed constraint)
             conn.execute("""
@@ -432,8 +455,12 @@ class SchemaManager:
                     UNIQUE(game_id, observer_name, opponent_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_opponent_models_observer ON opponent_models(observer_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_opponent_models_game ON opponent_models(game_id)"
+            )
             # The observer_id / opponent_id indexes are created by the
             # v86 migration. We deliberately do NOT create them here:
             # _init_db() runs before migrations, so on a pre-v86 database
@@ -459,9 +486,15 @@ class SchemaManager:
                     FOREIGN KEY (hand_id) REFERENCES hand_history(id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_observer ON memorable_hands(observer_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_opponent ON memorable_hands(opponent_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_memorable_hands_game ON memorable_hands(game_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memorable_observer ON memorable_hands(observer_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memorable_opponent ON memorable_hands(opponent_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memorable_hands_game ON memorable_hands(game_id)"
+            )
 
             # 10b. Relationship states (v87) — cross-session, cross-game affinity axes.
             #      Keyed on (observer_id, opponent_id) which come from
@@ -611,8 +644,12 @@ class SchemaManager:
                     UNIQUE(game_id, hand_number, player_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_commentary_game ON hand_commentary(game_id, player_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent ON hand_commentary(game_id, player_name, hand_number DESC)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_commentary_game ON hand_commentary(game_id, player_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hand_commentary_player_recent ON hand_commentary(game_id, player_name, hand_number DESC)"
+            )
 
             # 12. Emotional state (v3)
             conn.execute("""
@@ -635,7 +672,9 @@ class SchemaManager:
                     UNIQUE(game_id, player_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_emotional_state_game ON emotional_state(game_id, player_name)"
+            )
 
             # 13. Controller state (v3, v40 added prompt_config_json,
             #     v83 added psychology_json for v2.1 unified PlayerPsychology)
@@ -653,7 +692,9 @@ class SchemaManager:
                     UNIQUE(game_id, player_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_controller_state_game ON controller_state(game_id, player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_controller_state_game ON controller_state(game_id, player_name)"
+            )
 
             # 14. Tournament results (v4)
             conn.execute("""
@@ -671,7 +712,9 @@ class SchemaManager:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_results_winner ON tournament_results(winner_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_results_winner ON tournament_results(winner_name)"
+            )
 
             # 15. Tournament standings (v4)
             conn.execute("""
@@ -687,8 +730,12 @@ class SchemaManager:
                     UNIQUE(game_id, player_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_standings_game ON tournament_standings(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_standings_player ON tournament_standings(player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_standings_game ON tournament_standings(game_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_standings_player ON tournament_standings(player_name)"
+            )
 
             # 16. Player career stats (v4)
             conn.execute("""
@@ -706,7 +753,9 @@ class SchemaManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_career_stats_player ON player_career_stats(player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_career_stats_player ON player_career_stats(player_name)"
+            )
 
             # 17. Avatar images (v5, v28 added full_image columns)
             conn.execute("""
@@ -728,7 +777,9 @@ class SchemaManager:
                     UNIQUE(personality_name, emotion)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_avatar_personality ON avatar_images(personality_name)"
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_avatar_emotion ON avatar_images(emotion)")
 
             # 18. API usage (v6-v17: comprehensive LLM tracking)
@@ -765,15 +816,33 @@ class SchemaManager:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner ON api_usage(owner_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner_created ON api_usage(owner_id, created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_owner_call_type ON api_usage(owner_id, call_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game_call_type ON api_usage(game_id, call_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_model_created ON api_usage(model, created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_model_effort ON api_usage(model, reasoning_effort)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_request_id ON api_usage(request_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_owner_created ON api_usage(owner_id, created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_owner_call_type ON api_usage(owner_id, call_type)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_game_call_type ON api_usage(game_id, call_type)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_model_created ON api_usage(model, created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_model_effort ON api_usage(model, reasoning_effort)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_request_id ON api_usage(request_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)"
+            )
 
             # 19. Model pricing (v14 SKU-based, v15 validity dates)
             conn.execute("""
@@ -790,8 +859,12 @@ class SchemaManager:
                     UNIQUE(provider, model, unit, valid_from)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider, model)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_model_pricing_validity ON model_pricing(provider, model, unit, valid_from, valid_until)"
+            )
 
             # 20. Enabled models (v38, v50 adds user_enabled, v52 adds supports_img2img)
             conn.execute("""
@@ -813,7 +886,9 @@ class SchemaManager:
                     UNIQUE(provider, model)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_enabled_models_provider ON enabled_models(provider, enabled)"
+            )
 
             # 21. Prompt captures (v18, v19, v24, v30, v33, v39, v53, v52)
             conn.execute("""
@@ -875,23 +950,45 @@ class SchemaManager:
                     FOREIGN KEY (parent_id) REFERENCES prompt_captures(id) ON DELETE SET NULL
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)"
+            )
             # These indexes are on columns added by migrations v33, v39, v52, and v53
             # Use try-except to handle older databases that haven't been migrated yet
             try:
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)"
+                )
             except sqlite3.OperationalError:
                 pass  # Columns don't exist yet, will be created by migrations
 
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)"
+            )
 
             # 21b. Reference images (v53) - for image-to-image generation
             conn.execute("""
@@ -908,8 +1005,12 @@ class SchemaManager:
                     expires_at TIMESTAMP
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)"
+            )
 
             # 22. Player decision analysis (v20, v22, v23, v67, v70, v71)
             conn.execute("""
@@ -989,15 +1090,29 @@ class SchemaManager:
                     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)"
+            )
             # Zone indexes may fail on existing databases before migration v71 adds columns
             try:
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)"
+                )
             except Exception:
                 pass  # Columns will be added by migration v71, which creates these indexes
 
@@ -1010,7 +1125,9 @@ class SchemaManager:
                     FOREIGN KEY (game_id) REFERENCES games(game_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tournament_tracker_game ON tournament_tracker(game_id)"
+            )
 
             # 24. Experiments (v43) - experiment metadata and configuration
             conn.execute("""
@@ -1050,8 +1167,12 @@ class SchemaManager:
                     UNIQUE(experiment_id, game_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)"
+            )
 
             # 26. Experiment chat sessions (v47) - Persists design chat history
             conn.execute("""
@@ -1066,8 +1187,12 @@ class SchemaManager:
                     is_archived BOOLEAN DEFAULT 0
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)"
+            )
 
             # 27. App settings (v44) - Dynamic configuration
             conn.execute("""
@@ -1094,7 +1219,9 @@ class SchemaManager:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_users_linked_guest ON users(linked_guest_id)"
+            )
 
             # 28. Prompt presets (v47, v57) - Saved, reusable prompt configurations
             # v57 adds is_system column for built-in game mode presets
@@ -1111,8 +1238,12 @@ class SchemaManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)"
+            )
 
             # 29. Capture labels (v48) - Tags/labels for captured AI decisions
             conn.execute("""
@@ -1125,8 +1256,12 @@ class SchemaManager:
                     UNIQUE(capture_id, label)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)"
+            )
 
             # 30. Replay experiment captures (v49) - Links captures to replay experiments
             conn.execute("""
@@ -1140,8 +1275,12 @@ class SchemaManager:
                     UNIQUE(experiment_id, capture_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)"
+            )
 
             # 31. Replay results (v49) - Results from replaying captures with variants
             conn.execute("""
@@ -1169,10 +1308,18 @@ class SchemaManager:
                     UNIQUE(experiment_id, capture_id, variant)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)"
+            )
 
             # 32. Groups table (v52) - RBAC groups
             conn.execute("""
@@ -1198,7 +1345,9 @@ class SchemaManager:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id)"
+            )
 
             # 34. Permissions table (v52) - Available permissions
             conn.execute("""
@@ -1220,8 +1369,12 @@ class SchemaManager:
                     UNIQUE(group_id, permission_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_permissions(group_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_group_permissions_permission ON group_permissions(permission_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_group_permissions_group ON group_permissions(group_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_group_permissions_permission ON group_permissions(permission_id)"
+            )
 
             # Guest usage tracking (v61)
             conn.execute("""
@@ -1290,125 +1443,436 @@ class SchemaManager:
         if current_version >= SCHEMA_VERSION:
             return
 
-        logger.info(f"Running database migrations from version {current_version} to {SCHEMA_VERSION}")
+        logger.info(
+            f"Running database migrations from version {current_version} to {SCHEMA_VERSION}"
+        )
 
         migrations: Dict[int, tuple] = {
             1: (self._migrate_v1_add_owner_columns, "Add owner_id and owner_name to games table"),
             2: (self._migrate_v2_add_memory_tables, "Add AI memory and learning tables"),
-            3: (self._migrate_v3_add_controller_state_tables, "Add emotional state and controller state tables"),
-            4: (self._migrate_v4_add_tournament_tables, "Add tournament results and career stats tables"),
-            5: (self._migrate_v5_add_avatar_images_table, "Add avatar_images table for storing character images"),
+            3: (
+                self._migrate_v3_add_controller_state_tables,
+                "Add emotional state and controller state tables",
+            ),
+            4: (
+                self._migrate_v4_add_tournament_tables,
+                "Add tournament results and career stats tables",
+            ),
+            5: (
+                self._migrate_v5_add_avatar_images_table,
+                "Add avatar_images table for storing character images",
+            ),
             6: (self._migrate_v6_add_api_usage_table, "Add api_usage table for LLM cost tracking"),
-            7: (self._migrate_v7_add_reasoning_effort, "Add reasoning_effort column to api_usage table"),
+            7: (
+                self._migrate_v7_add_reasoning_effort,
+                "Add reasoning_effort column to api_usage table",
+            ),
             8: (self._migrate_v8_add_request_id, "Add request_id column for vendor correlation"),
             9: (self._migrate_v9_add_max_tokens, "Add max_tokens column for token limit tracking"),
-            10: (self._migrate_v10_add_conversation_metrics, "Add message_count and system_prompt_length columns"),
-            11: (self._migrate_v11_add_system_prompt_tokens, "Add system_prompt_tokens column for accurate token tracking"),
-            12: (self._migrate_v12_drop_system_prompt_length, "Drop unused system_prompt_length column"),
-            13: (self._migrate_v13_add_pricing_tables, "Add model_pricing table and estimated_cost column"),
+            10: (
+                self._migrate_v10_add_conversation_metrics,
+                "Add message_count and system_prompt_length columns",
+            ),
+            11: (
+                self._migrate_v11_add_system_prompt_tokens,
+                "Add system_prompt_tokens column for accurate token tracking",
+            ),
+            12: (
+                self._migrate_v12_drop_system_prompt_length,
+                "Drop unused system_prompt_length column",
+            ),
+            13: (
+                self._migrate_v13_add_pricing_tables,
+                "Add model_pricing table and estimated_cost column",
+            ),
             14: (self._migrate_v14_sku_based_pricing, "Redesign model_pricing as SKU-based rows"),
-            15: (self._migrate_v15_add_pricing_validity_dates, "Add valid_from and valid_until to model_pricing"),
-            16: (self._migrate_v16_add_pricing_id_to_usage, "Add pricing_id foreign key to api_usage"),
-            17: (self._migrate_v17_consolidate_pricing_ids, "Replace 4 pricing_id columns with single JSON column"),
-            18: (self._migrate_v18_add_prompt_captures, "Add prompt_captures table for debugging AI decisions"),
-            19: (self._migrate_v19_add_conversation_history, "Add conversation_history column to prompt_captures"),
-            20: (self._migrate_v20_add_decision_analysis, "Add player_decision_analysis table for quality monitoring"),
-            21: (self._migrate_v21_add_game_id_to_opponent_models, "Add game_id to opponent_models for game-specific tracking"),
-            22: (self._migrate_v22_add_position_equity, "Add position-based equity fields to decision analysis"),
+            15: (
+                self._migrate_v15_add_pricing_validity_dates,
+                "Add valid_from and valid_until to model_pricing",
+            ),
+            16: (
+                self._migrate_v16_add_pricing_id_to_usage,
+                "Add pricing_id foreign key to api_usage",
+            ),
+            17: (
+                self._migrate_v17_consolidate_pricing_ids,
+                "Replace 4 pricing_id columns with single JSON column",
+            ),
+            18: (
+                self._migrate_v18_add_prompt_captures,
+                "Add prompt_captures table for debugging AI decisions",
+            ),
+            19: (
+                self._migrate_v19_add_conversation_history,
+                "Add conversation_history column to prompt_captures",
+            ),
+            20: (
+                self._migrate_v20_add_decision_analysis,
+                "Add player_decision_analysis table for quality monitoring",
+            ),
+            21: (
+                self._migrate_v21_add_game_id_to_opponent_models,
+                "Add game_id to opponent_models for game-specific tracking",
+            ),
+            22: (
+                self._migrate_v22_add_position_equity,
+                "Add position-based equity fields to decision analysis",
+            ),
             23: (self._migrate_v23_add_player_position, "Add player_position to decision analysis"),
-            24: (self._migrate_v24_add_prompt_versioning, "Add prompt version tracking to prompt_captures"),
-            25: (self._migrate_v25_add_opponent_notes, "Add notes column to opponent_models for player observations"),
-            26: (self._migrate_v26_add_debug_capture, "Add debug_capture_enabled column to games table"),
-            27: (self._migrate_v27_fix_opponent_models_constraint, "Fix opponent_models unique constraint to include game_id"),
-            28: (self._migrate_v28_add_full_image_column, "Add full_image_data column for uncropped avatar images"),
-            29: (self._migrate_v29_add_tournament_tracker, "Add tournament_tracker table for persisting elimination history"),
-            30: (self._migrate_v30_add_prompt_capture_columns, "Add raw_request and reasoning columns to prompt_captures"),
-            31: (self._migrate_v31_add_provider_pricing, "Add Groq and Claude 4.5 pricing to model_pricing"),
-            32: (self._migrate_v32_add_more_providers, "Add DeepSeek, Mistral, and Google Gemini pricing"),
-            33: (self._migrate_v33_add_provider_to_captures, "Add provider column to prompt_captures"),
+            24: (
+                self._migrate_v24_add_prompt_versioning,
+                "Add prompt version tracking to prompt_captures",
+            ),
+            25: (
+                self._migrate_v25_add_opponent_notes,
+                "Add notes column to opponent_models for player observations",
+            ),
+            26: (
+                self._migrate_v26_add_debug_capture,
+                "Add debug_capture_enabled column to games table",
+            ),
+            27: (
+                self._migrate_v27_fix_opponent_models_constraint,
+                "Fix opponent_models unique constraint to include game_id",
+            ),
+            28: (
+                self._migrate_v28_add_full_image_column,
+                "Add full_image_data column for uncropped avatar images",
+            ),
+            29: (
+                self._migrate_v29_add_tournament_tracker,
+                "Add tournament_tracker table for persisting elimination history",
+            ),
+            30: (
+                self._migrate_v30_add_prompt_capture_columns,
+                "Add raw_request and reasoning columns to prompt_captures",
+            ),
+            31: (
+                self._migrate_v31_add_provider_pricing,
+                "Add Groq and Claude 4.5 pricing to model_pricing",
+            ),
+            32: (
+                self._migrate_v32_add_more_providers,
+                "Add DeepSeek, Mistral, and Google Gemini pricing",
+            ),
+            33: (
+                self._migrate_v33_add_provider_to_captures,
+                "Add provider column to prompt_captures",
+            ),
             34: (self._migrate_v34_add_llm_configs, "Add llm_configs_json column to games table"),
-            35: (self._migrate_v35_add_provider_index, "Add index on provider column in prompt_captures"),
+            35: (
+                self._migrate_v35_add_provider_index,
+                "Add index on provider column in prompt_captures",
+            ),
             36: (self._migrate_v36_add_xai_pricing, "Add xAI Grok pricing to model_pricing"),
             37: (self._migrate_v37_add_gpt5_pricing, "Add OpenAI GPT-5 pricing"),
-            38: (self._migrate_v38_add_enabled_models, "Add enabled_models table for model management"),
-            39: (self._migrate_v39_playground_capture_support, "Make game_id nullable and add call_type to prompt_captures for playground"),
-            40: (self._migrate_v40_add_prompt_config, "Add prompt_config_json column for toggleable prompt components"),
-            41: (self._migrate_v41_add_hand_commentary, "Add hand_commentary table for AI reflection persistence"),
-            42: (self._migrate_v42_schema_consolidation, "Schema consolidation - all tables now in _init_db, pricing from YAML"),
-            43: (self._migrate_v43_add_experiments, "Add experiments and experiment_games tables for experiment tracking"),
-            44: (self._migrate_v44_add_app_settings, "Add app_settings table for dynamic configuration"),
-            45: (self._migrate_v45_add_users_table, "Add users table for Google OAuth authentication"),
-            46: (self._migrate_v46_experiment_manager_features, "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)"),
-            47: (self._migrate_v47_add_prompt_presets, "Add prompt_presets table for reusable prompt configurations"),
-            48: (self._migrate_v48_add_capture_labels, "Add capture_labels table for tagging captured AI decisions"),
-            49: (self._migrate_v49_add_replay_experiment_tables, "Add replay experiment tables and experiment_type column"),
-            50: (self._migrate_v50_add_prompt_config_to_captures, "Add prompt_config_json to prompt_captures for analysis"),
-            51: (self._migrate_v51_add_stack_bb_columns, "Add stack_bb and already_bet_bb to prompt_captures for auto-labels"),
-            52: (self._migrate_v52_add_rbac_tables, "Add RBAC tables (groups, user_groups, permissions, group_permissions)"),
-            53: (self._migrate_v53_add_resilience_columns, "Add AI decision resilience columns to prompt_captures"),
-            54: (self._migrate_v54_squashed_features, "Add heartbeat tracking, outcome columns, and system presets"),
-            55: (self._migrate_v55_add_last_game_created_at, "Add last_game_created_at to users for duplicate prevention"),
-            56: (self._migrate_v56_add_exploitative_guidance, "Add exploitative guidance to pro and competitive presets"),
-            57: (self._migrate_v57_add_raise_amount_bb, "Add raise_amount_bb to player_decision_analysis for BB-normalized mode"),
-            58: (self._migrate_v58_fix_squashed_features, "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns"),
-            59: (self._migrate_v59_add_owner_id_to_captures, "Add owner_id to prompt_captures for user tracking"),
-            60: (self._migrate_v60_add_psychology_snapshot, "Add psychology snapshot columns to player_decision_analysis"),
-            61: (self._migrate_v61_guest_tracking_and_owner_id, "Add guest_usage_tracking table, owner_id to career stats/tournament tables"),
+            38: (
+                self._migrate_v38_add_enabled_models,
+                "Add enabled_models table for model management",
+            ),
+            39: (
+                self._migrate_v39_playground_capture_support,
+                "Make game_id nullable and add call_type to prompt_captures for playground",
+            ),
+            40: (
+                self._migrate_v40_add_prompt_config,
+                "Add prompt_config_json column for toggleable prompt components",
+            ),
+            41: (
+                self._migrate_v41_add_hand_commentary,
+                "Add hand_commentary table for AI reflection persistence",
+            ),
+            42: (
+                self._migrate_v42_schema_consolidation,
+                "Schema consolidation - all tables now in _init_db, pricing from YAML",
+            ),
+            43: (
+                self._migrate_v43_add_experiments,
+                "Add experiments and experiment_games tables for experiment tracking",
+            ),
+            44: (
+                self._migrate_v44_add_app_settings,
+                "Add app_settings table for dynamic configuration",
+            ),
+            45: (
+                self._migrate_v45_add_users_table,
+                "Add users table for Google OAuth authentication",
+            ),
+            46: (
+                self._migrate_v46_experiment_manager_features,
+                "Add experiment manager features (error tracking, chat sessions, image models, experiment lineage, image capture support)",
+            ),
+            47: (
+                self._migrate_v47_add_prompt_presets,
+                "Add prompt_presets table for reusable prompt configurations",
+            ),
+            48: (
+                self._migrate_v48_add_capture_labels,
+                "Add capture_labels table for tagging captured AI decisions",
+            ),
+            49: (
+                self._migrate_v49_add_replay_experiment_tables,
+                "Add replay experiment tables and experiment_type column",
+            ),
+            50: (
+                self._migrate_v50_add_prompt_config_to_captures,
+                "Add prompt_config_json to prompt_captures for analysis",
+            ),
+            51: (
+                self._migrate_v51_add_stack_bb_columns,
+                "Add stack_bb and already_bet_bb to prompt_captures for auto-labels",
+            ),
+            52: (
+                self._migrate_v52_add_rbac_tables,
+                "Add RBAC tables (groups, user_groups, permissions, group_permissions)",
+            ),
+            53: (
+                self._migrate_v53_add_resilience_columns,
+                "Add AI decision resilience columns to prompt_captures",
+            ),
+            54: (
+                self._migrate_v54_squashed_features,
+                "Add heartbeat tracking, outcome columns, and system presets",
+            ),
+            55: (
+                self._migrate_v55_add_last_game_created_at,
+                "Add last_game_created_at to users for duplicate prevention",
+            ),
+            56: (
+                self._migrate_v56_add_exploitative_guidance,
+                "Add exploitative guidance to pro and competitive presets",
+            ),
+            57: (
+                self._migrate_v57_add_raise_amount_bb,
+                "Add raise_amount_bb to player_decision_analysis for BB-normalized mode",
+            ),
+            58: (
+                self._migrate_v58_fix_squashed_features,
+                "Fix v54 squash - apply missing heartbeat, outcome, and system preset columns",
+            ),
+            59: (
+                self._migrate_v59_add_owner_id_to_captures,
+                "Add owner_id to prompt_captures for user tracking",
+            ),
+            60: (
+                self._migrate_v60_add_psychology_snapshot,
+                "Add psychology snapshot columns to player_decision_analysis",
+            ),
+            61: (
+                self._migrate_v61_guest_tracking_and_owner_id,
+                "Add guest_usage_tracking table, owner_id to career stats/tournament tables",
+            ),
             62: (self._migrate_v62_add_coach_mode, "Add coach_mode column to games table"),
             63: (self._migrate_v63_coach_progression, "Add coach progression tables"),
-            64: (self._migrate_v64_add_personality_ownership, "Add owner_id and visibility to personalities"),
+            64: (
+                self._migrate_v64_add_personality_ownership,
+                "Add owner_id and visibility to personalities",
+            ),
             65: (self._migrate_v65_add_coach_permission, "Add can_access_coach permission"),
-            66: (self._migrate_v66_add_window_decisions, "Add window_decisions column for sliding window"),
-            67: (self._migrate_v67_add_range_tracking, "Add range tracking columns to player_decision_analysis"),
-            68: (self._migrate_v68_add_onboarding_completed, "Add onboarding_completed_at to player_coach_profile"),
-            69: (self._migrate_v69_add_hand_equity, "Add hand_equity table for equity-based pressure detection"),
-            70: (self._migrate_v70_add_range_targets, "Add range_targets JSON column to player_coach_profile"),
-            71: (self._migrate_v71_add_5trait_columns, "Add 5-trait psychology columns to player_decision_analysis"),
-            72: (self._migrate_v72_add_zone_tracking, "Add zone detection and effects tracking columns to player_decision_analysis"),
-            73: (self._migrate_v73_pressure_events_hand_number, "Add hand_number column to pressure_events"),
-            74: (self._migrate_v74_add_bet_sizing, "Add bet_sizing column to player_decision_analysis"),
-            75: (self._migrate_v75_add_deck_seed_to_hand_history, "Add deck_seed column to hand_history"),
-            76: (self._migrate_v76_add_metadata_json, "Add metadata_json column to prompt_captures for enricher data"),
-            77: (self._migrate_v77_add_bounded_replay_results, "Add bounded_replay_results table for multi-sample replay experiments"),
-            78: (self._migrate_v78_add_quality_scores, "Add quality_score and menu compliance columns to player_decision_analysis"),
-            79: (self._migrate_v79_add_opponent_tendencies_json, "Add tendencies_json to opponent_models for full tendency persistence"),
-            80: (self._migrate_v80_add_community_cards_by_phase, "Add community_cards_by_phase_json column to hand_history"),
-            81: (self._migrate_v81_add_intervention_trace_json, "Add intervention_trace_json to player_decision_analysis for Phase 7.6"),
-            82: (self._migrate_v82_add_strategy_pipeline_snapshot_json, "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1"),
-            83: (self._migrate_v83_add_psychology_json, "Add psychology_json to controller_state for v2.1 unified psychology persistence"),
-            84: (self._migrate_v84_add_personality_snapshots_unique, "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries"),
-            85: (self._migrate_v85_add_personality_id, "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names"),
-            86: (self._migrate_v86_add_opponent_model_ids, "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup"),
-            87: (self._migrate_v87_add_relationship_tables, "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL"),
-            88: (self._migrate_v88_add_bankroll_tables, "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1"),
-            89: (self._migrate_v89_add_loan_fields_to_player_bankroll, "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship"),
-            90: (self._migrate_v90_add_lender_id_to_player_bankroll, "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)"),
-            91: (self._migrate_v91_add_cash_tables, "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)"),
-            92: (self._migrate_v92_add_cash_idle_pool, "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)"),
-            93: (self._migrate_v93_add_chip_ledger, "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)"),
-            94: (self._migrate_v94_seed_pre_ledger_universe, "Seed pre_ledger_universe entries so day-1 audit drift is 0"),
-            95: (self._migrate_v95_add_relationship_notes, "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)"),
-            96: (self._migrate_v96_add_dealer_idx_to_cash_tables, "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)"),
-            97: (self._migrate_v97_add_emotional_state_to_ai_bankroll, "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)"),
-            98: (self._migrate_v98_add_stakes_table, "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*"),
-            99: (self._migrate_v99_drop_active_loan_columns, "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth"),
-            100: (self._migrate_v100_add_sandboxes_table, "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model"),
-            101: (self._migrate_v101_add_relationship_nickname_override, "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier"),
-            102: (self._migrate_v102_scope_runtime_tables_to_sandbox, "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)"),
-            103: (self._migrate_v103_add_sandbox_id_to_chip_ledger, "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping"),
-            104: (self._migrate_v104_add_forgiveness_last_asked, "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests"),
-            105: (self._migrate_v105_rename_bankroll_cap_to_starting_bankroll, "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column"),
-            106: (self._migrate_v106_add_stake_payouts, "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L"),
-            107: (self._migrate_v107_add_aspiration_cooldown, "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers"),
-            108: (self._migrate_v108_add_cash_sessions, "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions"),
-            109: (self._migrate_v109_scope_cash_pair_stats_to_sandbox, "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)"),
-            110: (self._migrate_v110_add_pending_forgiveness_ask, "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)"),
-            111: (self._migrate_v111_add_multi_table_lobby_columns, "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)"),
-            112: (self._migrate_v112_create_ai_vice_state, "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)"),
-            113: (self._migrate_v113_add_casino_closing_countdown, "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)"),
-            114: (self._migrate_v114_create_ai_side_hustle_state, "Create ai_side_hustle_state table for the side-hustle mechanic (per-sandbox off-grid earning status; mirror of ai_vice_state)"),
-            115: (self._migrate_v115_create_user_preferences, "Create user_preferences table for per-user settings (first: world_pace for the realtime background ticker)"),
-            116: (self._migrate_v116_create_holdings_snapshots, "Create holdings_snapshots table — per-entity net-worth points captured by the background ticker so the admin Player Holdings chart plots real net worth over time"),
+            66: (
+                self._migrate_v66_add_window_decisions,
+                "Add window_decisions column for sliding window",
+            ),
+            67: (
+                self._migrate_v67_add_range_tracking,
+                "Add range tracking columns to player_decision_analysis",
+            ),
+            68: (
+                self._migrate_v68_add_onboarding_completed,
+                "Add onboarding_completed_at to player_coach_profile",
+            ),
+            69: (
+                self._migrate_v69_add_hand_equity,
+                "Add hand_equity table for equity-based pressure detection",
+            ),
+            70: (
+                self._migrate_v70_add_range_targets,
+                "Add range_targets JSON column to player_coach_profile",
+            ),
+            71: (
+                self._migrate_v71_add_5trait_columns,
+                "Add 5-trait psychology columns to player_decision_analysis",
+            ),
+            72: (
+                self._migrate_v72_add_zone_tracking,
+                "Add zone detection and effects tracking columns to player_decision_analysis",
+            ),
+            73: (
+                self._migrate_v73_pressure_events_hand_number,
+                "Add hand_number column to pressure_events",
+            ),
+            74: (
+                self._migrate_v74_add_bet_sizing,
+                "Add bet_sizing column to player_decision_analysis",
+            ),
+            75: (
+                self._migrate_v75_add_deck_seed_to_hand_history,
+                "Add deck_seed column to hand_history",
+            ),
+            76: (
+                self._migrate_v76_add_metadata_json,
+                "Add metadata_json column to prompt_captures for enricher data",
+            ),
+            77: (
+                self._migrate_v77_add_bounded_replay_results,
+                "Add bounded_replay_results table for multi-sample replay experiments",
+            ),
+            78: (
+                self._migrate_v78_add_quality_scores,
+                "Add quality_score and menu compliance columns to player_decision_analysis",
+            ),
+            79: (
+                self._migrate_v79_add_opponent_tendencies_json,
+                "Add tendencies_json to opponent_models for full tendency persistence",
+            ),
+            80: (
+                self._migrate_v80_add_community_cards_by_phase,
+                "Add community_cards_by_phase_json column to hand_history",
+            ),
+            81: (
+                self._migrate_v81_add_intervention_trace_json,
+                "Add intervention_trace_json to player_decision_analysis for Phase 7.6",
+            ),
+            82: (
+                self._migrate_v82_add_strategy_pipeline_snapshot_json,
+                "Add strategy_pipeline_snapshot_json to player_decision_analysis for Phase 7.6 Mode 1",
+            ),
+            83: (
+                self._migrate_v83_add_psychology_json,
+                "Add psychology_json to controller_state for v2.1 unified psychology persistence",
+            ),
+            84: (
+                self._migrate_v84_add_personality_snapshots_unique,
+                "Add UNIQUE(game_id, player_name, hand_number) to personality_snapshots so INSERT OR IGNORE deduplicates retries",
+            ),
+            85: (
+                self._migrate_v85_add_personality_id,
+                "Add personality_id TEXT UNIQUE to personalities and backfill with slugified names",
+            ),
+            86: (
+                self._migrate_v86_add_opponent_model_ids,
+                "Add observer_id + opponent_id to opponent_models and backfill via personality name lookup",
+            ),
+            87: (
+                self._migrate_v87_add_relationship_tables,
+                "Add relationship_states + cash_pair_stats tables for cross-session affinity and cash-mode PnL",
+            ),
+            88: (
+                self._migrate_v88_add_bankroll_tables,
+                "Add ai_bankroll_state + player_bankroll_state tables and bankroll knob columns on personalities for cash mode v1",
+            ),
+            89: (
+                self._migrate_v89_add_loan_fields_to_player_bankroll,
+                "Add active_loan_amount, active_loan_floor, active_loan_rate to player_bankroll_state for cash mode sponsorship",
+            ),
+            90: (
+                self._migrate_v90_add_lender_id_to_player_bankroll,
+                "Add active_loan_lender_id to player_bankroll_state for cash mode Path B (AI sponsorship)",
+            ),
+            91: (
+                self._migrate_v91_add_cash_tables,
+                "Add cash_tables table for persistent multi-table lobby (cash mode v1.5)",
+            ),
+            92: (
+                self._migrate_v92_add_cash_idle_pool,
+                "Add cash_idle_pool table for AIs between cash sessions (cash mode v1.5)",
+            ),
+            93: (
+                self._migrate_v93_add_chip_ledger,
+                "Add chip_ledger_entries table for chip economy observability (v0: append-only ledger)",
+            ),
+            94: (
+                self._migrate_v94_seed_pre_ledger_universe,
+                "Seed pre_ledger_universe entries so day-1 audit drift is 0",
+            ),
+            95: (
+                self._migrate_v95_add_relationship_notes,
+                "Add notes column to relationship_states for player-authored opponent notes (cross-session, cash mode)",
+            ),
+            96: (
+                self._migrate_v96_add_dealer_idx_to_cash_tables,
+                "Add dealer_idx column to cash_tables so the lobby dealer button survives backend restart (full sim Commit 2)",
+            ),
+            97: (
+                self._migrate_v97_add_emotional_state_to_ai_bankroll,
+                "Add emotional_state_json column to ai_bankroll_state so sim-hand psychology persists across cache evictions and restarts (full sim Commit 3)",
+            ),
+            98: (
+                self._migrate_v98_add_stakes_table,
+                "Add stakes table for backing-system stake model (Phase 1) and rename legacy house_loan_* ledger reasons to house_stake_*",
+            ),
+            99: (
+                self._migrate_v99_drop_active_loan_columns,
+                "Drop legacy active_loan_* columns from player_bankroll_state — stakes table is now the sole source-of-truth",
+            ),
+            100: (
+                self._migrate_v100_add_sandboxes_table,
+                "Add sandboxes table (Phase 2.5) — first-class scoping unit for cash-mode runtime state, per-owner save-file model",
+            ),
+            101: (
+                self._migrate_v101_add_relationship_nickname_override,
+                "Add nickname_override column to relationship_states so players can rename opponents privately from the dossier",
+            ),
+            102: (
+                self._migrate_v102_scope_runtime_tables_to_sandbox,
+                "Phase 2.5 Commit 2 — drop+recreate ai_bankroll_state, cash_tables, cash_idle_pool with sandbox_id in PK (pre-launch destructive migration)",
+            ),
+            103: (
+                self._migrate_v103_add_sandbox_id_to_chip_ledger,
+                "Phase 2.5 Commit 6 — add nullable sandbox_id column to chip_ledger_entries for per-sandbox audit scoping",
+            ),
+            104: (
+                self._migrate_v104_add_forgiveness_last_asked,
+                "Phase 3 Commit 3 — add nullable forgiveness_last_asked column to stakes for per-stake 24h rate-limit on forgiveness requests",
+            ),
+            105: (
+                self._migrate_v105_rename_bankroll_cap_to_starting_bankroll,
+                "Rename bankroll_knobs.bankroll_cap → starting_bankroll in personality config_json and drop the vestigial personalities.bankroll_cap column",
+            ),
+            106: (
+                self._migrate_v106_add_stake_payouts,
+                "Phase 5 refinement — add nullable staker_payout / borrower_payout columns to stakes so history can show per-stake P&L",
+            ),
+            107: (
+                self._migrate_v107_add_aspiration_cooldown,
+                "Aspiration-ask Commit 3 — add nullable aspiration_cooldown_until to ai_bankroll_state for per-AI rate limit on aspiration_ask triggers",
+            ),
+            108: (
+                self._migrate_v108_add_cash_sessions,
+                "Add cash_sessions table — durable per-session record (buy-in, time-at-table, staking, final stats) so the leave-table summary survives Flask restart / TTL eviction and stays correct across top-ups, rebuys, and staked sessions",
+            ),
+            109: (
+                self._migrate_v109_scope_cash_pair_stats_to_sandbox,
+                "Drop+recreate cash_pair_stats with sandbox_id in PK so admin Chip Economy Won/Lost/Net can scope per sandbox (matches v102 destructive precedent)",
+            ),
+            110: (
+                self._migrate_v110_add_pending_forgiveness_ask,
+                "Add nullable pending_forgiveness_ask column to stakes — AIs holding human-staker carries surface a forgiveness request the player decides on (replaces auto-grant which silently void chips)",
+            ),
+            111: (
+                self._migrate_v111_add_multi_table_lobby_columns,
+                "Add name + table_type columns to cash_tables and table_id column to stakes for multi-table-per-tier lobby (named tables + future private/casino types)",
+            ),
+            112: (
+                self._migrate_v112_create_ai_vice_state,
+                "Create ai_vice_state table for AI vice spending (per-sandbox vice status with bounded duration)",
+            ),
+            113: (
+                self._migrate_v113_add_casino_closing_countdown,
+                "Add nullable closing_hand_countdown column to cash_tables for the casino smooth-shutdown lifecycle (NULL = active or non-casino, N = closing with N hands remaining)",
+            ),
+            114: (
+                self._migrate_v114_create_ai_side_hustle_state,
+                "Create ai_side_hustle_state table for the side-hustle mechanic (per-sandbox off-grid earning status; mirror of ai_vice_state)",
+            ),
+            115: (
+                self._migrate_v115_create_user_preferences,
+                "Create user_preferences table for per-user settings (first: world_pace for the realtime background ticker)",
+            ),
+            116: (
+                self._migrate_v116_create_holdings_snapshots,
+                "Create holdings_snapshots table — per-entity net-worth points captured by the background ticker so the admin Player Holdings chart plots real net worth over time",
+            ),
         }
 
         with self._get_connection() as conn:
@@ -1419,7 +1883,7 @@ class SchemaManager:
                         migrate_func(conn)
                         conn.execute(
                             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-                            (version, description)
+                            (version, description),
                         )
                         conn.commit()
                         logger.info(f"Applied migration v{version}: {description}")
@@ -1448,7 +1912,7 @@ class SchemaManager:
         # Verify tables exist (they should from _init_db)
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
-            ('hand_history', 'opponent_models', 'memorable_hands')
+            ('hand_history', 'opponent_models', 'memorable_hands'),
         )
         existing_tables = {row[0] for row in cursor.fetchall()}
 
@@ -1584,7 +2048,9 @@ class SchemaManager:
             ON player_career_stats(player_name)
         """)
 
-        logger.info("Created tournament_results, tournament_standings, and player_career_stats tables")
+        logger.info(
+            "Created tournament_results, tournament_standings, and player_career_stats tables"
+        )
 
     def _migrate_v5_add_avatar_images_table(self, conn: sqlite3.Connection) -> None:
         """Migration v5: Add avatar_images table for storing character images in DB."""
@@ -1825,9 +2291,15 @@ class SchemaManager:
 
             # Recreate indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_game ON api_usage(game_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_call_type ON api_usage(call_type)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_usage_cost ON api_usage(estimated_cost)"
+            )
 
             logger.info("Consolidated 4 pricing_id columns into pricing_ids JSON")
         elif 'pricing_ids' not in columns:
@@ -1874,12 +2346,24 @@ class SchemaManager:
         """)
 
         # Create indexes for efficient querying
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)"
+        )
 
         logger.info("Created prompt_captures table for AI decision debugging")
 
@@ -1961,11 +2445,21 @@ class SchemaManager:
         """)
 
         # Create indexes for efficient querying
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_game ON player_decision_analysis(game_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_request ON player_decision_analysis(request_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_quality ON player_decision_analysis(decision_quality)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_ev_lost ON player_decision_analysis(ev_lost DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_decision_analysis_player ON player_decision_analysis(player_name)"
+        )
 
         logger.info("Created player_decision_analysis table for AI quality monitoring")
 
@@ -2311,7 +2805,7 @@ class SchemaManager:
 
         # Seed from PROVIDER_MODELS config
         # Import here to avoid circular imports
-        from core.llm.config import PROVIDER_MODELS, PROVIDER_CAPABILITIES, DEFAULT_ENABLED_MODELS
+        from core.llm.config import DEFAULT_ENABLED_MODELS, PROVIDER_CAPABILITIES, PROVIDER_MODELS
 
         for provider, models in PROVIDER_MODELS.items():
             capabilities = PROVIDER_CAPABILITIES.get(provider, {})
@@ -2322,16 +2816,29 @@ class SchemaManager:
             # Determine which models should be enabled by default
             # If DEFAULT_ENABLED_MODELS is empty/None, enable all (backwards compatible)
             # Otherwise, only enable models explicitly listed for this provider
-            enabled_whitelist = DEFAULT_ENABLED_MODELS.get(provider, []) if DEFAULT_ENABLED_MODELS else []
+            enabled_whitelist = (
+                DEFAULT_ENABLED_MODELS.get(provider, []) if DEFAULT_ENABLED_MODELS else []
+            )
             enable_all = not DEFAULT_ENABLED_MODELS
 
             for sort_order, model in enumerate(models):
                 enabled = 1 if (enable_all or model in enabled_whitelist) else 0
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR IGNORE INTO enabled_models
                     (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (provider, model, enabled, supports_reasoning, supports_json, supports_image, sort_order))
+                """,
+                    (
+                        provider,
+                        model,
+                        enabled,
+                        supports_reasoning,
+                        supports_json,
+                        supports_image,
+                        sort_order,
+                    ),
+                )
 
         logger.info("Migration v38 complete: Added enabled_models table with seeded data")
 
@@ -2423,14 +2930,30 @@ class SchemaManager:
         conn.execute("ALTER TABLE prompt_captures_new RENAME TO prompt_captures")
 
         # Recreate indexes
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_game ON prompt_captures(game_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_player ON prompt_captures(player_name)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_action ON prompt_captures(action_taken)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_pot_odds ON prompt_captures(pot_odds)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_created ON prompt_captures(created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_phase ON prompt_captures(phase)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_provider ON prompt_captures(provider)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_call_type ON prompt_captures(call_type)"
+        )
 
         logger.info("Migration v39 complete: prompt_captures now supports playground captures")
 
@@ -2540,8 +3063,12 @@ class SchemaManager:
                 UNIQUE(experiment_id, game_id)
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_experiment_games_experiment ON experiment_games(experiment_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_experiment_games_game ON experiment_games(game_id)"
+        )
 
         logger.info("Migration v43 complete: Added experiments and experiment_games tables")
 
@@ -2568,9 +3095,7 @@ class SchemaManager:
         from Google OAuth. Supports linking guest accounts to Google accounts.
         """
         # Check if table already exists (for fresh databases created with v45 _init_db)
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
         if cursor.fetchone():
             logger.info("Users table already exists (created in _init_db), skipping creation")
         else:
@@ -2626,38 +3151,54 @@ class SchemaManager:
                 is_archived BOOLEAN DEFAULT 0
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner ON experiment_chat_sessions(owner_id, updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON experiment_chat_sessions(owner_id, is_archived)"
+        )
 
         # 3. Add chat columns to experiments table
-        experiments_cols = [row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()]
+        experiments_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()
+        ]
         if 'design_chat_json' not in experiments_cols:
             conn.execute("ALTER TABLE experiments ADD COLUMN design_chat_json TEXT")
         if 'assistant_chat_json' not in experiments_cols:
             conn.execute("ALTER TABLE experiments ADD COLUMN assistant_chat_json TEXT")
         if 'parent_experiment_id' not in experiments_cols:
-            conn.execute("ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)")
+            conn.execute(
+                "ALTER TABLE experiments ADD COLUMN parent_experiment_id INTEGER REFERENCES experiments(id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_experiments_parent ON experiments(parent_experiment_id)"
+            )
 
         # 4. Add Pollinations image models
         pollinations_default_enabled = {"flux", "zimage"}
         for sort_order, model in enumerate(POLLINATIONS_AVAILABLE_MODELS):
             enabled = 1 if model in pollinations_default_enabled else 0
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """, ("pollinations", model, enabled, 0, 0, 1, sort_order))
+            """,
+                ("pollinations", model, enabled, 0, 0, 1, sort_order),
+            )
 
         # 5. Add Runware image models
         runware_default_enabled = {"runware:101@1"}
         for sort_order, model in enumerate(RUNWARE_AVAILABLE_MODELS):
             enabled = 1 if model in runware_default_enabled else 0
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO enabled_models
                 (provider, model, enabled, supports_reasoning, supports_json_mode, supports_image_gen, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """, ("runware", model, enabled, 0, 0, 1, sort_order))
+            """,
+                ("runware", model, enabled, 0, 0, 1, sort_order),
+            )
 
         # 6. Add user_enabled and supports_img2img columns to enabled_models
         try:
@@ -2687,11 +3228,17 @@ class SchemaManager:
                 expires_at TIMESTAMP
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reference_images_owner ON reference_images(owner_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reference_images_expires ON reference_images(expires_at)"
+        )
 
         # 8. Add image capture columns to prompt_captures
-        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+        prompt_captures_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()
+        ]
         image_columns = [
             ("is_image_capture", "INTEGER DEFAULT 0"),
             ("image_prompt", "TEXT"),
@@ -2708,7 +3255,9 @@ class SchemaManager:
             if col_name not in prompt_captures_cols:
                 conn.execute(f"ALTER TABLE prompt_captures ADD COLUMN {col_name} {col_type}")
 
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prompt_captures_is_image ON prompt_captures(is_image_capture)"
+        )
 
         logger.info("Migration v46 complete: Added experiment manager features")
 
@@ -2737,8 +3286,12 @@ class SchemaManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_presets_owner ON prompt_presets(owner_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_presets_name ON prompt_presets(name)"
+            )
             logger.info("Created prompt_presets table")
 
         logger.info("Migration v47 complete: Added prompt_presets table")
@@ -2766,8 +3319,12 @@ class SchemaManager:
                     UNIQUE(capture_id, label)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_capture_labels_label ON capture_labels(label)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_capture_labels_capture_id ON capture_labels(capture_id)"
+            )
             logger.info("Created capture_labels table")
 
         logger.info("Migration v48 complete: Added capture_labels table")
@@ -2782,7 +3339,9 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(experiments)")
         columns = [row[1] for row in cursor.fetchall()]
         if 'experiment_type' not in columns:
-            conn.execute("ALTER TABLE experiments ADD COLUMN experiment_type TEXT DEFAULT 'tournament'")
+            conn.execute(
+                "ALTER TABLE experiments ADD COLUMN experiment_type TEXT DEFAULT 'tournament'"
+            )
             logger.info("Added experiment_type column to experiments table")
 
         # Create replay_experiment_captures table
@@ -2801,8 +3360,12 @@ class SchemaManager:
                     UNIQUE(experiment_id, capture_id)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_captures_experiment ON replay_experiment_captures(experiment_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_captures_capture ON replay_experiment_captures(capture_id)"
+            )
             logger.info("Created replay_experiment_captures table")
 
         # Create replay_results table
@@ -2835,10 +3398,18 @@ class SchemaManager:
                     UNIQUE(experiment_id, capture_id, variant)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_experiment ON replay_results(experiment_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_capture ON replay_results(capture_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_variant ON replay_results(variant)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_replay_results_quality ON replay_results(quality_change)"
+            )
             logger.info("Created replay_results table")
 
         logger.info("Migration v49 complete: Added replay experiment tables")
@@ -2849,7 +3420,9 @@ class SchemaManager:
         This column stores the PromptConfig settings active when the capture was made,
         making it easy to analyze how different configs affect AI behavior.
         """
-        prompt_captures_cols = [row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()]
+        prompt_captures_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(prompt_captures)").fetchall()
+        ]
 
         if 'prompt_config_json' not in prompt_captures_cols:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN prompt_config_json TEXT")
@@ -2892,9 +3465,7 @@ class SchemaManager:
         - user group: can_access_full_game only
         """
         # Check if tables already exist (for fresh databases)
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='groups'"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='groups'")
         if not cursor.fetchone():
             # Create groups table
             conn.execute("""
@@ -2958,7 +3529,9 @@ class SchemaManager:
                 )
             """)
             conn.execute("CREATE INDEX idx_group_permissions_group ON group_permissions(group_id)")
-            conn.execute("CREATE INDEX idx_group_permissions_permission ON group_permissions(permission_id)")
+            conn.execute(
+                "CREATE INDEX idx_group_permissions_permission ON group_permissions(permission_id)"
+            )
             logger.info("Created group_permissions table")
 
         # Seed initial data
@@ -3014,13 +3587,19 @@ class SchemaManager:
             # Note: SQLite doesn't enforce FK constraints added via ALTER TABLE, but we include
             # the REFERENCES clause for documentation. The actual constraint is enforced by
             # application logic. ON DELETE SET NULL matches the schema in _init_db().
-            conn.execute("ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id) ON DELETE SET NULL")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)")
+            conn.execute(
+                "ALTER TABLE prompt_captures ADD COLUMN parent_id INTEGER REFERENCES prompt_captures(id) ON DELETE SET NULL"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_parent ON prompt_captures(parent_id)"
+            )
             logger.info("Added parent_id column to prompt_captures")
 
         if 'error_type' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN error_type TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_error_type ON prompt_captures(error_type)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_error_type ON prompt_captures(error_type)"
+            )
             logger.info("Added error_type column to prompt_captures")
 
         if 'error_description' not in columns:
@@ -3028,10 +3607,14 @@ class SchemaManager:
             logger.info("Added error_description column to prompt_captures")
 
         if 'correction_attempt' not in columns:
-            conn.execute("ALTER TABLE prompt_captures ADD COLUMN correction_attempt INTEGER DEFAULT 0")
+            conn.execute(
+                "ALTER TABLE prompt_captures ADD COLUMN correction_attempt INTEGER DEFAULT 0"
+            )
             logger.info("Added correction_attempt column to prompt_captures")
 
-        logger.info("Migration v53 complete: AI decision resilience columns added to prompt_captures")
+        logger.info(
+            "Migration v53 complete: AI decision resilience columns added to prompt_captures"
+        )
 
     def _migrate_v54_squashed_features(self, conn: sqlite3.Connection) -> None:
         """Migration v54: Squashed features from baseline-prompt branch.
@@ -3128,25 +3711,31 @@ class SchemaManager:
 
         for preset in system_presets:
             try:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO prompt_presets (name, description, prompt_config, is_system, owner_id)
                     VALUES (?, ?, ?, TRUE, 'system')
-                """, (
-                    preset['name'],
-                    preset['description'],
-                    json.dumps(preset['prompt_config']),
-                ))
+                """,
+                    (
+                        preset['name'],
+                        preset['description'],
+                        json.dumps(preset['prompt_config']),
+                    ),
+                )
                 logger.info(f"Created system preset '{preset['name']}'")
             except sqlite3.IntegrityError:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE prompt_presets
                     SET description = ?, prompt_config = ?, is_system = TRUE, owner_id = 'system'
                     WHERE name = ?
-                """, (
-                    preset['description'],
-                    json.dumps(preset['prompt_config']),
-                    preset['name'],
-                ))
+                """,
+                    (
+                        preset['description'],
+                        json.dumps(preset['prompt_config']),
+                        preset['name'],
+                    ),
+                )
                 logger.info(f"Updated existing preset '{preset['name']}' as system preset")
 
         logger.info("Migration v54 complete: squashed features added")
@@ -3177,7 +3766,9 @@ class SchemaManager:
         This column stores the BB-normalized raise amount when BB mode
         is enabled, allowing analysis of AI betting patterns in BB terms.
         """
-        columns = [row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()
+        ]
 
         if 'raise_amount_bb' not in columns:
             conn.execute("ALTER TABLE player_decision_analysis ADD COLUMN raise_amount_bb REAL")
@@ -3254,7 +3845,9 @@ class SchemaManager:
 
         if 'owner_id' not in columns:
             conn.execute("ALTER TABLE prompt_captures ADD COLUMN owner_id TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompt_captures_owner ON prompt_captures(owner_id)"
+            )
             logger.info("Added owner_id column to prompt_captures")
 
         logger.info("Migration v59 complete: owner_id added to prompt_captures")
@@ -3266,7 +3859,9 @@ class SchemaManager:
         each AI decision is made, enabling analysis of how psychology impacts
         decision quality.
         """
-        columns = [row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()
+        ]
 
         new_columns = [
             ('tilt_level', 'REAL'),
@@ -3282,10 +3877,14 @@ class SchemaManager:
 
         for col_name, col_type in new_columns:
             if col_name not in columns:
-                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                conn.execute(
+                    f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
+                )
                 logger.info(f"Added {col_name} column to player_decision_analysis")
 
-        logger.info("Migration v60 complete: psychology snapshot columns added to player_decision_analysis")
+        logger.info(
+            "Migration v60 complete: psychology snapshot columns added to player_decision_analysis"
+        )
 
     def _migrate_v61_guest_tracking_and_owner_id(self, conn: sqlite3.Connection) -> None:
         """Migration v61: Add guest_usage_tracking table and owner_id to stats tables.
@@ -3306,20 +3905,28 @@ class SchemaManager:
         """)
 
         # Add owner_id to player_career_stats
-        career_cols = [row[1] for row in conn.execute("PRAGMA table_info(player_career_stats)").fetchall()]
+        career_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_career_stats)").fetchall()
+        ]
         if 'owner_id' not in career_cols:
             conn.execute("ALTER TABLE player_career_stats ADD COLUMN owner_id TEXT")
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_career_stats_owner ON player_career_stats(owner_id)")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_career_stats_owner ON player_career_stats(owner_id)"
+            )
             logger.info("Added owner_id column to player_career_stats")
 
         # Add owner_id to tournament_standings
-        standings_cols = [row[1] for row in conn.execute("PRAGMA table_info(tournament_standings)").fetchall()]
+        standings_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(tournament_standings)").fetchall()
+        ]
         if 'owner_id' not in standings_cols:
             conn.execute("ALTER TABLE tournament_standings ADD COLUMN owner_id TEXT")
             logger.info("Added owner_id column to tournament_standings")
 
         # Add human_owner_id to tournament_results
-        results_cols = [row[1] for row in conn.execute("PRAGMA table_info(tournament_results)").fetchall()]
+        results_cols = [
+            row[1] for row in conn.execute("PRAGMA table_info(tournament_results)").fetchall()
+        ]
         if 'human_owner_id' not in results_cols:
             conn.execute("ALTER TABLE tournament_results ADD COLUMN human_owner_id TEXT")
             logger.info("Added human_owner_id column to tournament_results")
@@ -3381,30 +3988,61 @@ class SchemaManager:
         if 'visibility' not in columns:
             conn.execute("ALTER TABLE personalities ADD COLUMN visibility TEXT DEFAULT 'public'")
 
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_personalities_owner ON personalities(owner_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_personalities_visibility ON personalities(visibility)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personalities_owner ON personalities(owner_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_personalities_visibility ON personalities(visibility)"
+        )
 
         # Disable the 33 unsafe personalities (living celebrities, active IP, living politicians)
         unsafe_names = [
-            'Ace Ventura', 'Donald Trump', 'Batman', 'The Hulk', 'The Rock',
-            'Hulk Hogan', 'Tyler Durden', 'Crocodile Dundee', 'R2-D2', 'C3PO',
-            'Sarah Silverman', 'Chris Rock', 'Dave Chappelle', 'Whoopi Goldberg',
-            'Lance Armstrong', 'Deadpool', 'Triumph the Insult Comic Dog',
-            'Barack Obama', 'Bill Clinton', 'Lizzo', 'Marjorie Taylor Greene',
-            'Jim Cramer', 'Jon Stewart', 'James Bond', 'Tom Cruise', 'Fred Durst',
-            'Khloe and Kim Khardashian', 'Eeyore', 'Gordon Ramsay', 'Shaq',
-            'Sydney Sweeney', 'Ruth Bader Ginsburg', 'Dr. Oz',
+            'Ace Ventura',
+            'Donald Trump',
+            'Batman',
+            'The Hulk',
+            'The Rock',
+            'Hulk Hogan',
+            'Tyler Durden',
+            'Crocodile Dundee',
+            'R2-D2',
+            'C3PO',
+            'Sarah Silverman',
+            'Chris Rock',
+            'Dave Chappelle',
+            'Whoopi Goldberg',
+            'Lance Armstrong',
+            'Deadpool',
+            'Triumph the Insult Comic Dog',
+            'Barack Obama',
+            'Bill Clinton',
+            'Lizzo',
+            'Marjorie Taylor Greene',
+            'Jim Cramer',
+            'Jon Stewart',
+            'James Bond',
+            'Tom Cruise',
+            'Fred Durst',
+            'Khloe and Kim Khardashian',
+            'Eeyore',
+            'Gordon Ramsay',
+            'Shaq',
+            'Sydney Sweeney',
+            'Ruth Bader Ginsburg',
+            'Dr. Oz',
         ]
         placeholders = ','.join('?' * len(unsafe_names))
         conn.execute(
             f"UPDATE personalities SET visibility = 'disabled' WHERE name IN ({placeholders})",
-            unsafe_names
+            unsafe_names,
         )
 
         disabled_count = conn.execute(
             "SELECT COUNT(*) FROM personalities WHERE visibility = 'disabled'"
         ).fetchone()[0]
-        logger.info(f"Migration v64 complete: added owner_id/visibility columns, disabled {disabled_count} unsafe personalities")
+        logger.info(
+            f"Migration v64 complete: added owner_id/visibility columns, disabled {disabled_count} unsafe personalities"
+        )
 
     def _migrate_v65_add_coach_permission(self, conn: sqlite3.Connection) -> None:
         """Migration v65: Add can_access_coach permission for RBAC gating.
@@ -3427,13 +4065,12 @@ class SchemaManager:
 
     def _migrate_v66_add_window_decisions(self, conn: sqlite3.Connection) -> None:
         """Migration v66: Add window_decisions column for sliding window tracking."""
-        columns = [row[1] for row in conn.execute(
-            "PRAGMA table_info(player_skill_progress)"
-        ).fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_skill_progress)").fetchall()
+        ]
         if 'window_decisions' not in columns:
             conn.execute(
-                "ALTER TABLE player_skill_progress "
-                "ADD COLUMN window_decisions TEXT DEFAULT '[]'"
+                "ALTER TABLE player_skill_progress " "ADD COLUMN window_decisions TEXT DEFAULT '[]'"
             )
         # Backfill existing rows: approximate from aggregate counters
         rows = conn.execute(
@@ -3464,9 +4101,9 @@ class SchemaManager:
         - player_hand_tier: Hand tier (premium, strong, playable, marginal, trash)
         - standard_range_pct: Expected range % for position
         """
-        columns = [row[1] for row in conn.execute(
-            "PRAGMA table_info(player_decision_analysis)"
-        ).fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_decision_analysis)").fetchall()
+        ]
 
         new_columns = [
             ("opponent_ranges_json", "TEXT"),
@@ -3483,7 +4120,9 @@ class SchemaManager:
                     f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
                 )
 
-        logger.info("Migration v67 complete: range tracking columns added to player_decision_analysis")
+        logger.info(
+            "Migration v67 complete: range tracking columns added to player_decision_analysis"
+        )
 
     def _migrate_v68_add_onboarding_completed(self, conn: sqlite3.Connection) -> None:
         """Migration v68: Add onboarding_completed_at to player_coach_profile.
@@ -3492,13 +4131,12 @@ class SchemaManager:
         (choosing their experience level), so the frontend doesn't need to
         rely solely on localStorage for the onboarding dismissal state.
         """
-        columns = [row[1] for row in conn.execute(
-            "PRAGMA table_info(player_coach_profile)"
-        ).fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_coach_profile)").fetchall()
+        ]
         if 'onboarding_completed_at' not in columns:
             conn.execute(
-                "ALTER TABLE player_coach_profile "
-                "ADD COLUMN onboarding_completed_at TEXT"
+                "ALTER TABLE player_coach_profile " "ADD COLUMN onboarding_completed_at TEXT"
             )
         logger.info("Migration v68 complete: onboarding_completed_at column added")
 
@@ -3529,9 +4167,15 @@ class SchemaManager:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_game ON hand_equity(game_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hand_equity_hand ON hand_equity(hand_history_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hand_equity_player ON hand_equity(player_name)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hand_equity_street_equity ON hand_equity(street, equity)"
+        )
 
         logger.info("Migration v69 complete: hand_equity table added")
 
@@ -3544,14 +4188,13 @@ class SchemaManager:
         Range targets evolve as players progress through gates, starting tight
         and expanding as they demonstrate skill mastery.
         """
-        columns = [row[1] for row in conn.execute(
-            "PRAGMA table_info(player_coach_profile)"
-        ).fetchall()]
+        columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(player_coach_profile)").fetchall()
+        ]
 
         if 'range_targets' not in columns:
             conn.execute(
-                "ALTER TABLE player_coach_profile "
-                "ADD COLUMN range_targets TEXT DEFAULT NULL"
+                "ALTER TABLE player_coach_profile " "ADD COLUMN range_targets TEXT DEFAULT NULL"
             )
 
         logger.info("Migration v70 complete: range_targets column added to player_coach_profile")
@@ -3583,7 +4226,9 @@ class SchemaManager:
 
         for col_name, col_type in new_columns:
             if col_name not in existing_columns:
-                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                conn.execute(
+                    f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
+                )
                 logger.debug(f"Added column {col_name} to player_decision_analysis")
 
         logger.info("Migration v71 complete: 5-trait psychology columns added")
@@ -3623,13 +4268,19 @@ class SchemaManager:
 
         for col_name, col_type in new_columns:
             if col_name not in existing_columns:
-                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                conn.execute(
+                    f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
+                )
                 logger.debug(f"Added column {col_name} to player_decision_analysis")
 
         # Add indexes for fast aggregation queries
         try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_penalty ON player_decision_analysis(zone_primary_penalty)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_analysis_zone_sweet_spot ON player_decision_analysis(zone_primary_sweet_spot)"
+            )
         except Exception as e:
             logger.debug(f"Index creation failed (may already exist): {e}")
 
@@ -3645,7 +4296,9 @@ class SchemaManager:
             logger.debug("Added hand_number column to pressure_events")
 
         try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_pressure_events_hand ON pressure_events(game_id, hand_number)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pressure_events_hand ON pressure_events(game_id, hand_number)"
+            )
         except Exception as e:
             logger.debug(f"Index creation failed (may already exist): {e}")
 
@@ -3722,8 +4375,12 @@ class SchemaManager:
                 UNIQUE(experiment_id, capture_id, variant, sample_number)
             )
         """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_experiment ON bounded_replay_results(experiment_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_bounded_replay_capture ON bounded_replay_results(capture_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bounded_replay_experiment ON bounded_replay_results(experiment_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bounded_replay_capture ON bounded_replay_results(capture_id)"
+        )
         logger.info("Migration v77 complete: bounded_replay_results table created")
 
     def _migrate_v78_add_quality_scores(self, conn: sqlite3.Connection) -> None:
@@ -3745,7 +4402,9 @@ class SchemaManager:
 
         for col_name, col_type in new_columns:
             if col_name not in existing_columns:
-                conn.execute(f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}")
+                conn.execute(
+                    f"ALTER TABLE player_decision_analysis ADD COLUMN {col_name} {col_type}"
+                )
                 logger.debug(f"Added {col_name} column to player_decision_analysis")
 
         logger.info("Migration v78 complete: quality_score and menu compliance columns added")
@@ -3786,8 +4445,7 @@ class SchemaManager:
 
         if 'intervention_trace_json' not in existing_columns:
             conn.execute(
-                "ALTER TABLE player_decision_analysis "
-                "ADD COLUMN intervention_trace_json TEXT"
+                "ALTER TABLE player_decision_analysis " "ADD COLUMN intervention_trace_json TEXT"
             )
             logger.debug("Added intervention_trace_json column to player_decision_analysis")
 
@@ -3816,13 +4474,10 @@ class SchemaManager:
                 "ADD COLUMN strategy_pipeline_snapshot_json TEXT"
             )
             logger.debug(
-                "Added strategy_pipeline_snapshot_json column to "
-                "player_decision_analysis"
+                "Added strategy_pipeline_snapshot_json column to " "player_decision_analysis"
             )
 
-        logger.info(
-            "Migration v82 complete: strategy_pipeline_snapshot_json added"
-        )
+        logger.info("Migration v82 complete: strategy_pipeline_snapshot_json added")
 
     def _migrate_v83_add_psychology_json(self, conn: sqlite3.Connection) -> None:
         """Migration v83: Add psychology_json to controller_state.
@@ -3941,9 +4596,9 @@ class SchemaManager:
         ).fetchall()
         if rows:
             taken = {
-                row[0] for row in conn.execute(
-                    "SELECT personality_id FROM personalities "
-                    "WHERE personality_id IS NOT NULL"
+                row[0]
+                for row in conn.execute(
+                    "SELECT personality_id FROM personalities " "WHERE personality_id IS NOT NULL"
                 ).fetchall()
             }
             assigned = 0
@@ -3954,7 +4609,8 @@ class SchemaManager:
                     logger.warning(
                         "v85: personality id=%s name=%r slugifies to empty; "
                         "leaving personality_id NULL — needs manual fix",
-                        row_id, name,
+                        row_id,
+                        name,
                     )
                     continue
                 new_id = _assign_unique_personality_id(base_slug, taken)
@@ -4310,8 +4966,7 @@ class SchemaManager:
             "ON chip_ledger_entries(created_at DESC)"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason "
-            "ON chip_ledger_entries(reason)"
+            "CREATE INDEX IF NOT EXISTS idx_chip_ledger_reason " "ON chip_ledger_entries(reason)"
         )
         logger.info("v93: created chip_ledger_entries for chip-economy observability")
 
@@ -4351,8 +5006,7 @@ class SchemaManager:
         the credit_ai_cash_out ledger writes.
         """
         existing = conn.execute(
-            "SELECT COUNT(*) FROM chip_ledger_entries "
-            "WHERE reason = 'pre_ledger_universe'"
+            "SELECT COUNT(*) FROM chip_ledger_entries " "WHERE reason = 'pre_ledger_universe'"
         ).fetchone()[0]
         if existing > 0:
             logger.info(
@@ -4366,8 +5020,7 @@ class SchemaManager:
         # Player bankrolls.
         try:
             rows = conn.execute(
-                "SELECT player_id, chips FROM player_bankroll_state "
-                "WHERE chips > 0"
+                "SELECT player_id, chips FROM player_bankroll_state " "WHERE chips > 0"
             ).fetchall()
         except sqlite3.OperationalError:
             rows = []  # table doesn't exist yet on a very fresh DB
@@ -4376,7 +5029,9 @@ class SchemaManager:
                 "INSERT INTO chip_ledger_entries "
                 "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
                 (
-                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'central_bank',
+                    f"player:{row[0]}",
+                    int(row[1]),
                     'pre_ledger_universe',
                     json.dumps({'kind': 'player_bankroll'}),
                 ),
@@ -4387,8 +5042,7 @@ class SchemaManager:
         # reads stored (after the v94 commit), so the two agree.
         try:
             rows = conn.execute(
-                "SELECT personality_id, chips FROM ai_bankroll_state "
-                "WHERE chips > 0"
+                "SELECT personality_id, chips FROM ai_bankroll_state " "WHERE chips > 0"
             ).fetchall()
         except sqlite3.OperationalError:
             rows = []
@@ -4397,7 +5051,9 @@ class SchemaManager:
                 "INSERT INTO chip_ledger_entries "
                 "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
                 (
-                    'central_bank', f"ai:{row[0]}", int(row[1]),
+                    'central_bank',
+                    f"ai:{row[0]}",
+                    int(row[1]),
                     'pre_ledger_universe',
                     json.dumps({'kind': 'ai_bankroll'}),
                 ),
@@ -4406,9 +5062,7 @@ class SchemaManager:
 
         # Cash table AI seats.
         try:
-            rows = conn.execute(
-                "SELECT table_id, seats_json FROM cash_tables"
-            ).fetchall()
+            rows = conn.execute("SELECT table_id, seats_json FROM cash_tables").fetchall()
         except sqlite3.OperationalError:
             rows = []
         for row in rows:
@@ -4427,12 +5081,16 @@ class SchemaManager:
                     "INSERT INTO chip_ledger_entries "
                     "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
                     (
-                        'central_bank', f"ai:{pid}", chips,
+                        'central_bank',
+                        f"ai:{pid}",
+                        chips,
                         'pre_ledger_universe',
-                        json.dumps({
-                            'kind': 'cash_table_seat',
-                            'table_id': row[0],
-                        }),
+                        json.dumps(
+                            {
+                                'kind': 'cash_table_seat',
+                                'table_id': row[0],
+                            }
+                        ),
                     ),
                 )
                 seeded += 1
@@ -4460,16 +5118,14 @@ class SchemaManager:
             rows = []
         for row in rows:
             lender_id = row[2]
-            kind = (
-                'house_loan_principal'
-                if lender_id is None
-                else 'personality_loan_principal'
-            )
+            kind = 'house_loan_principal' if lender_id is None else 'personality_loan_principal'
             conn.execute(
                 "INSERT INTO chip_ledger_entries "
                 "(source, sink, amount, reason, context_json) VALUES (?, ?, ?, ?, ?)",
                 (
-                    'central_bank', f"player:{row[0]}", int(row[1]),
+                    'central_bank',
+                    f"player:{row[0]}",
+                    int(row[1]),
                     'pre_ledger_universe',
                     json.dumps({'kind': kind, 'lender_id': lender_id}),
                 ),
@@ -4518,9 +5174,7 @@ class SchemaManager:
         existing_columns = {row[1] for row in cursor.fetchall()}
 
         if 'dealer_idx' not in existing_columns:
-            conn.execute(
-                "ALTER TABLE cash_tables ADD COLUMN dealer_idx INTEGER NOT NULL DEFAULT 0"
-            )
+            conn.execute("ALTER TABLE cash_tables ADD COLUMN dealer_idx INTEGER NOT NULL DEFAULT 0")
             logger.debug("Added dealer_idx column to cash_tables")
 
         logger.info("Migration v96 complete: cash_tables.dealer_idx added")
@@ -4552,14 +5206,10 @@ class SchemaManager:
         existing_columns = {row[1] for row in cursor.fetchall()}
 
         if 'emotional_state_json' not in existing_columns:
-            conn.execute(
-                "ALTER TABLE ai_bankroll_state ADD COLUMN emotional_state_json TEXT"
-            )
+            conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN emotional_state_json TEXT")
             logger.debug("Added emotional_state_json column to ai_bankroll_state")
 
-        logger.info(
-            "Migration v97 complete: ai_bankroll_state.emotional_state_json added"
-        )
+        logger.info("Migration v97 complete: ai_bankroll_state.emotional_state_json added")
 
     def _migrate_v98_add_stakes_table(self, conn: sqlite3.Connection) -> None:
         """Migration v98: Create the `stakes` table and rename legacy
@@ -4695,12 +5345,9 @@ class SchemaManager:
             "active_loan_rate",
         ):
             if col in cols:
-                conn.execute(
-                    f"ALTER TABLE player_bankroll_state DROP COLUMN {col}"
-                )
+                conn.execute(f"ALTER TABLE player_bankroll_state DROP COLUMN {col}")
         logger.info(
-            "Migration v99 complete: active_loan_* columns dropped from "
-            "player_bankroll_state"
+            "Migration v99 complete: active_loan_* columns dropped from " "player_bankroll_state"
         )
 
     def _migrate_v100_add_sandboxes_table(self, conn: sqlite3.Connection) -> None:
@@ -4861,19 +5508,17 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(chip_ledger_entries)")
         cols = {row[1] for row in cursor.fetchall()}
         if 'sandbox_id' not in cols:
-            conn.execute(
-                "ALTER TABLE chip_ledger_entries ADD COLUMN sandbox_id TEXT"
-            )
+            conn.execute("ALTER TABLE chip_ledger_entries ADD COLUMN sandbox_id TEXT")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_chip_ledger_sandbox
                 ON chip_ledger_entries(sandbox_id)
                 WHERE sandbox_id IS NOT NULL
         """)
-        logger.info(
-            "Migration v103 complete: chip_ledger_entries.sandbox_id added"
-        )
+        logger.info("Migration v103 complete: chip_ledger_entries.sandbox_id added")
 
-    def _migrate_v105_rename_bankroll_cap_to_starting_bankroll(self, conn: sqlite3.Connection) -> None:
+    def _migrate_v105_rename_bankroll_cap_to_starting_bankroll(
+        self, conn: sqlite3.Connection
+    ) -> None:
         """Migration v105: bankroll_cap → starting_bankroll rename.
 
         Two parts:
@@ -4896,6 +5541,7 @@ class SchemaManager:
         one name in persistence.
         """
         import json
+
         rows = conn.execute(
             "SELECT id, config_json FROM personalities WHERE config_json IS NOT NULL"
         ).fetchall()
@@ -4923,7 +5569,8 @@ class SchemaManager:
             n_rewritten += 1
         logger.info(
             "Migration v105: rewrote bankroll_cap → starting_bankroll in %d "
-            "personality config_json rows", n_rewritten,
+            "personality config_json rows",
+            n_rewritten,
         )
 
         # Drop the vestigial column. Guard with PRAGMA so re-running
@@ -4952,12 +5599,8 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(stakes)")
         cols = {row[1] for row in cursor.fetchall()}
         if 'forgiveness_last_asked' not in cols:
-            conn.execute(
-                "ALTER TABLE stakes ADD COLUMN forgiveness_last_asked TIMESTAMP"
-            )
-        logger.info(
-            "Migration v104 complete: stakes.forgiveness_last_asked added"
-        )
+            conn.execute("ALTER TABLE stakes ADD COLUMN forgiveness_last_asked TIMESTAMP")
+        logger.info("Migration v104 complete: stakes.forgiveness_last_asked added")
 
     def _migrate_v106_add_stake_payouts(self, conn: sqlite3.Connection) -> None:
         """Migration v106: add `staker_payout` / `borrower_payout` to stakes.
@@ -4993,8 +5636,7 @@ class SchemaManager:
         if 'borrower_payout' not in cols:
             conn.execute("ALTER TABLE stakes ADD COLUMN borrower_payout INTEGER")
         logger.info(
-            "Migration v106 complete: stakes.staker_payout and "
-            "stakes.borrower_payout added"
+            "Migration v106 complete: stakes.staker_payout and " "stakes.borrower_payout added"
         )
 
     def _migrate_v107_add_aspiration_cooldown(self, conn: sqlite3.Connection) -> None:
@@ -5019,12 +5661,9 @@ class SchemaManager:
         cols = {row[1] for row in cursor.fetchall()}
         if 'aspiration_cooldown_until' not in cols:
             conn.execute(
-                "ALTER TABLE ai_bankroll_state "
-                "ADD COLUMN aspiration_cooldown_until TEXT"
+                "ALTER TABLE ai_bankroll_state " "ADD COLUMN aspiration_cooldown_until TEXT"
             )
-        logger.info(
-            "Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added"
-        )
+        logger.info("Migration v107 complete: ai_bankroll_state.aspiration_cooldown_until added")
 
     def _migrate_v108_add_cash_sessions(self, conn: sqlite3.Connection) -> None:
         """Migration v108: create the `cash_sessions` table.
@@ -5152,8 +5791,7 @@ class SchemaManager:
                 ON cash_pair_stats(observer_id)
         """)
         logger.info(
-            "Migration v109 complete: cash_pair_stats dropped+recreated "
-            "with sandbox_id in PK"
+            "Migration v109 complete: cash_pair_stats dropped+recreated " "with sandbox_id in PK"
         )
 
     def _migrate_v110_add_pending_forgiveness_ask(self, conn: sqlite3.Connection) -> None:
@@ -5177,12 +5815,8 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(stakes)")
         cols = {row[1] for row in cursor.fetchall()}
         if 'pending_forgiveness_ask' not in cols:
-            conn.execute(
-                "ALTER TABLE stakes ADD COLUMN pending_forgiveness_ask TIMESTAMP"
-            )
-        logger.info(
-            "Migration v110 complete: stakes.pending_forgiveness_ask added"
-        )
+            conn.execute("ALTER TABLE stakes ADD COLUMN pending_forgiveness_ask TIMESTAMP")
+        logger.info("Migration v110 complete: stakes.pending_forgiveness_ask added")
 
     def _migrate_v111_add_multi_table_lobby_columns(self, conn: sqlite3.Connection) -> None:
         """Migration v111: add name + table_type to cash_tables and
@@ -5215,8 +5849,7 @@ class SchemaManager:
             # the literal 'lobby' so existing rows pick up the default
             # via the schema, and new rows persist explicitly.
             conn.execute(
-                "ALTER TABLE cash_tables ADD COLUMN table_type TEXT "
-                "NOT NULL DEFAULT 'lobby'"
+                "ALTER TABLE cash_tables ADD COLUMN table_type TEXT " "NOT NULL DEFAULT 'lobby'"
             )
 
         cursor = conn.execute("PRAGMA table_info(stakes)")
@@ -5237,8 +5870,7 @@ class SchemaManager:
             # the backfill. The columns are still added so subsequent
             # boots can write names.
             logger.info(
-                "Migration v111: cash_mode.lobby_config not importable; "
-                "skipping name backfill"
+                "Migration v111: cash_mode.lobby_config not importable; " "skipping name backfill"
             )
             return
 
@@ -5254,8 +5886,7 @@ class SchemaManager:
                 # Only set name where it's currently NULL — preserves
                 # any future per-row overrides without clobber.
                 conn.execute(
-                    "UPDATE cash_tables SET name = ? "
-                    "WHERE table_id = ? AND name IS NULL",
+                    "UPDATE cash_tables SET name = ? " "WHERE table_id = ? AND name IS NULL",
                     (name, table_id),
                 )
 
@@ -5280,12 +5911,8 @@ class SchemaManager:
         cursor = conn.execute("PRAGMA table_info(cash_tables)")
         cash_table_cols = {row[1] for row in cursor.fetchall()}
         if 'closing_hand_countdown' not in cash_table_cols:
-            conn.execute(
-                "ALTER TABLE cash_tables ADD COLUMN closing_hand_countdown INTEGER"
-            )
-        logger.info(
-            "Migration v113 complete: cash_tables.closing_hand_countdown added"
-        )
+            conn.execute("ALTER TABLE cash_tables ADD COLUMN closing_hand_countdown INTEGER")
+        logger.info("Migration v113 complete: cash_tables.closing_hand_countdown added")
 
     def _migrate_v112_create_ai_vice_state(self, conn: sqlite3.Connection) -> None:
         """Migration v112: create `ai_vice_state` for AI vice spending.

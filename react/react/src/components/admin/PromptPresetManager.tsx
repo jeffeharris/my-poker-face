@@ -46,17 +46,41 @@ interface EditingPreset {
 // ============================================
 
 const DEFAULT_PROMPT_CONFIG_OPTIONS: Array<{ key: string; label: string; description: string }> = [
-  { key: 'include_psychology', label: 'Psychology State', description: 'Include emotional state and tilt information' },
+  {
+    key: 'include_psychology',
+    label: 'Psychology State',
+    description: 'Include emotional state and tilt information',
+  },
   { key: 'include_pot_odds', label: 'Pot Odds', description: 'Include pot odds calculations' },
-  { key: 'include_position', label: 'Position Info', description: 'Include position-based strategy hints' },
-  { key: 'include_stack_context', label: 'Stack Context', description: 'Include stack-to-pot ratio analysis' },
-  { key: 'include_opponent_notes', label: 'Opponent Notes', description: 'Include learned opponent patterns' },
-  { key: 'include_hand_history', label: 'Hand History', description: 'Include recent hand summary' },
-  { key: 'verbose_reasoning', label: 'Verbose Reasoning', description: 'Request detailed decision explanation' },
+  {
+    key: 'include_position',
+    label: 'Position Info',
+    description: 'Include position-based strategy hints',
+  },
+  {
+    key: 'include_stack_context',
+    label: 'Stack Context',
+    description: 'Include stack-to-pot ratio analysis',
+  },
+  {
+    key: 'include_opponent_notes',
+    label: 'Opponent Notes',
+    description: 'Include learned opponent patterns',
+  },
+  {
+    key: 'include_hand_history',
+    label: 'Hand History',
+    description: 'Include recent hand summary',
+  },
+  {
+    key: 'verbose_reasoning',
+    label: 'Verbose Reasoning',
+    description: 'Request detailed decision explanation',
+  },
 ];
 
 const DEFAULT_PROMPT_CONFIG: PromptConfig = Object.fromEntries(
-  DEFAULT_PROMPT_CONFIG_OPTIONS.map(opt => [opt.key, true])
+  DEFAULT_PROMPT_CONFIG_OPTIONS.map((opt) => [opt.key, true])
 );
 
 // ============================================
@@ -148,9 +172,7 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
       };
 
       const isNew = editingPreset.id === null;
-      const url = isNew
-        ? '/api/prompt-presets'
-        : `/api/prompt-presets/${editingPreset.id}`;
+      const url = isNew ? '/api/prompt-presets' : `/api/prompt-presets/${editingPreset.id}`;
 
       const response = await adminAPI.fetch(url, {
         method: isNew ? 'POST' : 'PUT',
@@ -160,7 +182,10 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
       const data = await response.json();
 
       if (data.success) {
-        setAlert({ type: 'success', message: data.message || `Preset ${isNew ? 'created' : 'updated'}` });
+        setAlert({
+          type: 'success',
+          message: data.message || `Preset ${isNew ? 'created' : 'updated'}`,
+        });
         setEditingPreset(null);
         fetchPresets();
       } else {
@@ -183,7 +208,7 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
       if (data.success) {
         setAlert({ type: 'success', message: data.message || 'Preset deleted' });
         setDeleteConfirmId(null);
-        setPresets(prev => prev.filter(p => p.id !== id));
+        setPresets((prev) => prev.filter((p) => p.id !== id));
       } else {
         setAlert({ type: 'error', message: data.error || 'Failed to delete preset' });
       }
@@ -222,7 +247,9 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
             {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
           </span>
           <span className="ppm-alert__message">{alert.message}</span>
-          <button className="ppm-alert__close" onClick={() => setAlert(null)}>×</button>
+          <button className="ppm-alert__close" onClick={() => setAlert(null)}>
+            ×
+          </button>
         </div>
       )}
 
@@ -230,15 +257,9 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
       <div className="ppm-header">
         <div className="ppm-header__text">
           <h2 className="ppm-header__title">Prompt Presets</h2>
-          <p className="ppm-header__subtitle">
-            Saved prompt configurations for experiments
-          </p>
+          <p className="ppm-header__subtitle">Saved prompt configurations for experiments</p>
         </div>
-        <button
-          className="ppm-header__add"
-          onClick={startCreate}
-          disabled={editingPreset !== null}
-        >
+        <button className="ppm-header__add" onClick={startCreate} disabled={editingPreset !== null}>
           <Plus size={18} />
           New Preset
         </button>
@@ -269,7 +290,9 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
                 id="preset-description"
                 type="text"
                 value={editingPreset.description}
-                onChange={(e) => setEditingPreset({ ...editingPreset, description: e.target.value })}
+                onChange={(e) =>
+                  setEditingPreset({ ...editingPreset, description: e.target.value })
+                }
                 placeholder="e.g., Configuration for testing aggressive strategies"
               />
             </div>
@@ -277,7 +300,7 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
             <div className="ppm-field">
               <label>Prompt Configuration</label>
               <div className="ppm-config-options">
-                {DEFAULT_PROMPT_CONFIG_OPTIONS.map(opt => (
+                {DEFAULT_PROMPT_CONFIG_OPTIONS.map((opt) => (
                   <label key={opt.key} className="ppm-config-option">
                     <input
                       type="checkbox"
@@ -296,7 +319,9 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
               <textarea
                 id="preset-guidance"
                 value={editingPreset.guidance_injection}
-                onChange={(e) => setEditingPreset({ ...editingPreset, guidance_injection: e.target.value })}
+                onChange={(e) =>
+                  setEditingPreset({ ...editingPreset, guidance_injection: e.target.value })
+                }
                 placeholder="e.g., Always consider folding weak hands in early position..."
                 rows={4}
               />
@@ -326,7 +351,7 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
             <p>No presets yet. Create one to get started.</p>
           </div>
         ) : (
-          presets.map(preset => (
+          presets.map((preset) => (
             <div
               key={preset.id}
               className={`ppm-preset ${expandedId === preset.id ? 'ppm-preset--expanded' : ''}`}
@@ -343,13 +368,21 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
                 </div>
                 <div className="ppm-preset__actions">
                   {preset.is_system && (
-                    <span className="ppm-tag ppm-tag--system" title="Managed by config/game_modes.yaml">System</span>
+                    <span
+                      className="ppm-tag ppm-tag--system"
+                      title="Managed by config/game_modes.yaml"
+                    >
+                      System
+                    </span>
                   )}
                   {!preset.is_system && (
                     <>
                       <button
                         className="ppm-preset__action"
-                        onClick={(e) => { e.stopPropagation(); startEdit(preset); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(preset);
+                        }}
                         title="Edit"
                         disabled={editingPreset !== null}
                       >
@@ -357,7 +390,10 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
                       </button>
                       <button
                         className="ppm-preset__action ppm-preset__action--danger"
-                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(preset.id); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmId(preset.id);
+                        }}
                         title="Delete"
                         disabled={editingPreset !== null}
                       >
@@ -380,7 +416,7 @@ export function PromptPresetManager({ embedded = false }: PromptPresetManagerPro
                         Object.entries(preset.prompt_config)
                           .filter(([, enabled]) => enabled)
                           .map(([key]) => {
-                            const opt = DEFAULT_PROMPT_CONFIG_OPTIONS.find(o => o.key === key);
+                            const opt = DEFAULT_PROMPT_CONFIG_OPTIONS.find((o) => o.key === key);
                             return (
                               <span key={key} className="ppm-tag ppm-tag--enabled">
                                 {opt?.label || key}

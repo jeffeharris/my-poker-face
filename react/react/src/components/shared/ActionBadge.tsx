@@ -11,7 +11,11 @@ export interface ActionBadgeProps {
  * Renders a colored pill badge for a player's last action (CHECK, CALL, RAISE, etc.)
  * with a fade-out animation when the action is cleared between betting rounds.
  */
-export const ActionBadge = memo(function ActionBadge({ player, lastKnownActions, onFadeComplete }: ActionBadgeProps) {
+export const ActionBadge = memo(function ActionBadge({
+  player,
+  lastKnownActions,
+  onFadeComplete,
+}: ActionBadgeProps) {
   // Track last known action in a ref via useEffect (not during render) to keep renders pure
   useEffect(() => {
     if (player.is_folded || player.is_all_in) {
@@ -38,10 +42,14 @@ export const ActionBadge = memo(function ActionBadge({ player, lastKnownActions,
   return (
     <div
       className={`action-badge action-${displayAction} ${isFading ? 'fading' : ''}`}
-      onAnimationEnd={isFading ? () => {
-        lastKnownActions.current.delete(player.name);
-        onFadeComplete();
-      } : undefined}
+      onAnimationEnd={
+        isFading
+          ? () => {
+              lastKnownActions.current.delete(player.name);
+              onFadeComplete();
+            }
+          : undefined
+      }
     >
       {displayAction.toUpperCase()}
     </div>

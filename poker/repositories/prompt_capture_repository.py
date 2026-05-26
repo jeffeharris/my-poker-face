@@ -2,14 +2,15 @@
 
 Covers the prompt_captures table including game captures and playground captures.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from poker.repositories.base_repository import BaseRepository
-from poker.repositories.repository_utils import parse_json_fields, build_where_clause
+from poker.repositories.repository_utils import build_where_clause, parse_json_fields
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class PromptCaptureRepository(BaseRepository):
             The ID of the inserted capture.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO prompt_captures (
                     -- Identity
                     game_id, player_name, hand_number,
@@ -60,53 +62,63 @@ class PromptCaptureRepository(BaseRepository):
                     -- Prompt Config (for analysis)
                     prompt_config_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                # Identity
-                capture.get('game_id'),
-                capture.get('player_name'),
-                capture.get('hand_number'),
-                # Game State
-                capture.get('phase'),
-                capture.get('pot_total'),
-                capture.get('cost_to_call'),
-                capture.get('pot_odds'),
-                capture.get('player_stack'),
-                capture.get('stack_bb'),
-                capture.get('already_bet_bb'),
-                json.dumps(capture.get('community_cards')) if capture.get('community_cards') else None,
-                json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
-                json.dumps(capture.get('valid_actions')) if capture.get('valid_actions') else None,
-                # Decision
-                capture.get('action_taken'),
-                capture.get('raise_amount'),
-                # Prompts (INPUT)
-                capture.get('system_prompt'),
-                json.dumps(capture.get('conversation_history')) if capture.get('conversation_history') else None,
-                capture.get('user_message'),
-                capture.get('raw_request'),
-                # Response (OUTPUT)
-                capture.get('ai_response'),
-                capture.get('raw_api_response'),
-                # LLM Config
-                capture.get('provider', 'openai'),
-                capture.get('model'),
-                capture.get('reasoning_effort'),
-                # Metrics
-                capture.get('latency_ms'),
-                capture.get('input_tokens'),
-                capture.get('output_tokens'),
-                # Tracking
-                capture.get('original_request_id'),
-                # Prompt Versioning
-                capture.get('prompt_template'),
-                capture.get('prompt_version'),
-                capture.get('prompt_hash'),
-                # User Annotations
-                json.dumps(capture.get('tags', [])),
-                capture.get('notes'),
-                # Prompt Config (for analysis)
-                json.dumps(capture.get('prompt_config')) if capture.get('prompt_config') else None,
-            ))
+            """,
+                (
+                    # Identity
+                    capture.get('game_id'),
+                    capture.get('player_name'),
+                    capture.get('hand_number'),
+                    # Game State
+                    capture.get('phase'),
+                    capture.get('pot_total'),
+                    capture.get('cost_to_call'),
+                    capture.get('pot_odds'),
+                    capture.get('player_stack'),
+                    capture.get('stack_bb'),
+                    capture.get('already_bet_bb'),
+                    json.dumps(capture.get('community_cards'))
+                    if capture.get('community_cards')
+                    else None,
+                    json.dumps(capture.get('player_hand')) if capture.get('player_hand') else None,
+                    json.dumps(capture.get('valid_actions'))
+                    if capture.get('valid_actions')
+                    else None,
+                    # Decision
+                    capture.get('action_taken'),
+                    capture.get('raise_amount'),
+                    # Prompts (INPUT)
+                    capture.get('system_prompt'),
+                    json.dumps(capture.get('conversation_history'))
+                    if capture.get('conversation_history')
+                    else None,
+                    capture.get('user_message'),
+                    capture.get('raw_request'),
+                    # Response (OUTPUT)
+                    capture.get('ai_response'),
+                    capture.get('raw_api_response'),
+                    # LLM Config
+                    capture.get('provider', 'openai'),
+                    capture.get('model'),
+                    capture.get('reasoning_effort'),
+                    # Metrics
+                    capture.get('latency_ms'),
+                    capture.get('input_tokens'),
+                    capture.get('output_tokens'),
+                    # Tracking
+                    capture.get('original_request_id'),
+                    # Prompt Versioning
+                    capture.get('prompt_template'),
+                    capture.get('prompt_version'),
+                    capture.get('prompt_hash'),
+                    # User Annotations
+                    json.dumps(capture.get('tags', [])),
+                    capture.get('notes'),
+                    # Prompt Config (for analysis)
+                    json.dumps(capture.get('prompt_config'))
+                    if capture.get('prompt_config')
+                    else None,
+                ),
+            )
             return cursor.lastrowid
 
     def get_prompt_capture(self, capture_id: int) -> Optional[Dict[str, Any]]:
@@ -115,9 +127,9 @@ class PromptCaptureRepository(BaseRepository):
         Joins with api_usage to get cached_tokens, reasoning_tokens, and estimated_cost.
         """
         with self._get_connection() as conn:
-
             # Join with api_usage to get usage metrics (cached tokens, reasoning tokens, cost)
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT pc.*,
                        au.cached_tokens,
                        au.reasoning_tokens,
@@ -125,7 +137,9 @@ class PromptCaptureRepository(BaseRepository):
                 FROM prompt_captures pc
                 LEFT JOIN api_usage au ON pc.original_request_id = au.request_id
                 WHERE pc.id = ?
-            """, (capture_id,))
+            """,
+                (capture_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -135,12 +149,13 @@ class PromptCaptureRepository(BaseRepository):
             parse_json_fields(
                 capture,
                 ['community_cards', 'player_hand', 'valid_actions', 'tags', 'conversation_history'],
-                context=f"prompt capture {capture.get('id')}"
+                context=f"prompt capture {capture.get('id')}",
             )
 
             # Handle image_data BLOB - convert to base64 data URL for JSON serialization
             if capture.get('is_image_capture') and capture.get('image_data'):
                 import base64
+
                 img_bytes = capture['image_data']
                 if isinstance(img_bytes, bytes):
                     b64_data = base64.b64encode(img_bytes).decode('utf-8')
@@ -170,7 +185,7 @@ class PromptCaptureRepository(BaseRepository):
         max_tilt_level: Optional[float] = None,
         has_decision_analysis: Optional[bool] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """List prompt captures with optional filtering.
 
@@ -190,12 +205,14 @@ class PromptCaptureRepository(BaseRepository):
 
         # Determine if we need the decision-analysis join. Used by both
         # psychology filters and `has_decision_analysis`.
-        needs_pda_join = any([
-            display_emotion,
-            min_tilt_level is not None,
-            max_tilt_level is not None,
-            has_decision_analysis is not None,
-        ])
+        any(
+            [
+                display_emotion,
+                min_tilt_level is not None,
+                max_tilt_level is not None,
+                has_decision_analysis is not None,
+            ]
+        )
 
         if game_id:
             conditions.append("pc.game_id = ?")
@@ -268,13 +285,16 @@ class PromptCaptureRepository(BaseRepository):
         # decision_analysis rows — produced by sharp/tiered bots that skip
         # the LLM entirely. They appear with synthetic id = -pda.id so the
         # detail route can disambiguate them from real captures.
-        pc_only_filters_set = any([
-            call_type, error_type, has_error is not None,
-            is_correction is not None, tags,
-        ])
-        include_orphan_pdas = (
-            has_decision_analysis is True and not pc_only_filters_set
+        pc_only_filters_set = any(
+            [
+                call_type,
+                error_type,
+                has_error is not None,
+                is_correction is not None,
+                tags,
+            ]
         )
+        include_orphan_pdas = has_decision_analysis is True and not pc_only_filters_set
 
         # Orphan PDAs: rows with no linked capture. Skip those that have a
         # twin (same game/player/hand/phase/action) already linked to a
@@ -385,7 +405,6 @@ class PromptCaptureRepository(BaseRepository):
             unified_params = list(params)
 
         with self._get_connection() as conn:
-
             # Total across both arms of the union.
             count_cursor = conn.execute(
                 f"SELECT COUNT(*) FROM ({unified})",
@@ -406,14 +425,11 @@ class PromptCaptureRepository(BaseRepository):
                 parse_json_fields(
                     capture,
                     ['community_cards', 'player_hand', 'tags'],
-                    context=f"prompt capture {capture.get('id')}"
+                    context=f"prompt capture {capture.get('id')}",
                 )
                 captures.append(capture)
 
-            return {
-                'captures': captures,
-                'total': total
-            }
+            return {'captures': captures, 'total': total}
 
     def get_distinct_emotions(self) -> List[str]:
         """Get distinct display_emotion values from player_decision_analysis."""
@@ -425,9 +441,7 @@ class PromptCaptureRepository(BaseRepository):
             return [row[0] for row in cursor.fetchall()]
 
     def get_prompt_capture_stats(
-        self,
-        game_id: Optional[str] = None,
-        call_type: Optional[str] = None
+        self, game_id: Optional[str] = None, call_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get aggregate statistics for prompt captures."""
         conditions = []
@@ -444,28 +458,37 @@ class PromptCaptureRepository(BaseRepository):
 
         with self._get_connection() as conn:
             # Count by action (use 'unknown' for NULL to avoid JSON serialization issues)
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT action_taken, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY action_taken
-            """, params)
+            """,
+                params,
+            )
             by_action = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
             # Count by phase (use 'unknown' for NULL)
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT phase, COUNT(*) as count
                 FROM prompt_captures {where_clause}
                 GROUP BY phase
-            """, params)
+            """,
+                params,
+            )
             by_phase = {(row[0] or 'unknown'): row[1] for row in cursor.fetchall()}
 
             # Suspicious folds (high pot odds)
             suspicious_params = params + [5.0]  # pot odds > 5:1
             suspicious_where = f"{where_clause} {'AND' if where_clause else 'WHERE'} action_taken = 'fold' AND pot_odds > ?"
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT COUNT(*) FROM prompt_captures
                 {suspicious_where}
-            """, suspicious_params)
+            """,
+                suspicious_params,
+            )
             suspicious_folds = cursor.fetchone()[0]
 
             # Total captures
@@ -476,30 +499,29 @@ class PromptCaptureRepository(BaseRepository):
                 'total': total,
                 'by_action': by_action,
                 'by_phase': by_phase,
-                'suspicious_folds': suspicious_folds
+                'suspicious_folds': suspicious_folds,
             }
 
     def update_prompt_capture_tags(
-        self,
-        capture_id: int,
-        tags: List[str],
-        notes: Optional[str] = None
+        self, capture_id: int, tags: List[str], notes: Optional[str] = None
     ) -> bool:
         """Update tags and notes for a prompt capture."""
         with self._get_connection() as conn:
             if notes is not None:
                 conn.execute(
                     "UPDATE prompt_captures SET tags = ?, notes = ? WHERE id = ?",
-                    (json.dumps(tags), notes, capture_id)
+                    (json.dumps(tags), notes, capture_id),
                 )
             else:
                 conn.execute(
                     "UPDATE prompt_captures SET tags = ? WHERE id = ?",
-                    (json.dumps(tags), capture_id)
+                    (json.dumps(tags), capture_id),
                 )
             return conn.total_changes > 0
 
-    def delete_prompt_captures(self, game_id: Optional[str] = None, before_date: Optional[str] = None) -> int:
+    def delete_prompt_captures(
+        self, game_id: Optional[str] = None, before_date: Optional[str] = None
+    ) -> int:
         """Delete prompt captures, optionally filtered by game or date.
 
         Args:
@@ -571,11 +593,9 @@ class PromptCaptureRepository(BaseRepository):
         where_clause = build_where_clause(conditions)
 
         with self._get_connection() as conn:
-
             # Get total count
             count_cursor = conn.execute(
-                f"SELECT COUNT(*) FROM prompt_captures {where_clause}",
-                params
+                f"SELECT COUNT(*) FROM prompt_captures {where_clause}", params
             )
             total = count_cursor.fetchone()[0]
 
@@ -612,15 +632,11 @@ class PromptCaptureRepository(BaseRepository):
                             )
                 captures.append(capture)
 
-            return {
-                'captures': captures,
-                'total': total
-            }
+            return {'captures': captures, 'total': total}
 
     def get_playground_capture_stats(self) -> Dict[str, Any]:
         """Get aggregate statistics for all prompt captures."""
         with self._get_connection() as conn:
-
             # Count by call_type (legacy captures without call_type shown as 'player_decision')
             cursor = conn.execute("""
                 SELECT COALESCE(call_type, 'player_decision') as call_type, COUNT(*) as count
@@ -665,13 +681,18 @@ class PromptCaptureRepository(BaseRepository):
             return 0  # Unlimited retention
 
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 DELETE FROM prompt_captures
                 WHERE call_type IS NOT NULL
                   AND created_at < datetime('now', '-' || ? || ' days')
-            """, (retention_days,))
+            """,
+                (retention_days,),
+            )
 
             deleted = cursor.rowcount
             if deleted > 0:
-                logger.info(f"Cleaned up {deleted} playground captures older than {retention_days} days")
+                logger.info(
+                    f"Cleaned up {deleted} playground captures older than {retention_days} days"
+                )
             return deleted

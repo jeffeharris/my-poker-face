@@ -6,10 +6,11 @@ Run with: python -m experiments.phase2_energy_demo
 """
 
 import sys
+
 sys.path.insert(0, '.')
 
-from poker.player_psychology import PlayerPsychology, EmotionalAxes
-from poker.expression_filter import calculate_visibility, dampen_emotion, get_expression_guidance
+from poker.expression_filter import calculate_visibility, get_expression_guidance
+from poker.player_psychology import PlayerPsychology
 
 
 def create_test_personalities():
@@ -58,9 +59,13 @@ def print_state(name, psych):
     displayed = psych.get_display_emotion()
 
     print(f"  {name}:")
-    print(f"    Confidence: {psych.confidence:.2f} | Composure: {psych.composure:.2f} | Energy: {psych.energy:.2f}")
+    print(
+        f"    Confidence: {psych.confidence:.2f} | Composure: {psych.composure:.2f} | Energy: {psych.energy:.2f}"
+    )
     print(f"    Quadrant: {psych.quadrant.value}")
-    print(f"    Visibility: {visibility:.2f} (expressiveness {psych.anchors.expressiveness:.1f} x energy {psych.energy:.2f})")
+    print(
+        f"    Visibility: {visibility:.2f} (expressiveness {psych.anchors.expressiveness:.1f} x energy {psych.energy:.2f})"
+    )
     print(f"    True emotion: {true_emotion} -> Displayed: {displayed}")
     print(f"    Consecutive folds: {psych.consecutive_folds}")
     print()

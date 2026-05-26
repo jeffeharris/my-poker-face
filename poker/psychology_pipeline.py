@@ -106,9 +106,7 @@ class PsychologyPipeline:
         # Pre-compute winner/loser names (needed by detection and steps 2-5)
         winner_names = ctx.winner_names
         loser_names = [
-            p.name
-            for p in game_state.players
-            if not p.is_folded and p.name not in winner_names
+            p.name for p in game_state.players if not p.is_folded and p.name not in winner_names
         ]
 
         # === 1. DETECT ALL EVENTS ===
@@ -182,18 +180,14 @@ class PsychologyPipeline:
                                 },
                             )
                 except Exception as e:
-                    logger.error(
-                        f"Failed to persist pressure events: {e}", exc_info=True
-                    )
+                    logger.error(f"Failed to persist pressure events: {e}", exc_info=True)
 
             # === 4. FIRE CALLBACK ===
             if on_events_resolved:
                 try:
                     on_events_resolved(all_events, resolved_results, controllers)
                 except Exception as e:
-                    logger.warning(
-                        f"on_events_resolved callback failed: {e}", exc_info=True
-                    )
+                    logger.warning(f"on_events_resolved callback failed: {e}", exc_info=True)
 
         # === 5. UPDATE COMPOSURE / EMOTIONAL STATE === (always runs)
         self._update_composure(ctx, winner_names)
@@ -251,11 +245,7 @@ class PsychologyPipeline:
         all_events.extend(showdown_events)
 
         # 2. Equity shock events
-        if (
-            ctx.equity_history
-            and ctx.equity_history.snapshots
-            and ctx.hand_start_stacks
-        ):
+        if ctx.equity_history and ctx.equity_history.snapshots and ctx.hand_start_stacks:
             try:
                 equity_events = self.pressure_detector.detect_equity_shock_events(
                     ctx.equity_history,
@@ -265,9 +255,7 @@ class PsychologyPipeline:
                 )
                 all_events.extend(equity_events)
             except Exception as e:
-                logger.warning(
-                    f"Equity shock detection failed: {e}", exc_info=True
-                )
+                logger.warning(f"Equity shock detection failed: {e}", exc_info=True)
 
         # 3. Stack events (crippled, short_stack)
         current_short = ctx.was_short_stack or set()
@@ -282,10 +270,8 @@ class PsychologyPipeline:
             all_events.extend(stack_events)
 
             # Short-stack survival
-            survival_events = (
-                self.pressure_detector.detect_short_stack_survival_events(
-                    current_short, ctx.hand_number
-                )
+            survival_events = self.pressure_detector.detect_short_stack_survival_events(
+                current_short, ctx.hand_number
             )
             all_events.extend(survival_events)
 
@@ -294,9 +280,7 @@ class PsychologyPipeline:
         if hand_history_repo:
             for player_name in controllers:
                 try:
-                    session_stats = hand_history_repo.get_session_stats(
-                        ctx.game_id, player_name
-                    )
+                    session_stats = hand_history_repo.get_session_stats(ctx.game_id, player_name)
                     streak_events = self.pressure_detector.detect_streak_events(
                         player_name, session_stats
                     )
@@ -329,9 +313,7 @@ class PsychologyPipeline:
 
         # 6. Big pot involvement (pressure/fatigue)
         if is_big_pot:
-            active_player_names = [
-                p.name for p in game_state.players if not p.is_folded
-            ]
+            active_player_names = [p.name for p in game_state.players if not p.is_folded]
             all_events.append(("big_pot_involved", active_player_names))
 
         return all_events, current_short
@@ -351,9 +333,9 @@ class PsychologyPipeline:
         winnings_by_player = {}
         for pot in ctx.winner_info.get('pot_breakdown', []):
             for winner in pot.get('winners', []):
-                winnings_by_player[winner['name']] = (
-                    winnings_by_player.get(winner['name'], 0) + winner.get('amount', 0)
-                )
+                winnings_by_player[winner['name']] = winnings_by_player.get(
+                    winner['name'], 0
+                ) + winner.get('amount', 0)
 
         for player in game_state.players:
             if player.name not in controllers:
@@ -369,9 +351,7 @@ class PsychologyPipeline:
 
             # Calculate net amount
             player_contribution = (
-                game_state.pot.get(player.name, 0)
-                if isinstance(game_state.pot, dict)
-                else 0
+                game_state.pot.get(player.name, 0) if isinstance(game_state.pot, dict) else 0
             )
             player_won = player.name in winner_names
             if player_won:
@@ -381,15 +361,9 @@ class PsychologyPipeline:
 
             # Determine outcome details
             was_bad_beat = (
-                not player_won
-                and not player.is_folded
-                and ctx.winner_info.get('hand_rank', 0) >= 2
+                not player_won and not player.is_folded and ctx.winner_info.get('hand_rank', 0) >= 2
             )
-            outcome = (
-                'won'
-                if player_won
-                else ('folded' if player.is_folded else 'lost')
-            )
+            outcome = 'won' if player_won else ('folded' if player.is_folded else 'lost')
             nemesis = winner_names[0] if not player_won and winner_names else None
             key_moment = 'bad_beat' if was_bad_beat else None
 

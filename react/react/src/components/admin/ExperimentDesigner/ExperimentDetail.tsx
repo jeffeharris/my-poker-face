@@ -32,7 +32,13 @@ import { adminFetch } from '../../../utils/api';
 import { formatDate, formatLatency, formatCost } from '../../../utils/formatters';
 import { logger } from '../../../utils/logger';
 import { STATUS_CONFIG_LARGE as STATUS_CONFIG, type ExperimentStatus } from './experimentStatus';
-import type { VariantResultSummary, LiveStats, FailedTournament, ExperimentConfig, NextStepSuggestion } from './types';
+import type {
+  VariantResultSummary,
+  LiveStats,
+  FailedTournament,
+  ExperimentConfig,
+  NextStepSuggestion,
+} from './types';
 
 interface ExperimentDetailType {
   id: number;
@@ -111,25 +117,37 @@ interface DecisionStats {
   quality_score?: number;
   scored_total?: number;
   menu_compliance?: MenuCompliance;
-  by_player: Record<string, {
-    total: number;
-    correct: number;
-    correct_pct: number;
-    avg_ev_lost: number;
-    quality_score?: number;
-    menu_compliance_pct?: number;
-  }>;
+  by_player: Record<
+    string,
+    {
+      total: number;
+      correct: number;
+      correct_pct: number;
+      avg_ev_lost: number;
+      quality_score?: number;
+      menu_compliance_pct?: number;
+    }
+  >;
 }
 
 interface ExperimentDetailProps {
   experimentId: number;
   onBack: () => void;
   onEditInLabAssistant?: (experiment: ExperimentDetailType) => void;
-  onBuildFromSuggestion?: (experiment: ExperimentDetailType, suggestion: NextStepSuggestion) => void;
+  onBuildFromSuggestion?: (
+    experiment: ExperimentDetailType,
+    suggestion: NextStepSuggestion
+  ) => void;
   onOpenAssistant?: () => void;
 }
 
-export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, onBuildFromSuggestion, onOpenAssistant }: ExperimentDetailProps) {
+export function ExperimentDetail({
+  experimentId,
+  onBack,
+  onEditInLabAssistant,
+  onBuildFromSuggestion,
+  onOpenAssistant,
+}: ExperimentDetailProps) {
   const [experiment, setExperiment] = useState<ExperimentDetailType | null>(null);
   const [games, setGames] = useState<ExperimentGame[]>([]);
   const [decisionStats, setDecisionStats] = useState<DecisionStats | null>(null);
@@ -145,7 +163,6 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
   const [failureDetailsExpanded, setFailureDetailsExpanded] = useState(true);
   const [stalledVariants, setStalledVariants] = useState<StalledVariant[]>([]);
   const [resumingVariants, setResumingVariants] = useState<Set<number>>(new Set());
-
 
   const fetchExperiment = useCallback(async () => {
     try {
@@ -268,7 +285,6 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     return () => clearInterval(interval);
   }, [experiment?.status, fetchStalledVariants]);
 
-
   const handlePause = async () => {
     setPauseLoading(true);
     try {
@@ -333,7 +349,6 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
     }
   };
 
-
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${Math.round(seconds)}s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
@@ -380,7 +395,9 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
             <ArrowLeft size={20} />
           </button>
           <h2 className="experiment-detail__name">{experiment.name}</h2>
-          <span className={`status-badge ${isPausing ? 'status-badge--pausing' : statusConfig.className}`}>
+          <span
+            className={`status-badge ${isPausing ? 'status-badge--pausing' : statusConfig.className}`}
+          >
             {isPausing ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
@@ -455,11 +472,7 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
               disabled={resumeLoading}
               title="Resume Experiment"
             >
-              {resumeLoading ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Play size={16} />
-              )}
+              {resumeLoading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
               {resumeLoading ? 'Resuming...' : 'Resume'}
             </button>
           )}
@@ -488,86 +501,94 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
       {/* Scrollable Content */}
       <div className="experiment-detail__content">
         {/* Error Banner for failed/interrupted experiments */}
-        {(experiment.status === 'failed' || experiment.status === 'interrupted') && experiment.notes && (
-          <div className={`experiment-detail__error-banner experiment-detail__error-banner--${experiment.status}`}>
-            <AlertTriangle size={18} />
-            <div className="experiment-detail__error-banner-content">
-              <span className="experiment-detail__error-banner-title">
-                {experiment.status === 'failed' ? 'Experiment Failed' : 'Experiment Interrupted'}
-              </span>
-              <span className="experiment-detail__error-banner-message">{experiment.notes}</span>
+        {(experiment.status === 'failed' || experiment.status === 'interrupted') &&
+          experiment.notes && (
+            <div
+              className={`experiment-detail__error-banner experiment-detail__error-banner--${experiment.status}`}
+            >
+              <AlertTriangle size={18} />
+              <div className="experiment-detail__error-banner-content">
+                <span className="experiment-detail__error-banner-title">
+                  {experiment.status === 'failed' ? 'Experiment Failed' : 'Experiment Interrupted'}
+                </span>
+                <span className="experiment-detail__error-banner-message">{experiment.notes}</span>
+              </div>
+              <div className="experiment-detail__error-banner-actions">
+                {experiment.status === 'failed' && onEditInLabAssistant && (
+                  <button
+                    className="experiment-detail__error-banner-action experiment-detail__error-banner-action--edit"
+                    onClick={() => onEditInLabAssistant(experiment)}
+                    type="button"
+                  >
+                    <Wand2 size={14} />
+                    Edit in Lab Assistant
+                  </button>
+                )}
+                {experiment.status === 'interrupted' && (
+                  <button
+                    className="experiment-detail__error-banner-action"
+                    onClick={handleResume}
+                    type="button"
+                    disabled={resumeLoading}
+                  >
+                    {resumeLoading ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Play size={14} />
+                    )}
+                    Resume
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="experiment-detail__error-banner-actions">
-              {experiment.status === 'failed' && onEditInLabAssistant && (
-                <button
-                  className="experiment-detail__error-banner-action experiment-detail__error-banner-action--edit"
-                  onClick={() => onEditInLabAssistant(experiment)}
-                  type="button"
-                >
-                  <Wand2 size={14} />
-                  Edit in Lab Assistant
-                </button>
-              )}
-              {experiment.status === 'interrupted' && (
-                <button
-                  className="experiment-detail__error-banner-action"
-                  onClick={handleResume}
-                  type="button"
-                  disabled={resumeLoading}
-                >
-                  {resumeLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                  Resume
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+          )}
 
         {/* Failure Details Section for failed experiments */}
-        {experiment.status === 'failed' && experiment.summary?.failed_tournaments && experiment.summary.failed_tournaments.length > 0 && (
-          <div className="experiment-detail__section experiment-detail__section--failure">
-            <button
-              className="experiment-detail__section-toggle"
-              onClick={() => setFailureDetailsExpanded(!failureDetailsExpanded)}
-              type="button"
-            >
-              {failureDetailsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <h3 className="experiment-detail__section-title">
-                <AlertTriangle size={16} />
-                Failure Details ({experiment.summary.failed_tournaments.length} tournament{experiment.summary.failed_tournaments.length !== 1 ? 's' : ''})
-              </h3>
-            </button>
-            {failureDetailsExpanded && (
-              <div className="experiment-detail__failure-list">
-                {experiment.summary.failed_tournaments.map((failure, idx) => (
-                  <div key={idx} className="experiment-detail__failure-item">
-                    <div className="experiment-detail__failure-header">
-                      <span className="experiment-detail__failure-tournament">
-                        Tournament #{failure.tournament_number}
-                      </span>
-                      {failure.variant && (
-                        <span className="experiment-detail__failure-variant">
-                          {failure.variant}
+        {experiment.status === 'failed' &&
+          experiment.summary?.failed_tournaments &&
+          experiment.summary.failed_tournaments.length > 0 && (
+            <div className="experiment-detail__section experiment-detail__section--failure">
+              <button
+                className="experiment-detail__section-toggle"
+                onClick={() => setFailureDetailsExpanded(!failureDetailsExpanded)}
+                type="button"
+              >
+                {failureDetailsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <h3 className="experiment-detail__section-title">
+                  <AlertTriangle size={16} />
+                  Failure Details ({experiment.summary.failed_tournaments.length} tournament
+                  {experiment.summary.failed_tournaments.length !== 1 ? 's' : ''})
+                </h3>
+              </button>
+              {failureDetailsExpanded && (
+                <div className="experiment-detail__failure-list">
+                  {experiment.summary.failed_tournaments.map((failure, idx) => (
+                    <div key={idx} className="experiment-detail__failure-item">
+                      <div className="experiment-detail__failure-header">
+                        <span className="experiment-detail__failure-tournament">
+                          Tournament #{failure.tournament_number}
                         </span>
-                      )}
-                      <span className="experiment-detail__failure-type">
-                        {failure.error_type}
-                      </span>
-                      {failure.duration_seconds > 0 && (
-                        <span className="experiment-detail__failure-duration">
-                          {formatDuration(failure.duration_seconds)}
+                        {failure.variant && (
+                          <span className="experiment-detail__failure-variant">
+                            {failure.variant}
+                          </span>
+                        )}
+                        <span className="experiment-detail__failure-type">
+                          {failure.error_type}
                         </span>
-                      )}
+                        {failure.duration_seconds > 0 && (
+                          <span className="experiment-detail__failure-duration">
+                            {formatDuration(failure.duration_seconds)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="experiment-detail__failure-message">{failure.error}</div>
                     </div>
-                    <div className="experiment-detail__failure-message">
-                      {failure.error}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
         {/* Header Info */}
         <div className="experiment-detail__header">
@@ -581,584 +602,662 @@ export function ExperimentDetail({ experimentId, onBack, onEditInLabAssistant, o
           )}
         </div>
 
-      {/* Summary Stats */}
-      {summary && (
-        <div className="experiment-detail__summary">
-          <div className="experiment-detail__stat">
-            <Gamepad2 size={20} />
-            <div className="experiment-detail__stat-content">
-              <span className="experiment-detail__stat-value">{summary.tournaments}</span>
-              <span className="experiment-detail__stat-label">Tournaments</span>
-            </div>
-          </div>
-
-          <div className="experiment-detail__stat">
-            <Target size={20} />
-            <div className="experiment-detail__stat-content">
-              <span className="experiment-detail__stat-value">{summary.total_hands}</span>
-              <span className="experiment-detail__stat-label">Total Hands</span>
-            </div>
-          </div>
-
-          <div className="experiment-detail__stat">
-            <Timer size={20} />
-            <div className="experiment-detail__stat-content">
-              <span className="experiment-detail__stat-value">
-                {formatDuration(summary.total_duration_seconds)}
-              </span>
-              <span className="experiment-detail__stat-label">Duration</span>
-            </div>
-          </div>
-
-          {decisionStats && decisionStats.total > 0 && (
+        {/* Summary Stats */}
+        {summary && (
+          <div className="experiment-detail__summary">
             <div className="experiment-detail__stat">
-              <Percent size={20} />
+              <Gamepad2 size={20} />
+              <div className="experiment-detail__stat-content">
+                <span className="experiment-detail__stat-value">{summary.tournaments}</span>
+                <span className="experiment-detail__stat-label">Tournaments</span>
+              </div>
+            </div>
+
+            <div className="experiment-detail__stat">
+              <Target size={20} />
+              <div className="experiment-detail__stat-content">
+                <span className="experiment-detail__stat-value">{summary.total_hands}</span>
+                <span className="experiment-detail__stat-label">Total Hands</span>
+              </div>
+            </div>
+
+            <div className="experiment-detail__stat">
+              <Timer size={20} />
               <div className="experiment-detail__stat-content">
                 <span className="experiment-detail__stat-value">
-                  {decisionStats.quality_score != null ? decisionStats.quality_score : decisionStats.correct_pct}
+                  {formatDuration(summary.total_duration_seconds)}
                 </span>
-                <span className="experiment-detail__stat-label">
-                  {decisionStats.quality_score != null ? 'Quality Score' : 'Correct %'}
-                </span>
+                <span className="experiment-detail__stat-label">Duration</span>
               </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* AI Interpretation */}
-      {/* Show error state if AI interpretation failed */}
-      {experiment.status === 'completed' && summary?.ai_interpretation?.error && (
-        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--error">
-          <h3 className="experiment-detail__section-title">
-            <Brain size={18} />
-            AI Analysis
-          </h3>
-          <div className="experiment-detail__ai-placeholder experiment-detail__ai-placeholder--error">
-            <AlertTriangle size={20} />
-            <p>Failed to generate AI analysis: {summary.ai_interpretation.error}</p>
+            {decisionStats && decisionStats.total > 0 && (
+              <div className="experiment-detail__stat">
+                <Percent size={20} />
+                <div className="experiment-detail__stat-content">
+                  <span className="experiment-detail__stat-value">
+                    {decisionStats.quality_score != null
+                      ? decisionStats.quality_score
+                      : decisionStats.correct_pct}
+                  </span>
+                  <span className="experiment-detail__stat-label">
+                    {decisionStats.quality_score != null ? 'Quality Score' : 'Correct %'}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Show loading state if completed but no summary or no AI interpretation yet */}
-      {experiment.status === 'completed' && (!summary || !summary.ai_interpretation) && (
-        <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--placeholder">
-          <h3 className="experiment-detail__section-title">
-            <Brain size={18} />
-            AI Analysis
-          </h3>
-          <div className="experiment-detail__ai-placeholder">
-            <Loader2 size={20} className="animate-spin" />
-            <p>Generating AI analysis...</p>
-          </div>
-        </div>
-      )}
-
-      {/* Show actual AI interpretation when available */}
-      {summary?.ai_interpretation && !summary.ai_interpretation.error && (
-        <div className="experiment-detail__section experiment-detail__section--ai">
-          <h3 className="experiment-detail__section-title">
-            <Brain size={18} />
-            AI Analysis
-            <span className="experiment-detail__ai-meta">
-              {summary.ai_interpretation.model_used} • {new Date(summary.ai_interpretation.generated_at).toLocaleDateString()}
-            </span>
-          </h3>
-
-          <div className="experiment-detail__ai-content">
-            {/* Summary */}
-            <div className="experiment-detail__ai-summary">
-              <p>{summary.ai_interpretation.summary}</p>
+        {/* AI Interpretation */}
+        {/* Show error state if AI interpretation failed */}
+        {experiment.status === 'completed' && summary?.ai_interpretation?.error && (
+          <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--error">
+            <h3 className="experiment-detail__section-title">
+              <Brain size={18} />
+              AI Analysis
+            </h3>
+            <div className="experiment-detail__ai-placeholder experiment-detail__ai-placeholder--error">
+              <AlertTriangle size={20} />
+              <p>Failed to generate AI analysis: {summary.ai_interpretation.error}</p>
             </div>
+          </div>
+        )}
 
-            {/* Verdict (new) or Hypothesis Evaluation (legacy) */}
-            {(summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation) && (
-              <div className="experiment-detail__ai-block">
-                <h4>
-                  <FlaskRound size={14} />
-                  Verdict
-                </h4>
-                <p>{summary.ai_interpretation.verdict || summary.ai_interpretation.hypothesis_evaluation}</p>
+        {/* Show loading state if completed but no summary or no AI interpretation yet */}
+        {experiment.status === 'completed' && (!summary || !summary.ai_interpretation) && (
+          <div className="experiment-detail__section experiment-detail__section--ai experiment-detail__section--placeholder">
+            <h3 className="experiment-detail__section-title">
+              <Brain size={18} />
+              AI Analysis
+            </h3>
+            <div className="experiment-detail__ai-placeholder">
+              <Loader2 size={20} className="animate-spin" />
+              <p>Generating AI analysis...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Show actual AI interpretation when available */}
+        {summary?.ai_interpretation && !summary.ai_interpretation.error && (
+          <div className="experiment-detail__section experiment-detail__section--ai">
+            <h3 className="experiment-detail__section-title">
+              <Brain size={18} />
+              AI Analysis
+              <span className="experiment-detail__ai-meta">
+                {summary.ai_interpretation.model_used} •{' '}
+                {new Date(summary.ai_interpretation.generated_at).toLocaleDateString()}
+              </span>
+            </h3>
+
+            <div className="experiment-detail__ai-content">
+              {/* Summary */}
+              <div className="experiment-detail__ai-summary">
+                <p>{summary.ai_interpretation.summary}</p>
               </div>
-            )}
 
-            {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
-            {((Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0) ||
-              (Array.isArray(summary.ai_interpretation.key_findings) && summary.ai_interpretation.key_findings.length > 0)) && (
-              <div className="experiment-detail__ai-block">
-                <h4>
-                  <Lightbulb size={14} />
-                  {Array.isArray(summary.ai_interpretation.surprises) && summary.ai_interpretation.surprises.length > 0 ? 'Surprises' : 'Key Findings'}
-                </h4>
-                <ul className="experiment-detail__ai-list">
-                  {(summary.ai_interpretation.surprises || summary.ai_interpretation.key_findings || []).map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+              {/* Verdict (new) or Hypothesis Evaluation (legacy) */}
+              {(summary.ai_interpretation.verdict ||
+                summary.ai_interpretation.hypothesis_evaluation) && (
+                <div className="experiment-detail__ai-block">
+                  <h4>
+                    <FlaskRound size={14} />
+                    Verdict
+                  </h4>
+                  <p>
+                    {summary.ai_interpretation.verdict ||
+                      summary.ai_interpretation.hypothesis_evaluation}
+                  </p>
+                </div>
+              )}
 
-            {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
-            {((Array.isArray(summary.ai_interpretation.next_steps) && summary.ai_interpretation.next_steps.length > 0) ||
-              (Array.isArray(summary.ai_interpretation.suggested_followups) && summary.ai_interpretation.suggested_followups.length > 0)) && (
-              <div className="experiment-detail__ai-block">
-                <h4>
-                  <Target size={14} />
-                  Next Steps
-                </h4>
-                <div className="experiment-detail__suggestions-grid">
-                  {(summary.ai_interpretation.next_steps || summary.ai_interpretation.suggested_followups || []).map((item, idx) => {
-                    // Handle both structured suggestions and legacy string format
-                    const isStructured = typeof item === 'object' && item !== null && 'hypothesis' in item;
-                    const suggestion = isStructured ? item as NextStepSuggestion : null;
+              {/* Surprises (new) or Key Findings (legacy) - only show if non-empty */}
+              {((Array.isArray(summary.ai_interpretation.surprises) &&
+                summary.ai_interpretation.surprises.length > 0) ||
+                (Array.isArray(summary.ai_interpretation.key_findings) &&
+                  summary.ai_interpretation.key_findings.length > 0)) && (
+                <div className="experiment-detail__ai-block">
+                  <h4>
+                    <Lightbulb size={14} />
+                    {Array.isArray(summary.ai_interpretation.surprises) &&
+                    summary.ai_interpretation.surprises.length > 0
+                      ? 'Surprises'
+                      : 'Key Findings'}
+                  </h4>
+                  <ul className="experiment-detail__ai-list">
+                    {(
+                      summary.ai_interpretation.surprises ||
+                      summary.ai_interpretation.key_findings ||
+                      []
+                    ).map((item, idx) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-                    if (suggestion && onBuildFromSuggestion) {
-                      return (
-                        <div key={idx} className="experiment-detail__suggestion-card">
-                          <div className="experiment-detail__suggestion-content">
-                            <p className="experiment-detail__suggestion-hypothesis">{suggestion.hypothesis}</p>
-                            <p className="experiment-detail__suggestion-description">{suggestion.description}</p>
+              {/* Next Steps (new) or Suggested Follow-ups (legacy) */}
+              {((Array.isArray(summary.ai_interpretation.next_steps) &&
+                summary.ai_interpretation.next_steps.length > 0) ||
+                (Array.isArray(summary.ai_interpretation.suggested_followups) &&
+                  summary.ai_interpretation.suggested_followups.length > 0)) && (
+                <div className="experiment-detail__ai-block">
+                  <h4>
+                    <Target size={14} />
+                    Next Steps
+                  </h4>
+                  <div className="experiment-detail__suggestions-grid">
+                    {(
+                      summary.ai_interpretation.next_steps ||
+                      summary.ai_interpretation.suggested_followups ||
+                      []
+                    ).map((item, idx) => {
+                      // Handle both structured suggestions and legacy string format
+                      const isStructured =
+                        typeof item === 'object' && item !== null && 'hypothesis' in item;
+                      const suggestion = isStructured ? (item as NextStepSuggestion) : null;
+
+                      if (suggestion && onBuildFromSuggestion) {
+                        return (
+                          <div key={idx} className="experiment-detail__suggestion-card">
+                            <div className="experiment-detail__suggestion-content">
+                              <p className="experiment-detail__suggestion-hypothesis">
+                                {suggestion.hypothesis}
+                              </p>
+                              <p className="experiment-detail__suggestion-description">
+                                {suggestion.description}
+                              </p>
+                            </div>
+                            <button
+                              className="experiment-detail__suggestion-action"
+                              onClick={() => onBuildFromSuggestion(experiment, suggestion)}
+                              type="button"
+                            >
+                              Build Experiment &rarr;
+                            </button>
                           </div>
-                          <button
-                            className="experiment-detail__suggestion-action"
-                            onClick={() => onBuildFromSuggestion(experiment, suggestion)}
-                            type="button"
-                          >
-                            Build Experiment &rarr;
-                          </button>
+                        );
+                      }
+
+                      // Legacy string format - render as simple list item
+                      return (
+                        <div
+                          key={idx}
+                          className="experiment-detail__suggestion-card experiment-detail__suggestion-card--simple"
+                        >
+                          <p className="experiment-detail__suggestion-text">
+                            {typeof item === 'string' ? item : JSON.stringify(item)}
+                          </p>
                         </div>
                       );
-                    }
-
-                    // Legacy string format - render as simple list item
-                    return (
-                      <div key={idx} className="experiment-detail__suggestion-card experiment-detail__suggestion-card--simple">
-                        <p className="experiment-detail__suggestion-text">{typeof item === 'string' ? item : JSON.stringify(item)}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Live Variant Stats (for A/B tests with real-time data) */}
-      {liveStats && Object.keys(liveStats.by_variant).length > 0 && (
-        <div className="experiment-detail__section">
-          <h3 className="experiment-detail__section-title">
-            <FlaskConical size={18} />
-            Variant Comparison
-            {experiment.status === 'running' && (
-              <span className="experiment-detail__live-indicator">Live</span>
-            )}
-          </h3>
-          <div className="experiment-detail__variant-comparison">
-            {Object.entries(liveStats.by_variant).map(([label, variantLive]) => {
-              // Get model info from summary if available
-              const variantSummary = summary?.variants?.[label];
-              // Check if this variant is stalled
-              const stalledVariant = stalledVariants.find((sv) => sv.variant === label);
-              const isStalled = !!stalledVariant;
-              const isResuming = stalledVariant ? resumingVariants.has(stalledVariant.id) : false;
-              return (
-                <div key={label} className={`experiment-detail__variant-card${isStalled ? ' experiment-detail__variant-card--stalled' : ''}`}>
-                  <div className="experiment-detail__variant-header">
-                    <h4 className="experiment-detail__variant-label">{label}</h4>
-                    <div className="experiment-detail__variant-header-right">
-                      {isStalled && (
-                        <>
-                          <span className="experiment-detail__stalled-badge" title={`State: ${stalledVariant.state}, Last activity: ${stalledVariant.last_heartbeat_at}`}>
-                            <AlertTriangle size={12} /> Stalled
-                          </span>
-                          <button
-                            className="experiment-detail__resume-variant-btn"
-                            onClick={() => handleResumeVariant(stalledVariant.id)}
-                            disabled={isResuming}
-                            title="Resume this stalled variant"
-                          >
-                            {isResuming ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-                            Resume
-                          </button>
-                        </>
-                      )}
-                      {variantSummary?.model_config && (
-                        <span className="experiment-detail__variant-model">
-                          {variantSummary.model_config.provider}/{variantSummary.model_config.model}
-                        </span>
-                      )}
-                    </div>
+                    })}
                   </div>
-
-                  {/* Progress Section */}
-                  <div className="experiment-detail__variant-section">
-                    <span className="experiment-detail__variant-section-label">Progress</span>
-                    <div className="experiment-detail__progress-bar-container">
-                      <div
-                        className="experiment-detail__progress-bar"
-                        style={{ width: `${variantLive.progress.progress_pct}%` }}
-                      />
-                    </div>
-                    <span className="experiment-detail__progress-text">
-                      {variantLive.progress.current_hands}/{variantLive.progress.max_hands} hands ({variantLive.progress.progress_pct}%)
-                    </span>
-                    <span className="experiment-detail__progress-games">
-                      {variantLive.progress.games_count}/{variantLive.progress.games_expected} tournaments
-                    </span>
-                  </div>
-
-                  {/* Decision Quality Section */}
-                  {variantLive.decision_quality && (
-                    <div className="experiment-detail__variant-section">
-                      <span className="experiment-detail__variant-section-label">Decision Quality</span>
-                      <div className="experiment-detail__decision-row">
-                        {variantLive.decision_quality.quality_score != null ? (
-                          <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
-                            {variantLive.decision_quality.quality_score} Quality
-                          </span>
-                        ) : (
-                          <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
-                            {variantLive.decision_quality.correct_pct}% Correct
-                          </span>
-                        )}
-                        <span className="experiment-detail__decision-metric experiment-detail__decision-metric--mistake">
-                          {variantLive.decision_quality.mistakes} Mistakes
-                        </span>
-                        <span className="experiment-detail__decision-metric">
-                          ${variantLive.decision_quality.avg_ev_lost} EV
-                        </span>
-                        {variantLive.decision_quality.menu_compliance_pct != null && (
-                          <span className="experiment-detail__decision-metric">
-                            {variantLive.decision_quality.menu_compliance_pct}% Menu
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quality Indicators Section */}
-                  {variantLive.quality_indicators && (
-                    <div className="experiment-detail__variant-section">
-                      <span className="experiment-detail__variant-section-label">Quality Indicators</span>
-                      <div className="experiment-detail__decision-row">
-                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.suspicious_allins > 0 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
-                          {variantLive.quality_indicators.suspicious_allins} Suspicious All-ins
-                        </span>
-                        <span className="experiment-detail__decision-metric">
-                          {variantLive.quality_indicators.marginal_allins} Marginal
-                        </span>
-                        <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.fold_mistake_rate > 50 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
-                          {variantLive.quality_indicators.fold_mistakes} Fold Mistakes
-                        </span>
-                      </div>
-                      {/* Survival Metrics */}
-                      {((variantLive.quality_indicators.total_eliminations ?? 0) > 0 ||
-                        (variantLive.quality_indicators.all_in_wins ?? 0) > 0 ||
-                        (variantLive.quality_indicators.all_in_losses ?? 0) > 0) && (
-                        <div className="experiment-detail__decision-row" style={{ marginTop: '4px' }}>
-                          <span className="experiment-detail__decision-metric">
-                            {variantLive.quality_indicators.total_eliminations ?? 0} Eliminations
-                          </span>
-                          <span className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate != null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}>
-                            All-in: {variantLive.quality_indicators.all_in_wins ?? 0}W/{variantLive.quality_indicators.all_in_losses ?? 0}L
-                            {variantLive.quality_indicators.all_in_survival_rate != null && ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* API Latency Section */}
-                  {variantLive.latency_metrics && (
-                    <div className="experiment-detail__variant-section">
-                      <span className="experiment-detail__variant-section-label">
-                        <Zap size={12} />
-                        API Latency
-                      </span>
-                      <div className="experiment-detail__latency-grid">
-                        <div className="experiment-detail__latency-cell">
-                          <span className="experiment-detail__latency-label">Avg</span>
-                          <span className="experiment-detail__latency-value">
-                            {formatLatency(variantLive.latency_metrics.avg_ms)}
-                          </span>
-                        </div>
-                        <div className="experiment-detail__latency-cell">
-                          <span className="experiment-detail__latency-label">P50</span>
-                          <span className="experiment-detail__latency-value">
-                            {formatLatency(variantLive.latency_metrics.p50_ms)}
-                          </span>
-                        </div>
-                        <div className="experiment-detail__latency-cell">
-                          <span className="experiment-detail__latency-label">P95</span>
-                          <span className="experiment-detail__latency-value">
-                            {formatLatency(variantLive.latency_metrics.p95_ms)}
-                          </span>
-                        </div>
-                        <div className="experiment-detail__latency-cell">
-                          <span className="experiment-detail__latency-label">P99</span>
-                          <span className="experiment-detail__latency-value">
-                            {formatLatency(variantLive.latency_metrics.p99_ms)}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="experiment-detail__latency-count">
-                        {variantLive.latency_metrics.count.toLocaleString()} API calls
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Cost Metrics Section */}
-                  {variantLive.cost_metrics && variantLive.cost_metrics.total_cost > 0 && (
-                    <div className="experiment-detail__variant-section">
-                      <span className="experiment-detail__variant-section-label">
-                        <DollarSign size={12} />
-                        Cost Analytics
-                      </span>
-                      <div className="experiment-detail__cost-summary">
-                        <span className="experiment-detail__cost-total">
-                          {formatCost(variantLive.cost_metrics.total_cost)}
-                        </span>
-                        <span className="experiment-detail__cost-label">total</span>
-                      </div>
-                      <div className="experiment-detail__cost-grid">
-                        <div className="experiment-detail__cost-cell">
-                          <span className="experiment-detail__cost-metric-label">Per Hand</span>
-                          <span className="experiment-detail__cost-metric-value">
-                            {formatCost(variantLive.cost_metrics.cost_per_hand)}
-                          </span>
-                        </div>
-                        <div className="experiment-detail__cost-cell">
-                          <span className="experiment-detail__cost-metric-label">Per Decision</span>
-                          <span className="experiment-detail__cost-metric-value">
-                            {formatCost(variantLive.cost_metrics.avg_cost_per_decision)}
-                          </span>
-                        </div>
-                      </div>
-                      {Object.keys(variantLive.cost_metrics.by_model).length > 0 && (
-                        <div className="experiment-detail__cost-by-model">
-                          {Object.entries(variantLive.cost_metrics.by_model).map(([model, data]) => (
-                            <div key={model} className="experiment-detail__cost-model-row">
-                              <span className="experiment-detail__cost-model-name">{model}</span>
-                              <span className="experiment-detail__cost-model-value">
-                                {formatCost(data.cost)} ({data.calls.toLocaleString()} calls)
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Winners (from summary if available) */}
-                  {variantSummary && Object.keys(variantSummary.winners).length > 0 && (
-                    <div className="experiment-detail__variant-winners">
-                      <span className="experiment-detail__variant-winners-label">Top winners:</span>
-                      {Object.entries(variantSummary.winners)
-                        .sort(([, a], [, b]) => b - a)
-                        .slice(0, 3)
-                        .map(([name, wins]) => (
-                          <span key={name} className="experiment-detail__variant-winner">
-                            {name}: {wins}
-                          </span>
-                        ))}
-                    </div>
-                  )}
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Winners Distribution */}
-      {summary?.winners && Object.keys(summary.winners).length > 0 && (
-        <div className="experiment-detail__section">
-          <h3 className="experiment-detail__section-title">
-            <Trophy size={18} />
-            Winner Distribution
-          </h3>
-          <div className="experiment-detail__winners">
-            {Object.entries(summary.winners)
-              .sort(([, a], [, b]) => b - a)
-              .map(([name, wins]) => {
-                const winPct = summary.tournaments > 0 ? (wins / summary.tournaments) * 100 : 0;
+        {/* Live Variant Stats (for A/B tests with real-time data) */}
+        {liveStats && Object.keys(liveStats.by_variant).length > 0 && (
+          <div className="experiment-detail__section">
+            <h3 className="experiment-detail__section-title">
+              <FlaskConical size={18} />
+              Variant Comparison
+              {experiment.status === 'running' && (
+                <span className="experiment-detail__live-indicator">Live</span>
+              )}
+            </h3>
+            <div className="experiment-detail__variant-comparison">
+              {Object.entries(liveStats.by_variant).map(([label, variantLive]) => {
+                // Get model info from summary if available
+                const variantSummary = summary?.variants?.[label];
+                // Check if this variant is stalled
+                const stalledVariant = stalledVariants.find((sv) => sv.variant === label);
+                const isStalled = !!stalledVariant;
+                const isResuming = stalledVariant ? resumingVariants.has(stalledVariant.id) : false;
                 return (
-                  <div key={name} className="experiment-detail__winner">
-                    <span className="experiment-detail__winner-name">{name}</span>
-                    <div className="experiment-detail__winner-bar-container">
-                      <div
-                        className="experiment-detail__winner-bar"
-                        style={{ width: `${winPct}%` }}
-                      />
+                  <div
+                    key={label}
+                    className={`experiment-detail__variant-card${isStalled ? ' experiment-detail__variant-card--stalled' : ''}`}
+                  >
+                    <div className="experiment-detail__variant-header">
+                      <h4 className="experiment-detail__variant-label">{label}</h4>
+                      <div className="experiment-detail__variant-header-right">
+                        {isStalled && (
+                          <>
+                            <span
+                              className="experiment-detail__stalled-badge"
+                              title={`State: ${stalledVariant.state}, Last activity: ${stalledVariant.last_heartbeat_at}`}
+                            >
+                              <AlertTriangle size={12} /> Stalled
+                            </span>
+                            <button
+                              className="experiment-detail__resume-variant-btn"
+                              onClick={() => handleResumeVariant(stalledVariant.id)}
+                              disabled={isResuming}
+                              title="Resume this stalled variant"
+                            >
+                              {isResuming ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Play size={12} />
+                              )}
+                              Resume
+                            </button>
+                          </>
+                        )}
+                        {variantSummary?.model_config && (
+                          <span className="experiment-detail__variant-model">
+                            {variantSummary.model_config.provider}/
+                            {variantSummary.model_config.model}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="experiment-detail__winner-count">
-                      {wins} ({Math.round(winPct)}%)
-                    </span>
+
+                    {/* Progress Section */}
+                    <div className="experiment-detail__variant-section">
+                      <span className="experiment-detail__variant-section-label">Progress</span>
+                      <div className="experiment-detail__progress-bar-container">
+                        <div
+                          className="experiment-detail__progress-bar"
+                          style={{ width: `${variantLive.progress.progress_pct}%` }}
+                        />
+                      </div>
+                      <span className="experiment-detail__progress-text">
+                        {variantLive.progress.current_hands}/{variantLive.progress.max_hands} hands
+                        ({variantLive.progress.progress_pct}%)
+                      </span>
+                      <span className="experiment-detail__progress-games">
+                        {variantLive.progress.games_count}/{variantLive.progress.games_expected}{' '}
+                        tournaments
+                      </span>
+                    </div>
+
+                    {/* Decision Quality Section */}
+                    {variantLive.decision_quality && (
+                      <div className="experiment-detail__variant-section">
+                        <span className="experiment-detail__variant-section-label">
+                          Decision Quality
+                        </span>
+                        <div className="experiment-detail__decision-row">
+                          {variantLive.decision_quality.quality_score != null ? (
+                            <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
+                              {variantLive.decision_quality.quality_score} Quality
+                            </span>
+                          ) : (
+                            <span className="experiment-detail__decision-metric experiment-detail__decision-metric--correct">
+                              {variantLive.decision_quality.correct_pct}% Correct
+                            </span>
+                          )}
+                          <span className="experiment-detail__decision-metric experiment-detail__decision-metric--mistake">
+                            {variantLive.decision_quality.mistakes} Mistakes
+                          </span>
+                          <span className="experiment-detail__decision-metric">
+                            ${variantLive.decision_quality.avg_ev_lost} EV
+                          </span>
+                          {variantLive.decision_quality.menu_compliance_pct != null && (
+                            <span className="experiment-detail__decision-metric">
+                              {variantLive.decision_quality.menu_compliance_pct}% Menu
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quality Indicators Section */}
+                    {variantLive.quality_indicators && (
+                      <div className="experiment-detail__variant-section">
+                        <span className="experiment-detail__variant-section-label">
+                          Quality Indicators
+                        </span>
+                        <div className="experiment-detail__decision-row">
+                          <span
+                            className={`experiment-detail__decision-metric ${variantLive.quality_indicators.suspicious_allins > 0 ? 'experiment-detail__decision-metric--mistake' : ''}`}
+                          >
+                            {variantLive.quality_indicators.suspicious_allins} Suspicious All-ins
+                          </span>
+                          <span className="experiment-detail__decision-metric">
+                            {variantLive.quality_indicators.marginal_allins} Marginal
+                          </span>
+                          <span
+                            className={`experiment-detail__decision-metric ${variantLive.quality_indicators.fold_mistake_rate > 50 ? 'experiment-detail__decision-metric--mistake' : ''}`}
+                          >
+                            {variantLive.quality_indicators.fold_mistakes} Fold Mistakes
+                          </span>
+                        </div>
+                        {/* Survival Metrics */}
+                        {((variantLive.quality_indicators.total_eliminations ?? 0) > 0 ||
+                          (variantLive.quality_indicators.all_in_wins ?? 0) > 0 ||
+                          (variantLive.quality_indicators.all_in_losses ?? 0) > 0) && (
+                          <div
+                            className="experiment-detail__decision-row"
+                            style={{ marginTop: '4px' }}
+                          >
+                            <span className="experiment-detail__decision-metric">
+                              {variantLive.quality_indicators.total_eliminations ?? 0} Eliminations
+                            </span>
+                            <span
+                              className={`experiment-detail__decision-metric ${variantLive.quality_indicators.all_in_survival_rate != null && variantLive.quality_indicators.all_in_survival_rate < 40 ? 'experiment-detail__decision-metric--mistake' : ''}`}
+                            >
+                              All-in: {variantLive.quality_indicators.all_in_wins ?? 0}W/
+                              {variantLive.quality_indicators.all_in_losses ?? 0}L
+                              {variantLive.quality_indicators.all_in_survival_rate != null &&
+                                ` (${variantLive.quality_indicators.all_in_survival_rate}%)`}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* API Latency Section */}
+                    {variantLive.latency_metrics && (
+                      <div className="experiment-detail__variant-section">
+                        <span className="experiment-detail__variant-section-label">
+                          <Zap size={12} />
+                          API Latency
+                        </span>
+                        <div className="experiment-detail__latency-grid">
+                          <div className="experiment-detail__latency-cell">
+                            <span className="experiment-detail__latency-label">Avg</span>
+                            <span className="experiment-detail__latency-value">
+                              {formatLatency(variantLive.latency_metrics.avg_ms)}
+                            </span>
+                          </div>
+                          <div className="experiment-detail__latency-cell">
+                            <span className="experiment-detail__latency-label">P50</span>
+                            <span className="experiment-detail__latency-value">
+                              {formatLatency(variantLive.latency_metrics.p50_ms)}
+                            </span>
+                          </div>
+                          <div className="experiment-detail__latency-cell">
+                            <span className="experiment-detail__latency-label">P95</span>
+                            <span className="experiment-detail__latency-value">
+                              {formatLatency(variantLive.latency_metrics.p95_ms)}
+                            </span>
+                          </div>
+                          <div className="experiment-detail__latency-cell">
+                            <span className="experiment-detail__latency-label">P99</span>
+                            <span className="experiment-detail__latency-value">
+                              {formatLatency(variantLive.latency_metrics.p99_ms)}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="experiment-detail__latency-count">
+                          {variantLive.latency_metrics.count.toLocaleString()} API calls
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Cost Metrics Section */}
+                    {variantLive.cost_metrics && variantLive.cost_metrics.total_cost > 0 && (
+                      <div className="experiment-detail__variant-section">
+                        <span className="experiment-detail__variant-section-label">
+                          <DollarSign size={12} />
+                          Cost Analytics
+                        </span>
+                        <div className="experiment-detail__cost-summary">
+                          <span className="experiment-detail__cost-total">
+                            {formatCost(variantLive.cost_metrics.total_cost)}
+                          </span>
+                          <span className="experiment-detail__cost-label">total</span>
+                        </div>
+                        <div className="experiment-detail__cost-grid">
+                          <div className="experiment-detail__cost-cell">
+                            <span className="experiment-detail__cost-metric-label">Per Hand</span>
+                            <span className="experiment-detail__cost-metric-value">
+                              {formatCost(variantLive.cost_metrics.cost_per_hand)}
+                            </span>
+                          </div>
+                          <div className="experiment-detail__cost-cell">
+                            <span className="experiment-detail__cost-metric-label">
+                              Per Decision
+                            </span>
+                            <span className="experiment-detail__cost-metric-value">
+                              {formatCost(variantLive.cost_metrics.avg_cost_per_decision)}
+                            </span>
+                          </div>
+                        </div>
+                        {Object.keys(variantLive.cost_metrics.by_model).length > 0 && (
+                          <div className="experiment-detail__cost-by-model">
+                            {Object.entries(variantLive.cost_metrics.by_model).map(
+                              ([model, data]) => (
+                                <div key={model} className="experiment-detail__cost-model-row">
+                                  <span className="experiment-detail__cost-model-name">
+                                    {model}
+                                  </span>
+                                  <span className="experiment-detail__cost-model-value">
+                                    {formatCost(data.cost)} ({data.calls.toLocaleString()} calls)
+                                  </span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Winners (from summary if available) */}
+                    {variantSummary && Object.keys(variantSummary.winners).length > 0 && (
+                      <div className="experiment-detail__variant-winners">
+                        <span className="experiment-detail__variant-winners-label">
+                          Top winners:
+                        </span>
+                        {Object.entries(variantSummary.winners)
+                          .sort(([, a], [, b]) => b - a)
+                          .slice(0, 3)
+                          .map(([name, wins]) => (
+                            <span key={name} className="experiment-detail__variant-winner">
+                              {name}: {wins}
+                            </span>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
-          </div>
-        </div>
-      )}
-
-      {/* Decision Quality */}
-      {decisionStats && decisionStats.total > 0 && (
-        <div className="experiment-detail__section">
-          <h3 className="experiment-detail__section-title">
-            <Target size={18} />
-            GTO Quality
-            {decisionStats.quality_score != null && (
-              <span className="experiment-detail__section-badge">
-                {decisionStats.quality_score}/100
-              </span>
-            )}
-          </h3>
-          <div className="experiment-detail__decision-stats">
-            <div className="experiment-detail__decision-overview">
-              <div className="experiment-detail__decision-bar">
-                <div
-                  className="experiment-detail__decision-bar-correct"
-                  style={{ width: `${decisionStats.correct_pct}%` }}
-                  title={`Correct: ${decisionStats.correct}`}
-                />
-                <div
-                  className="experiment-detail__decision-bar-marginal"
-                  style={{ width: `${(decisionStats.marginal / decisionStats.total) * 100}%` }}
-                  title={`Marginal: ${decisionStats.marginal}`}
-                />
-                <div
-                  className="experiment-detail__decision-bar-mistake"
-                  style={{ width: `${(decisionStats.mistake / decisionStats.total) * 100}%` }}
-                  title={`Mistake: ${decisionStats.mistake}`}
-                />
-              </div>
-              <div className="experiment-detail__decision-legend">
-                <span className="experiment-detail__legend-item experiment-detail__legend-item--correct">
-                  Correct: {decisionStats.correct} ({decisionStats.correct_pct}%)
-                </span>
-                <span className="experiment-detail__legend-item experiment-detail__legend-item--marginal">
-                  Marginal: {decisionStats.marginal}
-                </span>
-                <span className="experiment-detail__legend-item experiment-detail__legend-item--mistake">
-                  Mistake: {decisionStats.mistake}
-                </span>
-              </div>
             </div>
+          </div>
+        )}
 
-            {/* Menu Compliance */}
-            {decisionStats.menu_compliance && decisionStats.menu_compliance.total > 0 && (
-              <div className="experiment-detail__menu-compliance">
-                <h4>Menu Compliance</h4>
+        {/* Winners Distribution */}
+        {summary?.winners && Object.keys(summary.winners).length > 0 && (
+          <div className="experiment-detail__section">
+            <h3 className="experiment-detail__section-title">
+              <Trophy size={18} />
+              Winner Distribution
+            </h3>
+            <div className="experiment-detail__winners">
+              {Object.entries(summary.winners)
+                .sort(([, a], [, b]) => b - a)
+                .map(([name, wins]) => {
+                  const winPct = summary.tournaments > 0 ? (wins / summary.tournaments) * 100 : 0;
+                  return (
+                    <div key={name} className="experiment-detail__winner">
+                      <span className="experiment-detail__winner-name">{name}</span>
+                      <div className="experiment-detail__winner-bar-container">
+                        <div
+                          className="experiment-detail__winner-bar"
+                          style={{ width: `${winPct}%` }}
+                        />
+                      </div>
+                      <span className="experiment-detail__winner-count">
+                        {wins} ({Math.round(winPct)}%)
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* Decision Quality */}
+        {decisionStats && decisionStats.total > 0 && (
+          <div className="experiment-detail__section">
+            <h3 className="experiment-detail__section-title">
+              <Target size={18} />
+              GTO Quality
+              {decisionStats.quality_score != null && (
+                <span className="experiment-detail__section-badge">
+                  {decisionStats.quality_score}/100
+                </span>
+              )}
+            </h3>
+            <div className="experiment-detail__decision-stats">
+              <div className="experiment-detail__decision-overview">
+                <div className="experiment-detail__decision-bar">
+                  <div
+                    className="experiment-detail__decision-bar-correct"
+                    style={{ width: `${decisionStats.correct_pct}%` }}
+                    title={`Correct: ${decisionStats.correct}`}
+                  />
+                  <div
+                    className="experiment-detail__decision-bar-marginal"
+                    style={{ width: `${(decisionStats.marginal / decisionStats.total) * 100}%` }}
+                    title={`Marginal: ${decisionStats.marginal}`}
+                  />
+                  <div
+                    className="experiment-detail__decision-bar-mistake"
+                    style={{ width: `${(decisionStats.mistake / decisionStats.total) * 100}%` }}
+                    title={`Mistake: ${decisionStats.mistake}`}
+                  />
+                </div>
                 <div className="experiment-detail__decision-legend">
                   <span className="experiment-detail__legend-item experiment-detail__legend-item--correct">
-                    Picked Best: {decisionStats.menu_compliance.correct} ({decisionStats.menu_compliance.compliance_pct}%)
+                    Correct: {decisionStats.correct} ({decisionStats.correct_pct}%)
                   </span>
-                  <span className="experiment-detail__legend-item">
-                    {decisionStats.menu_compliance.total} bounded decisions
+                  <span className="experiment-detail__legend-item experiment-detail__legend-item--marginal">
+                    Marginal: {decisionStats.marginal}
+                  </span>
+                  <span className="experiment-detail__legend-item experiment-detail__legend-item--mistake">
+                    Mistake: {decisionStats.mistake}
                   </span>
                 </div>
               </div>
-            )}
 
-            {decisionStats.by_player && Object.keys(decisionStats.by_player).length > 0 && (
-              <div className="experiment-detail__player-stats">
-                <h4>By Player</h4>
-                <table className="experiment-detail__player-table">
-                  <thead>
-                    <tr>
-                      <th>Player</th>
-                      <th>Decisions</th>
-                      <th>Quality</th>
-                      <th>Avg EV Lost</th>
-                      {decisionStats.menu_compliance && <th>Menu %</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(decisionStats.by_player)
-                      .sort(([, a], [, b]) => (b.quality_score ?? b.correct_pct) - (a.quality_score ?? a.correct_pct))
-                      .map(([name, stats]) => (
-                        <tr key={name}>
-                          <td>{name}</td>
-                          <td>{stats.total}</td>
-                          <td>{stats.quality_score != null ? stats.quality_score : `${stats.correct_pct}%`}</td>
-                          <td>${stats.avg_ev_lost}</td>
-                          {decisionStats.menu_compliance && (
-                            <td>{stats.menu_compliance_pct != null ? `${stats.menu_compliance_pct}%` : '-'}</td>
-                          )}
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Games List */}
-      {games.length > 0 && (
-        <div className="experiment-detail__section">
-          <h3 className="experiment-detail__section-title">
-            <Gamepad2 size={18} />
-            Tournament Games ({games.length})
-            {/* Variant filter dropdown */}
-            {summary?.variants && Object.keys(summary.variants).length > 0 && (
-              <div className="experiment-detail__variant-filter">
-                <Filter size={14} />
-                <select
-                  value={variantFilter || ''}
-                  onChange={(e) => setVariantFilter(e.target.value || null)}
-                  className="experiment-detail__variant-filter-select"
-                >
-                  <option value="">All variants</option>
-                  {Object.keys(summary.variants).map((label) => (
-                    <option key={label} value={label}>{label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </h3>
-          <div className="experiment-detail__games">
-            {games
-              .filter((game) => !variantFilter || game.variant === variantFilter)
-              .map((game) => (
-                <div key={game.id} className="experiment-detail__game">
-                  <span className="experiment-detail__game-number">
-                    #{game.tournament_number}
-                  </span>
-                  {game.variant && (
-                    <span className="experiment-detail__game-variant">
-                      {game.variant}
+              {/* Menu Compliance */}
+              {decisionStats.menu_compliance && decisionStats.menu_compliance.total > 0 && (
+                <div className="experiment-detail__menu-compliance">
+                  <h4>Menu Compliance</h4>
+                  <div className="experiment-detail__decision-legend">
+                    <span className="experiment-detail__legend-item experiment-detail__legend-item--correct">
+                      Picked Best: {decisionStats.menu_compliance.correct} (
+                      {decisionStats.menu_compliance.compliance_pct}%)
                     </span>
-                  )}
-                  <span className="experiment-detail__game-id">{game.game_id}</span>
-                  <span className="experiment-detail__game-date">
-                    {formatDate(game.created_at)}
-                  </span>
+                    <span className="experiment-detail__legend-item">
+                      {decisionStats.menu_compliance.total} bounded decisions
+                    </span>
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {decisionStats.by_player && Object.keys(decisionStats.by_player).length > 0 && (
+                <div className="experiment-detail__player-stats">
+                  <h4>By Player</h4>
+                  <table className="experiment-detail__player-table">
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        <th>Decisions</th>
+                        <th>Quality</th>
+                        <th>Avg EV Lost</th>
+                        {decisionStats.menu_compliance && <th>Menu %</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(decisionStats.by_player)
+                        .sort(
+                          ([, a], [, b]) =>
+                            (b.quality_score ?? b.correct_pct) - (a.quality_score ?? a.correct_pct)
+                        )
+                        .map(([name, stats]) => (
+                          <tr key={name}>
+                            <td>{name}</td>
+                            <td>{stats.total}</td>
+                            <td>
+                              {stats.quality_score != null
+                                ? stats.quality_score
+                                : `${stats.correct_pct}%`}
+                            </td>
+                            <td>${stats.avg_ev_lost}</td>
+                            {decisionStats.menu_compliance && (
+                              <td>
+                                {stats.menu_compliance_pct != null
+                                  ? `${stats.menu_compliance_pct}%`
+                                  : '-'}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Config */}
-      <div className="experiment-detail__section">
-        <h3 className="experiment-detail__section-title">Configuration</h3>
-        <pre className="experiment-detail__config">
-          {JSON.stringify(experiment.config, null, 2)}
-        </pre>
-      </div>
-
-      {/* Timestamps */}
-      <div className="experiment-detail__timestamps">
-        <span>Created: {formatDate(experiment.created_at)}</span>
-        {experiment.completed_at && (
-          <span>Completed: {formatDate(experiment.completed_at)}</span>
         )}
+
+        {/* Games List */}
+        {games.length > 0 && (
+          <div className="experiment-detail__section">
+            <h3 className="experiment-detail__section-title">
+              <Gamepad2 size={18} />
+              Tournament Games ({games.length}){/* Variant filter dropdown */}
+              {summary?.variants && Object.keys(summary.variants).length > 0 && (
+                <div className="experiment-detail__variant-filter">
+                  <Filter size={14} />
+                  <select
+                    value={variantFilter || ''}
+                    onChange={(e) => setVariantFilter(e.target.value || null)}
+                    className="experiment-detail__variant-filter-select"
+                  >
+                    <option value="">All variants</option>
+                    {Object.keys(summary.variants).map((label) => (
+                      <option key={label} value={label}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </h3>
+            <div className="experiment-detail__games">
+              {games
+                .filter((game) => !variantFilter || game.variant === variantFilter)
+                .map((game) => (
+                  <div key={game.id} className="experiment-detail__game">
+                    <span className="experiment-detail__game-number">
+                      #{game.tournament_number}
+                    </span>
+                    {game.variant && (
+                      <span className="experiment-detail__game-variant">{game.variant}</span>
+                    )}
+                    <span className="experiment-detail__game-id">{game.game_id}</span>
+                    <span className="experiment-detail__game-date">
+                      {formatDate(game.created_at)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Config */}
+        <div className="experiment-detail__section">
+          <h3 className="experiment-detail__section-title">Configuration</h3>
+          <pre className="experiment-detail__config">
+            {JSON.stringify(experiment.config, null, 2)}
+          </pre>
+        </div>
+
+        {/* Timestamps */}
+        <div className="experiment-detail__timestamps">
+          <span>Created: {formatDate(experiment.created_at)}</span>
+          {experiment.completed_at && <span>Completed: {formatDate(experiment.completed_at)}</span>}
+        </div>
       </div>
-      </div>{/* End of experiment-detail__content */}
+      {/* End of experiment-detail__content */}
 
       {/* Live Monitor Overlay */}
       {showMonitor && (

@@ -1,6 +1,5 @@
 import random
-from enum import Enum
-from typing import Tuple, Dict, List
+from typing import Dict, List, Tuple
 
 # Constants for configuration
 ATTRIBUTE_CONSTRAINT = "Use less than 20 words"
@@ -53,30 +52,96 @@ CELEBRITIES_LIST = [
     "Triumph the Insult Comic Dog",
     "Tyler Durden",
     "Whoopi Goldberg",
-    "Winston Churchill"
+    "Winston Churchill",
 ]
 
 # Full list of potential celebrities for future expansion
 ALL_CELEBRITIES_LIST = [
-    "Ace Ventura", "Khloe and Kim Khardashian", "Fred Durst", "Tom Cruise",
-    "James Bond", "Jon Stewart", "Jim Cramer", "Marjorie Taylor Greene",
-    "Lizzo", "Bill Clinton", "Barack Obama", "Jesus Christ",
-    "Triumph the Insult Comic Dog", "Donald Trump", "Batman", "Deadpool",
-    "Lance Armstrong", "A Mime", "Jay Gatsby", "Whoopi Goldberg",
-    "Dave Chappelle", "Chris Rock", "Sarah Silverman", "Napoleon",
-    "Dr. Seuss", "Dr. Oz", "A guy who tells too many dad jokes",
-    "Someone who is very, very mean to people", "Socrates", "Shakespeare",
-    "C3PO", "R2-D2", "Winston Churchill", "Abraham Lincoln", "Buddha",
-    "Crocodile Dundee", "Tyler Durden", "Hulk Hogan", "The Rock", "The Hulk",
-    "King Henry VIII", "Louis XIV", "Kim Jong Un", "Scarlett Johansson",
-    "Joan of Ark", "John Wayne", "Doc Holiday", "Captain Jack Sparrow",
-    "Terry Tate, Office Linebacker", "Bob Dylan", "Captain Spock", "Scarlett Johansson",
-    "Howard Stern", "Elmo", "Captain Ahab", "Dracula", "Ludacris", "Lil John",
-    "A cat", "A dog", "A horse", "A fish", "A pig", "A chicken", "A turtle",
-    "Bart Simpson", "Homer Simpson", "An alien who has never played poker",
-    "Phil Helmuth", "Doyle Brunson", "Bilbo Baggins", "Fox Mulder", "Al Pacino",
-    "Gallagher", "Lloyd Christmas", "Yogi Bear", "Scooby Doo", "Shaggy", "The Grinch",
-    "Santa Claus", "Satan", "Hercules", "Micky Mouse", "Rocky", "Benjamin Franklin",
+    "Ace Ventura",
+    "Khloe and Kim Khardashian",
+    "Fred Durst",
+    "Tom Cruise",
+    "James Bond",
+    "Jon Stewart",
+    "Jim Cramer",
+    "Marjorie Taylor Greene",
+    "Lizzo",
+    "Bill Clinton",
+    "Barack Obama",
+    "Jesus Christ",
+    "Triumph the Insult Comic Dog",
+    "Donald Trump",
+    "Batman",
+    "Deadpool",
+    "Lance Armstrong",
+    "A Mime",
+    "Jay Gatsby",
+    "Whoopi Goldberg",
+    "Dave Chappelle",
+    "Chris Rock",
+    "Sarah Silverman",
+    "Napoleon",
+    "Dr. Seuss",
+    "Dr. Oz",
+    "A guy who tells too many dad jokes",
+    "Someone who is very, very mean to people",
+    "Socrates",
+    "Shakespeare",
+    "C3PO",
+    "R2-D2",
+    "Winston Churchill",
+    "Abraham Lincoln",
+    "Buddha",
+    "Crocodile Dundee",
+    "Tyler Durden",
+    "Hulk Hogan",
+    "The Rock",
+    "The Hulk",
+    "King Henry VIII",
+    "Louis XIV",
+    "Kim Jong Un",
+    "Scarlett Johansson",
+    "Joan of Ark",
+    "John Wayne",
+    "Doc Holiday",
+    "Captain Jack Sparrow",
+    "Terry Tate, Office Linebacker",
+    "Bob Dylan",
+    "Captain Spock",
+    "Scarlett Johansson",
+    "Howard Stern",
+    "Elmo",
+    "Captain Ahab",
+    "Dracula",
+    "Ludacris",
+    "Lil John",
+    "A cat",
+    "A dog",
+    "A horse",
+    "A fish",
+    "A pig",
+    "A chicken",
+    "A turtle",
+    "Bart Simpson",
+    "Homer Simpson",
+    "An alien who has never played poker",
+    "Phil Helmuth",
+    "Doyle Brunson",
+    "Bilbo Baggins",
+    "Fox Mulder",
+    "Al Pacino",
+    "Gallagher",
+    "Lloyd Christmas",
+    "Yogi Bear",
+    "Scooby Doo",
+    "Shaggy",
+    "The Grinch",
+    "Santa Claus",
+    "Satan",
+    "Hercules",
+    "Micky Mouse",
+    "Rocky",
+    "Benjamin Franklin",
 ]
 
 
@@ -108,7 +173,7 @@ def serialize(converted_object):
         return {k: serialize(v) for k, v in converted_object.items()}
     elif isinstance(converted_object, list):
         return [serialize(v) for v in converted_object]
-    elif isinstance(converted_object, (str, int, float, bool, type(None))):
+    elif isinstance(converted_object, str | int | float | bool | type(None)):
         return converted_object
     else:
         # Provide a placeholder or convert to string

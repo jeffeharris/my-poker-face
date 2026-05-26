@@ -2,6 +2,7 @@
 
 Single source of truth for model settings.
 """
+
 import os
 
 # =============================================================================
@@ -43,12 +44,12 @@ GROQ_DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 # Available Groq models for UI selection
 # See: https://console.groq.com/docs/models
 GROQ_AVAILABLE_MODELS = [
-    "llama-3.3-70b-versatile",                   # Best overall, 131k context, 280 tok/s
-    "llama-3.1-8b-instant",                      # Fast, good for simple tasks, 560 tok/s
-    "openai/gpt-oss-20b",                        # GPT OSS 20B, 1000 tok/s
-    "openai/gpt-oss-120b",                       # GPT OSS 120B, 500 tok/s
-    "meta-llama/llama-4-scout-17b-16e-instruct", # Llama 4 Scout, 750 tok/s (lab)
-    "qwen/qwen3-32b",                            # Qwen3 32B, 400 tok/s (lab)
+    "llama-3.3-70b-versatile",  # Best overall, 131k context, 280 tok/s
+    "llama-3.1-8b-instant",  # Fast, good for simple tasks, 560 tok/s
+    "openai/gpt-oss-20b",  # GPT OSS 20B, 1000 tok/s
+    "openai/gpt-oss-120b",  # GPT OSS 120B, 500 tok/s
+    "meta-llama/llama-4-scout-17b-16e-instruct",  # Llama 4 Scout, 750 tok/s (lab)
+    "qwen/qwen3-32b",  # Qwen3 32B, 400 tok/s (lab)
 ]
 
 # =============================================================================
@@ -61,9 +62,9 @@ ANTHROPIC_DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-2
 # Available Anthropic models for UI selection
 # See: https://docs.anthropic.com/en/docs/about-claude/models
 ANTHROPIC_AVAILABLE_MODELS = [
-    "claude-sonnet-4-5-20250929",   # Best balance, complex agents/coding ($3/$15 per M tokens)
-    "claude-opus-4-5-20251101",     # Most capable, highest cost ($15/$75 per M tokens)
-    "claude-haiku-4-5-20251001",    # Fastest, lowest cost ($1/$5 per M tokens)
+    "claude-sonnet-4-5-20250929",  # Best balance, complex agents/coding ($3/$15 per M tokens)
+    "claude-opus-4-5-20251101",  # Most capable, highest cost ($15/$75 per M tokens)
+    "claude-haiku-4-5-20251001",  # Fastest, lowest cost ($1/$5 per M tokens)
 ]
 
 # =============================================================================
@@ -76,9 +77,9 @@ DEEPSEEK_DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek")
 # Available DeepSeek models for UI selection
 # See: https://platform.deepseek.com/api-docs/
 DEEPSEEK_AVAILABLE_MODELS = [
-    "deepseek",             # Unified - routes to chat or reasoner based on reasoning_effort
-    "deepseek-chat",        # V3 - Best value, $0.28/$0.42 per M tokens (no reasoning)
-    "deepseek-reasoner",    # R1 - Reasoning model, $0.55/$2.19 per M tokens
+    "deepseek",  # Unified - routes to chat or reasoner based on reasoning_effort
+    "deepseek-chat",  # V3 - Best value, $0.28/$0.42 per M tokens (no reasoning)
+    "deepseek-reasoner",  # R1 - Reasoning model, $0.55/$2.19 per M tokens
 ]
 
 # =============================================================================
@@ -91,12 +92,12 @@ MISTRAL_DEFAULT_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
 # Available Mistral models for UI selection
 # See: https://docs.mistral.ai/getting-started/models/
 MISTRAL_AVAILABLE_MODELS = [
-    "mistral-small-latest",     # Fast, cheap ($0.20/$0.60 per M tokens)
-    "mistral-medium-latest",    # Balanced
-    "mistral-large-latest",     # Most capable ($2/$6 per M tokens)
+    "mistral-small-latest",  # Fast, cheap ($0.20/$0.60 per M tokens)
+    "mistral-medium-latest",  # Balanced
+    "mistral-large-latest",  # Most capable ($2/$6 per M tokens)
     "labs-mistral-small-creative",  # Creative variant ($0.10/$0.30 per M tokens)
-    "ministral-3b-latest",      # Tiny, cheapest ($0.10/$0.10 per M tokens)
-    "ministral-8b-latest",      # Small ($0.15/$0.15 per M tokens)
+    "ministral-3b-latest",  # Tiny, cheapest ($0.10/$0.10 per M tokens)
+    "ministral-8b-latest",  # Small ($0.15/$0.15 per M tokens)
 ]
 
 # =============================================================================
@@ -109,9 +110,9 @@ GOOGLE_DEFAULT_MODEL = os.environ.get("GOOGLE_MODEL", "gemini-2.0-flash")
 # Available Google models for UI selection
 # See: https://ai.google.dev/gemini-api/docs/models
 GOOGLE_AVAILABLE_MODELS = [
-    "gemini-2.0-flash",         # Very cheap ($0.10/$0.40 per M tokens)
-    "gemini-2.5-flash",         # Better quality ($0.30/$2.50 per M tokens)
-    "gemini-2.5-pro",           # GPT-4o competitor ($1.25/$10 per M tokens)
+    "gemini-2.0-flash",  # Very cheap ($0.10/$0.40 per M tokens)
+    "gemini-2.5-flash",  # Better quality ($0.30/$2.50 per M tokens)
+    "gemini-2.5-pro",  # GPT-4o competitor ($1.25/$10 per M tokens)
 ]
 
 # =============================================================================
@@ -130,10 +131,10 @@ XAI_DEFAULT_MODEL = os.environ.get("XAI_MODEL", "grok-4-fast")
 # - grok-3: No reasoning capability
 # - grok-4: Always reasons (flagship model)
 XAI_AVAILABLE_MODELS = [
-    "grok-4-fast",                  # Fast, toggles reasoning via effort ($0.20/$0.50)
-    "grok-3-mini",                  # Controllable reasoning (low/high, $0.30/$0.50)
-    "grok-3",                       # No reasoning ($3/$15)
-    "grok-4",                       # Flagship, always reasons ($3/$15)
+    "grok-4-fast",  # Fast, toggles reasoning via effort ($0.20/$0.50)
+    "grok-3-mini",  # Controllable reasoning (low/high, $0.30/$0.50)
+    "grok-3",  # No reasoning ($3/$15)
+    "grok-4",  # Flagship, always reasons ($3/$15)
 ]
 
 # =============================================================================
@@ -146,10 +147,10 @@ RUNWARE_DEFAULT_MODEL = os.environ.get("RUNWARE_MODEL", "runware:100@1")
 # Available Runware models for image generation
 # See: https://runware.ai/docs/image-inference/api-reference
 RUNWARE_AVAILABLE_MODELS = [
-    "runware:100@1",            # FLUX.1 [schnell] - fast ($0.0013/1024x1024)
-    "runware:400@1",            # FLUX.2 [dev] - higher quality ($0.0038/1024x1024)
-    "runware:400@4",            # FLUX.2 [klein] 4B - fast ($0.0006/1024x1024)
-    "runware:z-image@turbo",    # Z-Image Turbo ($0.0032/1024x1024)
+    "runware:100@1",  # FLUX.1 [schnell] - fast ($0.0013/1024x1024)
+    "runware:400@1",  # FLUX.2 [dev] - higher quality ($0.0038/1024x1024)
+    "runware:400@4",  # FLUX.2 [klein] 4B - fast ($0.0006/1024x1024)
+    "runware:z-image@turbo",  # Z-Image Turbo ($0.0032/1024x1024)
 ]
 
 # =============================================================================
@@ -167,14 +168,14 @@ POLLINATIONS_RATE_LIMIT_DELAY = float(os.environ.get("POLLINATIONS_RATE_LIMIT_DE
 # Available Pollinations models for image generation
 # See: https://pollinations.ai/pricing
 POLLINATIONS_AVAILABLE_MODELS = [
-    "flux",                         # Flux Schnell - fast, good quality ($0.0002/image)
-    "zimage",                       # Z-Image Turbo - fast ($0.0002/image)
-    "turbo",                        # SDXL Turbo ($0.0003/image)
-    "klein",                        # FLUX.2 Klein 4B - supports img2img ($0.008/image)
-    "seedream",                     # Seedream 4.0 ($0.03/image)
-    "kontext",                      # FLUX.1 Kontext ($0.04/image)
-    "gptimage",                     # GPT Image 1 Mini ($0.008/image approx)
-    "nanobanana",                   # NanoBanana
+    "flux",  # Flux Schnell - fast, good quality ($0.0002/image)
+    "zimage",  # Z-Image Turbo - fast ($0.0002/image)
+    "turbo",  # SDXL Turbo ($0.0003/image)
+    "klein",  # FLUX.2 Klein 4B - supports img2img ($0.008/image)
+    "seedream",  # Seedream 4.0 ($0.03/image)
+    "kontext",  # FLUX.1 Kontext ($0.04/image)
+    "gptimage",  # GPT Image 1 Mini ($0.008/image approx)
+    "nanobanana",  # NanoBanana
 ]
 
 # =============================================================================
@@ -182,7 +183,17 @@ POLLINATIONS_AVAILABLE_MODELS = [
 # =============================================================================
 
 # All available providers
-AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "google", "xai", "pollinations", "runware"]
+AVAILABLE_PROVIDERS = [
+    "openai",
+    "groq",
+    "anthropic",
+    "deepseek",
+    "mistral",
+    "google",
+    "xai",
+    "pollinations",
+    "runware",
+]
 
 # =============================================================================
 # Default Enabled Models (for new deployments)
@@ -195,8 +206,8 @@ AVAILABLE_PROVIDERS = ["openai", "groq", "anthropic", "deepseek", "mistral", "go
 # To restrict to specific models, list them by provider.
 DEFAULT_ENABLED_MODELS = {
     "openai": ["gpt-5-nano", "dall-e-2"],  # Cheapest OpenAI model + image generation
-    "groq": ["llama-3.1-8b-instant"],      # Fast and free-tier friendly
-    "runware": ["runware:100@1"],           # FLUX.1 Schnell - fast image generation
+    "groq": ["llama-3.1-8b-instant"],  # Fast and free-tier friendly
+    "runware": ["runware:100@1"],  # FLUX.1 Schnell - fast image generation
 }
 
 # Models by provider for UI selection

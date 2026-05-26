@@ -16,7 +16,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -55,6 +55,7 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -88,6 +89,7 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
         # same xdist worker.
         import flask_app.extensions as _ext_mod
         import flask_app.routes.personality_routes as _routes_mod
+
         self._ext_mod = _ext_mod
         self._routes_mod = _routes_mod
         self._original_ext_personality_repo = getattr(_ext_mod, 'personality_repo', None)
@@ -196,13 +198,18 @@ class TestBankrollKnobsRoutesAdmin(_BankrollKnobsRouteBase):
 
     def test_get_surfaces_live_bankroll_when_row_exists(self):
         # Seed a bankroll row so current_bankroll comes through.
-        from cash_mode.bankroll import AIBankrollState
         from datetime import datetime
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.personality_id,
-            chips=8_000,
-            last_regen_tick=datetime.utcnow(),
-        ), sandbox_id="test-sandbox-1")
+
+        from cash_mode.bankroll import AIBankrollState
+
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.personality_id,
+                chips=8_000,
+                last_regen_tick=datetime.utcnow(),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         response = self.client.get('/api/personality/Napoleon/bankroll-knobs')
         data = response.get_json()
         # Live bankroll surfaces (close to 8_000 — no regen elapsed).

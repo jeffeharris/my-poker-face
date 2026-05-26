@@ -5,6 +5,7 @@ enabling filtering and selection for replay experiments.
 """
 
 import logging
+
 from flask import Blueprint, jsonify, request
 
 from ..extensions import capture_label_repo, prompt_capture_repo
@@ -34,10 +35,7 @@ def list_capture_labels():
 
         labels = capture_label_repo.list_all_labels(label_type=label_type)
 
-        return jsonify({
-            'success': True,
-            'labels': labels
-        })
+        return jsonify({'success': True, 'labels': labels})
     except Exception as e:
         logger.error(f"Error listing capture labels: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -56,10 +54,7 @@ def get_capture_labels(capture_id: int):
     try:
         labels = capture_label_repo.get_capture_labels(capture_id)
 
-        return jsonify({
-            'success': True,
-            'labels': labels
-        })
+        return jsonify({'success': True, 'labels': labels})
     except Exception as e:
         logger.error(f"Error getting labels for capture {capture_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -89,10 +84,7 @@ def update_capture_labels(capture_id: int):
         labels_to_remove = data.get('remove', [])
 
         if not labels_to_add and not labels_to_remove:
-            return jsonify({
-                'success': False,
-                'error': 'No labels to add or remove specified'
-            }), 400
+            return jsonify({'success': False, 'error': 'No labels to add or remove specified'}), 400
 
         added = []
         removed = 0
@@ -106,12 +98,7 @@ def update_capture_labels(capture_id: int):
         # Get current labels after changes
         labels = capture_label_repo.get_capture_labels(capture_id)
 
-        return jsonify({
-            'success': True,
-            'labels': labels,
-            'added': added,
-            'removed': removed
-        })
+        return jsonify({'success': True, 'labels': labels, 'added': added, 'removed': removed})
     except Exception as e:
         logger.error(f"Error updating labels for capture {capture_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -188,7 +175,7 @@ def search_captures():
                 has_error=has_error,
                 is_correction=is_correction,
                 limit=limit,
-                offset=offset
+                offset=offset,
             )
         else:
             # No labels, use regular listing
@@ -203,14 +190,10 @@ def search_captures():
                 has_error=has_error,
                 is_correction=is_correction,
                 limit=limit,
-                offset=offset
+                offset=offset,
             )
 
-        return jsonify({
-            'success': True,
-            'captures': result['captures'],
-            'total': result['total']
-        })
+        return jsonify({'success': True, 'captures': result['captures'], 'total': result['total']})
     except Exception as e:
         logger.error(f"Error searching captures: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -241,16 +224,10 @@ def bulk_update_labels():
         labels_to_remove = data.get('remove', [])
 
         if not capture_ids:
-            return jsonify({
-                'success': False,
-                'error': 'No capture_ids specified'
-            }), 400
+            return jsonify({'success': False, 'error': 'No capture_ids specified'}), 400
 
         if not labels_to_add and not labels_to_remove:
-            return jsonify({
-                'success': False,
-                'error': 'No labels to add or remove specified'
-            }), 400
+            return jsonify({'success': False, 'error': 'No labels to add or remove specified'}), 400
 
         added_result = {'captures_affected': 0, 'labels_added': 0}
         removed_result = {'captures_affected': 0, 'labels_removed': 0}
@@ -259,13 +236,11 @@ def bulk_update_labels():
             added_result = capture_label_repo.bulk_add_capture_labels(capture_ids, labels_to_add)
 
         if labels_to_remove:
-            removed_result = capture_label_repo.bulk_remove_capture_labels(capture_ids, labels_to_remove)
+            removed_result = capture_label_repo.bulk_remove_capture_labels(
+                capture_ids, labels_to_remove
+            )
 
-        return jsonify({
-            'success': True,
-            'added': added_result,
-            'removed': removed_result
-        })
+        return jsonify({'success': True, 'added': added_result, 'removed': removed_result})
     except Exception as e:
         logger.error(f"Error bulk updating labels: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

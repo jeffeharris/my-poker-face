@@ -12,23 +12,19 @@ personality-authentic narrative text and inner_voice.
 Legacy 4D model is kept for backward compatibility but will be removed in future.
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from core.llm_categorizer import (
-    CategorizationSchema,
-    StructuredLLMCategorizer,
-    CategorizationResult
-)
+from core.llm_categorizer import CategorizationSchema, StructuredLLMCategorizer
 
 logger = logging.getLogger(__name__)
 
 
 class _SimpleAttr:
     """Lightweight attribute bag used to bridge old duck-typed interfaces."""
+
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -41,6 +37,7 @@ class _SimpleAttr:
 # - Arousal: aggression + inverse composure (energy/agitation)
 # - Control: directly from composure
 # - Focus: composure with table_talk modifier
+
 
 def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     """
@@ -61,6 +58,7 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
     Returns:
         Dict with 'valence', 'arousal', 'control', 'focus' baseline values
     """
+
     def _trait_val(name: str, default: float = 0.5) -> float:
         t = elastic_traits.get(name)
         if t is None:
@@ -109,7 +107,9 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
 
         # Average drift from anchor across all traits
         avg_drift = sum(_trait_drift(t) for t in elastic_traits) / max(len(elastic_traits), 1)
-        avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(len(elastic_traits), 1)
+        avg_abs_drift = sum(abs(_trait_drift(t)) for t in elastic_traits) / max(
+            len(elastic_traits), 1
+        )
 
         valence = _clamp(avg_drift * 3.0, -1.0, 1.0)
         arousal = _clamp(0.35 + aggression * 0.25 + avg_abs_drift * 2.0, 0.0, 1.0)
@@ -125,6 +125,7 @@ def compute_baseline_mood(elastic_traits: Dict[str, Any]) -> Dict[str, float]:
 
 
 # Layer 2: Reactive spike from hand outcome (deterministic)
+
 
 def compute_reactive_spike(
     outcome: str,
@@ -151,20 +152,20 @@ def compute_reactive_spike(
     bb_magnitude = min(abs(amount) / max(big_blind, 1), 10.0) / 10.0  # 0-1 scale
 
     if outcome == 'won':
-        valence = 0.3 + bb_magnitude * 0.4    # +0.3 to +0.7
-        arousal = 0.1 + bb_magnitude * 0.3    # mild excitement
-        control = 0.1 + bb_magnitude * 0.15   # winning feels in-control
-        focus = 0.05                           # slight clarity boost
+        valence = 0.3 + bb_magnitude * 0.4  # +0.3 to +0.7
+        arousal = 0.1 + bb_magnitude * 0.3  # mild excitement
+        control = 0.1 + bb_magnitude * 0.15  # winning feels in-control
+        focus = 0.05  # slight clarity boost
     elif outcome == 'lost':
-        valence = -0.3 - bb_magnitude * 0.4   # -0.3 to -0.7
+        valence = -0.3 - bb_magnitude * 0.4  # -0.3 to -0.7
         arousal = 0.15 + bb_magnitude * 0.35  # frustration/agitation
         control = -0.15 - bb_magnitude * 0.2  # losing control
-        focus = -0.1 - bb_magnitude * 0.15    # harder to think clearly
+        focus = -0.1 - bb_magnitude * 0.15  # harder to think clearly
     else:  # folded
         valence = -0.05 - bb_magnitude * 0.1  # mild negative
-        arousal = 0.05                         # barely registers
-        control = 0.0                          # neutral
-        focus = 0.0                            # neutral
+        arousal = 0.05  # barely registers
+        control = 0.0  # neutral
+        focus = 0.0  # neutral
 
     # Tilt amplifies all spikes — tilted players react more intensely
     amplifier = 1.0 + tilt_level * 0.8
@@ -182,6 +183,7 @@ def compute_reactive_spike(
 
 
 # Blending baseline + spike
+
 
 def blend_emotional_state(
     baseline: Dict[str, float],
@@ -217,18 +219,18 @@ EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
         'narrative': {
             'type': 'string',
             'default': '',
-            'description': '1-2 sentences describing how the character is feeling, in third person'
+            'description': '1-2 sentences describing how the character is feeling, in third person',
         },
         'inner_voice': {
             'type': 'string',
             'default': '',
-            'description': 'A short thought echoing in their head, in first person, in their voice'
-        }
+            'description': 'A short thought echoing in their head, in first person, in their voice',
+        },
     },
     example_output={
         'narrative': 'Gordon is seething after Phil\'s lucky river card. His jaw is tight and his patience is wearing thin.',
-        'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.'
-    }
+        'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.',
+    },
 )
 
 
@@ -248,14 +250,14 @@ class EmotionalState:
 
     # DEPRECATED: Dimensional scores (kept for backward compat)
     # In v2.1, emotion is determined by quadrant from PlayerPsychology
-    valence: float = 0.0      # -1 (miserable) to 1 (elated)
-    arousal: float = 0.5      # 0 (calm) to 1 (agitated)
-    control: float = 0.5      # 0 (losing grip) to 1 (in command)
-    focus: float = 0.5        # 0 (tunnel vision) to 1 (clear-headed)
+    valence: float = 0.0  # -1 (miserable) to 1 (elated)
+    arousal: float = 0.5  # 0 (calm) to 1 (agitated)
+    control: float = 0.5  # 0 (losing grip) to 1 (in command)
+    focus: float = 0.5  # 0 (tunnel vision) to 1 (clear-headed)
 
     # Narrative elements (LLM-generated) - KEPT FOR v2.1
-    narrative: str = ""       # Third person description
-    inner_voice: str = ""     # First person thought
+    narrative: str = ""  # Third person description
+    inner_voice: str = ""  # First person thought
 
     # Metadata
     generated_at_hand: int = 0
@@ -393,7 +395,7 @@ class EmotionalState:
             'generated_at_hand': self.generated_at_hand,
             'source_events': self.source_events,
             'created_at': self.created_at,
-            'used_fallback': self.used_fallback
+            'used_fallback': self.used_fallback,
         }
 
     @classmethod
@@ -409,7 +411,7 @@ class EmotionalState:
             generated_at_hand=data.get('generated_at_hand', 0),
             source_events=data.get('source_events', []),
             created_at=data.get('created_at'),
-            used_fallback=data.get('used_fallback', False)
+            used_fallback=data.get('used_fallback', False),
         )
 
     @classmethod
@@ -421,7 +423,7 @@ class EmotionalState:
             control=0.7,
             focus=0.7,
             narrative="Ready to play.",
-            inner_voice="Let's see what we've got."
+            inner_voice="Let's see what we've got.",
         )
 
     def decay_toward_baseline(
@@ -444,6 +446,7 @@ class EmotionalState:
         Returns:
             New EmotionalState decayed toward baseline
         """
+
         def decay(current: float, target: float, r: float) -> float:
             return current + (target - current) * r
 
@@ -457,7 +460,7 @@ class EmotionalState:
             generated_at_hand=self.generated_at_hand,
             source_events=self.source_events,
             created_at=self.created_at,
-            used_fallback=self.used_fallback
+            used_fallback=self.used_fallback,
         )
 
 
@@ -492,7 +495,7 @@ dimensions tell you the intensity — your job is to give it personality."""
         self.categorizer = StructuredLLMCategorizer(
             schema=EMOTIONAL_NARRATION_SCHEMA,
             timeout_seconds=timeout_seconds,
-            fallback_generator=self._generate_narration_fallback
+            fallback_generator=self._generate_narration_fallback,
         )
 
     def generate(
@@ -553,14 +556,22 @@ dimensions tell you the intensity — your job is to give it personality."""
         if confidence is not None:
             # New-model path: build traits from axis values
             tilt_level = 1.0 - composure if composure is not None else 0.0
-            aggression_anchor = baseline_anchors.get('baseline_aggression', 0.5) if baseline_anchors else 0.5
-            looseness_anchor = baseline_anchors.get('baseline_looseness', 0.3) if baseline_anchors else 0.3
-            energy_anchor = baseline_anchors.get('baseline_energy', 0.5) if baseline_anchors else 0.5
+            aggression_anchor = (
+                baseline_anchors.get('baseline_aggression', 0.5) if baseline_anchors else 0.5
+            )
+            looseness_anchor = (
+                baseline_anchors.get('baseline_looseness', 0.3) if baseline_anchors else 0.3
+            )
+            energy_anchor = (
+                baseline_anchors.get('baseline_energy', 0.5) if baseline_anchors else 0.5
+            )
             _traits = {
                 'confidence': _SimpleAttr(value=confidence, anchor=0.5),
                 'composure': _SimpleAttr(value=composure or 0.7, anchor=0.7),
                 'aggression': _SimpleAttr(value=confidence * 0.7 + 0.15, anchor=aggression_anchor),
-                'tightness': _SimpleAttr(value=1.0 - (looseness_anchor or 0.3), anchor=1.0 - looseness_anchor),
+                'tightness': _SimpleAttr(
+                    value=1.0 - (looseness_anchor or 0.3), anchor=1.0 - looseness_anchor
+                ),
                 'table_talk': _SimpleAttr(value=energy or 0.5, anchor=energy_anchor),
             }
             tilt_source = ''
@@ -733,16 +744,15 @@ dimensions tell you the intensity — your job is to give it personality."""
                 lines.append(f"  - Streak: {streak_count}-hand {streak_type} streak")
 
         lines.append("")
-        lines.append("Write a narrative and inner_voice that express this emotional state authentically for this character.")
+        lines.append(
+            "Write a narrative and inner_voice that express this emotional state authentically for this character."
+        )
 
         return "\n".join(lines)
 
     def _generate_narration_fallback(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate fallback narrative when LLM fails."""
-        return {
-            'narrative': 'Processing the last hand.',
-            'inner_voice': 'Focus on the next one.'
-        }
+        return {'narrative': 'Processing the last hand.', 'inner_voice': 'Focus on the next one.'}
 
 
 # Convenience function for external use

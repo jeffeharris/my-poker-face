@@ -78,13 +78,23 @@ def now() -> datetime:
 
 class TestEnsureAIBankrollsSeeded:
     def test_creates_row_for_eligible_personality_without_one(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         # Personality with explicit knobs; no bankroll row yet.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
 
         actions = ensure_ai_bankrolls_seeded(
             personality_repo=personality_repo,
@@ -99,15 +109,25 @@ class TestEnsureAIBankrollsSeeded:
         assert stored.last_regen_tick == now
 
     def test_repairs_placeholder_row_with_null_tick(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         # The `save_emotional_state_json` placeholder pattern —
         # row exists at chips=0, tick=NULL. The seed helper repairs
         # it to a real starting bankroll.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         # Insert the placeholder pattern directly so we exercise the
         # repair branch without depending on save_emotional_state_json.
         with sqlite3.connect(db_path) as conn:
@@ -130,17 +150,32 @@ class TestEnsureAIBankrollsSeeded:
         assert stored.last_regen_tick == now
 
     def test_skips_healthy_row(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         # Row already has chips and a tick — live state, leave alone.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         existing_tick = now - timedelta(hours=2)
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=12_345, last_regen_tick=existing_tick,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=12_345,
+                last_regen_tick=existing_tick,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         actions = ensure_ai_bankrolls_seeded(
             personality_repo=personality_repo,
@@ -155,12 +190,22 @@ class TestEnsureAIBankrollsSeeded:
         assert stored.last_regen_tick == existing_tick
 
     def test_idempotent_second_call_no_op(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
 
         first = ensure_ai_bankrolls_seeded(
             personality_repo=personality_repo,
@@ -183,13 +228,23 @@ class TestEnsureAIBankrollsSeeded:
         assert stored.last_regen_tick == now
 
     def test_seeds_all_eligible_personalities(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         for i in range(10):
-            _insert_personality(db_path, f"p{i}", bankroll_knobs={
-                "starting_bankroll": 10_000, "bankroll_rate": 500,
-                "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-            })
+            _insert_personality(
+                db_path,
+                f"p{i}",
+                bankroll_knobs={
+                    "starting_bankroll": 10_000,
+                    "bankroll_rate": 500,
+                    "buy_in_multiplier": 1.0,
+                    "stake_comfort_zone": "$10",
+                },
+            )
 
         actions = ensure_ai_bankrolls_seeded(
             personality_repo=personality_repo,
@@ -205,7 +260,11 @@ class TestEnsureAIBankrollsSeeded:
             assert stored.chips == 10_000
 
     def test_seeding_unblocks_live_fill(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         # End-to-end check: a personality with no bankroll row gets a
         # row written by the seed helper, and then becomes pickable
@@ -213,15 +272,22 @@ class TestEnsureAIBankrollsSeeded:
         # fallback in `_bankroll_lookup` would still cover this case,
         # but the seeded row is the steady-state shape.
         import random
+
         from cash_mode.lobby import ensure_lobby_seeded, refresh_unseated_tables
         from poker.repositories.cash_table_repository import CashTableRepository
 
         # Need a personality_id starting with 'a' so list_eligible_for_cash_mode
         # orders it first deterministically.
-        _insert_personality(db_path, "aaa_napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 0,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "aaa_napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 0,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
 
         # Step 1: bankroll seed creates the row.
         ensure_ai_bankrolls_seeded(
@@ -247,7 +313,9 @@ class TestEnsureAIBankrollsSeeded:
             # now, so `load_ai_bankroll_current` returns a positive
             # number — the fix's whole point.
             current = bankroll_repo.load_ai_bankroll_current(
-                "aaa_napoleon", sandbox_id="test-sandbox-1", now=now,
+                "aaa_napoleon",
+                sandbox_id="test-sandbox-1",
+                now=now,
             )
             assert current is not None
             assert current > 0
@@ -255,15 +323,25 @@ class TestEnsureAIBankrollsSeeded:
             cash_table_repo.close()
 
     def test_repair_emits_ai_seed_for_chip_diff(
-        self, bankroll_repo, personality_repo, db_path, now,
+        self,
+        bankroll_repo,
+        personality_repo,
+        db_path,
+        now,
     ):
         # Repair adds chips (0 → cap). Audit must record this as a
         # mint via ai_seed; save_ai_bankroll's first-write hook only
         # fires for genuinely new rows, so the helper emits manually.
-        _insert_personality(db_path, "napoleon", bankroll_knobs={
-            "starting_bankroll": 25_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0, "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            bankroll_knobs={
+                "starting_bankroll": 25_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "INSERT INTO ai_bankroll_state (personality_id, sandbox_id, chips, last_regen_tick) "
@@ -278,10 +356,13 @@ class TestEnsureAIBankrollsSeeded:
 
         # Patch the ledger module's record_ai_seed to capture calls.
         from core.economy import ledger as chip_ledger
+
         original = chip_ledger.record_ai_seed
+
         def _spy(*args, **kwargs):
             seed_calls.append(kwargs)
             return original(*args, **kwargs)
+
         chip_ledger.record_ai_seed = _spy
         try:
             ensure_ai_bankrolls_seeded(

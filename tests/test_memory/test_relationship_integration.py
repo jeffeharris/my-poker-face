@@ -53,12 +53,18 @@ def _big_heads_up_hand(hand_number: int = 1) -> RecordedHand:
     )
     actions = (
         RecordedAction(
-            player_name="alice", action="raise", amount=400,
-            phase="PRE_FLOP", pot_after=400,
+            player_name="alice",
+            action="raise",
+            amount=400,
+            phase="PRE_FLOP",
+            pot_after=400,
         ),
         RecordedAction(
-            player_name="bob", action="call", amount=400,
-            phase="PRE_FLOP", pot_after=800,
+            player_name="bob",
+            action="call",
+            amount=400,
+            phase="PRE_FLOP",
+            pot_after=800,
         ),
     )
     return RecordedHand(
@@ -69,9 +75,14 @@ def _big_heads_up_hand(hand_number: int = 1) -> RecordedHand:
         hole_cards={"alice": ["Ah", "Ks"], "bob": ["7h", "2d"]},
         community_cards=("2c", "7d", "9s", "Th", "Jc"),
         actions=actions,
-        winners=(WinnerInfo(
-            name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-        ),),
+        winners=(
+            WinnerInfo(
+                name="alice",
+                amount_won=800,
+                hand_name="Pair",
+                hand_rank=8,
+            ),
+        ),
         pot_size=800,
         was_showdown=True,
     )
@@ -118,7 +129,8 @@ class TestRelationshipStatePopulates:
 
         # Small pot — under the big-pot threshold, no event.
         small = RecordedHand(
-            game_id="g1", hand_number=1,
+            game_id="g1",
+            hand_number=1,
             timestamp=datetime(2026, 5, 18, 12, 0),
             players=(
                 PlayerHandInfo(name="alice", starting_stack=1000, position="BTN", is_human=False),
@@ -127,8 +139,12 @@ class TestRelationshipStatePopulates:
             hole_cards={"alice": ["Ah", "Ks"], "bob": ["7h", "2d"]},
             community_cards=("2c", "7d", "9s", "Th", "Jc"),
             actions=(
-                RecordedAction(player_name="alice", action="raise", amount=25, phase="PRE_FLOP", pot_after=25),
-                RecordedAction(player_name="bob", action="call", amount=25, phase="PRE_FLOP", pot_after=50),
+                RecordedAction(
+                    player_name="alice", action="raise", amount=25, phase="PRE_FLOP", pot_after=25
+                ),
+                RecordedAction(
+                    player_name="bob", action="call", amount=25, phase="PRE_FLOP", pot_after=50
+                ),
             ),
             winners=(WinnerInfo(name="alice", amount_won=50, hand_name="High", hand_rank=10),),
             pot_size=50,
@@ -199,7 +215,9 @@ class TestDedupAtIntegration:
         mgr._process_relationship_events(hand)
         # Snapshot after first pass.
         first_pnl = repo.load_cash_pair_stats(
-            "alice", "bob", sandbox_id="sb-1",
+            "alice",
+            "bob",
+            sandbox_id="sb-1",
         ).cumulative_pnl
         first_heat = repo.load_raw_relationship_state("alice", "bob").heat
 
@@ -207,7 +225,9 @@ class TestDedupAtIntegration:
         mgr._process_relationship_events(hand)
 
         second_pnl = repo.load_cash_pair_stats(
-            "alice", "bob", sandbox_id="sb-1",
+            "alice",
+            "bob",
+            sandbox_id="sb-1",
         ).cumulative_pnl
         second_heat = repo.load_raw_relationship_state("alice", "bob").heat
         assert second_pnl == first_pnl
@@ -253,7 +273,10 @@ class TestStackDominanceWiring:
         mgr.set_relationship_repo(repo, cash_mode=True, sandbox_id="sb-1")
         # bob already net-down vs alice — would qualify if cap were set.
         repo.apply_cash_pair_pnl(
-            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+            winner_id="alice",
+            loser_id="bob",
+            chips=500,
+            sandbox_id="sb-1",
         )
 
         mgr._process_relationship_events(self._hand_with_deep_stack())
@@ -277,7 +300,9 @@ class TestStackDominanceWiring:
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
         mgr.set_relationship_repo(
-            repo, cash_mode=True, table_max_buy_in=5_000,
+            repo,
+            cash_mode=True,
+            table_max_buy_in=5_000,
             # sandbox_id intentionally omitted
         )
 
@@ -309,11 +334,17 @@ class TestStackDominanceWiring:
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-1",
+            table_max_buy_in=5_000,
         )
         # Pre-populate: alice has taken 500 chips from bob.
         repo.apply_cash_pair_pnl(
-            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+            winner_id="alice",
+            loser_id="bob",
+            chips=500,
+            sandbox_id="sb-1",
         )
 
         mgr._process_relationship_events(self._hand_with_deep_stack())
@@ -339,11 +370,17 @@ class TestStackDominanceWiring:
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-1",
+            table_max_buy_in=5_000,
         )
         # bob has lost to alice → eligible to feel STACK_DOMINANCE.
         repo.apply_cash_pair_pnl(
-            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+            winner_id="alice",
+            loser_id="bob",
+            chips=500,
+            sandbox_id="sb-1",
         )
 
         # Process 5 distinct hand_numbers — dedup is keyed on
@@ -375,11 +412,16 @@ class TestStackDominanceWiring:
         mgr.initialize_for_player("bob")
         # First wire: no cap yet (mimics game_routes.py cold-load).
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-1",
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-1",
         )
         # Pre-populate PnL so bob would qualify if cap were set.
         repo.apply_cash_pair_pnl(
-            winner_id="alice", loser_id="bob", chips=500, sandbox_id="sb-1",
+            winner_id="alice",
+            loser_id="bob",
+            chips=500,
+            sandbox_id="sb-1",
         )
         # Sanity: without the cap, no STACK_DOMINANCE fires.
         mgr._process_relationship_events(self._hand_with_deep_stack(hand_number=1))
@@ -405,11 +447,17 @@ class TestStackDominanceWiring:
         mgr.initialize_for_player("alice")
         mgr.initialize_for_player("bob")
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-1", table_max_buy_in=5_000,
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-1",
+            table_max_buy_in=5_000,
         )
         # bob took 500 from alice — bob's PnL vs alice is +500.
         repo.apply_cash_pair_pnl(
-            winner_id="bob", loser_id="alice", chips=500, sandbox_id="sb-1",
+            winner_id="bob",
+            loser_id="alice",
+            chips=500,
+            sandbox_id="sb-1",
         )
 
         mgr._process_relationship_events(self._hand_with_deep_stack())
@@ -449,18 +497,27 @@ def _four_seat_big_pot_hand(hand_number: int = 1) -> RecordedHand:
     """
     players = (
         PlayerHandInfo(
-            name="Jeff", starting_stack=70000, position="BTN", is_human=True,
+            name="Jeff",
+            starting_stack=70000,
+            position="BTN",
+            is_human=True,
         ),
         PlayerHandInfo(
-            name="Oscar Wilde", starting_stack=40000, position="SB",
+            name="Oscar Wilde",
+            starting_stack=40000,
+            position="SB",
             is_human=False,
         ),
         PlayerHandInfo(
-            name="Jay Gatsby", starting_stack=40000, position="BB",
+            name="Jay Gatsby",
+            starting_stack=40000,
+            position="BB",
             is_human=False,
         ),
         PlayerHandInfo(
-            name="Cheshire Cat", starting_stack=40000, position="UTG",
+            name="Cheshire Cat",
+            starting_stack=40000,
+            position="UTG",
             is_human=False,
         ),
     )
@@ -490,8 +547,10 @@ def _four_seat_big_pot_hand(hand_number: int = 1) -> RecordedHand:
         actions=actions,
         winners=(
             WinnerInfo(
-                name="Oscar Wilde", amount_won=47580,
-                hand_name="Set of Queens", hand_rank=7,
+                name="Oscar Wilde",
+                amount_won=47580,
+                hand_name="Set of Queens",
+                hand_rank=7,
             ),
         ),
         pot_size=47580,
@@ -507,14 +566,18 @@ def _wire_four_seat_manager(repo, *, sandbox_id="sb-cash"):
     actor's model.
     """
     mgr = AIMemoryManager(
-        game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+        game_id="cash-repro",
+        db_path=None,
+        owner_id="guest_jeff",
     )
     mgr.initialize_for_player("Oscar Wilde", personality_id="oscar_wilde")
     mgr.initialize_for_player("Jay Gatsby", personality_id="jay_gatsby")
     mgr.initialize_for_player("Cheshire Cat", personality_id="cheshire_cat")
     mgr.initialize_human_observer("Jeff", personality_id="guest_jeff")
     mgr.set_relationship_repo(
-        repo, cash_mode=True, sandbox_id=sandbox_id,
+        repo,
+        cash_mode=True,
+        sandbox_id=sandbox_id,
     )
     # observe_action is what populates self.models in production; the
     # memorable-hand sidecar in record_event reads it. Pre-touch every
@@ -541,19 +604,31 @@ class TestFourSeatCashHandReproduction:
 
         # relationship_states: bilateral writes for the (winner, loser)
         # pair using personality_ids (lower-case slugs).
-        assert repo.load_raw_relationship_state(
-            "oscar_wilde", "guest_jeff",
-        ) is not None
-        assert repo.load_raw_relationship_state(
-            "guest_jeff", "oscar_wilde",
-        ) is not None
+        assert (
+            repo.load_raw_relationship_state(
+                "oscar_wilde",
+                "guest_jeff",
+            )
+            is not None
+        )
+        assert (
+            repo.load_raw_relationship_state(
+                "guest_jeff",
+                "oscar_wilde",
+            )
+            is not None
+        )
 
         # cash_pair_stats: PnL accumulates per (sandbox, observer, opponent).
         oscar_stats = repo.load_cash_pair_stats(
-            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
+            "oscar_wilde",
+            "guest_jeff",
+            sandbox_id="sb-cash",
         )
         jeff_stats = repo.load_cash_pair_stats(
-            "guest_jeff", "oscar_wilde", sandbox_id="sb-cash",
+            "guest_jeff",
+            "oscar_wilde",
+            sandbox_id="sb-cash",
         )
         assert oscar_stats is not None and oscar_stats.cumulative_pnl > 0
         assert jeff_stats is not None and jeff_stats.cumulative_pnl < 0
@@ -563,12 +638,10 @@ class TestFourSeatCashHandReproduction:
         # for high-impact events (impact_score >= 0.7).
         oscar_view = mgr.opponent_model_manager.models["Oscar Wilde"]["Jeff"]
         jeff_view = mgr.opponent_model_manager.models["Jeff"]["Oscar Wilde"]
-        assert oscar_view.memorable_hands, (
-            "Oscar's model should have a memorable BIG_WIN entry"
-        )
-        assert jeff_view.memorable_hands, (
-            "Jeff's model should have a memorable BIG_LOSS / DOMINATED entry"
-        )
+        assert oscar_view.memorable_hands, "Oscar's model should have a memorable BIG_WIN entry"
+        assert (
+            jeff_view.memorable_hands
+        ), "Jeff's model should have a memorable BIG_LOSS / DOMINATED entry"
 
 
 class TestColdLoadRewiresRelationshipRepo:
@@ -593,8 +666,10 @@ class TestColdLoadRewiresRelationshipRepo:
         return {
             "Oscar Wilde": {
                 "Jeff": {
-                    "observer": "Oscar Wilde", "opponent": "Jeff",
-                    "observer_id": "oscar_wilde", "opponent_id": "guest_jeff",
+                    "observer": "Oscar Wilde",
+                    "opponent": "Jeff",
+                    "observer_id": "oscar_wilde",
+                    "opponent_id": "guest_jeff",
                     "tendencies": {},
                     "memorable_hands": [],
                     "narrative_observations": [],
@@ -602,8 +677,10 @@ class TestColdLoadRewiresRelationshipRepo:
             },
             "Jeff": {
                 "Oscar Wilde": {
-                    "observer": "Jeff", "opponent": "Oscar Wilde",
-                    "observer_id": "guest_jeff", "opponent_id": "oscar_wilde",
+                    "observer": "Jeff",
+                    "opponent": "Oscar Wilde",
+                    "observer_id": "guest_jeff",
+                    "opponent_id": "oscar_wilde",
                     "tendencies": {},
                     "memorable_hands": [],
                     "narrative_observations": [],
@@ -623,7 +700,9 @@ class TestColdLoadRewiresRelationshipRepo:
         from poker.memory.opponent_model import OpponentModelManager
 
         mgr = AIMemoryManager(
-            game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+            game_id="cash-repro",
+            db_path=None,
+            owner_id="guest_jeff",
         )
         # OPM swap (cold-load step in game_routes.py).
         mgr.opponent_model_manager = OpponentModelManager.from_dict(
@@ -631,7 +710,9 @@ class TestColdLoadRewiresRelationshipRepo:
         )
         # Wire AFTER the swap — this is the production fix order.
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-cash",
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-cash",
         )
 
         # Remaining cold-load steps: re-init each seat on the
@@ -651,12 +732,21 @@ class TestColdLoadRewiresRelationshipRepo:
         # reference was re-synced to the restored OPM's registry —
         # without that fix the detector would fall back to display
         # names and produce 'Jeff'/'Oscar Wilde' rows instead.
-        assert repo.load_raw_relationship_state(
-            "oscar_wilde", "guest_jeff",
-        ) is not None
-        assert repo.load_cash_pair_stats(
-            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
-        ) is not None
+        assert (
+            repo.load_raw_relationship_state(
+                "oscar_wilde",
+                "guest_jeff",
+            )
+            is not None
+        )
+        assert (
+            repo.load_cash_pair_stats(
+                "oscar_wilde",
+                "guest_jeff",
+                sandbox_id="sb-cash",
+            )
+            is not None
+        )
         # No name-keyed rows — registry resolution worked.
         assert repo.load_raw_relationship_state("Oscar Wilde", "Jeff") is None
 
@@ -669,10 +759,14 @@ class TestColdLoadRewiresRelationshipRepo:
         from poker.memory.opponent_model import OpponentModelManager
 
         mgr = AIMemoryManager(
-            game_id="cash-repro", db_path=None, owner_id="guest_jeff",
+            game_id="cash-repro",
+            db_path=None,
+            owner_id="guest_jeff",
         )
         mgr.set_relationship_repo(
-            repo, cash_mode=True, sandbox_id="sb-cash",
+            repo,
+            cash_mode=True,
+            sandbox_id="sb-cash",
         )
         # Buggy order: swap AFTER wiring. The new OPM has no repo.
         mgr.opponent_model_manager = OpponentModelManager.from_dict(
@@ -687,9 +781,18 @@ class TestColdLoadRewiresRelationshipRepo:
         # _process_relationship_events swallows the RuntimeError.
         # Nothing should crash, but the surfaces stay empty.
         mgr._process_relationship_events(_four_seat_big_pot_hand())
-        assert repo.load_raw_relationship_state(
-            "oscar_wilde", "guest_jeff",
-        ) is None
-        assert repo.load_cash_pair_stats(
-            "oscar_wilde", "guest_jeff", sandbox_id="sb-cash",
-        ) is None
+        assert (
+            repo.load_raw_relationship_state(
+                "oscar_wilde",
+                "guest_jeff",
+            )
+            is None
+        )
+        assert (
+            repo.load_cash_pair_stats(
+                "oscar_wilde",
+                "guest_jeff",
+                sandbox_id="sb-cash",
+            )
+            is None
+        )

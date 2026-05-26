@@ -11,11 +11,10 @@ User-created presets (is_system=FALSE) are never touched.
 
 import json
 import logging
-import os
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -43,7 +42,7 @@ def load_game_modes_yaml(config_path: Optional[str] = None) -> dict:
     """
     config_path = config_path or get_default_config_path()
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         logger.warning(f"Game modes config not found: {config_path}")
@@ -69,15 +68,11 @@ def get_preset_configs(config_path: Optional[str] = None) -> Dict[str, Dict[str,
     """
     config = load_game_modes_yaml(config_path)
     presets = config.get('presets', {})
-    return {
-        name: preset.get('prompt_config', {})
-        for name, preset in presets.items()
-    }
+    return {name: preset.get('prompt_config', {}) for name, preset in presets.items()}
 
 
 def sync_game_modes_from_yaml(
-    db_path: Optional[str] = None,
-    config_path: Optional[str] = None
+    db_path: Optional[str] = None, config_path: Optional[str] = None
 ) -> dict:
     """Upsert system game mode presets from YAML into prompt_presets table.
 
@@ -126,21 +121,31 @@ def sync_game_modes_from_yaml(
                 prompt_config = preset_data.get('prompt_config', {})
 
                 # Extract guidance_injection separately (stored in its own column)
-                guidance_injection = prompt_config.get('guidance_injection', '') if isinstance(prompt_config, dict) else ''
-                prompt_config_json = json.dumps({k: v for k, v in prompt_config.items() if k != 'guidance_injection'})
+                guidance_injection = (
+                    prompt_config.get('guidance_injection', '')
+                    if isinstance(prompt_config, dict)
+                    else ''
+                )
+                prompt_config_json = json.dumps(
+                    {k: v for k, v in prompt_config.items() if k != 'guidance_injection'}
+                )
 
                 try:
                     # Try insert first
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO prompt_presets
                             (name, description, prompt_config, guidance_injection, is_system, owner_id)
                         VALUES (?, ?, ?, ?, TRUE, 'system')
-                    """, (name, description, prompt_config_json, guidance_injection))
+                    """,
+                        (name, description, prompt_config_json, guidance_injection),
+                    )
                     stats["inserted"] += 1
                     logger.info(f"Inserted system preset '{name}'")
                 except sqlite3.IntegrityError:
                     # Name already exists — update if it's a system preset
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         UPDATE prompt_presets
                         SET description = ?,
                             prompt_config = ?,
@@ -149,7 +154,9 @@ def sync_game_modes_from_yaml(
                             owner_id = 'system',
                             updated_at = CURRENT_TIMESTAMP
                         WHERE name = ? AND is_system = TRUE
-                    """, (description, prompt_config_json, guidance_injection, name))
+                    """,
+                        (description, prompt_config_json, guidance_injection, name),
+                    )
                     if cursor.rowcount > 0:
                         stats["updated"] += 1
                         logger.debug(f"Updated system preset '{name}'")
@@ -173,6 +180,7 @@ def sync_game_modes_from_yaml(
 
 if __name__ == '__main__':
     import sys
+
     logging.basicConfig(level=logging.DEBUG)
 
     db = sys.argv[1] if len(sys.argv) > 1 else None

@@ -17,7 +17,7 @@ export function DebugHoleCard({ debugInfo, className = '' }: DebugHoleCardProps)
 
   const handleClick = useCallback(() => {
     if (debugInfo) {
-      setIsFlipped(prev => !prev);
+      setIsFlipped((prev) => !prev);
     }
   }, [debugInfo]);
 
@@ -30,11 +30,7 @@ export function DebugHoleCard({ debugInfo, className = '' }: DebugHoleCardProps)
     <>
       {/* Mobile backdrop */}
       {isFlipped && (
-        <div
-          className="debug-backdrop"
-          onClick={handleBackdropClick}
-          aria-hidden="true"
-        />
+        <div className="debug-backdrop" onClick={handleBackdropClick} aria-hidden="true" />
       )}
 
       <div
@@ -94,7 +90,9 @@ export function DebugHoleCard({ debugInfo, className = '' }: DebugHoleCardProps)
                   </div>
                   <div className="stat-row" style={{ animationDelay: '200ms' }}>
                     <span className="stat-label">COST</span>
-                    <span className={`stat-value stat-cost ${debugInfo.avg_cost_per_call > 0.01 ? 'high-cost' : ''}`}>
+                    <span
+                      className={`stat-value stat-cost ${debugInfo.avg_cost_per_call > 0.01 ? 'high-cost' : ''}`}
+                    >
                       {formatCost(debugInfo.avg_cost_per_call)}
                     </span>
                   </div>

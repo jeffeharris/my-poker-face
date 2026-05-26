@@ -13,20 +13,21 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from poker.coach_models import EvidenceRules
 
-
 # ---------------------------------------------------------------------------
 # Skill definition
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SkillDefinition:
     """A skill in the progression tree."""
+
     skill_id: str
     name: str
     description: str
     gate: int
     evidence_rules: EvidenceRules
-    phases: FrozenSet[str]          # Game phases where this skill applies
+    phases: FrozenSet[str]  # Game phases where this skill applies
     tags: FrozenSet[str] = frozenset()
 
 
@@ -34,14 +35,16 @@ class SkillDefinition:
 # Gate definition
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class GateDefinition:
     """A progression gate containing a set of skills."""
+
     gate_number: int
     name: str
     description: str
     skill_ids: Tuple[str, ...]
-    required_reliable: int   # How many skills must be 'reliable' to unlock next gate
+    required_reliable: int  # How many skills must be 'reliable' to unlock next gate
 
 
 # ---------------------------------------------------------------------------
@@ -263,11 +266,19 @@ GATE_4 = GateDefinition(
 # ---------------------------------------------------------------------------
 
 ALL_SKILLS: Dict[str, SkillDefinition] = {
-    s.skill_id: s for s in [
-        SKILL_FOLD_TRASH, SKILL_POSITION_MATTERS, SKILL_RAISE_OR_FOLD,
-        SKILL_FLOP_CONNECTION, SKILL_BET_WHEN_STRONG, SKILL_CHECKING_IS_ALLOWED,
-        SKILL_DRAWS_NEED_PRICE, SKILL_RESPECT_BIG_BETS, SKILL_HAVE_A_PLAN,
-        SKILL_DONT_PAY_DOUBLE_BARRELS, SKILL_SIZE_BETS_WITH_PURPOSE,
+    s.skill_id: s
+    for s in [
+        SKILL_FOLD_TRASH,
+        SKILL_POSITION_MATTERS,
+        SKILL_RAISE_OR_FOLD,
+        SKILL_FLOP_CONNECTION,
+        SKILL_BET_WHEN_STRONG,
+        SKILL_CHECKING_IS_ALLOWED,
+        SKILL_DRAWS_NEED_PRICE,
+        SKILL_RESPECT_BIG_BETS,
+        SKILL_HAVE_A_PLAN,
+        SKILL_DONT_PAY_DOUBLE_BARRELS,
+        SKILL_SIZE_BETS_WITH_PURPOSE,
     ]
 }
 
@@ -290,5 +301,3 @@ def get_skills_for_gate(gate_number: int) -> List[SkillDefinition]:
 def get_skill_by_id(skill_id: str) -> Optional[SkillDefinition]:
     """Look up a skill definition by its ID."""
     return ALL_SKILLS.get(skill_id)
-
-

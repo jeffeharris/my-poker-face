@@ -70,7 +70,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from poker.repositories.decision_analysis_repository import DecisionAnalysisRepository
 
-
 _MODE_CHOICES = ('shadow', 'first-divergence', 'aggregate', 'ablation')
 
 
@@ -129,7 +128,7 @@ def aggregate_firing_rates(
                 if entry.get('fired'):
                     fired_per_rule[key] += 1
                     es = entry.get('effect_size', 0.0)
-                    if isinstance(es, (int, float)):
+                    if isinstance(es, int | float):
                         effect_sizes_when_fired[key].append(float(es))
 
     rules_sorted = sorted(
@@ -137,24 +136,23 @@ def aggregate_firing_rates(
         key=lambda k: (k[0], k[1]),  # (layer asc, rule_id asc)
     )
     per_rule: List[Dict[str, Any]] = []
-    for (layer, rule_id) in rules_sorted:
+    for layer, rule_id in rules_sorted:
         total = total_per_rule[(layer, rule_id)]
         fired = fired_per_rule.get((layer, rule_id), 0)
         es_samples = effect_sizes_when_fired.get((layer, rule_id), [])
         mean_es = round(sum(es_samples) / len(es_samples), 4) if es_samples else 0.0
         top_reasons = reason_codes[(layer, rule_id)].most_common(3)
-        per_rule.append({
-            'layer': layer,
-            'rule_id': rule_id,
-            'evaluated': total,
-            'fired': fired,
-            'fire_rate_pct': round(100.0 * fired / total, 2) if total else 0.0,
-            'mean_effect_size_when_fired': mean_es,
-            'top_reason_codes': [
-                {'code': code, 'count': count}
-                for code, count in top_reasons
-            ],
-        })
+        per_rule.append(
+            {
+                'layer': layer,
+                'rule_id': rule_id,
+                'evaluated': total,
+                'fired': fired,
+                'fire_rate_pct': round(100.0 * fired / total, 2) if total else 0.0,
+                'mean_effect_size_when_fired': mean_es,
+                'top_reason_codes': [{'code': code, 'count': count} for code, count in top_reasons],
+            }
+        )
     return {
         'mode': 'aggregate',
         'games': list(game_ids),
@@ -165,7 +163,7 @@ def aggregate_firing_rates(
 
 def _format_aggregate_text(report: Dict[str, Any]) -> str:
     lines = [
-        f"Mode: aggregate firing rates",
+        "Mode: aggregate firing rates",
         f"Games: {len(report['games'])} ({', '.join(report['games'])[:80]})",
         f"Decisions analyzed: {report['decisions_total']}",
         '',
@@ -173,9 +171,7 @@ def _format_aggregate_text(report: Dict[str, Any]) -> str:
         '─' * 110,
     ]
     for row in report['per_rule']:
-        reasons = ', '.join(
-            f"{r['code']}={r['count']}" for r in row['top_reason_codes']
-        )
+        reasons = ', '.join(f"{r['code']}={r['count']}" for r in row['top_reason_codes'])
         lines.append(
             f"{row['layer']:<22} {row['rule_id']:<20} "
             f"{row['evaluated']:>9} {row['fired']:>6} "
@@ -297,7 +293,7 @@ def _differing_rules(
 
 def _format_first_divergence_text(report: Dict[str, Any]) -> str:
     lines = [
-        f"Mode: first-divergence (matched-seed candidate vs control)",
+        "Mode: first-divergence (matched-seed candidate vs control)",
         f"Candidate game: {report['candidate_game_id']}",
         f"Control game:   {report['control_game_id']}",
         f"Shared hands: {report['shared_hands']}",
@@ -313,10 +309,7 @@ def _format_first_divergence_text(report: Dict[str, Any]) -> str:
         lines.append("  (no divergences attributed)")
     else:
         for row in report['attribution']:
-            lines.append(
-                f"  {row['layer']}.{row['rule_id']}: "
-                f"{row['first_divergence_count']}"
-            )
+            lines.append(f"  {row['layer']}.{row['rule_id']}: " f"{row['first_divergence_count']}")
     return '\n'.join(lines)
 
 
@@ -384,17 +377,13 @@ def ablation_compare(
             # Decisions after the divergence: excluded.
             post_divergence_excluded += max(0, n - diverged_idx - 1)
 
-    change_rate = (
-        action_changed_count / action_paired_count
-        if action_paired_count else 0.0
-    )
+    change_rate = action_changed_count / action_paired_count if action_paired_count else 0.0
     return {
         'mode': 'ablation',
         'baseline_game_id': baseline_game_id,
         'ablation_game_id': ablation_game_id,
         'ablated_rules': [
-            {'layer': layer, 'rule_id': rule_id}
-            for (layer, rule_id) in sorted(ablated_rules)
+            {'layer': layer, 'rule_id': rule_id} for (layer, rule_id) in sorted(ablated_rules)
         ],
         'shared_hands': len(shared_hands),
         'paired_decisions': action_paired_count,
@@ -405,12 +394,12 @@ def ablation_compare(
 
 
 def _format_ablation_text(report: Dict[str, Any]) -> str:
-    rules_str = ', '.join(
-        f"{r['layer']}.{r['rule_id']}"
-        for r in report['ablated_rules']
-    ) or '(none detected)'
+    rules_str = (
+        ', '.join(f"{r['layer']}.{r['rule_id']}" for r in report['ablated_rules'])
+        or '(none detected)'
+    )
     lines = [
-        f"Mode: ablation comparison",
+        "Mode: ablation comparison",
         f"Baseline game: {report['baseline_game_id']}",
         f"Ablation game: {report['ablation_game_id']}",
         f"Ablated rules: {rules_str}",
@@ -495,8 +484,7 @@ def shadow_eval(
         # L1 distance over the union of action keys.
         actions = set(live.action_probabilities) | set(shadow.action_probabilities)
         l1 = sum(
-            abs(live.action_probabilities.get(a, 0.0)
-                - shadow.action_probabilities.get(a, 0.0))
+            abs(live.action_probabilities.get(a, 0.0) - shadow.action_probabilities.get(a, 0.0))
             for a in actions
         )
         l1_distances.append(l1)
@@ -507,14 +495,16 @@ def shadow_eval(
             action_flips += 1
 
         evaluated += 1
-        shadow_distances_by_decision.append({
-            'analysis_id': analysis_id,
-            'hand_number': hand_number,
-            'phase': phase,
-            'live_argmax': live_argmax,
-            'shadow_argmax': shadow_argmax,
-            'l1_distance': round(l1, 4),
-        })
+        shadow_distances_by_decision.append(
+            {
+                'analysis_id': analysis_id,
+                'hand_number': hand_number,
+                'phase': phase,
+                'live_argmax': live_argmax,
+                'shadow_argmax': shadow_argmax,
+                'l1_distance': round(l1, 4),
+            }
+        )
 
     mean_l1 = sum(l1_distances) / len(l1_distances) if l1_distances else 0.0
     max_l1 = max(l1_distances) if l1_distances else 0.0
@@ -549,7 +539,7 @@ def _argmax(probs: Dict[str, float]) -> str:
 
 def _format_shadow_text(report: Dict[str, Any]) -> str:
     lines = [
-        f"Mode: shadow-eval (same-state per-decision attribution)",
+        "Mode: shadow-eval (same-state per-decision attribution)",
         f"Game: {report['game_id']}",
         f"Disabled rule: {report['disable_rule']}",
         f"Decisions in game: {report['total_decisions']}",
@@ -575,11 +565,14 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        '--mode', choices=_MODE_CHOICES, required=True,
+        '--mode',
+        choices=_MODE_CHOICES,
+        required=True,
         help='Which attribution mode to run.',
     )
     parser.add_argument(
-        '--db', required=True,
+        '--db',
+        required=True,
         help='Path to poker_games.db (e.g. /app/data/poker_games.db in Docker).',
     )
     parser.add_argument(
@@ -587,7 +580,8 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help='Game id to analyze. For aggregate mode, omit to scan all games.',
     )
     parser.add_argument(
-        '--all-games', action='store_true',
+        '--all-games',
+        action='store_true',
         help='Aggregate mode only: aggregate across all games in the DB.',
     )
     parser.add_argument(
@@ -620,7 +614,9 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        '--output', choices=('text', 'json'), default='text',
+        '--output',
+        choices=('text', 'json'),
+        default='text',
         help='Report format.',
     )
     return parser.parse_args(argv)
@@ -647,16 +643,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stderr.write("shadow mode requires --game-id\n")
             return 2
         if not args.disable_rule:
-            sys.stderr.write(
-                "shadow mode requires --disable-rule layer.rule_id\n"
-            )
+            sys.stderr.write("shadow mode requires --disable-rule layer.rule_id\n")
             return 2
         try:
             layer, rule_id = args.disable_rule.split('.', 1)
         except ValueError:
-            sys.stderr.write(
-                "--disable-rule must be in 'layer.rule_id' format\n"
-            )
+            sys.stderr.write("--disable-rule must be in 'layer.rule_id' format\n")
             return 2
         report = shadow_eval(repo, args.game_id, (layer, rule_id))
         text_formatter = _format_shadow_text
@@ -667,9 +659,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         elif args.game_id:
             game_ids = [args.game_id]
         else:
-            sys.stderr.write(
-                "aggregate mode requires --game-id GAME or --all-games\n"
-            )
+            sys.stderr.write("aggregate mode requires --game-id GAME or --all-games\n")
             return 2
         report = aggregate_firing_rates(repo, game_ids)
         text_formatter = _format_aggregate_text
@@ -677,8 +667,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     elif args.mode == 'first-divergence':
         if not (args.candidate_game and args.control_game):
             sys.stderr.write(
-                "first-divergence mode requires --candidate-game and "
-                "--control-game\n"
+                "first-divergence mode requires --candidate-game and " "--control-game\n"
             )
             return 2
         report = first_divergence(repo, args.candidate_game, args.control_game)
@@ -686,9 +675,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     elif args.mode == 'ablation':
         if not (args.baseline_game and args.ablation_game):
-            sys.stderr.write(
-                "ablation mode requires --baseline-game and --ablation-game\n"
-            )
+            sys.stderr.write("ablation mode requires --baseline-game and --ablation-game\n")
             return 2
         report = ablation_compare(repo, args.baseline_game, args.ablation_game)
         text_formatter = _format_ablation_text

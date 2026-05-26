@@ -19,8 +19,8 @@ import pytest
 
 from poker.memory.memory_manager import AIMemoryManager
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 def _gs(*names: str) -> SimpleNamespace:
     """Minimal game_state stub with named players for on_hand_start.
@@ -29,10 +29,7 @@ def _gs(*names: str) -> SimpleNamespace:
     `.is_human`, `.hand`, and `game_state.table_positions`. Provide
     defaults for each.
     """
-    players = [
-        SimpleNamespace(name=n, stack=10000, is_human=False, hand=None)
-        for n in names
-    ]
+    players = [SimpleNamespace(name=n, stack=10000, is_human=False, hand=None) for n in names]
     return SimpleNamespace(players=players, table_positions={})
 
 
@@ -51,6 +48,7 @@ def _tendencies(mm: AIMemoryManager, observer: str, opponent: str):
 
 
 # ── First-in jam (open opportunity) ──────────────────────────────────────
+
 
 class TestFirstInJam:
     def test_villain_jams_first_on_flop(self, mm):
@@ -83,6 +81,7 @@ class TestFirstInJam:
 
 
 # ── Response jam (facing-bet opportunity) ────────────────────────────────
+
 
 class TestResponseJam:
     def test_villain_jams_in_response_to_hero_bet(self, mm):
@@ -124,6 +123,7 @@ class TestResponseJam:
 
 # ── Preflop exclusion ────────────────────────────────────────────────────
 
+
 class TestPreflopExclusion:
     def test_preflop_jam_does_not_touch_postflop_counters(self, mm):
         """Villain shoves preflop → no postflop counter movement."""
@@ -149,6 +149,7 @@ class TestPreflopExclusion:
 
 
 # ── Street transition resets _recent_aggressor_name ──────────────────────
+
 
 class TestStreetTransition:
     def test_flop_bet_does_not_carry_into_turn(self, mm):
@@ -193,6 +194,7 @@ class TestStreetTransition:
 
 # ── Per-opponent isolation in MM ─────────────────────────────────────────
 
+
 class TestPerOpponentIsolationViaMM:
     def test_aggression_does_not_leak_to_other_opponent_model(self):
         """Hero observes BOTH Villain and Third. Villain's jam should
@@ -216,6 +218,7 @@ class TestPerOpponentIsolationViaMM:
 
 
 # ── Hero's own actions also tracked from each observer's POV ─────────────
+
 
 class TestSelfObservation:
     def test_hero_jam_visible_to_villain_as_observer(self, mm):

@@ -48,7 +48,6 @@ from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 ANCHOR = datetime(2026, 5, 23, 12, 0, 0)
 SBX = "test-closed-economy"
 
@@ -90,7 +89,7 @@ class TestViceProbability(unittest.TestCase):
     def test_monotonic(self):
         # Probability strictly increases with excess up to the cap.
         probs = [compute_vice_probability(x) for x in (0.5, 1.0, 2.0, 4.0)]
-        for a, b in zip(probs, probs[1:]):
+        for a, b in zip(probs, probs[1:], strict=False):
             self.assertLessEqual(a, b)
 
 
@@ -398,10 +397,15 @@ class TestPerRefreshCaps:
                 {
                     "play_style": "rich extra",
                     "anchors": {
-                        "baseline_aggression": 0.5, "baseline_looseness": 0.5,
-                        "ego": 0.5, "poise": 0.5, "expressiveness": 0.5,
-                        "risk_identity": 0.5, "adaptation_bias": 0.5,
-                        "baseline_energy": 0.5, "recovery_rate": 0.5,
+                        "baseline_aggression": 0.5,
+                        "baseline_looseness": 0.5,
+                        "ego": 0.5,
+                        "poise": 0.5,
+                        "expressiveness": 0.5,
+                        "risk_identity": 0.5,
+                        "adaptation_bias": 0.5,
+                        "baseline_energy": 0.5,
+                        "recovery_rate": 0.5,
                     },
                     "bankroll_knobs": {
                         "starting_bankroll": 10_000,
@@ -414,7 +418,9 @@ class TestPerRefreshCaps:
             )
             bankroll.save_ai_bankroll(
                 AIBankrollState(
-                    personality_id=pid, chips=50_000, last_regen_tick=ANCHOR,
+                    personality_id=pid,
+                    chips=50_000,
+                    last_regen_tick=ANCHOR,
                 ),
                 sandbox_id=SBX,
             )
@@ -443,7 +449,11 @@ class TestFishConservationInvariant:
 
     def _load_personalities(self):
         path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'poker', 'personalities.json',
+            os.path.dirname(__file__),
+            '..',
+            '..',
+            'poker',
+            'personalities.json',
         )
         with open(path) as fh:
             data = json.load(fh)
@@ -452,15 +462,14 @@ class TestFishConservationInvariant:
         container = data.get('personalities', data) if isinstance(data, dict) else data
         if isinstance(container, dict):
             return [
-                {**cfg, 'name': name}
-                for name, cfg in container.items()
-                if isinstance(cfg, dict)
+                {**cfg, 'name': name} for name, cfg in container.items() if isinstance(cfg, dict)
             ]
         return container
 
     def test_every_fish_persona_has_zero_bankroll_rate(self):
         fish = [
-            p for p in self._load_personalities()
+            p
+            for p in self._load_personalities()
             if isinstance(p, dict) and p.get('archetype') == 'fish'
         ]
         assert fish, "expected at least one archetype=='fish' persona in seed file"

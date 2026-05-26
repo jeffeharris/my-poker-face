@@ -40,9 +40,9 @@ logger = logging.getLogger(__name__)
 # Thresholds taken from the spec's prompt-injection rules in
 # poker/prompts/CLAUDE.md so that hybrid and tiered paths agree on what
 # counts as "pot-odds-obvious".
-SHORT_STACK_BB = 3.0           # Below 3 BB: push/fold required
-TINY_POT_ODDS_RATIO = 0.05     # cost / (cost + pot) <= 5%, i.e. ~20:1 odds — matches the pot_committed prompt-injection rule
-TINY_CALL_BB_THRESHOLD = 5.0   # AND cost_to_call < 5 BB in absolute terms (don't fire on routine deep-stack pot-odds spots)
+SHORT_STACK_BB = 3.0  # Below 3 BB: push/fold required
+TINY_POT_ODDS_RATIO = 0.05  # cost / (cost + pot) <= 5%, i.e. ~20:1 odds — matches the pot_committed prompt-injection rule
+TINY_CALL_BB_THRESHOLD = 5.0  # AND cost_to_call < 5 BB in absolute terms (don't fire on routine deep-stack pot-odds spots)
 
 
 def apply_pot_odds_floor(
@@ -87,28 +87,31 @@ def apply_pot_odds_floor(
     # unchanged — used by Mode 4 ablation studies.
     if is_rule_disabled(disable_rules, 'math_floor', 'default'):
         return strategy, make_disabled_trace(
-            layer='math_floor', rule_id='default', layer_order=layer_order,
+            layer='math_floor',
+            rule_id='default',
+            layer_order=layer_order,
         )
 
     # Short-circuit: nothing to do when we're not facing a call, or call
     # isn't even on the table (e.g. all-in already locked, action closed).
     if cost_to_call <= 0:
         return strategy, make_no_op_trace(
-            layer='math_floor', rule_id='default',
+            layer='math_floor',
+            rule_id='default',
             layer_order=layer_order,
             reason_code='no_call_facing',
         )
     if 'call' not in legal_actions:
         return strategy, make_no_op_trace(
-            layer='math_floor', rule_id='default',
+            layer='math_floor',
+            rule_id='default',
             layer_order=layer_order,
             reason_code='call_not_legal',
         )
 
     stack_bb = player_stack / big_blind if big_blind > 0 else float('inf')
     pot_odds_ratio = (
-        cost_to_call / (cost_to_call + pot_total)
-        if (cost_to_call + pot_total) > 0 else 1.0
+        cost_to_call / (cost_to_call + pot_total) if (cost_to_call + pot_total) > 0 else 1.0
     )
 
     cost_bb = cost_to_call / big_blind if big_blind > 0 else float('inf')
@@ -123,7 +126,8 @@ def apply_pot_odds_floor(
 
     if rule is None:
         return strategy, make_no_op_trace(
-            layer='math_floor', rule_id='default',
+            layer='math_floor',
+            rule_id='default',
             layer_order=layer_order,
             reason_code='no_rule_triggered',
         )

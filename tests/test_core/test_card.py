@@ -14,12 +14,9 @@ class TestCard(unittest.TestCase):
 
     def test_card_to_dict(self):
         card_dict = self.test_card.to_dict()
-        self.assertDictEqual(card_dict, {
-            'rank': 'A',
-            'suit': 'Hearts',
-            'suit_symbol': '♥',
-            'value': 14
-        })
+        self.assertDictEqual(
+            card_dict, {'rank': 'A', 'suit': 'Hearts', 'suit_symbol': '♥', 'value': 14}
+        )
 
     def test_card_from_dict(self):
         card_dict = {'rank': 'A', 'suit': 'Hearts'}
@@ -57,8 +54,12 @@ class TestCard(unittest.TestCase):
     def test_from_short_unicode_suits(self):
         # str(Card) emits Unicode-suited shorthand; from_short must round-trip it
         # so that hand-recorder strings parse back to Card objects.
-        for card in [Card('A', 'Spades'), Card('10', 'Diamonds'),
-                     Card('K', 'Hearts'), Card('2', 'Clubs')]:
+        for card in [
+            Card('A', 'Spades'),
+            Card('10', 'Diamonds'),
+            Card('K', 'Hearts'),
+            Card('2', 'Clubs'),
+        ]:
             self.assertEqual(Card.from_short(str(card)), card)
 
 

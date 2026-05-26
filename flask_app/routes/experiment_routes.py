@@ -8,16 +8,26 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import asdict
-from typing import Dict, Any, Optional, List
-
-from flask import Blueprint, jsonify, request, session, Response
-
-from core.llm import LLMClient, CallType
-from poker.prompt_config import PromptConfig
-from ..extensions import limiter, experiment_repo, game_repo, personality_repo, persistence_db_path, hand_history_repo, relationship_repo, auth_manager
-from .. import config
-from experiments.pause_coordinator import pause_coordinator
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from flask import Blueprint, Response, jsonify, request, session
+
+from core.llm import CallType, LLMClient
+from experiments.pause_coordinator import pause_coordinator
+from poker.prompt_config import PromptConfig
+
+from .. import config
+from ..extensions import (
+    auth_manager,
+    experiment_repo,
+    game_repo,
+    hand_history_repo,
+    limiter,
+    persistence_db_path,
+    personality_repo,
+    relationship_repo,
+)
 from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
@@ -66,7 +76,7 @@ def _complete_experiment_with_summary(experiment_id: int) -> None:
             logger.error(f"Cannot complete experiment {experiment_id}: not found")
             return
 
-        exp_config = experiment.get('config', {})
+        experiment.get('config', {})
 
         # Get live stats (queries DB directly)
         live_stats = experiment_repo.get_experiment_live_stats(experiment_id)
@@ -95,7 +105,9 @@ def _complete_experiment_with_summary(experiment_id: int) -> None:
             'total_hands': total_hands,
             'total_api_calls': total_api_calls,
             'total_duration_seconds': 0,  # Not available from live_stats
-            'avg_hands_per_tournament': round(total_hands / tournaments, 1) if tournaments > 0 else 0,
+            'avg_hands_per_tournament': round(total_hands / tournaments, 1)
+            if tournaments > 0
+            else 0,
             'winners': winners,  # Would need to query games table for winners
         }
 
@@ -131,16 +143,22 @@ def _complete_experiment_with_summary(experiment_id: int) -> None:
                         'correct_pct': v_dq.get('correct_pct', 0),
                         'mistakes': v_dq.get('mistakes', 0),
                         'avg_ev_lost': v_dq.get('avg_ev_lost', 0),
-                    } if v_dq else None,
+                    }
+                    if v_dq
+                    else None,
                     'latency': {
                         'avg_ms': v_latency.get('avg_ms', 0),
                         'p50_ms': v_latency.get('p50_ms', 0),
                         'p95_ms': v_latency.get('p95_ms', 0),
-                    } if v_latency else None,
+                    }
+                    if v_latency
+                    else None,
                     'cost': {
                         'total_cost': v_cost.get('total_cost', 0),
                         'cost_per_hand': v_cost.get('cost_per_hand', 0),
-                    } if v_cost else None,
+                    }
+                    if v_cost
+                    else None,
                 }
             summary['variants'] = variants_summary
 
@@ -152,7 +170,9 @@ def _complete_experiment_with_summary(experiment_id: int) -> None:
         logger.info(f"Completed experiment {experiment_id} with generated summary")
 
     except Exception as e:
-        logger.error(f"Error completing experiment {experiment_id} with summary: {e}", exc_info=True)
+        logger.error(
+            f"Error completing experiment {experiment_id} with summary: {e}", exc_info=True
+        )
         # Fall back to completing without summary
         experiment_repo.update_experiment_status(experiment_id, 'completed')
 
@@ -259,11 +279,16 @@ Respond in JSON format with keys: summary, verdict, surprises (array, can be emp
         # Build messages array
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results."}
+            {
+                "role": "user",
+                "content": f"The experiment has completed. Here are the results:\n\n{json.dumps(results_context, indent=2)}\n\nPlease analyze these results.",
+            },
         ]
 
         # Make LLM call
-        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
+        client = LLMClient(
+            model=config.get_assistant_model(), provider=config.get_assistant_provider()
+        )
         response = client.complete(
             messages=messages,
             json_format=True,
@@ -326,7 +351,7 @@ def _compute_config_diff(old_config: Dict[str, Any], new_config: Dict[str, Any])
             def format_val(v):
                 if v is None:
                     return "null"
-                if isinstance(v, (list, dict)):
+                if isinstance(v, list | dict):
                     return json.dumps(v, separators=(',', ':'))
                 return repr(v)
 
@@ -359,8 +384,8 @@ PERSONALITY_TOOL = {
             },
             "additionalProperties": False,
             "required": ["filter_play_style"],
-        }
-    }
+        },
+    },
 }
 
 # Tool definition for read-only SQL queries (replay experiments)
@@ -375,20 +400,25 @@ SQL_QUERY_TOOL = {
             "properties": {
                 "sql": {
                     "type": "string",
-                    "description": "SELECT or PRAGMA query. SELECT max 100 rows. Use PRAGMA table_info(table_name) for schema."
+                    "description": "SELECT or PRAGMA query. SELECT max 100 rows. Use PRAGMA table_info(table_name) for schema.",
                 }
             },
             "required": ["sql"],
-            "additionalProperties": False
-        }
-    }
+            "additionalProperties": False,
+        },
+    },
 }
 
 # Tables allowed for SQL queries (safety whitelist)
 ALLOWED_SQL_TABLES = {
-    'prompt_captures', 'capture_labels', 'player_decision_analysis',
-    'prompt_presets', 'personalities', 'replay_experiments',
-    'replay_results', 'api_usage'
+    'prompt_captures',
+    'capture_labels',
+    'player_decision_analysis',
+    'prompt_presets',
+    'personalities',
+    'replay_experiments',
+    'replay_results',
+    'api_usage',
 }
 
 
@@ -421,10 +451,25 @@ def _execute_sql_query(sql: str) -> str:
         pragma_name = pragma_match.group(1)
         allowed_pragmas = {'TABLE_INFO', 'TABLE_LIST', 'INDEX_LIST', 'INDEX_INFO', 'DATABASE_LIST'}
         if pragma_name not in allowed_pragmas:
-            return json.dumps({"error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"})
+            return json.dumps(
+                {
+                    "error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"
+                }
+            )
 
     # Validate: no dangerous keywords (even in subqueries)
-    forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'REPLACE', 'ATTACH', 'DETACH']
+    forbidden = [
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'DROP',
+        'ALTER',
+        'CREATE',
+        'TRUNCATE',
+        'REPLACE',
+        'ATTACH',
+        'DETACH',
+    ]
     for kw in forbidden:
         # Check for keyword as a standalone word (not part of another word)
         if re.search(rf'\b{kw}\b', normalized):
@@ -443,7 +488,11 @@ def _execute_sql_query(sql: str) -> str:
         allowed_lower = {t.lower() for t in ALLOWED_SQL_TABLES}
         disallowed = tables - allowed_lower
         if disallowed:
-            return json.dumps({"error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"})
+            return json.dumps(
+                {
+                    "error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"
+                }
+            )
 
     # Execute with row limit for SELECT queries
     try:
@@ -510,11 +559,13 @@ def _execute_experiment_tool(name: str, args: Dict[str, Any]) -> str:
                 if filter_style and filter_style.lower() not in play_style.lower():
                     continue
 
-                result.append({
-                    "name": personality_name,
-                    "play_style": play_style,
-                    "traits": config.get("personality_traits", {}),
-                })
+                result.append(
+                    {
+                        "name": personality_name,
+                        "play_style": play_style,
+                        "traits": config.get("personality_traits", {}),
+                    }
+                )
 
         return json.dumps(result)
 
@@ -1371,7 +1422,9 @@ def _format_failed_tournaments(failed_tournaments: List[Dict]) -> str:
 
     lines = []
     for ft in failed_tournaments[:5]:  # Limit to first 5 for brevity
-        lines.append(f"- Tournament #{ft.get('tournament_number', '?')}: {ft.get('error_type', 'Unknown')} - {ft.get('error', 'No message')[:100]}")
+        lines.append(
+            f"- Tournament #{ft.get('tournament_number', '?')}: {ft.get('error_type', 'Unknown')} - {ft.get('error', 'No message')[:100]}"
+        )
     if len(failed_tournaments) > 5:
         lines.append(f"... and {len(failed_tournaments) - 5} more failures")
     return "\n".join(lines)
@@ -1420,7 +1473,8 @@ def chat_experiment_design():
             # T1-27: scope the lookup to the current owner so an attacker
             # can't load someone else's chat by guessing the session_id.
             db_session = experiment_repo.get_chat_session(
-                session_id, expected_owner_id=_get_chat_owner_id(),
+                session_id,
+                expected_owner_id=_get_chat_owner_id(),
             )
             if db_session:
                 # Convert UI messages back to history format
@@ -1450,7 +1504,9 @@ def chat_experiment_design():
                 }
 
         # Get session data (handle legacy format)
-        session_data = _chat_sessions.get(session_id, {'history': [], 'last_config': {}, 'config_versions': []})
+        session_data = _chat_sessions.get(
+            session_id, {'history': [], 'last_config': {}, 'config_versions': []}
+        )
         if isinstance(session_data, list):
             # Migrate from old format
             session_data = {'history': session_data, 'last_config': {}, 'config_versions': []}
@@ -1562,7 +1618,10 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
 
         # Build messages for LLM
         messages = [
-            {"role": "system", "content": base_system_prompt + config_context + failure_context_prompt}
+            {
+                "role": "system",
+                "content": base_system_prompt + config_context + failure_context_prompt,
+            }
         ]
 
         # Add conversation history
@@ -1590,7 +1649,9 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
             tools = [SQL_QUERY_TOOL, PERSONALITY_TOOL]
 
         # Call LLM with tool support - use reasoning model for better analysis
-        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
+        client = LLMClient(
+            model=config.get_assistant_model(), provider=config.get_assistant_provider()
+        )
         response = client.complete(
             messages=messages,
             tools=tools,
@@ -1629,18 +1690,22 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
             # On first update, save original config as v0 if it was meaningful (had a name)
             # This allows reverting when editing a previous experiment
             if not config_versions and current_config.get('name'):
-                config_versions.append({
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'config': current_config.copy(),
-                    'message_index': 0,
-                    'label': 'Original',
-                })
+                config_versions.append(
+                    {
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'config': current_config.copy(),
+                        'message_index': 0,
+                        'label': 'Original',
+                    }
+                )
             # Save the updated config
-            config_versions.append({
-                'timestamp': datetime.utcnow().isoformat(),
-                'config': merged_config.copy(),
-                'message_index': len(history),
-            })
+            config_versions.append(
+                {
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'config': merged_config.copy(),
+                    'message_index': len(history),
+                }
+            )
 
         # Get current experiment type from session
         current_experiment_type = session_data.get('experiment_type', 'undetermined')
@@ -1678,18 +1743,20 @@ Be CONCISE. Ask what they want to test and suggest the appropriate experiment ty
             config_versions=config_versions,
         )
 
-        return jsonify({
-            'success': True,
-            'response': display_text,
-            'session_id': session_id,
-            'config_updates': config_updates,
-            'config_diff': config_diff_for_response,  # Human-readable diff of AI changes
-            'merged_config': merged_config,
-            'config_complete': is_config_complete(merged_config),
-            'config_versions': config_versions,
-            'current_version_index': len(config_versions) - 1 if config_versions else 0,
-            'experiment_type': current_experiment_type,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'response': display_text,
+                'session_id': session_id,
+                'config_updates': config_updates,
+                'config_diff': config_diff_for_response,  # Human-readable diff of AI changes
+                'merged_config': merged_config,
+                'config_complete': is_config_complete(merged_config),
+                'config_versions': config_versions,
+                'current_version_index': len(config_versions) - 1 if config_versions else 0,
+                'experiment_type': current_experiment_type,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error in experiment chat: {e}")
@@ -1707,21 +1774,25 @@ def get_latest_chat_session():
         session_data = experiment_repo.get_latest_chat_session(owner_id)
 
         if session_data:
-            return jsonify({
-                'success': True,
-                'session': {
-                    'session_id': session_data['session_id'],
-                    'messages': session_data['messages'],
-                    'config': session_data['config'],
-                    'config_versions': session_data['config_versions'],
-                    'updated_at': session_data['updated_at'],
-                },
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'session': {
+                        'session_id': session_data['session_id'],
+                        'messages': session_data['messages'],
+                        'config': session_data['config'],
+                        'config_versions': session_data['config_versions'],
+                        'updated_at': session_data['updated_at'],
+                    },
+                }
+            )
 
-        return jsonify({
-            'success': True,
-            'session': None,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'session': None,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting latest chat session: {e}")
@@ -1746,7 +1817,8 @@ def archive_chat_session():
 
         owner_id = _get_chat_owner_id()
         archived = experiment_repo.archive_chat_session(
-            session_id, expected_owner_id=owner_id,
+            session_id,
+            expected_owner_id=owner_id,
         )
 
         if not archived:
@@ -1754,10 +1826,12 @@ def archive_chat_session():
             # Return 404 either way — don't leak the distinction.
             return jsonify({'error': 'session not found'}), 404
 
-        return jsonify({
-            'success': True,
-            'archived': True,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'archived': True,
+            }
+        )
 
     except PermissionError:
         return jsonify({'error': 'Authentication required'}), 401
@@ -1788,7 +1862,9 @@ def set_experiment_type():
             return jsonify({'error': 'session_id is required'}), 400
 
         if experiment_type not in ('tournament', 'replay', 'undetermined'):
-            return jsonify({'error': 'experiment_type must be "tournament", "replay", or "undetermined"'}), 400
+            return jsonify(
+                {'error': 'experiment_type must be "tournament", "replay", or "undetermined"'}
+            ), 400
 
         # Create or update session with experiment type
         if session_id not in _chat_sessions:
@@ -1802,10 +1878,12 @@ def set_experiment_type():
         else:
             _chat_sessions[session_id]['experiment_type'] = experiment_type
 
-        return jsonify({
-            'success': True,
-            'experiment_type': experiment_type,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment_type': experiment_type,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error setting experiment type: {e}")
@@ -1825,7 +1903,9 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
         context_parts.append("## Original Design Conversation")
         for msg in design_chat:
             role = "User" if msg.get('role') == 'user' else "Assistant"
-            context_parts.append(f"{role}: {msg.get('content', '')[:500]}")  # Truncate long messages
+            context_parts.append(
+                f"{role}: {msg.get('content', '')[:500]}"
+            )  # Truncate long messages
         context_parts.append("")
 
     # 2. Experiment details (config, status)
@@ -1843,9 +1923,13 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
     context_parts.append(f"Tournaments: {exp_config.get('num_tournaments', 1)}")
     context_parts.append(f"Hands per tournament: {exp_config.get('hands_per_tournament', 100)}")
     context_parts.append(f"Players: {exp_config.get('num_players', 4)}")
-    context_parts.append(f"Model: {exp_config.get('model', 'default')} ({exp_config.get('provider', 'openai')})")
+    context_parts.append(
+        f"Model: {exp_config.get('model', 'default')} ({exp_config.get('provider', 'openai')})"
+    )
     if exp_config.get('control'):
-        context_parts.append(f"A/B Testing: Yes (control + {len(exp_config.get('variants', []))} variants)")
+        context_parts.append(
+            f"A/B Testing: Yes (control + {len(exp_config.get('variants', []))} variants)"
+        )
     context_parts.append("")
 
     # 4. Results summary if completed
@@ -1865,8 +1949,12 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
 
         decision_quality = summary.get('decision_quality')
         if decision_quality:
-            context_parts.append(f"Decision quality: {decision_quality.get('correct_pct', 0):.1f}% correct")
-            context_parts.append(f"Mistakes: {decision_quality.get('mistakes', 0)} ({decision_quality.get('mistake_pct', 0):.1f}%)")
+            context_parts.append(
+                f"Decision quality: {decision_quality.get('correct_pct', 0):.1f}% correct"
+            )
+            context_parts.append(
+                f"Mistakes: {decision_quality.get('mistakes', 0)} ({decision_quality.get('mistake_pct', 0):.1f}%)"
+            )
 
         # Per-variant results for A/B testing
         variants = summary.get('variants')
@@ -1879,14 +1967,18 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
                 context_parts.append(f"  Hands: {variant_stats.get('total_hands', 0)}")
                 vq = variant_stats.get('decision_quality', {})
                 if vq:
-                    context_parts.append(f"  Decision quality: {vq.get('correct_pct', 0):.1f}% correct")
+                    context_parts.append(
+                        f"  Decision quality: {vq.get('correct_pct', 0):.1f}% correct"
+                    )
 
         # Failed tournaments if any
         failed = summary.get('failed_tournaments', [])
         if failed:
             context_parts.append(f"\nFailed tournaments: {len(failed)}")
             for ft in failed[:3]:  # Show first 3
-                context_parts.append(f"  - Tournament {ft.get('tournament_number')}: {ft.get('error_type')} - {ft.get('error', '')[:100]}")
+                context_parts.append(
+                    f"  - Tournament {ft.get('tournament_number')}: {ft.get('error_type')} - {ft.get('error', '')[:100]}"
+                )
 
         # AI interpretation if available
         ai_interpretation = summary.get('ai_interpretation')
@@ -1899,7 +1991,9 @@ def _build_experiment_assistant_context(experiment: dict) -> str:
                 context_parts.append("Suggested next steps:")
                 for step in ai_interpretation['next_steps']:
                     if isinstance(step, dict):
-                        context_parts.append(f"  - {step.get('hypothesis')}: {step.get('description')}")
+                        context_parts.append(
+                            f"  - {step.get('hypothesis')}: {step.get('description')}"
+                        )
                     else:
                         context_parts.append(f"  - {step}")
         elif ai_interpretation and ai_interpretation.get('error'):
@@ -2002,10 +2096,12 @@ IMPORTANT - Response style:
         # Persist to database
         experiment_repo.save_experiment_assistant_chat(experiment_id, history)
 
-        return jsonify({
-            'success': True,
-            'response': response_text,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'response': response_text,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error in experiment assistant chat: {e}")
@@ -2019,10 +2115,12 @@ def get_experiment_chat_history(experiment_id: int):
         # Try to get from database
         history = experiment_repo.get_experiment_assistant_chat(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'history': history or [],
-        })
+        return jsonify(
+            {
+                'success': True,
+                'history': history or [],
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting experiment chat history: {e}")
@@ -2041,10 +2139,12 @@ def clear_experiment_chat_history(experiment_id: int):
         # Clear from database
         experiment_repo.save_experiment_assistant_chat(experiment_id, [])
 
-        return jsonify({
-            'success': True,
-            'cleared': True,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'cleared': True,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error clearing experiment chat history: {e}")
@@ -2058,10 +2158,12 @@ def get_personalities():
         # Get personalities from database
         personality_list = personality_repo.list_personalities(limit=200)
         personalities = [p['name'] for p in personality_list]
-        return jsonify({
-            'success': True,
-            'personalities': personalities,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'personalities': personalities,
+            }
+        )
     except Exception as e:
         logger.error(f"Error getting personalities: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2073,31 +2175,36 @@ def get_prompt_options():
     try:
         # Get field info from PromptConfig dataclass
         from dataclasses import fields
+
         config_fields = []
         for field in fields(PromptConfig):
-            config_fields.append({
-                'name': field.name,
-                'type': 'boolean' if field.type == bool else 'integer',
-                'default': field.default if hasattr(field, 'default') else None,
-            })
+            config_fields.append(
+                {
+                    'name': field.name,
+                    'type': 'boolean' if field.type is bool else 'integer',
+                    'default': field.default if hasattr(field, 'default') else None,
+                }
+            )
 
-        return jsonify({
-            'success': True,
-            'fields': config_fields,
-            'descriptions': {
-                'pot_odds': 'Include pot odds and equity calculations',
-                'hand_strength': 'Include hand strength evaluation',
-                'session_memory': 'Include session stats (win rate, streaks)',
-                'opponent_intel': 'Include opponent tendencies and playing style',
-                'strategic_reflection': 'Include past strategic reflections',
-                'chattiness': 'Include chattiness guidance',
-                'emotional_state': 'Include emotional state narrative',
-                'tilt_effects': 'Include tilt-based modifications',
-                'mind_games': 'Include mind games instruction',
-                'dramatic_sequence': 'Include dramatic sequence instruction',
-                'memory_keep_exchanges': 'Number of conversation exchanges to retain',
-            },
-        })
+        return jsonify(
+            {
+                'success': True,
+                'fields': config_fields,
+                'descriptions': {
+                    'pot_odds': 'Include pot odds and equity calculations',
+                    'hand_strength': 'Include hand strength evaluation',
+                    'session_memory': 'Include session stats (win rate, streaks)',
+                    'opponent_intel': 'Include opponent tendencies and playing style',
+                    'strategic_reflection': 'Include past strategic reflections',
+                    'chattiness': 'Include chattiness guidance',
+                    'emotional_state': 'Include emotional state narrative',
+                    'tilt_effects': 'Include tilt-based modifications',
+                    'mind_games': 'Include mind games instruction',
+                    'dramatic_sequence': 'Include dramatic sequence instruction',
+                    'memory_keep_exchanges': 'Number of conversation exchanges to retain',
+                },
+            }
+        )
     except Exception as e:
         logger.error(f"Error getting prompt options: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2117,7 +2224,9 @@ def validate_experiment_config():
         if not config_data.get('name'):
             errors.append('Experiment name is required')
         elif not re.match(r'^[a-z][a-z0-9_]*$', config_data.get('name', '')):
-            errors.append('Name must be snake_case (lowercase letters, numbers, underscores, starting with letter)')
+            errors.append(
+                'Name must be snake_case (lowercase letters, numbers, underscores, starting with letter)'
+            )
 
         # Check for duplicate name
         if config_data.get('name'):
@@ -2131,7 +2240,11 @@ def validate_experiment_config():
             errors.append('num_tournaments must be between 1 and 20')
 
         hands_per_tournament = config_data.get('hands_per_tournament', 100)
-        if not isinstance(hands_per_tournament, int) or hands_per_tournament < 5 or hands_per_tournament > 500:
+        if (
+            not isinstance(hands_per_tournament, int)
+            or hands_per_tournament < 5
+            or hands_per_tournament > 500
+        ):
             errors.append('hands_per_tournament must be between 5 and 500')
 
         num_players = config_data.get('num_players', 4)
@@ -2188,15 +2301,19 @@ def validate_experiment_config():
             num_variants = 1 + len(variants or [])  # control + variants
             total_tournaments = num_tournaments * num_variants
             if total_tournaments > 20:
-                warnings.append(f'Total tournaments ({total_tournaments}) exceeds 20 - this may take a long time')
+                warnings.append(
+                    f'Total tournaments ({total_tournaments}) exceeds 20 - this may take a long time'
+                )
         elif num_tournaments > 10:
             warnings.append('Running more than 10 tournaments may take a long time')
 
-        return jsonify({
-            'valid': len(errors) == 0,
-            'errors': errors,
-            'warnings': warnings,
-        })
+        return jsonify(
+            {
+                'valid': len(errors) == 0,
+                'errors': errors,
+                'warnings': warnings,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error validating config: {e}")
@@ -2205,7 +2322,11 @@ def validate_experiment_config():
 
 def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
     """Run experiment in background thread."""
-    from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
+    from experiments.run_ai_tournament import (
+        AITournamentRunner,
+        ExperimentConfig,
+        TournamentPausedException,
+    )
 
     try:
         # Update status to running
@@ -2214,14 +2335,30 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         # Build ExperimentConfig from dict
         # Filter to only known fields
         known_fields = {
-            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'hands_per_tournament', 'num_players',
-            'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'reset_on_elimination'
+            'name',
+            'description',
+            'hypothesis',
+            'tags',
+            'capture_prompts',
+            'num_tournaments',
+            'hands_per_tournament',
+            'num_players',
+            'starting_stack',
+            'big_blind',
+            'model',
+            'provider',
+            'personalities',
+            'random_seed',
+            'control',
+            'variants',
+            'parallel_tournaments',
+            'stagger_start_delay',
+            'rate_limit_backoff_seconds',
+            'reset_on_elimination',
         }
-        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
+        filtered_config = {
+            k: v for k, v in config_dict.items() if k in known_fields and v is not None
+        }
 
         exp_config = ExperimentConfig(**filtered_config)
 
@@ -2248,7 +2385,9 @@ def run_experiment_background(experiment_id: int, config_dict: Dict[str, Any]):
         else:
             # No results from runner (e.g., all tournaments already complete)
             # Generate summary from DB data before completing
-            logger.info(f"Experiment {experiment_id} completed with no results, generating summary from DB")
+            logger.info(
+                f"Experiment {experiment_id} completed with no results, generating summary from DB"
+            )
             _complete_experiment_with_summary(experiment_id)
 
     except TournamentPausedException as e:
@@ -2285,7 +2424,9 @@ def create_experiment():
         parent_experiment_id = config_data.pop('parent_experiment_id', None)
 
         # Create experiment record with optional lineage
-        experiment_id = experiment_repo.create_experiment(config_data, parent_experiment_id=parent_experiment_id)
+        experiment_id = experiment_repo.create_experiment(
+            config_data, parent_experiment_id=parent_experiment_id
+        )
 
         # Save design chat history if session_id provided
         if design_session_id and design_session_id in _chat_sessions:
@@ -2293,10 +2434,12 @@ def create_experiment():
             # Convert internal history format to storage format
             design_chat = []
             for msg in session_data.get('history', []):
-                design_chat.append({
-                    'role': msg.get('role'),
-                    'content': clean_response_text(msg.get('content', '')),
-                })
+                design_chat.append(
+                    {
+                        'role': msg.get('role'),
+                        'content': clean_response_text(msg.get('content', '')),
+                    }
+                )
             experiment_repo.save_experiment_design_chat(experiment_id, design_chat)
             # Archive the design session so it won't be returned as latest.
             # T1-27: scope to caller's owner_id for defense in depth even
@@ -2304,27 +2447,28 @@ def create_experiment():
             # authenticated when the session was created.
             try:
                 experiment_repo.archive_chat_session(
-                    design_session_id, expected_owner_id=_get_chat_owner_id(),
+                    design_session_id,
+                    expected_owner_id=_get_chat_owner_id(),
                 )
             except PermissionError:
                 pass  # Best effort; the experiment launch already succeeded.
 
         # Launch in background
         thread = threading.Thread(
-            target=run_experiment_background,
-            args=(experiment_id, config_data),
-            daemon=True
+            target=run_experiment_background, args=(experiment_id, config_data), daemon=True
         )
         with _active_experiments_lock:
             _active_experiments[experiment_id] = thread
             thread.start()
 
-        return jsonify({
-            'success': True,
-            'experiment_id': experiment_id,
-            'name': config_data['name'],
-            'status': 'running',
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment_id': experiment_id,
+                'name': config_data['name'],
+                'status': 'running',
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error creating experiment: {e}")
@@ -2341,16 +2485,15 @@ def list_experiments():
         offset = int(request.args.get('offset', 0))
 
         experiments = experiment_repo.list_experiments(
-            status=status,
-            include_archived=include_archived,
-            limit=limit,
-            offset=offset
+            status=status, include_archived=include_archived, limit=limit, offset=offset
         )
 
-        return jsonify({
-            'success': True,
-            'experiments': experiments,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiments': experiments,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error listing experiments: {e}")
@@ -2374,16 +2517,19 @@ def get_experiment(experiment_id: int):
         # Add pause_requested flag for "Pausing..." UI state
         pause_requested = pause_coordinator.should_pause(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'experiment': experiment,
-            'decision_stats': decision_stats,
-            'live_stats': live_stats,
-            'pause_requested': pause_requested,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment': experiment,
+                'decision_stats': decision_stats,
+                'live_stats': live_stats,
+                'pause_requested': pause_requested,
+            }
+        )
 
     except Exception as e:
         import traceback
+
         logger.error(f"Error getting experiment {experiment_id}: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
@@ -2398,10 +2544,12 @@ def get_experiment_games(experiment_id: int):
 
         games = experiment_repo.get_experiment_games(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'games': games,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'games': games,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting experiment games: {e}")
@@ -2419,19 +2567,64 @@ def get_quick_prompts():
 
     # Tournament prompts
     tournament_prompts = [
-        {'id': 'compare_models', 'label': 'Compare Models', 'prompt': QUICK_PROMPTS['compare_models'], 'type': 'tournament'},
-        {'id': 'test_personalities', 'label': 'Test Personalities', 'prompt': QUICK_PROMPTS['test_personalities'], 'type': 'tournament'},
-        {'id': 'test_prompts', 'label': 'Test Prompt Components', 'prompt': QUICK_PROMPTS['test_prompts'], 'type': 'tournament'},
-        {'id': 'minimal_prompts', 'label': 'Minimal vs Full Prompts', 'prompt': QUICK_PROMPTS['minimal_prompts'], 'type': 'tournament'},
-        {'id': 'baseline', 'label': 'Baseline Measurement', 'prompt': QUICK_PROMPTS['baseline'], 'type': 'tournament'},
-        {'id': 'quick_test', 'label': 'Quick Test', 'prompt': QUICK_PROMPTS['quick_test'], 'type': 'tournament'},
+        {
+            'id': 'compare_models',
+            'label': 'Compare Models',
+            'prompt': QUICK_PROMPTS['compare_models'],
+            'type': 'tournament',
+        },
+        {
+            'id': 'test_personalities',
+            'label': 'Test Personalities',
+            'prompt': QUICK_PROMPTS['test_personalities'],
+            'type': 'tournament',
+        },
+        {
+            'id': 'test_prompts',
+            'label': 'Test Prompt Components',
+            'prompt': QUICK_PROMPTS['test_prompts'],
+            'type': 'tournament',
+        },
+        {
+            'id': 'minimal_prompts',
+            'label': 'Minimal vs Full Prompts',
+            'prompt': QUICK_PROMPTS['minimal_prompts'],
+            'type': 'tournament',
+        },
+        {
+            'id': 'baseline',
+            'label': 'Baseline Measurement',
+            'prompt': QUICK_PROMPTS['baseline'],
+            'type': 'tournament',
+        },
+        {
+            'id': 'quick_test',
+            'label': 'Quick Test',
+            'prompt': QUICK_PROMPTS['quick_test'],
+            'type': 'tournament',
+        },
     ]
 
     # Replay prompts
     replay_prompts = [
-        {'id': 'replay_model_comparison', 'label': 'Compare Models on Decisions', 'prompt': QUICK_PROMPTS['replay_model_comparison'], 'type': 'replay'},
-        {'id': 'replay_prompt_variants', 'label': 'Test Prompt Variants', 'prompt': QUICK_PROMPTS['replay_prompt_variants'], 'type': 'replay'},
-        {'id': 'replay_guidance_injection', 'label': 'Test Guidance Injection', 'prompt': QUICK_PROMPTS['replay_guidance_injection'], 'type': 'replay'},
+        {
+            'id': 'replay_model_comparison',
+            'label': 'Compare Models on Decisions',
+            'prompt': QUICK_PROMPTS['replay_model_comparison'],
+            'type': 'replay',
+        },
+        {
+            'id': 'replay_prompt_variants',
+            'label': 'Test Prompt Variants',
+            'prompt': QUICK_PROMPTS['replay_prompt_variants'],
+            'type': 'replay',
+        },
+        {
+            'id': 'replay_guidance_injection',
+            'label': 'Test Guidance Injection',
+            'prompt': QUICK_PROMPTS['replay_guidance_injection'],
+            'type': 'replay',
+        },
     ]
 
     # Filter by type if specified
@@ -2443,10 +2636,12 @@ def get_quick_prompts():
         # Return all prompts when no type filter (for initial type selection)
         prompts = tournament_prompts + replay_prompts
 
-    return jsonify({
-        'success': True,
-        'prompts': prompts,
-    })
+    return jsonify(
+        {
+            'success': True,
+            'prompts': prompts,
+        }
+    )
 
 
 @experiment_bp.route('/api/experiments/<int:experiment_id>/cost-trends', methods=['GET'])
@@ -2469,7 +2664,8 @@ def get_experiment_cost_trends(experiment_id: int):
 
         with sqlite3.connect(persistence_db_path) as conn:
             conn.execute("PRAGMA busy_timeout=5000")
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     strftime('%Y-%m-%d %H:%M', au.created_at, 'start of minute',
                         printf('-%d minutes', CAST(strftime('%M', au.created_at) AS INTEGER) % ?)) as bucket,
@@ -2481,16 +2677,22 @@ def get_experiment_cost_trends(experiment_id: int):
                 WHERE eg.experiment_id = ? AND au.estimated_cost IS NOT NULL
                 GROUP BY bucket, eg.variant
                 ORDER BY bucket
-            """, (bucket_minutes, experiment_id))
+            """,
+                (bucket_minutes, experiment_id),
+            )
 
-            trends = [{'time': r[0], 'variant': r[1], 'cost': r[2], 'calls': r[3]}
-                      for r in cursor.fetchall()]
+            trends = [
+                {'time': r[0], 'variant': r[1], 'cost': r[2], 'calls': r[3]}
+                for r in cursor.fetchall()
+            ]
 
-        return jsonify({
-            'success': True,
-            'trends': trends,
-            'bucket_minutes': bucket_minutes,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'trends': trends,
+                'bucket_minutes': bucket_minutes,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting cost trends for experiment {experiment_id}: {e}")
@@ -2511,18 +2713,22 @@ def get_live_games(experiment_id: int):
 
         games = experiment_repo.get_experiment_game_snapshots(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'games': games,
-            'experiment_status': experiment.get('status'),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'games': games,
+                'experiment_status': experiment.get('status'),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting live games for experiment {experiment_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-@experiment_bp.route('/api/experiments/<int:experiment_id>/games/<game_id>/player/<player_name>', methods=['GET'])
+@experiment_bp.route(
+    '/api/experiments/<int:experiment_id>/games/<game_id>/player/<player_name>', methods=['GET']
+)
 def get_player_detail(experiment_id: int, game_id: str, player_name: str):
     """Get detailed player info for the drill-down panel.
 
@@ -2541,10 +2747,12 @@ def get_player_detail(experiment_id: int, game_id: str, player_name: str):
         if not player_detail:
             return jsonify({'error': 'Player not found in game'}), 404
 
-        return jsonify({
-            'success': True,
-            **player_detail,
-        })
+        return jsonify(
+            {
+                'success': True,
+                **player_detail,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting player detail for {player_name} in game {game_id}: {e}")
@@ -2564,20 +2772,24 @@ def pause_experiment(experiment_id: int):
             return jsonify({'error': 'Experiment not found'}), 404
 
         if experiment.get('status') != 'running':
-            return jsonify({
-                'error': f"Cannot pause experiment with status '{experiment.get('status')}'. Only running experiments can be paused."
-            }), 400
+            return jsonify(
+                {
+                    'error': f"Cannot pause experiment with status '{experiment.get('status')}'. Only running experiments can be paused."
+                }
+            ), 400
 
         # Set the pause flag - workers will check this after each action
         pause_coordinator.request_pause(experiment_id)
 
         logger.info(f"Pause requested for experiment {experiment_id}")
 
-        return jsonify({
-            'success': True,
-            'message': 'Pause requested. Experiment will stop after current action completes.',
-            'experiment_id': experiment_id,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': 'Pause requested. Experiment will stop after current action completes.',
+                'experiment_id': experiment_id,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error pausing experiment {experiment_id}: {e}")
@@ -2596,22 +2808,28 @@ def resume_experiment(experiment_id: int):
             return jsonify({'error': 'Experiment not found'}), 404
 
         if experiment.get('status') not in ('paused', 'interrupted'):
-            return jsonify({
-                'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused or interrupted experiments can be resumed."
-            }), 400
+            return jsonify(
+                {
+                    'error': f"Cannot resume experiment with status '{experiment.get('status')}'. Only paused or interrupted experiments can be resumed."
+                }
+            ), 400
 
         # Get incomplete tournaments
         incomplete = experiment_repo.get_incomplete_tournaments(experiment_id)
 
         if not incomplete:
             # No incomplete tournaments - generate summary and complete
-            logger.info(f"No incomplete tournaments for experiment {experiment_id}, generating summary and completing")
+            logger.info(
+                f"No incomplete tournaments for experiment {experiment_id}, generating summary and completing"
+            )
             _complete_experiment_with_summary(experiment_id)
-            return jsonify({
-                'success': True,
-                'message': 'No incomplete tournaments found. Experiment completed with summary.',
-                'experiment_id': experiment_id,
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': 'No incomplete tournaments found. Experiment completed with summary.',
+                    'experiment_id': experiment_id,
+                }
+            )
 
         # Clear the pause flag
         pause_coordinator.clear_pause(experiment_id)
@@ -2626,20 +2844,24 @@ def resume_experiment(experiment_id: int):
         thread = threading.Thread(
             target=resume_experiment_background,
             args=(experiment_id, incomplete, config_dict),
-            daemon=True
+            daemon=True,
         )
         with _active_experiments_lock:
             _active_experiments[experiment_id] = thread
             thread.start()
 
-        logger.info(f"Resuming experiment {experiment_id} with {len(incomplete)} incomplete tournaments")
+        logger.info(
+            f"Resuming experiment {experiment_id} with {len(incomplete)} incomplete tournaments"
+        )
 
-        return jsonify({
-            'success': True,
-            'message': f'Resuming experiment with {len(incomplete)} incomplete tournaments.',
-            'experiment_id': experiment_id,
-            'incomplete_tournaments': len(incomplete),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Resuming experiment with {len(incomplete)} incomplete tournaments.',
+                'experiment_id': experiment_id,
+                'incomplete_tournaments': len(incomplete),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error resuming experiment {experiment_id}: {e}")
@@ -2660,11 +2882,13 @@ def archive_experiment(experiment_id: int):
             experiment_repo.update_experiment_tags(experiment_id, tags)
             logger.info(f"Archived experiment {experiment_id}")
 
-        return jsonify({
-            'success': True,
-            'experiment_id': experiment_id,
-            'archived': True,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment_id': experiment_id,
+                'archived': True,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error archiving experiment {experiment_id}: {e}")
@@ -2685,11 +2909,13 @@ def unarchive_experiment(experiment_id: int):
             experiment_repo.update_experiment_tags(experiment_id, tags)
             logger.info(f"Unarchived experiment {experiment_id}")
 
-        return jsonify({
-            'success': True,
-            'experiment_id': experiment_id,
-            'archived': False,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment_id': experiment_id,
+                'archived': False,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error unarchiving experiment {experiment_id}: {e}")
@@ -2710,9 +2936,11 @@ def regenerate_summary(experiment_id: int):
             return jsonify({'error': 'Experiment not found'}), 404
 
         if experiment.get('status') != 'completed':
-            return jsonify({
-                'error': f"Only completed experiments can regenerate summary. Current status: {experiment.get('status')}"
-            }), 400
+            return jsonify(
+                {
+                    'error': f"Only completed experiments can regenerate summary. Current status: {experiment.get('status')}"
+                }
+            ), 400
 
         logger.info(f"Regenerating summary for experiment {experiment_id}")
         _complete_experiment_with_summary(experiment_id)
@@ -2720,44 +2948,67 @@ def regenerate_summary(experiment_id: int):
         # Fetch the updated experiment
         updated = experiment_repo.get_experiment(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'experiment_id': experiment_id,
-            'summary': updated.get('summary') if updated else None,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'experiment_id': experiment_id,
+                'summary': updated.get('summary') if updated else None,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error regenerating summary for experiment {experiment_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-def resume_experiment_background(experiment_id: int, incomplete_tournaments: List[Dict], config_dict: Dict[str, Any]):
+def resume_experiment_background(
+    experiment_id: int, incomplete_tournaments: List[Dict], config_dict: Dict[str, Any]
+):
     """Resume incomplete tournaments in background thread."""
-    from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentPausedException
-    from poker.poker_state_machine import PokerStateMachine
+    from experiments.run_ai_tournament import (
+        AITournamentRunner,
+        ExperimentConfig,
+        TournamentPausedException,
+    )
     from poker.controllers import AIPlayerController
     from poker.memory.memory_manager import AIMemoryManager
+    from poker.poker_state_machine import PokerStateMachine
     from poker.prompt_config import PromptConfig
 
     try:
         # Build ExperimentConfig
         known_fields = {
-            'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-            'num_tournaments', 'hands_per_tournament', 'num_players',
-            'starting_stack', 'big_blind', 'model', 'provider',
-            'personalities', 'random_seed', 'control', 'variants',
-            'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-            'reset_on_elimination'
+            'name',
+            'description',
+            'hypothesis',
+            'tags',
+            'capture_prompts',
+            'num_tournaments',
+            'hands_per_tournament',
+            'num_players',
+            'starting_stack',
+            'big_blind',
+            'model',
+            'provider',
+            'personalities',
+            'random_seed',
+            'control',
+            'variants',
+            'parallel_tournaments',
+            'stagger_start_delay',
+            'rate_limit_backoff_seconds',
+            'reset_on_elimination',
         }
-        filtered_config = {k: v for k, v in config_dict.items() if k in known_fields and v is not None}
+        filtered_config = {
+            k: v for k, v in config_dict.items() if k in known_fields and v is not None
+        }
         exp_config = ExperimentConfig(**filtered_config)
 
-        results = []
         paused_again = False
 
         for tournament_info in incomplete_tournaments:
             game_id = tournament_info['game_id']
-            variant = tournament_info.get('variant')
+            tournament_info.get('variant')
             variant_config = tournament_info.get('variant_config')
 
             logger.info(f"Resuming tournament {game_id}")
@@ -2786,7 +3037,9 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
 
                 # Extract prompt_config from variant
                 prompt_config_dict = variant_config.get('prompt_config') if variant_config else None
-                prompt_config = PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
+                prompt_config = (
+                    PromptConfig.from_dict(prompt_config_dict) if prompt_config_dict else None
+                )
 
                 # Recreate controllers for all players
                 controllers = {}
@@ -2804,9 +3057,15 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     # Restore conversation history if available
                     if player.name in ai_states:
                         saved_messages = ai_states[player.name].get('messages', [])
-                        if saved_messages and hasattr(controller, 'assistant') and controller.assistant:
+                        if (
+                            saved_messages
+                            and hasattr(controller, 'assistant')
+                            and controller.assistant
+                        ):
                             controller.assistant.memory.set_history(saved_messages)
-                            logger.debug(f"Restored {len(saved_messages)} messages for {player.name}")
+                            logger.debug(
+                                f"Restored {len(saved_messages)} messages for {player.name}"
+                            )
 
                     controllers[player.name] = controller
 
@@ -2814,13 +3073,14 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                 memory_manager = AIMemoryManager(
                     game_id=game_id,
                     db_path=persistence_db_path,
-                    owner_id=f"experiment_{exp_config.name}"
+                    owner_id=f"experiment_{exp_config.name}",
                 )
                 memory_manager.set_hand_history_repo(hand_history_repo)
                 # Phase 3: relationship state populates from hand
                 # outcomes. Tournament path → cash_mode=False.
                 memory_manager.set_relationship_repo(
-                    relationship_repo, cash_mode=False,
+                    relationship_repo,
+                    cash_mode=False,
                 )
 
                 # Initialize memory manager for players
@@ -2848,9 +3108,12 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     hand_number += 1
 
                     hand_result = runner.run_hand(
-                        state_machine, controllers, memory_manager, hand_number,
+                        state_machine,
+                        controllers,
+                        memory_manager,
+                        hand_number,
                         tournament_id=game_id,
-                        variant_config=variant_config
+                        variant_config=variant_config,
                     )
 
                     # Save game state for live monitoring
@@ -2860,6 +3123,7 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
                     if hand_result == "reset_needed":
                         if should_reset:
                             from poker.poker_game import Player
+
                             logger.info(f"Resetting all players for {game_id}")
 
                             # Recreate all original players with full stacks
@@ -2917,7 +3181,9 @@ def resume_experiment_background(experiment_id: int, incomplete_tournaments: Lis
             _complete_experiment_with_summary(experiment_id)
 
     except Exception as e:
-        logger.error(f"Error in resume_experiment_background for {experiment_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error in resume_experiment_background for {experiment_id}: {e}", exc_info=True
+        )
         if pause_coordinator.should_pause(experiment_id):
             experiment_repo.update_experiment_status(experiment_id, 'paused')
         else:
@@ -2940,17 +3206,21 @@ def get_stalled_variants(experiment_id: int):
     try:
         threshold_minutes = request.args.get('threshold_minutes', 5, type=int)
         stalled = experiment_repo.get_stalled_variants(experiment_id, threshold_minutes)
-        return jsonify({
-            'success': True,
-            'stalled_variants': stalled,
-            'threshold_minutes': threshold_minutes,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'stalled_variants': stalled,
+                'threshold_minutes': threshold_minutes,
+            }
+        )
     except Exception as e:
         logger.error(f"Error getting stalled variants for experiment {experiment_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-@experiment_bp.route('/api/experiments/<int:experiment_id>/variants/<int:game_id>/resume', methods=['POST'])
+@experiment_bp.route(
+    '/api/experiments/<int:experiment_id>/variants/<int:game_id>/resume', methods=['POST']
+)
 def resume_variant(experiment_id: int, game_id: int):
     """Resume a specific stalled variant.
 
@@ -2963,10 +3233,12 @@ def resume_variant(experiment_id: int, game_id: int):
         # Acquire resume lock
         lock_acquired = experiment_repo.acquire_resume_lock(game_id)
         if not lock_acquired:
-            return jsonify({
-                'success': False,
-                'error': 'Could not acquire resume lock - variant may already be resuming',
-            }), 409
+            return jsonify(
+                {
+                    'success': False,
+                    'error': 'Could not acquire resume lock - variant may already be resuming',
+                }
+            ), 409
 
         # Get variant details
         experiment = experiment_repo.get_experiment(experiment_id)
@@ -2977,10 +3249,13 @@ def resume_variant(experiment_id: int, game_id: int):
         # Get the experiment game record
         with sqlite3.connect(persistence_db_path) as conn:
             conn.execute("PRAGMA busy_timeout=5000")
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT game_id, variant, variant_config_json, tournament_number
                 FROM experiment_games WHERE id = ?
-            """, (game_id,))
+            """,
+                (game_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 experiment_repo.release_resume_lock_by_id(game_id)
@@ -2998,24 +3273,31 @@ def resume_variant(experiment_id: int, game_id: int):
         thread = threading.Thread(
             target=resume_single_variant_background,
             args=(experiment_id, tournament_info, config_dict),
-            daemon=True
+            daemon=True,
         )
         thread.start()
 
-        return jsonify({
-            'success': True,
-            'message': f'Resuming variant {tournament_info["game_id"]}',
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Resuming variant {tournament_info["game_id"]}',
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error resuming variant {game_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-def resume_single_variant_background(experiment_id: int, tournament_info: Dict, config_dict: Dict[str, Any]):
+def resume_single_variant_background(
+    experiment_id: int, tournament_info: Dict, config_dict: Dict[str, Any]
+):
     """Resume a single variant in background thread."""
-    from experiments.run_ai_tournament import TournamentPausedException, TournamentSupersededException
     from experiments.resume_helpers import resume_variant_impl
+    from experiments.run_ai_tournament import (
+        TournamentPausedException,
+        TournamentSupersededException,
+    )
 
     game_id = tournament_info['game_id']
     variant = tournament_info.get('variant')
@@ -3035,8 +3317,8 @@ def resume_single_variant_background(experiment_id: int, tournament_info: Dict, 
 
         if result:
             # Save the result
-            from experiments.run_ai_tournament import AITournamentRunner
             from experiments.resume_helpers import build_experiment_config
+            from experiments.run_ai_tournament import AITournamentRunner
 
             exp_config = build_experiment_config(config_dict)
             runner = AITournamentRunner(exp_config, db_path=persistence_db_path)
@@ -3089,12 +3371,14 @@ def _check_and_complete_experiment(experiment_id: int):
 
 # === Trajectory Viewer ===
 
+
 @experiment_bp.route('/api/experiments/<int:experiment_id>/trajectory-viewer', methods=['GET'])
 def trajectory_viewer(experiment_id):
     """Generate and serve interactive psychology trajectory viewer."""
     game_id = request.args.get('game')
     try:
         from experiments.generate_trajectory_viewer import extract_data, generate_html
+
         data = extract_data(persistence_db_path, experiment_id, game_id)
         if not data:
             return jsonify({'error': f'No trajectory data for experiment {experiment_id}'}), 404

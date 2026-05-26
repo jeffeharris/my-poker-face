@@ -38,7 +38,7 @@
   max-width: 80%;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 
+  box-shadow:
     0 0 50px rgba(255, 215, 0, 0.5),
     0 0 100px rgba(255, 215, 0, 0.3),
     inset 0 0 30px rgba(255, 215, 0, 0.1);
@@ -46,16 +46,17 @@
 }
 
 @keyframes winnerPulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
-    box-shadow: 
+    box-shadow:
       0 0 50px rgba(255, 215, 0, 0.5),
       0 0 100px rgba(255, 215, 0, 0.3),
       inset 0 0 30px rgba(255, 215, 0, 0.1);
   }
   50% {
     transform: scale(1.02);
-    box-shadow: 
+    box-shadow:
       0 0 70px rgba(255, 215, 0, 0.7),
       0 0 120px rgba(255, 215, 0, 0.4),
       inset 0 0 40px rgba(255, 215, 0, 0.2);
@@ -86,12 +87,12 @@
 
 @keyframes titleGlow {
   from {
-    text-shadow: 
+    text-shadow:
       0 0 20px rgba(255, 215, 0, 0.8),
       0 0 40px rgba(255, 215, 0, 0.5);
   }
   to {
-    text-shadow: 
+    text-shadow:
       0 0 30px rgba(255, 215, 0, 1),
       0 0 60px rgba(255, 215, 0, 0.7);
   }
@@ -191,11 +192,21 @@
   animation: communityCardReveal 0.4s ease-out both;
 }
 
-.community-cards-display .playing-card:nth-child(1) { animation-delay: 0.1s; }
-.community-cards-display .playing-card:nth-child(2) { animation-delay: 0.2s; }
-.community-cards-display .playing-card:nth-child(3) { animation-delay: 0.3s; }
-.community-cards-display .playing-card:nth-child(4) { animation-delay: 0.4s; }
-.community-cards-display .playing-card:nth-child(5) { animation-delay: 0.5s; }
+.community-cards-display .playing-card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+.community-cards-display .playing-card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.community-cards-display .playing-card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.community-cards-display .playing-card:nth-child(4) {
+  animation-delay: 0.4s;
+}
+.community-cards-display .playing-card:nth-child(5) {
+  animation-delay: 0.5s;
+}
 
 @keyframes communityCardReveal {
   from {
@@ -359,10 +370,18 @@
   line-height: 1;
 }
 
-.player-showdown:nth-child(1) { animation-delay: 0.1s; }
-.player-showdown:nth-child(2) { animation-delay: 0.2s; }
-.player-showdown:nth-child(3) { animation-delay: 0.3s; }
-.player-showdown:nth-child(4) { animation-delay: 0.4s; }
+.player-showdown:nth-child(1) {
+  animation-delay: 0.1s;
+}
+.player-showdown:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.player-showdown:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.player-showdown:nth-child(4) {
+  animation-delay: 0.4s;
+}
 
 @keyframes cardReveal {
   from {
@@ -578,8 +597,13 @@
 }
 
 @keyframes bannerPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
 }
 
 /* Continue to Results Button */
@@ -594,7 +618,9 @@
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .continue-to-results-btn:hover {

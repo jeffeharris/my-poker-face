@@ -60,10 +60,13 @@
   pointer-events: auto;
 }
 
-
 @keyframes shuffleLoadingFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Slide-in entrance from the left */
@@ -72,8 +75,12 @@
 }
 
 @keyframes shuffleLoadingSlideIn {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 /* Fade-out transition applied to all wrapper layers */
@@ -83,8 +90,12 @@
 }
 
 @keyframes shuffleLoadingFadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* Slide-out transition - overlay slides off to the left */
@@ -189,11 +200,7 @@
   position: absolute;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    145deg,
-    #1a1f2e 0%,
-    #0d1117 100%
-  );
+  background: linear-gradient(145deg, #1a1f2e 0%, #0d1117 100%);
   border-radius: 8px;
   border: 1px solid rgba(212, 165, 116, 0.15);
   box-shadow:
@@ -239,37 +246,22 @@
 
 /* Riffle shuffle animation - cards fan out and back */
 @keyframes shuffleLoadingRiffle {
-  0%, 100% {
-    transform:
-      translateX(var(--card-offset-x))
-      translateY(0)
-      rotateY(0deg)
-      rotateZ(var(--card-rotation))
-      scale(1);
+  0%,
+  100% {
+    transform: translateX(var(--card-offset-x)) translateY(0) rotateY(0deg)
+      rotateZ(var(--card-rotation)) scale(1);
   }
   25% {
-    transform:
-      translateX(calc(var(--card-offset-x) * 2.5))
-      translateY(-8px)
-      rotateY(-15deg)
-      rotateZ(calc(var(--card-rotation) * 1.5))
-      scale(1.02);
+    transform: translateX(calc(var(--card-offset-x) * 2.5)) translateY(-8px) rotateY(-15deg)
+      rotateZ(calc(var(--card-rotation) * 1.5)) scale(1.02);
   }
   50% {
-    transform:
-      translateX(var(--card-offset-x))
-      translateY(-4px)
-      rotateY(0deg)
-      rotateZ(var(--card-rotation))
-      scale(1);
+    transform: translateX(var(--card-offset-x)) translateY(-4px) rotateY(0deg)
+      rotateZ(var(--card-rotation)) scale(1);
   }
   75% {
-    transform:
-      translateX(calc(var(--card-offset-x) * -0.5))
-      translateY(-8px)
-      rotateY(15deg)
-      rotateZ(calc(var(--card-rotation) * 0.5))
-      scale(1.02);
+    transform: translateX(calc(var(--card-offset-x) * -0.5)) translateY(-8px) rotateY(15deg)
+      rotateZ(calc(var(--card-rotation) * 0.5)) scale(1.02);
   }
 }
 
@@ -308,8 +300,13 @@
 }
 
 @keyframes shuffleLoadingShimmer {
-  0%, 100% { background-position: 100% 50%; }
-  50% { background-position: 0% 50%; }
+  0%,
+  100% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 0% 50%;
+  }
 }
 
 .shuffle-loading-dots {
@@ -327,12 +324,20 @@
   animation: shuffleLoadingDotPulse 1.4s ease-in-out infinite;
 }
 
-.shuffle-loading-dots .dot:nth-child(1) { animation-delay: 0s; }
-.shuffle-loading-dots .dot:nth-child(2) { animation-delay: 0.15s; }
-.shuffle-loading-dots .dot:nth-child(3) { animation-delay: 0.3s; }
+.shuffle-loading-dots .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.shuffle-loading-dots .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.shuffle-loading-dots .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
 
 @keyframes shuffleLoadingDotPulse {
-  0%, 60%, 100% {
+  0%,
+  60%,
+  100% {
     opacity: 0.3;
     transform: scale(1);
   }
@@ -408,10 +413,6 @@
 .shuffle-loading-vignette {
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    ellipse 70% 60% at 50% 50%,
-    transparent 0%,
-    rgba(0, 0, 0, 0.3) 100%
-  );
+  background: radial-gradient(ellipse 70% 60% at 50% 50%, transparent 0%, rgba(0, 0, 0, 0.3) 100%);
   pointer-events: none;
 }

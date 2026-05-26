@@ -28,7 +28,6 @@ import pytest
 from flask_app.handlers.message_handler import record_action_in_memory
 from poker.memory.memory_manager import AIMemoryManager
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -70,8 +69,7 @@ def _make_memory_manager(players):
 
     # HandHistoryRecorder.start_hand needs minimal player attrs
     gs_players = [
-        SimpleNamespace(name=p.name, stack=p.stack, is_human=False, hand=None)
-        for p in players
+        SimpleNamespace(name=p.name, stack=p.stack, is_human=False, hand=None) for p in players
     ]
     gs = SimpleNamespace(players=gs_players, table_positions={})
     mm.on_hand_start(gs, hand_number=1)

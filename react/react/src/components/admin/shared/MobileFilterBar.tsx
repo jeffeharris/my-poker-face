@@ -17,7 +17,11 @@ interface MobileFilterBarProps {
  * Renders a flex row with a filter button (flex: 1) and optional
  * action buttons on the right.
  */
-export function MobileFilterBar({ activeFilterCount, onFilterClick, actions }: MobileFilterBarProps) {
+export function MobileFilterBar({
+  activeFilterCount,
+  onFilterClick,
+  actions,
+}: MobileFilterBarProps) {
   return (
     <div className="mobile-filter-bar">
       <button

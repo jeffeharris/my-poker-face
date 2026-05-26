@@ -20,8 +20,9 @@ Environment Variables:
         - 0 (default): Keep forever (no automatic cleanup)
         - N: Delete captures older than N days
 """
-import os
+
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ def _get_config_repo():
     """Get the config repository, handling import lazily to avoid circular imports."""
     try:
         from flask_app.extensions import get_repository_factory
+
         return get_repository_factory().config
     except ImportError:
         # Not running in Flask context

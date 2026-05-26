@@ -16,7 +16,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 
 # Predefined guidance variants to test
 GUIDANCE_VARIANTS = {
@@ -28,7 +28,6 @@ PRE-FLOP DISCIPLINE: Your hand strength rating is CRITICAL.
 Your personality can influence HOW you play good hands, but NOT whether you play bad hands.
 Even aggressive players fold garbage pre-flop - that's how they stay aggressive later.
 """,
-
     "math_first": """
 MATH BEFORE PERSONALITY: Before ANY action, check:
 1. Is your hand in the top 35% of starting hands? If not, strongly consider folding.
@@ -36,7 +35,6 @@ MATH BEFORE PERSONALITY: Before ANY action, check:
 3. In early position, only play premium hands (top 15%).
 Your character's aggression applies AFTER you have a playable hand, not before.
 """,
-
     "position_aware": """
 POSITION MATTERS: Your table position determines which hands you can play.
 - UTG (under the gun): Only top 10% hands (AA, KK, QQ, JJ, AKs, AKo, AQs)
@@ -45,7 +43,6 @@ POSITION MATTERS: Your table position determines which hands you can play.
 - Blinds defending: Depends on pot odds
 Your hand strength rating tells you where your hand ranks. FOLD if it doesn't meet position requirements.
 """,
-
     "explicit_fold": """
 FOLD THESE HANDS PRE-FLOP (regardless of personality):
 - Any hand rated "Below average starting hand" - FOLD
@@ -54,13 +51,11 @@ FOLD THESE HANDS PRE-FLOP (regardless of personality):
 - Low unsuited connectors (5-4o, 6-5o, 7-6o) - FOLD in early/middle position
 Your aggressive personality applies to BETTING SIZING with good hands, not to playing bad hands.
 """,
-
     "pot_committed": """
 POT COMMITTED: You've invested more BB than you have left.
 At these pot odds, you only need a small % equity to call profitably.
 Folding forfeits your big investment to save a tiny call - usually wrong.
 """,
-
     "short_stack": """
 SHORT STACK STRATEGY (< 3 Big Blinds):
 - Check your "stack in big blinds" number
@@ -71,7 +66,6 @@ SHORT STACK STRATEGY (< 3 Big Blinds):
 - Even "cautious" players go all-in with short stacks - it's mathematically required
 - If you have 1 BB or less, you should almost NEVER fold pre-flop
 """,
-
     "river_call": """
 RIVER DECISION FRAMEWORK:
 - On the river, you have COMPLETE information about your hand strength
@@ -81,7 +75,7 @@ RIVER DECISION FRAMEWORK:
 - Pot odds matter: If pot is $1000 and call is $100, you only need 10% win rate
 - Common mistake: Folding to "scary" bets with hands that beat bluffs
 - If your equity exceeds required equity, CALL. Trust the math over fear.
-"""
+""",
 }
 
 
@@ -91,7 +85,8 @@ def get_capture(db_path: str, capture_id: int) -> dict:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(
+            '''
             SELECT pc.*, pda.equity, pda.optimal_action, pda.ev_lost
             FROM prompt_captures pc
             LEFT JOIN player_decision_analysis pda ON pc.game_id = pda.game_id
@@ -99,7 +94,9 @@ def get_capture(db_path: str, capture_id: int) -> dict:
                 AND pc.player_name = pda.player_name
                 AND pc.phase = pda.phase
             WHERE pc.id = ?
-        ''', (capture_id,))
+        ''',
+            (capture_id,),
+        )
 
         row = cursor.fetchone()
 
@@ -119,9 +116,11 @@ def inject_guidance(user_message: str, guidance_text: str) -> str:
 
     # Insert guidance before the "What is your move" line
     return (
-        user_message[:injection_point] +
-        "\n" + guidance_text + "\n\n" +
-        user_message[injection_point:]
+        user_message[:injection_point]
+        + "\n"
+        + guidance_text
+        + "\n\n"
+        + user_message[injection_point:]
     )
 
 
@@ -140,20 +139,15 @@ def replay_decision(capture: dict, guidance_text: str, verbose: bool = False) ->
         print(f"...{modified_message[start:end]}...")
 
     # Create LLM client and replay
-    client = LLMClient(
-        provider=capture['provider'],
-        model=capture['model']
-    )
+    client = LLMClient(provider=capture['provider'], model=capture['model'])
 
     messages = [
         {"role": "system", "content": capture['system_prompt']},
-        {"role": "user", "content": modified_message}
+        {"role": "user", "content": modified_message},
     ]
 
     response = client.complete(
-        messages=messages,
-        json_format=True,
-        call_type=CallType.PLAYER_DECISION
+        messages=messages, json_format=True, call_type=CallType.PLAYER_DECISION
     )
 
     # Parse response
@@ -166,20 +160,26 @@ def replay_decision(capture: dict, guidance_text: str, verbose: bool = False) ->
         "action": result.get("action"),
         "raise_to": result.get("raise_to"),
         "inner_monologue": result.get("inner_monologue"),
-        "full_response": result
+        "full_response": result,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Replay captured prompts with modified guidance")
-    parser.add_argument("--capture-id", type=int, required=True, help="ID of prompt capture to replay")
-    parser.add_argument("--guidance", choices=list(GUIDANCE_VARIANTS.keys()),
-                        help="Predefined guidance variant to use")
+    parser.add_argument(
+        "--capture-id", type=int, required=True, help="ID of prompt capture to replay"
+    )
+    parser.add_argument(
+        "--guidance",
+        choices=list(GUIDANCE_VARIANTS.keys()),
+        help="Predefined guidance variant to use",
+    )
     parser.add_argument("--guidance-text", type=str, help="Custom guidance text to inject")
     parser.add_argument("--db", default="data/poker_games.db", help="Database path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
-    parser.add_argument("--all-variants", action="store_true",
-                        help="Test all predefined guidance variants")
+    parser.add_argument(
+        "--all-variants", action="store_true", help="Test all predefined guidance variants"
+    )
 
     args = parser.parse_args()
 
@@ -206,7 +206,7 @@ def main():
     try:
         original_resp = json.loads(capture['ai_response'])
         print(f"\nOriginal inner monologue: {original_resp.get('inner_monologue', 'N/A')[:200]}...")
-    except:
+    except Exception:
         pass
 
     # Determine which variants to test
@@ -246,19 +246,18 @@ def main():
             else:
                 print(f"❌ Still {new_action} (should be {optimal_action})")
 
-            results.append({
-                "variant": variant_name,
-                "new_action": new_action,
-                "correct": new_action == optimal_action,
-                "changed": new_action != original_action
-            })
+            results.append(
+                {
+                    "variant": variant_name,
+                    "new_action": new_action,
+                    "correct": new_action == optimal_action,
+                    "changed": new_action != original_action,
+                }
+            )
 
         except Exception as e:
             print(f"❌ Error: {e}")
-            results.append({
-                "variant": variant_name,
-                "error": str(e)
-            })
+            results.append({"variant": variant_name, "error": str(e)})
 
     # Summary
     if len(results) > 1:

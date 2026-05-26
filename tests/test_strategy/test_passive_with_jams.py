@@ -25,25 +25,27 @@ Behavior under test:
 import pytest
 
 from poker.strategy.exploitation import (
+    MIN_HANDS_DEFAULT,
+    PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD,
     AggregatedOpponentStats,
     DecisionContext,
-    MIN_HANDS_DEFAULT,
     OpponentSpot,
-    PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD,
     _is_passive_with_jams,
     classify_detected_patterns,
     compute_exploitation_offsets,
 )
 
 
-def _stats(*, hands_observed=50, vpip=0.85, aggression_factor=0.4,
-            all_in_frequency=0.0, **kwargs) -> AggregatedOpponentStats:
+def _stats(
+    *, hands_observed=50, vpip=0.85, aggression_factor=0.4, all_in_frequency=0.0, **kwargs
+) -> AggregatedOpponentStats:
     # Mirror legacy vpip into the opp-normalized field by default so
     # tests written against legacy semantics keep firing the rate-
     # based detectors (now reading vpip_per_voluntary_opportunity).
     kwargs.setdefault('vpip_per_voluntary_opportunity', vpip)
     kwargs.setdefault(
-        'preflop_voluntary_opportunities', max(hands_observed - 5, 0),
+        'preflop_voluntary_opportunities',
+        max(hands_observed - 5, 0),
     )
     return AggregatedOpponentStats(
         hands_observed=hands_observed,
@@ -64,51 +66,61 @@ def _spot(name='Opp', *, stats=None, is_active=True) -> OpponentSpot:
 
 # ── _is_passive_with_jams ──────────────────────────────────────────────
 
+
 class TestIsPassiveWithJams:
     def test_pure_station_not_matched(self):
         # all_in_frequency=0 — classic calling station; the bare
         # hyper_passive rule is safe here.
-        assert _is_passive_with_jams(
-            _stats(vpip=0.85, aggression_factor=0.4, all_in_frequency=0.0)
-        ) is False
+        assert (
+            _is_passive_with_jams(_stats(vpip=0.85, aggression_factor=0.4, all_in_frequency=0.0))
+            is False
+        )
 
     def test_casebot_like_matched(self):
         # CaseBot empirically sits at all_in_frequency 0.09-0.14.
-        assert _is_passive_with_jams(
-            _stats(vpip=0.89, aggression_factor=0.4, all_in_frequency=0.12)
-        ) is True
+        assert (
+            _is_passive_with_jams(_stats(vpip=0.89, aggression_factor=0.4, all_in_frequency=0.12))
+            is True
+        )
 
     def test_above_threshold_matched(self):
         # Strictly above PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD with
         # hyper_passive traits → matched.
-        assert _is_passive_with_jams(
-            _stats(all_in_frequency=PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD + 0.001)
-        ) is True
+        assert (
+            _is_passive_with_jams(
+                _stats(all_in_frequency=PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD + 0.001)
+            )
+            is True
+        )
 
     def test_at_threshold_not_matched(self):
         # Strict inequality so equality doesn't match (matches existing
         # threshold semantics in this module).
-        assert _is_passive_with_jams(
-            _stats(all_in_frequency=PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD)
-        ) is False
+        assert (
+            _is_passive_with_jams(_stats(all_in_frequency=PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD))
+            is False
+        )
 
     def test_aggressive_player_not_matched(self):
         # high AF means NOT hyper_passive — pattern shouldn't match
         # even with high all-in frequency (that's a maniac, not a
         # passive-with-jams station).
-        assert _is_passive_with_jams(
-            _stats(vpip=0.85, aggression_factor=3.0, all_in_frequency=0.20)
-        ) is False
+        assert (
+            _is_passive_with_jams(_stats(vpip=0.85, aggression_factor=3.0, all_in_frequency=0.20))
+            is False
+        )
 
     def test_tight_player_not_matched(self):
         # low VPIP means NOT hyper_passive — even with jams, this is a
         # tight maniac, not a passive-with-jams station.
-        assert _is_passive_with_jams(
-            _stats(vpip=0.20, aggression_factor=0.4, all_in_frequency=0.15)
-        ) is False
+        assert (
+            _is_passive_with_jams(_stats(vpip=0.20, aggression_factor=0.4, all_in_frequency=0.15))
+            is False
+        )
 
 
 # ── classify_detected_patterns surfaces passive_with_jams ──────────────
+
 
 class TestPatternClassification:
     def test_pure_station_pattern_list(self):
@@ -136,6 +148,7 @@ class TestPatternClassification:
 # module docstring). The tests below now lock in the reverted
 # behavior: fold-mass reduction fires for ANY hyper_passive opponent,
 # regardless of whether they also match passive_with_jams.
+
 
 class TestFoldMassReductionRegardlessOfPassiveWithJams:
     def _default_actions(self):
@@ -174,7 +187,8 @@ class TestFoldMassReductionRegardlessOfPassiveWithJams:
         # hyper_passive intensity is positive.
         offsets = compute_exploitation_offsets(
             stats=_stats(
-                vpip=0.85, aggression_factor=0.4,
+                vpip=0.85,
+                aggression_factor=0.4,
                 all_in_frequency=PASSIVE_WITH_JAMS_ALL_IN_THRESHOLD,
             ),
             adaptation_bias=0.9,
@@ -188,13 +202,17 @@ class TestFoldMassReductionRegardlessOfPassiveWithJams:
         # any hyper_passive considerations — Phase 8.1b is scoped to
         # the hyper_passive branch only.
         nit_stats = _stats(
-            vpip=0.10, aggression_factor=1.5, all_in_frequency=0.0,
+            vpip=0.10,
+            aggression_factor=1.5,
+            all_in_frequency=0.0,
         )
         offsets = compute_exploitation_offsets(
             stats=nit_stats,
             adaptation_bias=0.9,
             decision_context=DecisionContext(
-                is_preflop=True, facing_all_in=False, facing_big_bet=False,
+                is_preflop=True,
+                facing_all_in=False,
+                facing_big_bet=False,
             ),
             available_actions=['fold', 'call', 'raise_2.5bb'],
         )

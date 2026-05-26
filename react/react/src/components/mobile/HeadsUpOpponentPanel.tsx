@@ -1,5 +1,16 @@
 import { memo, type ReactNode } from 'react';
-import { Target, Flame, Square, Phone, Search, Frown, Angry, Meh, Smile, type LucideIcon } from 'lucide-react';
+import {
+  Target,
+  Flame,
+  Square,
+  Phone,
+  Search,
+  Frown,
+  Angry,
+  Meh,
+  Smile,
+  type LucideIcon,
+} from 'lucide-react';
 import type { Player } from '../../types';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import './HeadsUpOpponentPanel.css';
@@ -10,7 +21,9 @@ interface HeadsUpOpponentPanelProps {
   humanPlayerName?: string;
 }
 
-export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponent }: HeadsUpOpponentPanelProps) {
+export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({
+  opponent,
+}: HeadsUpOpponentPanelProps) {
   // Observation and pressure summary now flow through the socket game-state
   // payload (see flask_app/handlers/game_handler.update_and_emit_game_state).
   // Previously this component polled admin-only debug routes every 5s, which
@@ -26,7 +39,7 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
       'loose-aggressive': { label: 'Loose & Aggressive', icon: Flame },
       'tight-passive': { label: 'Tight & Passive', icon: Square },
       'loose-passive': { label: 'Calling Station', icon: Phone },
-      'unknown': { label: 'Still reading...', icon: Search },
+      unknown: { label: 'Still reading...', icon: Search },
     };
     return labels[style] || labels['unknown'];
   };
@@ -40,12 +53,16 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
   };
 
   const getTiltIcon = (category: string): ReactNode => {
-    const iconProps = { size: 16, className: "tilt-icon" };
+    const iconProps = { size: 16, className: 'tilt-icon' };
     switch (category) {
-      case 'severe': return <Frown {...iconProps} />;
-      case 'moderate': return <Angry {...iconProps} />;
-      case 'mild': return <Meh {...iconProps} />;
-      default: return <Smile {...iconProps} />;
+      case 'severe':
+        return <Frown {...iconProps} />;
+      case 'moderate':
+        return <Angry {...iconProps} />;
+      case 'mild':
+        return <Meh {...iconProps} />;
+      default:
+        return <Smile {...iconProps} />;
     }
   };
 
@@ -53,14 +70,17 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
     if (category === 'none') return 'Cool and collected';
 
     const sourceDescriptions: Record<string, string> = {
-      'bad_beat': 'Frustrated after bad beat',
-      'bluff_called': 'Rattled - bluff got called',
-      'big_loss': 'Stinging from big loss',
-      'losing_streak': `On a ${losingStreak || 0} hand losing streak`,
-      'revenge': 'Playing for revenge',
+      bad_beat: 'Frustrated after bad beat',
+      bluff_called: 'Rattled - bluff got called',
+      big_loss: 'Stinging from big loss',
+      losing_streak: `On a ${losingStreak || 0} hand losing streak`,
+      revenge: 'Playing for revenge',
     };
 
-    return sourceDescriptions[source || ''] || `${category.charAt(0).toUpperCase() + category.slice(1)} tilt`;
+    return (
+      sourceDescriptions[source || ''] ||
+      `${category.charAt(0).toUpperCase() + category.slice(1)} tilt`
+    );
   };
 
   const playStyle = observation ? getPlayStyleLabel(observation.play_style) : null;
@@ -68,9 +88,7 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
   return (
     <div className="heads-up-opponent-panel" data-testid="heads-up-panel">
       {/* Reading Header */}
-      <div className="panel-header">
-        Reading {displayNickname(opponent)}...
-      </div>
+      <div className="panel-header">Reading {displayNickname(opponent)}...</div>
 
       {/* Play Style - Primary observation (threshold synced with poker/config.py MIN_HANDS_FOR_SUMMARY) */}
       {observation && observation.hands_observed >= 10 ? (
@@ -80,17 +98,11 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
             <span className="playstyle-label">{playStyle?.label}</span>
           </div>
           <div className="playstyle-details">
-            <span className="detail-item">
-              {getAggressionLabel(observation.aggression_factor)}
-            </span>
+            <span className="detail-item">{getAggressionLabel(observation.aggression_factor)}</span>
             <span className="detail-separator">•</span>
-            <span className="detail-item">
-              {Math.round(observation.vpip * 100)}% VPIP
-            </span>
+            <span className="detail-item">{Math.round(observation.vpip * 100)}% VPIP</span>
           </div>
-          <div className="hands-observed">
-            {observation.hands_observed} hands observed
-          </div>
+          <div className="hands-observed">{observation.hands_observed} hands observed</div>
         </div>
       ) : (
         <div className="psychology-section playstyle-section">
@@ -98,9 +110,7 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
             <Search className="playstyle-icon" size={18} />
             <span className="playstyle-label">Still reading...</span>
           </div>
-          <div className="hands-observed">
-            {observation?.hands_observed || 0} hands observed
-          </div>
+          <div className="hands-observed">{observation?.hands_observed || 0} hands observed</div>
         </div>
       )}
 
@@ -123,12 +133,8 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
       {/* Emotional State - from psychology */}
       {(psych?.narrative || psych?.inner_voice) && (
         <div className="psychology-section emotional-section">
-          {psych.narrative && (
-            <div className="emotional-narrative">{psych.narrative}</div>
-          )}
-          {psych.inner_voice && (
-            <div className="inner-voice">"{psych.inner_voice}"</div>
-          )}
+          {psych.narrative && <div className="emotional-narrative">{psych.narrative}</div>}
+          {psych.inner_voice && <div className="inner-voice">"{psych.inner_voice}"</div>}
         </div>
       )}
 
@@ -142,16 +148,13 @@ export const HeadsUpOpponentPanel = memo(function HeadsUpOpponentPanel({ opponen
             </span>
           </div>
           <div className="tilt-meter">
-            <div
-              className="tilt-meter-fill"
-              style={{ width: `${psych.tilt_level * 100}%` }}
-            />
+            <div className="tilt-meter-fill" style={{ width: `${psych.tilt_level * 100}%` }} />
           </div>
         </div>
       )}
 
       {/* Calm state - only show if no other emotional content */}
-      {(!psych?.narrative && !psych?.inner_voice && (!psych || psych.tilt_category === 'none')) && (
+      {!psych?.narrative && !psych?.inner_voice && (!psych || psych.tilt_category === 'none') && (
         <div className="psychology-section calm-section">
           <Smile className="calm-icon" size={16} />
           <span className="calm-text">Playing steady</span>

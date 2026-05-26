@@ -21,8 +21,7 @@ interface NicknameOverridesStore {
 
 export const useNicknameOverridesStore = create<NicknameOverridesStore>((set) => ({
   overrides: {},
-  hydrate: (map) =>
-    set((state) => ({ overrides: { ...map, ...state.overrides } })),
+  hydrate: (map) => set((state) => ({ overrides: { ...map, ...state.overrides } })),
   setOne: (name, value) =>
     set((state) => {
       const next = { ...state.overrides };
@@ -42,8 +41,7 @@ type NicknameSubject = { name: string; nickname?: string | null };
 export function useDisplayNickname(): (player: NicknameSubject) => string {
   const overrides = useNicknameOverridesStore((s) => s.overrides);
   return useCallback(
-    (player: NicknameSubject) =>
-      overrides[player.name] || player.nickname || player.name,
-    [overrides],
+    (player: NicknameSubject) => overrides[player.name] || player.nickname || player.name,
+    [overrides]
   );
 }

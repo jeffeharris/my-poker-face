@@ -6,20 +6,21 @@ Manages context that persists across hands within a game session.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from ..config import SESSION_MEMORY_HANDS, MEMORY_CONTEXT_TOKENS
+from ..config import MEMORY_CONTEXT_TOKENS, SESSION_MEMORY_HANDS
 
 
 @dataclass
 class HandMemory:
     """Memory of a single hand that persists in session."""
+
     hand_number: int
-    outcome: str              # 'won', 'lost', 'folded'
+    outcome: str  # 'won', 'lost', 'folded'
     pot_size: int
-    amount_won_or_lost: int   # Positive for wins, negative for losses
+    amount_won_or_lost: int  # Positive for wins, negative for losses
     notable_events: List[str]  # ['caught Donald bluffing', 'hit flush on river']
-    emotional_impact: float   # -1 to 1 (negative = bad, positive = good)
+    emotional_impact: float  # -1 to 1 (negative = bad, positive = good)
     timestamp: datetime = field(default_factory=datetime.now)
 
     def get_summary(self) -> str:
@@ -39,7 +40,7 @@ class HandMemory:
             'amount_won_or_lost': self.amount_won_or_lost,
             'notable_events': self.notable_events,
             'emotional_impact': self.emotional_impact,
-            'timestamp': self.timestamp.isoformat()
+            'timestamp': self.timestamp.isoformat(),
         }
 
     @classmethod
@@ -51,22 +52,25 @@ class HandMemory:
             amount_won_or_lost=data['amount_won_or_lost'],
             notable_events=data['notable_events'],
             emotional_impact=data['emotional_impact'],
-            timestamp=datetime.fromisoformat(data['timestamp']) if isinstance(data['timestamp'], str) else data['timestamp']
+            timestamp=datetime.fromisoformat(data['timestamp'])
+            if isinstance(data['timestamp'], str)
+            else data['timestamp'],
         )
 
 
 @dataclass
 class SessionContext:
     """Accumulated context within a session."""
+
     hands_played: int = 0
     hands_won: int = 0
-    total_winnings: int = 0       # Net change in chips
+    total_winnings: int = 0  # Net change in chips
     biggest_pot_won: int = 0
     biggest_pot_lost: int = 0
     current_streak: str = 'neutral'  # 'winning', 'losing', 'neutral'
     streak_count: int = 0
     recent_observations: List[str] = field(default_factory=list)
-    table_dynamics: str = 'normal'   # 'tight', 'loose', 'aggressive', 'passive', 'normal'
+    table_dynamics: str = 'normal'  # 'tight', 'loose', 'aggressive', 'passive', 'normal'
 
     def update_streak(self, won: bool):
         """Update the current streak based on hand outcome.
@@ -150,8 +154,14 @@ class SessionMemory:
         self._persistence = hand_history_repo
         self._game_id = game_id
 
-    def record_hand_outcome(self, hand_number: int, outcome: str, pot_size: int,
-                           amount_won_or_lost: int, notable_events: List[str] = None) -> None:
+    def record_hand_outcome(
+        self,
+        hand_number: int,
+        outcome: str,
+        pot_size: int,
+        amount_won_or_lost: int,
+        notable_events: List[str] = None,
+    ) -> None:
         """Record the outcome of a completed hand.
 
         Args:
@@ -170,14 +180,14 @@ class SessionMemory:
             pot_size=pot_size,
             amount_won_or_lost=amount_won_or_lost,
             notable_events=notable_events or [],
-            emotional_impact=emotional_impact
+            emotional_impact=emotional_impact,
         )
 
         self.hand_memories.append(memory)
 
         # Trim to max size
         if len(self.hand_memories) > self.max_hand_memory:
-            self.hand_memories = self.hand_memories[-self.max_hand_memory:]
+            self.hand_memories = self.hand_memories[-self.max_hand_memory :]
 
         # Update session context
         self.context.hands_played += 1
@@ -194,8 +204,9 @@ class SessionMemory:
 
         self.context.total_winnings += amount_won_or_lost
 
-    def _calculate_emotional_impact(self, outcome: str, pot_size: int,
-                                    amount_won_or_lost: int) -> float:
+    def _calculate_emotional_impact(
+        self, outcome: str, pot_size: int, amount_won_or_lost: int
+    ) -> float:
         """Calculate emotional impact of a hand (-1 to 1).
 
         Big wins = closer to 1
@@ -352,8 +363,8 @@ class SessionMemory:
                 'current_streak': self.context.current_streak,
                 'streak_count': self.context.streak_count,
                 'recent_observations': self.context.recent_observations,
-                'table_dynamics': self.context.table_dynamics
-            }
+                'table_dynamics': self.context.table_dynamics,
+            },
         }
 
     @classmethod
@@ -361,7 +372,7 @@ class SessionMemory:
         """Deserialize from dictionary."""
         memory = cls(
             player_name=data['player_name'],
-            max_hand_memory=data.get('max_hand_memory', SESSION_MEMORY_HANDS)
+            max_hand_memory=data.get('max_hand_memory', SESSION_MEMORY_HANDS),
         )
         memory.hand_memories = [HandMemory.from_dict(h) for h in data.get('hand_memories', [])]
         memory.recent_reflections = data.get('recent_reflections', [])

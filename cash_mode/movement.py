@@ -27,13 +27,13 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-import threading
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from cash_mode.staker_profile import StakerProfile
 from cash_mode.staker_history import StakerHistoryStats, candidate_weight
+from cash_mode.staker_profile import StakerProfile
 from cash_mode.stakes_ladder import STAKES_ORDER
 from cash_mode.tables import (
     CashTableState,
@@ -51,11 +51,11 @@ logger = logging.getLogger(__name__)
 # Pressure-driven movement (spec: docs/plans/CASH_MODE_MOVEMENT_PRESSURE_DESIGN.md).
 # Each AI's per-hand leave probability is `pressure / (pressure + LEAVE_K)`
 # where pressure accumulates from four signals weighted below.
-W_STAKE_UP = 0.5    # stack ≥ max_buy_in → eager to book the win
-W_SHORT = 0.6       # stack < min_buy_in → tilt walk or rebuy
-W_DETACHED = 0.3    # hands spent in 'detached' zone (folding too much)
-W_TENURE = 0.2      # tired (low energy)
-LEAVE_K = 2.0       # curve shape: at pressure=1.0, leave prob ≈ 0.33
+W_STAKE_UP = 0.5  # stack ≥ max_buy_in → eager to book the win
+W_SHORT = 0.6  # stack < min_buy_in → tilt walk or rebuy
+W_DETACHED = 0.3  # hands spent in 'detached' zone (folding too much)
+W_TENURE = 0.2  # tired (low energy)
+LEAVE_K = 2.0  # curve shape: at pressure=1.0, leave prob ≈ 0.33
 
 # Hard floor for `forced_leave` — busted AIs gone regardless of pressure.
 # Anchored to the table's min buy-in (not the AI's current buy-in) so the
@@ -111,7 +111,9 @@ GARNISHMENT_ABSOLUTE_CAP = 0.55
 # they cross the pure-helper boundary and surface to logs / admin views
 # as-is. `rebuy` is new — the AI tops up at the same seat instead of
 # leaving.
-MovementDecision = str  # 'stay' | 'stake_up' | 'take_break' | 'forced_leave' | 'bored_move' | 'rebuy'
+MovementDecision = (
+    str  # 'stay' | 'stake_up' | 'take_break' | 'forced_leave' | 'bored_move' | 'rebuy'
+)
 
 
 @dataclass(frozen=True)
@@ -131,10 +133,10 @@ class MovementContext:
     stake_idx: int
     next_tier_min_buy_in: Optional[int]
     # Psychology-derived (live controller). Defaults make a "neutral" AI.
-    energy: float = 0.5                   # 0 = exhausted, 1 = fresh
-    zone: str = ""                        # 'detached' triggers detached pressure
-    hands_in_detached_zone: int = 0       # consecutive hands in detached zone
-    emotional_intensity: float = 0.0      # 0..1 — biases rebuy bucket toward min when high
+    energy: float = 0.5  # 0 = exhausted, 1 = fresh
+    zone: str = ""  # 'detached' triggers detached pressure
+    hands_in_detached_zone: int = 0  # consecutive hands in detached zone
+    emotional_intensity: float = 0.0  # 0..1 — biases rebuy bucket toward min when high
 
 
 def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
@@ -148,10 +150,7 @@ def compute_leave_pressure(ctx: MovementContext) -> Dict[str, float]:
     max_bi = max(1, ctx.max_buy_in)
     stake_up_raw = max(0.0, ctx.ai_chips / max_bi - 1.0)
     short_raw = max(0.0, 1.0 - ctx.ai_chips / min_bi)
-    detached_raw = (
-        (ctx.hands_in_detached_zone / 8.0)
-        if ctx.zone == "detached" else 0.0
-    )
+    detached_raw = (ctx.hands_in_detached_zone / 8.0) if ctx.zone == "detached" else 0.0
     # Tenure only kicks in once energy drops below 0.5. At energy=0.5
     # the AI is "neutral" and contributes 0 to leave pressure; at
     # energy=0 ("exhausted") tenure_raw=1.0. Without this gate, a fresh
@@ -337,7 +336,9 @@ def pick_rebuy_amount(
     max_bi = max(1, ctx.max_buy_in)
     bankroll_factor = min(1.0, ctx.projected_bankroll / (max_bi * 5))
     weights = {
-        "min": REBUY_BASE_WEIGHTS["min"] + 30.0 * (1.0 - ctx.energy) + 20.0 * ctx.emotional_intensity,
+        "min": REBUY_BASE_WEIGHTS["min"]
+        + 30.0 * (1.0 - ctx.energy)
+        + 20.0 * ctx.emotional_intensity,
         "mid": REBUY_BASE_WEIGHTS["mid"],
         "max": REBUY_BASE_WEIGHTS["max"] + 40.0 * bankroll_factor,
     }
@@ -369,11 +370,7 @@ def compute_leave_cooldown_seconds(
     """
     min_bi = max(1, ctx.min_buy_in)
     bankroll_drag = max(0.0, 1.0 - ctx.projected_bankroll / (min_bi * 3))
-    pressure_factor = (
-        0.4 * (1.0 - ctx.energy)
-        + 0.3 * ctx.emotional_intensity
-        + 0.3 * bankroll_drag
-    )
+    pressure_factor = 0.4 * (1.0 - ctx.energy) + 0.3 * ctx.emotional_intensity + 0.3 * bankroll_drag
     pressure_factor = max(0.0, min(1.0, pressure_factor))
     extra_hands = round(rng.random() * 8 * pressure_factor)
     return MIN_COOLDOWN_SECONDS + extra_hands * 5
@@ -406,7 +403,8 @@ def record_leave_cooldown(
         # Sweep elapsed entries. Cooldowns top out at ~50s today, so
         # the registry stays small (proportional to active cycling).
         stale = [
-            key for key, (left_at, cd) in _recent_leaves.items()
+            key
+            for key, (left_at, cd) in _recent_leaves.items()
             if (now - left_at).total_seconds() >= cd
         ]
         for key in stale:
@@ -570,13 +568,9 @@ def find_ai_staker_for(
     candidate_pids: List[str],
     staker_profile_lookup: Callable[[str], StakerProfile],
     bankroll_lookup: Callable[[str], Optional[int]],
-    relationship_lookup: Callable[
-        [str, str], Optional[Tuple[float, float, float]]
-    ],
+    relationship_lookup: Callable[[str, str], Optional[Tuple[float, float, float]]],
     rng: random.Random,
-    history_lookup: Optional[
-        Callable[[str], Dict[str, StakerHistoryStats]]
-    ] = None,
+    history_lookup: Optional[Callable[[str], Dict[str, StakerHistoryStats]]] = None,
     starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
 ) -> Optional[Tuple[str, StakerProfile]]:
     """Pick an AI staker willing and able to fund `principal` for borrower.
@@ -617,9 +611,7 @@ def find_ai_staker_for(
     # Capture rel + bankroll alongside each qualified candidate so the
     # weighted-selection pass below can reuse them without re-querying
     # the lookup callbacks.
-    qualified: List[
-        Tuple[str, StakerProfile, int, Optional[Tuple[float, float, float]]]
-    ] = []
+    qualified: List[Tuple[str, StakerProfile, int, Optional[Tuple[float, float, float]]]] = []
     for cand_id in candidate_pids:
         if cand_id == borrower_id:
             continue
@@ -628,7 +620,8 @@ def find_ai_staker_for(
         except Exception as exc:
             logger.debug(
                 "find_ai_staker_for: staker_profile lookup failed for %r: %s",
-                cand_id, exc,
+                cand_id,
+                exc,
             )
             continue
         if not profile.willing:
@@ -669,7 +662,8 @@ def find_ai_staker_for(
         except Exception as exc:
             logger.debug(
                 "find_ai_staker_for: history lookup failed for %r: %s",
-                cand_id, exc,
+                cand_id,
+                exc,
             )
             history = {}
         stats = history.get(borrower_id) if history else None
@@ -680,15 +674,18 @@ def find_ai_staker_for(
             except Exception as exc:
                 logger.debug(
                     "find_ai_staker_for: starting_bankroll lookup failed for %r: %s",
-                    cand_id, exc,
+                    cand_id,
+                    exc,
                 )
                 starting = None
-        weights.append(candidate_weight(
-            bankroll=bankroll,
-            starting_bankroll=starting,
-            history_stats=stats,
-            relationship_axes=rel,
-        ))
+        weights.append(
+            candidate_weight(
+                bankroll=bankroll,
+                starting_bankroll=starting,
+                history_stats=stats,
+                relationship_axes=rel,
+            )
+        )
     cand_id, profile, _, _ = rng.choices(qualified, weights=weights, k=1)[0]
     return cand_id, profile
 
@@ -773,9 +770,7 @@ def refresh_table_roster(
     # caches the lobby plumbs through so the matcher can do weighted
     # selection. Either being None → uniform-random fallback inside
     # find_ai_staker_for. See cash_mode/staker_history.py.
-    history_lookup: Optional[
-        Callable[[str], Dict[str, StakerHistoryStats]]
-    ] = None,
+    history_lookup: Optional[Callable[[str], Dict[str, StakerHistoryStats]]] = None,
     starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
@@ -846,17 +841,15 @@ def refresh_table_roster(
     # AIs seated alongside them at the start of the tick (not their
     # post-leave neighbors).
     pre_movement_ai_pids = [
-        s.get("personality_id") for s in new_seats
+        s.get("personality_id")
+        for s in new_seats
         if s.get("kind") == "ai" and s.get("personality_id")
     ]
 
     # Is there a fish to farm at this table? Drives predator retention:
     # grinders stay to feast instead of booking the win and leaving.
     # Fish are casino-only, so this is non-trivial only at casinos.
-    table_has_fish = any(
-        s.get("kind") == "ai" and s.get("archetype") == "fish"
-        for s in new_seats
-    )
+    table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
 
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
@@ -921,18 +914,19 @@ def refresh_table_roster(
             except Exception as exc:
                 logger.debug(
                     "take_stake: borrower profile lookup failed for %r: %s",
-                    pid, exc,
+                    pid,
+                    exc,
                 )
                 borrower_profile = None
             if borrower_profile is not None and getattr(
-                borrower_profile, "willing", False,
+                borrower_profile,
+                "willing",
+                False,
             ):
                 # Candidate pool: AIs at this table PLUS any cross-table
                 # candidates the lobby supplied. Dedup defensively in
                 # case an AI appears in both lists.
-                local_candidates = [
-                    c for c in pre_movement_ai_pids if c != pid
-                ]
+                local_candidates = [c for c in pre_movement_ai_pids if c != pid]
                 if cross_table_staker_pids:
                     seen = set(local_candidates)
                     seen.add(pid)
@@ -964,11 +958,13 @@ def refresh_table_roster(
             # newly funded by a staker.
             seat_chips = int(slot.get("chips", 0))
             if seat_chips > 0:
-                bankroll_changes.append(BankrollChange(
-                    direction="from_seat",
-                    personality_id=pid,
-                    amount=seat_chips,
-                ))
+                bankroll_changes.append(
+                    BankrollChange(
+                        direction="from_seat",
+                        personality_id=pid,
+                        amount=seat_chips,
+                    )
+                )
             new_seats[i] = ai_slot(pid, table_min_buy_in)
             # Phase 4.5 Commit 1: per-staker garnishment. When the
             # picked staker already holds an unpaid carry from this
@@ -983,7 +979,9 @@ def refresh_table_roster(
                 except Exception as exc:
                     logger.debug(
                         "take_stake: carry_lookup failed staker=%r borrower=%r: %s",
-                        staker_id, pid, exc,
+                        staker_id,
+                        pid,
+                        exc,
                     )
                     outstanding = 0
                 cut = garnished_stake_cut(
@@ -991,14 +989,16 @@ def refresh_table_roster(
                     outstanding_carry=outstanding,
                     principal=table_min_buy_in,
                 )
-            stake_creations.append(StakeCreationChange(
-                borrower_id=pid,
-                staker_id=staker_id,
-                seat_index=i,
-                principal=table_min_buy_in,
-                stake_label=stake_label,
-                cut=cut,
-            ))
+            stake_creations.append(
+                StakeCreationChange(
+                    borrower_id=pid,
+                    staker_id=staker_id,
+                    seat_index=i,
+                    principal=table_min_buy_in,
+                    stake_label=stake_label,
+                    cut=cut,
+                )
+            )
             # `seated_globally` stays unchanged — pid still occupies
             # the seat, just freshly funded by the staker.
             continue
@@ -1036,21 +1036,22 @@ def refresh_table_roster(
             # would quietly turn into a wandering grinder holding a deep
             # pool-funded stack. A fish reloads until its bankroll is dry,
             # so this fires often; keep it a fish the whole way down.
-            new_seats[i] = (
-                ai_slot_fish(pid, new_chips) if is_fish
-                else ai_slot(pid, new_chips)
+            new_seats[i] = ai_slot_fish(pid, new_chips) if is_fish else ai_slot(pid, new_chips)
+            rebuy_changes.append(
+                RebuyChange(
+                    personality_id=pid,
+                    seat_index=i,
+                    amount=rebuy_amount,
+                    new_seat_chips=new_chips,
+                )
             )
-            rebuy_changes.append(RebuyChange(
-                personality_id=pid,
-                seat_index=i,
-                amount=rebuy_amount,
-                new_seat_chips=new_chips,
-            ))
-            bankroll_changes.append(BankrollChange(
-                direction="to_seat",
-                personality_id=pid,
-                amount=rebuy_amount,
-            ))
+            bankroll_changes.append(
+                BankrollChange(
+                    direction="to_seat",
+                    personality_id=pid,
+                    amount=rebuy_amount,
+                )
+            )
             continue
         # Vacate; record idle pool addition + bankroll credit.
         # The seat's chips return to the AI's bankroll (subject to
@@ -1059,27 +1060,31 @@ def refresh_table_roster(
         # entry for any overflow).
         seat_chips = int(slot.get("chips", 0))
         if seat_chips > 0:
-            bankroll_changes.append(BankrollChange(
-                direction="from_seat",
-                personality_id=pid,
-                amount=seat_chips,
-            ))
+            bankroll_changes.append(
+                BankrollChange(
+                    direction="from_seat",
+                    personality_id=pid,
+                    amount=seat_chips,
+                )
+            )
         new_seats[i] = open_slot()
         freshly_vacated.add(i)
         seated_globally.discard(pid)
         target_stake = None
         if decision == "stake_up" and stake_idx + 1 < len(STAKES_ORDER):
             target_stake = STAKES_ORDER[stake_idx + 1]
-        idle_changes.append(IdlePoolChange(
-            kind="add",
-            personality_id=pid,
-            entry=IdlePoolEntry(
+        idle_changes.append(
+            IdlePoolChange(
+                kind="add",
                 personality_id=pid,
-                left_at=now,
-                reason=_movement_decision_to_idle_reason(decision),
-                target_stake=target_stake,
-            ),
-        ))
+                entry=IdlePoolEntry(
+                    personality_id=pid,
+                    left_at=now,
+                    reason=_movement_decision_to_idle_reason(decision),
+                    target_stake=target_stake,
+                ),
+            )
+        )
         # Record per-table cooldown so this AI doesn't immediately
         # refill the SAME seat on the next live-fill roll. They remain
         # eligible for any other table.
@@ -1089,9 +1094,9 @@ def refresh_table_roster(
     # Step 2: live-fill open seats.
     freshly_seated: List[str] = []
     open_indices = [
-        i for i, s in enumerate(new_seats)
-        if s["kind"] == "open"
-        and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
+        i
+        for i, s in enumerate(new_seats)
+        if s["kind"] == "open" and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
     ]
 
     # Idle pool candidates (oldest first), filtered to those NOT
@@ -1187,16 +1192,20 @@ def refresh_table_roster(
         # Pure transfer: AI's bankroll funds the new seat's chips.
         # Without this, live-fill creates chips from nowhere (the leak
         # the chip-ledger audit was catching at ~675 chips/tick).
-        bankroll_changes.append(BankrollChange(
-            direction="to_seat",
-            personality_id=pid,
-            amount=buy_in,
-        ))
-        if source == "idle":
-            idle_changes.append(IdlePoolChange(
-                kind="remove",
+        bankroll_changes.append(
+            BankrollChange(
+                direction="to_seat",
                 personality_id=pid,
-            ))
+                amount=buy_in,
+            )
+        )
+        if source == "idle":
+            idle_changes.append(
+                IdlePoolChange(
+                    kind="remove",
+                    personality_id=pid,
+                )
+            )
 
     new_table = CashTableState(
         table_id=table.table_id,

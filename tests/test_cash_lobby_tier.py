@@ -39,7 +39,6 @@ from cash_mode.staking_tier import (
 from flask_app import create_app
 from poker.repositories import create_repos
 
-
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
 
@@ -68,6 +67,7 @@ class _CashLobbyTierBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -81,16 +81,21 @@ class _CashLobbyTierBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=10_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id="test-sandbox-1")
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=10_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
@@ -121,31 +126,35 @@ class _CashLobbyTierBase(unittest.TestCase):
             pass
 
     def _seed_player_bankroll(self, chips: int):
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=chips,
-            starting_bankroll=chips,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=chips,
+                starting_bankroll=chips,
+            )
+        )
 
     def _seed_carry(self, *, stake_id: str, carry_amount: int):
-        self.stake_repo.create_stake(Stake(
-            stake_id=stake_id,
-            session_id=f"sess-{stake_id}",
-            staker_id="napoleon",
-            staker_kind=STAKER_KIND_PERSONALITY,
-            borrower_id=PLAYER_OWNER_ID,
-            borrower_kind=BORROWER_KIND_HUMAN,
-            format="pure",
-            principal=carry_amount,
-            match_amount=0,
-            origination_fee=0,
-            cut=0.20,
-            status=STAKE_STATUS_CARRY,
-            carry_amount=carry_amount,
-            stake_tier="$10",
-            created_at=ANCHOR,
-            settled_at=ANCHOR,
-        ))
+        self.stake_repo.create_stake(
+            Stake(
+                stake_id=stake_id,
+                session_id=f"sess-{stake_id}",
+                staker_id="napoleon",
+                staker_kind=STAKER_KIND_PERSONALITY,
+                borrower_id=PLAYER_OWNER_ID,
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format="pure",
+                principal=carry_amount,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.20,
+                status=STAKE_STATUS_CARRY,
+                carry_amount=carry_amount,
+                stake_tier="$10",
+                created_at=ANCHOR,
+                settled_at=ANCHOR,
+            )
+        )
 
 
 class TestTopLevelTier(_CashLobbyTierBase):
@@ -216,7 +225,14 @@ class TestBackwardCompat(_CashLobbyTierBase):
         for key in ('bankroll', 'tables', 'events'):
             self.assertIn(key, payload)
         for t in payload['tables']:
-            for key in ('table_id', 'stake_label', 'big_blind',
-                        'min_buy_in', 'max_buy_in', 'affordability',
-                        'seats', 'dealer_index'):
+            for key in (
+                'table_id',
+                'stake_label',
+                'big_blind',
+                'min_buy_in',
+                'max_buy_in',
+                'affordability',
+                'seats',
+                'dealer_index',
+            ):
                 self.assertIn(key, t)

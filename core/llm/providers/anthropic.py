@@ -1,13 +1,14 @@
 """Anthropic Claude provider implementation."""
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import anthropic
 
+from ..config import ANTHROPIC_DEFAULT_MODEL, DEFAULT_MAX_TOKENS
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class AnthropicProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, anthropic.RateLimitError):
             return True, 30
-        if isinstance(exception, (anthropic.APITimeoutError, anthropic.APIConnectionError)):
+        if isinstance(exception, anthropic.APITimeoutError | anthropic.APIConnectionError):
             return True, 2
         if isinstance(exception, anthropic.InternalServerError):
             return True, 2

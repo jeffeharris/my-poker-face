@@ -30,16 +30,16 @@ from datetime import datetime
 from typing import List, Optional
 
 from cash_mode.bankroll import (
-    AIBankrollState,
     BANKROLL_KNOB_DEFAULTS,
+    AIBankrollState,
     BankrollKnobs,
     PlayerBankrollState,
     project_bankroll,
 )
 from cash_mode.staker_profile import (
     BORROWER_PROFILE_DEFAULTS,
-    BorrowerProfile,
     STAKER_PROFILE_DEFAULTS,
+    BorrowerProfile,
     StakerProfile,
     compute_default_aspiration_bias,
     compute_default_payoff_eagerness,
@@ -108,11 +108,15 @@ class BankrollRepository(BaseRepository):
         air with no audit trail.
         """
         with self._get_connection() as conn:
-            is_first_write = chip_ledger_repo is not None and conn.execute(
-                "SELECT 1 FROM ai_bankroll_state "
-                "WHERE personality_id = ? AND sandbox_id = ?",
-                (state.personality_id, sandbox_id),
-            ).fetchone() is None
+            is_first_write = (
+                chip_ledger_repo is not None
+                and conn.execute(
+                    "SELECT 1 FROM ai_bankroll_state "
+                    "WHERE personality_id = ? AND sandbox_id = ?",
+                    (state.personality_id, sandbox_id),
+                ).fetchone()
+                is None
+            )
             conn.execute(
                 """
                 INSERT OR REPLACE INTO ai_bankroll_state
@@ -128,6 +132,7 @@ class BankrollRepository(BaseRepository):
             )
         if is_first_write and state.chips > 0:
             from core.economy import ledger as chip_ledger
+
             chip_ledger.record_ai_seed(
                 chip_ledger_repo,
                 personality_id=state.personality_id,
@@ -170,8 +175,7 @@ class BankrollRepository(BaseRepository):
         """Persist the AI's emotional-state blob in the given sandbox."""
         with self._get_connection() as conn:
             existing = conn.execute(
-                "SELECT 1 FROM ai_bankroll_state "
-                "WHERE personality_id = ? AND sandbox_id = ?",
+                "SELECT 1 FROM ai_bankroll_state " "WHERE personality_id = ? AND sandbox_id = ?",
                 (personality_id, sandbox_id),
             ).fetchone()
             if existing:
@@ -294,7 +298,9 @@ class BankrollRepository(BaseRepository):
             logger.warning(
                 "Personality %r in sandbox %r has malformed "
                 "aspiration_cooldown_until %r; treating as cleared",
-                personality_id, sandbox_id, row["aspiration_cooldown_until"],
+                personality_id,
+                sandbox_id,
+                row["aspiration_cooldown_until"],
             )
             return None
 
@@ -338,8 +344,7 @@ class BankrollRepository(BaseRepository):
                 ).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state "
-                    "WHERE sandbox_id = ?",
+                    "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state " "WHERE sandbox_id = ?",
                     (sandbox_id,),
                 ).fetchone()
             return int(row[0] or 0)
@@ -361,8 +366,7 @@ class BankrollRepository(BaseRepository):
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT personality_id FROM ai_bankroll_state "
-                    "WHERE sandbox_id = ?",
+                    "SELECT personality_id FROM ai_bankroll_state " "WHERE sandbox_id = ?",
                     (sandbox_id,),
                 ).fetchall()
         return [row[0] if not hasattr(row, 'keys') else row['personality_id'] for row in rows]
@@ -628,7 +632,8 @@ class BankrollRepository(BaseRepository):
         return StakerProfile(
             willing=sub.get("willing", defaults.willing),
             max_loan_pct_of_bankroll=sub.get(
-                "max_loan_pct_of_bankroll", defaults.max_loan_pct_of_bankroll,
+                "max_loan_pct_of_bankroll",
+                defaults.max_loan_pct_of_bankroll,
             ),
             floor_anchor=sub.get("floor_anchor", defaults.floor_anchor),
             rate_anchor=sub.get("rate_anchor", defaults.rate_anchor),
@@ -723,11 +728,7 @@ class BankrollRepository(BaseRepository):
                 aspiration_bias = max(0.0, min(1.0, float(sub["aspiration_bias"])))
             except (TypeError, ValueError):
                 aspiration_bias = defaults.aspiration_bias
-        elif (
-            anchors is not None
-            and "ego" in anchors
-            and "risk_identity" in anchors
-        ):
+        elif anchors is not None and "ego" in anchors and "risk_identity" in anchors:
             try:
                 aspiration_bias = compute_default_aspiration_bias(
                     float(anchors["ego"]),
@@ -748,15 +749,12 @@ class BankrollRepository(BaseRepository):
         if "payoff_eagerness" in sub:
             try:
                 payoff_eagerness = max(
-                    0.0, min(1.0, float(sub["payoff_eagerness"])),
+                    0.0,
+                    min(1.0, float(sub["payoff_eagerness"])),
                 )
             except (TypeError, ValueError):
                 payoff_eagerness = defaults.payoff_eagerness
-        elif (
-            anchors is not None
-            and "risk_identity" in anchors
-            and "poise" in anchors
-        ):
+        elif anchors is not None and "risk_identity" in anchors and "poise" in anchors:
             try:
                 payoff_eagerness = compute_default_payoff_eagerness(
                     float(anchors["risk_identity"]),
@@ -832,13 +830,15 @@ class BankrollRepository(BaseRepository):
                 bp.pop("aspiration_bias", None)
             else:
                 bp["aspiration_bias"] = max(
-                    0.0, min(1.0, float(aspiration_bias)),
+                    0.0,
+                    min(1.0, float(aspiration_bias)),
                 )
             if payoff_eagerness is None:
                 bp.pop("payoff_eagerness", None)
             else:
                 bp["payoff_eagerness"] = max(
-                    0.0, min(1.0, float(payoff_eagerness)),
+                    0.0,
+                    min(1.0, float(payoff_eagerness)),
                 )
             config["borrower_profile"] = bp
             cursor = conn.execute(
@@ -883,8 +883,7 @@ class BankrollRepository(BaseRepository):
                 config = json.loads(row["config_json"])
             except (TypeError, ValueError):
                 logger.warning(
-                    "Personality %r config_json is malformed; refusing "
-                    "to merge staker_profile",
+                    "Personality %r config_json is malformed; refusing " "to merge staker_profile",
                     personality_id,
                 )
                 return False

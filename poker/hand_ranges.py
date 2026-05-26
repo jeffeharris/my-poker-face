@@ -15,11 +15,11 @@ Hand notation:
 - Offsuit: "AKo", "KQo" (different suits)
 """
 
+import logging
 import random
 from dataclasses import dataclass
 from enum import Enum
-from typing import Set, List, Tuple, Optional, Dict, Any
-import logging
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from poker.card_utils import normalize_card_string
 
@@ -29,22 +29,26 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EquityConfig:
     """Configuration for equity calculation behavior."""
-    use_in_game_stats: bool = True       # Use observed stats from current game
-    min_hands_for_stats: int = 15        # Minimum hands before using observed stats (sync with poker/config.py)
-    use_enhanced_ranges: bool = True     # Use new range function with PFR/action context
+
+    use_in_game_stats: bool = True  # Use observed stats from current game
+    min_hands_for_stats: int = (
+        15  # Minimum hands before using observed stats (sync with poker/config.py)
+    )
+    use_enhanced_ranges: bool = True  # Use new range function with PFR/action context
 
 
 @dataclass
 class OpponentInfo:
     """Information about an opponent for range estimation."""
+
     name: str
     position: str  # Table position name
 
     # Observed stats (from opponent model)
     hands_observed: int = 0
-    vpip: Optional[float] = None         # Voluntarily Put $ In Pot (0-1)
-    pfr: Optional[float] = None          # Pre-Flop Raise % (0-1)
-    aggression: Optional[float] = None   # Aggression factor
+    vpip: Optional[float] = None  # Voluntarily Put $ In Pot (0-1)
+    pfr: Optional[float] = None  # Pre-Flop Raise % (0-1)
+    aggression: Optional[float] = None  # Aggression factor
 
     # Current hand action context (for range narrowing)
     preflop_action: Optional[str] = None  # 'open_raise', 'call', '3bet', '4bet+', 'limp'
@@ -53,10 +57,11 @@ class OpponentInfo:
 
 class Position(Enum):
     """Normalized position groups for range selection."""
-    EARLY = "early"    # UTG, UTG+1 - tight ranges (~15%)
+
+    EARLY = "early"  # UTG, UTG+1 - tight ranges (~15%)
     MIDDLE = "middle"  # MP1, MP2, MP3 - medium ranges (~22%)
-    LATE = "late"      # Cutoff, Button - wide ranges (~32%)
-    BLIND = "blind"    # SB, BB defending - wide but passive (~28%)
+    LATE = "late"  # Cutoff, Button - wide ranges (~32%)
+    BLIND = "blind"  # SB, BB defending - wide but passive (~28%)
 
 
 # Map game position names to Position enum
@@ -130,48 +135,48 @@ def _expand_broadway(high: str, low_start: str, low_end: str, suited: bool) -> S
 # These are standard TAG (tight-aggressive) ranges from poker theory
 
 EARLY_POSITION_RANGE = (
-    _expand_pairs('A', '8') |  # AA-88
-    _expand_broadway('A', 'K', 'K', True) |   # AKs
-    _expand_broadway('A', 'K', 'K', False) |  # AKo
-    _expand_broadway('A', 'Q', 'Q', True) |   # AQs
-    _expand_broadway('A', 'Q', 'Q', False) |  # AQo
-    _expand_broadway('A', 'J', 'T', True) |   # AJs, ATs
-    _expand_broadway('K', 'Q', 'J', True)     # KQs, KJs
+    _expand_pairs('A', '8')  # AA-88
+    | _expand_broadway('A', 'K', 'K', True)  # AKs
+    | _expand_broadway('A', 'K', 'K', False)  # AKo
+    | _expand_broadway('A', 'Q', 'Q', True)  # AQs
+    | _expand_broadway('A', 'Q', 'Q', False)  # AQo
+    | _expand_broadway('A', 'J', 'T', True)  # AJs, ATs
+    | _expand_broadway('K', 'Q', 'J', True)  # KQs, KJs
 )  # ~15% of hands
 
 MIDDLE_POSITION_RANGE = (
-    EARLY_POSITION_RANGE |
-    _expand_pairs('7', '5') |  # 77-55
-    _expand_broadway('A', 'J', 'T', False) |  # AJo, ATo
-    _expand_broadway('A', '9', '8', True) |   # A9s, A8s
-    _expand_broadway('K', 'Q', 'Q', False) |  # KQo
-    _expand_broadway('K', 'T', 'T', True) |   # KTs
-    _expand_broadway('Q', 'J', 'T', True) |   # QJs, QTs
-    _expand_broadway('J', 'T', 'T', True)     # JTs
+    EARLY_POSITION_RANGE
+    | _expand_pairs('7', '5')  # 77-55
+    | _expand_broadway('A', 'J', 'T', False)  # AJo, ATo
+    | _expand_broadway('A', '9', '8', True)  # A9s, A8s
+    | _expand_broadway('K', 'Q', 'Q', False)  # KQo
+    | _expand_broadway('K', 'T', 'T', True)  # KTs
+    | _expand_broadway('Q', 'J', 'T', True)  # QJs, QTs
+    | _expand_broadway('J', 'T', 'T', True)  # JTs
 )  # ~22% of hands
 
 LATE_POSITION_RANGE = (
-    MIDDLE_POSITION_RANGE |
-    _expand_pairs('4', '2') |  # 44-22
-    _expand_broadway('A', '7', '2', True) |   # A7s-A2s
-    _expand_broadway('K', '9', '8', True) |   # K9s, K8s
-    _expand_broadway('Q', '9', '9', True) |   # Q9s
-    _expand_broadway('J', '9', '9', True) |   # J9s
-    {'T9s', '98s', '87s', '76s', '65s', '54s'} |  # Suited connectors
-    _expand_broadway('K', 'J', 'J', False) |  # KJo
-    _expand_broadway('Q', 'J', 'T', False) |  # QJo, QTo
-    {'JTo'}  # JTo
+    MIDDLE_POSITION_RANGE
+    | _expand_pairs('4', '2')  # 44-22
+    | _expand_broadway('A', '7', '2', True)  # A7s-A2s
+    | _expand_broadway('K', '9', '8', True)  # K9s, K8s
+    | _expand_broadway('Q', '9', '9', True)  # Q9s
+    | _expand_broadway('J', '9', '9', True)  # J9s
+    | {'T9s', '98s', '87s', '76s', '65s', '54s'}  # Suited connectors
+    | _expand_broadway('K', 'J', 'J', False)  # KJo
+    | _expand_broadway('Q', 'J', 'T', False)  # QJo, QTo
+    | {'JTo'}  # JTo
 )  # ~32% of hands
 
 BLIND_DEFENSE_RANGE = (
-    MIDDLE_POSITION_RANGE |
-    _expand_pairs('4', '2') |  # 44-22
-    _expand_broadway('A', '7', '2', True) |   # A7s-A2s
-    _expand_broadway('K', '9', '7', True) |   # K9s-K7s
-    _expand_broadway('Q', '9', '8', True) |   # Q9s, Q8s
-    {'T9s', '98s', '87s', '76s'} |  # Suited connectors
-    _expand_broadway('K', 'T', 'T', False) |  # KTo
-    {'QTo', 'JTo'}  # Some broadway offsuit
+    MIDDLE_POSITION_RANGE
+    | _expand_pairs('4', '2')  # 44-22
+    | _expand_broadway('A', '7', '2', True)  # A7s-A2s
+    | _expand_broadway('K', '9', '7', True)  # K9s-K7s
+    | _expand_broadway('Q', '9', '8', True)  # Q9s, Q8s
+    | {'T9s', '98s', '87s', '76s'}  # Suited connectors
+    | _expand_broadway('K', 'T', 'T', False)  # KTo
+    | {'QTo', 'JTo'}  # Some broadway offsuit
 )  # ~28% of hands
 
 
@@ -258,7 +263,7 @@ def _get_all_combos_for_hand(canonical: str) -> List[Tuple[str, str]]:
         # Pair (e.g., 'AA')
         rank = canonical[0]
         for i, s1 in enumerate(SUITS):
-            for s2 in SUITS[i+1:]:
+            for s2 in SUITS[i + 1 :]:
                 combos.append((f"{rank}{s1}", f"{rank}{s2}"))
     elif canonical.endswith('s'):
         # Suited (e.g., 'AKs')
@@ -277,9 +282,7 @@ def _get_all_combos_for_hand(canonical: str) -> List[Tuple[str, str]]:
 
 
 def sample_hand_from_range(
-    position: Position,
-    excluded_cards: Set[str],
-    rng: Optional[random.Random] = None
+    position: Position, excluded_cards: Set[str], rng: Optional[random.Random] = None
 ) -> Optional[Tuple[str, str]]:
     """Sample a random hand from a position's range.
 
@@ -311,9 +314,7 @@ def sample_hand_from_range(
 
 
 def sample_hands_for_opponents(
-    opponent_positions: List[str],
-    excluded_cards: Set[str],
-    rng: Optional[random.Random] = None
+    opponent_positions: List[str], excluded_cards: Set[str], rng: Optional[random.Random] = None
 ) -> List[Optional[Tuple[str, str]]]:
     """Sample hands for multiple opponents based on their positions.
 
@@ -360,10 +361,10 @@ def get_range_percentage(position: Position) -> float:
 
 # Define range tiers from tightest to widest
 RANGE_TIERS = [
-    EARLY_POSITION_RANGE,   # ~15%
+    EARLY_POSITION_RANGE,  # ~15%
     MIDDLE_POSITION_RANGE,  # ~22%
-    BLIND_DEFENSE_RANGE,    # ~28%
-    LATE_POSITION_RANGE,    # ~32%
+    BLIND_DEFENSE_RANGE,  # ~28%
+    LATE_POSITION_RANGE,  # ~32%
 ]
 
 
@@ -374,7 +375,7 @@ def _generate_all_starting_hands() -> Set[str]:
         # Pairs
         hands.add(f"{r1}{r1}")
         # Non-pairs
-        for r2 in RANKS[i+1:]:
+        for r2 in RANKS[i + 1 :]:
             hands.add(f"{r1}{r2}s")  # Suited
             hands.add(f"{r1}{r2}o")  # Offsuit
     return hands
@@ -406,12 +407,36 @@ def estimate_range_from_vpip(vpip: float) -> Set[str]:
         # Add more speculative hands
         expanded = LATE_POSITION_RANGE.copy()
         # Add suited gappers and more offsuit hands
-        expanded.update({
-            'A9o', 'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
-            'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
-            '97s', '86s', '75s', '64s', '53s', '42s',
-            'T8s', 'T7s', '96s', '85s', '74s', '63s',
-        })
+        expanded.update(
+            {
+                'A9o',
+                'A8o',
+                'A7o',
+                'A6o',
+                'A5o',
+                'A4o',
+                'A3o',
+                'A2o',
+                'K7s',
+                'K6s',
+                'K5s',
+                'K4s',
+                'K3s',
+                'K2s',
+                '97s',
+                '86s',
+                '75s',
+                '64s',
+                '53s',
+                '42s',
+                'T8s',
+                'T7s',
+                '96s',
+                '85s',
+                '74s',
+                '63s',
+            }
+        )
         return expanded
 
 
@@ -446,16 +471,16 @@ def adjust_range_for_position(base_range: Set[str], position: Position) -> Set[s
 
 # Ultra-premium range for very tight raisers and 4-bet+ situations
 ULTRA_PREMIUM_RANGE = (
-    _expand_pairs('A', 'J') |  # AA-JJ
-    {'AKs', 'AKo'}             # AK suited and offsuit
+    _expand_pairs('A', 'J')  # AA-JJ
+    | {'AKs', 'AKo'}  # AK suited and offsuit
 )  # ~5% of hands
 
 # Standard 3-bet range when no player stats available
 # Based on typical 3-bet frequencies (~8-10% of hands)
 # Source: Modern Poker Theory, The Grinder's Manual
 STANDARD_3BET_RANGE = (
-    _expand_pairs('A', 'T') |  # AA-TT
-    {'AKs', 'AKo', 'AQs', 'AQo', 'AJs', 'KQs'}
+    _expand_pairs('A', 'T')  # AA-TT
+    | {'AKs', 'AKo', 'AQs', 'AQo', 'AJs', 'KQs'}
 )  # ~8% of hands
 
 
@@ -549,6 +574,7 @@ def _narrow_range_by_strength(hand_range: Set[str], keep_top: float) -> Set[str]
     Returns:
         Narrowed range containing strongest hands
     """
+
     def hand_strength_key(hand: str) -> tuple:
         """Lower tuple = stronger hand."""
         if len(hand) == 2:  # Pair
@@ -564,15 +590,13 @@ def _narrow_range_by_strength(hand_range: Set[str], keep_top: float) -> Set[str]
 
 
 # Aggression factor thresholds for range adjustment
-AGGRESSION_PASSIVE_THRESHOLD = 0.8      # AF below this = very passive player
-AGGRESSION_AGGRESSIVE_THRESHOLD = 2.5   # AF above this = very aggressive player
-PASSIVE_PLAYER_RANGE_KEEP_TOP = 0.70    # Keep top 70% when passive player bets
+AGGRESSION_PASSIVE_THRESHOLD = 0.8  # AF below this = very passive player
+AGGRESSION_AGGRESSIVE_THRESHOLD = 2.5  # AF above this = very aggressive player
+PASSIVE_PLAYER_RANGE_KEEP_TOP = 0.70  # Keep top 70% when passive player bets
 
 
 def apply_aggression_adjustment(
-    base_range: Set[str],
-    aggression_factor: float,
-    is_aggressive_action: bool
+    base_range: Set[str], aggression_factor: float, is_aggressive_action: bool
 ) -> Set[str]:
     """Adjust range based on aggression factor when opponent takes aggressive action.
 
@@ -608,10 +632,7 @@ def apply_aggression_adjustment(
         return base_range
 
 
-def get_opponent_range(
-    opponent: OpponentInfo,
-    config: EquityConfig = None
-) -> Set[str]:
+def get_opponent_range(opponent: OpponentInfo, config: EquityConfig = None) -> Set[str]:
     """Enhanced range estimation using all available data.
 
     Priority hierarchy for range estimation:
@@ -641,8 +662,7 @@ def get_opponent_range(
 
     # Check if we have enough observed data
     has_enough_data = (
-        config.use_in_game_stats and
-        opponent.hands_observed >= config.min_hands_for_stats
+        config.use_in_game_stats and opponent.hands_observed >= config.min_hands_for_stats
     )
 
     # STEP 1a: Action-based narrowing that works WITHOUT observed stats
@@ -714,15 +734,13 @@ def get_opponent_range(
         )
 
     # STEP 4: Apply aggression adjustment for postflop
-    if (opponent.postflop_aggression_this_hand and
-        opponent.aggression is not None and
-        has_enough_data):
+    if (
+        opponent.postflop_aggression_this_hand
+        and opponent.aggression is not None
+        and has_enough_data
+    ):
         is_aggressive = opponent.postflop_aggression_this_hand in ('bet', 'raise')
-        base_range = apply_aggression_adjustment(
-            base_range,
-            opponent.aggression,
-            is_aggressive
-        )
+        base_range = apply_aggression_adjustment(base_range, opponent.aggression, is_aggressive)
         if is_aggressive:
             logger.debug(
                 f"Applied aggression adjustment for {opponent.name}: "
@@ -733,10 +751,7 @@ def get_opponent_range(
     return adjust_range_for_position(base_range, position)
 
 
-def get_opponent_range_og(
-    opponent: OpponentInfo,
-    config: EquityConfig = None
-) -> Set[str]:
+def get_opponent_range_og(opponent: OpponentInfo, config: EquityConfig = None) -> Set[str]:
     """Original range estimation using VPIP only.
 
     DEPRECATED: Use get_opponent_range() for enhanced estimation with PFR and action context.
@@ -759,10 +774,11 @@ def get_opponent_range_og(
     base_range = None
 
     # Priority 1: In-game observed stats
-    if (config.use_in_game_stats and
-        opponent.hands_observed >= config.min_hands_for_stats and
-        opponent.vpip is not None):
-
+    if (
+        config.use_in_game_stats
+        and opponent.hands_observed >= config.min_hands_for_stats
+        and opponent.vpip is not None
+    ):
         base_range = estimate_range_from_vpip(opponent.vpip)
         logger.debug(
             f"Using observed stats for {opponent.name}: "
@@ -792,6 +808,7 @@ def _get_board_connection_weight(combo: Tuple[str, str], board_cards: List[str])
         Sampling weight: 2.0 for made hands, 1.5 for draws, 0.5 for air
     """
     from poker.hand_evaluator import HandEvaluator
+
     connection = HandEvaluator.get_board_connection(list(combo), board_cards)
     return connection['weight']
 
@@ -802,7 +819,7 @@ def sample_hand_for_opponent(
     config: EquityConfig = None,
     rng: Optional[random.Random] = None,
     board_cards: Optional[List[str]] = None,
-    weight_cache: Optional[Dict[Tuple[str, str], float]] = None
+    weight_cache: Optional[Dict[Tuple[str, str], float]] = None,
 ) -> Optional[Tuple[str, str]]:
     """Sample a hand from an opponent's estimated range.
 
@@ -839,14 +856,16 @@ def sample_hand_for_opponent(
                 valid_combos.append(combo)
 
     if not valid_combos:
-        logger.debug(f"No valid combos for {opponent.name} with excluded {len(excluded_cards)} cards")
+        logger.debug(
+            f"No valid combos for {opponent.name} with excluded {len(excluded_cards)} cards"
+        )
         return None
 
     # Weighted sampling when opponent showed postflop aggression
     use_weighted = (
-        board_cards and
-        len(board_cards) >= 3 and
-        opponent.postflop_aggression_this_hand in ('bet', 'raise')
+        board_cards
+        and len(board_cards) >= 3
+        and opponent.postflop_aggression_this_hand in ('bet', 'raise')
     )
 
     if use_weighted:
@@ -869,7 +888,7 @@ def sample_hands_for_opponent_infos(
     excluded_cards: Set[str],
     config: EquityConfig = None,
     rng: Optional[random.Random] = None,
-    board_cards: Optional[List[str]] = None
+    board_cards: Optional[List[str]] = None,
 ) -> List[Optional[Tuple[str, str]]]:
     """Sample hands for multiple opponents using the fallback hierarchy.
 
@@ -977,7 +996,11 @@ def calculate_equity_vs_ranges(
 
         # Parse hero's hand
         hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
-        board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
+        board = (
+            [eval7.Card(normalize_card_string(c)) for c in community_cards]
+            if community_cards
+            else []
+        )
 
         # Build set of excluded cards (hero's hand + board)
         excluded_cards = set(player_hand + (community_cards or []))
@@ -1006,7 +1029,10 @@ def calculate_equity_vs_ranges(
             opponent_hands = []
             opp_cards_set = set()
             for hand in opponent_hands_raw:
-                opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
+                opp_hand = [
+                    eval7.Card(normalize_card_string(hand[0])),
+                    eval7.Card(normalize_card_string(hand[1])),
+                ]
                 opponent_hands.append(opp_hand)
                 opp_cards_set.add(opp_hand[0])
                 opp_cards_set.add(opp_hand[1])
@@ -1176,6 +1202,7 @@ def format_opponent_stats(opponent_infos: List[OpponentInfo]) -> str:
     for opp in opponent_infos:
         # Get position abbreviation
         from .minimal_prompt import get_position_abbrev
+
         pos_abbrev = get_position_abbrev(opp.position) if opp.position else "???"
 
         # Determine tightness label

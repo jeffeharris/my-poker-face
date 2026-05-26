@@ -9,12 +9,10 @@ The key insight: LLMs are bad at poker math but good at personality expression.
 Let the rule engine handle the math, let the LLM handle the character.
 """
 
-from dataclasses import dataclass, replace
-from typing import Dict, List, Optional, Tuple
 import logging
 import random
-
-from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
+from dataclasses import dataclass, replace
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +20,12 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class BoundedOption:
     """A single sensible poker option."""
-    action: str                    # fold, check, call, raise, all_in
-    raise_to: int                  # 0 if not raising
-    rationale: str                 # Brief explanation for LLM
-    ev_estimate: str               # "+EV", "neutral", "-EV"
-    style_tag: str                 # "conservative", "aggressive", "trappy", "standard"
+
+    action: str  # fold, check, call, raise, all_in
+    raise_to: int  # 0 if not raising
+    rationale: str  # Brief explanation for LLM
+    ev_estimate: str  # "+EV", "neutral", "-EV"
+    style_tag: str  # "conservative", "aggressive", "trappy", "standard"
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
@@ -46,16 +45,17 @@ class OptionProfile:
     Different profiles produce different option menus for the same hand,
     encoding strategy into the options themselves so the LLM just picks.
     """
+
     # Fold threshold: block fold when equity > N * required_equity
     fold_equity_multiplier: float = 2.0
 
     # Call EV bands: equity/required ratio thresholds
-    call_plus_ev: float = 1.7      # ratio for +EV label
-    call_marginal: float = 0.85    # ratio for marginal label
+    call_plus_ev: float = 1.7  # ratio for +EV label
+    call_marginal: float = 0.85  # ratio for marginal label
 
     # Raise EV thresholds (absolute equity)
-    raise_plus_ev: float = 0.60    # equity for +EV raise
-    raise_neutral: float = 0.45    # equity for neutral raise
+    raise_plus_ev: float = 0.60  # equity for +EV raise
+    raise_neutral: float = 0.45  # equity for neutral raise
 
     # Sizing multipliers on pot
     sizing_small: float = 0.33
@@ -143,50 +143,50 @@ class OptionProfile:
 # Style presets: Rock, TAG, Calling Station, LAG, and current default
 STYLE_PROFILES = {
     'tight_passive': OptionProfile(
-        fold_equity_multiplier=2.5,    # harder to block fold
-        call_plus_ev=2.0,             # need more edge to call
-        call_marginal=1.0,            # marginal zone narrower
-        raise_plus_ev=0.65,           # need stronger hand to raise
+        fold_equity_multiplier=2.5,  # harder to block fold
+        call_plus_ev=2.0,  # need more edge to call
+        call_marginal=1.0,  # marginal zone narrower
+        raise_plus_ev=0.65,  # need stronger hand to raise
         raise_neutral=0.50,
-        sizing_small=0.25,            # smaller bets
+        sizing_small=0.25,  # smaller bets
         sizing_medium=0.50,
         sizing_large=0.75,
-        value_bet_threshold=0.70,     # higher bar for value bets
+        value_bet_threshold=0.70,  # higher bar for value bets
         postflop_raise_plus_ev=0.75,  # needs very strong hand to raise post-flop
         postflop_raise_neutral=0.60,
         postflop_value_bet_threshold=0.80,
-        postflop_max_raise_options=1, # passive — show minimal raise options
-        check_promotion='always',     # always promote check with pot-control text
+        postflop_max_raise_options=1,  # passive — show minimal raise options
+        check_promotion='always',  # always promote check with pot-control text
         style_hint="Fold most hands. Only continue with strong holdings.",
         heads_up_raise_plus_ev=0.55,
         heads_up_raise_neutral=0.40,
     ),
     'tight_aggressive': OptionProfile(
-        fold_equity_multiplier=2.5,    # still hard to block fold
-        call_plus_ev=2.0,             # prefer raising over calling
+        fold_equity_multiplier=2.5,  # still hard to block fold
+        call_plus_ev=2.0,  # prefer raising over calling
         call_marginal=1.0,
-        raise_plus_ev=0.55,           # raises with less equity (but tight preflop)
+        raise_plus_ev=0.55,  # raises with less equity (but tight preflop)
         raise_neutral=0.40,
         sizing_small=0.33,
         sizing_medium=0.75,
-        sizing_large=1.2,             # bigger sizing pressure
+        sizing_large=1.2,  # bigger sizing pressure
         value_bet_threshold=0.60,
         postflop_raise_plus_ev=0.42,  # aggressive post-flop — nearly as loose as LAG
         postflop_raise_neutral=0.25,  # very willing to bet thin value post-flop
         postflop_value_bet_threshold=0.55,
-        postflop_max_raise_options=2, # aggressive but curated
+        postflop_max_raise_options=2,  # aggressive but curated
         check_penalty_threshold=0.40,  # checking with >40% equity is leaving value
-        check_promotion='conditional', # promote check only when no raise is neutral/+EV
-        board_read=True,              # analytical profile reads the board
+        check_promotion='conditional',  # promote check only when no raise is neutral/+EV
+        board_read=True,  # analytical profile reads the board
         style_hint="Fold weak hands. When you do play, bet aggressively for value.",
         heads_up_raise_plus_ev=0.45,
         heads_up_raise_neutral=0.30,
     ),
     'loose_passive': OptionProfile(
-        fold_equity_multiplier=1.5,    # easier to block fold (plays more)
-        call_plus_ev=1.4,             # calls more easily
-        call_marginal=0.70,           # wider marginal zone
-        raise_plus_ev=0.65,           # doesn't raise much
+        fold_equity_multiplier=1.5,  # easier to block fold (plays more)
+        call_plus_ev=1.4,  # calls more easily
+        call_marginal=0.70,  # wider marginal zone
+        raise_plus_ev=0.65,  # doesn't raise much
         raise_neutral=0.50,
         sizing_small=0.25,
         sizing_medium=0.50,
@@ -195,37 +195,37 @@ STYLE_PROFILES = {
         postflop_raise_plus_ev=0.70,  # passive post-flop — needs strong hand
         postflop_raise_neutral=0.55,
         postflop_value_bet_threshold=0.75,
-        postflop_max_raise_options=1, # passive — minimal raise options
-        check_promotion='always',     # always promote check with pot-control text
+        postflop_max_raise_options=1,  # passive — minimal raise options
+        check_promotion='always',  # always promote check with pot-control text
         show_ev_labels=False,
         style_hint="See more flops — call liberally, but don't overcommit without a hand.",
         heads_up_raise_plus_ev=0.50,
         heads_up_raise_neutral=0.35,
     ),
     'loose_aggressive': OptionProfile(
-        fold_equity_multiplier=1.8,    # plays more hands than default (2.0) but not every hand
+        fold_equity_multiplier=1.8,  # plays more hands than default (2.0) but not every hand
         call_plus_ev=1.3,
         call_marginal=0.60,
-        raise_plus_ev=0.55,           # slightly lower bar than default — raises for value more often
-        raise_neutral=0.42,           # honest EV labels — marginal raises show as -EV, not neutral
+        raise_plus_ev=0.55,  # slightly lower bar than default — raises for value more often
+        raise_neutral=0.42,  # honest EV labels — marginal raises show as -EV, not neutral
         sizing_small=0.33,
         sizing_medium=0.75,
-        sizing_large=1.5,             # overbets for pressure
-        value_bet_threshold=0.55,     # bets thinner for value
-        bluff_frequency=0.15,         # includes bluff raises
+        sizing_large=1.5,  # overbets for pressure
+        value_bet_threshold=0.55,  # bets thinner for value
+        bluff_frequency=0.15,  # includes bluff raises
         postflop_raise_plus_ev=0.45,  # very aggressive post-flop — raises with thin value
         postflop_raise_neutral=0.30,
         postflop_value_bet_threshold=0.50,
-        postflop_max_raise_options=3, # full menu of raise options
+        postflop_max_raise_options=3,  # full menu of raise options
         check_penalty_threshold=0.35,  # checking with >35% equity is suboptimal for LAG
-        check_promotion='suppress_if_raises', # never promote check over raises
+        check_promotion='suppress_if_raises',  # never promote check over raises
         show_ev_labels=False,
         style_hint="Play many hands and apply pressure — raise often, but call when trapping or the price is right.",
         heads_up_raise_plus_ev=0.40,
         heads_up_raise_neutral=0.28,
     ),
     'default': OptionProfile(
-        board_read=True,              # analytical default reads the board
+        board_read=True,  # analytical default reads the board
         heads_up_raise_plus_ev=0.50,
         heads_up_raise_neutral=0.35,
     ),
@@ -235,6 +235,7 @@ STYLE_PROFILES = {
 # ============================================================
 # Math helpers
 # ============================================================
+
 
 def calculate_required_equity(pot: float, cost_to_call: float) -> float:
     """Equity needed to break even on a call.
@@ -283,21 +284,27 @@ def _should_block_fold(context: Dict, profile: OptionProfile = None) -> bool:
     # Block if equity >> required (the quad-folding problem)
     multiplier = profile.fold_equity_multiplier
     if required > 0 and equity > required * multiplier:
-        logger.debug(f"[BOUNDED] Blocking fold: equity {equity:.2f} > {multiplier}x required {required:.2f}")
+        logger.debug(
+            f"[BOUNDED] Blocking fold: equity {equity:.2f} > {multiplier}x required {required:.2f}"
+        )
         return True
 
     # Block if we have a monster (top 5% hand; lower bar for HU where 65%+ dominates)
     num_opponents = context.get('num_opponents', 2)
     monster_threshold = 0.75 if num_opponents <= 1 else 0.90
     if equity >= monster_threshold:
-        logger.debug(f"[BOUNDED] Blocking fold: monster hand with {equity:.2f} equity (threshold {monster_threshold})")
+        logger.debug(
+            f"[BOUNDED] Blocking fold: monster hand with {equity:.2f} equity (threshold {monster_threshold})"
+        )
         return True
 
     # Block if pot-committed
     already_bet = context.get('already_bet', 0)
     remaining_stack = context.get('player_stack', 0)
     if already_bet > remaining_stack and equity >= 0.25:
-        logger.debug(f"[BOUNDED] Blocking fold: pot-committed (bet {already_bet} > stack {remaining_stack})")
+        logger.debug(
+            f"[BOUNDED] Blocking fold: pot-committed (bet {already_bet} > stack {remaining_stack})"
+        )
         return True
 
     return False
@@ -334,6 +341,7 @@ def _should_block_call(context: Dict) -> bool:
 # ============================================================
 # Stack Depth Classification
 # ============================================================
+
 
 def _get_stack_depth(stack_bb: float) -> str:
     """Classify effective stack depth for sizing decisions.
@@ -382,15 +390,23 @@ def _get_raise_options(
         hu_open = max(min_raise, big_blind * 2)
         hu_open = min(hu_open, max_raise)
         options = []
-        vbt = eff_value_bet_threshold if eff_value_bet_threshold is not None else profile.value_bet_threshold
+        vbt = (
+            eff_value_bet_threshold
+            if eff_value_bet_threshold is not None
+            else profile.value_bet_threshold
+        )
         value_betting = equity >= vbt
         equity_pct = int(equity * 100)
-        rationale = f"Value raise ({equity_pct}% equity)" if value_betting else "Standard open (2x BB)"
+        rationale = (
+            f"Value raise ({equity_pct}% equity)" if value_betting else "Standard open (2x BB)"
+        )
         options.append((hu_open, rationale, "standard"))
         # Add a larger sizing option if there's room
         larger = int(big_blind * 3)
         if larger > hu_open and larger <= max_raise:
-            rationale = f"Pressure raise ({equity_pct}% equity)" if value_betting else "Larger open (3x BB)"
+            rationale = (
+                f"Pressure raise ({equity_pct}% equity)" if value_betting else "Larger open (3x BB)"
+            )
             options.append((larger, rationale, "aggressive"))
         # All-in for short stacks
         if stack_bb < 20 and max_raise not in [o[0] for o in options]:
@@ -400,7 +416,11 @@ def _get_raise_options(
     options = []
 
     # Value betting emphasis when equity exceeds threshold
-    vbt = eff_value_bet_threshold if eff_value_bet_threshold is not None else profile.value_bet_threshold
+    vbt = (
+        eff_value_bet_threshold
+        if eff_value_bet_threshold is not None
+        else profile.value_bet_threshold
+    )
     value_betting = equity >= vbt
     equity_pct = int(equity * 100)
 
@@ -493,10 +513,13 @@ def _truncate_options(options: List[BoundedOption], max_options: int = 4) -> Lis
 
     if budget > 0 and raises:
         # Sort: highest EV first, then by amount for spread
-        raises_sorted = sorted(raises, key=lambda o: (
-            -_EV_RANK.get(o.ev_estimate, 0),
-            o.raise_to,
-        ))
+        raises_sorted = sorted(
+            raises,
+            key=lambda o: (
+                -_EV_RANK.get(o.ev_estimate, 0),
+                o.raise_to,
+            ),
+        )
         if budget >= 2 and len(raises_sorted) >= 2:
             # Keep best-EV raise + largest for max sizing spread
             result.append(raises_sorted[0])
@@ -523,6 +546,7 @@ def _truncate_options(options: List[BoundedOption], max_options: int = 4) -> Lis
 # ============================================================
 # Main Option Generator
 # ============================================================
+
 
 def generate_bounded_options(
     context: Dict,
@@ -582,15 +606,18 @@ def generate_bounded_options(
     is_heads_up = num_opponents <= 1
 
     eff_raise_plus_ev = (
-        profile.postflop_raise_plus_ev if is_postflop and profile.postflop_raise_plus_ev is not None
+        profile.postflop_raise_plus_ev
+        if is_postflop and profile.postflop_raise_plus_ev is not None
         else profile.raise_plus_ev
     )
     eff_raise_neutral = (
-        profile.postflop_raise_neutral if is_postflop and profile.postflop_raise_neutral is not None
+        profile.postflop_raise_neutral
+        if is_postflop and profile.postflop_raise_neutral is not None
         else profile.raise_neutral
     )
     eff_value_bet_threshold = (
-        profile.postflop_value_bet_threshold if is_postflop and profile.postflop_value_bet_threshold is not None
+        profile.postflop_value_bet_threshold
+        if is_postflop and profile.postflop_value_bet_threshold is not None
         else profile.value_bet_threshold
     )
 
@@ -606,7 +633,7 @@ def generate_bounded_options(
     raw_equity = context.get('equity', 0.5)
     cost_to_call = context.get('cost_to_call', 0)
     pot_total = context.get('pot_total', 0)
-    stack_bb = context.get('stack_bb', 100)
+    context.get('stack_bb', 100)
 
     # Heads-up positional equity offset (T1-34, gated). When opted in via
     # apply_hu_equity_offset=True, add HEADS_UP_POSITION_OFFSETS to the
@@ -619,6 +646,7 @@ def generate_bounded_options(
     eff_context = context
     if apply_hu_equity_offset and is_heads_up:
         from .range_guidance import HEADS_UP_POSITION_OFFSETS, _game_position_to_range_key
+
         pos = context.get('position') or ''
         pos_key = _game_position_to_range_key(pos) if pos else ''
         hu_offset = HEADS_UP_POSITION_OFFSETS.get(pos_key, 0.0)
@@ -635,7 +663,7 @@ def generate_bounded_options(
     if is_heads_up:
         apply_range_bias = False
     else:
-        apply_range_bias = (not in_range and phase == 'PRE_FLOP' and cost_to_call > 0)
+        apply_range_bias = not in_range and phase == 'PRE_FLOP' and cost_to_call > 0
 
     block_fold = _should_block_fold(eff_context, profile)
     block_call = _should_block_call(eff_context)
@@ -679,13 +707,15 @@ def generate_bounded_options(
             check_rationale = "Check and see a free card" if cost_to_call == 0 else "Check"
             check_style = "conservative"
 
-        options.append(BoundedOption(
-            action='check',
-            raise_to=0,
-            rationale=check_rationale,
-            ev_estimate=check_ev,
-            style_tag=check_style
-        ))
+        options.append(
+            BoundedOption(
+                action='check',
+                raise_to=0,
+                rationale=check_rationale,
+                ev_estimate=check_ev,
+                style_tag=check_style,
+            )
+        )
 
     # === FOLD option (if not blocked) ===
     if 'fold' in valid_actions and not block_fold:
@@ -700,25 +730,35 @@ def generate_bounded_options(
             fold_rationale = f"Fold (outside your {range_pct_str} range{pos_str})"
         elif required_equity > 0 and equity < required_equity * 0.85:
             fold_ev = "+EV"
-            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            fold_rationale = (
+                f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            )
         elif equity < required_equity:
             fold_ev = "neutral"
-            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            fold_rationale = (
+                f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            )
         else:
             fold_ev = "-EV"
-            fold_rationale = f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            fold_rationale = (
+                f"Fold (need {int(required_equity*100)}% equity, have ~{int(equity*100)}%)"
+            )
 
-        options.append(BoundedOption(
-            action='fold',
-            raise_to=0,
-            rationale=fold_rationale,
-            ev_estimate=fold_ev,
-            style_tag="conservative"
-        ))
+        options.append(
+            BoundedOption(
+                action='fold',
+                raise_to=0,
+                rationale=fold_rationale,
+                ev_estimate=fold_ev,
+                style_tag="conservative",
+            )
+        )
 
     # === CALL option (if not blocked) ===
     if 'call' in valid_actions and not block_call:
-        cost_bb = cost_to_call / context.get('big_blind', 100) if context.get('big_blind', 100) > 0 else 0
+        cost_bb = (
+            cost_to_call / context.get('big_blind', 100) if context.get('big_blind', 100) > 0 else 0
+        )
         rationale = f"Call {cost_bb:.1f} BB"
         if apply_range_bias:
             rationale += " - speculative (outside your range)"
@@ -733,13 +773,15 @@ def generate_bounded_options(
             rationale += " - below pot odds"
             biased_call_ev = call_ev
 
-        options.append(BoundedOption(
-            action='call',
-            raise_to=0,
-            rationale=rationale,
-            ev_estimate=biased_call_ev,
-            style_tag="standard"
-        ))
+        options.append(
+            BoundedOption(
+                action='call',
+                raise_to=0,
+                rationale=rationale,
+                ev_estimate=biased_call_ev,
+                style_tag="standard",
+            )
+        )
 
     # === RAISE options ===
     if 'raise' in valid_actions:
@@ -752,7 +794,7 @@ def generate_bounded_options(
         for raise_to, rationale, style_tag in raise_options:
             if apply_range_bias:
                 raise_ev = "-EV"
-                rationale = f"Speculative raise (outside your range)"
+                rationale = "Speculative raise (outside your range)"
             elif equity >= eff_raise_plus_ev:
                 raise_ev = "+EV"
             elif equity >= eff_raise_neutral:
@@ -762,20 +804,25 @@ def generate_bounded_options(
 
             # Honest rationale: -EV raises are bluffs, not value bets
             if raise_ev == "-EV" and "value bet" in rationale.lower():
-                rationale = rationale.replace("value bet", "bluff bet").replace("Value bet", "Bluff bet")
+                rationale = rationale.replace("value bet", "bluff bet").replace(
+                    "Value bet", "Bluff bet"
+                )
 
-            options.append(BoundedOption(
-                action='raise',
-                raise_to=raise_to,
-                rationale=rationale,
-                ev_estimate=raise_ev,
-                style_tag=style_tag
-            ))
+            options.append(
+                BoundedOption(
+                    action='raise',
+                    raise_to=raise_to,
+                    rationale=rationale,
+                    ev_estimate=raise_ev,
+                    style_tag=style_tag,
+                )
+            )
 
     # === Raise escalation annotation ===
     raises_this_round = context.get('raises_this_round', 0)
     if raises_this_round >= 1:
         from .raise_utils import _classify_raise_action
+
         level = _classify_raise_action(raises_this_round)
         options = [
             replace(o, rationale=f"{level}: {o.rationale}") if o.action == 'raise' else o
@@ -803,7 +850,7 @@ def generate_bounded_options(
             # Keep the best N raise options (prefer +EV > neutral > -EV)
             ev_order = {'+EV': 0, 'neutral': 1, '-EV': 2, 'marginal': 1}
             sorted_raises = sorted(raise_opts, key=lambda o: ev_order.get(o.ev_estimate, 3))
-            keep = set(id(o) for o in sorted_raises[:profile.postflop_max_raise_options])
+            keep = set(id(o) for o in sorted_raises[: profile.postflop_max_raise_options])
             options = [o for o in options if o.action != 'raise' or id(o) in keep]
 
     # === ALL-IN option ===
@@ -816,27 +863,30 @@ def generate_bounded_options(
         else:
             all_in_ev = "-EV"
 
-        options.append(BoundedOption(
-            action='all_in',
-            raise_to=0,
-            rationale="All-in - maximum commitment",
-            ev_estimate=all_in_ev,
-            style_tag="aggressive"
-        ))
+        options.append(
+            BoundedOption(
+                action='all_in',
+                raise_to=0,
+                rationale="All-in - maximum commitment",
+                ev_estimate=all_in_ev,
+                style_tag="aggressive",
+            )
+        )
 
     # === Ensure at least one +EV option (profile-aware) ===
     has_plus_ev = any(o.ev_estimate == "+EV" for o in options)
     if not has_plus_ev and options:
         # Find the best candidate for promotion
-        best = max(options, key=lambda o: (
-            1 if o.ev_estimate == "+EV" else
-            0 if o.ev_estimate == "neutral" else -1
-        ))
+        best = max(
+            options,
+            key=lambda o: (
+                1 if o.ev_estimate == "+EV" else 0 if o.ev_estimate == "neutral" else -1
+            ),
+        )
         if best.ev_estimate != "+EV" and (block_fold or equity >= 0.40):
             has_raises = any(o.action == 'raise' for o in options)
             has_decent_raise = any(
-                o.action == 'raise' and o.ev_estimate in ('+EV', 'neutral')
-                for o in options
+                o.action == 'raise' and o.ev_estimate in ('+EV', 'neutral') for o in options
             )
             promotion = profile.check_promotion
 
@@ -869,7 +919,7 @@ def generate_bounded_options(
                     # holds (previously moderate-equity hands without
                     # block_fold kept their neutral/-EV label).
                     ev_estimate="+EV",
-                    style_tag=best.style_tag
+                    style_tag=best.style_tag,
                 )
                 # Replace in-place to preserve original position
                 options = [promoted if o == best else o for o in options]
@@ -878,32 +928,40 @@ def generate_bounded_options(
     if len(options) > 4:
         # Keep fold/check, best call, 1-2 raises
         priority_order = ['fold', 'check', 'call', 'raise', 'all_in']
-        options.sort(key=lambda o: (
-            priority_order.index(o.action) if o.action in priority_order else 10,
-            -1 if o.ev_estimate == "+EV" else 0 if o.ev_estimate == "neutral" else 1
-        ))
+        options.sort(
+            key=lambda o: (
+                priority_order.index(o.action) if o.action in priority_order else 10,
+                -1 if o.ev_estimate == "+EV" else 0 if o.ev_estimate == "neutral" else 1,
+            )
+        )
         options = options[:4]
 
     # Ensure we have at least 2 options
     if len(options) < 2:
-        logger.warning(f"[BOUNDED] Only {len(options)} options generated, valid_actions={valid_actions}")
+        logger.warning(
+            f"[BOUNDED] Only {len(options)} options generated, valid_actions={valid_actions}"
+        )
         # Add a fallback check or call if missing
         if 'check' in valid_actions and not any(o.action == 'check' for o in options):
-            options.append(BoundedOption(
-                action='check',
-                raise_to=0,
-                rationale="Check",
-                ev_estimate="neutral",
-                style_tag="conservative"
-            ))
+            options.append(
+                BoundedOption(
+                    action='check',
+                    raise_to=0,
+                    rationale="Check",
+                    ev_estimate="neutral",
+                    style_tag="conservative",
+                )
+            )
         elif 'call' in valid_actions and not any(o.action == 'call' for o in options):
-            options.append(BoundedOption(
-                action='call',
-                raise_to=0,
-                rationale="Call",
-                ev_estimate="neutral",
-                style_tag="standard"
-            ))
+            options.append(
+                BoundedOption(
+                    action='call',
+                    raise_to=0,
+                    rationale="Call",
+                    ev_estimate="neutral",
+                    style_tag="standard",
+                )
+            )
 
     logger.info(
         f"[BOUNDED] Generated {len(options)} options: "
@@ -930,11 +988,13 @@ def generate_bounded_options(
 # BEFORE math blocking (which is re-applied as safety net).
 # ============================================================
 
+
 @dataclass(frozen=True)
 class EmotionalShift:
     """Emotional state input for window shift."""
-    state: str        # 'tilted', 'overconfident', 'shaken', 'dissociated', 'composed'
-    severity: str     # 'none', 'mild', 'moderate', 'extreme'
+
+    state: str  # 'tilted', 'overconfident', 'shaken', 'dissociated', 'composed'
+    severity: str  # 'none', 'mild', 'moderate', 'extreme'
     intensity: float  # raw penalty zone intensity 0.0-1.0
 
     def to_dict(self) -> Dict:
@@ -1013,8 +1073,9 @@ def _option_spectrum_position(option: BoundedOption) -> int:
     return 2  # fallback
 
 
-def _make_aggressive_option(options: List[BoundedOption], context: Dict,
-                            state: str) -> Optional[BoundedOption]:
+def _make_aggressive_option(
+    options: List[BoundedOption], context: Dict, state: str
+) -> Optional[BoundedOption]:
     """Create a new aggressive option beyond the current window.
 
     For tilted: adds larger raise or ALL-IN.
@@ -1023,7 +1084,7 @@ def _make_aggressive_option(options: List[BoundedOption], context: Dict,
     max_raise = context.get('max_raise', 0)
     min_raise = context.get('min_raise', 0)
     pot_total = context.get('pot_total', 0)
-    big_blind = context.get('big_blind', 100)
+    context.get('big_blind', 100)
     equity = context.get('equity', 0.5)
 
     # Find the largest existing raise
@@ -1084,8 +1145,9 @@ def _make_aggressive_option(options: List[BoundedOption], context: Dict,
     return None
 
 
-def _make_passive_option(options: List[BoundedOption], context: Dict,
-                         state: str) -> Optional[BoundedOption]:
+def _make_passive_option(
+    options: List[BoundedOption], context: Dict, state: str
+) -> Optional[BoundedOption]:
     """Create a new passive option beyond the current window.
 
     For shaken: adds FOLD or CHECK.
@@ -1104,15 +1166,19 @@ def _make_passive_option(options: List[BoundedOption], context: Dict,
         # Dissociated adds CHECK if possible
         if not has_check and 'check' in valid_actions:
             return BoundedOption(
-                action='check', raise_to=0,
+                action='check',
+                raise_to=0,
                 rationale="Check.",
-                ev_estimate="neutral", style_tag="conservative",
+                ev_estimate="neutral",
+                style_tag="conservative",
             )
         if not has_fold and 'fold' in valid_actions:
             return BoundedOption(
-                action='fold', raise_to=0,
+                action='fold',
+                raise_to=0,
                 rationale="Fold.",
-                ev_estimate="neutral", style_tag="conservative",
+                ev_estimate="neutral",
+                style_tag="conservative",
             )
     else:
         # Shaken: adds FOLD first (save chips), then CHECK
@@ -1120,16 +1186,20 @@ def _make_passive_option(options: List[BoundedOption], context: Dict,
             rationale = "Get out while you can." if state == 'shaken' else "Fold."
             fold_ev = "+EV" if equity < required_equity * 0.85 else "neutral"
             return BoundedOption(
-                action='fold', raise_to=0,
+                action='fold',
+                raise_to=0,
                 rationale=rationale,
-                ev_estimate=fold_ev, style_tag="conservative",
+                ev_estimate=fold_ev,
+                style_tag="conservative",
             )
         if not has_check and 'check' in valid_actions:
             rationale = "Take a breath. No need to force it."
             return BoundedOption(
-                action='check', raise_to=0,
+                action='check',
+                raise_to=0,
                 rationale=rationale,
-                ev_estimate="neutral", style_tag="conservative",
+                ev_estimate="neutral",
+                style_tag="conservative",
             )
 
     return None
@@ -1152,13 +1222,15 @@ def _apply_narrative_framing(options: List[BoundedOption], state: str) -> List[B
         # For dissociated, strip ALL rationale to bare minimum
         if state == 'dissociated':
             action_frame = framing.get(opt.action, opt.action.capitalize() + '.')
-            modified.append(BoundedOption(
-                action=opt.action,
-                raise_to=opt.raise_to,
-                rationale=action_frame,
-                ev_estimate=opt.ev_estimate,
-                style_tag=opt.style_tag,
-            ))
+            modified.append(
+                BoundedOption(
+                    action=opt.action,
+                    raise_to=opt.raise_to,
+                    rationale=action_frame,
+                    ev_estimate=opt.ev_estimate,
+                    style_tag=opt.style_tag,
+                )
+            )
             continue
 
         # For other states, replace rationale based on direction
@@ -1174,21 +1246,24 @@ def _apply_narrative_framing(options: List[BoundedOption], state: str) -> List[B
                 action_frame = framing.get('passive')
 
         if action_frame:
-            modified.append(BoundedOption(
-                action=opt.action,
-                raise_to=opt.raise_to,
-                rationale=action_frame,
-                ev_estimate=opt.ev_estimate,
-                style_tag=opt.style_tag,
-            ))
+            modified.append(
+                BoundedOption(
+                    action=opt.action,
+                    raise_to=opt.raise_to,
+                    rationale=action_frame,
+                    ev_estimate=opt.ev_estimate,
+                    style_tag=opt.style_tag,
+                )
+            )
         else:
             modified.append(opt)
 
     return modified
 
 
-def _reapply_math_blocking(options: List[BoundedOption], context: Dict,
-                           profile: OptionProfile = None) -> List[BoundedOption]:
+def _reapply_math_blocking(
+    options: List[BoundedOption], context: Dict, profile: OptionProfile = None
+) -> List[BoundedOption]:
     """Re-apply math blocking as final safety net after emotional shift.
 
     Ensures emotional state never overrides mathematical guardrails:
@@ -1225,15 +1300,30 @@ def _reapply_math_blocking(options: List[BoundedOption], context: Dict,
     short_facing_bet = _get_stack_depth(stack_bb) == 'short' and cost_to_call > 0
     if len(result) < 2:
         if 'check' in valid_actions and not any(o.action == 'check' for o in result):
-            result.append(BoundedOption(
-                action='check', raise_to=0,
-                rationale="Check", ev_estimate="neutral", style_tag="conservative",
-            ))
-        elif 'call' in valid_actions and not block_call and not short_facing_bet and not any(o.action == 'call' for o in result):
-            result.append(BoundedOption(
-                action='call', raise_to=0,
-                rationale="Call", ev_estimate="neutral", style_tag="standard",
-            ))
+            result.append(
+                BoundedOption(
+                    action='check',
+                    raise_to=0,
+                    rationale="Check",
+                    ev_estimate="neutral",
+                    style_tag="conservative",
+                )
+            )
+        elif (
+            'call' in valid_actions
+            and not block_call
+            and not short_facing_bet
+            and not any(o.action == 'call' for o in result)
+        ):
+            result.append(
+                BoundedOption(
+                    action='call',
+                    raise_to=0,
+                    rationale="Call",
+                    ev_estimate="neutral",
+                    style_tag="standard",
+                )
+            )
 
     # Emotional shifts may legitimately produce 5 options (mild adds without removing).
     # Cap at 5 to prevent unbounded growth while preserving the shift's intent.
@@ -1317,7 +1407,9 @@ def apply_emotional_window_shift(
                 to_drop = sorted_opts[-1]  # drop most aggressive
             if len(modified) > 1:
                 modified = [o for o in modified if o is not to_drop]
-                logger.debug(f"[EMOTIONAL] Dropped {to_drop.action} to make room for {new_opt.action}")
+                logger.debug(
+                    f"[EMOTIONAL] Dropped {to_drop.action} to make room for {new_opt.action}"
+                )
 
         modified.append(new_opt)
         logger.debug(f"[EMOTIONAL] Added {new_opt.action} option")
@@ -1442,12 +1534,7 @@ def format_options_for_prompt(
     else:
         math_line = f"Given the math (equity: {equity_pct}%, pot odds: {pot_odds:.1f}:1),"
 
-    lines = [
-        "=== YOUR OPTIONS ===",
-        math_line,
-        "your sensible choices are:",
-        ""
-    ]
+    lines = ["=== YOUR OPTIONS ===", math_line, "your sensible choices are:", ""]
 
     use_bb = big_blind is not None and big_blind > 0
 

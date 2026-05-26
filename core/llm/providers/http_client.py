@@ -3,6 +3,7 @@
 Provides a connection-pooled httpx client with longer keepalive to avoid
 cold connection overhead (DNS + TCP + TLS handshake) between API calls.
 """
+
 import atexit
 import os
 
@@ -19,7 +20,9 @@ shared_http_client = httpx.Client(
         max_keepalive_connections=20,
         keepalive_expiry=300.0,  # 5 minutes keepalive (vs 5s default)
     ),
-    timeout=httpx.Timeout(connect=10.0, read=LLM_HTTP_TIMEOUT, write=LLM_HTTP_TIMEOUT, pool=LLM_HTTP_TIMEOUT),
+    timeout=httpx.Timeout(
+        connect=10.0, read=LLM_HTTP_TIMEOUT, write=LLM_HTTP_TIMEOUT, pool=LLM_HTTP_TIMEOUT
+    ),
 )
 
 

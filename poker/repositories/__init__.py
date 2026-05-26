@@ -6,35 +6,35 @@ the former GamePersistence facade.
 
 import os
 
-from .sqlite_repositories import PressureEventRepository
-from .base_repository import BaseRepository
-from .schema_manager import SchemaManager
-from .settings_repository import SettingsRepository
-from .guest_tracking_repository import GuestTrackingRepository
-from .personality_repository import PersonalityRepository
-from .user_repository import UserRepository
-from .experiment_repository import ExperimentRepository
-from .prompt_capture_repository import PromptCaptureRepository
-from .decision_analysis_repository import DecisionAnalysisRepository
-from .prompt_preset_repository import PromptPresetRepository
-from .capture_label_repository import CaptureLabelRepository
-from .replay_experiment_repository import ReplayExperimentRepository
-from .game_repository import GameRepository, SavedGame
-from .hand_history_repository import HandHistoryRepository
-from .tournament_repository import TournamentRepository
-from .llm_repository import LLMRepository
-from .coach_repository import CoachRepository
-from .relationship_repository import RelationshipRepository
 from .bankroll_repository import BankrollRepository
+from .base_repository import BaseRepository
+from .capture_label_repository import CaptureLabelRepository
+from .cash_session_repository import CashSessionRepository
 from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
-from .sandbox_repository import SandboxRepository, SandboxState
-from .stake_repository import StakeRepository
-from .cash_session_repository import CashSessionRepository
-from .vice_state_repository import ViceStateRepository, ViceState
-from .side_hustle_state_repository import SideHustleStateRepository, SideHustleState
-from .user_preferences_repository import UserPreferencesRepository
+from .coach_repository import CoachRepository
+from .decision_analysis_repository import DecisionAnalysisRepository
+from .experiment_repository import ExperimentRepository
+from .game_repository import GameRepository, SavedGame
+from .guest_tracking_repository import GuestTrackingRepository
+from .hand_history_repository import HandHistoryRepository
 from .holdings_snapshots_repository import HoldingsSnapshotsRepository
+from .llm_repository import LLMRepository
+from .personality_repository import PersonalityRepository
+from .prompt_capture_repository import PromptCaptureRepository
+from .prompt_preset_repository import PromptPresetRepository
+from .relationship_repository import RelationshipRepository
+from .replay_experiment_repository import ReplayExperimentRepository
+from .sandbox_repository import SandboxRepository, SandboxState
+from .schema_manager import SchemaManager
+from .settings_repository import SettingsRepository
+from .side_hustle_state_repository import SideHustleState, SideHustleStateRepository
+from .sqlite_repositories import PressureEventRepository
+from .stake_repository import StakeRepository
+from .tournament_repository import TournamentRepository
+from .user_preferences_repository import UserPreferencesRepository
+from .user_repository import UserRepository
+from .vice_state_repository import ViceState, ViceStateRepository
 
 
 def create_repos(db_path: str) -> dict:

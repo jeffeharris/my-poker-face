@@ -12,30 +12,25 @@ Usage:
 """
 
 import argparse
+import os
 import random
 import sys
-import os
 from collections import defaultdict
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Dict, List
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poker.strategy.strategy_table import load_strategy_table
-from poker.strategy.postflop_classifier import build_postflop_node
-from poker.strategy.personality_modifier import (
-    modify_strategy, categorize_action, apply_river_bluff_guardrail,
-)
-from poker.strategy.deviation_profiles import DEVIATION_PROFILES
-from poker.strategy.strategy_profile import StrategyProfile
-from poker.strategy.hand_classification import simplify_hand_class
-from poker.strategy.multiway import apply_multiway_adjustment
-from poker.psychology_model import PersonalityAnchors
 from poker.bounded_options import EmotionalShift
-from poker.archetypes import classify_from_anchors
-
+from poker.psychology_model import PersonalityAnchors
+from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+from poker.strategy.personality_modifier import (
+    apply_river_bluff_guardrail,
+    categorize_action,
+    modify_strategy,
+)
+from poker.strategy.strategy_table import load_strategy_table
 
 # ── Archetype definitions (same as preflop validation) ──────────────────
 
@@ -44,72 +39,105 @@ ARCHETYPES = {
         'profile': 'nit',
         'arch_name': 'nit',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.15, baseline_looseness=0.15,
-            ego=0.2, poise=0.9, expressiveness=0.2,
-            risk_identity=0.2, adaptation_bias=0.3,
-            baseline_energy=0.3, recovery_rate=0.2,
+            baseline_aggression=0.15,
+            baseline_looseness=0.15,
+            ego=0.2,
+            poise=0.9,
+            expressiveness=0.2,
+            risk_identity=0.2,
+            adaptation_bias=0.3,
+            baseline_energy=0.3,
+            recovery_rate=0.2,
         ),
     },
     'Rock': {
         'profile': 'rock',
         'arch_name': 'rock',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.3, baseline_looseness=0.25,
-            ego=0.3, poise=0.8, expressiveness=0.3,
-            risk_identity=0.3, adaptation_bias=0.3,
-            baseline_energy=0.4, recovery_rate=0.2,
+            baseline_aggression=0.3,
+            baseline_looseness=0.25,
+            ego=0.3,
+            poise=0.8,
+            expressiveness=0.3,
+            risk_identity=0.3,
+            adaptation_bias=0.3,
+            baseline_energy=0.4,
+            recovery_rate=0.2,
         ),
     },
     'TAG': {
         'profile': 'tag',
         'arch_name': 'tag',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.7, baseline_looseness=0.35,
-            ego=0.5, poise=0.7, expressiveness=0.4,
-            risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.7,
+            baseline_looseness=0.35,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.4,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         ),
     },
     'Calling Station': {
         'profile': 'calling_station',
         'arch_name': 'calling_station',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.3, baseline_looseness=0.75,
-            ego=0.4, poise=0.5, expressiveness=0.5,
-            risk_identity=0.4, adaptation_bias=0.3,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.3,
+            baseline_looseness=0.75,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.4,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         ),
     },
     'LAG': {
         'profile': 'lag',
         'arch_name': 'lag',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.8, baseline_looseness=0.7,
-            ego=0.6, poise=0.5, expressiveness=0.6,
-            risk_identity=0.6, adaptation_bias=0.5,
-            baseline_energy=0.7, recovery_rate=0.15,
+            baseline_aggression=0.8,
+            baseline_looseness=0.7,
+            ego=0.6,
+            poise=0.5,
+            expressiveness=0.6,
+            risk_identity=0.6,
+            adaptation_bias=0.5,
+            baseline_energy=0.7,
+            recovery_rate=0.15,
         ),
     },
     'Maniac': {
         'profile': 'maniac',
         'arch_name': 'maniac',
         'anchors': PersonalityAnchors(
-            baseline_aggression=0.9, baseline_looseness=0.85,
-            ego=0.7, poise=0.3, expressiveness=0.8,
-            risk_identity=0.8, adaptation_bias=0.3,
-            baseline_energy=0.8, recovery_rate=0.1,
+            baseline_aggression=0.9,
+            baseline_looseness=0.85,
+            ego=0.7,
+            poise=0.3,
+            expressiveness=0.8,
+            risk_identity=0.8,
+            adaptation_bias=0.3,
+            baseline_energy=0.8,
+            recovery_rate=0.1,
         ),
     },
 }
 
 TEXTURES = [
-    'dry_high', 'dry_low_static', 'monotone',
-    'two_tone_broadway', 'two_tone_connected', 'wet_rainbow',
+    'dry_high',
+    'dry_low_static',
+    'monotone',
+    'two_tone_broadway',
+    'two_tone_connected',
+    'wet_rainbow',
 ]
 POSITIONS = ['IP', 'OOP']
 STREETS = ['flop', 'turn', 'river']
-HAND_CLASSES = ['nuts', 'strong_made', 'medium_made', 'weak_made',
-                'air_strong_draw', 'air_no_draw']
+HAND_CLASSES = ['nuts', 'strong_made', 'medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw']
 
 # Representative (made_tier, draw_modifier) for each simplified class
 CLASS_REPRESENTATIVES = {
@@ -124,19 +152,21 @@ CLASS_REPRESENTATIVES = {
 
 # ── Stats tracker ────────────────────────────────────────────────────────
 
+
 @dataclass
 class PostflopStats:
     """Track postflop stats for one archetype."""
+
     decisions: int = 0
     # Unopened decisions
     unopened_decisions: int = 0
-    bet_count: int = 0         # bet_33 + bet_67 + bet_100
+    bet_count: int = 0  # bet_33 + bet_67 + bet_100
     check_count: int = 0
     # Facing bet decisions
     facing_bet_decisions: int = 0
     fold_to_bet: int = 0
     call_bet: int = 0
-    raise_bet: int = 0         # raise_67 + raise_150 + jam
+    raise_bet: int = 0  # raise_67 + raise_150 + jam
     # River bluff guardrail
     river_guardrail_fires: int = 0
     river_decisions: int = 0
@@ -170,6 +200,7 @@ class PostflopStats:
 
 
 # ── Simulation ───────────────────────────────────────────────────────────
+
 
 def simulate_postflop_decisions(
     archetype_name: str,
@@ -211,6 +242,7 @@ def simulate_postflop_decisions(
 
         # Build PostflopNode directly
         from poker.strategy.nodes import PostflopNode
+
         node = PostflopNode(
             street=street,
             position=position,
@@ -238,9 +270,7 @@ def simulate_postflop_decisions(
         if street == 'river':
             stats.river_decisions += 1
             pre_guardrail = modified
-            modified = apply_river_bluff_guardrail(
-                modified, hand_class, arch_name
-            )
+            modified = apply_river_bluff_guardrail(modified, hand_class, arch_name)
             if modified.action_probabilities != pre_guardrail.action_probabilities:
                 stats.river_guardrail_fires += 1
 
@@ -284,8 +314,10 @@ def run_validation(n_hands: int, seed: int, verbose: bool = False):
         results[name] = stats
 
     # Print results table
-    print(f"\n{'Archetype':<18} {'C-bet%':>8} {'FoldBet%':>10} {'ChkRaise%':>10} "
-          f"{'AggFactor':>10} {'RvrGuard%':>10}")
+    print(
+        f"\n{'Archetype':<18} {'C-bet%':>8} {'FoldBet%':>10} {'ChkRaise%':>10} "
+        f"{'AggFactor':>10} {'RvrGuard%':>10}"
+    )
     print("-" * 70)
     for name in ['Nit', 'Rock', 'TAG', 'Calling Station', 'LAG', 'Maniac']:
         s = results[name]
@@ -337,56 +369,52 @@ def run_validation(n_hands: int, seed: int, verbose: bool = False):
     check(
         results['LAG'].cbet_pct > results['TAG'].cbet_pct > results['Rock'].cbet_pct,
         f"C-bet order: LAG ({results['LAG'].cbet_pct:.3f}) > "
-        f"TAG ({results['TAG'].cbet_pct:.3f}) > Rock ({results['Rock'].cbet_pct:.3f})"
+        f"TAG ({results['TAG'].cbet_pct:.3f}) > Rock ({results['Rock'].cbet_pct:.3f})",
     )
 
     # 2. Maniac most aggressive
     check(
         results['Maniac'].cbet_pct > results['LAG'].cbet_pct,
         f"Maniac c-bet ({results['Maniac'].cbet_pct:.3f}) > "
-        f"LAG c-bet ({results['LAG'].cbet_pct:.3f})"
+        f"LAG c-bet ({results['LAG'].cbet_pct:.3f})",
     )
 
     # 3. Calling Station calls more, raises less than TAG
     check(
         results['Calling Station'].fold_to_bet_pct < results['TAG'].fold_to_bet_pct,
         f"Calling Station fold% ({results['Calling Station'].fold_to_bet_pct:.3f}) < "
-        f"TAG fold% ({results['TAG'].fold_to_bet_pct:.3f})"
+        f"TAG fold% ({results['TAG'].fold_to_bet_pct:.3f})",
     )
 
     # 4. Nit folds most when facing bet
     check(
         results['Nit'].fold_to_bet_pct > results['Rock'].fold_to_bet_pct,
         f"Nit fold-to-bet ({results['Nit'].fold_to_bet_pct:.3f}) > "
-        f"Rock fold-to-bet ({results['Rock'].fold_to_bet_pct:.3f})"
+        f"Rock fold-to-bet ({results['Rock'].fold_to_bet_pct:.3f})",
     )
 
     # 5. No degenerate behavior: c-bet between 10% and 90%
     for name, s in results.items():
-        check(
-            0.10 <= s.cbet_pct <= 0.90,
-            f"{name}: c-bet ({s.cbet_pct:.3f}) in [10%, 90%]"
-        )
+        check(0.10 <= s.cbet_pct <= 0.90, f"{name}: c-bet ({s.cbet_pct:.3f}) in [10%, 90%]")
 
     # 6. No degenerate fold-to-bet: between 5% and 90%
     for name, s in results.items():
         check(
             0.05 <= s.fold_to_bet_pct <= 0.90,
-            f"{name}: fold-to-bet ({s.fold_to_bet_pct:.3f}) in [5%, 90%]"
+            f"{name}: fold-to-bet ({s.fold_to_bet_pct:.3f}) in [5%, 90%]",
         )
 
     # 7. River guardrail should fire sometimes but not constantly
     for name, s in results.items():
         check(
-            s.guardrail_rate < 0.50,
-            f"{name}: river guardrail rate ({s.guardrail_rate:.3f}) < 50%"
+            s.guardrail_rate < 0.50, f"{name}: river guardrail rate ({s.guardrail_rate:.3f}) < 50%"
         )
 
     # 8. Aggression ordering: Maniac > LAG > TAG > Rock
     # Use c-bet as proxy since aggression_factor can be inf
     check(
         results['Maniac'].cbet_pct >= results['LAG'].cbet_pct >= results['TAG'].cbet_pct,
-        f"Aggression order: Maniac >= LAG >= TAG (c-bet proxy)"
+        "Aggression order: Maniac >= LAG >= TAG (c-bet proxy)",
     )
 
     print(f"\n{'ALL CHECKS PASSED' if all_pass else 'SOME CHECKS FAILED'}")
@@ -394,15 +422,15 @@ def run_validation(n_hands: int, seed: int, verbose: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Validate postflop tiered bot behavior'
+    parser = argparse.ArgumentParser(description='Validate postflop tiered bot behavior')
+    parser.add_argument(
+        '--hands',
+        type=int,
+        default=10000,
+        help='Number of decisions per archetype (default: 10000)',
     )
-    parser.add_argument('--hands', type=int, default=10000,
-                        help='Number of decisions per archetype (default: 10000)')
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Random seed (default: 42)')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Show per-texture breakdown')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show per-texture breakdown')
     args = parser.parse_args()
 
     sys.exit(run_validation(args.hands, args.seed, args.verbose))

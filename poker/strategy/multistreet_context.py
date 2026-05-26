@@ -88,13 +88,17 @@ H2_FOLD_TARGET: Dict[str, float] = {
 @dataclass(frozen=True)
 class MultiStreetSignals:
     """Cross-street line context the memoryless table lacks."""
-    was_prev_street_aggressor: bool   # hero had/took initiative the prior round
-    facing_double_barrel: bool        # opp bet flop AND the immediately-prior street
+
+    was_prev_street_aggressor: bool  # hero had/took initiative the prior round
+    facing_double_barrel: bool  # opp bet flop AND the immediately-prior street
 
 
 # ── Signal derivation ──────────────────────────────────────────────────────
 
-def _line_from_recorder(controller) -> Optional[Tuple[Dict[str, bool], Dict[str, bool], Optional[str]]]:
+
+def _line_from_recorder(
+    controller,
+) -> Optional[Tuple[Dict[str, bool], Dict[str, bool], Optional[str]]]:
     """Production path: derive per-street aggression from the live action log.
 
     Returns (hero_bet_by_street, opp_bet_by_street, preflop_aggressor) or None
@@ -145,7 +149,7 @@ def derive_signals(controller, street: str) -> MultiStreetSignals:
     # captures both the c-bet (flop, when hero raised preflop) and the barrel
     # (turn/river, when hero bet the prior street).
     if phase == 'FLOP':
-        was_prev = (preflop_aggressor == hero)
+        was_prev = preflop_aggressor == hero
     elif phase == 'TURN':
         was_prev = bool(hero_bet.get('FLOP'))
     elif phase == 'RIVER':
@@ -171,6 +175,7 @@ def derive_signals(controller, street: str) -> MultiStreetSignals:
 
 # ── Distribution surgery ────────────────────────────────────────────────────
 
+
 def _aggressive_keys(probs: Dict[str, float]):
     """Sized bet/raise/jam action keys present in the distribution.
 
@@ -178,10 +183,7 @@ def _aggressive_keys(probs: Dict[str, float]):
     sized abstract actions ('bet_67', 'raise_150', 'jam', 'all_in'); these are
     the keys to pump toward for a barrel.
     """
-    return [
-        a for a in probs
-        if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
-    ]
+    return [a for a in probs if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))]
 
 
 def _pump_bet(strategy: StrategyProfile, target: float) -> StrategyProfile:
@@ -233,15 +235,23 @@ def _pump_fold(strategy: StrategyProfile, target: float) -> StrategyProfile:
     if non_fold <= 0.0:
         return strategy
     scale = max(0.0, (non_fold - (target - current))) / non_fold
-    return StrategyProfile(action_probabilities={
-        a: (target if a == 'fold' else p * scale) for a, p in probs.items()
-    })
+    return StrategyProfile(
+        action_probabilities={a: (target if a == 'fold' else p * scale) for a, p in probs.items()}
+    )
 
 
-def _fire_trace(before: StrategyProfile, after: StrategyProfile, *,
-                rule_id: str, effect: str, reason_code: str,
-                signals: MultiStreetSignals, hand_class: str,
-                action_context: str, target: float) -> InterventionTrace:
+def _fire_trace(
+    before: StrategyProfile,
+    after: StrategyProfile,
+    *,
+    rule_id: str,
+    effect: str,
+    reason_code: str,
+    signals: MultiStreetSignals,
+    hand_class: str,
+    action_context: str,
+    target: float,
+) -> InterventionTrace:
     return InterventionTrace(
         layer=LAYER,
         rule_id=rule_id,
@@ -250,7 +260,8 @@ def _fire_trace(before: StrategyProfile, after: StrategyProfile, *,
         operation=InterventionOperation.OVERRIDE.value,
         effect=effect,
         effect_size=l1_distance(
-            before.action_probabilities, after.action_probabilities,
+            before.action_probabilities,
+            after.action_probabilities,
         ),
         action_changed=(
             primary_action(before.action_probabilities)
@@ -315,7 +326,10 @@ def apply_multistreet_context(
 
     if prior_layer_fired:
         return strategy, make_no_op_trace(
-            LAYER, 'default', order, reason_code='prior_override_active',
+            LAYER,
+            'default',
+            order,
+            reason_code='prior_override_active',
         )
 
     # ── H1: barrel / initiative continuation ────────────────────────────────
@@ -335,13 +349,21 @@ def apply_multistreet_context(
         new = _pump_bet(strategy, target)
         if new is not strategy:
             return new, _fire_trace(
-                strategy, new, rule_id='barrel', effect='pump_bet',
+                strategy,
+                new,
+                rule_id='barrel',
+                effect='pump_bet',
                 reason_code=f'barrel_continuation_{hand_class}',
-                signals=signals, hand_class=hand_class,
-                action_context=action_context, target=target,
+                signals=signals,
+                hand_class=hand_class,
+                action_context=action_context,
+                target=target,
             )
         return strategy, make_no_op_trace(
-            LAYER, 'barrel', order, reason_code='no_bet_action_or_above_target',
+            LAYER,
+            'barrel',
+            order,
+            reason_code='no_bet_action_or_above_target',
         )
 
     # ── H2: don't pay off double barrels ────────────────────────────────────
@@ -358,15 +380,26 @@ def apply_multistreet_context(
         new = _pump_fold(strategy, target)
         if new is not strategy:
             return new, _fire_trace(
-                strategy, new, rule_id='fold_barrel', effect='pump_fold',
+                strategy,
+                new,
+                rule_id='fold_barrel',
+                effect='pump_fold',
                 reason_code=f'fold_double_barrel_{hand_class}',
-                signals=signals, hand_class=hand_class,
-                action_context=action_context, target=target,
+                signals=signals,
+                hand_class=hand_class,
+                action_context=action_context,
+                target=target,
             )
         return strategy, make_no_op_trace(
-            LAYER, 'fold_barrel', order, reason_code='no_fold_action_or_above_target',
+            LAYER,
+            'fold_barrel',
+            order,
+            reason_code='no_fold_action_or_above_target',
         )
 
     return strategy, make_no_op_trace(
-        LAYER, 'default', order, reason_code='gates_not_met',
+        LAYER,
+        'default',
+        order,
+        reason_code='gates_not_met',
     )

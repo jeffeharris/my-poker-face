@@ -92,7 +92,10 @@ class ViceStateRepository(BaseRepository):
             )
 
     def list_active(
-        self, *, sandbox_id: str, now: datetime,
+        self,
+        *,
+        sandbox_id: str,
+        now: datetime,
     ) -> List[ViceState]:
         """Return vices whose `ends_at > now` in the sandbox."""
         with self._get_connection() as conn:
@@ -109,7 +112,10 @@ class ViceStateRepository(BaseRepository):
         return [_row_to_vice_state(r) for r in rows]
 
     def list_expired(
-        self, *, sandbox_id: str, now: datetime,
+        self,
+        *,
+        sandbox_id: str,
+        now: datetime,
     ) -> List[ViceState]:
         """Return vices whose `ends_at <= now` in the sandbox."""
         with self._get_connection() as conn:
@@ -126,7 +132,10 @@ class ViceStateRepository(BaseRepository):
         return [_row_to_vice_state(r) for r in rows]
 
     def load(
-        self, personality_id: str, *, sandbox_id: str,
+        self,
+        personality_id: str,
+        *,
+        sandbox_id: str,
     ) -> Optional[ViceState]:
         """Return the active vice row for this AI, or None."""
         with self._get_connection() as conn:
@@ -179,7 +188,10 @@ class ViceStateRepository(BaseRepository):
         return row is not None
 
     def active_pids(
-        self, *, sandbox_id: str, now: datetime,
+        self,
+        *,
+        sandbox_id: str,
+        now: datetime,
     ) -> set:
         """Return the set of personality_ids currently on vice.
 

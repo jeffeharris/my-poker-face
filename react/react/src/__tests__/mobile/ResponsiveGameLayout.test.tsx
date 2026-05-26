@@ -16,11 +16,7 @@ let lastDesktopProps: Record<string, unknown> = {};
 vi.mock('../../components/mobile', () => ({
   MobilePokerTable: (props: Record<string, unknown>) => {
     lastMobileProps = props;
-    return (
-      <div data-testid="mobile-poker-table">
-        MobilePokerTable
-      </div>
-    );
+    return <div data-testid="mobile-poker-table">MobilePokerTable</div>;
   },
 }));
 
@@ -28,11 +24,7 @@ vi.mock('../../components/mobile', () => ({
 vi.mock('../../components/game/PokerTable', () => ({
   PokerTable: (props: Record<string, unknown>) => {
     lastDesktopProps = props;
-    return (
-      <div data-testid="poker-table">
-        PokerTable
-      </div>
-    );
+    return <div data-testid="poker-table">PokerTable</div>;
   },
 }));
 

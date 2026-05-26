@@ -55,7 +55,7 @@ const TIER_LABELS: Record<TierStatus, string> = {
 
 const TIER_DESCRIPTIONS: Record<TierStatus, string> = {
   premium: 'Full sponsor pool — normal terms.',
-  standard: 'Some lenders won\'t back you. Cuts bumped slightly.',
+  standard: "Some lenders won't back you. Cuts bumped slightly.",
   restricted: 'Only forgiving lenders. Cuts noticeably steeper.',
   house_only: 'No personality offers. House stake only.',
 };
@@ -100,7 +100,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
         getForgivenessRequests().catch((e) => {
           logger.error(
             'Failed to load forgiveness requests:',
-            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? e.message : String(e)
           );
           return { requests: [] as ForgivenessRequest[] };
         }),
@@ -145,7 +145,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
         setBusyStakeId(null);
       }
     },
-    [load, onPayoff],
+    [load, onPayoff]
   );
 
   const handleForgiveness = useCallback(
@@ -187,7 +187,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
         setBusyStakeId(null);
       }
     },
-    [load, onPayoff],
+    [load, onPayoff]
   );
 
   /** v110 — player's decision on an AI-initiated forgiveness ask.
@@ -213,7 +213,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
         setBusyStakeId(null);
       }
     },
-    [load, onPayoff],
+    [load, onPayoff]
   );
 
   if (!isOpen) return null;
@@ -223,10 +223,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
   // paints over the centered sheet's close button. See CharacterDetailCard.
   return createPortal(
     <div className="net-worth-drawer__overlay" onClick={onClose}>
-      <div
-        className="net-worth-drawer__sheet"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="net-worth-drawer__sheet" onClick={(e) => e.stopPropagation()}>
         <div className="net-worth-drawer__header">
           <div className="net-worth-drawer__title-row">
             <h2 className="net-worth-drawer__title">
@@ -245,7 +242,9 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
           {data && (
             <div className="net-worth-drawer__subtitle">
               {data.tier_stake_label} stakes —{' '}
-              <span className={`net-worth-drawer__tier net-worth-drawer__tier--${data.tier_status}`}>
+              <span
+                className={`net-worth-drawer__tier net-worth-drawer__tier--${data.tier_status}`}
+              >
                 {TIER_LABELS[data.tier_status]} tier
               </span>
             </div>
@@ -258,9 +257,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
               {loadError}
             </div>
           )}
-          {data === null && !loadError && (
-            <div className="net-worth-drawer__loading">Loading…</div>
-          )}
+          {data === null && !loadError && <div className="net-worth-drawer__loading">Loading…</div>}
           {data !== null && (
             <NetWorthBody
               data={data}
@@ -276,7 +273,7 @@ export function NetWorthDrawer({ isOpen, onClose, onPayoff }: NetWorthDrawerProp
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }
 
@@ -306,18 +303,14 @@ function NetWorthBody({
       <section className="net-worth-drawer__summary">
         <div className="net-worth-drawer__summary-row">
           <span>Bankroll</span>
-          <span className="net-worth-drawer__amount">
-            ${data.bankroll.toLocaleString()}
-          </span>
+          <span className="net-worth-drawer__amount">${data.bankroll.toLocaleString()}</span>
         </div>
         <div className="net-worth-drawer__summary-row">
           <span>Net worth</span>
           <span
             className={
               'net-worth-drawer__amount' +
-              (data.net_worth < data.bankroll
-                ? ' net-worth-drawer__amount--negative'
-                : '')
+              (data.net_worth < data.bankroll ? ' net-worth-drawer__amount--negative' : '')
             }
           >
             ${data.net_worth.toLocaleString()}
@@ -326,16 +319,11 @@ function NetWorthBody({
         <div className="net-worth-drawer__summary-row net-worth-drawer__summary-row--muted">
           <span>
             Carry headroom
-            <span className="net-worth-drawer__hint">
-              {' '}
-              cap ${data.carry_cap.toLocaleString()}
-            </span>
+            <span className="net-worth-drawer__hint"> cap ${data.carry_cap.toLocaleString()}</span>
           </span>
           <span>${data.available.toLocaleString()}</span>
         </div>
-        <p className="net-worth-drawer__tier-explainer">
-          {TIER_DESCRIPTIONS[data.tier_status]}
-        </p>
+        <p className="net-worth-drawer__tier-explainer">{TIER_DESCRIPTIONS[data.tier_status]}</p>
       </section>
 
       {payoffError && (
@@ -369,9 +357,7 @@ function NetWorthBody({
       <section className="net-worth-drawer__column">
         <h3 className="net-worth-drawer__column-title">
           Payables
-          <span className="net-worth-drawer__column-count">
-            {data.payables.length}
-          </span>
+          <span className="net-worth-drawer__column-count">{data.payables.length}</span>
         </h3>
         {data.payables.length === 0 ? (
           <p className="net-worth-drawer__empty">No outstanding carries.</p>
@@ -386,11 +372,7 @@ function NetWorthBody({
                 disabled={busyStakeId !== null && busyStakeId !== p.stake_id}
                 onPayoff={onPayoff}
                 onForgiveness={onForgiveness}
-                notice={
-                  forgivenessNotice?.stakeId === p.stake_id
-                    ? forgivenessNotice
-                    : null
-                }
+                notice={forgivenessNotice?.stakeId === p.stake_id ? forgivenessNotice : null}
               />
             ))}
           </ul>
@@ -400,9 +382,7 @@ function NetWorthBody({
       <section className="net-worth-drawer__column">
         <h3 className="net-worth-drawer__column-title">
           Receivables
-          <span className="net-worth-drawer__column-count">
-            {data.receivables.length}
-          </span>
+          <span className="net-worth-drawer__column-count">{data.receivables.length}</span>
         </h3>
         {data.receivables.length === 0 ? (
           <p className="net-worth-drawer__empty">
@@ -420,14 +400,11 @@ function NetWorthBody({
       <section className="net-worth-drawer__column">
         <h3 className="net-worth-drawer__column-title">
           History
-          <span className="net-worth-drawer__column-count">
-            {data.history.length}
-          </span>
+          <span className="net-worth-drawer__column-count">{data.history.length}</span>
         </h3>
         {data.history.length === 0 ? (
           <p className="net-worth-drawer__empty">
-            No closed-out stakes yet — settled and defaulted stakes will
-            appear here.
+            No closed-out stakes yet — settled and defaulted stakes will appear here.
           </p>
         ) : (
           <ul className="net-worth-drawer__list net-worth-drawer__list--history">
@@ -528,16 +505,13 @@ function HistoryRow({ row }: HistoryRowProps) {
   // Payout the player actually received on this stake — the "how much
   // came back to me" number. Surfaced separately from net so a small
   // win on a big stake still shows the full pay-back amount.
-  const payout =
-    row.role === 'staker' ? row.staker_payout : row.borrower_payout;
+  const payout = row.role === 'staker' ? row.staker_payout : row.borrower_payout;
 
   return (
     <li
       className={
         'net-worth-drawer__row net-worth-drawer__row--history' +
-        (defaulted
-          ? ' net-worth-drawer__row--defaulted'
-          : ' net-worth-drawer__row--settled')
+        (defaulted ? ' net-worth-drawer__row--defaulted' : ' net-worth-drawer__row--settled')
       }
     >
       <div className="net-worth-drawer__row-main">
@@ -564,15 +538,14 @@ function HistoryRow({ row }: HistoryRowProps) {
                     : '')
               }
             >
-              {net > 0 ? '+' : net < 0 ? '−' : ''}$
-              {Math.abs(net).toLocaleString()}
+              {net > 0 ? '+' : net < 0 ? '−' : ''}${Math.abs(net).toLocaleString()}
             </span>
           )}
         </div>
         <div className="net-worth-drawer__row-meta">
           <span>
-            {row.role === 'staker' ? 'You staked' : 'They staked you'} for{' '}
-            ${row.principal.toLocaleString()}
+            {row.role === 'staker' ? 'You staked' : 'They staked you'} for $
+            {row.principal.toLocaleString()}
           </span>
           <span className="net-worth-drawer__row-sep">·</span>
           <span className="net-worth-drawer__hint">
@@ -591,8 +564,7 @@ function HistoryRow({ row }: HistoryRowProps) {
         )}
         {!hasNet && (
           <div className="net-worth-drawer__row-status-line net-worth-drawer__row-status-line--muted">
-            P&L for this stake wasn't captured (settled before history
-            tracking was added).
+            P&L for this stake wasn't captured (settled before history tracking was added).
           </div>
         )}
       </div>
@@ -621,9 +593,7 @@ function ReceivableRow({ receivable }: ReceivableRowProps) {
     <li
       className={
         'net-worth-drawer__row' +
-        (isActive
-          ? ' net-worth-drawer__row--active'
-          : ' net-worth-drawer__row--carry')
+        (isActive ? ' net-worth-drawer__row--active' : ' net-worth-drawer__row--carry')
       }
     >
       <div className="net-worth-drawer__row-main">
@@ -642,8 +612,7 @@ function ReceivableRow({ receivable }: ReceivableRowProps) {
         </div>
         <div className="net-worth-drawer__row-meta">
           <span>
-            ${receivable.amount.toLocaleString()}{' '}
-            {isActive ? 'at the table' : 'owed to you'}
+            ${receivable.amount.toLocaleString()} {isActive ? 'at the table' : 'owed to you'}
           </span>
           <span className="net-worth-drawer__row-sep">·</span>
           <span className="net-worth-drawer__hint">
@@ -655,17 +624,14 @@ function ReceivableRow({ receivable }: ReceivableRowProps) {
           {receivable.created_at && (
             <>
               <span className="net-worth-drawer__row-sep">·</span>
-              <span className="net-worth-drawer__hint">
-                {formatAge(receivable.created_at)}
-              </span>
+              <span className="net-worth-drawer__hint">{formatAge(receivable.created_at)}</span>
             </>
           )}
         </div>
         {isActive && (
           <div className="net-worth-drawer__row-status-line">
-            Settles when {receivable.borrower_display_name} leaves the
-            table — you recover the principal first, then split the
-            upside per your cut.
+            Settles when {receivable.borrower_display_name} leaves the table — you recover the
+            principal first, then split the upside per your cut.
           </div>
         )}
       </div>
@@ -684,12 +650,7 @@ interface ForgivenessRequestRowProps {
  *  Surfaces above payables since it's actionable AND time-sensitive.
  *  Grant clears the carry + warms the AI's view of the player; refuse
  *  keeps the carry on the books + cools the relationship. */
-function ForgivenessRequestRow({
-  request,
-  busy,
-  disabled,
-  onDecide,
-}: ForgivenessRequestRowProps) {
+function ForgivenessRequestRow({ request, busy, disabled, onDecide }: ForgivenessRequestRowProps) {
   const handleGrant = useCallback(() => {
     if (busy || disabled) return;
     onDecide(request, true);
@@ -708,13 +669,9 @@ function ForgivenessRequestRow({
           </span>
         </div>
         <div className="net-worth-drawer__row-meta">
-          <span>
-            wants you to forgive ${request.carry_amount.toLocaleString()}
-          </span>
+          <span>wants you to forgive ${request.carry_amount.toLocaleString()}</span>
           <span className="net-worth-drawer__row-sep">·</span>
-          <span className="net-worth-drawer__hint">
-            {request.stake_tier} carry
-          </span>
+          <span className="net-worth-drawer__hint">{request.stake_tier} carry</span>
           {request.pending_since && (
             <>
               <span className="net-worth-drawer__row-sep">·</span>
@@ -725,8 +682,8 @@ function ForgivenessRequestRow({
           )}
         </div>
         <div className="net-worth-drawer__row-status-line">
-          Grant to clear the carry (warmer relationship). Refuse to
-          keep it on the books (cooler relationship).
+          Grant to clear the carry (warmer relationship). Refuse to keep it on the books (cooler
+          relationship).
         </div>
       </div>
       <div className="net-worth-drawer__row-actions">
@@ -784,9 +741,7 @@ function PayableRow({
   return (
     <li className="net-worth-drawer__row">
       <div className="net-worth-drawer__row-main">
-        <div className="net-worth-drawer__row-name">
-          {payable.staker_display_name}
-        </div>
+        <div className="net-worth-drawer__row-name">{payable.staker_display_name}</div>
         <div className="net-worth-drawer__row-meta">
           <span>${payable.carry_amount.toLocaleString()} owed</span>
           <span className="net-worth-drawer__row-sep">·</span>
@@ -796,9 +751,7 @@ function PayableRow({
           {payable.created_at && (
             <>
               <span className="net-worth-drawer__row-sep">·</span>
-              <span className="net-worth-drawer__hint">
-                {formatAge(payable.created_at)}
-              </span>
+              <span className="net-worth-drawer__hint">{formatAge(payable.created_at)}</span>
             </>
           )}
         </div>

@@ -7,7 +7,7 @@ from pathlib import Path
 # Load personalities
 personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
 
-with open(personalities_file, 'r') as f:
+with open(personalities_file) as f:
     data = json.load(f)
 
 print("Current Personalities:")
@@ -18,12 +18,12 @@ for name, config in data['personalities'].items():
     print(f"\n{name}:")
     print(f"  Play Style: {config.get('play_style', 'unknown')}")
     print(f"  Confidence: {config.get('default_confidence', 'unknown')}")
-    print(f"  Traits:")
+    print("  Traits:")
     print(f"    - Bluff: {traits.get('bluff_tendency', 0):.0%}")
     print(f"    - Aggression: {traits.get('aggression', 0):.0%}")
     print(f"    - Chattiness: {traits.get('chattiness', 0):.0%}")
     print(f"    - Emoji Usage: {traits.get('emoji_usage', 0):.0%}")
-    
+
     if config.get('verbal_tics'):
         print(f"  Verbal Tics: {len(config['verbal_tics'])} phrases")
     if config.get('physical_tics'):

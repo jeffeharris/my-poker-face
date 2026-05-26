@@ -1,4 +1,5 @@
 """Commentary filtering logic - determines who can comment when."""
+
 import logging
 from typing import Set
 
@@ -8,9 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def should_player_comment(
-    player_name: str,
-    recorded_hand: RecordedHand,
-    is_eliminated: bool = False
+    player_name: str, recorded_hand: RecordedHand, is_eliminated: bool = False
 ) -> bool:
     """Determine if player should generate post-hand commentary.
 
@@ -43,9 +42,7 @@ def should_player_comment(
         # (others already spoke when folding, spectators have nothing to heckle)
         winner_names: Set[str] = {w.name for w in recorded_hand.winners}
         if player_name not in winner_names:
-            logger.debug(
-                f"Skipping {player_name}: preflop fold-out, no all-in, not winner"
-            )
+            logger.debug(f"Skipping {player_name}: preflop fold-out, no all-in, not winner")
             return False
         logger.debug(f"{player_name} won preflop - allowing commentary")
 

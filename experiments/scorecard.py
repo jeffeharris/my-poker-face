@@ -17,11 +17,11 @@ From Python:
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
-import os
 from collections import defaultdict
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Dict, List, Optional
 
 # Allow running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -145,7 +145,9 @@ class Scorecard:
             raise ValueError(f"Experiment {experiment_id} not found")
         return dict(row)
 
-    def _get_variant_game_ids(self, conn: sqlite3.Connection, experiment_id: int) -> Dict[str, List[str]]:
+    def _get_variant_game_ids(
+        self, conn: sqlite3.Connection, experiment_id: int
+    ) -> Dict[str, List[str]]:
         rows = conn.execute(
             "SELECT game_id, variant FROM experiment_games WHERE experiment_id = ?",
             (experiment_id,),
@@ -166,7 +168,8 @@ class Scorecard:
         has_metadata = "metadata_json" in columns
 
         meta_col = ", metadata_json" if has_metadata else ""
-        rows = conn.execute(f"""
+        rows = conn.execute(
+            f"""
             SELECT game_id, player_name, hand_number, phase,
                    action_taken, raise_amount, pot_total, cost_to_call,
                    player_stack{meta_col}
@@ -174,7 +177,9 @@ class Scorecard:
             WHERE game_id IN ({placeholders})
               AND action_taken IS NOT NULL
             ORDER BY game_id, hand_number, id
-        """, game_ids).fetchall()
+        """,
+            game_ids,
+        ).fetchall()
         results = [dict(r) for r in rows]
         # Ensure metadata_json key exists for downstream code
         if not has_metadata:
@@ -188,14 +193,17 @@ class Scorecard:
         placeholders = ",".join("?" * len(game_ids))
         # Check if table has rows for these games
         try:
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT game_id, player_name, hand_number, phase,
                        equity, required_equity, ev_lost,
                        decision_quality, action_taken
                 FROM player_decision_analysis
                 WHERE game_id IN ({placeholders})
                 ORDER BY game_id, hand_number, id
-            """, game_ids).fetchall()
+            """,
+                game_ids,
+            ).fetchall()
             return [dict(r) for r in rows]
         except sqlite3.OperationalError:
             return []
@@ -205,12 +213,15 @@ class Scorecard:
             return []
         placeholders = ",".join("?" * len(game_ids))
         try:
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT game_id, player_name, finishing_position,
                        eliminated_by, eliminated_at_hand
                 FROM tournament_standings
                 WHERE game_id IN ({placeholders})
-            """, game_ids).fetchall()
+            """,
+                game_ids,
+            ).fetchall()
             return [dict(r) for r in rows]
         except sqlite3.OperationalError:
             return []
@@ -220,12 +231,15 @@ class Scorecard:
             return []
         placeholders = ",".join("?" * len(game_ids))
         try:
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT game_id, estimated_cost, input_tokens, output_tokens,
                        latency_ms
                 FROM api_usage
                 WHERE game_id IN ({placeholders})
-            """, game_ids).fetchall()
+            """,
+                game_ids,
+            ).fetchall()
             return [dict(r) for r in rows]
         except sqlite3.OperationalError:
             return []
@@ -245,8 +259,7 @@ class Scorecard:
             if not options:
                 continue
             has_plus_ev_raise = any(
-                o.get("action") == "raise" and o.get("ev_estimate") == "+EV"
-                for o in options
+                o.get("action") == "raise" and o.get("ev_estimate") == "+EV" for o in options
             )
             if has_plus_ev_raise:
                 raise_offered += 1
@@ -266,7 +279,8 @@ class Scorecard:
 
         # Fold accuracy: when equity < required_equity * 0.85, did player fold?
         should_fold = [
-            a for a in analysis
+            a
+            for a in analysis
             if a["equity"] is not None
             and a["required_equity"] is not None
             and a["equity"] < a["required_equity"] * 0.85
@@ -294,8 +308,12 @@ class Scorecard:
 
         # EV lost / 100 hands
         total_ev_lost = sum(a["ev_lost"] or 0 for a in analysis)
-        hand_count = len({(a["game_id"], a["hand_number"]) for a in analysis if a["hand_number"] is not None})
-        result["ev_lost_per_100"] = round(total_ev_lost / hand_count * 100, 1) if hand_count else None
+        hand_count = len(
+            {(a["game_id"], a["hand_number"]) for a in analysis if a["hand_number"] is not None}
+        )
+        result["ev_lost_per_100"] = (
+            round(total_ev_lost / hand_count * 100, 1) if hand_count else None
+        )
 
         return result
 
@@ -311,7 +329,9 @@ class Scorecard:
             postflop = [d for d in decs if d["phase"] in ("FLOP", "TURN", "RIVER")]
 
             # VPIP
-            vpip_actions = sum(1 for d in preflop if d["action_taken"] in ("call", "raise", "all_in"))
+            vpip_actions = sum(
+                1 for d in preflop if d["action_taken"] in ("call", "raise", "all_in")
+            )
             vpip = _safe_pct(vpip_actions, len(preflop))
 
             # Postflop aggression
@@ -319,7 +339,11 @@ class Scorecard:
             pf_agg = _safe_pct(pf_agg_actions, len(postflop))
 
             # Check rate with strong hands (equity >= 0.65)
-            strong_postflop = [d for d in postflop if self._get_equity(d) is not None and self._get_equity(d) >= 0.65]
+            strong_postflop = [
+                d
+                for d in postflop
+                if self._get_equity(d) is not None and self._get_equity(d) >= 0.65
+            ]
             strong_checks = sum(1 for d in strong_postflop if d["action_taken"] == "check")
             check_strong = _safe_pct(strong_checks, len(strong_postflop))
 
@@ -334,7 +358,9 @@ class Scorecard:
 
         # Profile differentiation: VPIP spread
         vpip_values = [p["vpip"] for p in players.values() if p["vpip"] is not None]
-        differentiation = round(max(vpip_values) - min(vpip_values), 1) if len(vpip_values) >= 2 else None
+        differentiation = (
+            round(max(vpip_values) - min(vpip_values), 1) if len(vpip_values) >= 2 else None
+        )
 
         return {"players": players, "vpip_spread": differentiation}
 
@@ -360,14 +386,18 @@ class Scorecard:
         return {
             "option1_rate": _safe_pct(option1_matches, option1_total),
             "option1_n": option1_total,
-            "avg_options": round(sum(total_option_counts) / len(total_option_counts), 1) if total_option_counts else None,
+            "avg_options": round(sum(total_option_counts) / len(total_option_counts), 1)
+            if total_option_counts
+            else None,
         }
 
     def _compute_outcomes(self, standings: List[Dict]) -> Dict:
         if not standings:
             return {"avg_finish": None, "bust_rate": None}
 
-        positions = [s["finishing_position"] for s in standings if s["finishing_position"] is not None]
+        positions = [
+            s["finishing_position"] for s in standings if s["finishing_position"] is not None
+        ]
         avg_finish = round(sum(positions) / len(positions), 2) if positions else None
 
         # Bust-out rate: players who were eliminated (have eliminated_by set)
@@ -452,7 +482,16 @@ class Scorecard:
             for v in variants:
                 row.append(fmt_fn(dq[v].get(key)))
             if b_dq:
-                row.append(self._delta_str(dq, b_dq, variants, key, fmt_fn, invert=(key == "blunder_rate" or key == "ev_lost_per_100")))
+                row.append(
+                    self._delta_str(
+                        dq,
+                        b_dq,
+                        variants,
+                        key,
+                        fmt_fn,
+                        invert=(key == "blunder_rate" or key == "ev_lost_per_100"),
+                    )
+                )
             rows.append(row)
         lines.extend(_md_table(header, rows))
         lines.append("")
@@ -465,19 +504,24 @@ class Scorecard:
         for v in variants:
             players = beh[v]["players"]
             for player, stats in sorted(players.items()):
-                beh_rows.append([
-                    player, v,
-                    _fmt_pct(stats["vpip"]),
-                    _fmt_pct(stats["postflop_aggression"]),
-                    _fmt_pct(stats["check_strong_rate"]),
-                ])
+                beh_rows.append(
+                    [
+                        player,
+                        v,
+                        _fmt_pct(stats["vpip"]),
+                        _fmt_pct(stats["postflop_aggression"]),
+                        _fmt_pct(stats["check_strong_rate"]),
+                    ]
+                )
         lines.extend(_md_table(beh_header, beh_rows))
 
         # Differentiation
         for v in variants:
             spread = beh[v]["vpip_spread"]
             if spread is not None:
-                indicator = "\u2705" if spread >= 15 else "\u26a0\ufe0f" if spread >= 8 else "\u274c"
+                indicator = (
+                    "\u2705" if spread >= 15 else "\u26a0\ufe0f" if spread >= 8 else "\u274c"
+                )
                 lines.append(f"  {v} VPIP spread: {spread:.1f}pp {indicator} (target >15pp)")
         lines.append("")
 
@@ -508,8 +552,18 @@ class Scorecard:
         co = metrics["costs"]
         co_header = ["Metric"] + variants
         co_rows = [
-            ["Total cost"] + [f"${co[v]['total_cost']:.4f}" if co[v]["total_cost"] is not None else "N/A" for v in variants],
-            ["Cost / decision"] + [f"${co[v]['cost_per_decision']:.4f}" if co[v]["cost_per_decision"] is not None else "N/A" for v in variants],
+            ["Total cost"]
+            + [
+                f"${co[v]['total_cost']:.4f}" if co[v]["total_cost"] is not None else "N/A"
+                for v in variants
+            ],
+            ["Cost / decision"]
+            + [
+                f"${co[v]['cost_per_decision']:.4f}"
+                if co[v]["cost_per_decision"] is not None
+                else "N/A"
+                for v in variants
+            ],
             ["Avg latency (ms)"] + [_fmt_num(co[v]["avg_latency"]) for v in variants],
         ]
         lines.extend(_md_table(co_header, co_rows))
@@ -568,6 +622,7 @@ class Scorecard:
 #  Utility functions
 # ====================================================================== #
 
+
 def _safe_pct(numerator: int, denominator: int) -> Optional[float]:
     """Return percentage (0-100) or None if denominator is zero."""
     if denominator == 0:
@@ -607,18 +662,23 @@ def _md_table(header: List[str], rows: List[List[str]]) -> List[str]:
 
     lines = []
     # Header
-    lines.append("| " + " | ".join(str(h).ljust(w) for h, w in zip(header, widths)) + " |")
+    lines.append(
+        "| " + " | ".join(str(h).ljust(w) for h, w in zip(header, widths, strict=False)) + " |"
+    )
     # Separator
     lines.append("|" + "|".join("-" * (w + 2) for w in widths) + "|")
     # Rows
     for row in rows:
-        lines.append("| " + " | ".join(str(c).ljust(w) for c, w in zip(row, widths)) + " |")
+        lines.append(
+            "| " + " | ".join(str(c).ljust(w) for c, w in zip(row, widths, strict=False)) + " |"
+        )
     return lines
 
 
 # ====================================================================== #
 #  CLI
 # ====================================================================== #
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -627,8 +687,12 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("experiment_id", type=int, help="Experiment ID to evaluate")
-    parser.add_argument("--compare", type=int, metavar="BASELINE_ID",
-                        help="Baseline experiment ID for delta comparison")
+    parser.add_argument(
+        "--compare",
+        type=int,
+        metavar="BASELINE_ID",
+        help="Baseline experiment ID for delta comparison",
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--db", type=str, help="Path to database file")
 

@@ -113,9 +113,9 @@ MAX_RECOVERY = 0.40
 # --- Duration constants -----------------------------------------------------
 
 DURATION_RANGES: Dict[str, Tuple[timedelta, timedelta]] = {
-    'short':  (timedelta(minutes=15), timedelta(minutes=30)),
+    'short': (timedelta(minutes=15), timedelta(minutes=30)),
     'medium': (timedelta(minutes=30), timedelta(minutes=90)),
-    'long':   (timedelta(minutes=90), timedelta(minutes=240)),
+    'long': (timedelta(minutes=90), timedelta(minutes=240)),
 }
 """Wall-time ranges per bucket. The LLM picks the bucket; the duration
 is sampled uniformly within the range so two same-bucket vices don't
@@ -230,7 +230,9 @@ def compute_excess_ratio(bankroll: int, cast_median: int) -> float:
 
 
 def compute_pressure(
-    confidence: float, composure: float, energy: float,
+    confidence: float,
+    composure: float,
+    energy: float,
 ) -> float:
     """Pressure = 1 − min(conf, comp, energy).
 
@@ -248,7 +250,8 @@ def compute_pressure(
 
 
 def compute_vice_probability(
-    excess_ratio: float, pressure: float,
+    excess_ratio: float,
+    pressure: float,
 ) -> float:
     """Per-refresh vice probability.
 
@@ -404,12 +407,14 @@ def _load_psych_snapshot(
     """
     try:
         blob = bankroll_repo.load_emotional_state_json(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
             "[VICE] load_emotional_state_json failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
     if not blob:
@@ -419,7 +424,8 @@ def _load_psych_snapshot(
     except (TypeError, ValueError) as exc:
         logger.warning(
             "[VICE] emotional_state_json malformed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
     # The blob structure is `PlayerPsychology.to_dict()` — axes live
@@ -448,7 +454,8 @@ def _load_anchors_dict(
     except Exception as exc:
         logger.warning(
             "[VICE] load_personality_by_id failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
     if not isinstance(config, dict):
@@ -456,11 +463,7 @@ def _load_anchors_dict(
     anchors_blob = config.get('anchors')
     if not isinstance(anchors_blob, dict):
         return None
-    return {
-        k: float(v)
-        for k, v in anchors_blob.items()
-        if isinstance(v, (int, float))
-    }
+    return {k: float(v) for k, v in anchors_blob.items() if isinstance(v, int | float)}
 
 
 def _apply_psych_recovery(
@@ -494,12 +497,14 @@ def _apply_psych_recovery(
     blob = None
     try:
         blob = bankroll_repo.load_emotional_state_json(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
             "[VICE] load_emotional_state_json failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return False
     if not blob:
@@ -535,8 +540,12 @@ def _apply_psych_recovery(
 
     factor = compute_recovery_factor(amount)
     new_conf, new_comp, new_energy = compute_recovered_axes(
-        current_conf, current_comp, current_energy,
-        baseline_conf, baseline_comp, baseline_energy,
+        current_conf,
+        current_comp,
+        current_energy,
+        baseline_conf,
+        baseline_comp,
+        baseline_energy,
         factor,
     )
 
@@ -555,7 +564,8 @@ def _apply_psych_recovery(
     except Exception as exc:
         logger.warning(
             "[VICE] save_emotional_state_json failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return False
     return True
@@ -604,7 +614,8 @@ def tick_vice_expirations(
         except Exception as exc:
             logger.warning(
                 "[VICE] recovery failed pid=%r: %s",
-                v.personality_id, exc,
+                v.personality_id,
+                exc,
             )
 
         try:
@@ -612,21 +623,24 @@ def tick_vice_expirations(
         except Exception as exc:
             logger.warning(
                 "[VICE] delete failed pid=%r: %s",
-                v.personality_id, exc,
+                v.personality_id,
+                exc,
             )
             # If we couldn't delete, don't emit the end event — better
             # to retry next refresh than to mislead the player.
             continue
 
-        out.append(ViceEndResult(
-            personality_id=v.personality_id,
-            started_at=v.started_at,
-            ends_at=v.ends_at,
-            amount=v.amount,
-            duration_bucket=v.duration_bucket,
-            narration=v.narration,
-            recovery_applied=recovery_applied,
-        ))
+        out.append(
+            ViceEndResult(
+                personality_id=v.personality_id,
+                started_at=v.started_at,
+                ends_at=v.ends_at,
+                amount=v.amount,
+                duration_bucket=v.duration_bucket,
+                narration=v.narration,
+                recovery_applied=recovery_applied,
+            )
+        )
 
     return out
 
@@ -696,12 +710,15 @@ def resolve_ai_vice_spending(
     for pid in candidates:
         try:
             current = bankroll_repo.load_ai_bankroll_current(
-                pid, sandbox_id=sandbox_id, now=now,
+                pid,
+                sandbox_id=sandbox_id,
+                now=now,
             )
         except Exception as exc:
             logger.warning(
                 "[VICE] load_ai_bankroll_current failed pid=%r: %s",
-                pid, exc,
+                pid,
+                exc,
             )
             continue
         if current is None or current <= 0:
@@ -712,7 +729,8 @@ def resolve_ai_vice_spending(
         except Exception as exc:
             logger.warning(
                 "[VICE] load_personality_knobs failed pid=%r: %s",
-                pid, exc,
+                pid,
+                exc,
             )
             continue
 
@@ -735,7 +753,9 @@ def resolve_ai_vice_spending(
             pressure = compute_pressure(0.7, 0.7, 0.7)
         else:
             pressure = compute_pressure(
-                psych['confidence'], psych['composure'], psych['energy'],
+                psych['confidence'],
+                psych['composure'],
+                psych['energy'],
             )
 
         prob = compute_vice_probability(excess, pressure)
@@ -745,7 +765,10 @@ def resolve_ai_vice_spending(
             continue
 
         amount = compute_vice_amount(
-            current, knobs.starting_bankroll, excess, rng,
+            current,
+            knobs.starting_bankroll,
+            excess,
+            rng,
         )
         if amount <= 0:
             continue
@@ -768,7 +791,8 @@ def resolve_ai_vice_spending(
         except Exception as exc:
             logger.warning(
                 "[VICE] narrate_fn failed pid=%r: %s; using fallback",
-                pid, exc,
+                pid,
+                exc,
             )
             narration, duration_bucket = _templated_narrate_fn(pid, amount, psych)
         if duration_bucket not in DURATION_RANGES:
@@ -828,12 +852,14 @@ def _commit_vice_start(
 
     try:
         stored = bankroll_repo.load_ai_bankroll(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as exc:
         logger.warning(
             "[VICE] load_ai_bankroll failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
     if stored is None:
@@ -846,12 +872,16 @@ def _commit_vice_start(
     except Exception as exc:
         logger.warning(
             "[VICE] load_personality_knobs failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
 
     projected = project_bankroll(
-        stored, knobs.starting_bankroll, knobs.bankroll_rate, started_at,
+        stored,
+        knobs.starting_bankroll,
+        knobs.bankroll_rate,
+        started_at,
     )
     # Defensive double-check: the candidate-set roll already ran the
     # floor-protection guard, but bankroll may have changed since
@@ -888,7 +918,8 @@ def _commit_vice_start(
     except Exception as exc:
         logger.warning(
             "[VICE] save_ai_bankroll failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         return None
 
@@ -912,20 +943,24 @@ def _commit_vice_start(
     # is already committed — we'd rather have a phantom debit than
     # a vice with no expiry timer. Log + continue.
     from poker.repositories.vice_state_repository import ViceState
+
     try:
-        vice_repo.insert_vice_state(ViceState(
-            personality_id=personality_id,
-            sandbox_id=sandbox_id,
-            started_at=started_at,
-            ends_at=ends_at,
-            amount=amount,
-            duration_bucket=duration_bucket,
-            narration=narration,
-        ))
+        vice_repo.insert_vice_state(
+            ViceState(
+                personality_id=personality_id,
+                sandbox_id=sandbox_id,
+                started_at=started_at,
+                ends_at=ends_at,
+                amount=amount,
+                duration_bucket=duration_bucket,
+                narration=narration,
+            )
+        )
     except Exception as exc:
         logger.warning(
             "[VICE] insert_vice_state failed pid=%r: %s",
-            personality_id, exc,
+            personality_id,
+            exc,
         )
         # The chip move stuck but no state row exists. Best-effort:
         # return the result so the ticker still surfaces the event,
@@ -934,7 +969,10 @@ def _commit_vice_start(
 
     logger.info(
         "[VICE] fired pid=%r amount=%d bucket=%s ends=%s",
-        personality_id, amount, duration_bucket, ends_at.isoformat(),
+        personality_id,
+        amount,
+        duration_bucket,
+        ends_at.isoformat(),
     )
 
     return ViceStartResult(

@@ -25,14 +25,20 @@ from poker.memory.relationship_events import RelationshipEvent
 
 def _player(name: str, stack: int = 1000) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position="BTN", is_human=False,
+        name=name,
+        starting_stack=stack,
+        position="BTN",
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="RIVER", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -87,9 +93,14 @@ class TestDominatedShowdownFires:
                 _action("alice", "check", 0, phase="RIVER", pot_after=150),
                 _action("bob", "check", 0, phase="RIVER", pot_after=150),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=150, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=150,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -114,9 +125,14 @@ class TestDominatedShowdownDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=150),
                 _action("bob", "check", 0, phase="RIVER", pot_after=150),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=150, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=150,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -137,9 +153,14 @@ class TestDominatedShowdownDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=50),
                 _action("bob", "check", 0, phase="RIVER", pot_after=50),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=50, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=50,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -155,9 +176,14 @@ class TestDominatedShowdownDoesNotFire:
                 _action("alice", "raise", 50, phase="PRE_FLOP", pot_after=50),
                 _action("bob", "fold", 0, phase="PRE_FLOP", pot_after=50),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=50, hand_name="Pair", hand_rank=9,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=50,
+                    hand_name="Pair",
+                    hand_rank=9,
+                )
+            ],
             was_showdown=False,
         )
 

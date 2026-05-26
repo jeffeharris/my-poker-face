@@ -107,12 +107,7 @@
      =========================================== */
 
   /* Background Gradients */
-  --gradient-bg-main: linear-gradient(165deg,
-    #0a0b10 0%,
-    #0f1118 25%,
-    #0a0b10 50%,
-    #080910 100%
-  );
+  --gradient-bg-main: linear-gradient(165deg, #0a0b10 0%, #0f1118 25%, #0a0b10 50%, #080910 100%);
 
   --gradient-bg-radial: radial-gradient(
     ellipse 80% 50% at 50% -20%,
@@ -127,28 +122,39 @@
   );
 
   /* Card/Surface Gradients */
-  --gradient-card: linear-gradient(145deg,
-    rgba(25, 28, 35, 0.8) 0%,
-    rgba(15, 17, 22, 0.9) 100%
-  );
+  --gradient-card: linear-gradient(145deg, rgba(25, 28, 35, 0.8) 0%, rgba(15, 17, 22, 0.9) 100%);
 
-  --gradient-card-hover: linear-gradient(145deg,
+  --gradient-card-hover: linear-gradient(
+    145deg,
     rgba(30, 34, 42, 0.85) 0%,
     rgba(20, 22, 28, 0.9) 100%
   );
 
   /* Accent Gradients */
   --gradient-gold: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
-  --gradient-gold-shine: linear-gradient(135deg,
+  --gradient-gold-shine: linear-gradient(
+    135deg,
     var(--color-gold-bright) 0%,
     var(--color-gold) 50%,
     var(--color-gold-dark) 100%
   );
 
-  --gradient-emerald: linear-gradient(135deg, var(--color-emerald) 0%, var(--color-emerald-dark) 100%);
-  --gradient-sapphire: linear-gradient(135deg, var(--color-sapphire) 0%, var(--color-sapphire-dark) 100%);
+  --gradient-emerald: linear-gradient(
+    135deg,
+    var(--color-emerald) 0%,
+    var(--color-emerald-dark) 100%
+  );
+  --gradient-sapphire: linear-gradient(
+    135deg,
+    var(--color-sapphire) 0%,
+    var(--color-sapphire-dark) 100%
+  );
   --gradient-ruby: linear-gradient(135deg, var(--color-ruby) 0%, var(--color-ruby-dark) 100%);
-  --gradient-amethyst: linear-gradient(135deg, var(--color-amethyst) 0%, var(--color-amethyst-dark) 100%);
+  --gradient-amethyst: linear-gradient(
+    135deg,
+    var(--color-amethyst) 0%,
+    var(--color-amethyst-dark) 100%
+  );
   --gradient-amber: linear-gradient(135deg, var(--color-amber) 0%, var(--color-amber-dark) 100%);
   --gradient-teal: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-dark) 100%);
   --gradient-indigo: linear-gradient(135deg, var(--color-indigo) 0%, var(--color-indigo-dark) 100%);
@@ -163,7 +169,8 @@
 
   /* Text Gradients */
   --gradient-text-primary: linear-gradient(135deg, var(--color-gold-bright), var(--color-gold));
-  --gradient-text-shine: linear-gradient(90deg,
+  --gradient-text-shine: linear-gradient(
+    90deg,
     var(--color-gold-dark) 0%,
     var(--color-gold-bright) 50%,
     var(--color-gold-dark) 100%
@@ -275,15 +282,12 @@
 
   /* Card shadows */
   --shadow-card:
-    0 4px 6px rgba(0, 0, 0, 0.3),
-    0 10px 20px rgba(0, 0, 0, 0.25),
+    0 4px 6px rgba(0, 0, 0, 0.3), 0 10px 20px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
   --shadow-card-hover:
-    0 8px 16px rgba(0, 0, 0, 0.4),
-    0 16px 32px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(212, 165, 116, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 8px 16px rgba(0, 0, 0, 0.4), 0 16px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(212, 165, 116, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
   /* ===========================================
      Z-INDEX SCALE
@@ -346,27 +350,49 @@
    =========================================== */
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes sheetSlideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes modalSlideUp {
-  from { opacity: 0; transform: translateY(24px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ===========================================
@@ -377,7 +403,12 @@
   font-family: var(--font-body);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-display);
   letter-spacing: var(--letter-spacing-tight);
 }
@@ -484,7 +515,9 @@ h1, h2, h3, h4, h5, h6 {
 
 .btn-secondary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(52, 211, 153, 0.4), var(--shadow-lg);
+  box-shadow:
+    0 0 30px rgba(52, 211, 153, 0.4),
+    var(--shadow-lg);
 }
 
 .btn-secondary:active {
@@ -565,8 +598,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @keyframes textShine {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 /* Premium card styling */
@@ -614,7 +652,9 @@ h1, h2, h3, h4, h5, h6 {
 /* Focus ring for accessibility */
 .focus-ring:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-bg-void), 0 0 0 4px var(--color-gold);
+  box-shadow:
+    0 0 0 2px var(--color-bg-void),
+    0 0 0 4px var(--color-gold);
 }
 
 /* ===========================================

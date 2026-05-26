@@ -113,7 +113,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
   }, [gameId, isOpen]);
 
   if (!isOpen) return null;
-  
+
   // Show loading only on initial load
   if (loading && isInitialLoad) {
     return (
@@ -123,7 +123,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
       </div>
     );
   }
-  
+
   // Don't show anything if no stats yet
   if (!stats) return null;
 
@@ -136,7 +136,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
   };
 
   const getAggressionIcon = (score: number): ReactNode => {
-    const iconProps = { size: 14, className: "aggression-icon" };
+    const iconProps = { size: 14, className: 'aggression-icon' };
     if (score > 0.8) return <Flame {...iconProps} />;
     if (score > 0.6) return <Zap {...iconProps} />;
     return <Minus {...iconProps} />;
@@ -145,7 +145,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
   return (
     <div className="pressure-stats-panel">
       <h3> Pressure Stats & Highlights</h3>
-      
+
       {/* Session Overview */}
       <div className="session-overview">
         <div className="stat-item">
@@ -171,7 +171,9 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
               <div key={i} className="leaderboard-entry">
                 <span className="rank">#{i + 1}</span>
                 <span className="name">{entry.name}</span>
-                <span className="value">{entry.wins} wins (${entry.biggest_pot})</span>
+                <span className="value">
+                  {entry.wins} wins (${entry.biggest_pot})
+                </span>
               </div>
             ))}
           </div>
@@ -197,7 +199,9 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
               <div key={i} className="leaderboard-entry">
                 <span className="rank">#{i + 1}</span>
                 <span className="name">{entry.name}</span>
-                <span className="value">{getTiltEmoji(entry.tilt_score)} {(entry.tilt_score * 100).toFixed(0)}%</span>
+                <span className="value">
+                  {getTiltEmoji(entry.tilt_score)} {(entry.tilt_score * 100).toFixed(0)}%
+                </span>
               </div>
             ))}
           </div>
@@ -210,7 +214,7 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
           <div key={name} className="player-card">
             <h5>{name}</h5>
             <div className="signature-move">{playerStats.signature_move}</div>
-            
+
             <div className="player-stats-grid">
               <div className="stat">
                 <span className="emoji">🏆</span>
@@ -233,28 +237,30 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
                 <span className="label">Bad Beats</span>
               </div>
             </div>
-            
+
             <div className="meters">
               <div className="meter">
                 <span className="meter-label">Tilt Level</span>
                 <div className="meter-bar">
-                  <div 
+                  <div
                     className="meter-fill tilt"
                     style={{ width: `${playerStats.tilt_score * 100}%` }}
                   />
                 </div>
                 <span className="meter-emoji">{getTiltEmoji(playerStats.tilt_score)}</span>
               </div>
-              
+
               <div className="meter">
                 <span className="meter-label">Aggression</span>
                 <div className="meter-bar">
-                  <div 
+                  <div
                     className="meter-fill aggression"
                     style={{ width: `${playerStats.aggression_score * 100}%` }}
                   />
                 </div>
-                <span className="meter-emoji">{getAggressionIcon(playerStats.aggression_score)}</span>
+                <span className="meter-emoji">
+                  {getAggressionIcon(playerStats.aggression_score)}
+                </span>
               </div>
             </div>
           </div>
@@ -266,7 +272,9 @@ export function PressureStats({ gameId, isOpen, socket: _socket }: PressureStats
         <div className="fun-facts">
           <h4>Game Highlights</h4>
           {stats.fun_facts.map((fact, i) => (
-            <div key={i} className="fun-fact">{fact}</div>
+            <div key={i} className="fun-fact">
+              {fact}
+            </div>
           ))}
         </div>
       )}

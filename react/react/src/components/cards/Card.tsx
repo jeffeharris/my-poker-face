@@ -1,5 +1,10 @@
 import { memo } from 'react';
-import { type Card as CardType, parseCard, cardFromBackend, getCardImagePathForPack } from '../../utils/cards';
+import {
+  type Card as CardType,
+  parseCard,
+  cardFromBackend,
+  getCardImagePathForPack,
+} from '../../utils/cards';
 import { useDeckPack } from '../../hooks/useDeckPack';
 import { logger } from '../../utils/logger';
 import './Card.css';
@@ -17,7 +22,12 @@ interface CardProps {
   className?: string;
 }
 
-export const Card = memo(function Card({ card, faceDown = false, size = 'medium', className = '' }: CardProps) {
+export const Card = memo(function Card({
+  card,
+  faceDown = false,
+  size = 'medium',
+  className = '',
+}: CardProps) {
   const { activePackId } = useDeckPack();
 
   // Handle different card input types
@@ -69,7 +79,8 @@ export const Card = memo(function Card({ card, faceDown = false, size = 'medium'
   }
 
   // Resolve image path for the active deck pack
-  const imagePath = getCardImagePathForPack(cardObj.rank, cardObj.suit, activePackId) || cardObj.imagePath;
+  const imagePath =
+    getCardImagePathForPack(cardObj.rank, cardObj.suit, activePackId) || cardObj.imagePath;
 
   return (
     <div className={`playing-card image-card ${size} ${className}`}>
@@ -79,11 +90,25 @@ export const Card = memo(function Card({ card, faceDown = false, size = 'medium'
 });
 
 // Specialized components
-export function CommunityCard({ card, revealed = false }: { card?: CardType | BackendCard | string | null, revealed?: boolean }) {
+export function CommunityCard({
+  card,
+  revealed = false,
+}: {
+  card?: CardType | BackendCard | string | null;
+  revealed?: boolean;
+}) {
   return <Card card={card} faceDown={!revealed} size="large" className="community-card" />;
 }
 
-export function HoleCard({ card, visible = false, size = 'large' }: { card?: CardType | BackendCard | string | null, visible?: boolean, size?: 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge' }) {
+export function HoleCard({
+  card,
+  visible = false,
+  size = 'large',
+}: {
+  card?: CardType | BackendCard | string | null;
+  visible?: boolean;
+  size?: 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge';
+}) {
   return <Card card={card} faceDown={!visible} size={size} className="hole-card" />;
 }
 

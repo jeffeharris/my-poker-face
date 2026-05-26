@@ -4,19 +4,20 @@ Tests profile gating (only analytical profiles get the board read)
 and emotional suppression (extreme tilted/shaken/dissociated suppresses it).
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from poker.board_analyzer import build_board_read
 from poker.bounded_options import (
+    STYLE_PROFILES,
     BoundedOption,
     EmotionalShift,
     OptionProfile,
-    STYLE_PROFILES,
 )
-from poker.board_analyzer import build_board_read
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_controller_stub(profile_key='tight_aggressive'):
     """Create a minimal stub that has _build_lean_prompt accessible.
@@ -37,7 +38,9 @@ def _make_controller_stub(profile_key='tight_aggressive'):
 
     # Bind the real _build_lean_prompt and _build_street_action_summary
     stub._build_lean_prompt = LeanBoundedController._build_lean_prompt.__get__(stub)
-    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(stub)
+    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(
+        stub
+    )
 
     return stub
 
@@ -45,10 +48,20 @@ def _make_controller_stub(profile_key='tight_aggressive'):
 def _sample_options():
     """Two simple options for prompt building."""
     return [
-        BoundedOption(action='check', raise_to=0, rationale='Check',
-                      ev_estimate='neutral', style_tag='conservative'),
-        BoundedOption(action='raise', raise_to=200, rationale='Value bet',
-                      ev_estimate='+EV', style_tag='aggressive'),
+        BoundedOption(
+            action='check',
+            raise_to=0,
+            rationale='Check',
+            ev_estimate='neutral',
+            style_tag='conservative',
+        ),
+        BoundedOption(
+            action='raise',
+            raise_to=200,
+            rationale='Value bet',
+            ev_estimate='+EV',
+            style_tag='aggressive',
+        ),
     ]
 
 
@@ -91,8 +104,9 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('tight_aggressive')
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert 'Board read:' in prompt
 
     def test_default_gets_board_read_postflop(self):
@@ -100,8 +114,7 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('default')
         profile = STYLE_PROFILES['default']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default', profile=profile)
         assert 'Board read:' in prompt
 
     def test_lag_no_board_read(self):
@@ -109,8 +122,9 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('loose_aggressive')
         profile = STYLE_PROFILES['loose_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'loose_aggressive', profile=profile
+        )
         assert 'Board read:' not in prompt
 
     def test_loose_passive_no_board_read(self):
@@ -118,8 +132,7 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('loose_passive')
         profile = STYLE_PROFILES['loose_passive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_passive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_passive', profile=profile)
         assert 'Board read:' not in prompt
 
     def test_tight_passive_no_board_read(self):
@@ -127,8 +140,7 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('tight_passive')
         profile = STYLE_PROFILES['tight_passive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_passive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_passive', profile=profile)
         assert 'Board read:' not in prompt
 
     def test_no_board_read_preflop(self):
@@ -136,16 +148,16 @@ class TestBoardReadProfileGating:
         stub = _make_controller_stub('tight_aggressive')
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _preflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert 'Board read:' not in prompt
 
     def test_no_board_read_when_profile_is_none(self):
         """No crash and no board read when profile is None."""
         stub = _make_controller_stub('default')
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default',
-                                         profile=None)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default', profile=None)
         assert 'Board read:' not in prompt
 
 
@@ -160,8 +172,11 @@ class TestBoardReadEmotionalSuppression:
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context()
         return stub._build_lean_prompt(
-            _sample_options(), ctx, 'tight_aggressive',
-            profile=profile, emotional_shift=emotional_shift,
+            _sample_options(),
+            ctx,
+            'tight_aggressive',
+            profile=profile,
+            emotional_shift=emotional_shift,
         )
 
     def test_extreme_tilted_suppresses(self):
@@ -205,8 +220,11 @@ class TestBoardReadEmotionalSuppression:
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context()
         prompt = stub._build_lean_prompt(
-            _sample_options(), ctx, 'tight_aggressive',
-            profile=profile, emotional_shift=None,
+            _sample_options(),
+            ctx,
+            'tight_aggressive',
+            profile=profile,
+            emotional_shift=None,
         )
         assert 'Board read:' in prompt
 
@@ -222,8 +240,9 @@ class TestBoardReadContent:
         stub = _make_controller_stub('tight_aggressive')
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context(community_cards=['Qh', 'Jh', 'Ts'])
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert 'flush draw' in prompt
         assert 'straight draw' in prompt
 
@@ -232,8 +251,9 @@ class TestBoardReadContent:
         stub = _make_controller_stub('tight_aggressive')
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context(community_cards=['Kh', '7d', '2s'])
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert 'Board read:' in prompt
         assert 'dry' in prompt
         assert 'few draws' in prompt
@@ -243,8 +263,7 @@ class TestBoardReadContent:
         stub = _make_controller_stub('default')
         profile = STYLE_PROFILES['default']
         ctx = _postflop_context(community_cards=['Ah', '9h', '4h'])
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default', profile=profile)
         assert 'monotone' in prompt
         assert 'flush draw' in prompt
 
@@ -260,8 +279,9 @@ class TestEvLabelProfileGating:
         stub = _make_controller_stub('tight_aggressive')
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert '[+EV]' in prompt
 
     def test_lag_hides_ev_labels(self):
@@ -269,8 +289,9 @@ class TestEvLabelProfileGating:
         stub = _make_controller_stub('loose_aggressive')
         profile = STYLE_PROFILES['loose_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'loose_aggressive', profile=profile
+        )
         assert '[+EV]' not in prompt
         assert '[neutral]' not in prompt
 
@@ -280,8 +301,9 @@ class TestEvLabelProfileGating:
         stub.prompt_config.show_ev_labels = True
         profile = STYLE_PROFILES['loose_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'loose_aggressive', profile=profile
+        )
         assert '[+EV]' in prompt
 
     def test_prompt_config_override_hides_ev_on_tag(self):
@@ -290,8 +312,9 @@ class TestEvLabelProfileGating:
         stub.prompt_config.show_ev_labels = False
         profile = STYLE_PROFILES['tight_aggressive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'tight_aggressive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(
+            _sample_options(), ctx, 'tight_aggressive', profile=profile
+        )
         assert '[+EV]' not in prompt
         assert '[neutral]' not in prompt
 
@@ -301,8 +324,7 @@ class TestEvLabelProfileGating:
         stub.prompt_config.show_ev_labels = None
         profile = STYLE_PROFILES['loose_passive']
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_passive',
-                                         profile=profile)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'loose_passive', profile=profile)
         # loose_passive has show_ev_labels=False
         assert '[+EV]' not in prompt
 
@@ -311,6 +333,5 @@ class TestEvLabelProfileGating:
         stub = _make_controller_stub('default')
         stub.prompt_config.show_ev_labels = None
         ctx = _postflop_context()
-        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default',
-                                         profile=None)
+        prompt = stub._build_lean_prompt(_sample_options(), ctx, 'default', profile=None)
         assert '[+EV]' in prompt

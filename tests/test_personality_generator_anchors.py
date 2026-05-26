@@ -22,12 +22,19 @@ from poker.personality_generator import (
 )
 from poker.psychology_model import PersonalityAnchors
 
-
-_ANCHOR_KEYS = frozenset({
-    'baseline_aggression', 'baseline_looseness', 'ego', 'poise',
-    'expressiveness', 'risk_identity', 'adaptation_bias',
-    'baseline_energy', 'recovery_rate',
-})
+_ANCHOR_KEYS = frozenset(
+    {
+        'baseline_aggression',
+        'baseline_looseness',
+        'ego',
+        'poise',
+        'expressiveness',
+        'risk_identity',
+        'adaptation_bias',
+        'baseline_energy',
+        'recovery_rate',
+    }
+)
 
 
 def _make_generator():
@@ -70,37 +77,55 @@ class TestGeneratePersonalityBackfillsAnchors:
         # Mimic LLMClient.complete() shape (an object with `.content` attr)
         resp = MagicMock()
         import json
+
         resp.content = json.dumps(content)
         return resp
 
     def test_anchors_present_when_llm_provides_them(self):
         gen = _make_generator()
-        gen._client.complete.return_value = self._llm_response({
-            'play_style': 'tight and selective',
-            'default_confidence': 'steady',
-            'default_attitude': 'calm',
-            'personality_traits': {'bluff_tendency': 0.2, 'aggression': 0.4,
-                                   'chattiness': 0.3, 'emoji_usage': 0.1},
-            'anchors': {
-                'baseline_aggression': 0.40, 'baseline_looseness': 0.22,
-                'ego': 0.36, 'poise': 0.78, 'expressiveness': 0.47,
-                'risk_identity': 0.38, 'adaptation_bias': 0.50,
-                'baseline_energy': 0.52, 'recovery_rate': 0.17,
-            },
-        })
+        gen._client.complete.return_value = self._llm_response(
+            {
+                'play_style': 'tight and selective',
+                'default_confidence': 'steady',
+                'default_attitude': 'calm',
+                'personality_traits': {
+                    'bluff_tendency': 0.2,
+                    'aggression': 0.4,
+                    'chattiness': 0.3,
+                    'emoji_usage': 0.1,
+                },
+                'anchors': {
+                    'baseline_aggression': 0.40,
+                    'baseline_looseness': 0.22,
+                    'ego': 0.36,
+                    'poise': 0.78,
+                    'expressiveness': 0.47,
+                    'risk_identity': 0.38,
+                    'adaptation_bias': 0.50,
+                    'baseline_energy': 0.52,
+                    'recovery_rate': 0.17,
+                },
+            }
+        )
         result = gen._generate_personality('Abraham Lincoln')
         assert result['anchors']['baseline_looseness'] == 0.22
 
     def test_anchors_backfilled_when_llm_omits_block(self):
         gen = _make_generator()
-        gen._client.complete.return_value = self._llm_response({
-            'play_style': 'aggressive and theatrical',
-            'default_confidence': 'overconfident',
-            'default_attitude': 'intimidating',
-            'personality_traits': {'bluff_tendency': 0.75, 'aggression': 0.8,
-                                   'chattiness': 0.4, 'emoji_usage': 0.2},
-            # ← no anchors block
-        })
+        gen._client.complete.return_value = self._llm_response(
+            {
+                'play_style': 'aggressive and theatrical',
+                'default_confidence': 'overconfident',
+                'default_attitude': 'intimidating',
+                'personality_traits': {
+                    'bluff_tendency': 0.75,
+                    'aggression': 0.8,
+                    'chattiness': 0.4,
+                    'emoji_usage': 0.2,
+                },
+                # ← no anchors block
+            }
+        )
         result = gen._generate_personality('Hulk Hogan')
         assert 'anchors' in result
         assert set(result['anchors'].keys()) == _ANCHOR_KEYS
@@ -111,14 +136,20 @@ class TestGeneratePersonalityBackfillsAnchors:
         # The defensive `isinstance(existing_anchors, dict)` check exists
         # because some LLMs return null/string/list for unfamiliar fields.
         gen = _make_generator()
-        gen._client.complete.return_value = self._llm_response({
-            'play_style': 'balanced',
-            'default_confidence': 'steady',
-            'default_attitude': 'friendly',
-            'personality_traits': {'bluff_tendency': 0.5, 'aggression': 0.5,
-                                   'chattiness': 0.5, 'emoji_usage': 0.3},
-            'anchors': None,
-        })
+        gen._client.complete.return_value = self._llm_response(
+            {
+                'play_style': 'balanced',
+                'default_confidence': 'steady',
+                'default_attitude': 'friendly',
+                'personality_traits': {
+                    'bluff_tendency': 0.5,
+                    'aggression': 0.5,
+                    'chattiness': 0.5,
+                    'emoji_usage': 0.3,
+                },
+                'anchors': None,
+            }
+        )
         result = gen._generate_personality('Test')
         assert result['anchors'] == _default_anchors()
 
@@ -137,16 +168,18 @@ class TestGenerationPromptArchetypeCoverage:
     def test_all_seven_archetypes_have_named_examples(self):
         p = self._prompt()
         # Each archetype label appears with at least one named character.
-        for archetype in ('Nit', 'Rock', 'TAG', 'Balanced', 'LAG',
-                          'CallingStation', 'Maniac'):
+        for archetype in ('Nit', 'Rock', 'TAG', 'Balanced', 'LAG', 'CallingStation', 'Maniac'):
             assert archetype in p, f"archetype {archetype!r} missing from generation prompt"
 
     def test_extreme_archetypes_have_concrete_anchor_values(self):
         p = self._prompt()
         # Anchor reference numbers for the under-represented extremes
         # (the bias case) must remain in the prompt.
-        for marker in ('baseline_looseness ≈ 0.18', 'baseline_looseness ≈ 0.78',
-                       'baseline_looseness ≈ 0.88'):
+        for marker in (
+            'baseline_looseness ≈ 0.18',
+            'baseline_looseness ≈ 0.78',
+            'baseline_looseness ≈ 0.88',
+        ):
             assert marker in p, f"missing anchor target: {marker}"
 
     def test_prompt_warns_against_lag_default(self):

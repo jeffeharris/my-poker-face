@@ -1,10 +1,11 @@
 """Hand equity repository — equity snapshots for pressure detection and analytics."""
+
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
-from .base_repository import BaseRepository
 from ..equity_snapshot import EquitySnapshot, HandEquityHistory
+from .base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -23,23 +24,26 @@ class HandEquityRepository(BaseRepository):
 
         with self._get_connection() as conn:
             for snap in equity_history.snapshots:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO hand_equity
                     (hand_history_id, game_id, hand_number, street, player_name,
                      player_hole_cards, board_cards, equity, was_active, sample_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    equity_history.hand_history_id,
-                    equity_history.game_id,
-                    equity_history.hand_number,
-                    snap.street,
-                    snap.player_name,
-                    json.dumps(list(snap.hole_cards)),
-                    json.dumps(list(snap.board_cards)),
-                    snap.equity,
-                    snap.was_active,
-                    snap.sample_count,
-                ))
+                """,
+                    (
+                        equity_history.hand_history_id,
+                        equity_history.game_id,
+                        equity_history.hand_number,
+                        snap.street,
+                        snap.player_name,
+                        json.dumps(list(snap.hole_cards)),
+                        json.dumps(list(snap.board_cards)),
+                        snap.equity,
+                        snap.was_active,
+                        snap.sample_count,
+                    ),
+                )
 
             logger.debug(
                 f"Saved {len(equity_history.snapshots)} equity snapshots for "
@@ -56,7 +60,8 @@ class HandEquityRepository(BaseRepository):
             HandEquityHistory or None if not found
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT game_id, hand_number, street, player_name,
                        player_hole_cards, board_cards, equity, was_active, sample_count
                 FROM hand_equity
@@ -69,7 +74,9 @@ class HandEquityRepository(BaseRepository):
                         WHEN 'RIVER' THEN 4
                     END,
                     player_name
-            """, (hand_history_id,))
+            """,
+                (hand_history_id,),
+            )
 
             rows = cursor.fetchall()
             if not rows:
@@ -82,15 +89,17 @@ class HandEquityRepository(BaseRepository):
             for row in rows:
                 game_id = row['game_id']
                 hand_number = row['hand_number']
-                snapshots.append(EquitySnapshot(
-                    player_name=row['player_name'],
-                    street=row['street'],
-                    equity=row['equity'],
-                    hole_cards=tuple(json.loads(row['player_hole_cards'] or '[]')),
-                    board_cards=tuple(json.loads(row['board_cards'] or '[]')),
-                    was_active=bool(row['was_active']),
-                    sample_count=row['sample_count'],
-                ))
+                snapshots.append(
+                    EquitySnapshot(
+                        player_name=row['player_name'],
+                        street=row['street'],
+                        equity=row['equity'],
+                        hole_cards=tuple(json.loads(row['player_hole_cards'] or '[]')),
+                        board_cards=tuple(json.loads(row['board_cards'] or '[]')),
+                        was_active=bool(row['was_active']),
+                        sample_count=row['sample_count'],
+                    )
+                )
 
             return HandEquityHistory(
                 hand_history_id=hand_history_id,
@@ -112,7 +121,8 @@ class HandEquityRepository(BaseRepository):
             HandEquityHistory or None if not found
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT hand_history_id, street, player_name,
                        player_hole_cards, board_cards, equity, was_active, sample_count
                 FROM hand_equity
@@ -125,7 +135,9 @@ class HandEquityRepository(BaseRepository):
                         WHEN 'RIVER' THEN 4
                     END,
                     player_name
-            """, (game_id, hand_number))
+            """,
+                (game_id, hand_number),
+            )
 
             rows = cursor.fetchall()
             if not rows:
@@ -168,7 +180,8 @@ class HandEquityRepository(BaseRepository):
         with self._get_connection() as conn:
             # Average equity by street
             if game_id:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT street, AVG(equity) as avg_equity, COUNT(*) as count
                     FROM hand_equity
                     WHERE player_name = ? AND game_id = ?
@@ -180,9 +193,12 @@ class HandEquityRepository(BaseRepository):
                             WHEN 'TURN' THEN 3
                             WHEN 'RIVER' THEN 4
                         END
-                """, (player_name, game_id))
+                """,
+                    (player_name, game_id),
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT street, AVG(equity) as avg_equity, COUNT(*) as count
                     FROM hand_equity
                     WHERE player_name = ?
@@ -195,7 +211,9 @@ class HandEquityRepository(BaseRepository):
                             WHEN 'RIVER' THEN 4
                         END
                     LIMIT ?
-                """, (player_name, limit))
+                """,
+                    (player_name, limit),
+                )
 
             equity_by_street = {
                 row['street']: {'avg_equity': row['avg_equity'], 'count': row['count']}
@@ -208,9 +226,7 @@ class HandEquityRepository(BaseRepository):
                 'equity_by_street': equity_by_street,
             }
 
-    def find_suckouts(
-        self, game_id: str, threshold: float = 0.40
-    ) -> List[Dict[str, Any]]:
+    def find_suckouts(self, game_id: str, threshold: float = 0.40) -> List[Dict[str, Any]]:
         """Find hands where winner was behind on turn but won.
 
         Args:
@@ -221,7 +237,8 @@ class HandEquityRepository(BaseRepository):
             List of dicts with hand_number, player_name, turn_equity, river_equity
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     turn.hand_number,
                     turn.player_name,
@@ -238,7 +255,9 @@ class HandEquityRepository(BaseRepository):
                     AND turn.equity < ?
                     AND river.equity > 0.99
                 ORDER BY turn.hand_number
-            """, (game_id, threshold))
+            """,
+                (game_id, threshold),
+            )
 
             return [
                 {
@@ -251,9 +270,7 @@ class HandEquityRepository(BaseRepository):
                 for row in cursor.fetchall()
             ]
 
-    def find_coolers(
-        self, game_id: str, min_equity: float = 0.30
-    ) -> List[Dict[str, Any]]:
+    def find_coolers(self, game_id: str, min_equity: float = 0.30) -> List[Dict[str, Any]]:
         """Find hands where both players had strong flop equity.
 
         Args:
@@ -264,7 +281,8 @@ class HandEquityRepository(BaseRepository):
             List of dicts with hand_number, players, and their flop equities
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     he1.hand_number,
                     he1.player_name as player1,
@@ -281,7 +299,9 @@ class HandEquityRepository(BaseRepository):
                     AND he1.equity >= ?
                     AND he2.equity >= ?
                 ORDER BY he1.hand_number
-            """, (game_id, min_equity, min_equity))
+            """,
+                (game_id, min_equity, min_equity),
+            )
 
             return [
                 {

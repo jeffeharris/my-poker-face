@@ -54,10 +54,10 @@ class ChatEventMapping:
 # speaker's own hand, not the opponent, so it doesn't move relationship
 # axes. Sends with tone="bluff" return None from `map_tone`.
 _MID_HAND_TONE_MAP: dict[str, ChatEventMapping] = {
-    "tilt":     ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
-    "goad":     ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
-    "needle":   ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
-    "bait":     ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
+    "tilt": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
+    "goad": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
+    "needle": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
+    "bait": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
     "befriend": ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
 }
 
@@ -65,9 +65,9 @@ _MID_HAND_TONE_MAP: dict[str, ChatEventMapping] = {
 # Post-round tone → (event, multiplier). No intensity modifier applies
 # here — post-round tones encode their own intensity in the choice.
 _POST_ROUND_TONE_MAP: dict[str, ChatEventMapping] = {
-    "gloat":    ChatEventMapping(RelationshipEvent.TAUNT_POST_WIN, 1.0),
-    "humble":   ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
-    "salty":    ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
+    "gloat": ChatEventMapping(RelationshipEvent.TAUNT_POST_WIN, 1.0),
+    "humble": ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
+    "salty": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "gracious": ChatEventMapping(RelationshipEvent.COMPLIMENT, 1.0),
 }
 
@@ -110,9 +110,7 @@ def map_tone(
 
     mid_hand = _MID_HAND_TONE_MAP.get(tone)
     if mid_hand is not None:
-        intensity_mult = _INTENSITY_MULT.get(
-            intensity, _DEFAULT_INTENSITY_MULT
-        )
+        intensity_mult = _INTENSITY_MULT.get(intensity, _DEFAULT_INTENSITY_MULT)
         return ChatEventMapping(
             event=mid_hand.event,
             multiplier=mid_hand.multiplier * intensity_mult,

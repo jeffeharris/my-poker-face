@@ -8,13 +8,12 @@ requiring LLM-generated categorical or dimensional output.
 
 import json
 import logging
-import os
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Generic
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +93,7 @@ class CategorizationSchema:
 @dataclass
 class CategorizationResult(Generic[T]):
     """Result of a categorization call."""
+
     success: bool
     data: Optional[T] = None
     raw_response: Optional[str] = None
@@ -135,7 +135,7 @@ class StructuredLLMCategorizer:
         schema: CategorizationSchema,
         model: Optional[str] = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-        fallback_generator: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
+        fallback_generator: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
     ):
         """
         Initialize the categorizer.
@@ -147,13 +147,16 @@ class StructuredLLMCategorizer:
             fallback_generator: Function to generate fallback output from context
         """
         from flask_app.config import get_fast_model, get_fast_provider
+
         self.schema = schema
         self.model = model or get_fast_model()
         self.timeout_seconds = timeout_seconds
         self.fallback_generator = fallback_generator
 
         # Initialize LLM client with minimal reasoning for fast/cheap categorization
-        self._llm_client = LLMClient(model=self.model, provider=get_fast_provider(), reasoning_effort="minimal")
+        self._llm_client = LLMClient(
+            model=self.model, provider=get_fast_provider(), reasoning_effort="minimal"
+        )
 
         # Thread pool for timeout handling
         self._executor = ThreadPoolExecutor(max_workers=2)
@@ -205,7 +208,7 @@ class StructuredLLMCategorizer:
 
         messages = [
             {"role": "system", "content": full_system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ]
 
         try:
@@ -230,7 +233,7 @@ class StructuredLLMCategorizer:
                     data=validated,
                     raw_response=raw_response,
                     latency_ms=latency_ms,
-                    used_fallback=False
+                    used_fallback=False,
                 )
             except json.JSONDecodeError as e:
                 logger.warning(f"[LLM_CATEGORIZER] JSON parse error: {e}")
@@ -239,18 +242,13 @@ class StructuredLLMCategorizer:
         except FuturesTimeoutError:
             logger.warning(f"[LLM_CATEGORIZER] Timeout after {self.timeout_seconds}s")
             return self._generate_fallback(
-                context, additional_context, start_time,
-                f"Timeout after {self.timeout_seconds}s"
+                context, additional_context, start_time, f"Timeout after {self.timeout_seconds}s"
             )
         except Exception as e:
             logger.error(f"[LLM_CATEGORIZER] Error: {e}")
             return self._generate_fallback(context, additional_context, start_time, str(e))
 
-    def _build_user_prompt(
-        self,
-        context: str,
-        additional_context: Optional[Dict[str, Any]]
-    ) -> str:
+    def _build_user_prompt(self, context: str, additional_context: Optional[Dict[str, Any]]) -> str:
         """Build the user prompt from context."""
         prompt_parts = [context]
 
@@ -285,7 +283,7 @@ class StructuredLLMCategorizer:
         context: str,
         additional_context: Optional[Dict[str, Any]],
         start_time: float,
-        error: str
+        error: str,
     ) -> CategorizationResult[Dict[str, Any]]:
         """Generate fallback output when LLM fails."""
         latency_ms = (time.time() - start_time) * 1000
@@ -308,7 +306,7 @@ class StructuredLLMCategorizer:
                     data=validated,
                     error=error,
                     latency_ms=latency_ms,
-                    used_fallback=True
+                    used_fallback=True,
                 )
             except Exception as fallback_error:
                 logger.error(f"[LLM_CATEGORIZER] Fallback generator failed: {fallback_error}")
@@ -320,11 +318,7 @@ class StructuredLLMCategorizer:
         }
 
         return CategorizationResult(
-            success=False,
-            data=default_data,
-            error=error,
-            latency_ms=latency_ms,
-            used_fallback=True
+            success=False, data=default_data, error=error, latency_ms=latency_ms, used_fallback=True
         )
 
     def categorize_batch(
@@ -332,7 +326,7 @@ class StructuredLLMCategorizer:
         items: List[Dict[str, Any]],
         system_prompt: str,
         context_key: str = 'context',
-        max_parallel: int = 4
+        max_parallel: int = 4,
     ) -> List[CategorizationResult[Dict[str, Any]]]:
         """
         Categorize multiple items in parallel.
@@ -351,9 +345,7 @@ class StructuredLLMCategorizer:
             for item in items:
                 context = item.get(context_key, '')
                 additional = {k: v for k, v in item.items() if k != context_key}
-                future = executor.submit(
-                    self.categorize, context, system_prompt, additional
-                )
+                future = executor.submit(self.categorize, context, system_prompt, additional)
                 futures.append(future)
 
             return [f.result() for f in futures]
@@ -368,25 +360,21 @@ SENTIMENT_SCHEMA = CategorizationSchema(
             'min': -1.0,
             'max': 1.0,
             'default': 0.0,
-            'description': 'Sentiment score from very negative (-1) to very positive (1)'
+            'description': 'Sentiment score from very negative (-1) to very positive (1)',
         },
         'confidence': {
             'type': 'float',
             'min': 0.0,
             'max': 1.0,
             'default': 0.5,
-            'description': 'Confidence in the sentiment assessment'
+            'description': 'Confidence in the sentiment assessment',
         },
         'category': {
             'type': 'enum',
             'options': ['positive', 'negative', 'neutral', 'mixed'],
             'default': 'neutral',
-            'description': 'Overall sentiment category'
-        }
+            'description': 'Overall sentiment category',
+        },
     },
-    example_output={
-        'sentiment': 0.7,
-        'confidence': 0.85,
-        'category': 'positive'
-    }
+    example_output={'sentiment': 0.7, 'confidence': 0.85, 'category': 'positive'},
 )

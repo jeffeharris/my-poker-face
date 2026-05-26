@@ -2,15 +2,16 @@
 
 Manages the personalities and avatar_images tables.
 """
+
 import json
 import logging
-from typing import Optional, List, Dict, Any, Set
+from typing import Any, Dict, List, Optional, Set
 
-from poker.repositories.base_repository import BaseRepository
 from poker.personality_id import (
-    slugify_personality_name,
     assign_unique_personality_id,
+    slugify_personality_name,
 )
+from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,13 @@ logger = logging.getLogger(__name__)
 # they'd otherwise leak into cash sessions and play as `sharp` purely
 # on their authored poise. Filtered by stable personality_id so display
 # names can be renamed without re-opening the gate.
-CASH_INELIGIBLE_PERSONALITY_IDS = frozenset({
-    "casebot",
-    "gto_lite",
-    "baselinesolver",
-})
+CASH_INELIGIBLE_PERSONALITY_IDS = frozenset(
+    {
+        "casebot",
+        "gto_lite",
+        "baselinesolver",
+    }
+)
 
 
 class PersonalityRepository(BaseRepository):
@@ -32,9 +35,15 @@ class PersonalityRepository(BaseRepository):
 
     # --- Personality CRUD ---
 
-    def save_personality(self, name: str, config: Dict[str, Any], source: str = 'ai_generated',
-                         owner_id: Optional[str] = None, visibility: str = 'public',
-                         personality_id: Optional[str] = None) -> str:
+    def save_personality(
+        self,
+        name: str,
+        config: Dict[str, Any],
+        source: str = 'ai_generated',
+        owner_id: Optional[str] = None,
+        visibility: str = 'public',
+        personality_id: Optional[str] = None,
+    ) -> str:
         """Save a personality configuration to the database.
 
         Args:
@@ -57,8 +66,7 @@ class PersonalityRepository(BaseRepository):
         """
         elasticity_config = config.get('elasticity_config', {})
         config_without_elasticity = {
-            k: v for k, v in config.items()
-            if k not in ('elasticity_config', 'id')
+            k: v for k, v in config.items() if k not in ('elasticity_config', 'id')
         }
 
         with self._get_connection() as conn:
@@ -86,7 +94,8 @@ class PersonalityRepository(BaseRepository):
                 base_slug = slugify_personality_name(name)
                 if base_slug:
                     taken = {
-                        row['personality_id'] for row in conn.execute(
+                        row['personality_id']
+                        for row in conn.execute(
                             "SELECT personality_id FROM personalities "
                             "WHERE personality_id IS NOT NULL AND name != ?",
                             (name,),
@@ -96,36 +105,67 @@ class PersonalityRepository(BaseRepository):
                 else:
                     logger.warning(
                         "save_personality: name=%r slugifies to empty; "
-                        "writing row without personality_id", name,
+                        "writing row without personality_id",
+                        name,
                     )
 
             if has_personality_id and has_elasticity and has_ownership:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, elasticity_config, source, owner_id,
                      visibility, personality_id, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config),
-                      source, owner_id, visibility, resolved_id))
+                """,
+                    (
+                        name,
+                        json.dumps(config_without_elasticity),
+                        json.dumps(elasticity_config),
+                        source,
+                        owner_id,
+                        visibility,
+                        resolved_id,
+                    ),
+                )
             elif has_elasticity and has_ownership:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, elasticity_config, source, owner_id, visibility, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config),
-                      source, owner_id, visibility))
+                """,
+                    (
+                        name,
+                        json.dumps(config_without_elasticity),
+                        json.dumps(elasticity_config),
+                        source,
+                        owner_id,
+                        visibility,
+                    ),
+                )
             elif has_elasticity:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, elasticity_config, source, updated_at)
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, json.dumps(config_without_elasticity), json.dumps(elasticity_config), source))
+                """,
+                    (
+                        name,
+                        json.dumps(config_without_elasticity),
+                        json.dumps(elasticity_config),
+                        source,
+                    ),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO personalities
                     (name, config_json, source, updated_at)
                     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, json.dumps(config), source))
+                """,
+                    (name, json.dumps(config), source),
+                )
 
         return resolved_id or ""
 
@@ -153,11 +193,14 @@ class PersonalityRepository(BaseRepository):
             )
             row = cursor.fetchone()
             if row:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE personalities
                     SET times_used = times_used + 1
                     WHERE name = ?
-                """, (name,))
+                """,
+                    (name,),
+                )
 
                 config = json.loads(row['config_json'])
 
@@ -193,8 +236,7 @@ class PersonalityRepository(BaseRepository):
                 select_cols.append("elasticity_config")
 
             cursor = conn.execute(
-                f"SELECT {', '.join(select_cols)} FROM personalities "
-                "WHERE personality_id = ?",
+                f"SELECT {', '.join(select_cols)} FROM personalities " "WHERE personality_id = ?",
                 (personality_id,),
             )
             row = cursor.fetchone()
@@ -202,8 +244,7 @@ class PersonalityRepository(BaseRepository):
                 return None
 
             conn.execute(
-                "UPDATE personalities SET times_used = times_used + 1 "
-                "WHERE personality_id = ?",
+                "UPDATE personalities SET times_used = times_used + 1 " "WHERE personality_id = ?",
                 (personality_id,),
             )
 
@@ -221,9 +262,7 @@ class PersonalityRepository(BaseRepository):
         doesn't exist (pre-v85 schema).
         """
         with self._get_connection() as conn:
-            columns = [
-                row[1] for row in conn.execute("PRAGMA table_info(personalities)")
-            ]
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)")]
             if 'personality_id' not in columns:
                 return None
             row = conn.execute(
@@ -232,8 +271,9 @@ class PersonalityRepository(BaseRepository):
             ).fetchone()
             return row['personality_id'] if row and row['personality_id'] else None
 
-    def list_personalities(self, limit: int = 50, user_id: Optional[str] = None,
-                           include_disabled: bool = False) -> List[Dict[str, Any]]:
+    def list_personalities(
+        self, limit: int = 50, user_id: Optional[str] = None, include_disabled: bool = False
+    ) -> List[Dict[str, Any]]:
         """List personalities with metadata, filtered by visibility.
 
         Args:
@@ -242,7 +282,9 @@ class PersonalityRepository(BaseRepository):
             include_disabled: If True (admin), include disabled and all private personalities
         """
         with self._get_connection() as conn:
-            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            columns = [
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            ]
             has_ownership = 'owner_id' in columns
 
             if has_ownership:
@@ -259,21 +301,27 @@ class PersonalityRepository(BaseRepository):
 
                 where_clause = "WHERE " + " OR ".join(conditions)
 
-                cursor = conn.execute(f"""
+                cursor = conn.execute(
+                    f"""
                     SELECT name, source, created_at, updated_at, times_used, is_generated,
                            owner_id, visibility
                     FROM personalities
                     {where_clause}
                     ORDER BY times_used DESC, updated_at DESC
                     LIMIT ?
-                """, params + [limit])
+                """,
+                    params + [limit],
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT name, source, created_at, updated_at, times_used, is_generated
                     FROM personalities
                     ORDER BY times_used DESC, updated_at DESC
                     LIMIT ?
-                """, (limit,))
+                """,
+                    (limit,),
+                )
 
             personalities = []
             for row in cursor:
@@ -283,7 +331,7 @@ class PersonalityRepository(BaseRepository):
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                     'times_used': row['times_used'],
-                    'is_generated': bool(row['is_generated'])
+                    'is_generated': bool(row['is_generated']),
                 }
                 if has_ownership:
                     entry['owner_id'] = row['owner_id']
@@ -329,7 +377,9 @@ class PersonalityRepository(BaseRepository):
         returns stable-ID-keyed candidates for game orchestration.
         """
         with self._get_connection() as conn:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            }
             has_ownership = 'owner_id' in columns
             has_personality_id = 'personality_id' in columns
 
@@ -356,9 +406,7 @@ class PersonalityRepository(BaseRepository):
             if has_ownership:
                 visibility_clauses = ["visibility = 'public'"]
                 if user_id:
-                    visibility_clauses.append(
-                        "(owner_id = ? AND visibility = 'private')"
-                    )
+                    visibility_clauses.append("(owner_id = ? AND visibility = 'private')")
                     params.append(user_id)
                 conditions.append("(" + " OR ".join(visibility_clauses) + ")")
 
@@ -373,8 +421,7 @@ class PersonalityRepository(BaseRepository):
                 params,
             )
             return [
-                {"personality_id": row["personality_id"], "name": row["name"]}
-                for row in cursor
+                {"personality_id": row["personality_id"], "name": row["name"]} for row in cursor
             ]
 
     def list_fish_for_cash_mode(self) -> List[Dict[str, Any]]:
@@ -392,7 +439,9 @@ class PersonalityRepository(BaseRepository):
         stable id for seat/ledger keying.
         """
         with self._get_connection() as conn:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            }
             if 'personality_id' not in columns:
                 # Pre-v85 schema — no stable IDs to surface.
                 return []
@@ -407,8 +456,7 @@ class PersonalityRepository(BaseRepository):
                 """,
             )
             return [
-                {"personality_id": row["personality_id"], "name": row["name"]}
-                for row in cursor
+                {"personality_id": row["personality_id"], "name": row["name"]} for row in cursor
             ]
 
     def list_all_personality_ids(self) -> Set[str]:
@@ -421,7 +469,9 @@ class PersonalityRepository(BaseRepository):
         migration). One query, no per-seat lookups.
         """
         with self._get_connection() as conn:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()}
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            }
             if 'personality_id' not in columns:
                 return set()
             cursor = conn.execute(
@@ -433,16 +483,15 @@ class PersonalityRepository(BaseRepository):
         """Delete a personality from the database."""
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM personalities WHERE name = ?",
-                    (name,)
-                )
+                cursor = conn.execute("DELETE FROM personalities WHERE name = ?", (name,))
                 return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error deleting personality {name}: {e}")
             return False
 
-    def update_personality_config(self, name: str, config: Dict[str, Any], source: str = 'user_edited') -> bool:
+    def update_personality_config(
+        self, name: str, config: Dict[str, Any], source: str = 'user_edited'
+    ) -> bool:
         """Update only the config for an existing personality, preserving ownership fields.
 
         Unlike save_personality (which uses INSERT OR REPLACE and can wipe owner_id/visibility),
@@ -466,7 +515,9 @@ class PersonalityRepository(BaseRepository):
         }
 
         with self._get_connection() as conn:
-            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            columns = [
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            ]
             has_elasticity = 'elasticity_config' in columns
             has_personality_id = 'personality_id' in columns
 
@@ -486,7 +537,8 @@ class PersonalityRepository(BaseRepository):
                         candidate = slugify_personality_name(name)
                     if candidate:
                         taken = {
-                            row['personality_id'] for row in conn.execute(
+                            row['personality_id']
+                            for row in conn.execute(
                                 "SELECT personality_id FROM personalities "
                                 "WHERE personality_id IS NOT NULL AND name != ?",
                                 (name,),
@@ -495,27 +547,45 @@ class PersonalityRepository(BaseRepository):
                         id_to_set = assign_unique_personality_id(candidate, taken)
 
             if has_personality_id and has_elasticity and id_to_set:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     UPDATE personalities
                     SET config_json = ?, elasticity_config = ?, source = ?,
                         personality_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE name = ?
-                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config),
-                      source, id_to_set, name))
+                """,
+                    (
+                        json.dumps(config_without_elasticity),
+                        json.dumps(elasticity_config),
+                        source,
+                        id_to_set,
+                        name,
+                    ),
+                )
             elif has_elasticity:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     UPDATE personalities
                     SET config_json = ?, elasticity_config = ?, source = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE name = ?
-                """, (json.dumps(config_without_elasticity), json.dumps(elasticity_config),
-                      source, name))
+                """,
+                    (
+                        json.dumps(config_without_elasticity),
+                        json.dumps(elasticity_config),
+                        source,
+                        name,
+                    ),
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     UPDATE personalities
                     SET config_json = ?, source = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE name = ?
-                """, (json.dumps(config_without_elasticity), source, name))
+                """,
+                    (json.dumps(config_without_elasticity), source, name),
+                )
 
             return cursor.rowcount > 0
 
@@ -524,7 +594,7 @@ class PersonalityRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "UPDATE personalities SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
-                (visibility, name)
+                (visibility, name),
             )
             return cursor.rowcount > 0
 
@@ -533,7 +603,7 @@ class PersonalityRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "UPDATE personalities SET owner_id = ?, visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
-                (owner_id, visibility, name)
+                (owner_id, visibility, name),
             )
             return cursor.rowcount > 0
 
@@ -547,24 +617,31 @@ class PersonalityRepository(BaseRepository):
             Count of personalities assigned.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 UPDATE personalities
                 SET owner_id = ?, visibility = 'private', updated_at = CURRENT_TIMESTAMP
                 WHERE visibility = 'disabled' AND owner_id IS NULL
-            """, (owner_id,))
+            """,
+                (owner_id,),
+            )
             return cursor.rowcount
 
     def get_personality_owner(self, name: str) -> Optional[str]:
         """Get the owner_id of a personality, or None if unowned/not found."""
         with self._get_connection() as conn:
-            columns = [row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()]
+            columns = [
+                row[1] for row in conn.execute("PRAGMA table_info(personalities)").fetchall()
+            ]
             if 'owner_id' not in columns:
                 return None
             cursor = conn.execute("SELECT owner_id FROM personalities WHERE name = ?", (name,))
             row = cursor.fetchone()
             return row['owner_id'] if row else None
 
-    def seed_personalities_from_json(self, json_path: str, overwrite: bool = False) -> Dict[str, int]:
+    def seed_personalities_from_json(
+        self, json_path: str, overwrite: bool = False
+    ) -> Dict[str, int]:
         """Seed database with personalities from JSON file.
 
         Args:
@@ -582,7 +659,7 @@ class PersonalityRepository(BaseRepository):
             return {'added': 0, 'skipped': 0, 'updated': 0, 'error': 'File not found'}
 
         try:
-            with open(json_file, 'r') as f:
+            with open(json_file) as f:
                 data = json.load(f)
         except Exception as e:
             logger.error(f"Error reading personalities JSON: {e}")
@@ -614,57 +691,76 @@ class PersonalityRepository(BaseRepository):
                 self.save_personality(name, config, source='personalities.json')
                 added += 1
 
-        logger.info(f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped")
+        logger.info(
+            f"Seeded personalities from JSON: {added} added, {updated} updated, {skipped} skipped"
+        )
         return {'added': added, 'skipped': skipped, 'updated': updated}
 
     # --- Avatar CRUD ---
 
-    def save_avatar_image(self, personality_name: str, emotion: str,
-                          image_data: bytes, width: int = 256, height: int = 256,
-                          content_type: str = 'image/png',
-                          full_image_data: Optional[bytes] = None,
-                          full_width: Optional[int] = None,
-                          full_height: Optional[int] = None) -> None:
+    def save_avatar_image(
+        self,
+        personality_name: str,
+        emotion: str,
+        image_data: bytes,
+        width: int = 256,
+        height: int = 256,
+        content_type: str = 'image/png',
+        full_image_data: Optional[bytes] = None,
+        full_width: Optional[int] = None,
+        full_height: Optional[int] = None,
+    ) -> None:
         """Save an avatar image to the database."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO avatar_images
                 (personality_name, emotion, image_data, content_type, width, height, file_size,
                  full_image_data, full_width, full_height, full_file_size, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                personality_name,
-                emotion,
-                image_data,
-                content_type,
-                width,
-                height,
-                len(image_data),
-                full_image_data,
-                full_width,
-                full_height,
-                len(full_image_data) if full_image_data else None
-            ))
+            """,
+                (
+                    personality_name,
+                    emotion,
+                    image_data,
+                    content_type,
+                    width,
+                    height,
+                    len(image_data),
+                    full_image_data,
+                    full_width,
+                    full_height,
+                    len(full_image_data) if full_image_data else None,
+                ),
+            )
 
     def load_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
         """Load avatar image data from database."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT image_data FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
 
             row = cursor.fetchone()
             return row[0] if row else None
 
-    def load_avatar_image_with_metadata(self, personality_name: str, emotion: str) -> Optional[Dict[str, Any]]:
+    def load_avatar_image_with_metadata(
+        self, personality_name: str, emotion: str
+    ) -> Optional[Dict[str, Any]]:
         """Load avatar image with metadata from database."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT image_data, content_type, width, height, file_size
                 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -675,28 +771,36 @@ class PersonalityRepository(BaseRepository):
                 'content_type': row['content_type'],
                 'width': row['width'],
                 'height': row['height'],
-                'file_size': row['file_size']
+                'file_size': row['file_size'],
             }
 
     def load_full_avatar_image(self, personality_name: str, emotion: str) -> Optional[bytes]:
         """Load full uncropped avatar image from database."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT full_image_data FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
 
             row = cursor.fetchone()
             return row[0] if row and row[0] else None
 
-    def load_full_avatar_image_with_metadata(self, personality_name: str, emotion: str) -> Optional[Dict[str, Any]]:
+    def load_full_avatar_image_with_metadata(
+        self, personality_name: str, emotion: str
+    ) -> Optional[Dict[str, Any]]:
         """Load full avatar image with metadata from database."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT full_image_data, content_type, full_width, full_height, full_file_size
                 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
 
             row = cursor.fetchone()
             if not row or not row['full_image_data']:
@@ -707,35 +811,44 @@ class PersonalityRepository(BaseRepository):
                 'content_type': row['content_type'],
                 'width': row['full_width'],
                 'height': row['full_height'],
-                'file_size': row['full_file_size']
+                'file_size': row['full_file_size'],
             }
 
     def has_full_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if a full avatar image exists for the given personality and emotion."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT 1 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ? AND full_image_data IS NOT NULL
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
             return cursor.fetchone() is not None
 
     def has_avatar_image(self, personality_name: str, emotion: str) -> bool:
         """Check if an avatar image exists for the given personality and emotion."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT 1 FROM avatar_images
                 WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
             return cursor.fetchone() is not None
 
     def get_available_avatar_emotions(self, personality_name: str) -> List[str]:
         """Get list of emotions that have avatar images for a personality."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT emotion FROM avatar_images
                 WHERE personality_name = ?
                 ORDER BY emotion
-            """, (personality_name,))
+            """,
+                (personality_name,),
+            )
             return [row[0] for row in cursor.fetchall()]
 
     def has_all_avatar_emotions(self, personality_name: str) -> bool:
@@ -751,9 +864,12 @@ class PersonalityRepository(BaseRepository):
             Number of images deleted
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 DELETE FROM avatar_images WHERE personality_name = ?
-            """, (personality_name,))
+            """,
+                (personality_name,),
+            )
             return cursor.rowcount
 
     def list_personalities_with_avatars(self) -> List[Dict[str, Any]]:
@@ -779,7 +895,9 @@ class PersonalityRepository(BaseRepository):
             cursor = conn.execute("SELECT SUM(file_size) as total_size FROM avatar_images")
             total_size = cursor.fetchone()['total_size'] or 0
 
-            cursor = conn.execute("SELECT COUNT(DISTINCT personality_name) as count FROM avatar_images")
+            cursor = conn.execute(
+                "SELECT COUNT(DISTINCT personality_name) as count FROM avatar_images"
+            )
             personality_count = cursor.fetchone()['count']
 
             cursor = conn.execute("""
@@ -796,20 +914,30 @@ class PersonalityRepository(BaseRepository):
                 'total_size_bytes': total_size,
                 'total_size_mb': round(total_size / (1024 * 1024), 2),
                 'personality_count': personality_count,
-                'complete_personality_count': complete_count
+                'complete_personality_count': complete_count,
             }
 
     # --- Reference Image CRUD ---
 
-    def save_reference_image(self, reference_id: str, image_data: bytes,
-                             width: int, height: int, content_type: str,
-                             source: str, original_url: Optional[str] = None) -> None:
+    def save_reference_image(
+        self,
+        reference_id: str,
+        image_data: bytes,
+        width: int,
+        height: int,
+        content_type: str,
+        source: str,
+        original_url: Optional[str] = None,
+    ) -> None:
         """Save a reference image to the database."""
         with self._get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO reference_images (id, image_data, width, height, content_type, source, original_url)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (reference_id, image_data, width, height, content_type, source, original_url))
+            """,
+                (reference_id, image_data, width, height, content_type, source, original_url),
+            )
 
     def get_reference_image(self, reference_id: str) -> Optional[Dict[str, Any]]:
         """Load a reference image by ID.
@@ -818,35 +946,44 @@ class PersonalityRepository(BaseRepository):
             Dict with image_data and content_type, or None if not found.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT image_data, content_type FROM reference_images WHERE id = ?
-            """, (reference_id,))
+            """,
+                (reference_id,),
+            )
 
             row = cursor.fetchone()
             if not row:
                 return None
 
-            return {
-                'image_data': row['image_data'],
-                'content_type': row['content_type']
-            }
+            return {'image_data': row['image_data'], 'content_type': row['content_type']}
 
     def assign_avatar(self, personality_name: str, emotion: str, image_data: bytes) -> None:
         """Assign an avatar image to a personality, updating if one already exists."""
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id FROM avatar_images WHERE personality_name = ? AND emotion = ?
-            """, (personality_name, emotion))
+            """,
+                (personality_name, emotion),
+            )
 
             existing = cursor.fetchone()
             if existing:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE avatar_images
                     SET image_data = ?, content_type = 'image/png', updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (image_data, existing['id']))
+                """,
+                    (image_data, existing['id']),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO avatar_images (personality_name, emotion, image_data, content_type)
                     VALUES (?, ?, ?, 'image/png')
-                """, (personality_name, emotion, image_data))
+                """,
+                    (personality_name, emotion, image_data),
+                )

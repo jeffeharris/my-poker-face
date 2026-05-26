@@ -3,11 +3,12 @@
 Covers the experiments (type='replay'), replay_experiment_captures,
 and replay_results tables.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from poker.repositories.base_repository import BaseRepository
 
@@ -25,7 +26,7 @@ class ReplayExperimentRepository(BaseRepository):
         description: Optional[str] = None,
         hypothesis: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        parent_experiment_id: Optional[int] = None
+        parent_experiment_id: Optional[int] = None,
     ) -> int:
         """Create a new replay experiment.
 
@@ -47,59 +48,76 @@ class ReplayExperimentRepository(BaseRepository):
             'hypothesis': hypothesis,
             'tags': tags or [],
             'experiment_type': 'replay',
-            'capture_selection': {
-                'mode': 'ids',
-                'ids': capture_ids
-            },
-            'variants': variants
+            'capture_selection': {'mode': 'ids', 'ids': capture_ids},
+            'variants': variants,
         }
 
         with self._get_connection() as conn:
             # Create the experiment record
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO experiments (
                     name, description, hypothesis, tags, notes,
                     config_json, experiment_type, parent_experiment_id
                 )
                 VALUES (?, ?, ?, ?, ?, ?, 'replay', ?)
-            """, (
-                name,
-                description,
-                hypothesis,
-                json.dumps(tags or []),
-                None,  # notes
-                json.dumps(config),
-                parent_experiment_id,
-            ))
+            """,
+                (
+                    name,
+                    description,
+                    hypothesis,
+                    json.dumps(tags or []),
+                    None,  # notes
+                    json.dumps(config),
+                    parent_experiment_id,
+                ),
+            )
             experiment_id = cursor.lastrowid
 
             # Link captures to the experiment
             for capture_id in capture_ids:
                 # Get original capture info for reference
-                capture_cursor = conn.execute("""
+                capture_cursor = conn.execute(
+                    """
                     SELECT action_taken FROM prompt_captures WHERE id = ?
-                """, (capture_id,))
+                """,
+                    (capture_id,),
+                )
                 capture_row = capture_cursor.fetchone()
                 original_action = capture_row[0] if capture_row else None
 
                 # Get decision analysis if available
-                analysis_cursor = conn.execute("""
+                analysis_cursor = conn.execute(
+                    """
                     SELECT decision_quality, ev_lost FROM player_decision_analysis
                     WHERE capture_id = ?
-                """, (capture_id,))
+                """,
+                    (capture_id,),
+                )
                 analysis_row = analysis_cursor.fetchone()
                 original_quality = analysis_row[0] if analysis_row else None
                 original_ev_lost = analysis_row[1] if analysis_row else None
 
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO replay_experiment_captures (
                         experiment_id, capture_id, original_action,
                         original_quality, original_ev_lost
                     )
                     VALUES (?, ?, ?, ?, ?)
-                """, (experiment_id, capture_id, original_action, original_quality, original_ev_lost))
+                """,
+                    (
+                        experiment_id,
+                        capture_id,
+                        original_action,
+                        original_quality,
+                        original_ev_lost,
+                    ),
+                )
 
-            logger.info(f"Created replay experiment '{name}' with id {experiment_id}, {len(capture_ids)} captures")
+            logger.info(
+                f"Created replay experiment '{name}' with id {experiment_id}, {len(capture_ids)} captures"
+            )
             return experiment_id
 
     def add_replay_result(
@@ -118,7 +136,7 @@ class ReplayExperimentRepository(BaseRepository):
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
         latency_ms: Optional[int] = None,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
     ) -> int:
         """Add a result from replaying a capture with a variant.
 
@@ -144,11 +162,14 @@ class ReplayExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             # Get original action and quality for comparison
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT original_action, original_quality, original_ev_lost
                 FROM replay_experiment_captures
                 WHERE experiment_id = ? AND capture_id = ?
-            """, (experiment_id, capture_id))
+            """,
+                (experiment_id, capture_id),
+            )
             row = cursor.fetchone()
             original_action = row[0] if row else None
             original_quality = row[1] if row else None
@@ -172,7 +193,8 @@ class ReplayExperimentRepository(BaseRepository):
             if original_ev_lost is not None and new_ev_lost is not None:
                 ev_delta = original_ev_lost - new_ev_lost  # Positive = improvement
 
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO replay_results (
                     experiment_id, capture_id, variant, new_response, new_action,
                     new_raise_amount, new_quality, new_ev_lost, action_changed,
@@ -180,31 +202,43 @@ class ReplayExperimentRepository(BaseRepository):
                     input_tokens, output_tokens, latency_ms, error_message
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                experiment_id, capture_id, variant, new_response, new_action,
-                new_raise_amount, new_quality, new_ev_lost, action_changed,
-                quality_change, ev_delta, provider, model, reasoning_effort,
-                input_tokens, output_tokens, latency_ms, error_message
-            ))
+            """,
+                (
+                    experiment_id,
+                    capture_id,
+                    variant,
+                    new_response,
+                    new_action,
+                    new_raise_amount,
+                    new_quality,
+                    new_ev_lost,
+                    action_changed,
+                    quality_change,
+                    ev_delta,
+                    provider,
+                    model,
+                    reasoning_effort,
+                    input_tokens,
+                    output_tokens,
+                    latency_ms,
+                    error_message,
+                ),
+            )
             return cursor.lastrowid
 
     def update_experiment_status(
-        self,
-        experiment_id: int,
-        status: str,
-        error_message: Optional[str] = None
+        self, experiment_id: int, status: str, error_message: Optional[str] = None
     ) -> None:
         """Update experiment status."""
         with self._get_connection() as conn:
             if error_message:
                 conn.execute(
                     "UPDATE experiments SET status = ?, notes = ? WHERE id = ?",
-                    (status, error_message, experiment_id)
+                    (status, error_message, experiment_id),
                 )
             else:
                 conn.execute(
-                    "UPDATE experiments SET status = ? WHERE id = ?",
-                    (status, experiment_id)
+                    "UPDATE experiments SET status = ? WHERE id = ?", (status, experiment_id)
                 )
 
     def complete_experiment(self, experiment_id: int, summary: Dict[str, Any]) -> None:
@@ -212,7 +246,7 @@ class ReplayExperimentRepository(BaseRepository):
         with self._get_connection() as conn:
             conn.execute(
                 "UPDATE experiments SET status = 'completed', summary_json = ? WHERE id = ?",
-                (json.dumps(summary), experiment_id)
+                (json.dumps(summary), experiment_id),
             )
 
     def get_replay_experiment(self, experiment_id: int) -> Optional[Dict[str, Any]]:
@@ -225,11 +259,13 @@ class ReplayExperimentRepository(BaseRepository):
             Experiment data with capture count and result progress, or None
         """
         with self._get_connection() as conn:
-
             # Get experiment
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT * FROM experiments WHERE id = ? AND experiment_type = 'replay'
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -242,13 +278,20 @@ class ReplayExperimentRepository(BaseRepository):
                     try:
                         experiment[field] = json.loads(experiment[field])
                     except json.JSONDecodeError:
-                        logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, experiment_id)
+                        logger.debug(
+                            "Failed to parse JSON for field '%s' in experiment id=%s",
+                            field,
+                            experiment_id,
+                        )
 
             # Get capture count
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT COUNT(*) FROM replay_experiment_captures
                 WHERE experiment_id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             experiment['capture_count'] = cursor.fetchone()[0]
 
             # Get variants from config
@@ -257,9 +300,12 @@ class ReplayExperimentRepository(BaseRepository):
             experiment['variant_count'] = len(variants)
 
             # Get result progress
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT COUNT(*) FROM replay_results WHERE experiment_id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             experiment['results_completed'] = cursor.fetchone()[0]
             experiment['results_total'] = experiment['capture_count'] * experiment['variant_count']
 
@@ -271,7 +317,7 @@ class ReplayExperimentRepository(BaseRepository):
         variant: Optional[str] = None,
         quality_change: Optional[str] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """Get replay results for an experiment.
 
@@ -298,15 +344,18 @@ class ReplayExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
         with self._get_connection() as conn:
-
             # Get total count
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT COUNT(*) FROM replay_results {where_clause}
-            """, params)
+            """,
+                params,
+            )
             total = cursor.fetchone()[0]
 
             # Get results with pagination
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT replay_results.*, pc.player_name, pc.phase, pc.pot_odds,
                        rec.original_action, rec.original_quality, rec.original_ev_lost
                 FROM replay_results
@@ -317,14 +366,13 @@ class ReplayExperimentRepository(BaseRepository):
                 {where_clause}
                 ORDER BY replay_results.created_at DESC
                 LIMIT ? OFFSET ?
-            """, params + [limit, offset])
+            """,
+                params + [limit, offset],
+            )
 
             results = [dict(row) for row in cursor.fetchall()]
 
-            return {
-                'results': results,
-                'total': total
-            }
+            return {'results': results, 'total': total}
 
     def get_replay_results_summary(self, experiment_id: int) -> Dict[str, Any]:
         """Get summary statistics for replay experiment results.
@@ -337,7 +385,8 @@ class ReplayExperimentRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             # Overall stats
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     COUNT(*) as total_results,
                     SUM(CASE WHEN action_changed = 1 THEN 1 ELSE 0 END) as actions_changed,
@@ -348,7 +397,9 @@ class ReplayExperimentRepository(BaseRepository):
                     SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END) as errors
                 FROM replay_results
                 WHERE experiment_id = ?
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
             row = cursor.fetchone()
 
             overall = {
@@ -362,7 +413,8 @@ class ReplayExperimentRepository(BaseRepository):
             }
 
             # Stats by variant
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     variant,
                     COUNT(*) as total,
@@ -377,7 +429,9 @@ class ReplayExperimentRepository(BaseRepository):
                 FROM replay_results
                 WHERE experiment_id = ?
                 GROUP BY variant
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             by_variant = {}
             for row in cursor.fetchall():
@@ -393,10 +447,7 @@ class ReplayExperimentRepository(BaseRepository):
                     'errors': row[9] or 0,
                 }
 
-            return {
-                'overall': overall,
-                'by_variant': by_variant
-            }
+            return {'overall': overall, 'by_variant': by_variant}
 
     def get_replay_experiment_captures(self, experiment_id: int) -> List[Dict[str, Any]]:
         """Get the captures linked to a replay experiment.
@@ -408,8 +459,8 @@ class ReplayExperimentRepository(BaseRepository):
             List of capture details with original info
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT rec.*, pc.player_name, pc.phase, pc.pot_odds,
                        pc.pot_total, pc.cost_to_call, pc.player_stack,
                        pc.model as original_model, pc.provider as original_provider
@@ -417,15 +468,14 @@ class ReplayExperimentRepository(BaseRepository):
                 JOIN prompt_captures pc ON pc.id = rec.capture_id
                 WHERE rec.experiment_id = ?
                 ORDER BY pc.created_at DESC
-            """, (experiment_id,))
+            """,
+                (experiment_id,),
+            )
 
             return [dict(row) for row in cursor.fetchall()]
 
     def list_replay_experiments(
-        self,
-        status: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0
+        self, status: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> Dict[str, Any]:
         """List replay experiments.
 
@@ -447,15 +497,18 @@ class ReplayExperimentRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}"
 
         with self._get_connection() as conn:
-
             # Get total count
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT COUNT(*) FROM experiments {where_clause}
-            """, params)
+            """,
+                params,
+            )
             total = cursor.fetchone()[0]
 
             # Get experiments with pagination
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT e.*,
                     (SELECT COUNT(*) FROM replay_experiment_captures rec WHERE rec.experiment_id = e.id) as capture_count,
                     (SELECT COUNT(*) FROM replay_results rr WHERE rr.experiment_id = e.id) as results_completed
@@ -463,7 +516,9 @@ class ReplayExperimentRepository(BaseRepository):
                 {where_clause}
                 ORDER BY e.created_at DESC
                 LIMIT ? OFFSET ?
-            """, params + [limit, offset])
+            """,
+                params + [limit, offset],
+            )
 
             experiments = []
             for row in cursor.fetchall():
@@ -474,7 +529,11 @@ class ReplayExperimentRepository(BaseRepository):
                         try:
                             exp[field] = json.loads(exp[field])
                         except json.JSONDecodeError:
-                            logger.debug("Failed to parse JSON for field '%s' in experiment id=%s", field, exp.get('id'))
+                            logger.debug(
+                                "Failed to parse JSON for field '%s' in experiment id=%s",
+                                field,
+                                exp.get('id'),
+                            )
 
                 # Calculate variant count from config
                 config = exp.get('config_json', {})
@@ -484,7 +543,4 @@ class ReplayExperimentRepository(BaseRepository):
 
                 experiments.append(exp)
 
-            return {
-                'experiments': experiments,
-                'total': total
-            }
+            return {'experiments': experiments, 'total': total}

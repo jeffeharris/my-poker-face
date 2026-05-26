@@ -2,7 +2,13 @@
  * TypeScript interfaces for the Experiment Designer
  */
 
-export type ExperimentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'interrupted';
+export type ExperimentStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'paused'
+  | 'interrupted';
 
 export type ExperimentMode = 'design' | 'list' | 'detail';
 
@@ -156,6 +162,8 @@ export interface DecisionQuality {
   correct_pct: number;
   mistakes: number;
   avg_ev_lost: number;
+  quality_score?: number;
+  menu_compliance_pct?: number;
 }
 
 /**
@@ -177,8 +185,8 @@ export interface CostMetrics {
  */
 export interface QualityIndicators {
   // Improved all-in detection (3-tier stack depth)
-  suspicious_allins: number;  // Confident trash shoves at >15BB
-  marginal_allins: number;    // Confident trash shoves at 11-15BB
+  suspicious_allins: number; // Confident trash shoves at >15BB
+  marginal_allins: number; // Confident trash shoves at 11-15BB
   // Fold mistakes
   fold_mistakes: number;
   fold_mistake_rate: number;
@@ -283,12 +291,15 @@ export interface DecisionStats {
   mistake: number;
   correct_pct: number;
   avg_ev_lost: number;
-  by_player: Record<string, {
-    total: number;
-    correct: number;
-    correct_pct: number;
-    avg_ev_lost: number;
-  }>;
+  by_player: Record<
+    string,
+    {
+      total: number;
+      correct: number;
+      correct_pct: number;
+      avg_ev_lost: number;
+    }
+  >;
 }
 
 export interface ChatMessage {
@@ -395,7 +406,7 @@ export const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   model: 'gpt-5-nano',
   provider: 'openai',
   personalities: null,
-  random_seed: 42,  // Placeholder - will be regenerated when starting new experiment
+  random_seed: 42, // Placeholder - will be regenerated when starting new experiment
   prompt_config: null,
   player_configs: null,
   control: null,
@@ -478,7 +489,5 @@ export const DEFAULT_REPLAY_CONFIG: ReplayExperimentConfig = {
     mode: 'filters',
     filters: {},
   },
-  variants: [
-    { label: 'Control' },
-  ],
+  variants: [{ label: 'Control' }],
 };

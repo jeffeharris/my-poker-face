@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
@@ -8,8 +16,8 @@ interface User {
   is_guest: boolean;
   created_at: string;
   permissions?: string[];
-  email?: string;    // Available for Google users
-  picture?: string;  // Google profile picture URL
+  email?: string; // Available for Google users
+  picture?: string; // Google profile picture URL
 }
 
 /**
@@ -207,9 +215,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // In dev mode, treat guests as non-guests so all features are accessible.
   // Set VITE_FORCE_GUEST=true in .env to test guest restrictions locally.
   const bypassGuest = import.meta.env.DEV && import.meta.env.VITE_FORCE_GUEST !== 'true';
-  const user = authState.user && bypassGuest && authState.user.is_guest
-    ? { ...authState.user, is_guest: false as const }
-    : authState.user;
+  const user =
+    authState.user && bypassGuest && authState.user.is_guest
+      ? { ...authState.user, is_guest: false as const }
+      : authState.user;
 
   const value: AuthContextValue = {
     user,
@@ -220,11 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

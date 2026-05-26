@@ -66,6 +66,7 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, repo in cls.repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = repo
@@ -76,7 +77,8 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             cls.app = create_app()
         cls.app.testing = True
         cls.sandbox_id = resolve_default_sandbox_for(
-            OWNER_ID, sandbox_repo=cls.repos['sandbox_repo'],
+            OWNER_ID,
+            sandbox_repo=cls.repos['sandbox_repo'],
         )
 
     @classmethod
@@ -94,13 +96,15 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         authz.auth_manager.get_current_user.return_value = user
         authz.has_permission.return_value = True
         self._authz_patcher = patch(
-            'poker.authorization.authorization_service', authz,
+            'poker.authorization.authorization_service',
+            authz,
         )
         self._authz_patcher.start()
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = user
         self._auth_patcher = patch(
-            'flask_app.extensions.auth_manager', auth_mock,
+            'flask_app.extensions.auth_manager',
+            auth_mock,
         )
         self._auth_patcher.start()
 
@@ -113,6 +117,7 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         )
 
         from flask_app.services import game_state_service
+
         self.game_state_service = game_state_service
         game_state_service.game_locks.pop(GAME_ID, None)
 
@@ -128,19 +133,22 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
     def _seated_indices(self, table_id: str) -> list[int]:
         table = self.repos['cash_table_repo'].load_table(
-            table_id, sandbox_id=self.sandbox_id,
+            table_id,
+            sandbox_id=self.sandbox_id,
         )
         return [
-            i for i, s in enumerate(table.seats)
-            if s.get("kind") == "human"
-            and s.get("personality_id") == OWNER_ID
+            i
+            for i, s in enumerate(table.seats)
+            if s.get("kind") == "human" and s.get("personality_id") == OWNER_ID
         ]
 
     def _stub_game_data(self, table_id: str, seat_index: int) -> dict:
         return {
-            'state_machine': _StubStateMachine([
-                _StubPlayer("You", is_human=True, stack=1000),
-            ]),
+            'state_machine': _StubStateMachine(
+                [
+                    _StubPlayer("You", is_human=True, stack=1000),
+                ]
+            ),
             'cash_mode': True,
             'owner_id': OWNER_ID,
             'cash_personality_ids': {},
@@ -163,16 +171,19 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         table_id = "cash-table-200-001"
         seats = [open_slot()] * 6
         seats[1] = human_slot(OWNER_ID, 1000)  # current session seat
-        seats[5] = human_slot(OWNER_ID, 800)   # orphan from earlier
+        seats[5] = human_slot(OWNER_ID, 800)  # orphan from earlier
         self.repos['cash_table_repo'].save_table(
             CashTableState(
-                table_id=table_id, stake_label="$200", seats=seats,
+                table_id=table_id,
+                stake_label="$200",
+                seats=seats,
             ),
             sandbox_id=self.sandbox_id,
         )
 
         self.game_state_service.set_game(
-            GAME_ID, self._stub_game_data(table_id, seat_index=1),
+            GAME_ID,
+            self._stub_game_data(table_id, seat_index=1),
         )
 
         resp = self.client.post('/api/cash/leave')
@@ -180,7 +191,8 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         seated = self._seated_indices(table_id)
         self.assertEqual(
-            seated, [],
+            seated,
+            [],
             f"orphan human seat survived at indices {seated} — lobby "
             "would still render the user as seated",
         )
@@ -201,7 +213,8 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         active_seats[2] = human_slot(OWNER_ID, 1000)
         self.repos['cash_table_repo'].save_table(
             CashTableState(
-                table_id=active_table, stake_label="$200",
+                table_id=active_table,
+                stake_label="$200",
                 seats=active_seats,
             ),
             sandbox_id=self.sandbox_id,
@@ -211,14 +224,16 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         orphan_seats[0] = human_slot(OWNER_ID, 500)
         self.repos['cash_table_repo'].save_table(
             CashTableState(
-                table_id=orphan_table, stake_label="$50",
+                table_id=orphan_table,
+                stake_label="$50",
                 seats=orphan_seats,
             ),
             sandbox_id=self.sandbox_id,
         )
 
         self.game_state_service.set_game(
-            GAME_ID, self._stub_game_data(active_table, seat_index=2),
+            GAME_ID,
+            self._stub_game_data(active_table, seat_index=2),
         )
 
         resp = self.client.post('/api/cash/leave')
@@ -226,7 +241,8 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         self.assertEqual(self._seated_indices(active_table), [])
         self.assertEqual(
-            self._seated_indices(orphan_table), [],
+            self._seated_indices(orphan_table),
+            [],
             "orphan human seat on a different table survived — the "
             "ghost-seat sweep failed to reap it on leave",
         )

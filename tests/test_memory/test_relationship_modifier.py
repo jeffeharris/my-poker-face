@@ -74,7 +74,9 @@ class TestIdentityModifier:
 
     def test_no_state_returns_identity(self, manager):
         result = get_relationship_modifier(
-            manager, "alice", "bob",
+            manager,
+            "alice",
+            "bob",
             now=datetime(2026, 5, 17),
         )
         assert result.is_identity
@@ -85,7 +87,9 @@ class TestIdentityModifier:
         # identity modifier.
         mgr = OpponentModelManager()
         result = get_relationship_modifier(
-            mgr, "alice", "bob",
+            mgr,
+            "alice",
+            "bob",
             now=datetime(2026, 5, 17),
         )
         assert result.is_identity
@@ -95,7 +99,8 @@ class TestIdentityModifier:
         # likability=0.5) don't cross any threshold — identity.
         now = datetime(2026, 5, 17, 12, 0)
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(),  # defaults
         )
         result = get_relationship_modifier(manager, "alice", "bob", now=now)
@@ -129,7 +134,8 @@ class TestHeatRival:
         # heat=0.55 fresh would trigger; after 30 days of decay
         # (7 plateau + 23 decay = ~1.64 half-lives), it's well under 0.5
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(
                 heat=0.55,
                 last_decay_tick=thirty_days_ago,
@@ -146,16 +152,12 @@ class TestHeatRival:
 class TestRespectHigh:
     def test_respect_above_threshold_triggers_fold_resistance(self):
         m = _modifier_from_axes(heat=0.0, respect=0.8, likability=0.5)
-        assert m.fold_to_pressure_mult == pytest.approx(
-            HIGH_RESPECT_FOLD_TO_PRESSURE_MULT
-        )
+        assert m.fold_to_pressure_mult == pytest.approx(HIGH_RESPECT_FOLD_TO_PRESSURE_MULT)
         assert m.bluff_freq_mult == 1.0  # unaffected
         assert m.call_threshold_offset == 0.0  # unaffected
 
     def test_respect_at_threshold_does_not_trigger(self):
-        m = _modifier_from_axes(
-            heat=0.0, respect=RESPECT_HIGH_THRESHOLD, likability=0.5
-        )
+        m = _modifier_from_axes(heat=0.0, respect=RESPECT_HIGH_THRESHOLD, likability=0.5)
         assert m.is_identity
 
 
@@ -172,9 +174,7 @@ class TestLikabilityHigh:
         assert m.call_threshold_offset == 0.0
 
     def test_likability_at_threshold_does_not_trigger(self):
-        m = _modifier_from_axes(
-            heat=0.0, respect=0.5, likability=LIKABILITY_HIGH_THRESHOLD
-        )
+        m = _modifier_from_axes(heat=0.0, respect=0.5, likability=LIKABILITY_HIGH_THRESHOLD)
         assert m.is_identity
 
 
@@ -200,9 +200,7 @@ class TestMultiAxisComposition:
         assert m.bluff_freq_mult == pytest.approx(
             RIVAL_BLUFF_FREQ_MULT * HIGH_LIKABILITY_BLUFF_FREQ_MULT
         )
-        assert m.fold_to_pressure_mult == pytest.approx(
-            HIGH_RESPECT_FOLD_TO_PRESSURE_MULT
-        )
+        assert m.fold_to_pressure_mult == pytest.approx(HIGH_RESPECT_FOLD_TO_PRESSURE_MULT)
         assert m.call_threshold_offset == pytest.approx(RIVAL_CALL_THRESHOLD_OFFSET)
 
 
@@ -213,14 +211,13 @@ class TestEndToEnd:
     def test_high_heat_state_drives_rival_modifier(self, manager, repo):
         now = datetime(2026, 5, 17, 12, 0)
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.7, last_decay_tick=now, last_seen=now),
         )
         result = get_relationship_modifier(manager, "alice", "bob", now=now)
         assert result.bluff_freq_mult == pytest.approx(RIVAL_BLUFF_FREQ_MULT)
-        assert result.call_threshold_offset == pytest.approx(
-            RIVAL_CALL_THRESHOLD_OFFSET
-        )
+        assert result.call_threshold_offset == pytest.approx(RIVAL_CALL_THRESHOLD_OFFSET)
         assert not result.is_identity
 
     def test_strict_pairwise(self, manager, repo):
@@ -229,7 +226,8 @@ class TestEndToEnd:
         modifier toward bob."""
         now = datetime(2026, 5, 17, 12, 0)
         repo.save_relationship_state(
-            "alice", "carol",
+            "alice",
+            "carol",
             RelationshipState(heat=0.9, last_decay_tick=now),
         )
         # alice→bob has no state
@@ -245,7 +243,8 @@ class TestEndToEnd:
         state and independent modifiers."""
         now = datetime(2026, 5, 17, 12, 0)
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.7, last_decay_tick=now),
         )
         # bob's view of alice is default (no state)

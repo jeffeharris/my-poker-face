@@ -95,7 +95,9 @@
   font-weight: 600;
   color: var(--color-gold-light);
   margin-bottom: 4px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(0, 0, 0, 0.5);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.9),
+    0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .floating-chat-message {
@@ -123,7 +125,9 @@
   font-style: italic;
   opacity: 0;
   transform: translateY(-4px);
-  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+  transition:
+    opacity 0.4s ease-out,
+    transform 0.4s ease-out;
 }
 
 .floating-chat-message .beat.action.visible {
@@ -146,7 +150,12 @@
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
-

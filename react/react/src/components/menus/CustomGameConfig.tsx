@@ -1,9 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Check, X, Search, Settings, Shuffle, Dices, Sparkles, ChevronDown,
-  ArrowLeft, ArrowRight, UserPlus,
-  FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull,
-  Coins, Cpu, Users, Zap, Trophy, Layers,
+  Check,
+  X,
+  Search,
+  Settings,
+  Shuffle,
+  Dices,
+  Sparkles,
+  ChevronDown,
+  ArrowLeft,
+  ArrowRight,
+  UserPlus,
+  FlaskConical,
+  Clapperboard,
+  Medal,
+  Crown,
+  Music,
+  Laugh,
+  Skull,
+  Coins,
+  Cpu,
+  Users,
+  Zap,
+  Trophy,
+  Layers,
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -51,9 +71,7 @@ interface LLMConfig {
   max_blind?: number;
 }
 
-type BotType =
-  | 'chaos' | 'standard' | 'lean' | 'sharp'
-  | 'casebot' | 'gto_lite' | 'baseline_solver';
+type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver';
 
 interface CustomGameConfigProps {
   onStartGame: (
@@ -69,14 +87,49 @@ interface CustomGameConfigProps {
 // ─── Theme data ──────────────────────────────────────────────────────
 
 const THEMES = [
-  { id: 'science', name: 'Science Masters', icon: FlaskConical, description: 'Great minds think alike... or do they?' },
-  { id: 'hollywood', name: 'Hollywood Legends', icon: Clapperboard, description: 'Lights, camera, all-in!' },
-  { id: 'sports', name: 'Sports Champions', icon: Medal, description: 'Bring your A-game to the table' },
-  { id: 'history', name: 'Historical Figures', icon: Crown, description: 'Making history one hand at a time' },
+  {
+    id: 'science',
+    name: 'Science Masters',
+    icon: FlaskConical,
+    description: 'Great minds think alike... or do they?',
+  },
+  {
+    id: 'hollywood',
+    name: 'Hollywood Legends',
+    icon: Clapperboard,
+    description: 'Lights, camera, all-in!',
+  },
+  {
+    id: 'sports',
+    name: 'Sports Champions',
+    icon: Medal,
+    description: 'Bring your A-game to the table',
+  },
+  {
+    id: 'history',
+    name: 'Historical Figures',
+    icon: Crown,
+    description: 'Making history one hand at a time',
+  },
   { id: 'music', name: 'Music Icons', icon: Music, description: 'Feel the rhythm of the cards' },
-  { id: 'comedy', name: 'Comedy Legends', icon: Laugh, description: 'No joke - these players are serious!' },
-  { id: 'villains', name: 'Famous Villains', icon: Skull, description: 'Sometimes it pays to be bad' },
-  { id: 'surprise', name: 'Surprise Me!', icon: Sparkles, description: 'A mysterious mix of personalities' },
+  {
+    id: 'comedy',
+    name: 'Comedy Legends',
+    icon: Laugh,
+    description: 'No joke - these players are serious!',
+  },
+  {
+    id: 'villains',
+    name: 'Famous Villains',
+    icon: Skull,
+    description: 'Sometimes it pays to be bad',
+  },
+  {
+    id: 'surprise',
+    name: 'Surprise Me!',
+    icon: Sparkles,
+    description: 'A mysterious mix of personalities',
+  },
 ];
 
 // ─── Game presets ────────────────────────────────────────────────────
@@ -95,22 +148,47 @@ interface GamePreset {
 
 const GAME_PRESETS: GamePreset[] = [
   {
-    id: 'quick', name: 'Quick & Dirty', icon: <Zap size={28} />, desc: '50BB deep, fast blinds. Games end quick.',
-    starting_stack: 10000, big_blind: 200, blind_growth: 1.5, blinds_increase: 4, max_blind: 0,
+    id: 'quick',
+    name: 'Quick & Dirty',
+    icon: <Zap size={28} />,
+    desc: '50BB deep, fast blinds. Games end quick.',
+    starting_stack: 10000,
+    big_blind: 200,
+    blind_growth: 1.5,
+    blinds_increase: 4,
+    max_blind: 0,
   },
   {
-    id: 'tournament', name: 'Tournament', icon: <Trophy size={28} />, desc: '100BB deep, steady growth. Classic feel.',
-    starting_stack: 10000, big_blind: 100, blind_growth: 1.5, blinds_increase: 6, max_blind: 0,
+    id: 'tournament',
+    name: 'Tournament',
+    icon: <Trophy size={28} />,
+    desc: '100BB deep, steady growth. Classic feel.',
+    starting_stack: 10000,
+    big_blind: 100,
+    blind_growth: 1.5,
+    blinds_increase: 6,
+    max_blind: 0,
   },
   {
-    id: 'deep', name: 'Deep Stack', icon: <Layers size={28} />, desc: '200BB deep, slow blinds. Play the long game.',
-    starting_stack: 10000, big_blind: 50, blind_growth: 1.25, blinds_increase: 10, max_blind: 0,
+    id: 'deep',
+    name: 'Deep Stack',
+    icon: <Layers size={28} />,
+    desc: '200BB deep, slow blinds. Play the long game.',
+    starting_stack: 10000,
+    big_blind: 50,
+    blind_growth: 1.25,
+    blinds_increase: 10,
+    max_blind: 0,
   },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────
 
-export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }: CustomGameConfigProps) {
+export function CustomGameConfig({
+  onStartGame,
+  onBack,
+  isCreatingGame = false,
+}: CustomGameConfigProps) {
   const { user } = useAuth();
 
   // Wizard step: 0 = opponents, 1 = settings, 2 = review
@@ -141,9 +219,13 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   // Model config
   const {
-    providers, loading: providersLoading, getModelsForProvider,
-    defaultProvider: apiDefaultProvider, getDefaultModel,
-    providerSupportsReasoning, formatModelLabel,
+    providers,
+    loading: providersLoading,
+    getModelsForProvider,
+    defaultProvider: apiDefaultProvider,
+    getDefaultModel,
+    providerSupportsReasoning,
+    formatModelLabel,
   } = useLLMProviders({ scope: 'user' });
   const [defaultProvider, setDefaultProvider] = useState('');
   const [defaultModel, setDefaultModel] = useState('');
@@ -159,8 +241,8 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   // Seed model defaults from DB once providers load
   useEffect(() => {
     if (!providersLoading && apiDefaultProvider) {
-      setDefaultProvider(prev => prev || apiDefaultProvider);
-      setDefaultModel(prev => prev || getDefaultModel(apiDefaultProvider));
+      setDefaultProvider((prev) => prev || apiDefaultProvider);
+      setDefaultModel((prev) => prev || getDefaultModel(apiDefaultProvider));
     }
   }, [providersLoading, apiDefaultProvider, getDefaultModel]);
 
@@ -183,12 +265,11 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     })();
   }, []);
 
-
   // ─── Player count management ───────────────────────────────────────
 
   const handlePlayerCountChange = useCallback((count: number) => {
     setPlayerCount(count);
-    setSlots(prev => {
+    setSlots((prev) => {
       if (count > prev.length) {
         return [...prev, ...Array(count - prev.length).fill(null)];
       }
@@ -202,11 +283,11 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   const filledNames = slots.filter((s): s is string => s !== null);
 
   const fillRandomly = useCallback(() => {
-    setSlots(prev => {
+    setSlots((prev) => {
       const filled = prev.filter((s): s is string => s !== null);
-      const available = personalityNames.filter(n => !filled.includes(n));
+      const available = personalityNames.filter((n) => !filled.includes(n));
       const shuffled = [...available].sort(() => Math.random() - 0.5);
-      return prev.map(slot => {
+      return prev.map((slot) => {
         if (slot !== null) return slot;
         return shuffled.shift() ?? slot;
       });
@@ -215,7 +296,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   const shuffleAll = useCallback(() => {
     const available = personalityNames.sort(() => Math.random() - 0.5);
-    setSlots(prev => prev.map((_, i) => available[i] ?? null));
+    setSlots((prev) => prev.map((_, i) => available[i] ?? null));
     // Clear per-player configs since players changed
     setOpponentConfigs({});
     setOpponentBotTypes({});
@@ -240,7 +321,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       const data = await res.json();
       const raw: Array<string | { name: string }> = data.personalities || [];
       // Extract name strings from personality objects (API may return {name, game_mode} objects)
-      const generated: string[] = raw.map(p => typeof p === 'string' ? p : p.name);
+      const generated: string[] = raw.map((p) => (typeof p === 'string' ? p : p.name));
       // Adjust player count to match theme results (capped at 5)
       const count = Math.min(generated.length, 5);
       setPlayerCount(count);
@@ -256,23 +337,23 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   };
 
   const assignSlot = (slotIdx: number, name: string) => {
-    setSlots(prev => prev.map((s, i) => (i === slotIdx ? name : s)));
+    setSlots((prev) => prev.map((s, i) => (i === slotIdx ? name : s)));
     setPickerSlotIndex(null);
     setPickerSearch('');
   };
 
   const removeSlot = (slotIdx: number) => {
     const name = slots[slotIdx];
-    setSlots(prev => prev.map((s, i) => (i === slotIdx ? null : s)));
+    setSlots((prev) => prev.map((s, i) => (i === slotIdx ? null : s)));
     if (name && opponentConfigs[name]) {
-      setOpponentConfigs(prev => {
+      setOpponentConfigs((prev) => {
         const next = { ...prev };
         delete next[name];
         return next;
       });
     }
     if (name && opponentBotTypes[name]) {
-      setOpponentBotTypes(prev => {
+      setOpponentBotTypes((prev) => {
         const next = { ...prev };
         delete next[name];
         return next;
@@ -284,8 +365,12 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   // ─── Per-player LLM config ────────────────────────────────────────
 
   const handleOpponentConfigChange = (name: string, field: string, value: string) => {
-    setOpponentConfigs(prev => {
-      const current = prev[name] || { provider: defaultProvider, model: defaultModel, reasoning_effort: defaultReasoning };
+    setOpponentConfigs((prev) => {
+      const current = prev[name] || {
+        provider: defaultProvider,
+        model: defaultModel,
+        reasoning_effort: defaultReasoning,
+      };
       const updated = { ...current, [field]: value };
       // Cascade model reset on provider change
       if (field === 'provider') {
@@ -302,12 +387,12 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
   };
 
   const resetOpponentConfig = (name: string) => {
-    setOpponentConfigs(prev => {
+    setOpponentConfigs((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
     });
-    setOpponentBotTypes(prev => {
+    setOpponentBotTypes((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -349,11 +434,14 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
     const filled = slots.filter((s): s is string => s !== null);
     if (filled.length === 0) return;
 
-    const personalities = filled.map(name => {
+    const personalities = filled.map((name) => {
       const customConfig = opponentConfigs[name];
       if (customConfig) {
         const { game_mode, ...llm_config } = customConfig;
-        const entry: { name: string; llm_config: OpponentLLMConfig; game_mode?: string } = { name, llm_config };
+        const entry: { name: string; llm_config: OpponentLLMConfig; game_mode?: string } = {
+          name,
+          llm_config,
+        };
         if (game_mode) entry.game_mode = game_mode;
         return entry;
       }
@@ -367,25 +455,30 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       if (bt && bt !== 'standard') botTypes[name] = bt;
     }
 
-    onStartGame(personalities, {
-      provider: defaultProvider,
-      model: defaultModel,
-      reasoning_effort: defaultReasoning,
-      starting_stack: startingStack,
-      big_blind: bigBlind,
-      blind_growth: blindGrowth,
-      blinds_increase: blindsIncrease,
-      max_blind: maxBlind,
-    }, defaultGameMode, Object.keys(botTypes).length > 0 ? botTypes : undefined);
+    onStartGame(
+      personalities,
+      {
+        provider: defaultProvider,
+        model: defaultModel,
+        reasoning_effort: defaultReasoning,
+        starting_stack: startingStack,
+        big_blind: bigBlind,
+        blind_growth: blindGrowth,
+        blinds_increase: blindsIncrease,
+        max_blind: maxBlind,
+      },
+      defaultGameMode,
+      Object.keys(botTypes).length > 0 ? botTypes : undefined
+    );
   };
 
   // ─── Navigation ────────────────────────────────────────────────────
 
-  const filledCount = slots.filter(s => s !== null).length;
+  const filledCount = slots.filter((s) => s !== null).length;
   const canProceedStep0 = filledCount > 0;
 
-  const goNext = () => setStep(s => Math.min(s + 1, 2));
-  const goBack = () => setStep(s => Math.max(s - 1, 0));
+  const goNext = () => setStep((s) => Math.min(s + 1, 2));
+  const goBack = () => setStep((s) => Math.max(s - 1, 0));
   const goToStep = (s: number) => {
     // Only allow jumping to completed or current steps
     if (s <= step || (s === 1 && canProceedStep0) || (s === 2 && canProceedStep0)) {
@@ -405,14 +498,20 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
         const className = `wizard-step ${isActive ? 'wizard-step--active' : ''} ${isCompleted ? 'wizard-step--completed' : ''}`;
         return (
           <div key={label} style={{ display: 'flex', alignItems: 'center' }}>
-            <button className={className} onClick={() => goToStep(i)} aria-current={isActive ? 'step' : undefined}>
+            <button
+              className={className}
+              onClick={() => goToStep(i)}
+              aria-current={isActive ? 'step' : undefined}
+            >
               <span className="wizard-step__circle">
                 {isCompleted ? <Check size={16} /> : i + 1}
               </span>
               <span className="wizard-step__label">{label}</span>
             </button>
             {i < STEP_LABELS.length - 1 && (
-              <div className={`wizard-step__connector ${isCompleted ? 'wizard-step__connector--completed' : ''}`} />
+              <div
+                className={`wizard-step__connector ${isCompleted ? 'wizard-step__connector--completed' : ''}`}
+              />
             )}
           </div>
         );
@@ -433,7 +532,10 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   // ─── Personality picker ────────────────────────────────────────────
 
-  const closePicker = useCallback(() => { setPickerSlotIndex(null); setPickerSearch(''); }, []);
+  const closePicker = useCallback(() => {
+    setPickerSlotIndex(null);
+    setPickerSearch('');
+  }, []);
 
   const renderPicker = () => {
     const filtered = Object.entries(allPersonalities).filter(([name]) =>
@@ -454,7 +556,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             type="text"
             placeholder="Search personalities..."
             value={pickerSearch}
-            onChange={e => setPickerSearch(e.target.value)}
+            onChange={(e) => setPickerSearch(e.target.value)}
             autoFocus
           />
         </div>
@@ -468,17 +570,21 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                 <button
                   key={name}
                   className={`personality-picker__item ${taken ? 'personality-picker__item--taken' : ''}`}
-                  onClick={() => !taken && pickerSlotIndex !== null && assignSlot(pickerSlotIndex, name)}
+                  onClick={() =>
+                    !taken && pickerSlotIndex !== null && assignSlot(pickerSlotIndex, name)
+                  }
                   disabled={taken}
                 >
-                  <div className="personality-picker__item-avatar">
-                    {name[0]}
-                  </div>
+                  <div className="personality-picker__item-avatar">{name[0]}</div>
                   <div className="personality-picker__item-info">
                     <div className="personality-picker__item-name">{name}</div>
                     <div className="personality-picker__item-style">{p.play_style}</div>
                   </div>
-                  {taken && <span style={{ fontSize: '10px', color: 'var(--color-text-disabled)' }}>IN USE</span>}
+                  {taken && (
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-disabled)' }}>
+                      IN USE
+                    </span>
+                  )}
                 </button>
               );
             })
@@ -496,7 +602,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       <div className="player-count">
         <span className="player-count__label">Number of Opponents</span>
         <div className="player-count__buttons">
-          {[1, 2, 3, 4, 5].map(n => (
+          {[1, 2, 3, 4, 5].map((n) => (
             <button
               key={n}
               className={`player-count__btn ${playerCount === n ? 'player-count__btn--selected' : ''}`}
@@ -511,10 +617,18 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       {/* Fill action buttons */}
       <div className="fill-actions">
         <div className="fill-actions__row">
-          <button className="fill-btn fill-btn--random" onClick={fillRandomly} disabled={loading || filledCount === playerCount}>
+          <button
+            className="fill-btn fill-btn--random"
+            onClick={fillRandomly}
+            disabled={loading || filledCount === playerCount}
+          >
             <Dices size={16} /> Fill Randomly
           </button>
-          <button className="fill-btn fill-btn--theme" onClick={() => setShowThemes(true)} disabled={themeGenerating}>
+          <button
+            className="fill-btn fill-btn--theme"
+            onClick={() => setShowThemes(true)}
+            disabled={themeGenerating}
+          >
             <Sparkles size={16} /> Use Theme
           </button>
         </div>
@@ -528,15 +642,17 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       {/* Theme picker modal */}
       {showThemes && (
         <div className="theme-modal-backdrop" onClick={() => setShowThemes(false)}>
-          <div className="theme-modal" onClick={e => e.stopPropagation()}>
+          <div className="theme-modal" onClick={(e) => e.stopPropagation()}>
             <div className="theme-modal__header">
               <h3 className="theme-modal__title">
                 <Sparkles size={18} /> Choose a Theme
               </h3>
-              <button className="theme-modal__close" onClick={() => setShowThemes(false)}>✕</button>
+              <button className="theme-modal__close" onClick={() => setShowThemes(false)}>
+                ✕
+              </button>
             </div>
             <div className="theme-modal__grid">
-              {THEMES.map(t => (
+              {THEMES.map((t) => (
                 <button
                   key={t.id}
                   className="theme-modal__card"
@@ -575,7 +691,11 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           {slots.map((slotName, idx) => {
             if (slotName === null) {
               return (
-                <button key={`empty-${idx}`} className="player-slot--empty" onClick={() => setPickerSlotIndex(idx)}>
+                <button
+                  key={`empty-${idx}`}
+                  className="player-slot--empty"
+                  onClick={() => setPickerSlotIndex(idx)}
+                >
                   <UserPlus size={24} className="player-slot__empty-icon" />
                   <span className="player-slot__empty-label">Empty Seat</span>
                   <span className="player-slot__empty-hint">Tap to assign</span>
@@ -617,10 +737,19 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
                 <p className="player-card__style">{p.play_style}</p>
 
                 <div className="player-card__traits">
-                  <TraitBar label="Loose" value={p.anchors?.baseline_looseness ?? p.personality_traits?.bluff_tendency ?? 0.5} />
-                  <TraitBar label="Aggro" value={p.anchors?.baseline_aggression ?? p.personality_traits?.aggression ?? 0.5} />
+                  <TraitBar
+                    label="Loose"
+                    value={
+                      p.anchors?.baseline_looseness ?? p.personality_traits?.bluff_tendency ?? 0.5
+                    }
+                  />
+                  <TraitBar
+                    label="Aggro"
+                    value={
+                      p.anchors?.baseline_aggression ?? p.personality_traits?.aggression ?? 0.5
+                    }
+                  />
                 </div>
-
               </div>
             );
           })}
@@ -643,13 +772,15 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       <div className="presets-section">
         <p className="presets-section__label">Choose a Starting Point</p>
         <div className="presets-grid">
-          {GAME_PRESETS.map(preset => (
+          {GAME_PRESETS.map((preset) => (
             <button
               key={preset.id}
               className={`selectable-card preset-card ${selectedPreset === preset.id ? 'selectable-card--selected' : ''}`}
               onClick={() => applyPreset(preset)}
             >
-              {selectedPreset === 'custom' && <span className="preset-card__custom-badge">Custom</span>}
+              {selectedPreset === 'custom' && (
+                <span className="preset-card__custom-badge">Custom</span>
+              )}
               <div className="preset-card__icon">{preset.icon}</div>
               <div className="preset-card__name">{preset.name}</div>
               <div className="preset-card__desc">{preset.desc}</div>
@@ -662,7 +793,7 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       <div className="game-mode-section">
         <p className="presets-section__label">Game Mode</p>
         <div className="game-mode-grid">
-          {GAME_MODES.map(gm => (
+          {GAME_MODES.map((gm) => (
             <button
               key={gm.value}
               className={`selectable-card game-mode-card ${defaultGameMode === gm.value ? 'selectable-card--selected' : ''}`}
@@ -679,7 +810,10 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       <button className="advanced-toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
         <Settings size={16} />
         Advanced Settings
-        <ChevronDown size={16} className={`advanced-toggle__chevron ${showAdvanced ? 'advanced-toggle__chevron--open' : ''}`} />
+        <ChevronDown
+          size={16}
+          className={`advanced-toggle__chevron ${showAdvanced ? 'advanced-toggle__chevron--open' : ''}`}
+        />
       </button>
 
       {/* Advanced panel */}
@@ -693,34 +827,76 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             </h4>
             <div className="settings-table">
               <span className="setting-label">Starting Stack</span>
-              <select className="setting-select" value={startingStack} onChange={e => handleSettingChange(setStartingStack, parseInt(e.target.value))}>
-                {stackOptions.map(v => <option key={v} value={v}>{v.toLocaleString()}</option>)}
+              <select
+                className="setting-select"
+                value={startingStack}
+                onChange={(e) => handleSettingChange(setStartingStack, parseInt(e.target.value))}
+              >
+                {stackOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v.toLocaleString()}
+                  </option>
+                ))}
               </select>
 
               <span className="setting-label">Big Blind</span>
-              <select className="setting-select" value={bigBlind} onChange={e => handleSettingChange(setBigBlind, parseInt(e.target.value))}>
-                {blindOptions.map(v => <option key={v} value={v}>{v}</option>)}
+              <select
+                className="setting-select"
+                value={bigBlind}
+                onChange={(e) => handleSettingChange(setBigBlind, parseInt(e.target.value))}
+              >
+                {blindOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
               </select>
 
               <span className="setting-label">Blinds Increase</span>
-              <select className="setting-select" value={blindsIncrease} onChange={e => handleSettingChange(setBlindsIncrease, parseInt(e.target.value))}>
-                {blindsIncreaseOptions.map(v => <option key={v} value={v}>Every {v} hands</option>)}
+              <select
+                className="setting-select"
+                value={blindsIncrease}
+                onChange={(e) => handleSettingChange(setBlindsIncrease, parseInt(e.target.value))}
+              >
+                {blindsIncreaseOptions.map((v) => (
+                  <option key={v} value={v}>
+                    Every {v} hands
+                  </option>
+                ))}
               </select>
 
               <span className="setting-label">Blind Growth</span>
-              <select className="setting-select" value={blindGrowth} onChange={e => handleSettingChange(setBlindGrowth, parseFloat(e.target.value))}>
-                {blindGrowthOptions.map(v => <option key={v} value={v}>{v}x</option>)}
+              <select
+                className="setting-select"
+                value={blindGrowth}
+                onChange={(e) => handleSettingChange(setBlindGrowth, parseFloat(e.target.value))}
+              >
+                {blindGrowthOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}x
+                  </option>
+                ))}
               </select>
 
               <span className="setting-label">Blind Cap</span>
-              <select className="setting-select" value={maxBlind} onChange={e => handleSettingChange(setMaxBlind, parseInt(e.target.value))}>
-                {maxBlindOptions.map(v => <option key={v} value={v}>{v === 0 ? 'No cap' : v.toLocaleString()}</option>)}
+              <select
+                className="setting-select"
+                value={maxBlind}
+                onChange={(e) => handleSettingChange(setMaxBlind, parseInt(e.target.value))}
+              >
+                {maxBlindOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v === 0 ? 'No cap' : v.toLocaleString()}
+                  </option>
+                ))}
               </select>
 
               {startingStack < bigBlind * 10 && (
                 <>
                   <span className="setting-label setting-label--warn">Note</span>
-                  <span className="setting-warn">Short stack — less than 10× big blind. Games may end quickly.</span>
+                  <span className="setting-warn">
+                    Short stack — less than 10× big blind. Games may end quickly.
+                  </span>
                 </>
               )}
             </div>
@@ -737,30 +913,42 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
               <select
                 className="setting-select"
                 value={defaultProvider}
-                onChange={e => handleDefaultProviderChange(e.target.value)}
+                onChange={(e) => handleDefaultProviderChange(e.target.value)}
                 disabled={providersLoading}
               >
-                {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
               </select>
 
               <span className="setting-label">Model</span>
               <select
                 className="setting-select"
                 value={defaultModel}
-                onChange={e => setDefaultModel(e.target.value)}
+                onChange={(e) => setDefaultModel(e.target.value)}
                 disabled={providersLoading}
               >
-                {getModelsForProvider(defaultProvider).map(m => (
-                  <option key={m} value={m}>{formatModelLabel(defaultProvider, m)}</option>
+                {getModelsForProvider(defaultProvider).map((m) => (
+                  <option key={m} value={m}>
+                    {formatModelLabel(defaultProvider, m)}
+                  </option>
                 ))}
               </select>
 
               {providerSupportsReasoning(defaultProvider) && (
                 <>
                   <span className="setting-label">Reasoning</span>
-                  <select className="setting-select" value={defaultReasoning} onChange={e => setDefaultReasoning(e.target.value)}>
-                    {['minimal', 'low'].map(l => (
-                      <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+                  <select
+                    className="setting-select"
+                    value={defaultReasoning}
+                    onChange={(e) => setDefaultReasoning(e.target.value)}
+                  >
+                    {['minimal', 'low'].map((l) => (
+                      <option key={l} value={l}>
+                        {l.charAt(0).toUpperCase() + l.slice(1)}
+                      </option>
                     ))}
                   </select>
                 </>
@@ -774,45 +962,49 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   // ─── Step 3: Review & Start ────────────────────────────────────────
 
-  const activePreset = GAME_PRESETS.find(p => p.id === selectedPreset);
+  const activePreset = GAME_PRESETS.find((p) => p.id === selectedPreset);
 
   const renderStep2 = () => (
     <div className="wizard-step-panel review-confirm" key="step-2">
       {/* Opponents */}
       <div className="review-block">
         <div className="review-block__bar">
-          <span className="review-block__label"><Users size={14} /> Opponents</span>
-          <button className="review-block__edit" onClick={() => setStep(0)}>Edit</button>
+          <span className="review-block__label">
+            <Users size={14} /> Opponents
+          </span>
+          <button className="review-block__edit" onClick={() => setStep(0)}>
+            Edit
+          </button>
         </div>
         <div className="review-fan" data-count={filledCount}>
-          {slots.filter((s): s is string => s !== null).map((name, i, arr) => {
-            const count = arr.length;
-            const mid = (count - 1) / 2;
-            const offset = i - mid;
-            const rotation = offset * (count <= 3 ? 6 : 5);
-            const translateY = Math.abs(offset) * 4;
-            return (
-              <div
-                key={name}
-                className="review-fan__card"
-                style={{
-                  transform: `translateY(${translateY}px) rotate(${rotation}deg)`,
-                  zIndex: count - Math.abs(Math.round(offset)),
-                }}
-              >
+          {slots
+            .filter((s): s is string => s !== null)
+            .map((name, i, arr) => {
+              const count = arr.length;
+              const mid = (count - 1) / 2;
+              const offset = i - mid;
+              const rotation = offset * (count <= 3 ? 6 : 5);
+              const translateY = Math.abs(offset) * 4;
+              return (
                 <div
-                  className="review-fan__avatar"
+                  key={name}
+                  className="review-fan__card"
                   style={{
-                    backgroundImage: `url(${config.API_URL}/api/avatar/${encodeURIComponent(name)}/confident/full)`,
+                    transform: `translateY(${translateY}px) rotate(${rotation}deg)`,
+                    zIndex: count - Math.abs(Math.round(offset)),
                   }}
-                />
-                <div className="review-fan__name">{name}</div>
-                {opponentConfigs[name] && (
-                  <Settings size={10} className="review-fan__custom" />
-                )}
-              </div>
-            );
-          })}
+                >
+                  <div
+                    className="review-fan__avatar"
+                    style={{
+                      backgroundImage: `url(${config.API_URL}/api/avatar/${encodeURIComponent(name)}/confident/full)`,
+                    }}
+                  />
+                  <div className="review-fan__name">{name}</div>
+                  {opponentConfigs[name] && <Settings size={10} className="review-fan__custom" />}
+                </div>
+              );
+            })}
         </div>
       </div>
 
@@ -823,7 +1015,9 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
             <Coins size={14} /> Settings
             {activePreset && <span className="review-block__preset">({activePreset.name})</span>}
           </span>
-          <button className="review-block__edit" onClick={() => setStep(1)}>Edit</button>
+          <button className="review-block__edit" onClick={() => setStep(1)}>
+            Edit
+          </button>
         </div>
         <div className="review-settings-strip">
           <span className="review-stat">
@@ -837,7 +1031,9 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
           </span>
           <span className="review-stat__divider" />
           <span className="review-stat">
-            <span className="review-stat__value" style={{ textTransform: 'capitalize' }}>{defaultGameMode}</span>
+            <span className="review-stat__value" style={{ textTransform: 'capitalize' }}>
+              {defaultGameMode}
+            </span>
             <span className="review-stat__label">Mode</span>
           </span>
           <span className="review-stat__divider" />
@@ -854,9 +1050,19 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
 
   return (
     <>
-      <MenuBar onBack={onBack} centerContent={renderStepIndicator()} showUserInfo onMainMenu={onBack} />
-      <PageLayout variant="top" glowColor="sapphire" maxWidth="lg" hasMenuBar className="has-wizard-nav">
-
+      <MenuBar
+        onBack={onBack}
+        centerContent={renderStepIndicator()}
+        showUserInfo
+        onMainMenu={onBack}
+      />
+      <PageLayout
+        variant="top"
+        glowColor="sapphire"
+        maxWidth="lg"
+        hasMenuBar
+        className="has-wizard-nav"
+      >
         <div className="wizard-content">
           {step === 0 && renderStep0()}
           {step === 1 && renderStep1()}
@@ -897,111 +1103,146 @@ export function CustomGameConfig({ onStartGame, onBack, isCreatingGame = false }
       {renderPicker()}
 
       {/* LLM config bottom sheet */}
-      {expandedConfigSlot !== null && slots[expandedConfigSlot] && (() => {
-        const configName = slots[expandedConfigSlot]!;
-        const hasCustom = !!opponentConfigs[configName];
-        const useDefaults = !hasCustom;
-        const curProvider = opponentConfigs[configName]?.provider || defaultProvider;
-        return (
-          <BottomSheet
-            isOpen
-            onClose={() => setExpandedConfigSlot(null)}
-            title={<><Settings size={18} /> {configName} — AI Settings</>}
-          >
-            <div className="config-sheet__content">
-              <div
-                className="config-sheet__defaults-toggle"
-                onClick={() => {
-                  if (useDefaults) {
-                    handleOpponentConfigChange(configName, 'provider', defaultProvider);
-                  } else {
-                    resetOpponentConfig(configName);
-                  }
-                }}
-              >
-                <span className="config-sheet__defaults-label">Use Game Defaults</span>
-                <div className={`config-sheet__defaults-switch ${useDefaults ? 'config-sheet__defaults-switch--on' : ''}`} />
-              </div>
-              <div className={`config-sheet__body ${useDefaults ? 'config-sheet__body--disabled' : ''}`}>
-                <div className="config-sheet__field">
-                  <label className="config-sheet__label">Provider</label>
-                  <select
-                    className="config-sheet__select"
-                    value={curProvider}
-                    onChange={e => handleOpponentConfigChange(configName, 'provider', e.target.value)}
-                    disabled={providersLoading || useDefaults}
-                  >
-                    {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+      {expandedConfigSlot !== null &&
+        slots[expandedConfigSlot] &&
+        (() => {
+          const configName = slots[expandedConfigSlot]!;
+          const hasCustom = !!opponentConfigs[configName];
+          const useDefaults = !hasCustom;
+          const curProvider = opponentConfigs[configName]?.provider || defaultProvider;
+          return (
+            <BottomSheet
+              isOpen
+              onClose={() => setExpandedConfigSlot(null)}
+              title={
+                <>
+                  <Settings size={18} /> {configName} — AI Settings
+                </>
+              }
+            >
+              <div className="config-sheet__content">
+                <div
+                  className="config-sheet__defaults-toggle"
+                  onClick={() => {
+                    if (useDefaults) {
+                      handleOpponentConfigChange(configName, 'provider', defaultProvider);
+                    } else {
+                      resetOpponentConfig(configName);
+                    }
+                  }}
+                >
+                  <span className="config-sheet__defaults-label">Use Game Defaults</span>
+                  <div
+                    className={`config-sheet__defaults-switch ${useDefaults ? 'config-sheet__defaults-switch--on' : ''}`}
+                  />
                 </div>
-                <div className="config-sheet__field">
-                  <label className="config-sheet__label">Model</label>
-                  <select
-                    className="config-sheet__select"
-                    value={opponentConfigs[configName]?.model || defaultModel}
-                    onChange={e => handleOpponentConfigChange(configName, 'model', e.target.value)}
-                    disabled={providersLoading || useDefaults}
-                  >
-                    {getModelsForProvider(curProvider).map(m => (
-                      <option key={m} value={m}>{formatModelLabel(curProvider, m)}</option>
-                    ))}
-                  </select>
-                </div>
-                {providerSupportsReasoning(curProvider) && (
+                <div
+                  className={`config-sheet__body ${useDefaults ? 'config-sheet__body--disabled' : ''}`}
+                >
                   <div className="config-sheet__field">
-                    <label className="config-sheet__label">Reasoning Effort</label>
+                    <label className="config-sheet__label">Provider</label>
                     <select
                       className="config-sheet__select"
-                      value={opponentConfigs[configName]?.reasoning_effort || defaultReasoning}
-                      onChange={e => handleOpponentConfigChange(configName, 'reasoning_effort', e.target.value)}
-                      disabled={useDefaults}
+                      value={curProvider}
+                      onChange={(e) =>
+                        handleOpponentConfigChange(configName, 'provider', e.target.value)
+                      }
+                      disabled={providersLoading || useDefaults}
                     >
-                      {['minimal', 'low'].map(l => (
-                        <option key={l} value={l}>{l.charAt(0).toUpperCase() + l.slice(1)}</option>
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
                       ))}
                     </select>
                   </div>
-                )}
-                <div className="config-sheet__field">
-                  <label className="config-sheet__label">Game Mode Override</label>
-                  <select
-                    className="config-sheet__select"
-                    value={opponentConfigs[configName]?.game_mode || ''}
-                    onChange={e => handleOpponentConfigChange(configName, 'game_mode', e.target.value)}
-                    disabled={useDefaults}
-                  >
-                    <option value="">Use game default ({defaultGameMode})</option>
-                    {GAME_MODES.map(gm => <option key={gm.value} value={gm.value}>{gm.label}</option>)}
-                  </select>
-                </div>
-                <div className="config-sheet__field">
-                  <label className="config-sheet__label">Controller</label>
-                  <select
-                    className="config-sheet__select"
-                    value={opponentBotTypes[configName] ?? 'standard'}
-                    onChange={e => setOpponentBotTypes(prev => ({
-                      ...prev, [configName]: e.target.value as BotType,
-                    }))}
-                    disabled={useDefaults}
-                  >
-                    <optgroup label="LLM-driven">
-                      <option value="standard">Standard (default)</option>
-                      <option value="chaos">Chaos — full LLM, full personality</option>
-                      <option value="lean">Lean — cheap LLM, options-bounded</option>
-                      <option value="sharp">Sharp — solver-based GTO</option>
-                    </optgroup>
-                    <optgroup label="Training bots (deterministic, no chat)">
-                      <option value="casebot">CaseBot — adaptive case-based rules</option>
-                      <option value="gto_lite">GTO-Lite — pot-odds math</option>
-                      <option value="baseline_solver">BaselineSolver — pure solver, no personality</option>
-                    </optgroup>
-                  </select>
+                  <div className="config-sheet__field">
+                    <label className="config-sheet__label">Model</label>
+                    <select
+                      className="config-sheet__select"
+                      value={opponentConfigs[configName]?.model || defaultModel}
+                      onChange={(e) =>
+                        handleOpponentConfigChange(configName, 'model', e.target.value)
+                      }
+                      disabled={providersLoading || useDefaults}
+                    >
+                      {getModelsForProvider(curProvider).map((m) => (
+                        <option key={m} value={m}>
+                          {formatModelLabel(curProvider, m)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {providerSupportsReasoning(curProvider) && (
+                    <div className="config-sheet__field">
+                      <label className="config-sheet__label">Reasoning Effort</label>
+                      <select
+                        className="config-sheet__select"
+                        value={opponentConfigs[configName]?.reasoning_effort || defaultReasoning}
+                        onChange={(e) =>
+                          handleOpponentConfigChange(configName, 'reasoning_effort', e.target.value)
+                        }
+                        disabled={useDefaults}
+                      >
+                        {['minimal', 'low'].map((l) => (
+                          <option key={l} value={l}>
+                            {l.charAt(0).toUpperCase() + l.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="config-sheet__field">
+                    <label className="config-sheet__label">Game Mode Override</label>
+                    <select
+                      className="config-sheet__select"
+                      value={opponentConfigs[configName]?.game_mode || ''}
+                      onChange={(e) =>
+                        handleOpponentConfigChange(configName, 'game_mode', e.target.value)
+                      }
+                      disabled={useDefaults}
+                    >
+                      <option value="">Use game default ({defaultGameMode})</option>
+                      {GAME_MODES.map((gm) => (
+                        <option key={gm.value} value={gm.value}>
+                          {gm.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="config-sheet__field">
+                    <label className="config-sheet__label">Controller</label>
+                    <select
+                      className="config-sheet__select"
+                      value={opponentBotTypes[configName] ?? 'standard'}
+                      onChange={(e) =>
+                        setOpponentBotTypes((prev) => ({
+                          ...prev,
+                          [configName]: e.target.value as BotType,
+                        }))
+                      }
+                      disabled={useDefaults}
+                    >
+                      <optgroup label="LLM-driven">
+                        <option value="standard">Standard (default)</option>
+                        <option value="chaos">Chaos — full LLM, full personality</option>
+                        <option value="lean">Lean — cheap LLM, options-bounded</option>
+                        <option value="sharp">Sharp — solver-based GTO</option>
+                      </optgroup>
+                      <optgroup label="Training bots (deterministic, no chat)">
+                        <option value="casebot">CaseBot — adaptive case-based rules</option>
+                        <option value="gto_lite">GTO-Lite — pot-odds math</option>
+                        <option value="baseline_solver">
+                          BaselineSolver — pure solver, no personality
+                        </option>
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
-          </BottomSheet>
-        );
-      })()}
+            </BottomSheet>
+          );
+        })()}
     </>
   );
 }

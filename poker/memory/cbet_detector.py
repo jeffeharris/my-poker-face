@@ -200,9 +200,7 @@ class CbetDetector:
         ):
             self._cbet_made = True
             if active_players:
-                self._players_facing_cbet = {
-                    p for p in active_players if p != player_name
-                }
+                self._players_facing_cbet = {p for p in active_players if p != player_name}
 
         # 2c. Phase B Item 4 — record the first voluntary flop checker
         #    (the player whose first flop action is a check with no
@@ -222,7 +220,7 @@ class CbetDetector:
         #    responses only fire if a player stayed in the set across
         #    streets (shouldn't happen in normal play).
         if self._cbet_made and player_name in self._players_facing_cbet:
-            folded = (action == 'fold')
+            folded = action == 'fold'
             responses.append((player_name, folded))
             self._players_facing_cbet.discard(player_name)
             # Phase B Item 1: cbet_called gates barrel-opportunity. Any
@@ -276,14 +274,10 @@ class CbetDetector:
             and not self._turn_bet_made
         ):
             if action in ('bet', 'raise', 'all_in'):
-                self._pending_flop_check_barrel_attempts.append(
-                    (player_name, True)
-                )
+                self._pending_flop_check_barrel_attempts.append((player_name, True))
                 self._flop_check_barrel_attempt_recorded = True
             elif action == 'check':
-                self._pending_flop_check_barrel_attempts.append(
-                    (player_name, False)
-                )
+                self._pending_flop_check_barrel_attempts.append((player_name, False))
                 self._flop_check_barrel_attempt_recorded = True
 
         # 5b. Track turn bets so the PFR's response to a donk doesn't
@@ -292,10 +286,7 @@ class CbetDetector:
             self._turn_bet_made = True
 
         # 5c. Did someone call the turn barrel? Gates third-barrel.
-        if (
-            self._turn_barrel_made
-            and player_name in self._players_facing_turn_barrel
-        ):
+        if self._turn_barrel_made and player_name in self._players_facing_turn_barrel:
             if action != 'fold':
                 self._turn_barrel_called = True
             self._players_facing_turn_barrel.discard(player_name)

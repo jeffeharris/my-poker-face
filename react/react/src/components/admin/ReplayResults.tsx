@@ -1,8 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../../utils/api';
 import {
-  BarChart3, TrendingUp, TrendingDown, Minus, AlertCircle,
-  RefreshCw, ChevronDown, ChevronUp, ArrowRight, Clock, Zap
+  BarChart3,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  AlertCircle,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  ArrowRight,
+  Clock,
+  Zap,
 } from 'lucide-react';
 import './AdminShared.css';
 import './ReplayResults.css';
@@ -96,7 +105,9 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
       }
 
       // Fetch summary
-      const summaryResponse = await adminAPI.fetch(`/api/replay-experiments/${experimentId}/summary`);
+      const summaryResponse = await adminAPI.fetch(
+        `/api/replay-experiments/${experimentId}/summary`
+      );
       const summaryData = await summaryResponse.json();
       if (summaryData.success) {
         setSummary(summaryData.summary);
@@ -108,7 +119,9 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
       if (qualityFilter) params.append('quality_change', qualityFilter);
       params.append('limit', '100');
 
-      const resultsResponse = await adminAPI.fetch(`/api/replay-experiments/${experimentId}/results?${params}`);
+      const resultsResponse = await adminAPI.fetch(
+        `/api/replay-experiments/${experimentId}/results?${params}`
+      );
       const resultsData = await resultsResponse.json();
       if (resultsData.success) {
         setResults(resultsData.results);
@@ -137,7 +150,7 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
   const launchExperiment = async () => {
     try {
       const response = await adminAPI.fetch(`/api/replay-experiments/${experimentId}/launch`, {
-        method: 'POST'
+        method: 'POST',
       });
       const data = await response.json();
       if (data.success) {
@@ -169,9 +182,10 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
     );
   }
 
-  const progress = experiment.results_total > 0
-    ? Math.round((experiment.results_completed / experiment.results_total) * 100)
-    : 0;
+  const progress =
+    experiment.results_total > 0
+      ? Math.round((experiment.results_completed / experiment.results_total) * 100)
+      : 0;
 
   return (
     <div className="rr-container">
@@ -202,10 +216,7 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
         </span>
         <div className="rr-progress">
           <div className="rr-progress__bar">
-            <div
-              className="rr-progress__fill"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="rr-progress__fill" style={{ width: `${progress}%` }} />
           </div>
           <span className="rr-progress__text">
             {experiment.results_completed} / {experiment.results_total} ({progress}%)
@@ -263,10 +274,7 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
         <div className="rr-variants">
           <div className="rr-variants__header">
             <h3>Results by Variant</h3>
-            <button
-              className="rr-variants__toggle"
-              onClick={() => setShowDetails(!showDetails)}
-            >
+            <button className="rr-variants__toggle" onClick={() => setShowDetails(!showDetails)}>
               {showDetails ? 'Hide Details' : 'Show Details'}
               {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
@@ -301,8 +309,12 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
                     {showDetails && (
                       <>
                         <td>{stats.avg_latency ? `${Math.round(stats.avg_latency)}ms` : '-'}</td>
-                        <td>{(stats.total_input_tokens + stats.total_output_tokens).toLocaleString()}</td>
-                        <td className={stats.errors > 0 ? 'rr-cell--danger' : ''}>{stats.errors}</td>
+                        <td>
+                          {(stats.total_input_tokens + stats.total_output_tokens).toLocaleString()}
+                        </td>
+                        <td className={stats.errors > 0 ? 'rr-cell--danger' : ''}>
+                          {stats.errors}
+                        </td>
                       </>
                     )}
                   </tr>
@@ -317,22 +329,19 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
       <div className="rr-filter">
         <div className="rr-filter__group">
           <label>Variant</label>
-          <select
-            value={variantFilter}
-            onChange={(e) => setVariantFilter(e.target.value)}
-          >
+          <select value={variantFilter} onChange={(e) => setVariantFilter(e.target.value)}>
             <option value="">All variants</option>
-            {summary && Object.keys(summary.by_variant).map(v => (
-              <option key={v} value={v}>{v}</option>
-            ))}
+            {summary &&
+              Object.keys(summary.by_variant).map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
           </select>
         </div>
         <div className="rr-filter__group">
           <label>Quality Change</label>
-          <select
-            value={qualityFilter}
-            onChange={(e) => setQualityFilter(e.target.value)}
-          >
+          <select value={qualityFilter} onChange={(e) => setQualityFilter(e.target.value)}>
             <option value="">All</option>
             <option value="improved">Improved</option>
             <option value="degraded">Degraded</option>
@@ -374,7 +383,9 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
                   <div className="rr-result-card__meta">
                     <span className="rr-result-card__phase">{result.phase}</span>
                     {result.pot_odds && (
-                      <span className="rr-result-card__odds">{result.pot_odds.toFixed(2)} odds</span>
+                      <span className="rr-result-card__odds">
+                        {result.pot_odds.toFixed(2)} odds
+                      </span>
                     )}
                     <span className="rr-result-card__latency">
                       <Clock size={12} />
@@ -383,7 +394,9 @@ export function ReplayResults({ experimentId, onBack: _onBack }: ReplayResultsPr
                   </div>
                 </div>
                 {result.quality_change && (
-                  <div className={`rr-result-card__badge rr-result-card__badge--${result.quality_change}`}>
+                  <div
+                    className={`rr-result-card__badge rr-result-card__badge--${result.quality_change}`}
+                  >
                     {result.quality_change === 'improved' && <TrendingUp size={14} />}
                     {result.quality_change === 'degraded' && <TrendingDown size={14} />}
                     {result.quality_change === 'unchanged' && <Minus size={14} />}

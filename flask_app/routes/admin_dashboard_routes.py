@@ -4,13 +4,22 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+
 from flask import Blueprint, jsonify, request
 
-from ..services import game_state_service
-from ..extensions import llm_repo, personality_repo, settings_repo, prompt_capture_repo, game_repo, hand_history_repo
 from core.llm import UsageTracker
 from poker.authorization import require_permission
+
+from ..extensions import (
+    game_repo,
+    hand_history_repo,
+    llm_repo,
+    personality_repo,
+    prompt_capture_repo,
+    settings_repo,
+)
 from ..route_utils import register_admin_guard
+from ..services import game_state_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,19 +50,18 @@ _dev_only = require_permission('can_access_admin_tools')
 # Dashboard Root - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/')
 @_dev_only
 def dashboard():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Admin dashboard has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify({'message': 'Admin dashboard has moved to React UI', 'redirect': '/?view=admin'})
 
 
 # =============================================================================
 # API Endpoints (for AJAX updates)
 # =============================================================================
+
 
 @admin_dashboard_bp.route('/api/summary')
 @_dev_only
@@ -73,56 +81,50 @@ def api_summary():
 # Cost Analysis - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/costs')
 @_dev_only
 def costs():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Cost analysis has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify({'message': 'Cost analysis has moved to React UI', 'redirect': '/?view=admin'})
 
 
 # =============================================================================
 # Performance Metrics - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/performance')
 @_dev_only
 def performance():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Performance metrics has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify(
+        {'message': 'Performance metrics has moved to React UI', 'redirect': '/?view=admin'}
+    )
 
 
 # =============================================================================
 # Prompt Viewer - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/prompts')
 @_dev_only
 def prompts():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Prompt viewer has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify({'message': 'Prompt viewer has moved to React UI', 'redirect': '/?view=admin'})
 
 
 # =============================================================================
 # Models Manager - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/models')
 @_dev_only
 def models():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Model manager has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify({'message': 'Model manager has moved to React UI', 'redirect': '/?view=admin'})
 
 
 @admin_dashboard_bp.route('/api/models/<int:model_id>/toggle', methods=['POST'])
@@ -144,7 +146,9 @@ def api_toggle_model(model_id):
 
     # Validate field parameter
     if field not in ('enabled', 'user_enabled'):
-        return jsonify({'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}), 400
+        return jsonify(
+            {'success': False, 'error': 'Invalid field. Must be "enabled" or "user_enabled"'}
+        ), 400
 
     try:
         result = llm_repo.toggle_model(model_id, field, enabled)
@@ -176,6 +180,7 @@ def api_list_models():
 # Prompt Playground API
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/api/playground/captures')
 @_dev_only
 def api_playground_captures():
@@ -201,12 +206,14 @@ def api_playground_captures():
 
         stats = prompt_capture_repo.get_playground_capture_stats()
 
-        return jsonify({
-            'success': True,
-            'captures': result['captures'],
-            'total': result['total'],
-            'stats': stats,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'captures': result['captures'],
+                'total': result['total'],
+                'stats': stats,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Playground captures error: {e}")
@@ -223,10 +230,12 @@ def api_playground_capture(capture_id):
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
-        return jsonify({
-            'success': True,
-            'capture': capture,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'capture': capture,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Playground capture error: {e}")
@@ -247,7 +256,7 @@ def api_playground_replay(capture_id):
         model: Model to use (optional)
         reasoning_effort: Reasoning effort (optional)
     """
-    from core.llm import LLMClient, CallType
+    from core.llm import CallType, LLMClient
 
     try:
         capture = prompt_capture_repo.get_prompt_capture(capture_id)
@@ -265,7 +274,9 @@ def api_playground_replay(capture_id):
 
         # Handle conversation history
         use_history = data.get('use_history', True)
-        conversation_history = data.get('conversation_history', capture.get('conversation_history', []))
+        conversation_history = data.get(
+            'conversation_history', capture.get('conversation_history', [])
+        )
 
         # Create LLM client
         client = LLMClient(provider=provider, model=model, reasoning_effort=reasoning_effort)
@@ -277,10 +288,9 @@ def api_playground_replay(capture_id):
 
         if use_history and conversation_history:
             for msg in conversation_history:
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", "")
-                })
+                messages.append(
+                    {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                )
 
         messages.append({"role": "user", "content": user_message})
 
@@ -294,19 +304,21 @@ def api_playground_replay(capture_id):
             call_type=CallType.DEBUG_REPLAY,
         )
 
-        return jsonify({
-            'success': True,
-            'original_response': capture.get('ai_response', ''),
-            'new_response': response.content,
-            'provider_used': response.provider,
-            'model_used': response.model,
-            'reasoning_effort_used': reasoning_effort,
-            'input_tokens': response.input_tokens,
-            'output_tokens': response.output_tokens,
-            'latency_ms': response.latency_ms,
-            'messages_count': len(messages),
-            'used_history': use_history and bool(conversation_history),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'original_response': capture.get('ai_response', ''),
+                'new_response': response.content,
+                'provider_used': response.provider,
+                'model_used': response.model,
+                'reasoning_effort_used': reasoning_effort,
+                'input_tokens': response.input_tokens,
+                'output_tokens': response.output_tokens,
+                'latency_ms': response.latency_ms,
+                'messages_count': len(messages),
+                'used_history': use_history and bool(conversation_history),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Playground replay error: {e}")
@@ -341,19 +353,23 @@ def api_playground_cleanup():
         retention_days = data.get('retention_days', get_retention_days())
 
         if retention_days <= 0:
-            return jsonify({
-                'success': True,
-                'message': 'Unlimited retention configured, no cleanup performed',
-                'deleted': 0,
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': 'Unlimited retention configured, no cleanup performed',
+                    'deleted': 0,
+                }
+            )
 
         deleted = prompt_capture_repo.cleanup_old_captures(retention_days)
 
-        return jsonify({
-            'success': True,
-            'message': f'Deleted {deleted} captures older than {retention_days} days',
-            'deleted': deleted,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Deleted {deleted} captures older than {retention_days} days',
+                'deleted': deleted,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Playground cleanup error: {e}")
@@ -364,6 +380,7 @@ def api_playground_cleanup():
 # Image Playground API (capture viewing, replay, reference images, avatars)
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/api/reference-images', methods=['POST'])
 @_dev_only
 def api_upload_reference_image():
@@ -373,6 +390,7 @@ def api_upload_reference_image():
     Returns: { reference_id, width, height }
     """
     import uuid
+
     import requests as http_requests
 
     try:
@@ -415,7 +433,7 @@ def api_upload_reference_image():
         }
         detected_type = None
         for signature, mime_type in IMAGE_SIGNATURES.items():
-            if image_data[:len(signature)] == signature:
+            if image_data[: len(signature)] == signature:
                 detected_type = mime_type
                 break
         # WebP uses RIFF container — verify both RIFF header and WEBP marker
@@ -423,13 +441,17 @@ def api_upload_reference_image():
             if image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
                 detected_type = 'image/webp'
         if detected_type is None:
-            return jsonify({'success': False, 'error': 'Invalid image format. Supported: PNG, JPEG, GIF, WebP'}), 400
+            return jsonify(
+                {'success': False, 'error': 'Invalid image format. Supported: PNG, JPEG, GIF, WebP'}
+            ), 400
         content_type = detected_type
 
         # Try to get image dimensions
         try:
-            from PIL import Image
             import io
+
+            from PIL import Image
+
             img = Image.open(io.BytesIO(image_data))
             width, height = img.size
         except ImportError:
@@ -446,12 +468,14 @@ def api_upload_reference_image():
             reference_id, image_data, width, height, content_type, source, original_url
         )
 
-        return jsonify({
-            'success': True,
-            'reference_id': reference_id,
-            'width': width,
-            'height': height,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'reference_id': reference_id,
+                'width': width,
+                'height': height,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Reference image upload error: {e}")
@@ -474,14 +498,16 @@ def api_get_reference_image(reference_id: str):
         return Response(
             result['image_data'],
             mimetype=result['content_type'] or 'image/png',
-            headers={'Cache-Control': 'max-age=31536000'}
+            headers={'Cache-Control': 'max-age=31536000'},
         )
     except Exception as e:
         logger.error(f"Reference image fetch error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>/replay-image', methods=['POST'])
+@admin_dashboard_bp.route(
+    '/api/playground/captures/<int:capture_id>/replay-image', methods=['POST']
+)
 @_dev_only
 def api_playground_replay_image(capture_id: int):
     """Replay an image capture with modifications.
@@ -502,8 +528,9 @@ def api_playground_replay_image(capture_id: int):
         estimated_cost
     }
     """
-    from core.llm import LLMClient, CallType
     import base64
+
+    from core.llm import CallType, LLMClient
 
     try:
         capture = prompt_capture_repo.get_prompt_capture(capture_id)
@@ -528,17 +555,21 @@ def api_playground_replay_image(capture_id: int):
         if reference_image_id:
             supports_img2img = llm_repo.check_model_supports_img2img(provider, model)
             if not supports_img2img:
-                return jsonify({
-                    'success': False,
-                    'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
-                }), 400
+                return jsonify(
+                    {
+                        'success': False,
+                        'error': f'Model "{model}" does not support image-to-image generation. Please select a model that supports img2img, or remove the reference image.',
+                    }
+                ), 400
 
             ref_result = personality_repo.get_reference_image(reference_image_id)
             if ref_result and ref_result['image_data']:
                 content_type = ref_result['content_type'] or 'image/png'
                 b64_data = base64.b64encode(ref_result['image_data']).decode('utf-8')
                 seed_image_url = f"data:{content_type};base64,{b64_data}"
-                logger.info(f"Using reference image for img2img: {reference_image_id} ({len(b64_data)} bytes base64)")
+                logger.info(
+                    f"Using reference image for img2img: {reference_image_id} ({len(b64_data)} bytes base64)"
+                )
             else:
                 logger.warning(f"Reference image not found: {reference_image_id}")
 
@@ -555,16 +586,19 @@ def api_playground_replay_image(capture_id: int):
         )
 
         if response.is_error:
-            return jsonify({
-                'success': False,
-                'error': response.error_message or 'Image generation failed',
-            }), 500
+            return jsonify(
+                {
+                    'success': False,
+                    'error': response.error_message or 'Image generation failed',
+                }
+            ), 500
 
         # Download the new image and convert to base64 data URL
         new_image_url = None
         if response.url:
             try:
                 import requests as http_requests
+
                 img_response = http_requests.get(response.url, timeout=30)
                 img_response.raise_for_status()
                 img_data = img_response.content
@@ -584,22 +618,26 @@ def api_playground_replay_image(capture_id: int):
         elif capture.get('image_url'):
             original_image_url = capture['image_url']
 
-        return jsonify({
-            'success': True,
-            'original_image_url': original_image_url,
-            'new_image_url': new_image_url,
-            'provider_used': response.provider,
-            'model_used': response.model,
-            'latency_ms': int(response.latency_ms) if response.latency_ms else None,
-            'size_used': size,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'original_image_url': original_image_url,
+                'new_image_url': new_image_url,
+                'provider_used': response.provider,
+                'model_used': response.model,
+                'latency_ms': int(response.latency_ms) if response.latency_ms else None,
+                'size_used': size,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Image replay error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@admin_dashboard_bp.route('/api/playground/captures/<int:capture_id>/assign-avatar', methods=['POST'])
+@admin_dashboard_bp.route(
+    '/api/playground/captures/<int:capture_id>/assign-avatar', methods=['POST']
+)
 @_dev_only
 def api_assign_avatar_from_capture(capture_id: int):
     """Assign a captured/replayed image as a personality avatar.
@@ -646,12 +684,14 @@ def api_assign_avatar_from_capture(capture_id: int):
         # Save to avatar_images table
         personality_repo.assign_avatar(personality_name, emotion, image_data)
 
-        return jsonify({
-            'success': True,
-            'message': f'Avatar assigned for {personality_name} ({emotion})',
-            'personality_name': personality_name,
-            'emotion': emotion,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Avatar assigned for {personality_name} ({emotion})',
+                'personality_name': personality_name,
+                'emotion': emotion,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Avatar assignment error: {e}")
@@ -678,16 +718,20 @@ def api_get_image_providers():
                     'models': [],
                     'size_presets': _get_size_presets(provider),
                 }
-            providers[provider]['models'].append({
-                'id': row['model'],
-                'name': row['display_name'] or row['model'],
-                'supports_img2img': bool(row['supports_img2img']),
-            })
+            providers[provider]['models'].append(
+                {
+                    'id': row['model'],
+                    'name': row['display_name'] or row['model'],
+                    'supports_img2img': bool(row['supports_img2img']),
+                }
+            )
 
-        return jsonify({
-            'success': True,
-            'providers': list(providers.values()),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'providers': list(providers.values()),
+            }
+        )
     except Exception as e:
         logger.error(f"Image providers error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -707,11 +751,13 @@ def _get_size_presets(provider: str) -> list:
             {'label': 'Portrait (1024x1792)', 'value': '1024x1792', 'cost': '$$$'},
             {'label': 'Landscape (1792x1024)', 'value': '1792x1024', 'cost': '$$$'},
         ],
-        'pollinations': common_presets + [
+        'pollinations': common_presets
+        + [
             {'label': '16:9 (1024x576)', 'value': '1024x576', 'cost': '$$'},
             {'label': '9:16 (576x1024)', 'value': '576x1024', 'cost': '$$'},
         ],
-        'runware': common_presets + [
+        'runware': common_presets
+        + [
             {'label': '16:9 (1024x576)', 'value': '1024x576', 'cost': '$$'},
             {'label': '9:16 (576x1024)', 'value': '576x1024', 'cost': '$$'},
         ],
@@ -726,6 +772,7 @@ def _get_size_presets(provider: str) -> list:
 # =============================================================================
 # Prompt Template Management
 # =============================================================================
+
 
 @admin_dashboard_bp.route('/api/prompts/templates')
 @_dev_only
@@ -748,19 +795,23 @@ def api_list_templates():
             all_content = '\n'.join(template.sections.values())
             variables = extract_variables(all_content)
 
-            templates.append({
-                'name': template.name,
-                'version': template.version,
-                'section_count': len(template.sections),
-                'hash': template.template_hash,
-                'variables': variables,
-            })
+            templates.append(
+                {
+                    'name': template.name,
+                    'version': template.version,
+                    'section_count': len(template.sections),
+                    'hash': template.template_hash,
+                    'variables': variables,
+                }
+            )
 
-        return jsonify({
-            'success': True,
-            'templates': templates,
-            'total': len(templates),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'templates': templates,
+                'total': len(templates),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error listing templates: {e}")
@@ -779,7 +830,7 @@ def api_get_template(template_name: str):
         JSON with full template details including all sections
     """
     from poker.prompt_manager import PromptManager
-    from poker.prompts import validate_template_name, extract_variables
+    from poker.prompts import extract_variables, validate_template_name
 
     # Security: validate template name
     if not validate_template_name(template_name):
@@ -793,16 +844,18 @@ def api_get_template(template_name: str):
         all_content = '\n'.join(template.sections.values())
         variables = extract_variables(all_content)
 
-        return jsonify({
-            'success': True,
-            'template': {
-                'name': template.name,
-                'version': template.version,
-                'sections': template.sections,
-                'hash': template.template_hash,
-                'variables': variables,
+        return jsonify(
+            {
+                'success': True,
+                'template': {
+                    'name': template.name,
+                    'version': template.version,
+                    'sections': template.sections,
+                    'hash': template.template_hash,
+                    'variables': variables,
+                },
             }
-        })
+        )
 
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 404
@@ -849,7 +902,9 @@ def api_update_template(template_name: str):
 
         for key, value in sections.items():
             if not isinstance(key, str) or not isinstance(value, str):
-                return jsonify({'success': False, 'error': 'Section keys and values must be strings'}), 400
+                return jsonify(
+                    {'success': False, 'error': 'Section keys and values must be strings'}
+                ), 400
 
         # Validate schema (required sections)
         is_valid, error = validate_template_schema(template_name, sections)
@@ -863,7 +918,9 @@ def api_update_template(template_name: str):
         try:
             manager.get_template(template_name)
         except ValueError:
-            return jsonify({'success': False, 'error': f"Template '{template_name}' not found"}), 404
+            return jsonify(
+                {'success': False, 'error': f"Template '{template_name}' not found"}
+            ), 404
 
         # Save to YAML file
         success = manager.save_template(template_name, sections, version)
@@ -871,12 +928,14 @@ def api_update_template(template_name: str):
         if success:
             # Get the new hash
             updated = manager.get_template(template_name)
-            return jsonify({
-                'success': True,
-                'message': 'Template updated',
-                'new_hash': updated.template_hash,
-                'new_version': updated.version,
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': 'Template updated',
+                    'new_hash': updated.template_hash,
+                    'new_version': updated.version,
+                }
+            )
         else:
             return jsonify({'success': False, 'error': 'Failed to save template'}), 500
 
@@ -903,7 +962,7 @@ def api_preview_template(template_name: str):
         JSON with rendered output and any missing variables
     """
     from poker.prompt_manager import PromptManager, PromptTemplate
-    from poker.prompts import validate_template_name, extract_variables
+    from poker.prompts import extract_variables, validate_template_name
 
     # Security: validate template name
     if not validate_template_name(template_name):
@@ -918,10 +977,7 @@ def api_preview_template(template_name: str):
 
         # Get the template (or use custom sections)
         if custom_sections:
-            template = PromptTemplate(
-                name=template_name,
-                sections=custom_sections
-            )
+            template = PromptTemplate(name=template_name, sections=custom_sections)
         else:
             template = manager.get_template(template_name)
 
@@ -942,13 +998,15 @@ def api_preview_template(template_name: str):
             rendered = None
             render_error = str(e)
 
-        return jsonify({
-            'success': True,
-            'rendered': rendered,
-            'render_error': render_error,
-            'required_variables': sorted(required_vars),
-            'missing_variables': sorted(missing_vars),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'rendered': rendered,
+                'render_error': render_error,
+                'required_variables': sorted(required_vars),
+                'missing_variables': sorted(missing_vars),
+            }
+        )
 
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 404
@@ -960,6 +1018,7 @@ def api_preview_template(template_name: str):
 # =============================================================================
 # Pricing Management API
 # =============================================================================
+
 
 @admin_dashboard_bp.route('/pricing', methods=['GET'])
 def list_pricing():
@@ -1013,10 +1072,9 @@ def add_pricing():
     try:
         llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
         UsageTracker.get_default().invalidate_pricing_cache()
-        return jsonify({
-            'success': True,
-            'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'
-        })
+        return jsonify(
+            {'success': True, 'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'}
+        )
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1077,11 +1135,7 @@ def list_models_for_provider(provider: str):
 
     try:
         models = llm_repo.list_models_for_provider(provider)
-        return jsonify({
-            'success': True,
-            'provider': provider,
-            'models': models
-        })
+        return jsonify({'success': True, 'provider': provider, 'models': models})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1090,27 +1144,31 @@ def list_models_for_provider(provider: str):
 # Debug Tools - Redirect to React Admin
 # =============================================================================
 
+
 @admin_dashboard_bp.route('/debug')
 @_dev_only
 def debug_page():
     """Redirect to React admin dashboard."""
-    return jsonify({
-        'message': 'Debug tools has moved to React UI',
-        'redirect': '/?view=admin'
-    })
+    return jsonify({'message': 'Debug tools has moved to React UI', 'redirect': '/?view=admin'})
 
 
 # =============================================================================
 # App Settings API
 
 VALID_SETTING_KEYS = {
-    'LLM_PROMPT_CAPTURE', 'LLM_PROMPT_RETENTION_DAYS',
-    'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
-    'FAST_PROVIDER', 'FAST_MODEL',
-    'IMAGE_PROVIDER', 'IMAGE_MODEL',
-    'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+    'LLM_PROMPT_CAPTURE',
+    'LLM_PROMPT_RETENTION_DAYS',
+    'DEFAULT_PROVIDER',
+    'DEFAULT_MODEL',
+    'FAST_PROVIDER',
+    'FAST_MODEL',
+    'IMAGE_PROVIDER',
+    'IMAGE_MODEL',
+    'ASSISTANT_PROVIDER',
+    'ASSISTANT_MODEL',
 }
 # =============================================================================
+
 
 @admin_dashboard_bp.route('/api/settings')
 @_dev_only
@@ -1125,12 +1183,19 @@ def api_get_settings():
     - ASSISTANT_PROVIDER/ASSISTANT_MODEL: Reasoning model for experiment assistant
     """
     from core.llm.capture_config import (
-        get_capture_mode, get_retention_days, get_env_defaults,
-        CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
+        CAPTURE_ALL,
+        CAPTURE_ALL_EXCEPT_DECISIONS,
+        CAPTURE_DISABLED,
+        get_capture_mode,
+        get_env_defaults,
+        get_retention_days,
     )
     from core.llm.config import (
-        DEFAULT_MODEL, ASSISTANT_MODEL, ASSISTANT_PROVIDER,
-        FAST_MODEL, FAST_PROVIDER,
+        ASSISTANT_MODEL,
+        ASSISTANT_PROVIDER,
+        DEFAULT_MODEL,
+        FAST_MODEL,
+        FAST_PROVIDER,
     )
 
     try:
@@ -1147,11 +1212,17 @@ def api_get_settings():
         # System model settings - get from DB or fall back to env/defaults
         default_provider = settings_repo.get_setting('DEFAULT_PROVIDER', '') or 'openai'
         default_model = settings_repo.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
-        image_provider = settings_repo.get_setting('IMAGE_PROVIDER', '') or os.environ.get('IMAGE_PROVIDER', 'openai')
-        image_model = settings_repo.get_setting('IMAGE_MODEL', '') or os.environ.get('IMAGE_MODEL', '')
+        image_provider = settings_repo.get_setting('IMAGE_PROVIDER', '') or os.environ.get(
+            'IMAGE_PROVIDER', 'openai'
+        )
+        image_model = settings_repo.get_setting('IMAGE_MODEL', '') or os.environ.get(
+            'IMAGE_MODEL', ''
+        )
         fast_provider = settings_repo.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
         fast_model = settings_repo.get_setting('FAST_MODEL', '') or FAST_MODEL
-        assistant_provider = settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
+        assistant_provider = (
+            settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
+        )
         assistant_model = settings_repo.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
 
         settings = {
@@ -1220,10 +1291,12 @@ def api_get_settings():
             },
         }
 
-        return jsonify({
-            'success': True,
-            'settings': settings,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'settings': settings,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting settings: {e}")
@@ -1239,7 +1312,7 @@ def api_update_setting():
         key: Setting key (e.g., 'LLM_PROMPT_CAPTURE')
         value: New value
     """
-    from core.llm.capture_config import CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS
+    from core.llm.capture_config import CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS, CAPTURE_DISABLED
 
     try:
         data = request.get_json()
@@ -1257,25 +1330,21 @@ def api_update_setting():
         if key == 'LLM_PROMPT_CAPTURE':
             valid_modes = [CAPTURE_DISABLED, CAPTURE_ALL, CAPTURE_ALL_EXCEPT_DECISIONS]
             if value.lower() not in valid_modes:
-                return jsonify({
-                    'success': False,
-                    'error': f'Invalid capture mode. Must be one of: {valid_modes}'
-                }), 400
+                return jsonify(
+                    {
+                        'success': False,
+                        'error': f'Invalid capture mode. Must be one of: {valid_modes}',
+                    }
+                ), 400
             value = value.lower()
 
         elif key == 'LLM_PROMPT_RETENTION_DAYS':
             try:
                 days = int(value)
                 if days < 0:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Retention days must be >= 0'
-                    }), 400
+                    return jsonify({'success': False, 'error': 'Retention days must be >= 0'}), 400
             except ValueError:
-                return jsonify({
-                    'success': False,
-                    'error': 'Retention days must be a number'
-                }), 400
+                return jsonify({'success': False, 'error': 'Retention days must be a number'}), 400
 
         # Save the setting
         descriptions = {
@@ -1294,10 +1363,12 @@ def api_update_setting():
         success = settings_repo.set_setting(key, value, descriptions.get(key))
 
         if success:
-            return jsonify({
-                'success': True,
-                'message': f'Setting {key} updated to {value}',
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': f'Setting {key} updated to {value}',
+                }
+            )
         else:
             return jsonify({'success': False, 'error': 'Failed to save setting'}), 500
 
@@ -1324,11 +1395,13 @@ def api_reset_settings():
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
             success = settings_repo.delete_setting(key)
-            return jsonify({
-                'success': True,
-                'message': f'Setting {key} reset to environment default',
-                'deleted': success,
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': f'Setting {key} reset to environment default',
+                    'deleted': success,
+                }
+            )
         else:
             # Reset all settings
             deleted_count = 0
@@ -1336,11 +1409,13 @@ def api_reset_settings():
                 if settings_repo.delete_setting(k):
                     deleted_count += 1
 
-            return jsonify({
-                'success': True,
-                'message': f'Reset {deleted_count} settings to environment defaults',
-                'deleted': deleted_count,
-            })
+            return jsonify(
+                {
+                    'success': True,
+                    'message': f'Reset {deleted_count} settings to environment defaults',
+                    'deleted': deleted_count,
+                }
+            )
 
     except Exception as e:
         logger.error(f"Error resetting settings: {e}")
@@ -1390,8 +1465,14 @@ def api_active_games():
             if state_machine:
                 game_state = state_machine.game_state
                 if game_state:
-                    game_info['phase'] = state_machine.current_phase.value if hasattr(state_machine, 'current_phase') else None
-                    game_info['hand_number'] = game_state.hand_number if hasattr(game_state, 'hand_number') else None
+                    game_info['phase'] = (
+                        state_machine.current_phase.value
+                        if hasattr(state_machine, 'current_phase')
+                        else None
+                    )
+                    game_info['hand_number'] = (
+                        game_state.hand_number if hasattr(game_state, 'hand_number') else None
+                    )
 
                     # Get player names
                     if hasattr(game_state, 'players'):
@@ -1429,12 +1510,15 @@ def api_active_games():
                     state_dict = json_module.loads(saved_game.game_state_json)
                     if 'players' in state_dict:
                         for p in state_dict['players']:
-                            game_info['players'].append({
-                                'name': p.get('name', 'Unknown'),
-                                'chips': p.get('stack', 0),
-                                'is_human': p.get('is_human', False),
-                                'is_active': not p.get('is_folded', False) and p.get('stack', 0) > 0,
-                            })
+                            game_info['players'].append(
+                                {
+                                    'name': p.get('name', 'Unknown'),
+                                    'chips': p.get('stack', 0),
+                                    'is_human': p.get('is_human', False),
+                                    'is_active': not p.get('is_folded', False)
+                                    and p.get('stack', 0) > 0,
+                                }
+                            )
                     if 'hand_number' in state_dict:
                         game_info['hand_number'] = state_dict['hand_number']
                 except (json_module.JSONDecodeError, KeyError):
@@ -1446,12 +1530,14 @@ def api_active_games():
         except Exception as e:
             logger.warning(f"Could not load saved games: {e}")
 
-        return jsonify({
-            'success': True,
-            'games': all_games,
-            'count': len(all_games),
-            'active_count': sum(1 for g in all_games if g.get('is_active')),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'games': all_games,
+                'count': len(all_games),
+                'active_count': sum(1 for g in all_games if g.get('is_active')),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting active games: {e}")
@@ -1477,17 +1563,30 @@ def api_storage_stats():
             'captures': ['prompt_captures', 'player_decision_analysis'],
             'api_usage': ['api_usage'],
             'game_data': [
-                'games', 'game_messages', 'hand_history', 'hand_commentary',
-                'tournament_results', 'tournament_standings', 'tournament_tracker'
+                'games',
+                'game_messages',
+                'hand_history',
+                'hand_commentary',
+                'tournament_results',
+                'tournament_standings',
+                'tournament_tracker',
             ],
             'ai_state': [
-                'ai_player_state', 'controller_state', 'emotional_state',
-                'opponent_models', 'memorable_hands', 'personality_snapshots',
-                'pressure_events', 'player_career_stats'
+                'ai_player_state',
+                'controller_state',
+                'emotional_state',
+                'opponent_models',
+                'memorable_hands',
+                'personality_snapshots',
+                'pressure_events',
+                'player_career_stats',
             ],
             'config': [
-                'personalities', 'enabled_models', 'model_pricing',
-                'app_settings', 'schema_version'
+                'personalities',
+                'enabled_models',
+                'model_pricing',
+                'app_settings',
+                'schema_version',
             ],
             'assets': ['avatar_images'],
         }
@@ -1502,6 +1601,7 @@ def api_storage_stats():
 # =============================================================================
 # Hand Replay API
 # =============================================================================
+
 
 @admin_dashboard_bp.route('/api/hands/<game_id>')
 @_dev_only
@@ -1522,16 +1622,18 @@ def api_hand_list(game_id: str):
             # Build RecordedHand to use get_summary()
             recorded = RecordedHand.from_dict(hand_data)
             winner_names = [w.name for w in recorded.winners]
-            summaries.append({
-                'hand_number': recorded.hand_number,
-                'timestamp': hand_data.get('timestamp'),
-                'player_count': len(recorded.players),
-                'pot_size': recorded.pot_size,
-                'was_showdown': recorded.was_showdown,
-                'winner_names': winner_names,
-                'action_count': len(recorded.actions),
-                'summary': recorded.get_summary(),
-            })
+            summaries.append(
+                {
+                    'hand_number': recorded.hand_number,
+                    'timestamp': hand_data.get('timestamp'),
+                    'player_count': len(recorded.players),
+                    'pot_size': recorded.pot_size,
+                    'was_showdown': recorded.was_showdown,
+                    'winner_names': winner_names,
+                    'action_count': len(recorded.actions),
+                    'summary': recorded.get_summary(),
+                }
+            )
 
         return jsonify({'success': True, 'hands': summaries, 'count': len(summaries)})
 
@@ -1583,17 +1685,19 @@ def api_hand_replay(game_id: str, hand_number: int):
         # Enrich actions
         enriched_actions = []
         for idx, action in enumerate(recorded.actions):
-            enriched_actions.append({
-                'index': idx,
-                'player_name': action.player_name,
-                'action': action.action,
-                'amount': action.amount,
-                'phase': action.phase,
-                'pot_after': action.pot_after,
-                'position': position_map.get(action.player_name, 'Unknown'),
-                'is_human': human_map.get(action.player_name, False),
-                'community_cards_visible': cumulative_cards.get(action.phase, []),
-            })
+            enriched_actions.append(
+                {
+                    'index': idx,
+                    'player_name': action.player_name,
+                    'action': action.action,
+                    'amount': action.amount,
+                    'phase': action.phase,
+                    'pot_after': action.pot_after,
+                    'position': position_map.get(action.player_name, 'Unknown'),
+                    'is_human': human_map.get(action.player_name, False),
+                    'community_cards_visible': cumulative_cards.get(action.phase, []),
+                }
+            )
 
         # Build response
         replay = {

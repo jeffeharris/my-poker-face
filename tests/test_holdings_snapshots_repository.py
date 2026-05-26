@@ -20,12 +20,15 @@ SB = 'sb-1'
 OTHER = 'sb-2'
 
 
-def _row(entity_id, net_worth, chips, *, kind='ai', receivable=0, outstanding=0,
-         sandbox_id=SB):
+def _row(entity_id, net_worth, chips, *, kind='ai', receivable=0, outstanding=0, sandbox_id=SB):
     return {
-        'sandbox_id': sandbox_id, 'entity_id': entity_id, 'kind': kind,
-        'net_worth': net_worth, 'chips': chips,
-        'receivable': receivable, 'outstanding': outstanding,
+        'sandbox_id': sandbox_id,
+        'entity_id': entity_id,
+        'kind': kind,
+        'net_worth': net_worth,
+        'chips': chips,
+        'receivable': receivable,
+        'outstanding': outstanding,
     }
 
 
@@ -61,10 +64,12 @@ class TestHoldingsSnapshotsRepository(unittest.TestCase):
         self.assertEqual(rows[0]['captured_at'], '2026-05-25T11:00:00Z')
 
     def test_series_since_isolates_sandbox(self):
-        self.repo.record([_row('ai:a', 100, 100, sandbox_id=SB)],
-                         captured_at='2026-05-25T12:00:00Z')
-        self.repo.record([_row('ai:z', 999, 999, sandbox_id=OTHER)],
-                         captured_at='2026-05-25T12:00:00Z')
+        self.repo.record(
+            [_row('ai:a', 100, 100, sandbox_id=SB)], captured_at='2026-05-25T12:00:00Z'
+        )
+        self.repo.record(
+            [_row('ai:z', 999, 999, sandbox_id=OTHER)], captured_at='2026-05-25T12:00:00Z'
+        )
         rows = self.repo.series_since('2026-05-25T00:00:00Z', sandbox_id=SB)
         self.assertEqual([r['entity_id'] for r in rows], ['ai:a'])
 

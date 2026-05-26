@@ -233,8 +233,12 @@
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .us-default-card__header {
@@ -902,7 +906,9 @@
   border: 2px solid var(--border-primary, rgba(255, 255, 255, 0.08));
   border-radius: 12px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
   position: relative;
   text-align: left;
   color: inherit;

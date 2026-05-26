@@ -44,7 +44,6 @@ from poker.memory.opponent_model import RelationshipState
 from poker.repositories import create_repos
 from tests._sandbox_test_helper import pin_sandbox_for
 
-
 # Mirror the route constants — keep them here so tests stay independent
 # of the route module's import chain (which pulls in the flask limiter
 # config). If these drift from the route's values, the integration
@@ -83,6 +82,7 @@ class _ForgivenessRouteBase(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, value in repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = value
@@ -96,16 +96,21 @@ class _ForgivenessRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 0,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 0,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=5_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id=self.sandbox_id)
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=5_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=self.sandbox_id,
+        )
 
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
@@ -127,11 +132,13 @@ class _ForgivenessRouteBase(unittest.TestCase):
         )
         self._auth_patcher.start()
 
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=5_000,
-            starting_bankroll=5_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=5_000,
+                starting_bankroll=5_000,
+            )
+        )
 
     def tearDown(self):
         self._authz_patcher.stop()
@@ -180,20 +187,28 @@ class _ForgivenessRouteBase(unittest.TestCase):
         # it via the mark method for the rate-limit tests.
         if forgiveness_last_asked is not None:
             self.stake_repo.mark_forgiveness_asked(
-                stake_id, forgiveness_last_asked,
+                stake_id,
+                forgiveness_last_asked,
             )
         return stake
 
     def _set_relationship(
-        self, *, likability: float, respect: float, heat: float = 0.0,
+        self,
+        *,
+        likability: float,
+        respect: float,
+        heat: float = 0.0,
     ) -> None:
         """Seed napoleon's view of the player at known axis values."""
         self.relationship_repo.save_relationship_state(
             observer_id=self.napoleon_id,
             opponent_id=PLAYER_OWNER_ID,
             state=RelationshipState(
-                heat=heat, respect=respect, likability=likability,
-                last_seen=ANCHOR, last_decay_tick=ANCHOR,
+                heat=heat,
+                respect=respect,
+                likability=likability,
+                last_seen=ANCHOR,
+                last_decay_tick=ANCHOR,
             ),
         )
 
@@ -204,9 +219,7 @@ class TestGranted(_ForgivenessRouteBase):
         # Score = 0.85*0.5 + 0.75*0.4 - 0.0*0.3 = 0.425 + 0.30 = 0.725.
         self._set_relationship(likability=0.85, respect=0.75)
 
-        response = self.client.post(
-            '/api/cash/stakes/stk-carry-1/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
@@ -235,7 +248,8 @@ class TestGranted(_ForgivenessRouteBase):
         self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         state = self.relationship_repo.load_relationship_state(
-            observer_id=PLAYER_OWNER_ID, opponent_id=self.napoleon_id,
+            observer_id=PLAYER_OWNER_ID,
+            opponent_id=self.napoleon_id,
         )
         self.assertIsNotNone(state)
         # Borrower side mirrors STAKE_FORGIVEN → likability +0.15.
@@ -259,9 +273,7 @@ class TestRefused(_ForgivenessRouteBase):
         # Hostile staker — neutral baseline scores 0.45 < 0.55.
         self._set_relationship(likability=0.4, respect=0.5, heat=0.2)
 
-        response = self.client.post(
-            '/api/cash/stakes/stk-carry-1/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
@@ -289,7 +301,8 @@ class TestRefused(_ForgivenessRouteBase):
         self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         state = self.relationship_repo.load_relationship_state(
-            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+            observer_id=self.napoleon_id,
+            opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state)
         # Started at likability 0.4 — after event, should be ~0.35.
@@ -306,9 +319,7 @@ class TestRateLimit(_ForgivenessRouteBase):
         )
         self._set_relationship(likability=0.85, respect=0.75)
 
-        response = self.client.post(
-            '/api/cash/stakes/stk-carry-1/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         self.assertEqual(response.status_code, 429)
         payload = response.get_json()
@@ -325,9 +336,7 @@ class TestRateLimit(_ForgivenessRouteBase):
         )
         self._set_relationship(likability=0.85, respect=0.75)
 
-        response = self.client.post(
-            '/api/cash/stakes/stk-carry-1/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         # Should be 200 (not 429) — outside the window.
         self.assertEqual(response.status_code, 200)
@@ -356,41 +365,33 @@ class TestRateLimit(_ForgivenessRouteBase):
 
 class TestRejections(_ForgivenessRouteBase):
     def test_unknown_stake_returns_404(self):
-        response = self.client.post(
-            '/api/cash/stakes/does-not-exist/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/does-not-exist/request-forgiveness')
         self.assertEqual(response.status_code, 404)
 
     def test_other_borrowers_stake_returns_404(self):
         self._seed_carry(stake_id='stk-other', borrower_id=OTHER_PLAYER_ID)
-        response = self.client.post(
-            '/api/cash/stakes/stk-other/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-other/request-forgiveness')
         self.assertEqual(response.status_code, 404)
 
     def test_active_stake_rejected_with_400(self):
         self._seed_carry(stake_id='stk-active', status=STAKE_STATUS_ACTIVE)
-        response = self.client.post(
-            '/api/cash/stakes/stk-active/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-active/request-forgiveness')
         self.assertEqual(response.status_code, 400)
         self.assertIn("'active'", response.get_json()['error'])
 
     def test_settled_stake_rejected_with_400(self):
         self._seed_carry(stake_id='stk-settled', status=STAKE_STATUS_SETTLED)
-        response = self.client.post(
-            '/api/cash/stakes/stk-settled/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-settled/request-forgiveness')
         self.assertEqual(response.status_code, 400)
 
     def test_house_carry_rejected_with_400(self):
         self._seed_carry(
-            stake_id='stk-house', staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE, format=STAKE_FORMAT_HOUSE,
+            stake_id='stk-house',
+            staker_id=None,
+            staker_kind=STAKER_KIND_HOUSE,
+            format=STAKE_FORMAT_HOUSE,
         )
-        response = self.client.post(
-            '/api/cash/stakes/stk-house/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-house/request-forgiveness')
         self.assertEqual(response.status_code, 400)
         self.assertIn('House', response.get_json()['error'])
 
@@ -401,9 +402,7 @@ class TestNoPriorRelationship(_ForgivenessRouteBase):
         # defaults (0.5/0.5/0.0) → score 0.45 → below 0.55.
         self._seed_carry(carry_amount=250)
 
-        response = self.client.post(
-            '/api/cash/stakes/stk-carry-1/request-forgiveness'
-        )
+        response = self.client.post('/api/cash/stakes/stk-carry-1/request-forgiveness')
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()

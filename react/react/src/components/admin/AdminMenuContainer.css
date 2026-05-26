@@ -5,11 +5,7 @@
   flex-direction: column;
   height: 100dvh;
   width: 100%;
-  background: linear-gradient(
-    180deg,
-    rgba(10, 10, 14, 1) 0%,
-    rgba(15, 15, 22, 1) 100%
-  );
+  background: linear-gradient(180deg, rgba(10, 10, 14, 1) 0%, rgba(15, 15, 22, 1) 100%);
   overflow: hidden;
 }
 

@@ -20,7 +20,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -70,21 +70,36 @@ class _CashSponsorRouteBase(unittest.TestCase):
         # repo; pinned cache makes the route's
         # `resolve_default_sandbox_for(PLAYER_OWNER_ID)` return the
         # same id.
-        from tests._sandbox_test_helper import pin_sandbox_for, TEST_SANDBOX_ID
+        from tests._sandbox_test_helper import TEST_SANDBOX_ID, pin_sandbox_for
+
         pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
         self.test_sandbox_id = TEST_SANDBOX_ID
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo',
-                'decision_analysis_repo', 'prompt_preset_repo',
-                'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
-                'stake_repo', 'vice_state_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
+                'stake_repo',
+                'vice_state_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -120,7 +135,8 @@ class _CashSponsorRouteBase(unittest.TestCase):
             {
                 'play_style': 'aggressive',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -140,7 +156,8 @@ class _CashSponsorRouteBase(unittest.TestCase):
             {
                 'play_style': 'tight',
                 'bankroll_knobs': {
-                    'starting_bankroll': 50_000, 'bankroll_rate': 500,
+                    'starting_bankroll': 50_000,
+                    'bankroll_rate': 500,
                     'buy_in_multiplier': 1.0,
                     'stake_comfort_zone': '$10',
                 },
@@ -166,32 +183,51 @@ class _CashSponsorRouteBase(unittest.TestCase):
 
         # Healthy AI bankrolls for the willing lenders.
         now = datetime.utcnow()
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.napoleon_id, chips=20_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.buddha_id, chips=20_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=self.mime_id, chips=20_000, last_regen_tick=now,
-        ), sandbox_id="test-sandbox-1")
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.napoleon_id,
+                chips=20_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.buddha_id,
+                chips=20_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=self.mime_id,
+                chips=20_000,
+                last_regen_tick=now,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         # Seed player bankroll below the $10 tier min (= 400) so sponsor-
         # eligible at $10 stake (no prior tier — $2 — so eligibility logic
         # accepts).
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=80,  # < $2 min (80) wait — that's exactly. Use 60 to be sure.
-            starting_bankroll=200,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=80,  # < $2 min (80) wait — that's exactly. Use 60 to be sure.
+                starting_bankroll=200,
+            )
+        )
         # 60 is below $2 min (80) AND below $10 min (400) → only $2 eligible.
         # For mixed-pool tests we want $10 eligibility, so set bankroll
         # between $2 min and $10 min.
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID,
-            chips=200,  # ≥ $2 min (80), < $10 min (400) → $10 sponsor-eligible
-            starting_bankroll=200,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=200,  # ≥ $2 min (80), < $10 min (400) → $10 sponsor-eligible
+                starting_bankroll=200,
+            )
+        )
 
     def tearDown(self):
         self._auth_patcher.stop()
@@ -251,9 +287,13 @@ class TestSponsorOffersRoute(_CashSponsorRouteBase):
         # at $10 stake we need bankroll between $2 min (80) and $10 min
         # (400). Setting to 0 → bankroll < $10 min but < $2 min too → not
         # sponsor-eligible at $10 (would require bankroll ≥ $2 min).
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID, chips=0, starting_bankroll=0,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=0,
+                starting_bankroll=0,
+            )
+        )
         response = self.client.get('/api/cash/sponsor-offers?stake_label=$10')
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
@@ -267,9 +307,14 @@ class TestSponsorOffersRoute(_CashSponsorRouteBase):
         # the snapshot 0 → capacity = 0% which is below min_buy_in.
         now = datetime.utcnow()
         for pid in (self.napoleon_id, self.buddha_id, self.mime_id):
-            self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-                personality_id=pid, chips=0, last_regen_tick=now,
-            ), sandbox_id="test-sandbox-1")
+            self.bankroll_repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid,
+                    chips=0,
+                    last_regen_tick=now,
+                ),
+                sandbox_id="test-sandbox-1",
+            )
         response = self.client.get('/api/cash/sponsor-offers?stake_label=$10')
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
@@ -387,7 +432,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # Lender's view of the player: small positive shifts on
         # respect + likability per the actor table.
         state_lender_pov = self.relationship_repo.load_relationship_state(
-            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+            observer_id=self.napoleon_id,
+            opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNotNone(state_lender_pov)
         self.assertGreater(state_lender_pov.respect, 0.5)
@@ -395,7 +441,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
 
         # Player's view of the lender: mirror shifts also positive.
         state_player_pov = self.relationship_repo.load_relationship_state(
-            observer_id=PLAYER_OWNER_ID, opponent_id=self.napoleon_id,
+            observer_id=PLAYER_OWNER_ID,
+            opponent_id=self.napoleon_id,
         )
         self.assertIsNotNone(state_player_pov)
         self.assertGreater(state_player_pov.respect, 0.5)
@@ -418,7 +465,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # No relationship_state row keyed on player vs napoleon (the
         # only AI in the seeded pool we'd otherwise see).
         state = self.relationship_repo.load_relationship_state(
-            observer_id=self.napoleon_id, opponent_id=PLAYER_OWNER_ID,
+            observer_id=self.napoleon_id,
+            opponent_id=PLAYER_OWNER_ID,
         )
         self.assertIsNone(state)
 
@@ -462,6 +510,7 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # _CashSponsorRouteBase doesn't stash repos as self.repos;
         # pull cash_table_repo via the extension binding instead.
         from flask_app import extensions
+
         cash_table_repo = extensions.cash_table_repo
 
         # Build a $10 table with napoleon + buddha seated, open seats
@@ -496,7 +545,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             return 'cash-test-spy-id', None
 
         with patch(
-            'flask_app.routes.cash_routes._build_cash_game', side_effect=_spy,
+            'flask_app.routes.cash_routes._build_cash_game',
+            side_effect=_spy,
         ):
             response = self.client.post(
                 '/api/cash/sponsor-and-sit',
@@ -510,7 +560,9 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             )
 
         self.assertEqual(
-            response.status_code, 200, response.get_data(as_text=True),
+            response.status_code,
+            200,
+            response.get_data(as_text=True),
         )
 
         preselected_ai = captured.get('preselected_ai')
@@ -536,7 +588,8 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         # the lobby will keep showing seat 1 as open and another
         # player could double-book it.
         after = cash_table_repo.load_table(
-            'cash-table-10-001', sandbox_id=self.test_sandbox_id,
+            'cash-table-10-001',
+            sandbox_id=self.test_sandbox_id,
         )
         self.assertEqual(after.seats[1]['kind'], 'human')
         self.assertEqual(after.seats[1]['personality_id'], PLAYER_OWNER_ID)
@@ -546,6 +599,7 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         must 409, not silently sample a different roster.
         """
         from flask_app import extensions
+
         cash_table_repo = extensions.cash_table_repo
         seats = [
             ai_slot(self.napoleon_id, 400),
@@ -598,20 +652,25 @@ class TestSponsorRoutesViceFilter(_CashSponsorRouteBase):
     def _put_napoleon_on_vice(self):
         """Insert a vice state row for Napoleon."""
         from datetime import timedelta
+
         from poker.repositories.vice_state_repository import ViceState
+
         now = datetime.utcnow()
         self.vice_repo = self.app.extensions  # not used; reach via test_db
         from poker.repositories.vice_state_repository import ViceStateRepository
+
         vice_repo = ViceStateRepository(self.test_db.name)
-        vice_repo.insert_vice_state(ViceState(
-            personality_id=self.napoleon_id,
-            sandbox_id=self.test_sandbox_id,
-            started_at=now,
-            ends_at=now + timedelta(hours=2),
-            amount=2500,
-            duration_bucket='long',
-            narration='Napoleon commissioned a bronze bust',
-        ))
+        vice_repo.insert_vice_state(
+            ViceState(
+                personality_id=self.napoleon_id,
+                sandbox_id=self.test_sandbox_id,
+                started_at=now,
+                ends_at=now + timedelta(hours=2),
+                amount=2500,
+                duration_bucket='long',
+                narration='Napoleon commissioned a bronze bust',
+            )
+        )
 
     def test_sponsor_offers_excludes_vicing_ai(self):
         """A vicing AI should not appear in the personality offers list."""

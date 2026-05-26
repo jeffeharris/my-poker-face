@@ -51,7 +51,7 @@ export function BustModal({ event, onDismiss }: BustModalProps) {
         setBusy(false);
       }
     },
-    [event, busy, onDismiss],
+    [event, busy, onDismiss]
   );
 
   const handleLeave = useCallback(async () => {
@@ -105,9 +105,7 @@ export function BustModal({ event, onDismiss }: BustModalProps) {
                 disabled={busy || bankroll < min_buy_in}
                 className="bust-modal__primary"
               >
-                {busy
-                  ? 'Rebuying…'
-                  : `Rebuy $${min_buy_in.toLocaleString()} (min)`}
+                {busy ? 'Rebuying…' : `Rebuy $${min_buy_in.toLocaleString()} (min)`}
               </button>
               {topUpAmount > min_buy_in && (
                 <button
@@ -116,8 +114,7 @@ export function BustModal({ event, onDismiss }: BustModalProps) {
                   disabled={busy}
                   className="bust-modal__secondary"
                 >
-                  Rebuy max $
-                  {topUpAmount.toLocaleString()}
+                  Rebuy max ${topUpAmount.toLocaleString()}
                 </button>
               )}
               <button
@@ -127,11 +124,7 @@ export function BustModal({ event, onDismiss }: BustModalProps) {
                 className={`bust-modal__leave${confirmLeave ? ' is-confirming' : ''}`}
               >
                 <LogOut size={14} />
-                {busy && confirmLeave
-                  ? 'Leaving…'
-                  : confirmLeave
-                    ? 'Confirm leave'
-                    : 'Leave table'}
+                {busy && confirmLeave ? 'Leaving…' : confirmLeave ? 'Confirm leave' : 'Leave table'}
               </button>
             </>
           ) : (
@@ -148,13 +141,16 @@ export function BustModal({ event, onDismiss }: BustModalProps) {
 
           {has_active_loan && canRebuy === false && (
             <p className="bust-modal__hint">
-              Your active sponsor loan must settle when you leave — sponsor
-              takes their cut from your remaining chips ($0 at the table),
-              then the loan clears.
+              Your active sponsor loan must settle when you leave — sponsor takes their cut from
+              your remaining chips ($0 at the table), then the loan clears.
             </p>
           )}
 
-          {error && <div className="bust-modal__error" role="alert">{error}</div>}
+          {error && (
+            <div className="bust-modal__error" role="alert">
+              {error}
+            </div>
+          )}
         </div>
       </div>
     </div>

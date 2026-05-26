@@ -28,7 +28,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-
 # --- Wealth-overflow pressure -----------------------------------------------
 #
 # `excess_ratio = max(0, (bankroll - starting_bankroll) / starting_bankroll)`.
@@ -39,11 +38,11 @@ EXCESS_INCENTIVE_WEIGHT = 0.4
 MAX_EXCESS_BONUS = 2.0
 
 # --- Skill belief from per-pair stake outcomes ------------------------------
-SETTLED_WEIGHT = 1.0     # clean repayment is the gold standard
-CARRY_WEIGHT = -0.5      # currently open carry — borrower hasn't paid yet
+SETTLED_WEIGHT = 1.0  # clean repayment is the gold standard
+CARRY_WEIGHT = -0.5  # currently open carry — borrower hasn't paid yet
 DEFAULTED_WEIGHT = -1.5  # explicit default is the strongest negative signal
-BELIEF_SCALE = 0.3       # per-event contribution before clamp
-MAX_BELIEF_BONUS = 1.5   # symmetric cap — belief shifts weight but can't dominate
+BELIEF_SCALE = 0.3  # per-event contribution before clamp
+MAX_BELIEF_BONUS = 1.5  # symmetric cap — belief shifts weight but can't dominate
 
 # --- Relationship warmth ----------------------------------------------------
 #
@@ -57,8 +56,8 @@ MAX_WARMTH_BONUS = 1.0
 RELATIONSHIP_WARMTH_BASELINE = 0.3  # "no prior interaction" default
 
 # --- Composite weight -------------------------------------------------------
-BASE_WEIGHT = 1.0   # everyone starts above zero — preserves "stranger backer" texture
-MIN_WEIGHT = 0.01   # safety floor so a clamped-negative candidate still draws
+BASE_WEIGHT = 1.0  # everyone starts above zero — preserves "stranger backer" texture
+MIN_WEIGHT = 0.01  # safety floor so a clamped-negative candidate still draws
 
 
 @dataclass(frozen=True)

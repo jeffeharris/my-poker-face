@@ -33,26 +33,39 @@ def _observe(manager, observer: str, opponent: str, *obs: str) -> None:
 
 class TestEmptyCases:
     def test_no_observer_returns_empty(self, manager):
-        assert manager.select_opponent_observations(
-            observer='hero', active_opponents=['villain'],
-        ) == []
+        assert (
+            manager.select_opponent_observations(
+                observer='hero',
+                active_opponents=['villain'],
+            )
+            == []
+        )
 
     def test_no_active_opponents_returns_empty(self, manager):
         _observe(manager, 'hero', 'villain', 'folds to pressure')
-        assert manager.select_opponent_observations(
-            observer='hero', active_opponents=[],
-        ) == []
+        assert (
+            manager.select_opponent_observations(
+                observer='hero',
+                active_opponents=[],
+            )
+            == []
+        )
 
     def test_opponent_with_no_observations_returns_empty(self, manager):
         manager.get_model('hero', 'villain')  # creates empty model
-        assert manager.select_opponent_observations(
-            observer='hero', active_opponents=['villain'],
-        ) == []
+        assert (
+            manager.select_opponent_observations(
+                observer='hero',
+                active_opponents=['villain'],
+            )
+            == []
+        )
 
     def test_active_opponent_not_in_models_skipped(self, manager):
         _observe(manager, 'hero', 'known', 'plays tight')
         result = manager.select_opponent_observations(
-            observer='hero', active_opponents=['unknown'],
+            observer='hero',
+            active_opponents=['unknown'],
         )
         # 'unknown' has no model → filtered; nothing else active → empty
         assert result == []
@@ -62,7 +75,9 @@ class TestRecencyOrdering:
     def test_newest_observation_wins_within_opponent(self, manager):
         _observe(manager, 'hero', 'villain', 'old read', 'middle read', 'fresh read')
         result = manager.select_opponent_observations(
-            observer='hero', active_opponents=['villain'], max_observations=1,
+            observer='hero',
+            active_opponents=['villain'],
+            max_observations=1,
         )
         assert result == [('villain', 'fresh read')]
 
@@ -129,7 +144,8 @@ class TestCap:
         _observe(manager, 'hero', 'a', 'read a')
         _observe(manager, 'hero', 'b', 'read b')
         result = manager.select_opponent_observations(
-            observer='hero', active_opponents=['a', 'b'],
+            observer='hero',
+            active_opponents=['a', 'b'],
             max_observations=1,
         )
         assert len(result) == 1
@@ -144,7 +160,8 @@ class TestNoRelationshipRepo:
         # manager has _relationship_repo=None by default
         _observe(manager, 'hero', 'villain', 'tight player')
         result = manager.select_opponent_observations(
-            observer='hero', active_opponents=['villain'],
+            observer='hero',
+            active_opponents=['villain'],
         )
         assert result == [('villain', 'tight player')]
 
@@ -154,10 +171,12 @@ class TestFormatHelper:
         assert format_opponent_observations([]) == ''
 
     def test_renders_lines(self):
-        out = format_opponent_observations([
-            ('Alice', 'folds to cbets'),
-            ('Bob', 'overvalues top pair'),
-        ])
+        out = format_opponent_observations(
+            [
+                ('Alice', 'folds to cbets'),
+                ('Bob', 'overvalues top pair'),
+            ]
+        )
         lines = out.split('\n')
         assert lines[0] == 'Your reads on opponents:'
         assert lines[1] == '- Alice: folds to cbets'

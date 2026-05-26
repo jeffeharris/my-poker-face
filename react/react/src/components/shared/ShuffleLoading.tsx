@@ -81,7 +81,9 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
   const enterClass = exitStyle === 'slide' ? ' shuffle-loading-slide-in' : '';
   const exitClass = fadingOut
-    ? (exitStyle === 'slide' ? ' shuffle-loading-slide-out' : ' shuffle-loading-fade-out')
+    ? exitStyle === 'slide'
+      ? ' shuffle-loading-slide-out'
+      : ' shuffle-loading-fade-out'
     : '';
 
   const content = (
@@ -98,11 +100,13 @@ export const ShuffleLoading = memo(function ShuffleLoading({
           <div
             key={card.id}
             className="shuffle-loading-card"
-            style={{
-              '--card-delay': `${card.delay}s`,
-              '--card-offset-x': `${card.offsetX}px`,
-              '--card-rotation': `${card.rotation}deg`,
-            } as React.CSSProperties}
+            style={
+              {
+                '--card-delay': `${card.delay}s`,
+                '--card-offset-x': `${card.offsetX}px`,
+                '--card-rotation': `${card.rotation}deg`,
+              } as React.CSSProperties
+            }
           >
             <div className="shuffle-loading-card-back">
               <div className="shuffle-loading-diamond" />
@@ -121,9 +125,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         </div>
       </div>
 
-      {submessage && (
-        <p className="shuffle-loading-submessage">{submessage}</p>
-      )}
+      {submessage && <p className="shuffle-loading-submessage">{submessage}</p>}
 
       {/* Hand number badge */}
       {handNumber != null && handNumber > 0 && (
@@ -144,16 +146,17 @@ export const ShuffleLoading = memo(function ShuffleLoading({
         </div>
 
         {/* LAYER 2: Content - ABOVE avatars */}
-        <div className={`shuffle-loading-content-layer${exitClass}`}>
-          {content}
-        </div>
+        <div className={`shuffle-loading-content-layer${exitClass}`}>{content}</div>
       </>
     );
   }
 
   // overlay variant: single full-screen layer
   return (
-    <div className={`shuffle-loading-overlay${enterClass}${exitClass}`} data-testid="shuffle-loading">
+    <div
+      className={`shuffle-loading-overlay${enterClass}${exitClass}`}
+      data-testid="shuffle-loading"
+    >
       {content}
     </div>
   );

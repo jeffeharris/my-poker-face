@@ -1,5 +1,7 @@
 """Tests for GuestTrackingRepository."""
+
 import pytest
+
 from poker.repositories.guest_tracking_repository import GuestTrackingRepository
 
 

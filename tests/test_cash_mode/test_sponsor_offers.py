@@ -24,7 +24,6 @@ from cash_mode.sponsor_offers import (
     offer_for_archetype,
 )
 
-
 # Stake-ladder windows (40 BB min, 100 BB max), one entry per tier.
 STAKES = [
     ("$2", 80, 200),
@@ -42,8 +41,7 @@ class TestArchetypeAmounts:
             offer = offer_for_archetype(arch.id, mn, mx)
             assert offer is not None
             assert mn <= offer.amount <= mx, (
-                f"{arch.id} at {label}: amount {offer.amount} "
-                f"outside window [{mn}, {mx}]"
+                f"{arch.id} at {label}: amount {offer.amount} " f"outside window [{mn}, {mx}]"
             )
 
     def test_friendly_boost_is_min_buy_in(self):

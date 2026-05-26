@@ -32,10 +32,11 @@ def set_game_state():
         return jsonify({'error': 'game_id and snapshot are required'}), 400
 
     try:
-        from poker.poker_state_machine import PokerStateMachine, PokerPhase
-        from poker.poker_game import PokerGameState, Player
-        from ..game_adapter import StateMachineAdapter
         from core.card import Card
+        from poker.poker_game import Player, PokerGameState
+        from poker.poker_state_machine import PokerPhase, PokerStateMachine
+
+        from ..game_adapter import StateMachineAdapter
 
         # Reconstruct game state from snapshot
         state_data = snapshot.get('game_state', snapshot)
@@ -46,25 +47,26 @@ def set_game_state():
             hand = None
             if p.get('hand'):
                 hand = tuple(Card(c['rank'], c['suit']) for c in p['hand'])
-            players.append(Player(
-                name=p['name'],
-                stack=p.get('stack', 5000),
-                bet=p.get('bet', 0),
-                hand=hand,
-                is_folded=p.get('is_folded', False),
-                is_all_in=p.get('is_all_in', False),
-                has_acted=p.get('has_acted', False),
-                is_human=p.get('is_human', False),
-            ))
+            players.append(
+                Player(
+                    name=p['name'],
+                    stack=p.get('stack', 5000),
+                    bet=p.get('bet', 0),
+                    hand=hand,
+                    is_folded=p.get('is_folded', False),
+                    is_all_in=p.get('is_all_in', False),
+                    has_acted=p.get('has_acted', False),
+                    is_human=p.get('is_human', False),
+                )
+            )
 
         # Build community cards
         community_cards = tuple(
-            Card(c['rank'], c['suit'])
-            for c in state_data.get('community_cards', [])
+            Card(c['rank'], c['suit']) for c in state_data.get('community_cards', [])
         )
 
         pot = state_data.get('pot', {'total': 0})
-        if isinstance(pot, (int, float)):
+        if isinstance(pot, int | float):
             pot = {'total': int(pot)}
 
         game_state = PokerGameState(

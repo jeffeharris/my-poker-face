@@ -26,14 +26,20 @@ from poker.memory.relationship_events import RelationshipEvent
 
 def _player(name: str, stack: int = 1000) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position="BTN", is_human=False,
+        name=name,
+        starting_stack=stack,
+        position="BTN",
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="RIVER", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
@@ -83,9 +89,14 @@ class TestCoolerFires:
             hole_cards={"alice": ["9d", "Th"], "bob": ["8d", "8h"]},
             community=("6h", "7c", "8s", "2d", "Kh"),
             actions=COMMITTED_ACTIONS,
-            winners=[WinnerInfo(
-                name="alice", amount_won=300, hand_name="Straight", hand_rank=6,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=300,
+                    hand_name="Straight",
+                    hand_rank=6,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -103,9 +114,14 @@ class TestCoolerFires:
             hole_cards={"alice": ["Kc", "Kh"], "bob": ["Ts", "9s"]},
             community=("7s", "Ks", "Qs", "5h", "5d"),
             actions=COMMITTED_ACTIONS,
-            winners=[WinnerInfo(
-                name="alice", amount_won=300, hand_name="Full House", hand_rank=4,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=300,
+                    hand_name="Full House",
+                    hand_rank=4,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -125,9 +141,14 @@ class TestCoolerDoesNotFire:
             hole_cards={"alice": ["8d", "8s"], "bob": ["5s", "5c"]},
             community=("8h", "5d", "2s", "Jc", "4h"),
             actions=COMMITTED_ACTIONS,
-            winners=[WinnerInfo(
-                name="alice", amount_won=300, hand_name="Three of a kind", hand_rank=7,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=300,
+                    hand_name="Three of a kind",
+                    hand_rank=7,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -148,9 +169,14 @@ class TestCoolerDoesNotFire:
                 _action("alice", "check", 0, phase="RIVER", pot_after=50),
                 _action("bob", "check", 0, phase="RIVER", pot_after=50),
             ],
-            winners=[WinnerInfo(
-                name="alice", amount_won=50, hand_name="Straight", hand_rank=6,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=50,
+                    hand_name="Straight",
+                    hand_rank=6,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -172,9 +198,14 @@ class TestDominatedShowdownMutualExclusion:
             hole_cards={"alice": ["9d", "Th"], "bob": ["8d", "8h"]},
             community=("6h", "7c", "8s", "2d", "Kh"),
             actions=COMMITTED_ACTIONS,
-            winners=[WinnerInfo(
-                name="alice", amount_won=300, hand_name="Straight", hand_rank=6,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=300,
+                    hand_name="Straight",
+                    hand_rank=6,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)
@@ -213,9 +244,14 @@ class TestDominatedShowdownMutualExclusion:
             hole_cards={"alice": ["8d", "8s"], "bob": ["5s", "4c"]},
             community=("8h", "5d", "2c", "Jc", "4h"),
             actions=COMMITTED_ACTIONS,
-            winners=[WinnerInfo(
-                name="alice", amount_won=300, hand_name="Three of a kind", hand_rank=7,
-            )],
+            winners=[
+                WinnerInfo(
+                    name="alice",
+                    amount_won=300,
+                    hand_name="Three of a kind",
+                    hand_rank=7,
+                )
+            ],
         )
 
         events = HandOutcomeDetector().detect_events(hand)

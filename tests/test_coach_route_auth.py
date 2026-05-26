@@ -24,6 +24,7 @@ class TestCoachRouteAuth(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = self.repos['game_repo']
             ext.user_repo = self.repos['user_repo']
             ext.settings_repo = self.repos['settings_repo']
@@ -81,13 +82,16 @@ class TestCoachRouteAuth(unittest.TestCase):
         self.game_repo.save_game(game_id, state_machine, owner_id=owner_id, owner_name='Owner One')
 
         # Also seed the in-memory cache so coach routes' get_game returns it.
-        game_state_service.set_game(game_id, {
-            'state_machine': state_machine,
-            'owner_id': owner_id,
-            'owner_name': 'Owner One',
-            'messages': [],
-            'game_started': True,
-        })
+        game_state_service.set_game(
+            game_id,
+            {
+                'state_machine': state_machine,
+                'owner_id': owner_id,
+                'owner_name': 'Owner One',
+                'messages': [],
+                'game_started': True,
+            },
+        )
         return game_id
 
     def _patch_user(self, user, *, admin: bool = False):
@@ -97,7 +101,9 @@ class TestCoachRouteAuth(unittest.TestCase):
         if admin:
             self._authz_mock.has_permission.side_effect = lambda uid, perm: True
         else:
-            self._authz_mock.has_permission.side_effect = lambda uid, perm: perm == 'can_access_coach'
+            self._authz_mock.has_permission.side_effect = (
+                lambda uid, perm: perm == 'can_access_coach'
+            )
         return [
             patch('flask_app.routes.coach_routes.auth_manager.get_current_user', return_value=user),
         ]
@@ -130,12 +136,17 @@ class TestCoachRouteAuth(unittest.TestCase):
         try:
             for method, path, payload in requests:
                 if method == 'post':
-                    response = self.client.post(path, json=payload) if payload is not None else self.client.post(path)
+                    response = (
+                        self.client.post(path, json=payload)
+                        if payload is not None
+                        else self.client.post(path)
+                    )
                 else:
                     response = self.client.get(path)
                 self.assertEqual(
-                    response.status_code, 403,
-                    f"Expected 403 for {method.upper()} {path}, got {response.status_code}: {response.get_data(as_text=True)}"
+                    response.status_code,
+                    403,
+                    f"Expected 403 for {method.upper()} {path}, got {response.status_code}: {response.get_data(as_text=True)}",
                 )
                 self.assertEqual(response.get_json().get('error'), 'Permission denied')
         finally:
@@ -175,15 +186,19 @@ class TestCoachRouteAuth(unittest.TestCase):
         # Seed a row with owner_id=None directly via game_repo.
         from poker.poker_game import initialize_game_state
         from poker.poker_state_machine import PokerStateMachine
+
         sm = PokerStateMachine(initialize_game_state(['AI Opponent'], human_name='Player'))
         self.game_repo.save_game(game_id, sm, owner_id=None, owner_name=None)
-        game_state_service.set_game(game_id, {
-            'state_machine': sm,
-            'owner_id': None,
-            'owner_name': None,
-            'messages': [],
-            'game_started': True,
-        })
+        game_state_service.set_game(
+            game_id,
+            {
+                'state_machine': sm,
+                'owner_id': None,
+                'owner_name': None,
+                'messages': [],
+                'game_started': True,
+            },
+        )
 
         intruder = {'id': 'intruder-2', 'name': 'Intruder Two'}
         patchers = self._enter(self._patch_user(intruder, admin=False))

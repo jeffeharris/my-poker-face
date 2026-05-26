@@ -27,7 +27,6 @@ from poker.strategy.intervention_trace import (
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.value_override import compute_bluff_catch_strategy
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
@@ -60,7 +59,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
 
         assert trace.layer == 'bluff_catch_override'
@@ -84,7 +86,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
 
         strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
 
         # The clamped distribution has call=0.4, fold=0.6 — fold is
@@ -96,12 +101,17 @@ class TestBluffCatchFireTrace:
     def test_fire_trace_records_inputs_block(self):
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(
-            street='turn', board_texture='wet_rainbow',
-            bet_size_pot_ratio=0.5, is_paired_board=True,
+            street='turn',
+            board_texture='wet_rainbow',
+            bet_size_pot_ratio=0.5,
+            is_paired_board=True,
         )
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'weak_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'weak_made',
+            max_total_shift=0.8,
         )
 
         assert trace.inputs['hand_strength'] == 'weak_made'
@@ -116,7 +126,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
 
         strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
 
         # Input summary mirrors baseline; output mirrors clamped result.
@@ -131,7 +144,10 @@ class TestBluffCatchFireTrace:
 
         for hand_class in ('medium_made', 'weak_made'):
             _strategy, trace = compute_bluff_catch_strategy(
-                baseline, ctx, hand_class, max_total_shift=0.8,
+                baseline,
+                ctx,
+                hand_class,
+                max_total_shift=0.8,
             )
             assert trace.reason_code == f'{hand_class}_vs_extreme_facing_bet'
 
@@ -142,7 +158,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx()
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.6,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.6,
             tier_label='moderate',
         )
         assert trace.inputs['tier'] == 'moderate'
@@ -153,7 +172,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx()
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
 
         payload = trace_to_json_dict(trace)
@@ -170,7 +192,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
             legal_actions=['fold', 'all_in'],
         )
 
@@ -184,7 +209,10 @@ class TestBluffCatchFireTrace:
         ctx = _ctx()
 
         _strategy, trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
 
         assert trace.amount_bucket_before == ''
@@ -242,15 +270,20 @@ class TestControllerAccumulator:
             _make_manager,
             _make_neutral_stats,
         )
+
         return (
-            _make_controller, _make_extreme_maniac_stats,
-            _make_manager, _make_neutral_stats,
+            _make_controller,
+            _make_extreme_maniac_stats,
+            _make_manager,
+            _make_neutral_stats,
         )
 
     def test_fire_path_appends_override_trace(self):
         (
-            _make_controller, _make_extreme_maniac_stats,
-            _make_manager, _,
+            _make_controller,
+            _make_extreme_maniac_stats,
+            _make_manager,
+            _,
         ) = self._import_controller_fixtures()
 
         manager = _make_manager(_make_extreme_maniac_stats())
@@ -261,9 +294,12 @@ class TestControllerAccumulator:
         emotional = SimpleNamespace(state='composed')
 
         _strategy, trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 
@@ -280,9 +316,12 @@ class TestControllerAccumulator:
         emotional = SimpleNamespace(state='composed')
 
         _strategy, trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 
@@ -292,8 +331,10 @@ class TestControllerAccumulator:
 
     def test_early_out_hand_class_not_eligible(self):
         (
-            _make_controller, _make_extreme_maniac_stats,
-            _make_manager, _,
+            _make_controller,
+            _make_extreme_maniac_stats,
+            _make_manager,
+            _,
         ) = self._import_controller_fixtures()
         manager = _make_manager(_make_extreme_maniac_stats())
         controller = _make_controller(manager=manager)
@@ -303,9 +344,12 @@ class TestControllerAccumulator:
         emotional = SimpleNamespace(state='composed')
 
         _strategy, trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='strong_made',  # outside trigger set
         )
 
@@ -316,8 +360,10 @@ class TestControllerAccumulator:
         """Hand class is eligible but opponent stats are neutral →
         clamp tier is DEFAULT not EXTREME → gate rejects."""
         (
-            _make_controller, _,
-            _make_manager, _make_neutral_stats,
+            _make_controller,
+            _,
+            _make_manager,
+            _make_neutral_stats,
         ) = self._import_controller_fixtures()
         manager = _make_manager(_make_neutral_stats())
         controller = _make_controller(manager=manager)
@@ -327,9 +373,12 @@ class TestControllerAccumulator:
         emotional = SimpleNamespace(state='composed')
 
         _strategy, trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
 

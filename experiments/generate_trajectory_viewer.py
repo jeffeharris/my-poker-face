@@ -26,16 +26,22 @@ import sys
 from pathlib import Path
 
 PLAYER_COLORS = [
-    '#ff6b6b', '#4ecdc4', '#ffe66d', '#a29bfe',
-    '#00b894', '#fd79a8', '#e17055', '#6c5ce7',
+    '#ff6b6b',
+    '#4ecdc4',
+    '#ffe66d',
+    '#a29bfe',
+    '#00b894',
+    '#fd79a8',
+    '#e17055',
+    '#6c5ce7',
 ]
 
 # Default zone geometry (matches poker/zone_detection.py and poker/zone_config.py)
 DEFAULT_SWEET_SPOTS = {
     'poker_face': {'center': [0.52, 0.72], 'label': 'Poker Face', 'radius': 0.16},
-    'guarded':    {'center': [0.28, 0.72], 'label': 'Guarded',    'radius': 0.15},
+    'guarded': {'center': [0.28, 0.72], 'label': 'Guarded', 'radius': 0.15},
     'commanding': {'center': [0.78, 0.78], 'label': 'Commanding', 'radius': 0.14},
-    'aggro':      {'center': [0.68, 0.48], 'label': 'Aggro',      'radius': 0.12},
+    'aggro': {'center': [0.68, 0.48], 'label': 'Aggro', 'radius': 0.12},
 }
 
 DEFAULT_PENALTY_THRESHOLDS = {
@@ -81,7 +87,8 @@ def _extract_stack_only_players(conn, game_id: str, psychology_players: list) ->
         return {}
 
     placeholders = ','.join('?' for _ in psychology_players)
-    rows = conn.execute(f'''
+    rows = conn.execute(
+        f'''
         SELECT player_name, hand_number, player_stack
         FROM player_decision_analysis
         WHERE game_id = ?
@@ -90,17 +97,21 @@ def _extract_stack_only_players(conn, game_id: str, psychology_players: list) ->
         GROUP BY player_name, hand_number
         HAVING id = MIN(id)
         ORDER BY hand_number, player_name
-    ''', (game_id, *psychology_players)).fetchall()
+    ''',
+        (game_id, *psychology_players),
+    ).fetchall()
 
     stack_players = {}
     for row in rows:
         name = row['player_name']
         if name not in stack_players:
             stack_players[name] = []
-        stack_players[name].append({
-            'hand': row['hand_number'],
-            'stack': row['player_stack'] or 0,
-        })
+        stack_players[name].append(
+            {
+                'hand': row['hand_number'],
+                'stack': row['player_stack'] or 0,
+            }
+        )
     return stack_players
 
 
@@ -110,7 +121,8 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     conn.row_factory = sqlite3.Row
 
     # Get available games in this experiment
-    games = conn.execute('''
+    games = conn.execute(
+        '''
         SELECT eg.game_id,
                COUNT(DISTINCT pda.hand_number) as hands,
                GROUP_CONCAT(DISTINCT pda.player_name) as players
@@ -119,7 +131,9 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
         WHERE eg.experiment_id = ? AND pda.zone_confidence IS NOT NULL
         GROUP BY eg.game_id
         ORDER BY hands DESC
-    ''', (experiment_id,)).fetchall()
+    ''',
+        (experiment_id,),
+    ).fetchall()
 
     if not games:
         return None
@@ -130,8 +144,7 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     zone_params = {}
     try:
         exp_row = conn.execute(
-            'SELECT config_json FROM experiments WHERE id = ?',
-            (experiment_id,)
+            'SELECT config_json FROM experiments WHERE id = ?', (experiment_id,)
         ).fetchone()
         if exp_row:
             config = json.loads(exp_row['config_json'] or '{}')
@@ -152,7 +165,8 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             sweet_spots[zone_name][field] = zone_params[param_key]
 
     # Get first decision per hand per player (earliest id wins)
-    rows = conn.execute('''
+    rows = conn.execute(
+        '''
         SELECT pda.*
         FROM player_decision_analysis pda
         INNER JOIN (
@@ -162,7 +176,9 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             GROUP BY player_name, hand_number
         ) first ON pda.id = first.min_id
         ORDER BY pda.hand_number, pda.player_name
-    ''', (selected_game,)).fetchall()
+    ''',
+        (selected_game,),
+    ).fetchall()
 
     # Organize by player
     players = []
@@ -174,29 +190,34 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
             players.append(name)
             trajectories[name] = []
 
-        trajectories[name].append({
-            'hand': row['hand_number'],
-            'conf': round(row['zone_confidence'], 4),
-            'comp': round(row['zone_composure'], 4),
-            'energy': round(row['zone_energy'] or 0.5, 4),
-            'sweet_spot': row['zone_primary_sweet_spot'],
-            'penalty': row['zone_primary_penalty'],
-            'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
-            'stack': row['player_stack'] or 0,
-            'action': row['action_taken'],
-            'intrusive': bool(row['zone_intrusive_thoughts_injected']),
-            'emotion': row['display_emotion'] or 'poker_face',
-        })
+        trajectories[name].append(
+            {
+                'hand': row['hand_number'],
+                'conf': round(row['zone_confidence'], 4),
+                'comp': round(row['zone_composure'], 4),
+                'energy': round(row['zone_energy'] or 0.5, 4),
+                'sweet_spot': row['zone_primary_sweet_spot'],
+                'penalty': row['zone_primary_penalty'],
+                'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
+                'stack': row['player_stack'] or 0,
+                'action': row['action_taken'],
+                'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+                'emotion': row['display_emotion'] or 'poker_face',
+            }
+        )
 
     # Get pressure events for this game (keyed by player → hand_number → [events])
     pressure_events = {}
     try:
-        pe_rows = conn.execute('''
+        pe_rows = conn.execute(
+            '''
             SELECT player_name, hand_number, event_type, details_json
             FROM pressure_events
             WHERE game_id = ? AND hand_number IS NOT NULL
             ORDER BY hand_number, id
-        ''', (selected_game,)).fetchall()
+        ''',
+            (selected_game,),
+        ).fetchall()
 
         for row in pe_rows:
             name = row['player_name']
@@ -207,10 +228,12 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
                 pressure_events[name][hand] = []
 
             details = json.loads(row['details_json']) if row['details_json'] else {}
-            pressure_events[name][hand].append({
-                'type': row['event_type'],
-                'details': details,
-            })
+            pressure_events[name][hand].append(
+                {
+                    'type': row['event_type'],
+                    'details': details,
+                }
+            )
     except Exception:
         pass  # Table may not have hand_number column yet
 
@@ -224,7 +247,9 @@ def extract_data(db_path: str, experiment_id: int, game_id: str = None) -> dict:
     for i, name in enumerate(all_names):
         player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
         parts = name.split()
-        player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+        player_initials[name] = (
+            (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+        )
 
     conn.close()
 
@@ -255,11 +280,14 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
     conn.row_factory = sqlite3.Row
 
     # Check that we have psychology data for this game
-    count = conn.execute('''
+    count = conn.execute(
+        '''
         SELECT COUNT(*) as cnt
         FROM player_decision_analysis
         WHERE game_id = ? AND zone_confidence IS NOT NULL
-    ''', (game_id,)).fetchone()['cnt']
+    ''',
+        (game_id,),
+    ).fetchone()['cnt']
 
     if count == 0:
         conn.close()
@@ -270,7 +298,8 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
     penalty_thresholds = dict(DEFAULT_PENALTY_THRESHOLDS)
 
     # Get first decision per hand per player (earliest id wins)
-    rows = conn.execute('''
+    rows = conn.execute(
+        '''
         SELECT pda.*
         FROM player_decision_analysis pda
         INNER JOIN (
@@ -280,7 +309,9 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
             GROUP BY player_name, hand_number
         ) first ON pda.id = first.min_id
         ORDER BY pda.hand_number, pda.player_name
-    ''', (game_id,)).fetchall()
+    ''',
+        (game_id,),
+    ).fetchall()
 
     # Organize by player
     players = []
@@ -292,29 +323,34 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
             players.append(name)
             trajectories[name] = []
 
-        trajectories[name].append({
-            'hand': row['hand_number'],
-            'conf': round(row['zone_confidence'], 4),
-            'comp': round(row['zone_composure'], 4),
-            'energy': round(row['zone_energy'] or 0.5, 4),
-            'sweet_spot': row['zone_primary_sweet_spot'],
-            'penalty': row['zone_primary_penalty'],
-            'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
-            'stack': row['player_stack'] or 0,
-            'action': row['action_taken'],
-            'intrusive': bool(row['zone_intrusive_thoughts_injected']),
-            'emotion': row['display_emotion'] or 'poker_face',
-        })
+        trajectories[name].append(
+            {
+                'hand': row['hand_number'],
+                'conf': round(row['zone_confidence'], 4),
+                'comp': round(row['zone_composure'], 4),
+                'energy': round(row['zone_energy'] or 0.5, 4),
+                'sweet_spot': row['zone_primary_sweet_spot'],
+                'penalty': row['zone_primary_penalty'],
+                'penalty_strength': round(row['zone_total_penalty_strength'] or 0, 4),
+                'stack': row['player_stack'] or 0,
+                'action': row['action_taken'],
+                'intrusive': bool(row['zone_intrusive_thoughts_injected']),
+                'emotion': row['display_emotion'] or 'poker_face',
+            }
+        )
 
     # Get pressure events for this game
     pressure_events = {}
     try:
-        pe_rows = conn.execute('''
+        pe_rows = conn.execute(
+            '''
             SELECT player_name, hand_number, event_type, details_json
             FROM pressure_events
             WHERE game_id = ? AND hand_number IS NOT NULL
             ORDER BY hand_number, id
-        ''', (game_id,)).fetchall()
+        ''',
+            (game_id,),
+        ).fetchall()
 
         for row in pe_rows:
             name = row['player_name']
@@ -325,10 +361,12 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
                 pressure_events[name][hand] = []
 
             details = json.loads(row['details_json']) if row['details_json'] else {}
-            pressure_events[name][hand].append({
-                'type': row['event_type'],
-                'details': details,
-            })
+            pressure_events[name][hand].append(
+                {
+                    'type': row['event_type'],
+                    'details': details,
+                }
+            )
     except Exception:
         pass
 
@@ -342,7 +380,9 @@ def extract_data_for_game(db_path: str, game_id: str) -> dict:
     for i, name in enumerate(all_names):
         player_colors[name] = PLAYER_COLORS[i % len(PLAYER_COLORS)]
         parts = name.split()
-        player_initials[name] = (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+        player_initials[name] = (
+            (parts[0][0] + parts[-1][0]) if len(parts) >= 2 else name[:2].upper()
+        )
 
     conn.close()
 
@@ -1850,14 +1890,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate interactive psychology trajectory viewer"
     )
-    parser.add_argument("--experiment", "-e", type=int, required=True,
-                        help="Experiment ID")
-    parser.add_argument("--output", "-o", default="trajectory_viewer.html",
-                        help="Output HTML file path")
-    parser.add_argument("--game", "-g", default=None,
-                        help="Specific game_id (default: longest game)")
-    parser.add_argument("--db", default=None,
-                        help="Database path (auto-detected if omitted)")
+    parser.add_argument("--experiment", "-e", type=int, required=True, help="Experiment ID")
+    parser.add_argument(
+        "--output", "-o", default="trajectory_viewer.html", help="Output HTML file path"
+    )
+    parser.add_argument(
+        "--game", "-g", default=None, help="Specific game_id (default: longest game)"
+    )
+    parser.add_argument("--db", default=None, help="Database path (auto-detected if omitted)")
 
     args = parser.parse_args()
 

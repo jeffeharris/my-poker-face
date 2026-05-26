@@ -22,7 +22,9 @@
   font-size: 11px;
   padding: 4px 10px;
   cursor: pointer;
-  transition: color 80ms ease-out, border-color 80ms ease-out;
+  transition:
+    color 80ms ease-out,
+    border-color 80ms ease-out;
 }
 
 .dt-view-toggle-btn:hover {
@@ -370,7 +372,9 @@
 }
 
 @keyframes dtSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dt-result__empty {

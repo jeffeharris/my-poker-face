@@ -3,11 +3,7 @@
   gap: 2dvw;
   padding: 1dvh 1.5dvw;
   padding-bottom: max(1dvh, env(safe-area-inset-bottom));
-  background: linear-gradient(
-    to top,
-    rgba(10, 11, 16, 0.98) 0%,
-    rgba(15, 17, 24, 0.95) 100%
-  );
+  background: linear-gradient(to top, rgba(10, 11, 16, 0.98) 0%, rgba(15, 17, 24, 0.95) 100%);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(212, 165, 116, 0.15);
   box-shadow:
@@ -30,7 +26,9 @@
   border-radius: var(--radius-lg);
   font-family: var(--font-display);
   cursor: pointer;
-  transition: transform 0.15s var(--ease-out-expo), box-shadow 0.25s var(--ease-in-out-smooth);
+  transition:
+    transform 0.15s var(--ease-out-expo),
+    box-shadow 0.25s var(--ease-in-out-smooth);
   min-height: 4dvh;
   backdrop-filter: blur(8px);
   position: relative;
@@ -107,11 +105,18 @@
 }
 
 @keyframes allInPulse {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(168, 85, 247, 0.3), 0 0 40px rgba(168, 85, 247, 0.15), var(--shadow-md);
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px rgba(168, 85, 247, 0.3),
+      0 0 40px rgba(168, 85, 247, 0.15),
+      var(--shadow-md);
   }
   50% {
-    box-shadow: 0 0 30px rgba(168, 85, 247, 0.5), 0 0 60px rgba(168, 85, 247, 0.25), var(--shadow-lg);
+    box-shadow:
+      0 0 30px rgba(168, 85, 247, 0.5),
+      0 0 60px rgba(168, 85, 247, 0.25),
+      var(--shadow-lg);
   }
 }
 
@@ -151,7 +156,8 @@
 }
 
 @keyframes waitingPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.5;
     color: var(--color-text-tertiary);
   }
@@ -172,11 +178,7 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(20, 22, 30, 0.98) 0%,
-    rgba(10, 11, 16, 0.99) 100%
-  );
+  background: linear-gradient(180deg, rgba(20, 22, 30, 0.98) 0%, rgba(10, 11, 16, 0.99) 100%);
   border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
   padding: 16px;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
@@ -190,8 +192,12 @@
 }
 
 @keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 .raise-sheet-header {
@@ -433,11 +439,7 @@
 
 .raise-slider::-webkit-slider-runnable-track {
   height: 8px;
-  background: linear-gradient(
-    90deg,
-    rgba(212, 165, 116, 0.15) 0%,
-    rgba(255, 255, 255, 0.1) 100%
-  );
+  background: linear-gradient(90deg, rgba(212, 165, 116, 0.15) 0%, rgba(255, 255, 255, 0.1) 100%);
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border-default);
 }
@@ -459,11 +461,7 @@
 
 .raise-slider::-moz-range-track {
   height: 8px;
-  background: linear-gradient(
-    90deg,
-    rgba(212, 165, 116, 0.15) 0%,
-    rgba(255, 255, 255, 0.1) 100%
-  );
+  background: linear-gradient(90deg, rgba(212, 165, 116, 0.15) 0%, rgba(255, 255, 255, 0.1) 100%);
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border-default);
 }
@@ -499,26 +497,44 @@
 /* Coach recommendation highlights - color-matched to button type */
 
 /* Define glow colors per button type (RGB values for use in rgba()) */
-.fold-btn { --coach-glow: 244, 63, 94; }
-.check-btn { --coach-glow: 52, 211, 153; }
-.call-btn { --coach-glow: 59, 130, 246; }
-.raise-btn { --coach-glow: 212, 165, 116; }
+.fold-btn {
+  --coach-glow: 244, 63, 94;
+}
+.check-btn {
+  --coach-glow: 52, 211, 153;
+}
+.call-btn {
+  --coach-glow: 59, 130, 246;
+}
+.raise-btn {
+  --coach-glow: 212, 165, 116;
+}
 
 /* Shared coach recommendation styles */
 .fold-btn.coach-recommended,
 .check-btn.coach-recommended,
 .call-btn.coach-recommended,
 .raise-btn.coach-recommended {
-  box-shadow: 0 0 16px rgba(var(--coach-glow), 0.6), 0 0 32px rgba(var(--coach-glow), 0.3), var(--shadow-md);
+  box-shadow:
+    0 0 16px rgba(var(--coach-glow), 0.6),
+    0 0 32px rgba(var(--coach-glow), 0.3),
+    var(--shadow-md);
   border: 2px solid rgba(var(--coach-glow), 1);
   animation: coachPulse 2s ease-in-out infinite;
 }
 
 @keyframes coachPulse {
-  0%, 100% {
-    box-shadow: 0 0 16px rgba(var(--coach-glow), 0.6), 0 0 32px rgba(var(--coach-glow), 0.3), var(--shadow-md);
+  0%,
+  100% {
+    box-shadow:
+      0 0 16px rgba(var(--coach-glow), 0.6),
+      0 0 32px rgba(var(--coach-glow), 0.3),
+      var(--shadow-md);
   }
   50% {
-    box-shadow: 0 0 24px rgba(var(--coach-glow), 0.8), 0 0 48px rgba(var(--coach-glow), 0.4), var(--shadow-lg);
+    box-shadow:
+      0 0 24px rgba(var(--coach-glow), 0.8),
+      0 0 48px rgba(var(--coach-glow), 0.4),
+      var(--shadow-lg);
   }
 }

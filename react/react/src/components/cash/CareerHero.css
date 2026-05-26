@@ -116,7 +116,9 @@
 
 .career-hero__worth-caret {
   opacity: 0.55;
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .career-hero__worth:hover .career-hero__worth-caret {
@@ -159,7 +161,12 @@
   line-height: 0.95;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(135deg, #fff3d6 0%, var(--color-gold-bright) 38%, var(--color-gold) 100%);
+  background: linear-gradient(
+    135deg,
+    #fff3d6 0%,
+    var(--color-gold-bright) 38%,
+    var(--color-gold) 100%
+  );
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;

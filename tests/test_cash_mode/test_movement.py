@@ -27,16 +27,16 @@ from cash_mode.movement import (
     FISH_TILT_LEAVE_THRESHOLD,
     FORCED_LEAVE_RATIO,
     LEAVE_K,
-    _coerce_fish_movement,
-    _coerce_predator_retention,
     MIN_COOLDOWN_SECONDS,
-    MovementContext,
-    RebuyChange,
-    RosterRefreshResult,
     W_DETACHED,
     W_SHORT,
     W_STAKE_UP,
     W_TENURE,
+    MovementContext,
+    RebuyChange,
+    RosterRefreshResult,
+    _coerce_fish_movement,
+    _coerce_predator_retention,
     clear_cooldowns,
     compute_leave_cooldown_seconds,
     compute_leave_pressure,
@@ -73,7 +73,7 @@ def _neutral_ctx(**overrides) -> MovementContext:
         projected_bankroll=5000,
         stake_idx=1,
         next_tier_min_buy_in=2000,
-        energy=0.7,         # fresh — no tenure pressure
+        energy=0.7,  # fresh — no tenure pressure
         zone="neutral",
         hands_in_detached_zone=0,
         emotional_intensity=0.0,
@@ -174,14 +174,15 @@ class TestDecisionRouting:
 
     def test_won_big_routes_to_stake_up_when_affordable(self):
         ctx = _neutral_ctx(
-            ai_chips=10000, max_buy_in=2500, min_buy_in=1000,
-            projected_bankroll=10000, next_tier_min_buy_in=2000,
+            ai_chips=10000,
+            max_buy_in=2500,
+            min_buy_in=1000,
+            projected_bankroll=10000,
+            next_tier_min_buy_in=2000,
         )
         from collections import Counter
-        outcomes = Counter(
-            evaluate_ai_movement(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(evaluate_ai_movement(ctx, random.Random(seed)) for seed in range(500))
         # Most stays + some stake_ups; no take_break, no rebuy.
         assert outcomes["stake_up"] > 0
         assert outcomes.get("rebuy", 0) == 0
@@ -190,14 +191,15 @@ class TestDecisionRouting:
 
     def test_won_big_routes_to_take_break_when_top_tier(self):
         ctx = _neutral_ctx(
-            ai_chips=10000, max_buy_in=2500, min_buy_in=1000,
-            projected_bankroll=10000, next_tier_min_buy_in=None,
+            ai_chips=10000,
+            max_buy_in=2500,
+            min_buy_in=1000,
+            projected_bankroll=10000,
+            next_tier_min_buy_in=None,
         )
         from collections import Counter
-        outcomes = Counter(
-            evaluate_ai_movement(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(evaluate_ai_movement(ctx, random.Random(seed)) for seed in range(500))
         # No higher tier → leaves degrade to take_break.
         assert outcomes["take_break"] > 0
         assert outcomes.get("stake_up", 0) == 0
@@ -205,10 +207,8 @@ class TestDecisionRouting:
     def test_detached_routes_to_bored_move(self):
         ctx = _neutral_ctx(zone="detached", hands_in_detached_zone=12)
         from collections import Counter
-        outcomes = Counter(
-            evaluate_ai_movement(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(evaluate_ai_movement(ctx, random.Random(seed)) for seed in range(500))
         # All leaves from detached zone should be bored_move.
         non_stay = sum(v for k, v in outcomes.items() if k != "stay")
         assert outcomes.get("bored_move", 0) == non_stay
@@ -216,14 +216,14 @@ class TestDecisionRouting:
 
     def test_short_stack_routes_to_rebuy_or_take_break(self):
         ctx = _neutral_ctx(
-            ai_chips=400, min_buy_in=1000,  # 0.4× min → above floor, short pressure
-            projected_bankroll=15000, energy=0.7,
+            ai_chips=400,
+            min_buy_in=1000,  # 0.4× min → above floor, short pressure
+            projected_bankroll=15000,
+            energy=0.7,
         )
         from collections import Counter
-        outcomes = Counter(
-            evaluate_ai_movement(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(evaluate_ai_movement(ctx, random.Random(seed)) for seed in range(500))
         # Should see rebuy or take_break, no bored_move/stake_up.
         assert outcomes.get("rebuy", 0) + outcomes.get("take_break", 0) > 0
         assert outcomes.get("stake_up", 0) == 0
@@ -238,26 +238,26 @@ class TestDecisionRouting:
 class TestLeaveVsRebuy:
     def test_flush_bankroll_high_energy_prefers_rebuy(self):
         ctx = _neutral_ctx(
-            ai_chips=400, min_buy_in=1000,
-            projected_bankroll=20000, energy=0.9,
+            ai_chips=400,
+            min_buy_in=1000,
+            projected_bankroll=20000,
+            energy=0.9,
         )
         from collections import Counter
-        outcomes = Counter(
-            decide_leave_or_rebuy(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(decide_leave_or_rebuy(ctx, random.Random(seed)) for seed in range(500))
         assert outcomes["rebuy"] > outcomes["leave"]
 
     def test_low_energy_low_bankroll_prefers_leave(self):
         ctx = _neutral_ctx(
-            ai_chips=400, min_buy_in=1000,
-            projected_bankroll=500, energy=0.2,
+            ai_chips=400,
+            min_buy_in=1000,
+            projected_bankroll=500,
+            energy=0.2,
         )
         from collections import Counter
-        outcomes = Counter(
-            decide_leave_or_rebuy(ctx, random.Random(seed))
-            for seed in range(500)
-        )
+
+        outcomes = Counter(decide_leave_or_rebuy(ctx, random.Random(seed)) for seed in range(500))
         assert outcomes["leave"] > outcomes["rebuy"]
 
 
@@ -269,8 +269,10 @@ class TestLeaveVsRebuy:
 class TestRebuyAmount:
     def test_flush_bankroll_biases_max_bucket(self):
         ctx = _neutral_ctx(
-            min_buy_in=1000, max_buy_in=2500,
-            projected_bankroll=25000, energy=0.9,
+            min_buy_in=1000,
+            max_buy_in=2500,
+            projected_bankroll=25000,
+            energy=0.9,
         )
         amounts = [pick_rebuy_amount(ctx, random.Random(seed)) for seed in range(500)]
         max_picks = sum(1 for a in amounts if a == 2500)
@@ -280,8 +282,10 @@ class TestRebuyAmount:
 
     def test_low_energy_biases_min_bucket(self):
         ctx = _neutral_ctx(
-            min_buy_in=1000, max_buy_in=2500,
-            projected_bankroll=2000, energy=0.1,
+            min_buy_in=1000,
+            max_buy_in=2500,
+            projected_bankroll=2000,
+            energy=0.1,
         )
         amounts = [pick_rebuy_amount(ctx, random.Random(seed)) for seed in range(500)]
         min_picks = sum(1 for a in amounts if a == 1000)
@@ -323,11 +327,15 @@ class TestCooldown:
         rng_fixed.random = lambda: 0.5  # constant for repeatability
         # Fresh AI with flush bankroll → minimal cooldown.
         ctx_fresh = _neutral_ctx(
-            projected_bankroll=20000, energy=0.9, emotional_intensity=0.0,
+            projected_bankroll=20000,
+            energy=0.9,
+            emotional_intensity=0.0,
         )
         # Tilted AI with depleted bankroll → larger cooldown.
         ctx_drained = _neutral_ctx(
-            projected_bankroll=200, energy=0.1, emotional_intensity=0.9,
+            projected_bankroll=200,
+            energy=0.1,
+            emotional_intensity=0.9,
         )
         cd_fresh = compute_leave_cooldown_seconds(ctx_fresh, rng_fixed)
         rng_fixed.random = lambda: 0.5
@@ -352,13 +360,16 @@ def _make_table(seats: list, table_id: str = "cash-table-10-001") -> CashTableSt
 def _bankroll_lookup_factory(values: Dict[str, int]):
     def lookup(pid: str) -> Optional[int]:
         return values.get(pid)
+
     return lookup
 
 
 def _buy_in_lookup_factory(default: int = 400, overrides=None):
     overrides = overrides or {}
+
     def lookup(pid: str) -> int:
         return overrides.get(pid, default)
+
     return lookup
 
 
@@ -371,8 +382,12 @@ def _force_rng(values):
 
 
 def _neutral_psych(_pid: str):
-    return {"energy": 0.7, "zone": "neutral", "hands_in_detached_zone": 0,
-            "emotional_intensity": 0.0}
+    return {
+        "energy": 0.7,
+        "zone": "neutral",
+        "hands_in_detached_zone": 0,
+        "emotional_intensity": 0.0,
+    }
 
 
 class TestRefreshNoChanges:
@@ -430,7 +445,11 @@ class TestRefreshFishAreCasinoBound:
                 "chips": 600,  # between min 400 and max 1000 — no short pressure
                 "archetype": "fish",
             },
-            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         # 5 open seats → up to 5 live-fill rolls; high values block fill.
@@ -476,7 +495,11 @@ class TestRefreshFishAreCasinoBound:
                 "chips": 50,  # <= 0.3 * min (400) → forced_leave hard floor
                 "archetype": "fish",
             },
-            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         result = refresh_table_roster(
@@ -508,8 +531,8 @@ class TestCoercePredatorRetention:
     """Grinders stay to farm a seated fish until they tire; rotation
     exits (take_break/bust) and tired predators still leave."""
 
-    FRESH = 0.8   # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
-    TIRED = 0.1   # energy < floor → released to cycle out
+    FRESH = 0.8  # energy >= CASINO_PREDATOR_FATIGUE_FLOOR → retained
+    TIRED = 0.1  # energy < floor → released to cycle out
 
     def test_stake_up_suppressed_at_fish_table(self):
         assert _coerce_predator_retention("stake_up", True, self.FRESH) == "stay"
@@ -539,9 +562,10 @@ class TestCoercePredatorRetention:
 
     def test_fatigue_boundary(self):
         from cash_mode.movement import CASINO_PREDATOR_FATIGUE_FLOOR
+
         at = CASINO_PREDATOR_FATIGUE_FLOOR
         below = CASINO_PREDATOR_FATIGUE_FLOOR - 0.01
-        assert _coerce_predator_retention("stake_up", True, at) == "stay"      # at floor → retained
+        assert _coerce_predator_retention("stake_up", True, at) == "stay"  # at floor → retained
         assert _coerce_predator_retention("stake_up", True, below) == "stake_up"  # below → released
 
 
@@ -553,8 +577,15 @@ class TestCoerceFishMovement:
     storm off with their chips — making table manners an economic lever.
     """
 
-    def _ctx(self, *, projected_bankroll, emotional_intensity=0.0,
-             min_buy_in=400, max_buy_in=1000, ai_chips=200):
+    def _ctx(
+        self,
+        *,
+        projected_bankroll,
+        emotional_intensity=0.0,
+        min_buy_in=400,
+        max_buy_in=1000,
+        ai_chips=200,
+    ):
         return MovementContext(
             ai_chips=ai_chips,
             min_buy_in=min_buy_in,
@@ -612,12 +643,12 @@ class TestCoerceFishMovement:
 
     def test_threshold_boundary(self):
         # Exactly at threshold counts as upset.
-        at = self._ctx(projected_bankroll=800,
-                       emotional_intensity=FISH_TILT_LEAVE_THRESHOLD)
+        at = self._ctx(projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD)
         assert _coerce_fish_movement("take_break", at, _force_rng([0.0])) == "take_break"
         # Just below → content → reloads.
-        below = self._ctx(projected_bankroll=800,
-                          emotional_intensity=FISH_TILT_LEAVE_THRESHOLD - 0.01)
+        below = self._ctx(
+            projected_bankroll=800, emotional_intensity=FISH_TILT_LEAVE_THRESHOLD - 0.01
+        )
         assert _coerce_fish_movement("take_break", below, random.Random(0)) == "rebuy"
 
 
@@ -626,7 +657,10 @@ class TestRefreshForcedLeave:
         seats = [
             ai_slot("napoleon", 0),
             ai_slot("zeus", 500),
-            open_slot(), open_slot(), open_slot(), open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         # Napoleon forced_leave (no roll consumed); zeus stay (no roll).
@@ -658,7 +692,11 @@ class TestRefreshRebuy:
     def test_short_stack_rebuy_records_chip_increase(self):
         seats = [
             ai_slot("napoleon", 300),  # 0.6× min, above forced floor
-            open_slot(), open_slot(), open_slot(), open_slot(), open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         # Force every decision/sub-decision to "leave or rebuy" landing
@@ -680,8 +718,10 @@ class TestRefreshRebuy:
             table_min_buy_in=500,
             table_max_buy_in=1000,
             psych_lookup=lambda _pid: {
-                "energy": 0.9, "zone": "neutral",
-                "hands_in_detached_zone": 0, "emotional_intensity": 0.0,
+                "energy": 0.9,
+                "zone": "neutral",
+                "hands_in_detached_zone": 0,
+                "emotional_intensity": 0.0,
             },
         )
         # Rebuy decision = stay seated with more chips + RebuyChange entry.
@@ -694,8 +734,7 @@ class TestRefreshRebuy:
         assert rc.amount > 0
         # Matching to_seat BankrollChange emitted for the debit channel.
         to_seats = [b for b in result.bankroll_changes if b.direction == "to_seat"]
-        assert any(b.personality_id == "napoleon" and b.amount == rc.amount
-                   for b in to_seats)
+        assert any(b.personality_id == "napoleon" and b.amount == rc.amount for b in to_seats)
 
 
 class TestRefreshLiveFill:
@@ -755,8 +794,11 @@ class TestRefreshHumanSeatPreserved:
     def test_human_seat_not_touched(self):
         seats = [
             human_slot("player-1", 1000),
-            ai_slot("napoleon", 0),     # busted
-            open_slot(), open_slot(), open_slot(), open_slot(),
+            ai_slot("napoleon", 0),  # busted
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         rng = _force_rng([0.99] * 5)
@@ -786,7 +828,10 @@ class TestRefreshDeferFreshlyVacated:
         seats = [
             ai_slot("napoleon", 0),
             open_slot(),
-            open_slot(), open_slot(), open_slot(), open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+            open_slot(),
         ]
         table = _make_table(seats)
         # Force every live-fill roll to fire (0.0). With deferral on,

@@ -1,7 +1,8 @@
 """Tests for strategy node data types."""
 
 import pytest
-from poker.strategy.nodes import PreflopNode, PostflopNode
+
+from poker.strategy.nodes import PostflopNode, PreflopNode
 
 
 class TestPreflopNode:
@@ -40,25 +41,40 @@ class TestPreflopNode:
 class TestPostflopNode:
     def test_immutable(self):
         node = PostflopNode(
-            street='flop', position='IP', pot_type='SRP',
-            board_texture='dry_high', made_tier='strong_made',
-            draw_modifier='no_draw', facing_action='unopened', spr_bucket='high',
+            street='flop',
+            position='IP',
+            pot_type='SRP',
+            board_texture='dry_high',
+            made_tier='strong_made',
+            draw_modifier='no_draw',
+            facing_action='unopened',
+            spr_bucket='high',
         )
         with pytest.raises(AttributeError):
             node.street = 'turn'
 
     def test_key(self):
         node = PostflopNode(
-            street='flop', position='OOP', pot_type='SRP',
-            board_texture='monotone', made_tier='air',
-            draw_modifier='strong_draw', facing_action='facing_bet', spr_bucket='medium',
+            street='flop',
+            position='OOP',
+            pot_type='SRP',
+            board_texture='monotone',
+            made_tier='air',
+            draw_modifier='strong_draw',
+            facing_action='facing_bet',
+            spr_bucket='medium',
         )
         assert node.key == 'flop|OOP|SRP|monotone|air|strong_draw|facing_bet|medium'
 
     def test_equality(self):
         kwargs = dict(
-            street='flop', position='IP', pot_type='SRP',
-            board_texture='dry_high', made_tier='nuts',
-            draw_modifier='no_draw', facing_action='unopened', spr_bucket='high',
+            street='flop',
+            position='IP',
+            pot_type='SRP',
+            board_texture='dry_high',
+            made_tier='nuts',
+            draw_modifier='no_draw',
+            facing_action='unopened',
+            spr_bucket='high',
         )
         assert PostflopNode(**kwargs) == PostflopNode(**kwargs)

@@ -9,6 +9,7 @@ These tests guard against regressions where a new bot_type silently falls
 through to the default (HybridAIController) — the kind of silent miss that
 showed up in the experiment runner during this refactor.
 """
+
 import os
 import sys
 import tempfile
@@ -19,10 +20,10 @@ from unittest.mock import patch
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from flask_app import create_app
-from poker.repositories import create_repos
 from poker.controllers import AIPlayerController
 from poker.hybrid_ai_controller import HybridAIController
 from poker.lean_bounded_controller import LeanBoundedController
+from poker.repositories import create_repos
 from poker.tiered_bot_controller import TieredBotController
 
 
@@ -37,6 +38,7 @@ class TestBotTypeDispatch(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -65,6 +67,7 @@ class TestBotTypeDispatch(unittest.TestCase):
         # the *route's* limiter (not extensions.limiter, which may have been
         # swapped) is the one we have to flip.
         from flask_app.routes import game_routes as gr
+
         if getattr(gr, 'limiter', None) is not None:
             self._original_limiter_enabled = gr.limiter.enabled
             gr.limiter.enabled = False
@@ -79,7 +82,10 @@ class TestBotTypeDispatch(unittest.TestCase):
             patch('flask_app.routes.game_routes.hand_history_repo', repos['hand_history_repo']),
             patch('flask_app.routes.game_routes.tournament_repo', repos['tournament_repo']),
             patch('flask_app.routes.game_routes.llm_repo', repos['llm_repo']),
-            patch('flask_app.routes.game_routes.decision_analysis_repo', repos['decision_analysis_repo']),
+            patch(
+                'flask_app.routes.game_routes.decision_analysis_repo',
+                repos['decision_analysis_repo'],
+            ),
             patch('flask_app.routes.game_routes.capture_label_repo', repos['capture_label_repo']),
             patch('flask_app.routes.game_routes.coach_repo', repos['coach_repo']),
             patch('flask_app.routes.game_routes.persistence_db_path', repos['db_path']),
@@ -98,21 +104,26 @@ class TestBotTypeDispatch(unittest.TestCase):
             patcher.stop()
         # Restore limiter state so we don't leak into other test files.
         from flask_app.routes import game_routes as gr
+
         if self._original_limiter_enabled is not None and getattr(gr, 'limiter', None) is not None:
             gr.limiter.enabled = self._original_limiter_enabled
         os.unlink(self.test_db.name)
 
     def _create_game(self, bot_types: dict):
         """POST /api/new-game with two AI players + given bot_types. Return (game_id, ai_controllers)."""
-        response = self.client.post('/api/new-game', json={
-            'playerName': 'TestPlayer',
-            'personalities': ['Batman', 'Yoda'],
-            'bot_types': bot_types,
-        })
+        response = self.client.post(
+            '/api/new-game',
+            json={
+                'playerName': 'TestPlayer',
+                'personalities': ['Batman', 'Yoda'],
+                'bot_types': bot_types,
+            },
+        )
         self.assertEqual(response.status_code, 200, response.get_json())
         game_id = response.get_json()['game_id']
 
         from flask_app.services import game_state_service
+
         game_data = game_state_service.get_game(game_id)
         self.assertIsNotNone(game_data, 'game_data missing from game_state_service')
         return game_id, game_data['ai_controllers']
@@ -154,11 +165,14 @@ class TestBotTypeDispatch(unittest.TestCase):
         self.assertIsInstance(controllers['Yoda'], TieredBotController)
 
     def test_unknown_bot_type_returns_400(self):
-        response = self.client.post('/api/new-game', json={
-            'playerName': 'TestPlayer',
-            'personalities': ['Batman'],
-            'bot_types': {'Batman': 'wizard'},
-        })
+        response = self.client.post(
+            '/api/new-game',
+            json={
+                'playerName': 'TestPlayer',
+                'personalities': ['Batman'],
+                'bot_types': {'Batman': 'wizard'},
+            },
+        )
         self.assertEqual(response.status_code, 400)
         payload = response.get_json()
         self.assertIn('valid_bot_types', payload)

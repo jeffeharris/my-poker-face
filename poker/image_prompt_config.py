@@ -19,9 +19,9 @@ Usage:
     )
     prompt = config.assemble_prompt()
 """
-from dataclasses import dataclass
-from typing import Dict, Any, Optional
 
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 # Default values as constants for reuse
 DEFAULT_BACKGROUND = "black background"
@@ -119,4 +119,3 @@ class ImagePromptConfig:
         parts.append(self.framing)
 
         return ". ".join(parts) + "."
-

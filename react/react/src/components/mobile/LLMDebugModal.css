@@ -13,8 +13,12 @@
 }
 
 @keyframes overlay-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .llm-debug-modal {
@@ -32,7 +36,7 @@
   background: var(--crt-black);
   border-radius: 16px 16px 0 0;
   overflow: hidden;
-  animation: modal-slide-up 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  animation: modal-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes modal-slide-up {
@@ -294,8 +298,13 @@
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Modal footer */
@@ -319,8 +328,19 @@
 }
 
 @keyframes boot-flicker {
-  0%, 8% { opacity: 0; }
-  12%, 18% { opacity: 1; }
-  22% { opacity: 0.4; }
-  28%, 100% { opacity: 1; }
+  0%,
+  8% {
+    opacity: 0;
+  }
+  12%,
+  18% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.4;
+  }
+  28%,
+  100% {
+    opacity: 1;
+  }
 }

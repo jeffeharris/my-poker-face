@@ -48,8 +48,8 @@ interface ParsedBeat {
 }
 
 function parseBeats(text: string): ParsedBeat[] {
-  const lines = text.split('\n').filter(b => b.trim());
-  return lines.map(line => {
+  const lines = text.split('\n').filter((b) => b.trim());
+  return lines.map((line) => {
     const actionMatch = line.match(/^\*(.+)\*$/);
     if (actionMatch) {
       return { type: 'action', text: actionMatch[1] };
@@ -154,7 +154,7 @@ function DramaticMessage({ text }: { text: string }) {
     if (beat.type === 'action') {
       cumulativeDelay += ACTION_FADE_DURATION_MS + BEAT_DELAY_MS;
     } else {
-      cumulativeDelay += (beat.text.length * TYPING_SPEED_MS) + BEAT_DELAY_MS;
+      cumulativeDelay += beat.text.length * TYPING_SPEED_MS + BEAT_DELAY_MS;
     }
 
     return { ...beat, delay, index: i };
@@ -162,13 +162,13 @@ function DramaticMessage({ text }: { text: string }) {
 
   return (
     <>
-      {beatsWithDelay.map((beat) => (
+      {beatsWithDelay.map((beat) =>
         beat.type === 'action' ? (
           <ActionBeat key={beat.index} text={beat.text} delay={beat.delay} />
         ) : (
           <SpeechBeat key={beat.index} text={beat.text} delay={beat.delay} />
         )
-      ))}
+      )}
     </>
   );
 }
@@ -182,7 +182,10 @@ interface MessageItemProps {
   onDismiss: (id: string) => void;
 }
 
-const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ msg, avatarUrl, onDismiss }, ref) {
+const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem(
+  { msg, avatarUrl, onDismiss },
+  ref
+) {
   const senderInitial = msg.sender?.charAt(0).toUpperCase() || '?';
   const isAI = msg.type === 'ai';
 
@@ -229,10 +232,7 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
     return Math.max(SWIPE_OPACITY_FLOOR, 1 - progress * progress * progress);
   });
 
-  const handleDragEnd = (
-    _e: MouseEvent | TouchEvent | PointerEvent,
-    info: PanInfo,
-  ) => {
+  const handleDragEnd = (_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     const distance = Math.abs(info.offset.x);
     const velocity = Math.abs(info.velocity.x);
     if (distance > SWIPE_DISMISS_DISTANCE || velocity > SWIPE_DISMISS_VELOCITY) {
@@ -267,13 +267,13 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         opacity: 0,
         scale: 0.95,
         y: -10,
-        transition: { duration: 0.2 }
+        transition: { duration: 0.2 },
       }}
       transition={{
-        layout: { type: "spring", stiffness: 500, damping: 35 },
+        layout: { type: 'spring', stiffness: 500, damping: 35 },
         opacity: { duration: 0.2 },
         scale: { duration: 0.25 },
-        y: { type: "spring", stiffness: 500, damping: 35 }
+        y: { type: 'spring', stiffness: 500, damping: 35 },
       }}
       className="floating-chat-swipe-wrap"
     >
@@ -291,7 +291,10 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
         className="floating-chat"
         data-testid="floating-chat"
       >
-        <div className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`} data-testid="floating-chat-avatar">
+        <div
+          className={`floating-chat-avatar ${avatarUrl ? 'has-image' : ''}`}
+          data-testid="floating-chat-avatar"
+        >
           {avatarUrl ? (
             <img src={avatarUrl} alt={msg.sender} className="floating-avatar-img" />
           ) : (
@@ -317,7 +320,11 @@ const MessageItem = forwardRef<HTMLDivElement, MessageItemProps>(function Messag
 // How many messages can have active timers (visible zone)
 const ACTIVE_MESSAGE_LIMIT = 2;
 
-export const FloatingChat = memo(function FloatingChat({ message, onDismiss, playerAvatars }: FloatingChatProps) {
+export const FloatingChat = memo(function FloatingChat({
+  message,
+  onDismiss,
+  playerAvatars,
+}: FloatingChatProps) {
   const [messages, setMessages] = useState<MessageWithMeta[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
   // Keep a ref to current messages for timer callbacks (avoids stale closures)
@@ -334,23 +341,26 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
       processedIdsRef.current.add(message.id);
       const msgDuration = calculateDuration(message.message, message.action);
 
-      setMessages(prev => {
+      setMessages((prev) => {
         const newPosition = prev.length;
         const isInActiveZone = newPosition < ACTIVE_MESSAGE_LIMIT;
 
-        return [...prev, {
-          ...message,
-          addedAt: Date.now(),
-          displayDuration: msgDuration,
-          timerStartedAt: isInActiveZone ? Date.now() : null
-        }];
+        return [
+          ...prev,
+          {
+            ...message,
+            addedAt: Date.now(),
+            displayDuration: msgDuration,
+            timerStartedAt: isInActiveZone ? Date.now() : null,
+          },
+        ];
       });
     }
   }, [message]);
 
   // Activate timers for messages that moved into the visible zone
   useEffect(() => {
-    setMessages(prev => {
+    setMessages((prev) => {
       let changed = false;
       const updated = prev.map((msg, index) => {
         // If message is now in active zone but timer hasn't started, start it
@@ -360,7 +370,7 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
           return {
             ...msg,
             timerStartedAt: Date.now(),
-            displayDuration: msg.displayDuration + QUEUED_MESSAGE_BONUS_MS
+            displayDuration: msg.displayDuration + QUEUED_MESSAGE_BONUS_MS,
           };
         }
         return msg;
@@ -383,8 +393,8 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
 
     const checkExpired = () => {
       const now = Date.now();
-      setMessages(prev => {
-        const filtered = prev.filter(msg => {
+      setMessages((prev) => {
+        const filtered = prev.filter((msg) => {
           // If timer hasn't started, message is paused - keep it
           if (msg.timerStartedAt === null) return true;
           const elapsed = now - msg.timerStartedAt;
@@ -415,7 +425,7 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
   }, [messages.length]);
 
   const handleDismiss = (id: string) => {
-    setMessages(prev => prev.filter(msg => msg.id !== id));
+    setMessages((prev) => prev.filter((msg) => msg.id !== id));
   };
 
   if (messages.length === 0) return null;
@@ -428,12 +438,7 @@ export const FloatingChat = memo(function FloatingChat({ message, onDismiss, pla
           const avatarUrl = isAI ? getPlayerAvatar(msg.sender || '') : null;
 
           return (
-            <MessageItem
-              key={msg.id}
-              msg={msg}
-              avatarUrl={avatarUrl}
-              onDismiss={handleDismiss}
-            />
+            <MessageItem key={msg.id} msg={msg} avatarUrl={avatarUrl} onDismiss={handleDismiss} />
           );
         })}
       </AnimatePresence>

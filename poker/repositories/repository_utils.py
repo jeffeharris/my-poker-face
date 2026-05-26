@@ -1,4 +1,5 @@
 """Shared utility functions for repository modules."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,9 @@ def parse_json_fields(row_dict: dict, fields: list, context: str = ""):
             try:
                 row_dict[field] = json.loads(row_dict[field])
             except json.JSONDecodeError:
-                logger.debug(f"Failed to parse JSON for field '{field}'{f' in {context}' if context else ''}")
+                logger.debug(
+                    f"Failed to parse JSON for field '{field}'{f' in {context}' if context else ''}"
+                )
 
 
 def build_where_clause(conditions: list) -> str:

@@ -1,5 +1,7 @@
 """Tests for PromptCaptureRepository."""
+
 import pytest
+
 from poker.repositories.prompt_capture_repository import PromptCaptureRepository
 
 
@@ -58,12 +60,14 @@ class TestPromptCaptures:
 
     def test_list_prompt_captures(self, repo):
         for i in range(3):
-            repo.save_prompt_capture(_make_capture(
-                game_id='game-1',
-                player_name='Batman',
-                hand_number=i,
-                action_taken='call' if i < 2 else 'fold',
-            ))
+            repo.save_prompt_capture(
+                _make_capture(
+                    game_id='game-1',
+                    player_name='Batman',
+                    hand_number=i,
+                    action_taken='call' if i < 2 else 'fold',
+                )
+            )
 
         result = repo.list_prompt_captures(game_id='game-1')
         assert result['total'] == 3
@@ -82,10 +86,12 @@ class TestPromptCaptures:
 
     def test_get_prompt_capture_stats(self, repo):
         for action in ['call', 'call', 'fold', 'raise']:
-            repo.save_prompt_capture(_make_capture(
-                action_taken=action,
-                pot_odds=6.0 if action == 'fold' else 2.0,
-            ))
+            repo.save_prompt_capture(
+                _make_capture(
+                    action_taken=action,
+                    pot_odds=6.0 if action == 'fold' else 2.0,
+                )
+            )
 
         stats = repo.get_prompt_capture_stats(game_id='game-1')
         assert stats['total'] == 4
@@ -115,9 +121,13 @@ class TestPromptCaptures:
         assert repo.cleanup_old_captures(0) == 0
 
     def test_list_playground_captures(self, repo):
-        repo.save_prompt_capture(_make_capture(
-            game_id='g1', provider='openai', model='gpt-4',
-        ))
+        repo.save_prompt_capture(
+            _make_capture(
+                game_id='g1',
+                provider='openai',
+                model='gpt-4',
+            )
+        )
         result = repo.list_playground_captures()
         assert result['total'] == 1
 

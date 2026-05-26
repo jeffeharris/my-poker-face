@@ -136,8 +136,9 @@ export function PlayerDrilldownPanel({
                   Psychology
                 </h3>
                 <p className="player-drilldown__disabled">
-                  Psychology tracking is disabled for this experiment variant.
-                  Enable <code>enable_psychology: true</code> in the experiment config to track emotional state and tilt.
+                  Psychology tracking is disabled for this experiment variant. Enable{' '}
+                  <code>enable_psychology: true</code> in the experiment config to track emotional
+                  state and tilt.
                 </p>
               </section>
             ) : (
@@ -205,9 +206,10 @@ export function PlayerDrilldownPanel({
                 </h3>
                 <div className="player-drilldown__play-style">
                   <span className="player-drilldown__style-summary">
-                    {playerDetail.play_style.summary.split('-').map(
-                      word => word.charAt(0).toUpperCase() + word.slice(1)
-                    ).join('-')}
+                    {playerDetail.play_style.summary
+                      .split('-')
+                      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                      .join('-')}
                   </span>
                   <div className="player-drilldown__style-stats">
                     <div className="player-drilldown__style-stat">
@@ -319,8 +321,8 @@ export function PlayerDrilldownPanel({
                           >
                             {decision.decision_quality === 'correct' && '✓'}
                             {decision.decision_quality === 'marginal' && '⚠'}
-                            {decision.decision_quality === 'mistake' && '✗'}
-                            {' '}{decision.decision_quality}
+                            {decision.decision_quality === 'mistake' && '✗'}{' '}
+                            {decision.decision_quality}
                           </span>
                         </td>
                         <td>

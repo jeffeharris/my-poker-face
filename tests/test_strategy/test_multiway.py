@@ -4,16 +4,17 @@ import pytest
 
 from poker.strategy.multiway import (
     VALUE_CLASSES,
-    apply_multiway_adjustment,
     _bluff_mult,
     _check_mult,
+    apply_multiway_adjustment,
 )
 from poker.strategy.strategy_profile import StrategyProfile
 
 
 def _agg(p: StrategyProfile) -> float:
     return sum(
-        v for a, v in p.action_probabilities.items()
+        v
+        for a, v in p.action_probabilities.items()
         if a == 'jam' or a == 'all_in' or a.startswith(('bet_', 'raise_'))
     )
 
@@ -22,9 +23,13 @@ class TestValueExemption:
     """§13: value classes are exempt from multiway suppression."""
 
     def _value_sp(self):
-        return StrategyProfile(action_probabilities={
-            'bet_33': 0.4, 'bet_67': 0.35, 'check': 0.25,
-        })
+        return StrategyProfile(
+            action_probabilities={
+                'bet_33': 0.4,
+                'bet_67': 0.35,
+                'check': 0.25,
+            }
+        )
 
     def test_nuts_exempt_in_6way(self):
         sp = self._value_sp()
@@ -96,9 +101,13 @@ class TestApplyMultiwayAdjustment:
 
     def test_heads_up_unchanged(self):
         """2 players returns strategy unchanged."""
-        strategy = self._make_strategy({
-            'fold': 0.2, 'check': 0.3, 'bet_half': 0.5,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.2,
+                'check': 0.3,
+                'bet_half': 0.5,
+            }
+        )
         result = apply_multiway_adjustment(strategy, 2, 'IP')
         assert result is strategy
 
@@ -110,9 +119,14 @@ class TestApplyMultiwayAdjustment:
 
     def test_three_way_ip_reduces_aggression(self):
         """3-way IP: aggressive actions scaled by 0.5, check by 1.3."""
-        strategy = self._make_strategy({
-            'fold': 0.2, 'check': 0.3, 'call': 0.2, 'bet_half': 0.3,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.2,
+                'check': 0.3,
+                'call': 0.2,
+                'bet_half': 0.3,
+            }
+        )
         result = apply_multiway_adjustment(strategy, 3, 'IP')
         probs = result.action_probabilities
 
@@ -125,22 +139,34 @@ class TestApplyMultiwayAdjustment:
 
     def test_three_way_oop_more_passive(self):
         """3-way OOP is more passive than IP (lower bluff mult, higher check mult)."""
-        strategy = self._make_strategy({
-            'fold': 0.2, 'check': 0.3, 'call': 0.2, 'raise_3bb': 0.3,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.2,
+                'check': 0.3,
+                'call': 0.2,
+                'raise_3bb': 0.3,
+            }
+        )
         ip_result = apply_multiway_adjustment(strategy, 3, 'IP')
         oop_result = apply_multiway_adjustment(strategy, 3, 'OOP')
 
         # OOP should have less aggression than IP
-        assert oop_result.action_probabilities['raise_3bb'] < ip_result.action_probabilities['raise_3bb']
+        assert (
+            oop_result.action_probabilities['raise_3bb']
+            < ip_result.action_probabilities['raise_3bb']
+        )
         # OOP should have more checking than IP
         assert oop_result.action_probabilities['check'] > ip_result.action_probabilities['check']
 
     def test_more_players_less_aggression(self):
         """More opponents = less aggression."""
-        strategy = self._make_strategy({
-            'fold': 0.2, 'check': 0.3, 'bet_half': 0.5,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.2,
+                'check': 0.3,
+                'bet_half': 0.5,
+            }
+        )
         result_3 = apply_multiway_adjustment(strategy, 3, 'IP')
         result_5 = apply_multiway_adjustment(strategy, 5, 'IP')
 
@@ -148,10 +174,15 @@ class TestApplyMultiwayAdjustment:
 
     def test_renormalization(self):
         """Result probabilities always sum to 1.0."""
-        strategy = self._make_strategy({
-            'fold': 0.1, 'check': 0.2, 'call': 0.1,
-            'raise_3bb': 0.3, 'jam': 0.3,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.1,
+                'check': 0.2,
+                'call': 0.1,
+                'raise_3bb': 0.3,
+                'jam': 0.3,
+            }
+        )
         for n in [3, 4, 5, 6]:
             for pos in ['IP', 'OOP']:
                 result = apply_multiway_adjustment(strategy, n, pos)
@@ -159,18 +190,25 @@ class TestApplyMultiwayAdjustment:
 
     def test_jam_treated_as_aggressive(self):
         """Jam action is reduced like other aggressive actions."""
-        strategy = self._make_strategy({
-            'fold': 0.2, 'check': 0.3, 'jam': 0.5,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.2,
+                'check': 0.3,
+                'jam': 0.5,
+            }
+        )
         result = apply_multiway_adjustment(strategy, 3, 'IP')
         # jam's share of the pie should shrink
         assert result.action_probabilities['jam'] < 0.5
 
     def test_call_unchanged_before_renorm(self):
         """Call probability stays at its raw value (only renorm changes it)."""
-        strategy = self._make_strategy({
-            'call': 0.5, 'bet_half': 0.5,
-        })
+        strategy = self._make_strategy(
+            {
+                'call': 0.5,
+                'bet_half': 0.5,
+            }
+        )
         result = apply_multiway_adjustment(strategy, 3, 'IP')
         # Raw: call=0.5, bet_half=0.5*0.5=0.25 → total=0.75
         # Renorm: call=0.5/0.75, bet_half=0.25/0.75
@@ -186,8 +224,13 @@ class TestApplyMultiwayAdjustment:
 
     def test_preserves_action_keys(self):
         """Result has the same action keys as input."""
-        strategy = self._make_strategy({
-            'fold': 0.1, 'check': 0.2, 'call': 0.3, 'raise_2.5bb': 0.4,
-        })
+        strategy = self._make_strategy(
+            {
+                'fold': 0.1,
+                'check': 0.2,
+                'call': 0.3,
+                'raise_2.5bb': 0.4,
+            }
+        )
         result = apply_multiway_adjustment(strategy, 4, 'OOP')
         assert set(result.action_probabilities.keys()) == set(strategy.action_probabilities.keys())

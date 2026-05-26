@@ -1,7 +1,8 @@
 """LLM model management repository — enabled models and provider queries."""
+
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .base_repository import BaseRepository
 
@@ -67,27 +68,35 @@ class LLMRepository(BaseRepository):
             True if model was found and updated, False otherwise.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 UPDATE enabled_models
                 SET enabled = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (1 if enabled else 0, model_id))
+            """,
+                (1 if enabled else 0, model_id),
+            )
             return cursor.rowcount > 0
 
-    def update_model_details(self, model_id: int, display_name: str = None, notes: str = None) -> bool:
+    def update_model_details(
+        self, model_id: int, display_name: str = None, notes: str = None
+    ) -> bool:
         """Update display name and notes for a model.
 
         Returns:
             True if model was found and updated, False otherwise.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 UPDATE enabled_models
                 SET display_name = COALESCE(?, display_name),
                     notes = COALESCE(?, notes),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (display_name, notes, model_id))
+            """,
+                (display_name, notes, model_id),
+            )
             return cursor.rowcount > 0
 
     # -------------------------------------------------------------------------
@@ -104,7 +113,8 @@ class LLMRepository(BaseRepository):
             Dict with total_calls, total_cost, avg_latency, error_rate.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     COUNT(*) as total_calls,
                     COALESCE(SUM(estimated_cost), 0) as total_cost,
@@ -112,7 +122,9 @@ class LLMRepository(BaseRepository):
                     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0) as error_rate
                 FROM api_usage
                 WHERE created_at >= datetime('now', ?)
-            """, (date_modifier,))
+            """,
+                (date_modifier,),
+            )
             return dict(cursor.fetchone())
 
     # -------------------------------------------------------------------------
@@ -137,8 +149,7 @@ class LLMRepository(BaseRepository):
 
         with self._get_connection() as conn:
             current = conn.execute(
-                "SELECT enabled, user_enabled FROM enabled_models WHERE id = ?",
-                (model_id,)
+                "SELECT enabled, user_enabled FROM enabled_models WHERE id = ?", (model_id,)
             ).fetchone()
 
             if not current:
@@ -156,11 +167,14 @@ class LLMRepository(BaseRepository):
                 if enabled:
                     new_enabled = 1
 
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE enabled_models
                 SET enabled = ?, user_enabled = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (new_enabled, new_user_enabled, model_id))
+            """,
+                (new_enabled, new_user_enabled, model_id),
+            )
 
             return {
                 'enabled': bool(new_enabled),
@@ -319,10 +333,7 @@ class LLMRepository(BaseRepository):
                 cursor = conn.execute("""
                     SELECT provider, model, enabled FROM enabled_models
                 """)
-                return {
-                    (row[0], row[1]): bool(row[2])
-                    for row in cursor.fetchall()
-                }
+                return {(row[0], row[1]): bool(row[2]) for row in cursor.fetchall()}
         except sqlite3.Error:
             return {}
 
@@ -361,7 +372,7 @@ class LLMRepository(BaseRepository):
         with self._get_connection() as conn:
             cursor = conn.execute(
                 "SELECT supports_img2img FROM enabled_models WHERE provider = ? AND model = ?",
-                (provider, model)
+                (provider, model),
             )
             row = cursor.fetchone()
             return bool(row['supports_img2img']) if row else False
@@ -370,8 +381,12 @@ class LLMRepository(BaseRepository):
     # Pricing management
     # -------------------------------------------------------------------------
 
-    def list_pricing(self, provider: Optional[str] = None, model: Optional[str] = None,
-                     current_only: bool = False) -> List[Dict[str, Any]]:
+    def list_pricing(
+        self,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        current_only: bool = False,
+    ) -> List[Dict[str, Any]]:
         """List pricing entries with optional filters.
 
         Args:
@@ -401,8 +416,15 @@ class LLMRepository(BaseRepository):
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def add_pricing(self, provider: str, model: str, unit: str, cost: float,
-                    valid_from: str, notes: Optional[str] = None) -> None:
+    def add_pricing(
+        self,
+        provider: str,
+        model: str,
+        unit: str,
+        cost: float,
+        valid_from: str,
+        notes: Optional[str] = None,
+    ) -> None:
         """Add a pricing entry, expiring any current price for the same SKU.
 
         Args:
@@ -415,21 +437,28 @@ class LLMRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             # Expire any current pricing for this SKU
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE model_pricing
                 SET valid_until = ?
                 WHERE provider = ? AND model = ? AND unit = ?
                   AND valid_until IS NULL
-            """, (valid_from, provider, model, unit))
+            """,
+                (valid_from, provider, model, unit),
+            )
 
             # Insert new pricing
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (provider, model, unit, cost, valid_from, notes))
+            """,
+                (provider, model, unit, cost, valid_from, notes),
+            )
 
-    def bulk_add_pricing(self, entries: List[Dict[str, Any]],
-                         expire_existing: bool = True) -> Tuple[int, List[Dict[str, Any]]]:
+    def bulk_add_pricing(
+        self, entries: List[Dict[str, Any]], expire_existing: bool = True
+    ) -> Tuple[int, List[Dict[str, Any]]]:
         """Add multiple pricing entries at once.
 
         Args:
@@ -440,6 +469,7 @@ class LLMRepository(BaseRepository):
             Tuple of (added_count, list of error dicts).
         """
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         added = 0
         errors: List[Dict[str, Any]] = []
@@ -452,21 +482,29 @@ class LLMRepository(BaseRepository):
                     unit = entry['unit']
                     try:
                         cost = float(entry['cost'])
-                    except (TypeError, ValueError):
-                        raise ValueError(f"Invalid cost value '{entry.get('cost')}': must be a number")
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            f"Invalid cost value '{entry.get('cost')}': must be a number"
+                        ) from exc
                     valid_from = entry.get('valid_from') or now
                     notes = entry.get('notes')
 
                     if expire_existing:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             UPDATE model_pricing SET valid_until = ?
                             WHERE provider = ? AND model = ? AND unit = ? AND valid_until IS NULL
-                        """, (valid_from, provider, model, unit))
+                        """,
+                            (valid_from, provider, model, unit),
+                        )
 
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO model_pricing (provider, model, unit, cost, valid_from, notes)
                         VALUES (?, ?, ?, ?, ?, ?)
-                    """, (provider, model, unit, cost, valid_from, notes))
+                    """,
+                        (provider, model, unit, cost, valid_from, notes),
+                    )
                     added += 1
                 except Exception as e:
                     errors.append({'entry': entry, 'error': str(e)})
@@ -505,11 +543,14 @@ class LLMRepository(BaseRepository):
             Sorted list of model name strings.
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT DISTINCT model FROM model_pricing
                 WHERE provider = ? AND (valid_until IS NULL OR valid_until > datetime('now'))
                 ORDER BY model
-            """, (provider,))
+            """,
+                (provider,),
+            )
             return [row['model'] for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
@@ -553,8 +594,7 @@ class LLMRepository(BaseRepository):
 
                     try:
                         cursor = conn.execute(
-                            "SELECT SUM(pgsize) as size FROM dbstat WHERE name=?",
-                            (table,)
+                            "SELECT SUM(pgsize) as size FROM dbstat WHERE name=?", (table,)
                         )
                         size_row = cursor.fetchone()
                         size = size_row['size'] if size_row and size_row['size'] else 0
@@ -598,7 +638,10 @@ class LLMRepository(BaseRepository):
                         pct = (category_stats[category]['rows'] / total_rows) * 100
                         category_stats[category]['bytes'] = int(total_bytes * pct / 100)
                     category_stats[category]['percentage'] = round(
-                        (category_stats[category]['rows'] / total_rows * 100) if total_rows > 0 else 0, 1
+                        (category_stats[category]['rows'] / total_rows * 100)
+                        if total_rows > 0
+                        else 0,
+                        1,
                     )
             else:
                 for category in category_stats:

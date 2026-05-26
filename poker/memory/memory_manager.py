@@ -12,17 +12,17 @@ import logging
 import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Optional, Any, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from .hand_history import HandHistoryRecorder, RecordedHand
-from .session_memory import SessionMemory
-from .opponent_model import OpponentModelManager
-from .commentary_generator import CommentaryGenerator, HandCommentary
-from .commentary_filter import should_player_comment
-from .cbet_detector import CbetDetector
-from .hand_outcome_detector import HandOutcomeDetector, dispatch_events
-from ..hand_narrator import narrate_key_moments
 from ..config import COMMENTARY_ENABLED
+from ..hand_narrator import narrate_key_moments
+from .cbet_detector import CbetDetector
+from .commentary_filter import should_player_comment
+from .commentary_generator import CommentaryGenerator, HandCommentary
+from .hand_history import HandHistoryRecorder, RecordedHand
+from .hand_outcome_detector import HandOutcomeDetector, dispatch_events
+from .opponent_model import OpponentModelManager
+from .session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,13 @@ logger = logging.getLogger(__name__)
 class AIMemoryManager:
     """Orchestrates all memory systems for AI players in a game."""
 
-    def __init__(self, game_id: str, db_path: Optional[str] = None, owner_id: Optional[str] = None,
-                 commentary_enabled: Optional[bool] = None):
+    def __init__(
+        self,
+        game_id: str,
+        db_path: Optional[str] = None,
+        owner_id: Optional[str] = None,
+        commentary_enabled: Optional[bool] = None,
+    ):
         """Initialize the memory manager.
 
         Args:
@@ -164,18 +169,16 @@ class AIMemoryManager:
             # different sandbox doesn't poison this hand's reads.
             stack_dom_max: Optional[int] = None
             stack_dom_lookup: Optional[Callable[[str, str], int]] = None
-            if (
-                self._cash_mode
-                and self._table_max_buy_in
-                and self._sandbox_id is not None
-            ):
+            if self._cash_mode and self._table_max_buy_in and self._sandbox_id is not None:
                 stack_dom_max = self._table_max_buy_in
                 relationship_repo = self._relationship_repo
                 sandbox_id = self._sandbox_id
 
                 def stack_dom_lookup(observer_id: str, deep_id: str) -> int:
                     stats = relationship_repo.load_cash_pair_stats(
-                        observer_id, deep_id, sandbox_id=sandbox_id,
+                        observer_id,
+                        deep_id,
+                        sandbox_id=sandbox_id,
                     )
                     return stats.cumulative_pnl if stats is not None else 0
 
@@ -191,9 +194,7 @@ class AIMemoryManager:
             # pots still accumulate. Replays of the same hand_number
             # are short-circuited to None (skips the chip_flows path
             # entirely) so cumulative_pnl can't double-apply.
-            already_emitted = (
-                recorded_hand.hand_number in self._cash_pnl_emitted
-            )
+            already_emitted = recorded_hand.hand_number in self._cash_pnl_emitted
             chip_flows = (
                 self.hand_outcome_detector.compute_chip_flows(recorded_hand)
                 if self._cash_mode and not already_emitted
@@ -206,9 +207,7 @@ class AIMemoryManager:
             dispatch_events(
                 events,
                 self.opponent_model_manager,
-                cash_pair_repo=(
-                    self._relationship_repo if self._cash_mode else None
-                ),
+                cash_pair_repo=(self._relationship_repo if self._cash_mode else None),
                 chip_flows=chip_flows,
                 # Detector carries the name→id map (initialized from
                 # the manager's `_name_to_id`), and its `_resolve_id`
@@ -226,7 +225,8 @@ class AIMemoryManager:
             # production logs instead of accumulating zero-row sessions.
             logger.error(
                 "HandOutcomeDetector dispatch failed for hand %s: %s",
-                getattr(recorded_hand, "hand_number", "?"), e,
+                getattr(recorded_hand, "hand_number", "?"),
+                e,
                 exc_info=True,
             )
 
@@ -274,9 +274,7 @@ class AIMemoryManager:
         # points at the old OPM's dict — re-point it now so newly
         # registered ids resolve correctly. Idempotent when the OPM
         # wasn't swapped: same dict identity, the assignment is a no-op.
-        self.hand_outcome_detector._name_to_id = (
-            self.opponent_model_manager._name_to_id
-        )
+        self.hand_outcome_detector._name_to_id = self.opponent_model_manager._name_to_id
         self._cash_mode = cash_mode
         if cash_mode and sandbox_id is None:
             logger.warning(
@@ -389,11 +387,12 @@ class AIMemoryManager:
 
         self.initialized_players.add(player_name)
         logger.info(
-            f"Initialized memory systems for {player_name} "
-            f"(personality_id={personality_id!r})"
+            f"Initialized memory systems for {player_name} " f"(personality_id={personality_id!r})"
         )
 
-    def initialize_human_observer(self, player_name: str, personality_id: Optional[str] = None) -> None:
+    def initialize_human_observer(
+        self, player_name: str, personality_id: Optional[str] = None
+    ) -> None:
         """Add human player as an observer for opponent modeling.
 
         Unlike AI players, humans don't need session memory or other AI systems,
@@ -415,11 +414,12 @@ class AIMemoryManager:
 
         self.initialized_players.add(player_name)
         logger.info(
-            f"Initialized human observer: {player_name} "
-            f"(personality_id={personality_id!r})"
+            f"Initialized human observer: {player_name} " f"(personality_id={personality_id!r})"
         )
 
-    def on_hand_start(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
+    def on_hand_start(
+        self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None
+    ) -> None:
         """Called when a new hand begins.
 
         Args:
@@ -478,7 +478,7 @@ class AIMemoryManager:
                 action='post_blind',
                 amount=sb_amount,
                 phase='PRE_FLOP',
-                pot_total=pot_running
+                pot_total=pot_running,
             )
 
         # Record BB post
@@ -490,13 +490,20 @@ class AIMemoryManager:
                 action='post_blind',
                 amount=bb_amount,
                 phase='PRE_FLOP',
-                pot_total=pot_running
+                pot_total=pot_running,
             )
 
         logger.debug(f"Recorded blinds: SB={sb_player}(${sb_amount}), BB={bb_player}(${bb_amount})")
 
-    def on_action(self, player_name: str, action: str, amount: int,
-                  phase: str, pot_total: int, active_players: List[str] = None) -> None:
+    def on_action(
+        self,
+        player_name: str,
+        action: str,
+        amount: int,
+        phase: str,
+        pot_total: int,
+        active_players: List[str] = None,
+    ) -> None:
         """Record an action and update opponent models.
 
         Args:
@@ -542,9 +549,7 @@ class AIMemoryManager:
             )
         elif phase == 'PRE_FLOP':
             prior_raiser = self._cbet_detector.preflop_aggressor
-            was_facing_bet = (
-                prior_raiser is not None and prior_raiser != player_name
-            )
+            was_facing_bet = prior_raiser is not None and prior_raiser != player_name
         else:
             was_facing_bet = False
 
@@ -558,13 +563,13 @@ class AIMemoryManager:
         # detector also owns the preflop-aggressor field that Phase 6.6's
         # `last_preflop_aggressor` property surfaces.
         cbet_responses = self._cbet_detector.record_action(
-            player_name=player_name, action=action, phase=phase,
+            player_name=player_name,
+            action=action,
+            phase=phase,
             active_players=active_players,
         )
         for opp_name, folded in cbet_responses:
-            logger.debug(
-                f"{opp_name} {'folded to' if folded else 'called/raised'} c-bet"
-            )
+            logger.debug(f"{opp_name} {'folded to' if folded else 'called/raised'} c-bet")
             for observer in self.initialized_players:
                 if observer != opp_name:
                     model = self.opponent_model_manager.get_model(observer, opp_name)
@@ -576,9 +581,7 @@ class AIMemoryManager:
         # without anyone donk-betting ahead of them), apply the
         # attempt to every observer's model of that player.
         for pfr_name, attempted in self._cbet_detector.consume_pfr_attempt_events():
-            logger.debug(
-                f"{pfr_name} {'attempted' if attempted else 'declined'} c-bet"
-            )
+            logger.debug(f"{pfr_name} {'attempted' if attempted else 'declined'} c-bet")
             for observer in self.initialized_players:
                 if observer != pfr_name:
                     model = self.opponent_model_manager.get_model(observer, pfr_name)
@@ -587,17 +590,13 @@ class AIMemoryManager:
         # Phase B Item 1: drain barrel-attempt and third-barrel-attempt
         # events. Same shape as the PFR-attempt drain above.
         for pfr_name, attempted in self._cbet_detector.consume_barrel_attempt_events():
-            logger.debug(
-                f"{pfr_name} {'fired' if attempted else 'declined'} turn barrel"
-            )
+            logger.debug(f"{pfr_name} {'fired' if attempted else 'declined'} turn barrel")
             for observer in self.initialized_players:
                 if observer != pfr_name:
                     model = self.opponent_model_manager.get_model(observer, pfr_name)
                     model.tendencies.update_barrel_attempt(attempted)
         for pfr_name, attempted in self._cbet_detector.consume_third_barrel_attempt_events():
-            logger.debug(
-                f"{pfr_name} {'fired' if attempted else 'declined'} third barrel"
-            )
+            logger.debug(f"{pfr_name} {'fired' if attempted else 'declined'} third barrel")
             for observer in self.initialized_players:
                 if observer != pfr_name:
                     model = self.opponent_model_manager.get_model(observer, pfr_name)
@@ -605,10 +604,12 @@ class AIMemoryManager:
         # Phase B Item 4: drain flop-check-then-barrel events. Mirrors
         # the barrel-attempt drain above but for the OOP-check-then-
         # barrel pattern (no preflop-aggressor gating).
-        for checker_name, attempted in self._cbet_detector.consume_flop_check_barrel_attempt_events():
+        for (
+            checker_name,
+            attempted,
+        ) in self._cbet_detector.consume_flop_check_barrel_attempt_events():
             logger.debug(
-                f"{checker_name} {'fired' if attempted else 'declined'} "
-                "flop-check-then-barrel"
+                f"{checker_name} {'fired' if attempted else 'declined'} " "flop-check-then-barrel"
             )
             for observer in self.initialized_players:
                 if observer != checker_name:
@@ -637,11 +638,14 @@ class AIMemoryManager:
         """
         self.hand_recorder.record_community_cards(phase, cards)
 
-    def on_hand_complete(self, winner_info: Dict[str, Any],
-                        game_state: Any,
-                        ai_players: Dict[str, Any] = None,
-                        skip_commentary: bool = False,
-                        equity_history=None) -> Dict[str, HandCommentary]:
+    def on_hand_complete(
+        self,
+        winner_info: Dict[str, Any],
+        game_state: Any,
+        ai_players: Dict[str, Any] = None,
+        skip_commentary: bool = False,
+        equity_history=None,
+    ) -> Dict[str, HandCommentary]:
         """Process end of hand - record history, update models, optionally generate commentary.
 
         Args:
@@ -710,9 +714,7 @@ class AIMemoryManager:
             try:
                 self._record_showdown_equity_at_actions(recorded_hand)
             except Exception as e:
-                logger.warning(
-                    f"Polarization Phase A equity recording failed: {e}"
-                )
+                logger.warning(f"Polarization Phase A equity recording failed: {e}")
 
         # Phase 3: relationship event detection + dispatch. Runs only
         # when a relationship_repo is wired; tournament-only games
@@ -720,7 +722,8 @@ class AIMemoryManager:
         # try/except so detector failures (e.g., transient DB lock)
         # don't block commentary / session_memory updates downstream.
         self._process_relationship_events(
-            recorded_hand, equity_history=equity_history,
+            recorded_hand,
+            equity_history=equity_history,
         )
 
         # Update session memories
@@ -744,7 +747,9 @@ class AIMemoryManager:
                 recorded_hand, player_name
             )
             try:
-                key_moment = narrate_key_moments(recorded_hand, player_name, big_blind=game_state.current_ante)
+                key_moment = narrate_key_moments(
+                    recorded_hand, player_name, big_blind=game_state.current_ante
+                )
                 if key_moment:
                     notable_events = [key_moment] + notable_events
             except Exception as e:
@@ -756,7 +761,7 @@ class AIMemoryManager:
                 outcome=outcome,
                 pot_size=recorded_hand.pot_size,
                 amount_won_or_lost=amount,
-                notable_events=notable_events
+                notable_events=notable_events,
             )
 
         # Skip commentary generation if requested (for async flow)
@@ -770,7 +775,7 @@ class AIMemoryManager:
         self,
         ai_players: Dict[str, Any],
         on_commentary_ready: Optional[Callable] = None,
-        big_blind: Optional[int] = None
+        big_blind: Optional[int] = None,
     ) -> Dict[str, HandCommentary]:
         """Generate commentary for the last completed hand.
 
@@ -806,7 +811,11 @@ class AIMemoryManager:
         commentaries: Dict[str, HandCommentary] = {}
 
         # Check instance override first, then fall back to global setting
-        commentary_enabled = self._commentary_enabled_override if self._commentary_enabled_override is not None else COMMENTARY_ENABLED
+        commentary_enabled = (
+            self._commentary_enabled_override
+            if self._commentary_enabled_override is not None
+            else COMMENTARY_ENABLED
+        )
         if not commentary_enabled:
             return commentaries
 
@@ -865,9 +874,7 @@ class AIMemoryManager:
                 'player_cards': list(recorded_hand.hole_cards.get(player_name, [])),
                 'session_context': session_memory.get_context_for_prompt(100),
                 'opponent_summaries': self.opponent_model_manager.get_table_summary(
-                    player_name,
-                    [p for p in ai_players if p != player_name],
-                    200
+                    player_name, [p for p in ai_players if p != player_name], 200
                 ),
                 'confidence': getattr(ai_player, 'confidence', 'neutral'),
                 'attitude': getattr(ai_player, 'attitude', 'neutral'),
@@ -883,9 +890,7 @@ class AIMemoryManager:
         # line on showdown hands — 5 simultaneous reactions feels like
         # spam. Cap is soft: top-3 by priority get through unconditionally,
         # additional speakers must pass a 15% gate.
-        speaker_overrides = self._cap_post_hand_speakers(
-            recorded_hand, player_snapshots, big_blind
-        )
+        speaker_overrides = self._cap_post_hand_speakers(recorded_hand, player_snapshots, big_blind)
 
         def generate_single_commentary(player_name: str) -> Tuple[str, Optional[HandCommentary]]:
             """Generate commentary for a single player. Returns (player_name, commentary).
@@ -992,8 +997,8 @@ class AIMemoryManager:
             )
 
         ranked = sorted(speakers, key=priority_key)
-        protected = set(ranked[:self.MAX_UNCAPPED_SPEAKERS])
-        overflow = ranked[self.MAX_UNCAPPED_SPEAKERS:]
+        protected = set(ranked[: self.MAX_UNCAPPED_SPEAKERS])
+        ranked[self.MAX_UNCAPPED_SPEAKERS :]
 
         final: Dict[str, bool] = {}
         for name in wants_speak:
@@ -1061,6 +1066,7 @@ class AIMemoryManager:
         silently skips that action without affecting the rest.
         """
         from poker.decision_analyzer import DecisionAnalyzer
+
         # Lower iteration count: this runs N times per showdown, the
         # result feeds a running mean, and we don't need solver-grade
         # precision for archetype classification.
@@ -1074,7 +1080,8 @@ class AIMemoryManager:
 
         # Showdown players whose cards we know
         revealed_players = {
-            p.name for p in recorded_hand.players
+            p.name
+            for p in recorded_hand.players
             if recorded_hand.get_player_outcome(p.name) != 'folded'
         }
         if not revealed_players:
@@ -1178,8 +1185,7 @@ class AIMemoryManager:
         """Get the opponent model manager."""
         return self.opponent_model_manager
 
-    def apply_learned_adjustments(self, player_name: str,
-                                  elastic_personality: Any) -> None:
+    def apply_learned_adjustments(self, player_name: str, elastic_personality: Any) -> None:
         """Apply learned opponent patterns to adjust AI personality.
 
         Args:
@@ -1200,12 +1206,14 @@ class AIMemoryManager:
             'aggression_factor': 0,
             'bluff_frequency': 0,
             'vpip': 0,
-            'fold_to_cbet': 0
+            'fold_to_cbet': 0,
         }
         count = 0
 
         for model in opponent_models.values():
-            if model.tendencies.hands_observed >= 15:  # Need enough data (sync with poker/config.py)
+            if (
+                model.tendencies.hands_observed >= 15
+            ):  # Need enough data (sync with poker/config.py)
                 avg_tendencies['aggression_factor'] += model.tendencies.aggression_factor
                 avg_tendencies['bluff_frequency'] += model.tendencies.bluff_frequency
                 avg_tendencies['vpip'] += model.tendencies.vpip
@@ -1266,13 +1274,10 @@ class AIMemoryManager:
             'hand_count': self.hand_count,
             'initialized_players': list(self.initialized_players),
             'session_memories': {
-                name: memory.to_dict()
-                for name, memory in self.session_memories.items()
+                name: memory.to_dict() for name, memory in self.session_memories.items()
             },
             'opponent_models': self.opponent_model_manager.to_dict(),
-            'completed_hands': [
-                hand.to_dict() for hand in self.hand_recorder.completed_hands
-            ]
+            'completed_hands': [hand.to_dict() for hand in self.hand_recorder.completed_hands],
         }
 
     @classmethod
@@ -1288,9 +1293,7 @@ class AIMemoryManager:
 
         # Restore opponent models
         if 'opponent_models' in data:
-            manager.opponent_model_manager = OpponentModelManager.from_dict(
-                data['opponent_models']
-            )
+            manager.opponent_model_manager = OpponentModelManager.from_dict(data['opponent_models'])
 
         # Restore completed hands
         for hand_data in data.get('completed_hands', []):

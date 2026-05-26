@@ -9,14 +9,15 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from core.llm import CallType, LLMClient
 from core.llm.settings import get_default_model, get_default_provider
-from ..moment_analyzer import MomentAnalyzer
-from ..prompt_manager import PromptManager, DRAMA_CONTEXTS, TONE_MODIFIERS
+
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from ..hand_narrator import narrate_hand_recap
+from ..moment_analyzer import MomentAnalyzer
+from ..prompt_manager import DRAMA_CONTEXTS, TONE_MODIFIERS, PromptManager
 from .hand_history import RecordedHand
 from .session_memory import SessionMemory
 
@@ -30,10 +31,11 @@ class DecisionPlan:
     Stores the AI's strategy and inner thoughts at the time of a decision,
     enabling post-hand reflection on whether the plan worked.
     """
+
     hand_number: int
-    phase: str                        # PRE_FLOP, FLOP, TURN, RIVER
+    phase: str  # PRE_FLOP, FLOP, TURN, RIVER
     player_name: str
-    hand_strategy: Optional[str]      # "Check-raise to trap"
+    hand_strategy: Optional[str]  # "Check-raise to trap"
     inner_monologue: str
     action: str
     amount: int
@@ -50,7 +52,7 @@ class DecisionPlan:
             'action': self.action,
             'amount': self.amount,
             'pot_size': self.pot_size,
-            'timestamp': self.timestamp.isoformat()
+            'timestamp': self.timestamp.isoformat(),
         }
 
     @classmethod
@@ -69,7 +71,7 @@ class DecisionPlan:
             action=data['action'],
             amount=data.get('amount', 0),
             pot_size=data.get('pot_size', 0),
-            timestamp=timestamp
+            timestamp=timestamp,
         )
 
 
@@ -79,6 +81,7 @@ class HandCommentary:
 
     Extended to support strategic reflection persistence and feedback loop.
     """
+
     player_name: str
     emotional_reaction: str
     strategic_reflection: str
@@ -87,8 +90,8 @@ class HandCommentary:
 
     # NEW FIELDS for reflection persistence
     decision_plans: List[DecisionPlan] = field(default_factory=list)
-    key_insight: Optional[str] = None   # One-liner for session context
-    hand_number: Optional[int] = None   # For persistence lookup
+    key_insight: Optional[str] = None  # One-liner for session context
+    hand_number: Optional[int] = None  # For persistence lookup
     addressing: List[str] = field(default_factory=list)  # Direct callout targets
 
     def to_dict(self) -> Dict[str, Any]:
@@ -106,9 +109,7 @@ class HandCommentary:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'HandCommentary':
-        decision_plans = [
-            DecisionPlan.from_dict(p) for p in data.get('decision_plans', [])
-        ]
+        decision_plans = [DecisionPlan.from_dict(p) for p in data.get('decision_plans', [])]
         return cls(
             player_name=data['player_name'],
             emotional_reaction=data['emotional_reaction'],
@@ -125,13 +126,21 @@ class HandCommentary:
 class CommentaryGenerator:
     """Generates end-of-hand commentary for AI players."""
 
-    def __init__(self, prompt_manager: Optional[PromptManager] = None,
-                 game_id: Optional[str] = None, owner_id: Optional[str] = None):
-        self.prompt_manager = prompt_manager or PromptManager(enable_hot_reload=is_development_mode())
+    def __init__(
+        self,
+        prompt_manager: Optional[PromptManager] = None,
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
+    ):
+        self.prompt_manager = prompt_manager or PromptManager(
+            enable_hot_reload=is_development_mode()
+        )
         self.game_id = game_id
         self.owner_id = owner_id
         # Use dedicated LLM client with minimal reasoning for fast/cheap commentary
-        self._llm_client = LLMClient(model=get_default_model(), provider=get_default_provider(), reasoning_effort="minimal")
+        self._llm_client = LLMClient(
+            model=get_default_model(), provider=get_default_provider(), reasoning_effort="minimal"
+        )
         # Lazy fast-tier client for dramatic_sequence beat cleanup. Built
         # on first use so callers that never produce malformed beats
         # never instantiate a second client.
@@ -142,7 +151,8 @@ class CommentaryGenerator:
         if self._cleanup_client is not None:
             return self._cleanup_client
         try:
-            from core.llm.settings import get_fast_provider, get_fast_model
+            from core.llm.settings import get_fast_model, get_fast_provider
+
             self._cleanup_client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
@@ -156,10 +166,7 @@ class CommentaryGenerator:
         return self._cleanup_client
 
     def _should_reflect(
-        self,
-        hand: RecordedHand,
-        player_name: str,
-        is_eliminated: bool = False
+        self, hand: RecordedHand, player_name: str, is_eliminated: bool = False
     ) -> bool:
         """Determine if a hand warrants reflection (internal learning).
 
@@ -197,7 +204,9 @@ class CommentaryGenerator:
         multiple_actions = len(player_actions) > 1
 
         if saw_flop or multiple_actions:
-            logger.debug(f"Reflecting for {player_name}: saw_flop={saw_flop}, actions={len(player_actions)}")
+            logger.debug(
+                f"Reflecting for {player_name}: saw_flop={saw_flop}, actions={len(player_actions)}"
+            )
             return True
 
         # Won the hand (even preflop) = worth noting
@@ -218,7 +227,7 @@ class CommentaryGenerator:
         hand: RecordedHand,
         player_name: str,
         big_blind: Optional[int] = None,
-        chattiness: float = 0.5
+        chattiness: float = 0.5,
     ) -> bool:
         """Determine if a hand is dramatic enough to warrant table talk.
 
@@ -282,10 +291,7 @@ class CommentaryGenerator:
         return True
 
     def _analyze_hand_drama(
-        self,
-        hand: RecordedHand,
-        player_outcome: str,
-        big_blind: Optional[int] = None
+        self, hand: RecordedHand, player_outcome: str, big_blind: Optional[int] = None
     ) -> dict:
         """Derive drama level and tone from a completed hand.
 
@@ -346,23 +352,25 @@ class CommentaryGenerator:
             return dramatic_sequence.strip() or None
         return None
 
-    def generate_commentary(self,
-                           player_name: str,
-                           hand: RecordedHand,
-                           player_outcome: str,
-                           player_cards: List[str],
-                           session_memory: Optional[SessionMemory],
-                           opponent_models: Optional[Dict[str, Any]],
-                           confidence: str,
-                           attitude: str,
-                           chattiness: float,
-                           assistant: Any,
-                           session_context_override: Optional[str] = None,
-                           opponent_context_override: Optional[str] = None,
-                           big_blind: Optional[int] = None,
-                           is_eliminated: bool = False,
-                           spectator_context: Optional[str] = None,
-                           should_speak_override: Optional[bool] = None) -> Optional[HandCommentary]:
+    def generate_commentary(
+        self,
+        player_name: str,
+        hand: RecordedHand,
+        player_outcome: str,
+        player_cards: List[str],
+        session_memory: Optional[SessionMemory],
+        opponent_models: Optional[Dict[str, Any]],
+        confidence: str,
+        attitude: str,
+        chattiness: float,
+        assistant: Any,
+        session_context_override: Optional[str] = None,
+        opponent_context_override: Optional[str] = None,
+        big_blind: Optional[int] = None,
+        is_eliminated: bool = False,
+        spectator_context: Optional[str] = None,
+        should_speak_override: Optional[bool] = None,
+    ) -> Optional[HandCommentary]:
         """Generate personalized commentary for a player about a hand.
 
         Args:
@@ -416,7 +424,9 @@ class CommentaryGenerator:
             if session_context_override is not None:
                 session_context = session_context_override
             else:
-                session_context = session_memory.get_context_for_prompt(100) if session_memory else "First hand"
+                session_context = (
+                    session_memory.get_context_for_prompt(100) if session_memory else "First hand"
+                )
 
             # Use override if provided, otherwise build from opponent_models
             if opponent_context_override is not None:
@@ -461,7 +471,7 @@ class CommentaryGenerator:
                 attitude=attitude,
                 chattiness=chattiness,
                 spectator_context=spectator_context or "",
-                drama_guidance=drama_guidance
+                drama_guidance=drama_guidance,
             )
 
             # Use lightweight commentary-specific system prompt (not the decision-making one)
@@ -469,13 +479,13 @@ class CommentaryGenerator:
                 'poker_player_commentary',
                 name=player_name,
                 attitude=attitude,
-                confidence=confidence
+                confidence=confidence,
             )
 
             # Build messages for LLM call
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ]
 
             # Use internal LLM client with minimal reasoning for fast/cheap commentary
@@ -487,7 +497,7 @@ class CommentaryGenerator:
                 owner_id=self.owner_id,
                 player_name=player_name,
                 hand_number=hand.hand_number,
-                prompt_template='end_of_hand_commentary'
+                prompt_template='end_of_hand_commentary',
             )
 
             # Parse response
@@ -496,7 +506,9 @@ class CommentaryGenerator:
             # Build commentary object
             # Suppress table_comment if hand isn't dramatic enough to speak about
             # Handle dramatic_sequence as list of beats or plain string
-            raw_dramatic_sequence = commentary_data.get('dramatic_sequence') if should_speak else None
+            raw_dramatic_sequence = (
+                commentary_data.get('dramatic_sequence') if should_speak else None
+            )
 
             # Same beat-cleanup pipeline used by the in-hand narration
             # path: split mixed action+speech beats with the regex
@@ -506,13 +518,12 @@ class CommentaryGenerator:
             # silently — table_comment never fails because of cleanup.
             if isinstance(raw_dramatic_sequence, list):
                 from poker.response_validator import (
-                    normalize_dramatic_sequence,
-                    needs_llm_normalization,
                     llm_normalize_beats,
+                    needs_llm_normalization,
+                    normalize_dramatic_sequence,
                 )
-                raw_dramatic_sequence = normalize_dramatic_sequence(
-                    raw_dramatic_sequence
-                )
+
+                raw_dramatic_sequence = normalize_dramatic_sequence(raw_dramatic_sequence)
                 if needs_llm_normalization(raw_dramatic_sequence):
                     raw_dramatic_sequence = llm_normalize_beats(
                         raw_dramatic_sequence,
@@ -529,11 +540,15 @@ class CommentaryGenerator:
             # (the YAML tells the model to stay quiet but addressing was
             # parsed unconditionally).
             addressing_raw = commentary_data.get('addressing', []) if should_speak else []
-            addressing = [
-                str(n).strip() for n in addressing_raw
+            addressing = (
+                [
+                    str(n).strip()
+                    for n in addressing_raw
+                    if isinstance(addressing_raw, list) and isinstance(n, str) and n.strip()
+                ]
                 if isinstance(addressing_raw, list)
-                and isinstance(n, str) and n.strip()
-            ] if isinstance(addressing_raw, list) else []
+                else []
+            )
 
             return HandCommentary(
                 player_name=player_name,
@@ -551,11 +566,9 @@ class CommentaryGenerator:
                 player_name, player_outcome, hand, chattiness, should_speak
             )
 
-    def generate_quick_reaction(self,
-                               player_name: str,
-                               player_outcome: str,
-                               pot_size: int,
-                               chattiness: float) -> Optional[str]:
+    def generate_quick_reaction(
+        self, player_name: str, player_outcome: str, pot_size: int, chattiness: float
+    ) -> Optional[str]:
         """Generate a quick one-liner reaction without using the LLM.
 
         This is faster and cheaper for simple reactions.
@@ -572,10 +585,12 @@ class CommentaryGenerator:
                 "That's more like it.",
             ]
             if pot_size > 1000:
-                reactions.extend([
-                    "Now that's a pot worth winning!",
-                    "Big one there!",
-                ])
+                reactions.extend(
+                    [
+                        "Now that's a pot worth winning!",
+                        "Big one there!",
+                    ]
+                )
         elif player_outcome == 'folded':
             if chattiness < 0.5:
                 return None  # Don't comment on folds usually
@@ -591,13 +606,16 @@ class CommentaryGenerator:
                 "Next one...",
             ]
             if pot_size > 1000:
-                reactions.extend([
-                    "That one hurt.",
-                    "Ouch.",
-                ])
+                reactions.extend(
+                    [
+                        "That one hurt.",
+                        "Ouch.",
+                    ]
+                )
 
         # Local Random instance — avoids mutating the global state.
         import random
+
         return random.Random().choice(reactions) if reactions else None
 
     def _build_hand_summary(
@@ -626,9 +644,7 @@ class CommentaryGenerator:
             return self._build_hand_summary_fallback(hand, include_showdown_cards)
 
     def _build_hand_summary_fallback(
-        self,
-        hand: RecordedHand,
-        include_showdown_cards: bool = False
+        self, hand: RecordedHand, include_showdown_cards: bool = False
     ) -> str:
         """Fallback hand summary if narrator fails."""
         parts = []
@@ -659,12 +675,14 @@ class CommentaryGenerator:
 
         return "\n".join(parts)
 
-    def _generate_fallback_commentary(self,
-                                     player_name: str,
-                                     player_outcome: str,
-                                     hand: RecordedHand,
-                                     chattiness: float,
-                                     should_speak: bool = True) -> HandCommentary:
+    def _generate_fallback_commentary(
+        self,
+        player_name: str,
+        player_outcome: str,
+        hand: RecordedHand,
+        chattiness: float,
+        should_speak: bool = True,
+    ) -> HandCommentary:
         """Generate simple fallback commentary without LLM."""
         if player_outcome == 'won':
             emotional = "Feeling good about that one."
@@ -688,7 +706,7 @@ class CommentaryGenerator:
             emotional_reaction=emotional,
             strategic_reflection=strategic,
             opponent_observations=[],
-            table_comment=table_comment
+            table_comment=table_comment,
         )
 
     def should_comment(self, chattiness: float, emotional_impact: float) -> bool:

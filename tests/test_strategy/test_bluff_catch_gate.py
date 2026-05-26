@@ -31,8 +31,8 @@ from poker.strategy.value_override import (
     should_apply_bluff_catch_override,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def reset_config():
@@ -44,9 +44,12 @@ def reset_config():
 def _stats(**kwargs) -> AggregatedOpponentStats:
     base = dict(
         hands_observed=200,
-        vpip=0.5, pfr=0.25,
-        aggression_factor=2.0, all_in_frequency=0.05,
-        fold_to_cbet=0.5, cbet_faced_count=10,
+        vpip=0.5,
+        pfr=0.25,
+        aggression_factor=2.0,
+        all_in_frequency=0.05,
+        fold_to_cbet=0.5,
+        cbet_faced_count=10,
         aggression_factor_postflop=7.0,
         all_in_per_facing_bet=0.35,
         facing_bet_opportunities=150,
@@ -70,13 +73,19 @@ def _stats(**kwargs) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(**base)
 
 
-def _spot(name: str, stats: AggregatedOpponentStats, *,
-          is_active: bool = True, is_all_in: bool = False) -> OpponentSpot:
+def _spot(
+    name: str, stats: AggregatedOpponentStats, *, is_active: bool = True, is_all_in: bool = False
+) -> OpponentSpot:
     return OpponentSpot(
-        name=name, stats=stats,
-        is_active=is_active, is_aggressor=False, is_all_in=is_all_in,
-        current_bet=0, stack=10000,
-        committed_this_street=0, committed_this_hand=0,
+        name=name,
+        stats=stats,
+        is_active=is_active,
+        is_aggressor=False,
+        is_all_in=is_all_in,
+        current_bet=0,
+        stack=10000,
+        committed_this_street=0,
+        committed_this_hand=0,
     )
 
 
@@ -94,6 +103,7 @@ def _ctx(**kwargs) -> SimpleNamespace:
 
 
 # ── _is_station ──────────────────────────────────────────────────────────
+
 
 class TestIsStation:
     def test_high_vpip_low_af_with_sample_is_station(self):
@@ -116,6 +126,7 @@ class TestIsStation:
 
 # ── _continuing_opponents_block_bluff_catch ──────────────────────────────
 
+
 class TestContinuingOpponentsBlock:
     def test_no_continuing_opponents_no_block(self):
         """HU (zero continuing opps besides the aggressor) → no block."""
@@ -126,40 +137,68 @@ class TestContinuingOpponentsBlock:
         """Any active all-in opponent → block."""
         agg = _spot('Maniac', _stats())
         third = _spot('AllIn', _stats(), is_all_in=True)
-        assert _continuing_opponents_block_bluff_catch(
-            [agg, third], 'Maniac',
-        ) is True
+        assert (
+            _continuing_opponents_block_bluff_catch(
+                [agg, third],
+                'Maniac',
+            )
+            is True
+        )
 
     def test_station_continuing_opp_blocks(self):
         agg = _spot('Maniac', _stats())
-        station = _spot('Station', _stats(
-            vpip=0.70, aggression_factor=1.0, hands_observed=100,
-        ))
-        assert _continuing_opponents_block_bluff_catch(
-            [agg, station], 'Maniac',
-        ) is True
+        station = _spot(
+            'Station',
+            _stats(
+                vpip=0.70,
+                aggression_factor=1.0,
+                hands_observed=100,
+            ),
+        )
+        assert (
+            _continuing_opponents_block_bluff_catch(
+                [agg, station],
+                'Maniac',
+            )
+            is True
+        )
 
     def test_low_sample_continuing_opp_blocks(self):
         agg = _spot('Maniac', _stats())
-        unknown = _spot('Unknown', _stats(
-            facing_bet_opportunities=10,
-            postflop_open_opportunities=5,
-        ))
-        assert _continuing_opponents_block_bluff_catch(
-            [agg, unknown], 'Maniac',
-        ) is True
+        unknown = _spot(
+            'Unknown',
+            _stats(
+                facing_bet_opportunities=10,
+                postflop_open_opportunities=5,
+            ),
+        )
+        assert (
+            _continuing_opponents_block_bluff_catch(
+                [agg, unknown],
+                'Maniac',
+            )
+            is True
+        )
 
     def test_safe_continuing_opp_does_not_block(self):
         """A continuing opponent with adequate sample, not a station,
         and not all-in: no block."""
         agg = _spot('Maniac', _stats())
-        safe = _spot('Tight', _stats(
-            vpip=0.35, aggression_factor=2.5,
-            facing_bet_opportunities=80,  # ≥ MEDIUM sample
-        ))
-        assert _continuing_opponents_block_bluff_catch(
-            [agg, safe], 'Maniac',
-        ) is False
+        safe = _spot(
+            'Tight',
+            _stats(
+                vpip=0.35,
+                aggression_factor=2.5,
+                facing_bet_opportunities=80,  # ≥ MEDIUM sample
+            ),
+        )
+        assert (
+            _continuing_opponents_block_bluff_catch(
+                [agg, safe],
+                'Maniac',
+            )
+            is False
+        )
 
     def test_inactive_continuing_opp_ignored(self):
         """Folded opponents don't count as 'continuing.'"""
@@ -169,12 +208,17 @@ class TestContinuingOpponentsBlock:
         # is_active=False filters it out.
         # (Note: the spot fixture has full stats so the sample check
         # wouldn't actually trip — verify the filter works regardless.)
-        assert _continuing_opponents_block_bluff_catch(
-            [agg, folded], 'Maniac',
-        ) is False
+        assert (
+            _continuing_opponents_block_bluff_catch(
+                [agg, folded],
+                'Maniac',
+            )
+            is False
+        )
 
 
 # ── should_apply_bluff_catch_override ────────────────────────────────────
+
 
 class TestShouldApply:
     def test_fires_for_medium_made_hu_extreme(self):
@@ -203,32 +247,48 @@ class TestShouldApply:
         )
         assert result is True
 
-    @pytest.mark.parametrize("hand_class", [
-        'nuts', 'strong_made', 'strong', 'not_strong',
-    ])
+    @pytest.mark.parametrize(
+        "hand_class",
+        [
+            'nuts',
+            'strong_made',
+            'strong',
+            'not_strong',
+        ],
+    )
     def test_blocks_non_bluff_catch_hand_classes(self, hand_class):
         """Strong hands hit strong-hand override; weak_draw/etc don't
         fire either override."""
         agg = _spot('Maniac', _stats())
         result = should_apply_bluff_catch_override(
-            spots=[agg], hand_strength=hand_class,
+            spots=[agg],
+            hand_strength=hand_class,
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
-    @pytest.mark.parametrize("tier", [
-        ClampTier.DEFAULT, ClampTier.MEDIUM,
-    ])
+    @pytest.mark.parametrize(
+        "tier",
+        [
+            ClampTier.DEFAULT,
+            ClampTier.MEDIUM,
+        ],
+    )
     def test_blocks_non_extreme_tier(self, tier):
         """Below EXTREME tier, exploitation offsets alone handle it."""
         agg = _spot('Maniac', _stats())
         result = should_apply_bluff_catch_override(
-            spots=[agg], hand_strength='medium_made',
+            spots=[agg],
+            hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=tier, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=tier,
+            aggressor_spot=agg,
         )
         assert result is False
 
@@ -236,10 +296,13 @@ class TestShouldApply:
         """Low (adaptation_bias × tilt_factor) → no exploitation."""
         agg = _spot('Maniac', _stats())
         result = should_apply_bluff_catch_override(
-            spots=[agg], hand_strength='medium_made',
+            spots=[agg],
+            hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=0.05,  # product = 0.025 < GATING_FLOOR
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=0.05,  # product = 0.025 < GATING_FLOOR
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
@@ -247,25 +310,35 @@ class TestShouldApply:
         """bet_size_pot_ratio == 0 → no facing-bet → no fire."""
         agg = _spot('Maniac', _stats())
         result = should_apply_bluff_catch_override(
-            spots=[agg], hand_strength='medium_made',
+            spots=[agg],
+            hand_strength='medium_made',
             decision_context=_ctx(bet_size_pot_ratio=0.0),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
     def test_blocks_when_multiway_station(self):
         """Multiway pot with a station behind → block."""
         agg = _spot('Maniac', _stats())
-        station = _spot('Station', _stats(
-            vpip=0.70, aggression_factor=1.0, hands_observed=100,
-        ))
+        station = _spot(
+            'Station',
+            _stats(
+                vpip=0.70,
+                aggression_factor=1.0,
+                hands_observed=100,
+            ),
+        )
         result = should_apply_bluff_catch_override(
             spots=[agg, station],
             hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
@@ -276,23 +349,30 @@ class TestShouldApply:
             spots=[agg, allin],
             hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
     def test_blocks_when_multiway_low_sample(self):
         agg = _spot('Maniac', _stats())
-        unknown = _spot('Unknown', _stats(
-            facing_bet_opportunities=10,
-            postflop_open_opportunities=5,
-        ))
+        unknown = _spot(
+            'Unknown',
+            _stats(
+                facing_bet_opportunities=10,
+                postflop_open_opportunities=5,
+            ),
+        )
         result = should_apply_bluff_catch_override(
             spots=[agg, unknown],
             hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is False
 
@@ -300,21 +380,28 @@ class TestShouldApply:
         """3-way pot, aggressor is maniac, third party has adequate
         sample and isn't a station/all-in → still fires."""
         agg = _spot('Maniac', _stats())
-        safe = _spot('Tight', _stats(
-            vpip=0.35, aggression_factor=2.5,
-            facing_bet_opportunities=80,
-        ))
+        safe = _spot(
+            'Tight',
+            _stats(
+                vpip=0.35,
+                aggression_factor=2.5,
+                facing_bet_opportunities=80,
+            ),
+        )
         result = should_apply_bluff_catch_override(
             spots=[agg, safe],
             hand_strength='medium_made',
             decision_context=_ctx(),
-            adaptation_bias=0.5, tilt_factor=1.0,
-            clamp_tier=ClampTier.EXTREME, aggressor_spot=agg,
+            adaptation_bias=0.5,
+            tilt_factor=1.0,
+            clamp_tier=ClampTier.EXTREME,
+            aggressor_spot=agg,
         )
         assert result is True
 
 
 # ── compute_bluff_catch_strategy ─────────────────────────────────────────
+
 
 class TestComputeBluffCatchStrategy:
     def test_medium_made_pot_size_flop_dry_full_strength(self):
@@ -324,7 +411,10 @@ class TestComputeBluffCatchStrategy:
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
         # Proposed: call=0.80, fold=0.20. L1 vs baseline = 1.6.
         # Scale = 0.8 / 1.6 = 0.5.
@@ -338,7 +428,10 @@ class TestComputeBluffCatchStrategy:
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
             legal_actions=['fold', 'all_in'],
         )
 
@@ -353,7 +446,10 @@ class TestComputeBluffCatchStrategy:
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='river', board_texture='monotone', bet_size_pot_ratio=1.0)
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
         # Proposed: call=0.24, fold=0.76. L1 = 0.24+0.24 = 0.48.
         # Under cap 0.8 → proposed returned ~as-is.
@@ -365,11 +461,16 @@ class TestComputeBluffCatchStrategy:
         base 0.10, dampener 0.6*0.5*0.5 = 0.15 → 0.015 call."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(
-            street='river', board_texture='monotone',
-            is_paired_board=True, bet_size_pot_ratio=1.0,
+            street='river',
+            board_texture='monotone',
+            is_paired_board=True,
+            bet_size_pot_ratio=1.0,
         )
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'weak_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'weak_made',
+            max_total_shift=0.8,
         )
         # Composed prob = 0.015 — well under cap, returned as-is.
         assert result.action_probabilities['call'] == pytest.approx(0.015)
@@ -380,10 +481,15 @@ class TestComputeBluffCatchStrategy:
         fold. Proposed L1 = 1.9 — exceeds EXTREME cap of 0.8 → clamped."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(
-            street='flop', board_texture='dry_high', bet_size_pot_ratio=0.3,
+            street='flop',
+            board_texture='dry_high',
+            bet_size_pot_ratio=0.3,
         )
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.8,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.8,
         )
         # L1(baseline, proposed) = 2*0.95 = 1.9. Cap 0.8. Scale ≈ 0.421.
         # call = 0 + 0.421*0.95 = 0.40
@@ -395,10 +501,15 @@ class TestComputeBluffCatchStrategy:
         """Same scenario but with DEFAULT tier cap (0.4)."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(
-            street='flop', board_texture='dry_high', bet_size_pot_ratio=0.3,
+            street='flop',
+            board_texture='dry_high',
+            bet_size_pot_ratio=0.3,
         )
         result, _trace = compute_bluff_catch_strategy(
-            baseline, ctx, 'medium_made', max_total_shift=0.4,
+            baseline,
+            ctx,
+            'medium_made',
+            max_total_shift=0.4,
         )
         # L1 = 1.9, cap 0.4 → scale 0.21.
         # call = 0.21*0.95 ≈ 0.20, fold ≈ 0.80

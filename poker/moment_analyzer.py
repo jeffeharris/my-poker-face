@@ -4,14 +4,17 @@ Moment Analysis for Drama Detection.
 Provides consistent logic for determining if a game moment is dramatic/memorable.
 Used by both pre-decision (response intensity) and post-hand (personality pressure) systems.
 """
+
 from dataclasses import dataclass
 from typing import List, Optional
-from .poker_game import PokerGameState, Player
+
+from .poker_game import Player, PokerGameState
 
 
 @dataclass
 class MomentAnalysis:
     """Analysis of a game moment's dramatic significance."""
+
     level: str  # 'routine' | 'notable' | 'high_stakes' | 'climactic'
     factors: List[str]  # What makes it dramatic
     tone: str = 'neutral'  # 'neutral' | 'confident' | 'desperate' | 'triumphant'
@@ -41,7 +44,7 @@ class MomentAnalyzer:
         cost_to_call: int = 0,
         big_blind: int = 250,
         last_raise_amount: int = 0,
-        hand_equity: float = 0.0
+        hand_equity: float = 0.0,
     ) -> MomentAnalysis:
         """Analyze current moment for drama level.
 
@@ -58,7 +61,9 @@ class MomentAnalyzer:
         # Get stack info
         player_stack = player.stack if player else 0
         active_players = [p for p in game_state.players if not p.is_folded and p.stack > 0]
-        avg_stack = sum(p.stack for p in active_players) / len(active_players) if active_players else 1000
+        avg_stack = (
+            sum(p.stack for p in active_players) / len(active_players) if active_players else 1000
+        )
         pot_total = game_state.pot.get('total', 0) if isinstance(game_state.pot, dict) else 0
 
         # Factor detection
@@ -140,11 +145,7 @@ class MomentAnalyzer:
 
     @classmethod
     def _determine_tone(
-        cls,
-        level: str,
-        factors: List[str],
-        hand_equity: float,
-        is_short_stack: bool
+        cls, level: str, factors: List[str], hand_equity: float, is_short_stack: bool
     ) -> str:
         """Determine emotional tone based on hand strength context.
 
@@ -162,7 +163,9 @@ class MomentAnalyzer:
             return 'triumphant'
 
         # Desperate: Short stack or weak hand in high-stakes moment
-        if (is_short_stack and hand_equity < 0.5) or (level in ('high_stakes', 'climactic') and hand_equity < 0.3):
+        if (is_short_stack and hand_equity < 0.5) or (
+            level in ('high_stakes', 'climactic') and hand_equity < 0.3
+        ):
             return 'desperate'
 
         # Confident: Good hand in notable+ moment

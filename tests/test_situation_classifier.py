@@ -2,7 +2,7 @@
 
 import unittest
 
-from flask_app.services.situation_classifier import SituationClassifier, SituationClassification
+from flask_app.services.situation_classifier import SituationClassification, SituationClassifier
 from poker.coach_models import PlayerSkillState, SkillState
 
 
@@ -14,9 +14,17 @@ class TestSituationClassifier(unittest.TestCase):
         self.unlocked_gates = [1]
         self.skill_states = {}
 
-    def _make_coaching_data(self, phase='PRE_FLOP', hand_strength='72o - Unconnected cards, Bottom 10%',
-                            position='Under The Gun', cost_to_call=0, pot_total=30,
-                            hand_rank=None, outs=None, big_blind=10):
+    def _make_coaching_data(
+        self,
+        phase='PRE_FLOP',
+        hand_strength='72o - Unconnected cards, Bottom 10%',
+        position='Under The Gun',
+        cost_to_call=0,
+        pot_total=30,
+        hand_rank=None,
+        outs=None,
+        big_blind=10,
+    ):
         data = {
             'phase': phase,
             'hand_strength': hand_strength,
@@ -157,8 +165,9 @@ class TestGate2SituationClassifier(unittest.TestCase):
         self.unlocked_gates = [1, 2]
         self.skill_states = {}
 
-    def _make_postflop_data(self, phase='FLOP', hand_rank=10, cost_to_call=0,
-                             outs=0, hand_strength='High Card'):
+    def _make_postflop_data(
+        self, phase='FLOP', hand_rank=10, cost_to_call=0, outs=0, hand_strength='High Card'
+    ):
         return {
             'phase': phase,
             'hand_strength': hand_strength,
@@ -227,8 +236,9 @@ class TestGate2SituationClassifier(unittest.TestCase):
         self.assertNotIn('checking_is_allowed', result.relevant_skills)
 
     def test_pair_does_not_trigger_checking_is_allowed(self):
-        data = self._make_postflop_data(phase='FLOP', hand_rank=9, cost_to_call=0,
-                                         hand_strength='One Pair')
+        data = self._make_postflop_data(
+            phase='FLOP', hand_rank=9, cost_to_call=0, hand_strength='One Pair'
+        )
         result = self.classifier.classify(data, self.unlocked_gates, self.skill_states)
         self.assertNotIn('checking_is_allowed', result.relevant_skills)
 
@@ -260,9 +270,17 @@ class TestGate3SituationClassifier(unittest.TestCase):
         self.unlocked_gates = [1, 2, 3]
         self.skill_states = {}
 
-    def _make_data(self, phase='TURN', hand_rank=9, cost_to_call=0,
-                   outs=0, hand_strength='One Pair', pot_total=100,
-                   big_blind=10, **kwargs):
+    def _make_data(
+        self,
+        phase='TURN',
+        hand_rank=9,
+        cost_to_call=0,
+        outs=0,
+        hand_strength='One Pair',
+        pot_total=100,
+        big_blind=10,
+        **kwargs,
+    ):
         data = {
             'phase': phase,
             'hand_strength': hand_strength,
@@ -352,7 +370,10 @@ class TestGate3SituationClassifier(unittest.TestCase):
     def test_gate3_skills_not_triggered_when_gate3_locked(self):
         unlocked = [1, 2]
         data = self._make_data(
-            phase='FLOP', hand_rank=10, outs=8, cost_to_call=20,
+            phase='FLOP',
+            hand_rank=10,
+            outs=8,
+            cost_to_call=20,
         )
         result = self.classifier.classify(data, unlocked, self.skill_states)
         self.assertNotIn('draws_need_price', result.relevant_skills)
@@ -366,8 +387,9 @@ class TestGate4SituationClassifier(unittest.TestCase):
         self.unlocked_gates = [1, 2, 3, 4]
         self.skill_states = {}
 
-    def _make_data(self, phase='TURN', hand_rank=9, cost_to_call=20,
-                   pot_total=100, big_blind=10, **kwargs):
+    def _make_data(
+        self, phase='TURN', hand_rank=9, cost_to_call=20, pot_total=100, big_blind=10, **kwargs
+    ):
         data = {
             'phase': phase,
             'hand_strength': 'One Pair',

@@ -35,7 +35,6 @@ from poker.memory.relationship_events import RelationshipEvent
 from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 # ---------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------
@@ -84,28 +83,42 @@ def _make_hand(
 
 def _player(name: str, stack: int = 1000) -> PlayerHandInfo:
     return PlayerHandInfo(
-        name=name, starting_stack=stack, position="BTN", is_human=False,
+        name=name,
+        starting_stack=stack,
+        position="BTN",
+        is_human=False,
     )
 
 
 def _action(name, action, amount, phase="PRE_FLOP", pot_after=0):
     return RecordedAction(
-        player_name=name, action=action, amount=amount,
-        phase=phase, pot_after=pot_after,
+        player_name=name,
+        action=action,
+        amount=amount,
+        phase=phase,
+        pot_after=pot_after,
     )
 
 
 def _heads_up_big_hand(hand_number: int = 1) -> RecordedHand:
     players = [_player("alice"), _player("bob")]
-    winners = [WinnerInfo(
-        name="alice", amount_won=800, hand_name="Pair", hand_rank=8,
-    )]
+    winners = [
+        WinnerInfo(
+            name="alice",
+            amount_won=800,
+            hand_name="Pair",
+            hand_rank=8,
+        )
+    ]
     actions = [
         _action("alice", "raise", 400, pot_after=400),
         _action("bob", "call", 400, pot_after=800),
     ]
     return _make_hand(
-        pot_size=800, winners=winners, players=players, actions=actions,
+        pot_size=800,
+        winners=winners,
+        players=players,
+        actions=actions,
         hand_number=hand_number,
     )
 
@@ -145,8 +158,10 @@ class TestDispatchRecordsRelationship:
     def test_writes_both_sides_via_record_event(self, manager, repo):
         events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
         dispatch_events(
-            events, manager,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            events,
+            manager,
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
         )
         # Alice (winner POV) has a row pointing at bob, and bob has
         # a mirror row pointing at alice — both via record_event's
@@ -158,8 +173,10 @@ class TestDispatchRecordsRelationship:
 
     def test_no_events_no_writes(self, manager, repo):
         dispatch_events(
-            [], manager,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            [],
+            manager,
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
         )
         assert repo.load_raw_relationship_state("alice", "bob") is None
 
@@ -173,9 +190,11 @@ class TestDispatchUpdatesCashPairStats:
     def test_no_repo_no_cash_writes(self, manager, repo):
         events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
         dispatch_events(
-            events, manager,
+            events,
+            manager,
             cash_pair_repo=None,  # tournament mode
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
         )
         # Relationship state was written, but no cash_pair_stats row.
         assert repo.load_cash_pair_stats("alice", "bob") is None
@@ -184,9 +203,11 @@ class TestDispatchUpdatesCashPairStats:
     def test_bilateral_cash_pair_stats(self, manager, repo):
         events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
         dispatch_events(
-            events, manager,
+            events,
+            manager,
             cash_pair_repo=repo,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
             sandbox_id="sb-1",
         )
         # alice's POV: +400 (her net win from bob).
@@ -206,7 +227,8 @@ class TestDispatchUpdatesCashPairStats:
                 _heads_up_big_hand(hand_number=hand_num),
             )
             dispatch_events(
-                events, manager,
+                events,
+                manager,
                 cash_pair_repo=repo,
                 hand_id=hand_num,
                 now=datetime(2026, 5, 18, 12, 0),
@@ -214,7 +236,7 @@ class TestDispatchUpdatesCashPairStats:
             )
         alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
         bob_stats = repo.load_cash_pair_stats("bob", "alice", sandbox_id="sb-1")
-        assert alice_stats.cumulative_pnl == 800   # 400 × 2
+        assert alice_stats.cumulative_pnl == 800  # 400 × 2
         assert alice_stats.hands_played_cash == 2
         assert bob_stats.cumulative_pnl == -800
         assert bob_stats.hands_played_cash == 2
@@ -227,12 +249,15 @@ class TestDispatchUpdatesCashPairStats:
         events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
         # Sanity: both event types present.
         assert {e.event for e in events} == {
-            RelationshipEvent.BIG_WIN, RelationshipEvent.BIG_LOSS,
+            RelationshipEvent.BIG_WIN,
+            RelationshipEvent.BIG_LOSS,
         }
         dispatch_events(
-            events, manager,
+            events,
+            manager,
             cash_pair_repo=repo,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
             sandbox_id="sb-1",
         )
         alice_stats = repo.load_cash_pair_stats("alice", "bob", sandbox_id="sb-1")
@@ -247,22 +272,32 @@ class TestDispatchUpdatesCashPairStats:
         # 3-way pot — alice wins, bob/carol each lose 300. Each
         # (winner, loser) pair gets its own bilateral row.
         players = [_player("alice"), _player("bob"), _player("carol")]
-        winners = [WinnerInfo(
-            name="alice", amount_won=900, hand_name="Flush", hand_rank=4,
-        )]
+        winners = [
+            WinnerInfo(
+                name="alice",
+                amount_won=900,
+                hand_name="Flush",
+                hand_rank=4,
+            )
+        ]
         actions = [
             _action("alice", "raise", 300, pot_after=300),
             _action("bob", "call", 300, pot_after=600),
             _action("carol", "call", 300, pot_after=900),
         ]
         hand = _make_hand(
-            pot_size=900, winners=winners, players=players, actions=actions,
+            pot_size=900,
+            winners=winners,
+            players=players,
+            actions=actions,
         )
         events = HandOutcomeDetector().detect_events(hand)
         dispatch_events(
-            events, manager,
+            events,
+            manager,
             cash_pair_repo=repo,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
             sandbox_id="sb-1",
         )
 
@@ -284,9 +319,11 @@ class TestDispatchUpdatesCashPairStats:
         # filter can't surface.
         events = HandOutcomeDetector().detect_events(_heads_up_big_hand())
         dispatch_events(
-            events, manager,
+            events,
+            manager,
             cash_pair_repo=repo,
-            hand_id=1, now=datetime(2026, 5, 18, 12, 0),
+            hand_id=1,
+            now=datetime(2026, 5, 18, 12, 0),
             # sandbox_id omitted
         )
         # Relationship axis writes still happen.

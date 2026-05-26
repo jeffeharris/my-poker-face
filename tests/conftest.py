@@ -16,6 +16,7 @@ from personalities.json, bypassing the database and LLM generation:
 
     from tests.conftest import load_personality_from_json
 """
+
 import json
 import os
 from pathlib import Path
@@ -51,12 +52,12 @@ os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
 # (`test_ticker_service.py`) override this var explicitly per-test.
 os.environ['WORLD_TICKER_ENABLED'] = 'false'
 
-import pytest
 from unittest.mock import Mock, patch
 
-from poker.repositories import create_repos
-from poker.poker_game import initialize_game_state
+import pytest
 
+from poker.poker_game import initialize_game_state
+from poker.repositories import create_repos
 
 # ---------------------------------------------------------------------------
 # Personality loading from JSON (bypasses DB and LLM)
@@ -90,22 +91,26 @@ def load_personality_from_json(name):
                       side_effect=lambda self: load_personality_from_json(self.name))
     """
     all_personalities = _load_all_personalities()
-    return all_personalities.get(name, {
-        "play_style": "balanced",
-        "default_confidence": "Unsure",
-        "default_attitude": "Distracted",
-        "personality_traits": {
-            "bluff_tendency": 0.5,
-            "aggression": 0.5,
-            "chattiness": 0.5,
-            "emoji_usage": 0.3,
+    return all_personalities.get(
+        name,
+        {
+            "play_style": "balanced",
+            "default_confidence": "Unsure",
+            "default_attitude": "Distracted",
+            "personality_traits": {
+                "bluff_tendency": 0.5,
+                "aggression": 0.5,
+                "chattiness": 0.5,
+                "emoji_usage": 0.3,
+            },
         },
-    })
+    )
 
 
 # ---------------------------------------------------------------------------
 # Temporary database + repositories
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -126,6 +131,7 @@ def repos(db_path):
 # Game state initialization
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def game_state():
     """Return a standard 3-player game state (Alice, Bob, Charlie)."""
@@ -141,15 +147,18 @@ def game_state_factory():
         def test_heads_up(game_state_factory):
             gs = game_state_factory(["P1", "P2"], starting_stack=5000)
     """
+
     def _make(player_names=None, **kwargs):
         names = player_names or ["Alice", "Bob", "Charlie"]
         return initialize_game_state(names, **kwargs)
+
     return _make
 
 
 # ---------------------------------------------------------------------------
 # UsageTracker with singleton reset
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def usage_tracker(db_path):
@@ -173,6 +182,7 @@ def usage_tracker(db_path):
 # Flask test client
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def flask_app(persistence):
     """Create a Flask app with persistence patched to a temp database."""
@@ -195,6 +205,7 @@ def flask_client(flask_app):
 # ---------------------------------------------------------------------------
 # Mock OpenAI response helper
 # ---------------------------------------------------------------------------
+
 
 def make_openai_response(
     content="Hello!",

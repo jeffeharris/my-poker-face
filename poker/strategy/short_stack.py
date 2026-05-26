@@ -63,11 +63,10 @@ from .intervention_trace import (
 )
 from .strategy_profile import StrategyProfile
 
-
 # Depth thresholds — adjusting these is the main calibration knob if
 # Step B's effect proves too weak / strong.
-DEPTH_DEEP_BB = 20.0        # >= this: no suppression
-DEPTH_SHORT_BB = 10.0       # <= this: full suppression
+DEPTH_DEEP_BB = 20.0  # >= this: no suppression
+DEPTH_SHORT_BB = 10.0  # <= this: full suppression
 
 
 def medium_raise_suppression_factor(effective_stack_bb: float) -> float:
@@ -121,26 +120,29 @@ def apply_short_stack_heuristics(
     # Phase 7.6 Step 5: ablation hook. Skip if rule is disabled.
     if is_rule_disabled(disable_rules, 'short_stack', 'default'):
         return strategy, make_disabled_trace(
-            layer='short_stack', rule_id='default',
+            layer='short_stack',
+            rule_id='default',
             layer_order=layer_order_for('short_stack'),
         )
 
     factor = medium_raise_suppression_factor(effective_stack_bb)
     if factor == 0.0:
         return strategy, make_no_op_trace(
-            layer='short_stack', rule_id='default',
+            layer='short_stack',
+            rule_id='default',
             layer_order=layer_order_for('short_stack'),
             reason_code='stack_deep',
         )
 
     medium_raises = [
-        a for a in strategy.action_probabilities
-        if _is_medium_raise(a)
-        and strategy.action_probabilities[a] > 0.0
+        a
+        for a in strategy.action_probabilities
+        if _is_medium_raise(a) and strategy.action_probabilities[a] > 0.0
     ]
     if not medium_raises:
         return strategy, make_no_op_trace(
-            layer='short_stack', rule_id='default',
+            layer='short_stack',
+            rule_id='default',
             layer_order=layer_order_for('short_stack'),
             reason_code='no_medium_raises_in_strategy',
         )
@@ -151,7 +153,8 @@ def apply_short_stack_heuristics(
     # than corrupt the distribution).
     if sink_action == 'fold' and 'fold' not in legal_actions:
         return strategy, make_no_op_trace(
-            layer='short_stack', rule_id='default',
+            layer='short_stack',
+            rule_id='default',
             layer_order=layer_order_for('short_stack'),
             reason_code='no_legal_sink_action',
         )

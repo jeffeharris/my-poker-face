@@ -48,6 +48,7 @@ GAME_ID = "cash-race-test-1"
 
 class _StubPlayer:
     """Minimal player shape that `_leave_table_locked` reads."""
+
     def __init__(self, name: str, *, is_human: bool, stack: int):
         self.name = name
         self.is_human = is_human
@@ -71,9 +72,11 @@ def _stub_game_data() -> dict:
     cash_tables here — the race is about game_state_service + game_repo).
     """
     return {
-        'state_machine': _StubStateMachine([
-            _StubPlayer("You", is_human=True, stack=1000),
-        ]),
+        'state_machine': _StubStateMachine(
+            [
+                _StubPlayer("You", is_human=True, stack=1000),
+            ]
+        ),
         'cash_mode': True,
         'owner_id': OWNER_ID,
         'cash_personality_ids': {},
@@ -93,6 +96,7 @@ class TestLeaveTableRace(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, repo in cls.repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = repo
@@ -119,13 +123,15 @@ class TestLeaveTableRace(unittest.TestCase):
         authz.auth_manager.get_current_user.return_value = user
         authz.has_permission.return_value = True
         self._authz_patcher = patch(
-            'poker.authorization.authorization_service', authz,
+            'poker.authorization.authorization_service',
+            authz,
         )
         self._authz_patcher.start()
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = user
         self._auth_patcher = patch(
-            'flask_app.extensions.auth_manager', auth_mock,
+            'flask_app.extensions.auth_manager',
+            auth_mock,
         )
         self._auth_patcher.start()
 
@@ -138,6 +144,7 @@ class TestLeaveTableRace(unittest.TestCase):
         )
 
         from flask_app.services import game_state_service
+
         self.game_state_service = game_state_service
         # Drop any leftover lock from a prior run so each test starts with
         # a fresh lock object (a `with lock: ...` left in a weird state
@@ -158,7 +165,8 @@ class TestLeaveTableRace(unittest.TestCase):
     def _row_exists(self, game_id: str) -> bool:
         with sqlite3.connect(self.test_db.name) as conn:
             cur = conn.execute(
-                "SELECT 1 FROM games WHERE game_id = ?", (game_id,),
+                "SELECT 1 FROM games WHERE game_id = ?",
+                (game_id,),
             )
             return cur.fetchone() is not None
 

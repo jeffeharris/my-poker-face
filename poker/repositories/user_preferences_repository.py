@@ -12,7 +12,6 @@ See `docs/plans/CASH_MODE_REALTIME_TICKER.md`.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from .base_repository import BaseRepository
 
@@ -55,9 +54,7 @@ class UserPreferencesRepository(BaseRepository):
         idempotent and avoids a read-before-write.
         """
         if pace not in WORLD_PACES:
-            raise ValueError(
-                f"invalid world_pace {pace!r}; expected one of {WORLD_PACES}"
-            )
+            raise ValueError(f"invalid world_pace {pace!r}; expected one of {WORLD_PACES}")
         with self._get_connection() as conn:
             conn.execute(
                 """

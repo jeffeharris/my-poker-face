@@ -1,13 +1,14 @@
 """Tests for response_validator, focusing on dramatic_sequence normalization."""
+
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from poker.response_validator import (
-    needs_llm_normalization,
-    llm_normalize_beats,
-    normalize_dramatic_sequence,
     ResponseValidator,
+    llm_normalize_beats,
+    needs_llm_normalization,
+    normalize_dramatic_sequence,
 )
 
 
@@ -84,7 +85,9 @@ class TestNormalizeDramaticSequence:
         assert result == ["*leans forward*", "*pushes chips*"]
 
     def test_action_speech_action(self):
-        result = normalize_dramatic_sequence(["*narrows eyes* Think you can bluff me? *pushes chips forward*"])
+        result = normalize_dramatic_sequence(
+            ["*narrows eyes* Think you can bluff me? *pushes chips forward*"]
+        )
         assert result == ["*narrows eyes*", "Think you can bluff me?", "*pushes chips forward*"]
 
     def test_multiple_beats_some_mixed(self):

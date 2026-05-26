@@ -50,7 +50,6 @@ from poker.repositories.chip_ledger_repository import ChipLedgerRepository
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 
-
 ANCHOR = datetime(2026, 5, 19, 12, 0, 0)
 
 
@@ -120,7 +119,8 @@ class TestBuildCreationFlows:
     def test_personality_match_share(self):
         stake = _stake(
             format=STAKE_FORMAT_MATCH_SHARE,
-            principal=200, match_amount=200,
+            principal=200,
+            match_amount=200,
         )
         flows = build_stake_creation_flows(stake)
         # Principal + match. No origination_fee on match_share.
@@ -173,7 +173,8 @@ class TestBuildCreationFlows:
 
 class TestBuildSettlementFlows:
     def _settle(
-        self, *,
+        self,
+        *,
         staker_kind: str = STAKER_KIND_PERSONALITY,
         staker_id="napoleon",
         staker_total: int = 480,
@@ -211,7 +212,8 @@ class TestBuildSettlementFlows:
             self._settle(
                 staker_kind=STAKER_KIND_HOUSE,
                 staker_id=None,
-                staker_total=280, borrower_total=120,
+                staker_total=280,
+                borrower_total=120,
             ),
         )
         assert len(flows) == 2
@@ -274,15 +276,18 @@ class TestHouseForgiveFiresLedgerAnnotation:
 
     def test_partial_bust_fires_forgive_balance(self, env):
         db_path, stake_repo, ledger_repo = env
-        stake_repo.create_stake(_stake(
-            staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE,
-            format=STAKE_FORMAT_HOUSE,
-            principal=200,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                format=STAKE_FORMAT_HOUSE,
+                principal=200,
+            )
+        )
 
         settlement = settle_stake_on_leave(
-            "stk-1", 50,
+            "stk-1",
+            50,
             stake_repo=stake_repo,
             chip_ledger_repo=ledger_repo,
             now=ANCHOR + timedelta(hours=1),
@@ -291,10 +296,7 @@ class TestHouseForgiveFiresLedgerAnnotation:
 
         assert settlement.forgiven_amount == 150
 
-        entries = [
-            e for e in ledger_repo.recent_entries()
-            if e['reason'] == 'forgive_balance'
-        ]
+        entries = [e for e in ledger_repo.recent_entries() if e['reason'] == 'forgive_balance']
         assert len(entries) == 1
         assert entries[0]['amount'] == 0
         ctx = entries[0]['context']
@@ -306,36 +308,41 @@ class TestHouseForgiveFiresLedgerAnnotation:
 
     def test_clean_settle_no_forgive_entry(self, env):
         db_path, stake_repo, ledger_repo = env
-        stake_repo.create_stake(_stake(
-            staker_id=None,
-            staker_kind=STAKER_KIND_HOUSE,
-            format=STAKE_FORMAT_HOUSE,
-            principal=200,
-        ))
+        stake_repo.create_stake(
+            _stake(
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                format=STAKE_FORMAT_HOUSE,
+                principal=200,
+            )
+        )
 
         settle_stake_on_leave(
-            "stk-1", 400,
+            "stk-1",
+            400,
             stake_repo=stake_repo,
             chip_ledger_repo=ledger_repo,
             now=ANCHOR + timedelta(hours=1),
         )
 
         forgive_entries = [
-            e for e in ledger_repo.recent_entries()
-            if e['reason'] == 'forgive_balance'
+            e for e in ledger_repo.recent_entries() if e['reason'] == 'forgive_balance'
         ]
         assert forgive_entries == []
 
     def test_personality_bust_doesnt_fire_forgive(self, env):
         db_path, stake_repo, ledger_repo = env
-        stake_repo.create_stake(_stake(
-            principal=200,
-            staker_kind=STAKER_KIND_PERSONALITY,
-            staker_id="napoleon",
-        ))
+        stake_repo.create_stake(
+            _stake(
+                principal=200,
+                staker_kind=STAKER_KIND_PERSONALITY,
+                staker_id="napoleon",
+            )
+        )
 
         settle_stake_on_leave(
-            "stk-1", 50,
+            "stk-1",
+            50,
             stake_repo=stake_repo,
             chip_ledger_repo=ledger_repo,
             now=ANCHOR + timedelta(hours=1),

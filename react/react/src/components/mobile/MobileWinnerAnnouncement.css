@@ -1,399 +1,399 @@
 /* Mobile Winner Announcement - Premium Design System */
 
 .mobile-winner-overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--color-bg-overlay);
-    backdrop-filter: blur(12px);
-    /* Flex column: content scrolls in the middle, chat-bar + Continue
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(12px);
+  /* Flex column: content scrolls in the middle, chat-bar + Continue
        are fixed-height siblings docked at the bottom of the viewport. */
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    z-index: 1000;
-    animation: fadeIn 0.3s ease-out;
-    padding-top: var(--space-5);
-    padding-bottom: env(safe-area-inset-bottom);
-    overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-out;
+  padding-top: var(--space-5);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
 }
 
 .mobile-winner-content {
-    text-align: center;
-    color: var(--color-text-primary);
-    width: 100%;
-    max-width: 400px;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 0 var(--space-4);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-3);
+  text-align: center;
+  color: var(--color-text-primary);
+  width: 100%;
+  max-width: 400px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 /* Winner Header — announcement at top. Compact stack: name, amount,
    hand-name pill. Tight vertical rhythm, centered within its area. */
 .winner-header {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-1);
-    padding: var(--space-3) 0 var(--space-2);
-    text-align: center;
-    animation: fadeInUp 0.4s ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3) 0 var(--space-2);
+  text-align: center;
+  animation: fadeInUp 0.4s ease-out;
 }
 
 /* Winner Names with gradient text */
 .winner-names {
-    font-family: var(--font-display);
-    font-size: var(--font-size-xl);
-    font-weight: var(--font-weight-bold);
-    background: var(--gradient-gold-shine);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  background: var(--gradient-gold-shine);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* Winner Amount */
 .winner-amount {
-    font-family: var(--font-mono);
-    font-size: var(--font-size-2xl);
-    font-weight: var(--font-weight-bold);
-    color: var(--color-emerald);
-    text-shadow: 0 0 20px rgba(52, 211, 153, 0.3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-emerald);
+  text-shadow: 0 0 20px rgba(52, 211, 153, 0.3);
 }
 
 /* Winner Hand Name Badge */
 .winner-hand-name {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
-    padding: var(--space-1) var(--space-3);
-    background: var(--color-bg-surface);
-    border-radius: var(--radius-full);
-    display: inline-block;
-    border: 1px solid var(--color-border-default);
-    margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-full);
+  display: inline-block;
+  border: 1px solid var(--color-border-default);
+  margin-top: var(--space-1);
 }
 
 /* Side Pots Summary - compact display for multiple pots */
 .side-pots-summary {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: var(--space-2) var(--space-3);
-    background: var(--color-bg-surface);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-border-default);
-    width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+  width: 100%;
 }
 
 .side-pot-line {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
 }
 
 .side-pot-name {
-    color: var(--color-text-muted);
-    min-width: 70px;
+  color: var(--color-text-muted);
+  min-width: 70px;
 }
 
 .side-pot-winners {
-    flex: 1;
-    color: var(--color-text-primary);
-    font-weight: var(--font-weight-medium);
+  flex: 1;
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
 }
 
 .side-pot-amount {
-    font-family: var(--font-mono);
-    font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Pot rank colors - gold, silver, bronze */
 .side-pot-line.pot-rank-0 .side-pot-name,
 .side-pot-line.pot-rank-0 .side-pot-amount {
-    color: var(--color-gold);
+  color: var(--color-gold);
 }
 
 .side-pot-line.pot-rank-1 .side-pot-name,
 .side-pot-line.pot-rank-1 .side-pot-amount {
-    color: var(--color-text-secondary);
+  color: var(--color-text-secondary);
 }
 
 .side-pot-line.pot-rank-2 .side-pot-name,
 .side-pot-line.pot-rank-2 .side-pot-amount {
-    color: var(--color-amber-dark);
+  color: var(--color-amber-dark);
 }
 
 /* Player header — just the name as the row's headline. Hand description
    and winnings live in the middle column between avatar and cards below. */
 .showdown-player-header {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
-    width: 100%;
-    min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
 }
 
 /* Middle column between avatar and cards — hand name on top, win amount
    (if any) below. Flex:1 so it absorbs the remaining width. */
 .showdown-middle {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-1);
-    text-align: center;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  text-align: center;
 }
 
 .showdown-player-winnings {
-    font-family: var(--font-mono);
-    color: var(--color-emerald);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-lg);
+  font-family: var(--font-mono);
+  color: var(--color-emerald);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
 }
 
 /* No showdown winner display - compact */
 .no-showdown-winner {
-    text-align: center;
+  text-align: center;
 }
 
 .no-showdown-name {
-    font-family: var(--font-display);
-    font-size: var(--font-size-xl);
-    font-weight: var(--font-weight-bold);
-    color: var(--color-gold);
-    margin-bottom: var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+  margin-bottom: var(--space-1);
 }
 
 .no-showdown-amount {
-    font-family: var(--font-mono);
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-semibold);
-    color: var(--color-emerald);
-    margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-emerald);
+  margin-bottom: var(--space-2);
 }
 
 .no-showdown-text {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-tertiary);
-    font-style: italic;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
 
 /* Showdown Section - compact */
 .showdown-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    width: 100%;
-    animation: fadeInUp 0.5s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  animation: fadeInUp 0.5s ease-out;
 }
 
 /* Community Cards Section - tight */
 .community-section {
-    background: var(--color-bg-surface);
-    padding: var(--space-2);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-default);
 }
 
 .section-label {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: var(--letter-spacing-wide);
-    color: var(--color-text-muted);
-    margin-bottom: var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
 }
 
 .community-cards-row {
-    display: flex;
-    gap: var(--space-1);
-    justify-content: center;
-    flex-wrap: wrap;
+  display: flex;
+  gap: var(--space-1);
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 /* Player Hands Section - compact rows */
 .players-hands-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .player-showdown {
-    background: var(--color-bg-surface);
-    padding: var(--space-2);
-    border-radius: var(--radius-lg);
-    border: 2px solid transparent;
-    /* Grid lets the cards span the full row height (name + avatar+middle)
+  background: var(--color-bg-surface);
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  border: 2px solid transparent;
+  /* Grid lets the cards span the full row height (name + avatar+middle)
        on the right, while the name header + avatar/middle stack on the
        left. */
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto 1fr;
-    gap: var(--space-1) var(--space-2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-1) var(--space-2);
 }
 
 .player-showdown > .showdown-player-header {
-    grid-column: 1;
-    grid-row: 1;
+  grid-column: 1;
+  grid-row: 1;
 }
 
 /* Avatar + middle column sits in the second grid row, left column. */
 .showdown-row-main {
-    grid-column: 1;
-    grid-row: 2;
-    display: flex;
-    align-items: stretch;
-    gap: var(--space-2);
-    min-width: 0;
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 /* Cards span both grid rows so they take the full vertical space of
    the participant row instead of sitting beneath the name header. */
 .player-showdown > .showdown-cards-row {
-    grid-column: 2;
-    grid-row: 1 / 3;
-    align-self: stretch;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: stretch;
 }
 
 /* Emotion-aware portrait — skinny portrait crop, stretches to row height.
    Width kept narrow so the avatar reads as a portrait (head + shoulders)
    rather than a square headshot. object-fit: cover handles the crop. */
 .showdown-avatar {
-    width: 64px;
-    align-self: stretch;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    flex-shrink: 0;
-    background: var(--color-bg-void);
-    border: 2px solid var(--color-border-default);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-text-secondary);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-xl);
-    font-family: var(--font-display);
+  width: 64px;
+  align-self: stretch;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--color-bg-void);
+  border: 2px solid var(--color-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-xl);
+  font-family: var(--font-display);
 }
 
 .player-showdown.winner .showdown-avatar {
-    border-color: var(--color-gold);
-    box-shadow: var(--glow-gold);
+  border-color: var(--color-gold);
+  box-shadow: var(--glow-gold);
 }
 
 .showdown-avatar-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top center;
-    display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
 }
 
 .showdown-avatar-initial {
-    line-height: 1;
+  line-height: 1;
 }
 
 /* No-showdown winner — single large avatar at top of card */
 .no-showdown-avatar {
-    width: 96px;
-    height: 96px;
-    margin: 0 auto var(--space-2);
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--color-bg-void);
-    border: 3px solid var(--color-gold);
-    box-shadow: var(--glow-gold);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-gold);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-2xl);
-    font-family: var(--font-display);
+  width: 96px;
+  height: 96px;
+  margin: 0 auto var(--space-2);
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-bg-void);
+  border: 3px solid var(--color-gold);
+  box-shadow: var(--glow-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-gold);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-2xl);
+  font-family: var(--font-display);
 }
 
 .no-showdown-avatar-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: top center;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
 }
 
 .no-showdown-avatar-initial {
-    line-height: 1;
+  line-height: 1;
 }
 
 /* Winner highlighting with gold glow */
 .player-showdown.winner {
-    background: linear-gradient(145deg, var(--color-gold-muted), rgba(212, 165, 116, 0.05));
-    border: 2px solid var(--color-gold);
-    box-shadow: var(--glow-gold);
+  background: linear-gradient(145deg, var(--color-gold-muted), rgba(212, 165, 116, 0.05));
+  border: 2px solid var(--color-gold);
+  box-shadow: var(--glow-gold);
 }
 
 .showdown-player-name {
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-semibold);
-    color: var(--color-text-primary);
-    text-align: left;
-    flex-shrink: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  text-align: left;
+  flex-shrink: 0;
 }
 
 .player-showdown.winner .showdown-player-name {
-    color: var(--color-gold);
-    font-weight: var(--font-weight-bold);
+  color: var(--color-gold);
+  font-weight: var(--font-weight-bold);
 }
 
 .showdown-hand-name {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-tertiary);
-    font-style: italic;
-    line-height: var(--line-height-tight);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+  line-height: var(--line-height-tight);
 }
 
 .showdown-kickers {
-    font-size: 10px;
-    color: var(--color-text-muted);
+  font-size: 10px;
+  color: var(--color-text-muted);
 }
 
 .player-showdown.winner .showdown-hand-name {
-    color: var(--color-gold-light);
+  color: var(--color-gold-light);
 }
 
 .player-showdown.winner .showdown-kickers {
-    color: var(--color-amber);
+  color: var(--color-amber);
 }
 
 .showdown-cards-row {
-    display: flex;
-    gap: var(--space-1);
-    justify-content: flex-end;
-    align-items: center;
-    flex-shrink: 0;
+  display: flex;
+  gap: var(--space-1);
+  justify-content: flex-end;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 /* Dismiss Button - Gold Primary. */
 .dismiss-btn {
-    padding: var(--space-3) var(--space-6);
-    background: var(--gradient-gold);
-    border: none;
-    border-radius: var(--radius-lg);
-    color: var(--color-bg-void);
-    font-family: var(--font-display);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--letter-spacing-wide);
-    cursor: pointer;
-    box-shadow: var(--glow-gold), var(--shadow-md);
-    transition: var(--transition-all-slow);
+  padding: var(--space-3) var(--space-6);
+  background: var(--gradient-gold);
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--color-bg-void);
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  box-shadow: var(--glow-gold), var(--shadow-md);
+  transition: var(--transition-all-slow);
 }
 
 .dismiss-btn:active {
-    transform: scale(0.97);
+  transform: scale(0.97);
 }
 
 /* Continue — fixed-height row at the bottom of the overlay flex column.
@@ -401,46 +401,46 @@
    content area; nothing about its position depends on the chat-bar's
    height or the modal's scroll state. */
 .mobile-winner-dismiss {
-    flex-shrink: 0;
-    width: 100%;
-    max-width: 400px;
-    padding: var(--space-2) var(--space-4) var(--space-3);
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-2) var(--space-4) var(--space-3);
 }
 
 .mobile-winner-dismiss .dismiss-btn {
-    width: 100%;
+  width: 100%;
 }
 
 /* Commentary Section */
 .mobile-commentary-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    max-height: 120px;
-    overflow-y: auto;
-    width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 120px;
+  overflow-y: auto;
+  width: 100%;
 }
 
 .mobile-commentary-bubble {
-    background: var(--color-sapphire-muted);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    border-radius: var(--radius-lg);
-    padding: var(--space-2) var(--space-3);
-    text-align: left;
-    animation: slideInLeft 0.4s ease-out both;
+  background: var(--color-sapphire-muted);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  animation: slideInLeft 0.4s ease-out both;
 }
 
 .mobile-commentary-bubble .commentary-player {
-    font-weight: var(--font-weight-semibold);
-    color: var(--color-gold);
-    margin-right: var(--space-1);
-    font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gold);
+  margin-right: var(--space-1);
+  font-size: var(--font-size-sm);
 }
 
 .mobile-commentary-bubble .commentary-text {
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
-    line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
 }
 
 /* Chat bar and Continue are siblings of the scrolling content under
@@ -449,216 +449,226 @@
    the flex:1 content area. */
 
 .mobile-winner-chat-bar {
-    flex-shrink: 0;
-    width: 100%;
-    max-width: 400px;
-    padding: var(--space-2) var(--space-4);
-    animation: fadeIn 0.2s ease-out;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-2) var(--space-4);
+  animation: fadeIn 0.2s ease-out;
 }
 
 /* Post-Round Chat Section - compact */
 .post-round-chat {
-    width: 100%;
-    animation: fadeIn 0.3s ease-out;
+  width: 100%;
+  animation: fadeIn 0.3s ease-out;
 }
 
 .post-round-tones {
-    display: flex;
-    gap: var(--space-2);
-    justify-content: center;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
 }
 
 .post-round-tone {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-2) var(--space-4);
-    border: 2px solid transparent;
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-surface);
-    color: var(--color-text-primary);
-    cursor: pointer;
-    transition: var(--transition-all-base);
-    min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border: 2px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  min-width: 72px;
 }
 
 .post-round-tone:hover,
 .post-round-tone:active {
-    transform: translateY(-2px);
+  transform: translateY(-2px);
 }
 
 /* Tone-specific colors */
 .post-round-tone.tone-gloat {
-    border-color: rgba(212, 165, 116, 0.4);
+  border-color: rgba(212, 165, 116, 0.4);
 }
 .post-round-tone.tone-gloat:hover,
 .post-round-tone.tone-gloat:active {
-    background: var(--color-gold-muted);
-    border-color: var(--color-gold);
+  background: var(--color-gold-muted);
+  border-color: var(--color-gold);
 }
 
 .post-round-tone.tone-humble {
-    border-color: rgba(52, 211, 153, 0.4);
+  border-color: rgba(52, 211, 153, 0.4);
 }
 .post-round-tone.tone-humble:hover,
 .post-round-tone.tone-humble:active {
-    background: var(--color-emerald-muted);
-    border-color: var(--color-emerald);
+  background: var(--color-emerald-muted);
+  border-color: var(--color-emerald);
 }
 
 .post-round-tone.tone-salty {
-    border-color: rgba(244, 63, 94, 0.4);
+  border-color: rgba(244, 63, 94, 0.4);
 }
 .post-round-tone.tone-salty:hover,
 .post-round-tone.tone-salty:active {
-    background: var(--color-ruby-muted);
-    border-color: var(--color-ruby);
+  background: var(--color-ruby-muted);
+  border-color: var(--color-ruby);
 }
 
 .post-round-tone.tone-gracious {
-    border-color: rgba(59, 130, 246, 0.4);
+  border-color: rgba(59, 130, 246, 0.4);
 }
 .post-round-tone.tone-gracious:hover,
 .post-round-tone.tone-gracious:active {
-    background: var(--color-sapphire-muted);
-    border-color: var(--color-sapphire);
+  background: var(--color-sapphire-muted);
+  border-color: var(--color-sapphire);
 }
 
 .post-round-tone .tone-icon {
-    opacity: 0.9;
+  opacity: 0.9;
 }
 
 .post-round-tone .tone-label {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Suggestions display */
 .post-round-suggestions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: stretch;
 }
 
 .post-round-suggestion {
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border-default);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-surface);
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
-    text-align: center;
-    cursor: pointer;
-    transition: var(--transition-all-base);
-    animation: fadeInUp 0.3s ease-out;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  animation: fadeInUp 0.3s ease-out;
 }
 
 .post-round-suggestion:hover,
 .post-round-suggestion:active {
-    background: var(--color-bg-surface-hover);
-    border-color: var(--color-border-hover);
-    transform: scale(1.02);
+  background: var(--color-bg-surface-hover);
+  border-color: var(--color-border-hover);
+  transform: scale(1.02);
 }
 
 /* Suggestion tone colors - left border accent */
 .post-round-suggestion.tone-gloat {
-    border-left: 3px solid var(--color-gold);
+  border-left: 3px solid var(--color-gold);
 }
 .post-round-suggestion.tone-humble {
-    border-left: 3px solid var(--color-emerald);
+  border-left: 3px solid var(--color-emerald);
 }
 .post-round-suggestion.tone-salty {
-    border-left: 3px solid var(--color-ruby);
+  border-left: 3px solid var(--color-ruby);
 }
 .post-round-suggestion.tone-gracious {
-    border-left: 3px solid var(--color-sapphire);
+  border-left: 3px solid var(--color-sapphire);
 }
 
 /* Back link sits at the top of the suggestions list — a discreet
    "Change tone" affordance that reads as navigation, not a button to
    compete with the suggestion buttons. */
 .post-round-back {
-    align-self: flex-start;
-    margin-bottom: var(--space-1);
-    padding: var(--space-1) var(--space-2) var(--space-1) 0;
-    border: none;
-    background: transparent;
-    color: var(--color-text-tertiary);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    cursor: pointer;
-    transition: var(--transition-all-base);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
+  align-self: flex-start;
+  margin-bottom: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: var(--transition-all-base);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .post-round-back:hover,
 .post-round-back:active {
-    color: var(--color-text-primary);
+  color: var(--color-text-primary);
 }
 
 .post-round-back svg {
-    opacity: 0.7;
+  opacity: 0.7;
 }
 
 /* Loading state */
 .post-round-loading {
-    padding: var(--space-3);
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
+  padding: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .post-round-loading .loading-dots::after {
-    content: '';
-    animation: loadingDots 1.5s infinite;
+  content: '';
+  animation: loadingDots 1.5s infinite;
 }
 
 @keyframes loadingDots {
-    0% { content: ''; }
-    25% { content: '.'; }
-    50% { content: '..'; }
-    75% { content: '...'; }
-    100% { content: ''; }
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75% {
+    content: '...';
+  }
+  100% {
+    content: '';
+  }
 }
 
 /* Sent confirmation */
 .post-round-sent {
-    padding: var(--space-2);
-    color: var(--color-emerald);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-semibold);
-    animation: fadeIn 0.3s ease-out;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-1);
+  padding: var(--space-2);
+  color: var(--color-emerald);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  animation: fadeIn 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
 }
 
 /* Mobile Tournament Outcome Banner */
 .mobile-tournament-outcome-banner {
-    padding: var(--space-3) var(--space-5);
-    border-radius: var(--radius-lg);
-    font-family: var(--font-display);
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-bold);
-    text-align: center;
-    letter-spacing: var(--letter-spacing-wide);
-    animation: fadeInDown 0.5s ease-out;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+  letter-spacing: var(--letter-spacing-wide);
+  animation: fadeInDown 0.5s ease-out;
 }
 
 .mobile-tournament-outcome-banner.victory {
-    background: linear-gradient(135deg, var(--color-gold-muted), rgba(212, 165, 116, 0.1));
-    border: 2px solid var(--color-gold);
-    color: var(--color-gold);
-    text-shadow: 0 0 10px rgba(212, 165, 116, 0.5);
+  background: linear-gradient(135deg, var(--color-gold-muted), rgba(212, 165, 116, 0.1));
+  border: 2px solid var(--color-gold);
+  color: var(--color-gold);
+  text-shadow: 0 0 10px rgba(212, 165, 116, 0.5);
 }
 
 .mobile-tournament-outcome-banner.defeat {
-    background: linear-gradient(135deg, var(--color-ruby-muted), rgba(244, 63, 94, 0.1));
-    border: 2px solid var(--color-ruby);
-    color: var(--color-ruby);
+  background: linear-gradient(135deg, var(--color-ruby-muted), rgba(244, 63, 94, 0.1));
+  border: 2px solid var(--color-ruby);
+  color: var(--color-ruby);
 }

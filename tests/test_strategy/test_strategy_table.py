@@ -10,13 +10,12 @@ from poker.strategy.nodes import PreflopNode
 from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.strategy_table import (
     StrategyTable,
-    load_strategy_table,
     _conservative_default,
     _is_action_legal,
     _mask_and_renormalize,
     _parse_json_to_preflop_data,
+    load_strategy_table,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,6 +68,7 @@ def table(sample_json_path):
 # Loading from JSON
 # ---------------------------------------------------------------------------
 
+
 class TestLoadStrategyTable:
     def test_loads_correct_entry_count(self, table):
         # 2 UTG + 1 BTN (rfi) + 2 vs_open + 1 vs_3bet + 1 vs_4bet = 7
@@ -103,6 +103,7 @@ class TestLoadStrategyTable:
 # Exact Lookup
 # ---------------------------------------------------------------------------
 
+
 class TestLookupPreflop:
     def test_known_node_returns_profile(self, table):
         node = PreflopNode(hand='72o', position='UTG', scenario='rfi', opener_position='')
@@ -119,6 +120,7 @@ class TestLookupPreflop:
 # Fallback When Key Is Missing
 # ---------------------------------------------------------------------------
 
+
 class TestFallbackMissing:
     def test_missing_key_folds(self, table):
         node = PreflopNode(hand='QJs', position='CO', scenario='rfi', opener_position='')
@@ -134,6 +136,7 @@ class TestFallbackMissing:
 # ---------------------------------------------------------------------------
 # Legal Action Masking
 # ---------------------------------------------------------------------------
+
 
 class TestLegalActionMasking:
     def test_raise_actions_legal_with_raise(self):
@@ -170,9 +173,13 @@ class TestLegalActionMasking:
         assert result.action_probabilities == {'fold': 1.0}
 
     def test_mask_partial_removal_renormalizes(self):
-        profile = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.3, 'raise_3x': 0.4,
-        })
+        profile = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.3,
+                'raise_3x': 0.4,
+            }
+        )
         masked = _mask_and_renormalize(profile, ['fold', 'call'])
         assert masked is not None
         assert 'raise_3x' not in masked.action_probabilities
@@ -190,6 +197,7 @@ class TestLegalActionMasking:
 # ---------------------------------------------------------------------------
 # Conservative Default
 # ---------------------------------------------------------------------------
+
 
 class TestConservativeDefault:
     def test_fold_when_no_check(self):
@@ -209,12 +217,17 @@ class TestConservativeDefault:
 # Edge Case: All Strategy Actions Illegal
 # ---------------------------------------------------------------------------
 
+
 class TestAllActionsIllegal:
     def test_all_illegal_returns_conservative_default(self):
         # Profile has only raise actions, but legal actions have no raise/all_in
-        profile = StrategyProfile(action_probabilities={
-            'raise_2.5bb': 0.5, 'raise_3bb': 0.3, 'jam': 0.2,
-        })
+        profile = StrategyProfile(
+            action_probabilities={
+                'raise_2.5bb': 0.5,
+                'raise_3bb': 0.3,
+                'jam': 0.2,
+            }
+        )
         masked = _mask_and_renormalize(profile, ['fold', 'call'])
         assert masked is None
 
@@ -229,6 +242,7 @@ class TestAllActionsIllegal:
 # ---------------------------------------------------------------------------
 # Parse Helpers
 # ---------------------------------------------------------------------------
+
 
 class TestParseHelpers:
     def test_parse_json_rfi_keys(self):

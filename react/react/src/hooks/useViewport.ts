@@ -15,7 +15,10 @@ const TABLET_BREAKPOINT = 1024;
 export function useViewport(): ViewportInfo {
   const [viewport, setViewport] = useState<ViewportInfo>(() => ({
     isMobile: typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false,
-    isTablet: typeof window !== 'undefined' ? window.innerWidth >= MOBILE_BREAKPOINT && window.innerWidth < TABLET_BREAKPOINT : false,
+    isTablet:
+      typeof window !== 'undefined'
+        ? window.innerWidth >= MOBILE_BREAKPOINT && window.innerWidth < TABLET_BREAKPOINT
+        : false,
     isDesktop: typeof window !== 'undefined' ? window.innerWidth >= TABLET_BREAKPOINT : true,
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
     height: typeof window !== 'undefined' ? window.innerHeight : 768,

@@ -1,4 +1,5 @@
 """Tests for serialization utilities."""
+
 import os
 import sys
 import unittest
@@ -8,9 +9,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from core.card import Card
 from poker.poker_game import initialize_game_state
 from poker.repositories.serialization import (
-    serialize_card, deserialize_card,
-    serialize_cards, deserialize_cards,
+    deserialize_card,
+    deserialize_cards,
     restore_state_from_dict,
+    serialize_card,
+    serialize_cards,
 )
 
 
@@ -71,7 +74,7 @@ class TestCardSerialization(unittest.TestCase):
         serialized = serialize_cards(originals)
         restored = deserialize_cards(serialized)
         self.assertEqual(len(restored), 3)
-        for orig, rest in zip(originals, restored):
+        for orig, rest in zip(originals, restored, strict=False):
             self.assertEqual(orig.rank, rest.rank)
             self.assertEqual(orig.suit, rest.suit)
 
@@ -92,7 +95,7 @@ class TestGameStateSerialization(unittest.TestCase):
         restored = restore_state_from_dict(state_dict)
 
         self.assertEqual(len(restored.players), len(original.players))
-        for orig_p, rest_p in zip(original.players, restored.players):
+        for orig_p, rest_p in zip(original.players, restored.players, strict=False):
             self.assertEqual(orig_p.name, rest_p.name)
             self.assertEqual(orig_p.stack, rest_p.stack)
             self.assertEqual(orig_p.is_human, rest_p.is_human)

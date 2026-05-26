@@ -34,18 +34,12 @@ export function MobileHeader({
   return (
     <header className={`mobile-header ${className}`.trim()}>
       <div className="mobile-header__left">
-        {onBack && (
-          <BackButton onClick={onBack} variant="mobile" position="relative" />
-        )}
+        {onBack && <BackButton onClick={onBack} variant="mobile" position="relative" />}
       </div>
 
-      <div className="mobile-header__center">
-        {centerContent}
-      </div>
+      <div className="mobile-header__center">{centerContent}</div>
 
-      <div className="mobile-header__right">
-        {rightContent}
-      </div>
+      <div className="mobile-header__right">{rightContent}</div>
     </header>
   );
 }
@@ -80,12 +74,17 @@ export interface GameInfoDisplayProps {
 /**
  * Game info display for mobile header - shows phase and blinds.
  */
-export const GameInfoDisplay = memo(function GameInfoDisplay({ phase, smallBlind, bigBlind, handNumber }: GameInfoDisplayProps) {
+export const GameInfoDisplay = memo(function GameInfoDisplay({
+  phase,
+  smallBlind,
+  bigBlind,
+  handNumber,
+}: GameInfoDisplayProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string) => {
     return p
       .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join('-');
   };
 
@@ -94,11 +93,11 @@ export const GameInfoDisplay = memo(function GameInfoDisplay({ phase, smallBlind
 
   return (
     <div className="mobile-game-info">
-      {handNumber !== undefined && (
-        <span className="mobile-game-info__hand">#{handNumber}</span>
-      )}
+      {handNumber !== undefined && <span className="mobile-game-info__hand">#{handNumber}</span>}
       <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
-      <span className="mobile-game-info__blinds">{formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}</span>
+      <span className="mobile-game-info__blinds">
+        {formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}
+      </span>
     </div>
   );
 });

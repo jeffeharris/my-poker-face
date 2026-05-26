@@ -1,6 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import { adminAPI } from '../../utils/api';
-import { Beaker, ChevronRight, ChevronLeft, Play, Plus, X, Check, AlertTriangle } from 'lucide-react';
+import {
+  Beaker,
+  ChevronRight,
+  ChevronLeft,
+  Play,
+  Plus,
+  X,
+  Check,
+  AlertTriangle,
+} from 'lucide-react';
 import { CaptureSelector } from './CaptureSelector';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import './AdminShared.css';
@@ -42,9 +51,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
   const [selectedCaptureIds, setSelectedCaptureIds] = useState<number[]>([]);
 
   // Variants state
-  const [variants, setVariants] = useState<Variant[]>([
-    { label: 'Control' }
-  ]);
+  const [variants, setVariants] = useState<Variant[]>([{ label: 'Control' }]);
 
   // UI state
   const [loading, setLoading] = useState(false);
@@ -52,7 +59,11 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Fetch available models from system API
-  const { providers, loading: providersLoading, formatModelLabel } = useLLMProviders({ scope: 'system' });
+  const {
+    providers,
+    loading: providersLoading,
+    formatModelLabel,
+  } = useLLMProviders({ scope: 'system' });
 
   // Build model options from providers
   const modelOptions = useMemo(() => {
@@ -62,7 +73,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
         options.push({
           value: model,
           label: formatModelLabel(provider.id, model),
-          provider: provider.id
+          provider: provider.id,
         });
       }
     }
@@ -94,24 +105,22 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
 
   // Update variant
   const updateVariant = (index: number, updates: Partial<Variant>) => {
-    setVariants(variants.map((v, i) =>
-      i === index ? { ...v, ...updates } : v
-    ));
+    setVariants(variants.map((v, i) => (i === index ? { ...v, ...updates } : v)));
   };
 
   // Apply model preset to variant
   const applyModelPreset = (index: number, modelValue: string) => {
-    const preset = modelOptions.find(m => m.value === modelValue);
+    const preset = modelOptions.find((m) => m.value === modelValue);
     if (preset) {
       updateVariant(index, {
         model: preset.value,
-        provider: preset.provider
+        provider: preset.provider,
       });
     } else if (!modelValue) {
       // Clear model/provider when "Use original" is selected
       updateVariant(index, {
         model: undefined,
-        provider: undefined
+        provider: undefined,
       });
     }
   };
@@ -145,10 +154,10 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
           hypothesis: hypothesis.trim() || undefined,
           capture_selection: {
             mode: 'ids',
-            ids: selectedCaptureIds
+            ids: selectedCaptureIds,
           },
-          variants: variants.filter(v => v.label.trim())
-        })
+          variants: variants.filter((v) => v.label.trim()),
+        }),
       });
 
       const data = await response.json();
@@ -181,7 +190,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
       case 'captures':
         return selectedCaptureIds.length > 0;
       case 'variants':
-        return variants.length > 0 && variants.every(v => v.label.trim());
+        return variants.length > 0 && variants.every((v) => v.label.trim());
       case 'review':
         return name.trim() && selectedCaptureIds.length > 0 && variants.length > 0;
     }
@@ -204,14 +213,18 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
         <div className="rd-alert rd-alert--error">
           <AlertTriangle size={18} />
           <span>{error}</span>
-          <button onClick={() => setError(null)}><X size={16} /></button>
+          <button onClick={() => setError(null)}>
+            <X size={16} />
+          </button>
         </div>
       )}
       {success && (
         <div className="rd-alert rd-alert--success">
           <Check size={18} />
           <span>{success}</span>
-          <button onClick={() => setSuccess(null)}><X size={16} /></button>
+          <button onClick={() => setSuccess(null)}>
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -246,14 +259,14 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
         >
           <span className="rd-step__number">2</span>
           <span className="rd-step__label">Configure Variants</span>
-          {variants.length > 0 && (
-            <span className="rd-step__badge">{variants.length}</span>
-          )}
+          {variants.length > 0 && <span className="rd-step__badge">{variants.length}</span>}
         </button>
         <ChevronRight size={16} className="rd-steps__divider" />
         <button
           className={`rd-step ${currentStep === 'review' ? 'rd-step--active' : ''}`}
-          onClick={() => selectedCaptureIds.length > 0 && variants.length > 0 && setCurrentStep('review')}
+          onClick={() =>
+            selectedCaptureIds.length > 0 && variants.length > 0 && setCurrentStep('review')
+          }
           disabled={selectedCaptureIds.length === 0 || variants.length === 0}
         >
           <span className="rd-step__number">3</span>
@@ -280,7 +293,10 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
           <div className="rd-step-content">
             <div className="rd-variants-header">
               <h3>Configure Variants</h3>
-              <p>Each variant defines a different configuration to test against the captured decisions.</p>
+              <p>
+                Each variant defines a different configuration to test against the captured
+                decisions.
+              </p>
             </div>
 
             <div className="rd-variants-list">
@@ -314,7 +330,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
                         disabled={providersLoading}
                       >
                         <option value="">Use original</option>
-                        {modelOptions.map(m => (
+                        {modelOptions.map((m) => (
                           <option key={`${m.provider}-${m.value}`} value={m.value}>
                             {m.label} ({m.provider})
                           </option>
@@ -327,7 +343,9 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
                       <label>Guidance Injection</label>
                       <textarea
                         value={variant.guidance_injection || ''}
-                        onChange={(e) => updateVariant(index, { guidance_injection: e.target.value })}
+                        onChange={(e) =>
+                          updateVariant(index, { guidance_injection: e.target.value })
+                        }
                         placeholder="Extra instructions to inject into the prompt..."
                         rows={3}
                       />
@@ -338,7 +356,9 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
                       <label>Reasoning Effort</label>
                       <select
                         value={variant.reasoning_effort || ''}
-                        onChange={(e) => updateVariant(index, { reasoning_effort: e.target.value || undefined })}
+                        onChange={(e) =>
+                          updateVariant(index, { reasoning_effort: e.target.value || undefined })
+                        }
                       >
                         <option value="">Default</option>
                         <option value="low">Low</option>
@@ -407,7 +427,9 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
                   </div>
                   <span className="rd-review__equals">=</span>
                   <div className="rd-review__stat rd-review__stat--total">
-                    <span className="rd-review__stat-value">{selectedCaptureIds.length * variants.length}</span>
+                    <span className="rd-review__stat-value">
+                      {selectedCaptureIds.length * variants.length}
+                    </span>
                     <span className="rd-review__stat-label">Total Replays</span>
                   </div>
                 </div>
@@ -444,11 +466,7 @@ export function ReplayDesigner({ onExperimentCreated }: ReplayDesignerProps) {
         </div>
         <div className="rd-footer__right">
           {currentStep !== 'review' ? (
-            <button
-              className="rd-btn rd-btn--primary"
-              onClick={nextStep}
-              disabled={!canProceed()}
-            >
+            <button className="rd-btn rd-btn--primary" onClick={nextStep} disabled={!canProceed()}>
               Continue
               <ChevronRight size={16} />
             </button>

@@ -14,16 +14,16 @@ Generation strategy:
 
 import logging
 import threading
-
 from typing import Optional
 
 from poker.character_images import (
+    generate_character_images,
     get_avatar_url,
+    get_character_image_service,
     get_full_avatar_url,
     has_character_images,
-    generate_character_images,
-    get_character_image_service,
 )
+
 from ..extensions import socketio
 
 logger = logging.getLogger(__name__)
@@ -50,11 +50,15 @@ def _emit_avatar_update(game_id: Optional[str], player_name: str, emotion: str) 
         return
     avatar_url = get_full_avatar_url(player_name, emotion) or get_avatar_url(player_name, emotion)
     if avatar_url:
-        socketio.emit('avatar_update', {
-            'player_name': player_name,
-            'avatar_url': avatar_url,
-            'avatar_emotion': emotion,
-        }, room=game_id)
+        socketio.emit(
+            'avatar_update',
+            {
+                'player_name': player_name,
+                'avatar_url': avatar_url,
+                'avatar_emotion': emotion,
+            },
+            room=game_id,
+        )
 
 
 def generate_avatars_background(game_id: str, player_names: list) -> None:
@@ -91,9 +95,13 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
                 if generated > 0:
                     for emotion in priority:
                         _emit_avatar_update(game_id, player_name, emotion)
-                    logger.info(f"Priority avatar generation complete for {player_name} ({generated} images)")
+                    logger.info(
+                        f"Priority avatar generation complete for {player_name} ({generated} images)"
+                    )
                 else:
-                    logger.warning(f"Priority avatar generation failed for {player_name}: {result.get('errors', [])}")
+                    logger.warning(
+                        f"Priority avatar generation failed for {player_name}: {result.get('errors', [])}"
+                    )
             except Exception as e:
                 logger.error(f"Error generating priority avatars for {player_name}: {e}")
 
@@ -109,9 +117,13 @@ def generate_avatars_background(game_id: str, player_names: list) -> None:
             if generated > 0:
                 for emotion in emotions:
                     _emit_avatar_update(game_id, player_name, emotion)
-                logger.info(f"Remaining avatar generation complete for {player_name} ({generated} images)")
+                logger.info(
+                    f"Remaining avatar generation complete for {player_name} ({generated} images)"
+                )
             else:
-                logger.warning(f"Remaining avatar generation failed for {player_name}: {result.get('errors', [])}")
+                logger.warning(
+                    f"Remaining avatar generation failed for {player_name}: {result.get('errors', [])}"
+                )
         except Exception as e:
             logger.error(f"Error generating remaining avatars for {player_name}: {e}")
 
@@ -143,7 +155,9 @@ def get_avatar_url_with_fallback(game_id: str, player_name: str, emotion: str) -
     return avatar_url
 
 
-def generate_single_emotion_background(game_id: Optional[str], player_name: str, emotion: str) -> None:
+def generate_single_emotion_background(
+    game_id: Optional[str], player_name: str, emotion: str
+) -> None:
     """Generate a single emotion image in the background.
 
     Used for on-demand generation when a specific emotion is requested
@@ -161,7 +175,9 @@ def generate_single_emotion_background(game_id: Optional[str], player_name: str,
             _emit_avatar_update(game_id, player_name, emotion)
             logger.info(f"On-demand avatar ready: {player_name}/{emotion}")
         else:
-            logger.warning(f"On-demand avatar failed for {player_name}/{emotion}: {result.get('errors', [])}")
+            logger.warning(
+                f"On-demand avatar failed for {player_name}/{emotion}: {result.get('errors', [])}"
+            )
     except Exception as e:
         logger.error(f"Error in on-demand avatar generation for {player_name}/{emotion}: {e}")
     finally:
@@ -176,17 +192,12 @@ def start_background_avatar_generation(game_id: str, ai_player_names: list) -> N
         game_id: The game identifier
         ai_player_names: List of AI player names to check/generate
     """
-    players_needing_images = [
-        name for name in ai_player_names
-        if not has_character_images(name)
-    ]
+    players_needing_images = [name for name in ai_player_names if not has_character_images(name)]
 
     if players_needing_images:
         logger.info(f"Starting background avatar generation for: {players_needing_images}")
         thread = threading.Thread(
-            target=generate_avatars_background,
-            args=(game_id, players_needing_images),
-            daemon=True
+            target=generate_avatars_background, args=(game_id, players_needing_images), daemon=True
         )
         thread.start()
 
@@ -215,8 +226,6 @@ def start_single_emotion_generation(game_id: Optional[str], player_name: str, em
 
     logger.info(f"Starting on-demand generation for {player_name}/{emotion}")
     thread = threading.Thread(
-        target=generate_single_emotion_background,
-        args=(game_id, player_name, emotion),
-        daemon=True
+        target=generate_single_emotion_background, args=(game_id, player_name, emotion), daemon=True
     )
     thread.start()

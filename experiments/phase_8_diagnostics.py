@@ -31,16 +31,15 @@ from tqdm import tqdm
 # Reuse simulate_bb100 helpers to avoid copy-paste drift.
 from experiments.simulate_bb100 import (
     ARCHETYPES,
+    _make_seat_names,
     apply_adaptation_bias_override,
     load_strategy_table,
     make_controller,
     make_game_state,
     run_hand,
-    _make_seat_names,
 )
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_state_machine import PokerStateMachine
-
 
 PHASE_8_PREFIXES = (
     'value_vs_station_',
@@ -78,9 +77,7 @@ def run_diagnostic_matchup(
         hero_name = f"{hero_archetype}_hero"
     all_names = [hero_name] + opponent_seats
 
-    config_arch = apply_adaptation_bias_override(
-        ARCHETYPES[hero_archetype], hero_adaptation_bias
-    )
+    config_arch = apply_adaptation_bias_override(ARCHETYPES[hero_archetype], hero_adaptation_bias)
     opp_configs = [ARCHETYPES[o] for o in opponents]
     opp_desc = '+'.join(opponents) if len(set(opponents)) > 1 else f'5x {opponents[0]}'
 
@@ -91,7 +88,8 @@ def run_diagnostic_matchup(
     for hand_num in tqdm(
         range(n_hands),
         desc=f"  {hero_archetype} vs {opp_desc}",
-        leave=False, file=sys.stderr,
+        leave=False,
+        file=sys.stderr,
     ):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % table_size
@@ -107,14 +105,20 @@ def run_diagnostic_matchup(
 
         controllers = [
             make_controller(
-                hero_name, config_arch, strategy_table, sm,
+                hero_name,
+                config_arch,
+                strategy_table,
+                sm,
                 rng_seed=hand_seed,
             )
         ]
-        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
+        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
             controllers.append(
                 make_controller(
-                    seat, cfg, strategy_table, sm,
+                    seat,
+                    cfg,
+                    strategy_table,
+                    sm,
                     rng_seed=hand_seed + 1_000_000 * (i + 1),
                 )
             )
@@ -127,7 +131,10 @@ def run_diagnostic_matchup(
         )
 
         final_stacks = run_hand(
-            sm, controllers, big_blind, verbose=False,
+            sm,
+            controllers,
+            big_blind,
+            verbose=False,
             opponent_manager=opponent_manager,
             hero_name=hero_name,
             hand_number=hand_num,
@@ -135,9 +142,7 @@ def run_diagnostic_matchup(
         delta = final_stacks.get(hero_name, starting_stack) - starting_stack
         deltas.append(delta)
         for seat in opponent_seats:
-            opp_deltas[seat] += (
-                final_stacks.get(seat, starting_stack) - starting_stack
-            )
+            opp_deltas[seat] += final_stacks.get(seat, starting_stack) - starting_stack
 
     return deltas, opp_deltas, opponent_manager
 
@@ -184,8 +189,11 @@ LEGACY_KEYS_OF_INTEREST = (
 
 
 def print_single_seed_report(
-    *, hero_archetype: str, opponents: List[str],
-    n_hands: int, seed: int,
+    *,
+    hero_archetype: str,
+    opponents: List[str],
+    n_hands: int,
+    seed: int,
     deltas: List[float],
     opp_deltas: Dict[str, float],
     counters: Counter,
@@ -199,13 +207,13 @@ def print_single_seed_report(
     bb100 = (total_delta / big_blind) / (n_hands / 100) if n_hands > 0 else 0
     print(f"\n  Net result: {total_delta:+.0f} chips ({bb100:+.1f} bb/100)")
 
-    print(f"\n  Per-opponent deltas (hero pays positive opponent deltas):")
+    print("\n  Per-opponent deltas (hero pays positive opponent deltas):")
     for seat, d in sorted(opp_deltas.items(), key=lambda kv: kv[1], reverse=True):
         print(f"    {seat:<20} {d:+8.0f} chips")
 
     print(f"\n  Decisions tallied: {counters.get('decisions', 0)}")
 
-    print(f"\n  Phase 8 counters:")
+    print("\n  Phase 8 counters:")
     grouped = summarize_phase_8_counters(counters)
     if not grouped:
         print("    (no Phase 8 counters fired)")
@@ -221,13 +229,17 @@ def print_single_seed_report(
                     continue
                 print(f"    {arch}/{fam}:")
                 for name in (
-                    'eligible', 'enabled_eligible', 'diagnostic_only',
-                    'fired', 'superseded_by_override', 'blocked_by_bias_floor',
+                    'eligible',
+                    'enabled_eligible',
+                    'diagnostic_only',
+                    'fired',
+                    'superseded_by_override',
+                    'blocked_by_bias_floor',
                 ):
                     v = fam_counters.get(name, 0)
                     print(f"      {name:<32} {v:>6}")
 
-    print(f"\n  Legacy exploitation + override counters:")
+    print("\n  Legacy exploitation + override counters:")
     for key in LEGACY_KEYS_OF_INTEREST:
         v = counters.get(key, 0)
         if v == 0:
@@ -236,7 +248,7 @@ def print_single_seed_report(
 
     # Identity checks
     if grouped:
-        print(f"\n  Identity checks:")
+        print("\n  Identity checks:")
         for arch, by_counter in grouped.items():
             for fam in ('value_vs_station', 'steal_pressure'):
                 eligible = by_counter.get(f'{fam}_eligible', 0)
@@ -259,8 +271,11 @@ def print_single_seed_report(
 
 
 def print_multi_seed_summary(
-    *, hero_archetype: str, opponents: List[str],
-    n_hands: int, seeds: List[int],
+    *,
+    hero_archetype: str,
+    opponents: List[str],
+    n_hands: int,
+    seeds: List[int],
     per_seed: List[Dict],
     big_blind: int = 100,
 ):
@@ -273,19 +288,21 @@ def print_multi_seed_summary(
     print(f"  hands={n_hands} each, seeds={seeds}")
     print("=" * 72)
 
-    print(f"\n  Headline bb/100 per seed:")
+    print("\n  Headline bb/100 per seed:")
     bb100s = []
     for entry in per_seed:
         total_delta = sum(entry['deltas'])
         bb100 = (total_delta / big_blind) / (n_hands / 100)
         bb100s.append(bb100)
-        print(f"    seed={entry['seed']:>4}  {bb100:+8.1f} bb/100  "
-              f"(net {total_delta:+.0f} chips)")
+        print(
+            f"    seed={entry['seed']:>4}  {bb100:+8.1f} bb/100  " f"(net {total_delta:+.0f} chips)"
+        )
     mean_bb = sum(bb100s) / len(bb100s) if bb100s else 0.0
-    print(f"\n    mean bb/100: {mean_bb:+.1f}  "
-          f"(range {min(bb100s):+.1f} to {max(bb100s):+.1f})")
+    print(
+        f"\n    mean bb/100: {mean_bb:+.1f}  " f"(range {min(bb100s):+.1f} to {max(bb100s):+.1f})"
+    )
 
-    print(f"\n  Per-opponent mean delta across seeds (negative = hero loses to this seat):")
+    print("\n  Per-opponent mean delta across seeds (negative = hero loses to this seat):")
     seats = sorted(per_seed[0]['opp_deltas'].keys())
     for seat in seats:
         per_seed_chips = [e['opp_deltas'][seat] for e in per_seed]
@@ -293,10 +310,12 @@ def print_multi_seed_summary(
         # is just opp_deltas (they took chips, hero loses them). Flip
         # sign for "hero pays this opponent."
         mean_chips = sum(per_seed_chips) / len(per_seed_chips)
-        print(f"    {seat:<20} mean {mean_chips:+8.0f} chips  "
-              f"(per-seed: {', '.join(f'{x:+.0f}' for x in per_seed_chips)})")
+        print(
+            f"    {seat:<20} mean {mean_chips:+8.0f} chips  "
+            f"(per-seed: {', '.join(f'{x:+.0f}' for x in per_seed_chips)})"
+        )
 
-    print(f"\n  Phase 8 firing rate (across seeds, TAG decisions):")
+    print("\n  Phase 8 firing rate (across seeds, TAG decisions):")
     fired_total = 0
     decisions_total = 0
     for entry in per_seed:
@@ -305,16 +324,18 @@ def print_multi_seed_summary(
         decisions_total += c.get('decisions', 0)
     if decisions_total:
         rate = 100.0 * fired_total / decisions_total
-        print(f"    value_vs_station_fired_{hero_archetype.lower()}: "
-              f"{fired_total} / {decisions_total} decisions ({rate:.1f}%)")
+        print(
+            f"    value_vs_station_fired_{hero_archetype.lower()}: "
+            f"{fired_total} / {decisions_total} decisions ({rate:.1f}%)"
+        )
 
-    print(f"\n  Risk #1 cross-check — hyper_passive firing rate:")
+    print("\n  Risk #1 cross-check — hyper_passive firing rate:")
     hp_detected = sum(e['counters'].get('detected_hyper_passive', 0) for e in per_seed)
     fired_generic = sum(e['counters'].get('fired', 0) for e in per_seed)
     print(f"    detected_hyper_passive: {hp_detected}")
     print(f"    fired (legacy any-rule):  {fired_generic}")
 
-    print(f"\n  Value override (Phase 6.5) cross-check:")
+    print("\n  Value override (Phase 6.5) cross-check:")
     vo_fired = sum(e['counters'].get('value_override_fired', 0) for e in per_seed)
     vo_strong = sum(e['counters'].get('value_override_eligible_strong', 0) for e in per_seed)
     print(f"    value_override_eligible_strong: {vo_strong}")
@@ -326,32 +347,39 @@ def main():
         description='Phase 8 v1 diagnostic sim — print rule-family counters',
     )
     parser.add_argument(
-        '--hero', default='TAG',
+        '--hero',
+        default='TAG',
         help='Archetype occupying the hero seat (default: TAG)',
     )
     parser.add_argument(
-        '--opponents', default='CaseBot,CaseBot,ABCBot,ABCBot,GTO-Lite',
+        '--opponents',
+        default='CaseBot,CaseBot,ABCBot,ABCBot,GTO-Lite',
         help='Comma-separated 5 opponents (default: 2xCaseBot 2xABCBot GTO-Lite)',
     )
     parser.add_argument('--hands', type=int, default=200)
     parser.add_argument(
-        '--seeds', default='42',
+        '--seeds',
+        default='42',
         help='Comma-separated seeds (default: 42). Plan recommends 42,142,242.',
     )
     parser.add_argument(
-        '--adaptation-bias', type=float, default=0.85,
+        '--adaptation-bias',
+        type=float,
+        default=0.85,
         help='Hero adaptation_bias override (default: 0.85)',
     )
     parser.add_argument(
-        '--disable-phase-8', action='store_true',
+        '--disable-phase-8',
+        action='store_true',
         help='Control run: monkey-patch VALUE_VS_STATION_PLAYSTYLES to '
-             'an empty frozenset before any hand runs, so the rule '
-             'never fires and we get a baseline comparison.',
+        'an empty frozenset before any hand runs, so the rule '
+        'never fires and we get a baseline comparison.',
     )
     args = parser.parse_args()
 
     if args.disable_phase_8:
         import poker.strategy.exploitation as _exp
+
         _exp.VALUE_VS_STATION_PLAYSTYLES = frozenset()
         _exp.STEAL_PRESSURE_PLAYSTYLES = frozenset()
         print("[control] Phase 8 disabled — VALUE_VS_STATION_PLAYSTYLES=frozenset()")
@@ -378,12 +406,14 @@ def main():
             opp_deltas=opp_deltas,
             counters=counters,
         )
-        per_seed.append({
-            'seed': seed,
-            'deltas': deltas,
-            'opp_deltas': opp_deltas,
-            'counters': counters,
-        })
+        per_seed.append(
+            {
+                'seed': seed,
+                'deltas': deltas,
+                'opp_deltas': opp_deltas,
+                'counters': counters,
+            }
+        )
 
     if len(seeds) > 1:
         print_multi_seed_summary(

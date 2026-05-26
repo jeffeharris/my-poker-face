@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 
 interface CardAnimationState {
   shouldAnimate: boolean;
-  delay: number;    // seconds before animation starts
+  delay: number; // seconds before animation starts
   duration: number; // seconds for animation (proportional to distance)
 }
 
@@ -15,7 +15,7 @@ interface CardAnimationState {
  */
 export function useCommunityCardAnimation(
   newlyDealtCount: number | undefined,
-  totalCards: number,
+  totalCards: number
 ): CardAnimationState[] {
   const [animatingIndices, setAnimatingIndices] = useState<Set<number>>(new Set());
   const prevCardCountRef = useRef(0);
@@ -73,22 +73,26 @@ export function useCommunityCardAnimation(
   }, [newlyDealtCount, totalCards]);
 
   // Build animation state array for all 5 community card positions
-  return useMemo(() => Array.from({ length: 5 }, (_, index) => {
-    if (!animatingIndices.has(index)) {
-      return { shouldAnimate: false, delay: 0, duration: 0.55 };
-    }
+  return useMemo(
+    () =>
+      Array.from({ length: 5 }, (_, index) => {
+        if (!animatingIndices.has(index)) {
+          return { shouldAnimate: false, delay: 0, duration: 0.55 };
+        }
 
-    // Position within the newly dealt batch (0, 1, 2 for flop)
-    const batchStart = totalCards - animatingIndices.size;
-    const positionInBatch = index - batchStart;
+        // Position within the newly dealt batch (0, 1, 2 for flop)
+        const batchStart = totalCards - animatingIndices.size;
+        const positionInBatch = index - batchStart;
 
-    // Cascade delay: 1 second between each card
-    const delay = positionInBatch * 1.0;
+        // Cascade delay: 1 second between each card
+        const delay = positionInBatch * 1.0;
 
-    // All cards travel the same distance (-100vw relative to their own position),
-    // so a fixed duration gives consistent velocity.
-    const duration = 0.825;
+        // All cards travel the same distance (-100vw relative to their own position),
+        // so a fixed duration gives consistent velocity.
+        const duration = 0.825;
 
-    return { shouldAnimate: true, delay, duration };
-  }), [animatingIndices, totalCards]);
+        return { shouldAnimate: true, delay, duration };
+      }),
+    [animatingIndices, totalCards]
+  );
 }

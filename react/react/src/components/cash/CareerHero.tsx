@@ -83,9 +83,7 @@ export function CareerHero({
       </div>
 
       <div className="career-hero__figure">
-        <span className="career-hero__amount">
-          ${bankroll.toLocaleString()}
-        </span>
+        <span className="career-hero__amount">${bankroll.toLocaleString()}</span>
         {lastSessionDelta != null && (
           <span
             className={`career-hero__delta career-hero__delta--${tone}`}
@@ -108,11 +106,7 @@ export function CareerHero({
       </div>
 
       {bankrollHistory.length >= 2 && (
-        <Sparkline
-          className="career-hero__spark"
-          values={bankrollHistory}
-          tone={tone}
-        />
+        <Sparkline className="career-hero__spark" values={bankrollHistory} tone={tone} />
       )}
     </section>
   );

@@ -24,14 +24,14 @@ Usage:
 
 import argparse
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, print_summary
+from experiments.run_ai_tournament import AITournamentRunner, ExperimentConfig, print_summary
 
 
 def run_minimal_prompt_test(
@@ -91,26 +91,28 @@ def run_minimal_prompt_test(
                 "prompt_config": {
                     "include_personality": False,
                     "use_simple_response_format": True,
-                }
+                },
             },
-            variants=[{
-                "label": "Full",
-                "prompt_config": {
-                    "include_personality": True,
-                    # Keep other features enabled for comparison
-                    "pot_odds": True,
-                    "hand_strength": True,
-                    "situational_guidance": True,
-                    # But disable personality/psychology for fair comparison
-                    "session_memory": False,
-                    "opponent_intel": False,
-                    "chattiness": False,
-                    "emotional_state": False,
-                    "tilt_effects": False,
-                    "mind_games": False,
-                    "dramatic_sequence": False,
+            variants=[
+                {
+                    "label": "Full",
+                    "prompt_config": {
+                        "include_personality": True,
+                        # Keep other features enabled for comparison
+                        "pot_odds": True,
+                        "hand_strength": True,
+                        "situational_guidance": True,
+                        # But disable personality/psychology for fair comparison
+                        "session_memory": False,
+                        "opponent_intel": False,
+                        "chattiness": False,
+                        "emotional_state": False,
+                        "tilt_effects": False,
+                        "mind_games": False,
+                        "dramatic_sequence": False,
+                    },
                 }
-            }]
+            ],
         )
     else:
         # Just run minimal prompt
@@ -133,8 +135,8 @@ def run_minimal_prompt_test(
                 "prompt_config": {
                     "include_personality": False,
                     "use_simple_response_format": True,
-                }
-            }
+                },
+            },
         )
 
     print(f"Experiment: {config.name}")
@@ -160,7 +162,9 @@ def main():
     parser.add_argument("--players", "-p", type=int, default=3, help="Number of players")
     parser.add_argument("--model", "-m", default="gpt-4o-mini", help="LLM model")
     parser.add_argument("--provider", default="openai", help="LLM provider")
-    parser.add_argument("--compare", "-c", action="store_true", help="Compare minimal vs full prompt")
+    parser.add_argument(
+        "--compare", "-c", action="store_true", help="Compare minimal vs full prompt"
+    )
 
     args = parser.parse_args()
 

@@ -49,7 +49,11 @@ const FALLBACK_PROVIDERS: ProviderInfo[] = [
     name: 'OpenAI',
     models: ['gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
     default_model: 'gpt-5-nano',
-    capabilities: { supports_reasoning: true, supports_json_mode: true, supports_image_generation: true },
+    capabilities: {
+      supports_reasoning: true,
+      supports_json_mode: true,
+      supports_image_generation: true,
+    },
   },
 ];
 

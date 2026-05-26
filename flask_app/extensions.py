@@ -7,26 +7,27 @@ They get initialized in the app factory via init_app().
 import logging
 import re
 
+from authlib.integrations.flask_client import OAuth
 from flask import Flask, request
-from flask_socketio import SocketIO
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from authlib.integrations.flask_client import OAuth
+from flask_socketio import SocketIO
 
-from poker.repositories import (
-    create_repos,
-    PressureEventRepository,
-)
-from poker.personality_generator import PersonalityGenerator
-from poker.character_images import init_character_image_service
-from poker.pricing_loader import sync_pricing_from_yaml, sync_enabled_models
-from poker.game_modes_loader import sync_game_modes_from_yaml
 from poker.authorization import init_authorization
+from poker.character_images import init_character_image_service
+from poker.game_modes_loader import sync_game_modes_from_yaml
+from poker.personality_generator import PersonalityGenerator
+from poker.pricing_loader import sync_enabled_models, sync_pricing_from_yaml
+from poker.repositories import (
+    PressureEventRepository,
+    create_repos,
+)
 
 from . import config
 
 logger = logging.getLogger(__name__)
+
 
 def _get_socketio_cors_origins():
     """Resolve Socket.IO allowed origins from app configuration."""
@@ -141,6 +142,7 @@ def init_limiter(app: Flask) -> Limiter:
     if redis_url:
         try:
             import redis
+
             r = redis.from_url(redis_url)
             r.ping()
 
@@ -149,7 +151,7 @@ def init_limiter(app: Flask) -> Limiter:
                 key_func=get_rate_limit_key,
                 default_limits=default_limits,
                 storage_uri=redis_url,
-                default_limits_exempt_when=_skip_options_requests
+                default_limits_exempt_when=_skip_options_requests,
             )
             logger.info("Rate limiter initialized with Redis")
         except Exception as e:
@@ -158,14 +160,14 @@ def init_limiter(app: Flask) -> Limiter:
                 app=app,
                 key_func=get_rate_limit_key,
                 default_limits=default_limits,
-                default_limits_exempt_when=_skip_options_requests
+                default_limits_exempt_when=_skip_options_requests,
             )
     else:
         limiter = Limiter(
             app=app,
             key_func=get_rate_limit_key,
             default_limits=default_limits,
-            default_limits_exempt_when=_skip_options_requests
+            default_limits_exempt_when=_skip_options_requests,
         )
         logger.info("Rate limiter initialized with in-memory storage")
 
@@ -176,7 +178,22 @@ def init_persistence() -> None:
     """Initialize persistence layer with individual repositories."""
     global game_repo, user_repo, settings_repo, personality_repo
     global experiment_repo, llm_repo, guest_tracking_repo
-    global hand_history_repo, tournament_repo, coach_repo, relationship_repo, bankroll_repo, cash_table_repo, chip_ledger_repo, stake_repo, cash_session_repo, sandbox_repo, vice_state_repo, side_hustle_state_repo, user_prefs_repo, holdings_snapshots_repo, persistence_db_path
+    global \
+        hand_history_repo, \
+        tournament_repo, \
+        coach_repo, \
+        relationship_repo, \
+        bankroll_repo, \
+        cash_table_repo, \
+        chip_ledger_repo, \
+        stake_repo, \
+        cash_session_repo, \
+        sandbox_repo, \
+        vice_state_repo, \
+        side_hustle_state_repo, \
+        user_prefs_repo, \
+        holdings_snapshots_repo, \
+        persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
     global event_repository
@@ -235,6 +252,7 @@ def _assign_disabled_personalities_to_admin() -> None:
     Idempotent: no-op if all disabled personalities already have owners.
     """
     import os
+
     admin_id = os.environ.get('INITIAL_ADMIN_EMAIL')
     if not admin_id:
         return
@@ -244,7 +262,9 @@ def _assign_disabled_personalities_to_admin() -> None:
         try:
             user = user_repo.get_user_by_email(admin_id)
             if not user:
-                logger.debug(f"Admin email {admin_id} not found in users table yet, skipping personality assignment")
+                logger.debug(
+                    f"Admin email {admin_id} not found in users table yet, skipping personality assignment"
+                )
                 return
             admin_id = user['id']
         except Exception:
@@ -269,9 +289,7 @@ def init_oauth(app: Flask) -> OAuth:
             client_id=config.GOOGLE_CLIENT_ID,
             client_secret=config.GOOGLE_CLIENT_SECRET,
             server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-            client_kwargs={
-                'scope': 'openid email profile'
-            }
+            client_kwargs={'scope': 'openid email profile'},
         )
         logger.info("Google OAuth registered successfully")
     else:
@@ -285,6 +303,7 @@ def init_auth(app: Flask) -> None:
     global auth_manager
 
     from poker.auth import AuthManager
+
     auth_manager = AuthManager(app, user_repo, oauth)
 
     # Initialize authorization service

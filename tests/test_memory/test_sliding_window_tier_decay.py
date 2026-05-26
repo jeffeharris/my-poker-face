@@ -25,8 +25,8 @@ from poker.strategy.exploitation import (
     _determine_clamp,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def t() -> OpponentTendencies:
@@ -41,6 +41,7 @@ def reset_config():
 
 
 # ── Window accumulation ──────────────────────────────────────────────────
+
 
 class TestWindowAccumulation:
     def test_postflop_action_pushes_event(self, t):
@@ -66,6 +67,7 @@ class TestWindowAccumulation:
 
 # ── Maxlen eviction ──────────────────────────────────────────────────────
 
+
 class TestMaxlenEviction:
     def test_window_caps_at_config_size(self, t):
         """Production config window_size=50 caps the deque."""
@@ -87,6 +89,7 @@ class TestMaxlenEviction:
 
 # ── recent_postflop_stats() ──────────────────────────────────────────────
 
+
 class TestRecentPostflopStats:
     def test_empty_window_returns_zero_init(self, t):
         stats = t.recent_postflop_stats()
@@ -102,7 +105,7 @@ class TestRecentPostflopStats:
         t.update_from_action('bet', 'TURN', was_facing_bet=False)
         t.update_from_action('all_in', 'RIVER', was_facing_bet=False)  # open jam
         t.update_from_action('call', 'FLOP', was_facing_bet=True)
-        t.update_from_action('all_in', 'TURN', was_facing_bet=True)    # response jam
+        t.update_from_action('all_in', 'TURN', was_facing_bet=True)  # response jam
 
         stats = t.recent_postflop_stats()
         assert stats.postflop_open_opportunities == 3
@@ -130,6 +133,7 @@ class TestRecentPostflopStats:
 
 
 # ── Round-trip persistence ───────────────────────────────────────────────
+
 
 class TestPersistence:
     def test_round_trip_preserves_window(self, t):
@@ -162,6 +166,7 @@ class TestPersistence:
 
 
 # ── Wiring with _determine_clamp ─────────────────────────────────────────
+
 
 class TestDetermineClampWithRealWindow:
     def test_recent_window_ratchets_down_when_signal_cools(self, t):
@@ -201,9 +206,11 @@ class TestDetermineClampWithRealWindow:
 
 # ── Helper ───────────────────────────────────────────────────────────────
 
+
 def _cumulative_stats_from(t: OpponentTendencies):
     """Build cumulative AggregatedOpponentStats from t's cumulative counters."""
     from poker.strategy.exploitation import AggregatedOpponentStats
+
     return AggregatedOpponentStats(
         hands_observed=t.hands_observed,
         aggression_factor_postflop=t.aggression_factor_postflop,

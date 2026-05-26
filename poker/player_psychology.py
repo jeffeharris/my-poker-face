@@ -24,10 +24,11 @@ import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .emotional_state import (
-    EmotionalState, EmotionalStateGenerator,
+    EmotionalState,
+    EmotionalStateGenerator,
 )
 from .range_guidance import get_player_archetype
 
@@ -38,97 +39,96 @@ logger = logging.getLogger(__name__)
 # All existing `from poker.player_psychology import X` statements continue working.
 
 # From zone_config
-from .zone_config import (  # noqa: F401
-    get_zone_param,
-    set_zone_params,
-    clear_zone_params,
-    get_all_zone_params,
-    _load_zone_params,
-    SEVERITY_MINOR,
-    SEVERITY_NORMAL,
-    SEVERITY_MAJOR,
-    RECOVERY_BELOW_BASELINE_FLOOR,
-    RECOVERY_BELOW_BASELINE_RANGE,
-    RECOVERY_ABOVE_BASELINE,
-    EVENT_SEVERITY,
-    _get_severity_floor,
-    _calculate_sensitivity,
+# From playstyle_selector
+from .playstyle_selector import (  # noqa: F401
+    PlaystyleBriefing,
+    PlaystyleState,
+    build_playstyle_briefing,
+    compute_election_interval,
+    compute_exploit_scores,
+    compute_identity_bias,
+    compute_playstyle_affinities,
+    derive_primary_playstyle,
+    select_playstyle,
 )
 
 # From psychology_model
 from .psychology_model import (  # noqa: F401
-    _clamp,
+    ComposureState,
+    EmotionalAxes,
     EmotionalQuadrant,
     PersonalityAnchors,
-    EmotionalAxes,
-    ComposureState,
     PokerFaceZone,
-    create_poker_face_zone,
-    compute_baseline_confidence,
+    _clamp,
     compute_baseline_composure,
-    get_quadrant,
+    compute_baseline_confidence,
     compute_modifiers,
+    create_poker_face_zone,
+    get_quadrant,
+)
+from .zone_config import (  # noqa: F401
+    EVENT_SEVERITY,
+    RECOVERY_ABOVE_BASELINE,
+    RECOVERY_BELOW_BASELINE_FLOOR,
+    RECOVERY_BELOW_BASELINE_RANGE,
+    SEVERITY_MAJOR,
+    SEVERITY_MINOR,
+    SEVERITY_NORMAL,
+    _calculate_sensitivity,
+    _get_severity_floor,
+    _load_zone_params,
+    clear_zone_params,
+    get_all_zone_params,
+    get_zone_param,
+    set_zone_params,
 )
 
 # From zone_detection
 from .zone_detection import (  # noqa: F401
-    ZONE_GUARDED_CENTER,
-    ZONE_POKER_FACE_CENTER,
-    ZONE_COMMANDING_CENTER,
-    ZONE_AGGRO_CENTER,
-    ZONE_GUARDED_RADIUS,
-    ZONE_POKER_FACE_RADIUS,
-    ZONE_COMMANDING_RADIUS,
-    ZONE_AGGRO_RADIUS,
-    PENALTY_TILTED_THRESHOLD,
-    PENALTY_OVERCONFIDENT_THRESHOLD,
-    PENALTY_TIMID_THRESHOLD,
-    PENALTY_SHAKEN_CONF_THRESHOLD,
-    PENALTY_SHAKEN_COMP_THRESHOLD,
-    PENALTY_OVERHEATED_CONF_THRESHOLD,
-    PENALTY_OVERHEATED_COMP_THRESHOLD,
-    PENALTY_DETACHED_CONF_THRESHOLD,
-    PENALTY_DETACHED_COMP_THRESHOLD,
-    ENERGY_LOW_THRESHOLD,
     ENERGY_HIGH_THRESHOLD,
-    ZoneStrategy,
-    ZoneContext,
-    ZONE_STRATEGIES,
+    ENERGY_LOW_THRESHOLD,
     ENERGY_MANIFESTATION_LABELS,
+    PENALTY_DETACHED_COMP_THRESHOLD,
+    PENALTY_DETACHED_CONF_THRESHOLD,
+    PENALTY_OVERCONFIDENT_THRESHOLD,
+    PENALTY_OVERHEATED_COMP_THRESHOLD,
+    PENALTY_OVERHEATED_CONF_THRESHOLD,
+    PENALTY_SHAKEN_COMP_THRESHOLD,
+    PENALTY_SHAKEN_CONF_THRESHOLD,
+    PENALTY_TILTED_THRESHOLD,
+    PENALTY_TIMID_THRESHOLD,
+    ZONE_AGGRO_CENTER,
+    ZONE_AGGRO_RADIUS,
+    ZONE_COMMANDING_CENTER,
+    ZONE_COMMANDING_RADIUS,
+    ZONE_GUARDED_CENTER,
+    ZONE_GUARDED_RADIUS,
+    ZONE_POKER_FACE_CENTER,
+    ZONE_POKER_FACE_RADIUS,
+    ZONE_STRATEGIES,
+    ZoneContext,
     ZoneEffects,
+    ZoneStrategy,
     _calculate_sweet_spot_strength,
-    _detect_sweet_spots,
     _detect_penalty_zones,
+    _detect_sweet_spots,
     _get_zone_manifestation,
+    build_zone_guidance,
     get_zone_effects,
     select_zone_strategy,
-    build_zone_guidance,
-)
-
-# From playstyle_selector
-from .playstyle_selector import (  # noqa: F401
-    PlaystyleState,
-    PlaystyleBriefing,
-    compute_playstyle_affinities,
-    derive_primary_playstyle,
-    compute_identity_bias,
-    compute_exploit_scores,
-    compute_election_interval,
-    select_playstyle,
-    build_playstyle_briefing,
 )
 
 # From zone_effects
 from .zone_effects import (  # noqa: F401
-    INTRUSIVE_THOUGHTS,
-    SHAKEN_THOUGHTS,
-    OVERHEATED_THOUGHTS,
-    OVERCONFIDENT_THOUGHTS,
     DETACHED_THOUGHTS,
-    TIMID_THOUGHTS,
     ENERGY_THOUGHT_VARIANTS,
+    INTRUSIVE_THOUGHTS,
+    OVERCONFIDENT_THOUGHTS,
+    OVERHEATED_THOUGHTS,
     PENALTY_STRATEGY,
     PHRASES_TO_REMOVE_BY_ZONE,
+    SHAKEN_THOUGHTS,
+    TIMID_THOUGHTS,
     _should_inject_thoughts,
 )
 
@@ -177,7 +177,9 @@ class PlayerPsychology:
     consecutive_folds: int = 0
 
     # Zone effects instrumentation (set by apply_zone_effects)
-    _last_zone_effects_instrumentation: Optional[Dict] = field(default=None, repr=False, compare=False)
+    _last_zone_effects_instrumentation: Optional[Dict] = field(
+        default=None, repr=False, compare=False
+    )
 
     # Poker Face Zone (2D ellipse in confidence/composure space)
     _poker_face_zone: Optional[PokerFaceZone] = field(default=None, repr=False)
@@ -197,9 +199,13 @@ class PlayerPsychology:
 
         # Compute derived baselines if not already set
         if self._baseline_confidence is None:
-            object.__setattr__(self, '_baseline_confidence', compute_baseline_confidence(self.anchors))
+            object.__setattr__(
+                self, '_baseline_confidence', compute_baseline_confidence(self.anchors)
+            )
         if self._baseline_composure is None:
-            object.__setattr__(self, '_baseline_composure', compute_baseline_composure(self.anchors))
+            object.__setattr__(
+                self, '_baseline_composure', compute_baseline_composure(self.anchors)
+            )
 
         # Create personality-adjusted poker face zone
         if self._poker_face_zone is None:
@@ -208,14 +214,20 @@ class PlayerPsychology:
         # Initialize playstyle from baseline axes
         if self._playstyle_state is None:
             primary = derive_primary_playstyle(self._baseline_confidence, self._baseline_composure)
-            object.__setattr__(self, '_playstyle_state', PlaystyleState(
-                active_playstyle=primary,
-                primary_playstyle=primary,
-            ))
+            object.__setattr__(
+                self,
+                '_playstyle_state',
+                PlaystyleState(
+                    active_playstyle=primary,
+                    primary_playstyle=primary,
+                ),
+            )
         if self._identity_biases is None:
-            object.__setattr__(self, '_identity_biases', compute_identity_bias(
-                self._playstyle_state.primary_playstyle
-            ))
+            object.__setattr__(
+                self,
+                '_identity_biases',
+                compute_identity_bias(self._playstyle_state.primary_playstyle),
+            )
 
     @classmethod
     def from_personality_config(
@@ -235,7 +247,9 @@ class PlayerPsychology:
             anchors = PersonalityAnchors.from_dict(config['anchors'])
         else:
             # Missing anchors - use defaults and warn
-            logger.warning(f"Personality '{name}' missing anchors - using defaults. Run seed_personalities.py --force to fix.")
+            logger.warning(
+                f"Personality '{name}' missing anchors - using defaults. Run seed_personalities.py --force to fix."
+            )
             anchors = PersonalityAnchors(
                 baseline_aggression=0.5,
                 baseline_looseness=0.3,
@@ -336,7 +350,15 @@ class PlayerPsychology:
     OUTCOME_EVENTS = {'win', 'loss', 'big_win', 'big_loss', 'headsup_win', 'headsup_loss'}
     EGO_EVENTS = {'successful_bluff', 'bluff_called', 'nemesis_win', 'nemesis_loss'}
     EQUITY_SHOCK_EVENTS = {'bad_beat', 'cooler', 'suckout', 'got_sucked_out'}
-    PRESSURE_EVENTS = {'big_pot_involved', 'all_in_moment', 'card_dead_5', 'consecutive_folds_3', 'not_in_hand', 'disciplined_fold', 'short_stack_survival'}
+    PRESSURE_EVENTS = {
+        'big_pot_involved',
+        'all_in_moment',
+        'card_dead_5',
+        'consecutive_folds_3',
+        'not_in_hand',
+        'disciplined_fold',
+        'short_stack_survival',
+    }
     DESPERATION_EVENTS = {'short_stack', 'crippled', 'fold_under_pressure'}
     STREAK_EVENTS = {'winning_streak', 'losing_streak'}
 
@@ -428,48 +450,58 @@ class PlayerPsychology:
         if outcome_events:
             best_outcome = max(outcome_events, key=lambda e: self.OUTCOME_PRIORITY.index(e))
             impacts = self._get_pressure_impacts(best_outcome)
-            _record_event(best_outcome,
-                          impacts.get('confidence', 0),
-                          impacts.get('composure', 0),
-                          impacts.get('energy', 0))
+            _record_event(
+                best_outcome,
+                impacts.get('confidence', 0),
+                impacts.get('composure', 0),
+                impacts.get('energy', 0),
+            )
 
         # 2. At most ONE ego/agency modifier, scaled 50%
         ego_events = [e for e in events if e in self.EGO_EVENTS]
         if ego_events:
             ego_event = ego_events[0]  # Take first detected
             impacts = self._get_pressure_impacts(ego_event)
-            _record_event(ego_event,
-                          impacts.get('confidence', 0) * 0.5,
-                          impacts.get('composure', 0) * 0.5,
-                          impacts.get('energy', 0) * 0.5)
+            _record_event(
+                ego_event,
+                impacts.get('confidence', 0) * 0.5,
+                impacts.get('composure', 0) * 0.5,
+                impacts.get('energy', 0) * 0.5,
+            )
 
         # 3. ALL pressure/fatigue events (additive)
         for event in events:
             if event in self.PRESSURE_EVENTS:
                 impacts = self._get_pressure_impacts(event)
-                _record_event(event,
-                              impacts.get('confidence', 0),
-                              impacts.get('composure', 0),
-                              impacts.get('energy', 0))
+                _record_event(
+                    event,
+                    impacts.get('confidence', 0),
+                    impacts.get('composure', 0),
+                    impacts.get('energy', 0),
+                )
 
         # 4. ALL desperation + streak events (additive)
         for event in events:
             if event in self.DESPERATION_EVENTS or event in self.STREAK_EVENTS:
                 impacts = self._get_pressure_impacts(event)
-                _record_event(event,
-                              impacts.get('confidence', 0),
-                              impacts.get('composure', 0),
-                              impacts.get('energy', 0))
+                _record_event(
+                    event,
+                    impacts.get('confidence', 0),
+                    impacts.get('composure', 0),
+                    impacts.get('energy', 0),
+                )
 
         # 5. At most ONE equity shock event (highest priority)
         shock_events = [e for e in events if e in self.EQUITY_SHOCK_EVENTS]
         if shock_events:
             best_shock = max(shock_events, key=lambda e: self.EQUITY_SHOCK_PRIORITY.index(e))
             impacts = self._get_pressure_impacts(best_shock)
-            _record_event(best_shock,
-                          0,  # equity shocks don't affect confidence
-                          impacts.get('composure', 0),
-                          impacts.get('energy', 0))
+            _record_event(
+                best_shock,
+                0,  # equity shocks don't affect confidence
+                impacts.get('composure', 0),
+                impacts.get('energy', 0),
+            )
 
         # Apply deltas through sensitivity system
         pre_conf = self.axes.confidence
@@ -566,7 +598,8 @@ class PlayerPsychology:
             outcome=outcome,
             amount=amount,
             opponent=opponent,
-            key_moment=key_moment or ('bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)),
+            key_moment=key_moment
+            or ('bad_beat' if was_bad_beat else ('bluff_called' if was_bluff_called else None)),
             session_context=session_context or {},
             big_blind=big_blind,
         )
@@ -837,6 +870,7 @@ class PlayerPsychology:
     def bluff_propensity(self) -> float:
         """Derived bluff tendency from looseness and aggression."""
         from .range_guidance import derive_bluff_propensity
+
         return derive_bluff_propensity(self.tightness, self.aggression)
 
     @property
@@ -967,7 +1001,9 @@ class PlayerPsychology:
 
         # 3. Degrade strategic info (if penalty intensity >= 0.50)
         if total_penalty >= 0.50:
-            modified, was_degraded = self._degrade_strategic_info_by_zone_instrumented(modified, zone_fx)
+            modified, was_degraded = self._degrade_strategic_info_by_zone_instrumented(
+                modified, zone_fx
+            )
             instrumentation['info_degraded'] = was_degraded
 
         # Add angry flair if low composure + high aggression
@@ -1045,9 +1081,7 @@ class PlayerPsychology:
         if self.composure_state.nemesis and any(p > 0.3 for p in penalties.values()):
             nemesis_thoughts = INTRUSIVE_THOUGHTS.get('nemesis', [])
             if nemesis_thoughts:
-                thought = rng.choice(nemesis_thoughts).format(
-                    nemesis=self.composure_state.nemesis
-                )
+                thought = rng.choice(nemesis_thoughts).format(nemesis=self.composure_state.nemesis)
                 thoughts.append(thought)
 
         if not thoughts:
@@ -1056,7 +1090,9 @@ class PlayerPsychology:
         thought_block = "\n\n[What's running through your mind: " + " ".join(thoughts) + "]\n"
 
         if "What is your move" in prompt:
-            return prompt.replace("What is your move", thought_block + "What is your move"), thoughts
+            return prompt.replace(
+                "What is your move", thought_block + "What is your move"
+            ), thoughts
         return prompt + thought_block, thoughts
 
     def _add_penalty_strategy(self, prompt: str, zone_effects: ZoneEffects) -> str:
@@ -1226,7 +1262,9 @@ class PlayerPsychology:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], personality_config: Dict[str, Any]) -> 'PlayerPsychology':
+    def from_dict(
+        cls, data: Dict[str, Any], personality_config: Dict[str, Any]
+    ) -> 'PlayerPsychology':
         """
         Deserialize from saved state.
 
@@ -1323,7 +1361,7 @@ class PlayerPsychology:
             'outcome': outcome,
             'amount': amount,
             'opponent': opponent,
-            'key_moment': key_moment
+            'key_moment': key_moment,
         }
 
         try:

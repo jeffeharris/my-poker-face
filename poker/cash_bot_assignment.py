@@ -27,9 +27,9 @@ DEFAULT_LLM_CONFIG: Dict[str, Any] = {"provider": "openai", "model": "gpt-5-nano
 # Per-bucket LLM defaults. Override on a personality by setting
 # config_json.bot_profile.{provider,model}.
 BUCKET_DEFAULTS: Dict[str, Dict[str, Any]] = {
-    "chaos":    {"provider": "openai", "model": "gpt-5-nano"},
+    "chaos": {"provider": "openai", "model": "gpt-5-nano"},
     "standard": {"provider": "openai", "model": "gpt-5-nano"},
-    "sharp":    {"provider": "groq",   "model": "llama-3.1-8b-instant"},
+    "sharp": {"provider": "groq", "model": "llama-3.1-8b-instant"},
 }
 
 POISE_SHARP_THRESHOLD = 0.65
@@ -75,14 +75,14 @@ def assign_bot(personality_config: Optional[Dict[str, Any]]) -> BotAssignment:
             bucket_default = BUCKET_DEFAULTS[bot_type]
             llm = {
                 "provider": override.get("provider", bucket_default["provider"]),
-                "model":    override.get("model",    bucket_default["model"]),
+                "model": override.get("model", bucket_default["model"]),
             }
             return BotAssignment(bot_type, llm)
 
     anchors = personality_config.get("anchors")
     if isinstance(anchors, dict):
         poise = anchors.get("poise")
-        if isinstance(poise, (int, float)):
+        if isinstance(poise, int | float):
             bot_type = _bucket_from_poise(float(poise))
             return BotAssignment(bot_type, dict(BUCKET_DEFAULTS[bot_type]))
 

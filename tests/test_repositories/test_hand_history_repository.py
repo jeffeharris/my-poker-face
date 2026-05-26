@@ -1,5 +1,7 @@
 """Tests for HandHistoryRepository."""
+
 import pytest
+
 from poker.repositories.hand_history_repository import HandHistoryRepository
 
 
@@ -10,8 +12,9 @@ def repo(db_path):
     r.close()
 
 
-def _make_hand(game_id, hand_number, players=None, winners=None, actions=None,
-               pot_size=100, was_showdown=False):
+def _make_hand(
+    game_id, hand_number, players=None, winners=None, actions=None, pot_size=100, was_showdown=False
+):
     """Helper to build a hand dict."""
     return {
         'game_id': game_id,
@@ -105,9 +108,14 @@ class TestHandCommentary:
 
     def test_reflections_ordered_by_hand_number_desc(self, repo):
         for i in range(3):
-            repo.save_hand_commentary('g1', i + 1, 'Bot', {
-                'strategic_reflection': f'Reflection {i + 1}',
-            })
+            repo.save_hand_commentary(
+                'g1',
+                i + 1,
+                'Bot',
+                {
+                    'strategic_reflection': f'Reflection {i + 1}',
+                },
+            )
 
         reflections = repo.get_recent_reflections('g1', 'Bot', limit=10)
         assert len(reflections) == 3
@@ -124,26 +132,32 @@ class TestSessionStats:
 
     def test_counts_wins_and_losses(self, repo):
         # Hand 1: Alice wins
-        repo.save_hand_history(_make_hand(
-            'g1', 1,
-            players=[{'name': 'Alice'}, {'name': 'Bob'}],
-            winners=[{'name': 'Alice', 'amount_won': 200}],
-            actions=[
-                {'player_name': 'Alice', 'action': 'call', 'amount': 50},
-                {'player_name': 'Bob', 'action': 'call', 'amount': 50},
-            ],
-            pot_size=200
-        ))
+        repo.save_hand_history(
+            _make_hand(
+                'g1',
+                1,
+                players=[{'name': 'Alice'}, {'name': 'Bob'}],
+                winners=[{'name': 'Alice', 'amount_won': 200}],
+                actions=[
+                    {'player_name': 'Alice', 'action': 'call', 'amount': 50},
+                    {'player_name': 'Bob', 'action': 'call', 'amount': 50},
+                ],
+                pot_size=200,
+            )
+        )
         # Hand 2: Alice folds
-        repo.save_hand_history(_make_hand(
-            'g1', 2,
-            players=[{'name': 'Alice'}, {'name': 'Bob'}],
-            winners=[{'name': 'Bob', 'amount_won': 100}],
-            actions=[
-                {'player_name': 'Alice', 'action': 'fold', 'amount': 10},
-            ],
-            pot_size=100
-        ))
+        repo.save_hand_history(
+            _make_hand(
+                'g1',
+                2,
+                players=[{'name': 'Alice'}, {'name': 'Bob'}],
+                winners=[{'name': 'Bob', 'amount_won': 100}],
+                actions=[
+                    {'player_name': 'Alice', 'action': 'fold', 'amount': 10},
+                ],
+                pot_size=100,
+            )
+        )
 
         stats = repo.get_session_stats('g1', 'Alice')
         assert stats['hands_played'] == 2
@@ -152,12 +166,15 @@ class TestSessionStats:
 
     def test_winning_streak(self, repo):
         for i in range(3):
-            repo.save_hand_history(_make_hand(
-                'g1', i + 1,
-                players=[{'name': 'Alice'}],
-                winners=[{'name': 'Alice', 'amount_won': 100}],
-                pot_size=100
-            ))
+            repo.save_hand_history(
+                _make_hand(
+                    'g1',
+                    i + 1,
+                    players=[{'name': 'Alice'}],
+                    winners=[{'name': 'Alice', 'amount_won': 100}],
+                    pot_size=100,
+                )
+            )
 
         stats = repo.get_session_stats('g1', 'Alice')
         assert stats['current_streak'] == 'winning'
@@ -169,12 +186,15 @@ class TestSessionContextForPrompt:
         assert repo.get_session_context_for_prompt('empty', 'Alice') == ""
 
     def test_returns_formatted_context(self, repo):
-        repo.save_hand_history(_make_hand(
-            'g1', 1,
-            players=[{'name': 'Alice'}],
-            winners=[{'name': 'Alice', 'amount_won': 200}],
-            pot_size=200
-        ))
+        repo.save_hand_history(
+            _make_hand(
+                'g1',
+                1,
+                players=[{'name': 'Alice'}],
+                winners=[{'name': 'Alice', 'amount_won': 200}],
+                pot_size=200,
+            )
+        )
 
         context = repo.get_session_context_for_prompt('g1', 'Alice')
         assert 'Session:' in context

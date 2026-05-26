@@ -122,7 +122,7 @@ export function useBettingCalculations(
 
     // Min/max raise TO amounts
     const safeMinRaiseTo = Math.max(safeHighestBet + safeMinRaise, safeContext.min_raise_to || 0);
-    const safeMaxRaiseTo = Math.max(0, safeContext.max_raise_to || (safeCurrentBet + safeStack));
+    const safeMaxRaiseTo = Math.max(0, safeContext.max_raise_to || safeCurrentBet + safeStack);
 
     // Calculate pot fraction amounts (as "raise TO" amounts)
     // A "half pot raise" means raising BY half the pot, so total bet = highest_bet + (pot * fraction)
@@ -149,7 +149,7 @@ export function useBettingCalculations(
     };
 
     // Opponent cover amounts for magnetic snapping
-    const coverAmounts = (safeContext.opponent_covers ?? []).map(opp => opp.cover_amount);
+    const coverAmounts = (safeContext.opponent_covers ?? []).map((opp) => opp.cover_amount);
 
     // Magnetic snap points - pot fractions that the slider "sticks" to
     // Always include min and max (all-in) as magnetic points
@@ -163,7 +163,7 @@ export function useBettingCalculations(
       potFractions.full,
       ...coverAmounts,
       safeMaxRaiseTo,
-    ].filter(v => v >= safeMinRaiseTo && v <= safeMaxRaiseTo);
+    ].filter((v) => v >= safeMinRaiseTo && v <= safeMaxRaiseTo);
 
     // Snap with magnetic attraction to pot fractions and min/max
     const snapWithMagnets = (value: number): number => {
@@ -223,14 +223,15 @@ export function useBettingCalculations(
 
     // Build cover buttons for opponents (raise to put them all-in)
     const coverBets: QuickBet[] = (safeContext.opponent_covers ?? [])
-      .filter(opp =>
-        opp.cover_amount >= safeMinRaiseTo &&
-        opp.cover_amount <= safeMaxRaiseTo &&
-        opp.cover_amount !== safeMinRaiseTo &&
-        opp.cover_amount !== safeMaxRaiseTo
+      .filter(
+        (opp) =>
+          opp.cover_amount >= safeMinRaiseTo &&
+          opp.cover_amount <= safeMaxRaiseTo &&
+          opp.cover_amount !== safeMinRaiseTo &&
+          opp.cover_amount !== safeMaxRaiseTo
       )
-      .slice(0, 2)  // Show at most 2 cover buttons
-      .map(opp => ({
+      .slice(0, 2) // Show at most 2 cover buttons
+      .map((opp) => ({
         // Override > canonical nickname > first name. Falling back
         // to the first name (rather than the full name) keeps the
         // cover button label terse on narrow viewports.
@@ -249,18 +250,16 @@ export function useBettingCalculations(
       { label: '⅔ Pot', amount: potFractions.twoThirds, id: '2/3' },
       { label: '¾ Pot', amount: potFractions.threeQuarters, id: '3/4' },
       { label: 'Pot', amount: potFractions.full, id: 'pot' },
-    ].filter(bet =>
-      bet.amount <= safeMaxRaiseTo &&
-      (bet.alwaysShow || bet.amount > safeMinRaiseTo)
+    ].filter(
+      (bet) => bet.amount <= safeMaxRaiseTo && (bet.alwaysShow || bet.amount > safeMinRaiseTo)
     );
 
     // Row 2: Cover targets + All-In
     const targetBets: QuickBet[] = [
       ...coverBets,
       { label: 'All-In', amount: safeMaxRaiseTo, id: 'all-in', alwaysShow: true },
-    ].filter(bet =>
-      bet.amount <= safeMaxRaiseTo &&
-      (bet.alwaysShow || bet.amount > safeMinRaiseTo)
+    ].filter(
+      (bet) => bet.amount <= safeMaxRaiseTo && (bet.alwaysShow || bet.amount > safeMinRaiseTo)
     );
 
     return {

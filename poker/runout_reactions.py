@@ -22,7 +22,7 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .card_utils import card_to_string
 from .equity_calculator import EquityCalculator
@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 BASE_REACTION_THRESHOLD = 0.15
 
 # Personality modifier range: threshold can shift ±0.05
-REACTIVE_THRESHOLD_OFFSET = -0.05   # Volatile personalities: 10%
-STOIC_THRESHOLD_OFFSET = 0.05       # Stoic personalities: 20%
+REACTIVE_THRESHOLD_OFFSET = -0.05  # Volatile personalities: 10%
+STOIC_THRESHOLD_OFFSET = 0.05  # Stoic personalities: 20%
 
 # Trait thresholds for personality classification
 HIGH_TRAIT = 0.7
@@ -51,6 +51,7 @@ EQUITY_ITERATIONS = 2000  # Match DecisionAnalyzer; 2000 ≈ 20ms per calc
 @dataclass(frozen=True)
 class PlayerReaction:
     """A single avatar emotion reaction during run-out."""
+
     player_name: str
     emotion: str
     equity_before: float
@@ -61,6 +62,7 @@ class PlayerReaction:
 @dataclass
 class ReactionSchedule:
     """Pre-computed schedule of avatar reactions for each run-out street."""
+
     reactions_by_phase: Dict[str, List[PlayerReaction]] = field(default_factory=dict)
 
 
@@ -82,8 +84,7 @@ def compute_runout_reactions(
         ReactionSchedule with reactions per phase (FLOP, TURN, RIVER).
     """
     active_ai_players = [
-        p for p in game_state.players
-        if not p.is_folded and not p.is_human and p.hand
+        p for p in game_state.players if not p.is_folded and not p.is_human and p.hand
     ]
 
     if len(active_ai_players) < 1:
@@ -121,8 +122,7 @@ def compute_runout_reactions(
 
     # Get personality thresholds for AI players
     thresholds = {
-        p.name: _get_reaction_threshold(p.name, ai_controllers)
-        for p in active_ai_players
+        p.name: _get_reaction_threshold(p.name, ai_controllers) for p in active_ai_players
     }
 
     schedule = ReactionSchedule()
@@ -136,16 +136,16 @@ def compute_runout_reactions(
         equity = prev_equities[name]
         emotion = _equity_to_initial_emotion(equity)
         if emotion:
-            initial_reactions.append(PlayerReaction(
-                player_name=name,
-                emotion=emotion,
-                equity_before=equity,
-                equity_after=equity,
-                delta=0.0,
-            ))
-            logger.info(
-                f"[RunOut] {name} initial reaction: {emotion} (equity {equity:.0%})"
+            initial_reactions.append(
+                PlayerReaction(
+                    player_name=name,
+                    emotion=emotion,
+                    equity_before=equity,
+                    equity_after=equity,
+                    delta=0.0,
+                )
             )
+            logger.info(f"[RunOut] {name} initial reaction: {emotion} (equity {equity:.0%})")
     if initial_reactions:
         schedule.reactions_by_phase['INITIAL'] = initial_reactions
 
@@ -170,13 +170,15 @@ def compute_runout_reactions(
 
             if abs(delta) >= thresholds[name]:
                 emotion = _equity_to_emotion(delta, after)
-                reactions.append(PlayerReaction(
-                    player_name=name,
-                    emotion=emotion,
-                    equity_before=before,
-                    equity_after=after,
-                    delta=delta,
-                ))
+                reactions.append(
+                    PlayerReaction(
+                        player_name=name,
+                        emotion=emotion,
+                        equity_before=before,
+                        equity_after=after,
+                        delta=delta,
+                    )
+                )
                 logger.info(
                     f"[RunOut] {name} reaction at {phase_name}: {emotion} "
                     f"(equity {before:.0%} → {after:.0%}, Δ{delta:+.0%})"
@@ -197,13 +199,15 @@ def compute_runout_reactions(
         final_equity = prev_equities[name]
         emotion = _equity_to_showdown_emotion(final_equity)
         if emotion:
-            showdown_reactions.append(PlayerReaction(
-                player_name=name,
-                emotion=emotion,
-                equity_before=final_equity,
-                equity_after=final_equity,
-                delta=0.0,
-            ))
+            showdown_reactions.append(
+                PlayerReaction(
+                    player_name=name,
+                    emotion=emotion,
+                    equity_before=final_equity,
+                    equity_after=final_equity,
+                    delta=0.0,
+                )
+            )
             logger.info(
                 f"[RunOut] {name} showdown reaction: {emotion} "
                 f"(final equity {final_equity:.0%})"
@@ -240,7 +244,7 @@ def _remaining_streets(
     for phase_name, num_cards in plan:
         if len(remaining_deck) < deck_idx + num_cards:
             break
-        streets.append((phase_name, remaining_deck[deck_idx:deck_idx + num_cards]))
+        streets.append((phase_name, remaining_deck[deck_idx : deck_idx + num_cards]))
         deck_idx += num_cards
 
     return streets

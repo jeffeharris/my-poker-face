@@ -6,18 +6,27 @@ triggering showdown or winner determination.
 """
 
 from poker.poker_game import (
-    get_next_active_player_idx,
-    advance_to_next_active_player,
-    set_betting_round_start_player,
     Player,
     PokerGameState,
+    advance_to_next_active_player,
     create_deck,
+    get_next_active_player_idx,
+    set_betting_round_start_player,
 )
 
 
-def _make_player(name="P", stack=1000, is_folded=False, is_all_in=False, has_acted=False, last_action=None):
-    return Player(name=name, stack=stack, is_human=False, is_folded=is_folded,
-                  is_all_in=is_all_in, has_acted=has_acted, last_action=last_action)
+def _make_player(
+    name="P", stack=1000, is_folded=False, is_all_in=False, has_acted=False, last_action=None
+):
+    return Player(
+        name=name,
+        stack=stack,
+        is_human=False,
+        is_folded=is_folded,
+        is_all_in=is_all_in,
+        has_acted=has_acted,
+        last_action=last_action,
+    )
 
 
 class TestGetNextActivePlayerIdx:
@@ -151,11 +160,14 @@ class TestSetBettingRoundStartPlayer:
         result = set_betting_round_start_player(game_state)
         assert result is not None
         for player in result.players:
-            assert player.last_action is None, f"{player.name} still has last_action={player.last_action}"
+            assert (
+                player.last_action is None
+            ), f"{player.name} still has last_action={player.last_action}"
 
     def test_returns_none_when_no_active_players_postflop(self):
         """Returns None when all players are folded/all-in at post-flop."""
         from core.card import Card
+
         players = (
             _make_player("A", is_all_in=True),
             _make_player("B", is_folded=True),

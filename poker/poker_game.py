@@ -1,23 +1,23 @@
 import json
 import logging
-from sys import modules as sys_modules
 from dataclasses import dataclass, field, replace
-from random import shuffle
-from typing import Tuple, Mapping, List, Optional, Dict
+from sys import modules as sys_modules
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from core.card import Card
-from .hand_evaluator import HandEvaluator, rank_to_display
-from .utils import obj_to_dict
+
 from .betting_context import BettingContext
+from .hand_evaluator import HandEvaluator, rank_to_display
 
 logger = logging.getLogger(__name__)
 
 # DEFAULTS
 NUM_AI_PLAYERS = 2
-STACK_SIZE = 10000      # player starting stack
-ANTE = 50               # starting big blind
+STACK_SIZE = 10000  # player starting stack
+ANTE = 50  # starting big blind
 TEST_MODE = False
 MAX_RAISES_PER_ROUND = 4  # Standard casino rule - unlimited when heads-up
+
 
 def create_deck(shuffled: bool = True, random_seed: Optional[int] = None):
     """
@@ -27,16 +27,17 @@ def create_deck(shuffled: bool = True, random_seed: Optional[int] = None):
     ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
     suits = ['Spades', 'Diamonds', 'Clubs', 'Hearts']
     deck = [Card(rank, suit) for rank in ranks for suit in suits]
-    
+
     if shuffled:
         # Create a new Random instance to avoid modifying global state
         import random
+
         rng = random.Random(random_seed)
         # Create a copy and shuffle it
         shuffled_deck = deck.copy()
         rng.shuffle(shuffled_deck)
         return tuple(shuffled_deck)
-    
+
     return tuple(deck)
 
 
@@ -63,7 +64,9 @@ class Player:
             'has_acted': self.has_acted,
             'last_action': self.last_action,
             'bet': self.bet,
-            'hand': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.hand] if self.hand else None,
+            'hand': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.hand]
+            if self.hand
+            else None,
         }
 
     def update(self, **kwargs):
@@ -102,7 +105,9 @@ class PokerGameState:
     awaiting_action: bool = False
     run_it_out: bool = False  # True when all players are all-in, auto-advance with delays
     has_revealed_cards: bool = False  # True once hole cards have been revealed during run-it-out
-    newly_dealt_count: int = 0  # Number of community cards just dealt (3 for flop, 1 for turn/river)
+    newly_dealt_count: int = (
+        0  # Number of community cards just dealt (3 for flop, 1 for turn/river)
+    )
 
     def to_dict(self) -> Dict:
         """
@@ -111,11 +116,16 @@ class PokerGameState:
         return {
             'players': [p.to_dict() for p in self.players],
             'deck': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.deck],
-            'discard_pile': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.discard_pile],
+            'discard_pile': [
+                card.to_dict() if hasattr(card, 'to_dict') else card for card in self.discard_pile
+            ],
             'pot': {**self.pot, 'highest_bet': self.highest_bet},
             'current_player_idx': self.current_player_idx,
             'current_dealer_idx': self.current_dealer_idx,
-            'community_cards': [card.to_dict() if hasattr(card, 'to_dict') else card for card in self.community_cards],
+            'community_cards': [
+                card.to_dict() if hasattr(card, 'to_dict') else card
+                for card in self.community_cards
+            ],
             'current_ante': self.current_ante,
             'last_raise_amount': self.last_raise_amount,
             'raises_this_round': self.raises_this_round,
@@ -202,10 +212,10 @@ class PokerGameState:
         big_blind_player = self.players[self.big_blind_idx]
 
         can_raise_or_check = (
-                self.current_player.name == big_blind_player.name
-                and no_community_cards_dealt
-                and self.highest_bet == self.current_ante
-                and not self.pre_flop_action_taken
+            self.current_player.name == big_blind_player.name
+            and no_community_cards_dealt
+            and self.highest_bet == self.current_ante
+            and not self.pre_flop_action_taken
         )
         return can_raise_or_check
 
@@ -262,16 +272,24 @@ class PokerGameState:
 
         # Build positions list functionally based on player count
         base_positions = ["button", "small_blind_player", "big_blind_player"]
-        
+
         # Define position mapping based on player count
         position_configs = {
             4: base_positions + ["under_the_gun"],
             5: base_positions + ["under_the_gun", "cutoff"],
             6: base_positions + ["under_the_gun", "middle_position_1", "cutoff"],
-            7: base_positions + ["under_the_gun", "middle_position_1", "middle_position_2", "cutoff"],
-            8: base_positions + ["under_the_gun", "middle_position_1", "middle_position_2", "middle_position_3", "cutoff"],
+            7: base_positions
+            + ["under_the_gun", "middle_position_1", "middle_position_2", "cutoff"],
+            8: base_positions
+            + [
+                "under_the_gun",
+                "middle_position_1",
+                "middle_position_2",
+                "middle_position_3",
+                "cutoff",
+            ],
         }
-        
+
         # Get positions for current player count (default to base if not in mapping)
         all_positions = position_configs.get(num_players, base_positions)
 
@@ -337,7 +355,9 @@ def are_pot_contributions_valid(game_state):
 ##################################################################
 ##################      DEALER ACTIONS      ######################
 ##################################################################
-def draw_cards(deck, num_cards: int = 1, pos: int = 0) -> Tuple[Tuple[Mapping, ...], Tuple[Mapping, ...]]:
+def draw_cards(
+    deck, num_cards: int = 1, pos: int = 0
+) -> Tuple[Tuple[Mapping, ...], Tuple[Mapping, ...]]:
     """
     Pulls cards from a position in the deck. Defaults to 1 card from the beginning of the deck.
     Assumes:
@@ -346,8 +366,8 @@ def draw_cards(deck, num_cards: int = 1, pos: int = 0) -> Tuple[Tuple[Mapping, .
         - card tuple
         - new deck
     """
-    cards = deck[pos:pos + num_cards]
-    new_deck = deck[:pos] + deck[pos + num_cards:]
+    cards = deck[pos : pos + num_cards]
+    new_deck = deck[:pos] + deck[pos + num_cards :]
     return cards, new_deck
 
 
@@ -403,9 +423,8 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
         player_idx = game_state.current_player_idx
     betting_player = game_state.players[player_idx]
 
-
     # If the player has raised the bet we will want to reset all other players 'has_acted' flags.
-    previous_high_bet = game_state.highest_bet   # Note the current high bet to compare later.
+    previous_high_bet = game_state.highest_bet  # Note the current high bet to compare later.
 
     # Check to see if player has enough to bet, adjust the amount to the player stack to prevent
     # them from betting more than they have and set them to all-in if they have bet everything
@@ -417,13 +436,16 @@ def place_bet(game_state: PokerGameState, amount: int, player_idx: int = None) -
     # Update the players chip stack by removing the bet amount from the stack
     new_stack = betting_player.stack - amount
     new_bet = betting_player.bet + amount
-    game_state = game_state.update_player(player_idx=player_idx,
-                                          stack=new_stack,
-                                          is_all_in=is_player_all_in,
-                                          bet=new_bet)
+    game_state = game_state.update_player(
+        player_idx=player_idx, stack=new_stack, is_all_in=is_player_all_in, bet=new_bet
+    )
 
     # Create a new pot with updated totals for the pot and the amount contributed by the betting player.
-    new_pot = {**game_state.pot, 'total': game_state.pot['total'] + amount, betting_player.name: new_bet}
+    new_pot = {
+        **game_state.pot,
+        'total': game_state.pot['total'] + amount,
+        betting_player.name: new_bet,
+    }
     game_state = game_state.update(pot=new_pot)
 
     # If the players bet has raised the high bet, reset the player action flags so that they become active in the round
@@ -440,7 +462,8 @@ def reset_player_action_flags(game_state: PokerGameState, exclude_current_player
     just other players should be reset.
     """
     updated_players = tuple(
-        player if (exclude_current_player and idx == game_state.current_player_idx)
+        player
+        if (exclude_current_player and idx == game_state.current_player_idx)
         else player.update(has_acted=False, last_action=None)
         for idx, player in enumerate(game_state.players)
     )
@@ -468,12 +491,13 @@ def player_fold(game_state):
     Player folds their hand.
     """
     new_discard_pile = game_state.discard_pile + game_state.current_player.hand
-    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
-                                          is_folded=True,
-                                          # Commenting out hand reset for now, keeping the cards allows for some other
-                                          # ways to compare later. Removing them removes them from the UI as well.
-                                          # hand=()         # TODO: decide whether or not to reset the hand
-                                          )
+    game_state = game_state.update_player(
+        player_idx=game_state.current_player_idx,
+        is_folded=True,
+        # Commenting out hand reset for now, keeping the cards allows for some other
+        # ways to compare later. Removing them removes them from the UI as well.
+        # hand=()         # TODO: decide whether or not to reset the hand
+    )
     return game_state.update(discard_pile=new_discard_pile)
 
 
@@ -515,8 +539,7 @@ def player_raise(game_state, raise_to_amount: int):
 
     # Track the raise amount for minimum raise calculations and increment raise counter
     game_state = game_state.update(
-        last_raise_amount=raise_by_amount,
-        raises_this_round=game_state.raises_this_round + 1
+        last_raise_amount=raise_by_amount, raises_this_round=game_state.raises_this_round + 1
     )
     return game_state
 
@@ -570,22 +593,24 @@ def set_betting_round_start_player(game_state) -> Optional[PokerGameState]:
         or None if no active players exist (betting round should not start).
     """
     if len(game_state.community_cards) > 0:
-        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
-                                                             relative_player_idx=game_state.current_dealer_idx)
+        first_action_player_idx = get_next_active_player_idx(
+            players=game_state.players, relative_player_idx=game_state.current_dealer_idx
+        )
     elif len(game_state.players) == 2:
         # Heads-up: dealer/SB acts first preflop
-        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
-                                                             relative_player_idx=game_state.current_dealer_idx - 1)
+        first_action_player_idx = get_next_active_player_idx(
+            players=game_state.players, relative_player_idx=game_state.current_dealer_idx - 1
+        )
     else:
-        first_action_player_idx = get_next_active_player_idx(players=game_state.players,
-                                                             relative_player_idx=game_state.current_dealer_idx + 2)
+        first_action_player_idx = get_next_active_player_idx(
+            players=game_state.players, relative_player_idx=game_state.current_dealer_idx + 2
+        )
     if first_action_player_idx is None:
         return None  # No active players, betting round should not start
     # Clear all players' last_action for a clean slate at the start of each betting round
-    updated_players = tuple(
-        player.update(last_action=None) for player in game_state.players
-    )
+    updated_players = tuple(player.update(last_action=None) for player in game_state.players)
     return game_state.update(current_player_idx=first_action_player_idx, players=updated_players)
+
 
 def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
     """
@@ -602,9 +627,9 @@ def deal_community_cards(game_state: PokerGameState) -> PokerGameState:
 
     cards, new_deck = draw_cards(game_state.deck, num_cards=num_cards_to_draw)
     new_community_cards = game_state.community_cards + cards
-    return game_state.update(community_cards=new_community_cards,
-                             deck=new_deck,
-                             newly_dealt_count=num_cards_to_draw)
+    return game_state.update(
+        community_cards=new_community_cards, deck=new_deck, newly_dealt_count=num_cards_to_draw
+    )
 
 
 def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGameState:
@@ -627,9 +652,9 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     else:
         game_state = player_action_function(game_state)
 
-    game_state = game_state.update_player(player_idx=game_state.current_player_idx,
-                                          has_acted=True,
-                                          last_action=action)
+    game_state = game_state.update_player(
+        player_idx=game_state.current_player_idx, has_acted=True, last_action=action
+    )
 
     if game_state.can_big_blind_take_pre_flop_action:
         game_state = game_state.update(pre_flop_action_taken=True)
@@ -637,7 +662,9 @@ def play_turn(game_state: PokerGameState, action: str, amount: int) -> PokerGame
     return game_state.update(awaiting_action=False)
 
 
-def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx: int) -> Optional[int]:
+def get_next_active_player_idx(
+    players: Tuple[Player, ...], relative_player_idx: int
+) -> Optional[int]:
     """
     Determines the index of the next active player in the players list based on is_player_active()
 
@@ -662,7 +689,9 @@ def get_next_active_player_idx(players: Tuple[Player, ...], relative_player_idx:
             # No active players found - return None to signal betting round should end
             # (e.g., trigger showdown when all players are all-in or folded)
             return None
-        next_player_idx = (next_player_idx + 1) % player_count  # Iterate through the players by 1 with a wrap around
+        next_player_idx = (
+            next_player_idx + 1
+        ) % player_count  # Iterate through the players by 1 with a wrap around
 
 
 def advance_to_next_active_player(game_state: PokerGameState) -> Optional[PokerGameState]:
@@ -672,7 +701,9 @@ def advance_to_next_active_player(game_state: PokerGameState) -> Optional[PokerG
     :return: Updated game state with next active player, or None if no active players exist
              (signals betting round should end - all players folded/all-in).
     """
-    next_active_player_idx = get_next_active_player_idx(players=game_state.players, relative_player_idx=game_state.current_player_idx)
+    next_active_player_idx = get_next_active_player_idx(
+        players=game_state.players, relative_player_idx=game_state.current_player_idx
+    )
     if next_active_player_idx is None:
         return None  # Signal: no active players, betting should end
     return game_state.update(current_player_idx=next_active_player_idx)
@@ -705,11 +736,11 @@ def initialize_game_state(
     # Create a tuple of Human and AI players to be added to the game state
     ai_players = tuple(Player(name=n, stack=starting_stack, is_human=False) for n in player_names)
     test_players = tuple(Player(name=n, stack=starting_stack, is_human=True) for n in player_names)
-    new_players = (Player(name=human_name, stack=starting_stack, is_human=True),) + (ai_players if not TEST_MODE else test_players)
+    new_players = (Player(name=human_name, stack=starting_stack, is_human=True),) + (
+        ai_players if not TEST_MODE else test_players
+    )
     if not 0 <= dealer_idx < len(new_players):
-        raise ValueError(
-            f"dealer_idx {dealer_idx} out of range for {len(new_players)} players"
-        )
+        raise ValueError(f"dealer_idx {dealer_idx} out of range for {len(new_players)} players")
     game_state = PokerGameState(
         players=new_players,
         deck=create_deck(shuffled=True),
@@ -742,8 +773,7 @@ def setup_hand(game_state: PokerGameState) -> PokerGameState:
 
 
 def reset_game_state_for_new_hand(
-    game_state: PokerGameState,
-    deck_seed: Optional[int] = None
+    game_state: PokerGameState, deck_seed: Optional[int] = None
 ) -> PokerGameState:
     """
     Sets all game_state flags to new hand state.
@@ -763,8 +793,9 @@ def reset_game_state_for_new_hand(
 
     # Rotate the dealer position to the next active player in the game. This needs to come after the players are
     # reset so that get_next_active_player isn't based on the prior hands actions.
-    new_dealer_idx = get_next_active_player_idx(players=tuple(new_players),
-                                                relative_player_idx=game_state.current_dealer_idx)
+    new_dealer_idx = get_next_active_player_idx(
+        players=tuple(new_players), relative_player_idx=game_state.current_dealer_idx
+    )
     if new_dealer_idx is None:
         raise ValueError("No active players for dealer assignment")
     new_players = new_players[new_dealer_idx:] + new_players[:new_dealer_idx]
@@ -786,7 +817,7 @@ def reset_game_state_for_new_hand(
         deck=create_deck(shuffled=True, random_seed=deck_seed),
         current_ante=game_state.current_ante,
         last_raise_amount=game_state.current_ante,
-        newly_dealt_count=0
+        newly_dealt_count=0,
     )
 
 
@@ -827,7 +858,9 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         # Minimum contribution for this tier (from the lowest all-in player, if applicable)
         tier_contribution = remaining_contributions[active_players_sorted[0].name]
         # Players eligible for this tier (all with contribution >= tier_contribution)
-        eligible_players = [p for p in active_players_sorted if remaining_contributions[p.name] >= tier_contribution]
+        eligible_players = [
+            p for p in active_players_sorted if remaining_contributions[p.name] >= tier_contribution
+        ]
 
         # If only one player is eligible AND this is a side pot situation (not the main pot),
         # silently return their excess chips (no opponents to contest this tier)
@@ -835,13 +868,19 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         if len(eligible_players) == 1 and pot_index > 0:
             single_player = eligible_players[0]
             excess_amount = remaining_contributions[single_player.name]
-            returned_chips[single_player.name] = returned_chips.get(single_player.name, 0) + excess_amount
+            returned_chips[single_player.name] = (
+                returned_chips.get(single_player.name, 0) + excess_amount
+            )
             remaining_contributions[single_player.name] = 0
-            active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
+            active_players_sorted = [
+                p for p in active_players_sorted if remaining_contributions[p.name] > 0
+            ]
             continue  # Skip to next tier - no pot entry created
 
         # Calculate the pot for this tier by adding all the player's actual contributions up to the tier_contribution
-        tier_pot = sum([min(remaining_contributions[p], tier_contribution) for p in remaining_contributions])
+        tier_pot = sum(
+            [min(remaining_contributions[p], tier_contribution) for p in remaining_contributions]
+        )
         # Evaluate hands for eligible players and find the winner(s)
         hands = []
         for player in eligible_players:
@@ -873,15 +912,20 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         num_players = len(game_state.players)
         dealer_idx = game_state.current_dealer_idx
 
-        def distance_from_dealer(player_name):
+        def distance_from_dealer(
+            player_name,
+            _positions=player_positions,
+            _dealer_idx=dealer_idx,
+            _num_players=num_players,
+        ):
             """Calculate seats to the left of dealer (1 = immediately left, etc.)
 
             The dealer (distance 0) receives odd chips last, so we return
             num_players instead of 0 to place dealer at the end of the order.
             """
-            pos = player_positions.get(player_name, 0)
-            dist = (pos - dealer_idx) % num_players
-            return dist if dist > 0 else num_players
+            pos = _positions.get(player_name, 0)
+            dist = (pos - _dealer_idx) % _num_players
+            return dist if dist > 0 else _num_players
 
         # Sort winners by distance from dealer (closest to left gets odd chip first)
         sorted_winners = sorted(tier_winners, key=distance_from_dealer)
@@ -894,18 +938,24 @@ def determine_winner(game_state: PokerGameState) -> Dict:
 
         # Add pot info to breakdown
         pot_name = 'Main Pot' if pot_index == 0 else f'Side Pot {pot_index}'
-        pot_breakdown.append({
-            'pot_name': pot_name,
-            'total_amount': tier_pot,
-            'winners': winner_payouts,
-            'hand_name': best_hand['hand_name']
-        })
+        pot_breakdown.append(
+            {
+                'pot_name': pot_name,
+                'total_amount': tier_pot,
+                'winners': winner_payouts,
+                'hand_name': best_hand['hand_name'],
+            }
+        )
         pot_index += 1
         # Subtract the tier contribution from each eligible player's contribution without modifying player objects
         for player_name in remaining_contributions:
-            remaining_contributions[player_name] -= min(remaining_contributions[player_name], tier_contribution)
+            remaining_contributions[player_name] -= min(
+                remaining_contributions[player_name], tier_contribution
+            )
         # Remove players whose remaining contributions are zero
-        active_players_sorted = [p for p in active_players_sorted if remaining_contributions[p.name] > 0]
+        active_players_sorted = [
+            p for p in active_players_sorted if remaining_contributions[p.name] > 0
+        ]
 
     # Determine the best hand among all evaluated hands
     evaluated_hands.sort(key=lambda x: x[1]["kicker_values"], reverse=True)
@@ -924,7 +974,7 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         'winning_hand': display_hand,
         'winning_hand_values': raw_hand_values,  # Keep numeric values for internal comparisons
         'hand_name': best_overall_hand['hand_name'],
-        'hand_rank': best_overall_hand['hand_rank']
+        'hand_rank': best_overall_hand['hand_rank'],
     }
 
     logger.debug(f"[HAND_END] {winner_info}")

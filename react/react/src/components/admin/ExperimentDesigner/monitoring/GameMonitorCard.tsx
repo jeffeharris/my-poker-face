@@ -30,14 +30,8 @@ export function GameMonitorCard({ game, onPlayerClick }: GameMonitorCardProps) {
           <span>{game.game_id.slice(0, 8)}</span>
         </div>
         <div className="game-monitor-card__badges">
-          {game.variant && (
-            <span className="game-monitor-card__variant-badge">
-              {game.variant}
-            </span>
-          )}
-          <span className="game-monitor-card__phase-badge">
-            {formatPhase(game.phase)}
-          </span>
+          {game.variant && <span className="game-monitor-card__variant-badge">{game.variant}</span>}
+          <span className="game-monitor-card__phase-badge">{formatPhase(game.phase)}</span>
           <span className="game-monitor-card__hand-badge">
             <Layers size={12} />
             H#{game.hand_number}

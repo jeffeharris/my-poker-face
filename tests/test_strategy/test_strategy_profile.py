@@ -1,8 +1,10 @@
 """Tests for StrategyProfile."""
 
 import random
-import pytest
 from collections import Counter
+
+import pytest
+
 from poker.strategy.strategy_profile import StrategyProfile
 
 

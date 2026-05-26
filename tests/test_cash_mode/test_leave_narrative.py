@@ -15,13 +15,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from cash_mode.leave_narrative import (
+    _JOIN_HINT,
+    _SIGNAL_HINTS,
     JoinNarrativeContext,
     LeaveNarrativeContext,
     _build_join_messages,
     _build_messages,
-    _JOIN_HINT,
     _render_sequence,
-    _SIGNAL_HINTS,
     clear_results,
     generate_join_comment,
     generate_leave_comment,
@@ -63,13 +63,15 @@ class TestBuildMessages:
         assert _SIGNAL_HINTS[""]["hint"] in msgs[1]["content"]
 
     def test_personality_traits_carried(self):
-        msgs = _build_messages(_ctx(
-            personality_name="Napoleon",
-            play_style="aggressive",
-            default_attitude="dominant",
-            verbal_tics=("Vive la France.",),
-            physical_tics=("*straightens uniform*",),
-        ))
+        msgs = _build_messages(
+            _ctx(
+                personality_name="Napoleon",
+                play_style="aggressive",
+                default_attitude="dominant",
+                verbal_tics=("Vive la France.",),
+                physical_tics=("*straightens uniform*",),
+            )
+        )
         sys_prompt = msgs[0]["content"]
         user_msg = msgs[1]["content"]
         assert "Napoleon" in sys_prompt
@@ -121,9 +123,11 @@ class TestGenerateLeaveComment:
         return client
 
     def test_happy_path_returns_string(self):
-        canned = json.dumps({
-            "dramatic_sequence": ["*tips hat*", "Until next time."],
-        })
+        canned = json.dumps(
+            {
+                "dramatic_sequence": ["*tips hat*", "Until next time."],
+            }
+        )
         client = self._mock_client(canned)
         out = generate_leave_comment(_ctx(), llm_client=client)
         assert out == "*tips hat* Until next time."
@@ -195,13 +199,15 @@ class TestBuildJoinMessages:
         assert "sitting down" in msgs[0]["content"].lower()
 
     def test_personality_traits_carried(self):
-        msgs = _build_join_messages(_jctx(
-            personality_name="Napoleon",
-            play_style="aggressive",
-            default_attitude="dominant",
-            verbal_tics=("Vive la France.",),
-            physical_tics=("*straightens uniform*",),
-        ))
+        msgs = _build_join_messages(
+            _jctx(
+                personality_name="Napoleon",
+                play_style="aggressive",
+                default_attitude="dominant",
+                verbal_tics=("Vive la France.",),
+                physical_tics=("*straightens uniform*",),
+            )
+        )
         sys_prompt = msgs[0]["content"]
         user_msg = msgs[1]["content"]
         assert "Napoleon" in sys_prompt
@@ -225,9 +231,11 @@ class TestGenerateJoinComment:
         return client
 
     def test_happy_path_returns_string(self):
-        canned = json.dumps({
-            "dramatic_sequence": ["*pulls up a chair*", "Evening, folks."],
-        })
+        canned = json.dumps(
+            {
+                "dramatic_sequence": ["*pulls up a chair*", "Evening, folks."],
+            }
+        )
         client = self._mock_client(canned)
         out = generate_join_comment(_jctx(), llm_client=client)
         assert out == "*pulls up a chair* Evening, folks."
@@ -280,6 +288,7 @@ class TestOnCompleteCallback:
         # Patch generate_leave_comment to return a deterministic
         # rendered string so the worker has something to pass through.
         from cash_mode import leave_narrative as ln
+
         original = ln.generate_leave_comment
         ln.generate_leave_comment = lambda ctx, owner_id=None: "*tips hat* GG."
         try:
@@ -290,8 +299,8 @@ class TestOnCompleteCallback:
         assert captured == ["*tips hat* GG."]
 
     def test_join_worker_invokes_callback(self):
-        from cash_mode.leave_narrative import _join_worker
         from cash_mode import leave_narrative as ln
+        from cash_mode.leave_narrative import _join_worker
 
         captured: list = []
         original = ln.generate_join_comment
@@ -304,8 +313,8 @@ class TestOnCompleteCallback:
         assert captured == ["*sits down* Evening."]
 
     def test_callback_skipped_on_empty_llm_response(self):
-        from cash_mode.leave_narrative import _worker
         from cash_mode import leave_narrative as ln
+        from cash_mode.leave_narrative import _worker
 
         captured: list = []
         original = ln.generate_leave_comment
@@ -321,8 +330,8 @@ class TestOnCompleteCallback:
         # A buggy on_complete must NOT take down the worker thread —
         # the system message is already in chat and a crashed callback
         # would just lose the AI follow-up.
-        from cash_mode.leave_narrative import _worker
         from cash_mode import leave_narrative as ln
+        from cash_mode.leave_narrative import _worker
 
         def _boom(comment: str) -> None:
             raise RuntimeError("oops")

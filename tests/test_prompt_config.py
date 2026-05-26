@@ -1,7 +1,9 @@
 """
 Tests for the PromptConfig toggleable prompt components system.
 """
+
 import unittest
+
 from poker.prompt_config import PromptConfig
 
 
@@ -75,11 +77,7 @@ class TestPromptConfig(unittest.TestCase):
 
     def test_from_dict_unknown_fields(self):
         """from_dict should ignore unknown fields."""
-        d = {
-            'mind_games': False,
-            'unknown_field': True,
-            'another_unknown': 'value'
-        }
+        d = {'mind_games': False, 'unknown_field': True, 'another_unknown': 'value'}
         config = PromptConfig.from_dict(d)
         self.assertFalse(config.mind_games)
         self.assertFalse(hasattr(config, 'unknown_field'))
@@ -109,8 +107,13 @@ class TestPromptConfig(unittest.TestCase):
 
     def test_enable_all(self):
         """enable_all should return config with all boolean components True."""
-        config = PromptConfig(mind_games=False, pot_odds=False, strategic_reflection=False,
-                             situational_guidance=False, memory_keep_exchanges=3)
+        config = PromptConfig(
+            mind_games=False,
+            pot_odds=False,
+            strategic_reflection=False,
+            situational_guidance=False,
+            memory_keep_exchanges=3,
+        )
         enabled = config.enable_all()
 
         self.assertTrue(enabled.pot_odds)
@@ -188,11 +191,7 @@ class TestPromptConfig(unittest.TestCase):
 
     def test_roundtrip_serialization(self):
         """Config should survive serialization roundtrip."""
-        original = PromptConfig(
-            pot_odds=False,
-            mind_games=False,
-            emotional_state=False
-        )
+        original = PromptConfig(pot_odds=False, mind_games=False, emotional_state=False)
         serialized = original.to_dict()
         restored = PromptConfig.from_dict(serialized)
 
@@ -239,9 +238,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         pm = PromptManager()
         result = pm.render_decision_prompt(
-            message="Test message",
-            include_mind_games=True,
-            include_dramatic_sequence=True
+            message="Test message", include_mind_games=True, include_dramatic_sequence=True
         )
 
         self.assertIn("Test message", result)
@@ -254,9 +251,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         pm = PromptManager()
         result = pm.render_decision_prompt(
-            message="Test message",
-            include_mind_games=False,
-            include_dramatic_sequence=True
+            message="Test message", include_mind_games=False, include_dramatic_sequence=True
         )
 
         self.assertIn("Test message", result)
@@ -269,9 +264,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         pm = PromptManager()
         result = pm.render_decision_prompt(
-            message="Test message",
-            include_mind_games=True,
-            include_dramatic_sequence=False
+            message="Test message", include_mind_games=True, include_dramatic_sequence=False
         )
 
         self.assertIn("Test message", result)
@@ -284,9 +277,7 @@ class TestPromptConfigIntegration(unittest.TestCase):
 
         pm = PromptManager()
         result = pm.render_decision_prompt(
-            message="Test message",
-            include_mind_games=False,
-            include_dramatic_sequence=False
+            message="Test message", include_mind_games=False, include_dramatic_sequence=False
         )
 
         self.assertIn("Test message", result)
@@ -323,8 +314,8 @@ class TestGameModes(unittest.TestCase):
         self.assertFalse(config.chattiness)
         self.assertFalse(config.dramatic_sequence)
         # Phase 9: Pro mode AIs don't tilt (harder opponents)
-        self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
-        self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
+        self.assertTrue(config.zone_benefits)  # Still get sweet spot guidance
+        self.assertFalse(config.tilt_effects)  # No tilting - harder opponents
 
     def test_from_mode_name_valid(self):
         """from_mode_name should resolve valid mode names."""
@@ -340,13 +331,9 @@ class TestGameModes(unittest.TestCase):
     def test_from_mode_name_case_insensitive(self):
         """from_mode_name should be case insensitive."""
         self.assertEqual(
-            PromptConfig.from_mode_name('STANDARD').to_dict(),
-            PromptConfig.standard().to_dict()
+            PromptConfig.from_mode_name('STANDARD').to_dict(), PromptConfig.standard().to_dict()
         )
-        self.assertEqual(
-            PromptConfig.from_mode_name('Pro').to_dict(),
-            PromptConfig.pro().to_dict()
-        )
+        self.assertEqual(PromptConfig.from_mode_name('Pro').to_dict(), PromptConfig.pro().to_dict())
 
     def test_from_mode_name_invalid(self):
         """from_mode_name should raise ValueError for invalid modes."""
@@ -386,8 +373,8 @@ class TestZoneToggles(unittest.TestCase):
     def test_pro_mode_no_tilt(self):
         """Pro mode disables tilt_effects (harder AIs)."""
         config = PromptConfig.pro()
-        self.assertTrue(config.zone_benefits)   # Still get sweet spot guidance
-        self.assertFalse(config.tilt_effects)   # No tilting - harder opponents
+        self.assertTrue(config.zone_benefits)  # Still get sweet spot guidance
+        self.assertFalse(config.tilt_effects)  # No tilting - harder opponents
 
     def test_competitive_mode_maps_to_pro(self):
         """Legacy 'competitive' mode auto-maps to 'pro' with a warning."""
@@ -491,6 +478,7 @@ class TestTrueLeanPrompt(unittest.TestCase):
     def test_build_base_game_state_no_persona(self):
         """build_base_game_state with include_persona=False should omit persona name."""
         from unittest.mock import MagicMock
+
         from poker.controllers import build_base_game_state
 
         # Create minimal mock game state
@@ -514,7 +502,10 @@ class TestTrueLeanPrompt(unittest.TestCase):
         game_state.min_raise_amount = 100
 
         result = build_base_game_state(
-            game_state, player, 'PRE_FLOP', 'Recent actions...',
+            game_state,
+            player,
+            'PRE_FLOP',
+            'Recent actions...',
             include_hand_strength=False,
             include_persona=False,
         )
@@ -526,6 +517,7 @@ class TestTrueLeanPrompt(unittest.TestCase):
     def test_build_base_game_state_with_persona(self):
         """build_base_game_state with include_persona=True (default) should include persona name."""
         from unittest.mock import MagicMock
+
         from poker.controllers import build_base_game_state
 
         player = MagicMock()
@@ -548,7 +540,10 @@ class TestTrueLeanPrompt(unittest.TestCase):
         game_state.min_raise_amount = 100
 
         result = build_base_game_state(
-            game_state, player, 'PRE_FLOP', 'Recent actions...',
+            game_state,
+            player,
+            'PRE_FLOP',
+            'Recent actions...',
             include_hand_strength=False,
         )
 

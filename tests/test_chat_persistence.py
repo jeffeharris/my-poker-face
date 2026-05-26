@@ -2,13 +2,15 @@
 """
 Test suite for experiment chat persistence and session management.
 """
+
+import json
 import os
 import sys
-import unittest
 import tempfile
-import json
+import unittest
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -236,10 +238,12 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
     def test_save_and_get_design_chat(self):
         """Test saving and retrieving design chat history."""
         # Create an experiment
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'test_with_design_chat',
-            'description': 'Test experiment',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'test_with_design_chat',
+                'description': 'Test experiment',
+            }
+        )
 
         # Save design chat
         design_chat = [
@@ -260,9 +264,11 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
 
     def test_get_design_chat_no_chat(self):
         """Test get_experiment_design_chat returns None when no chat stored."""
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'test_no_chat',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'test_no_chat',
+            }
+        )
 
         result = self.experiment_repo.get_experiment_design_chat(exp_id)
         self.assertIsNone(result)
@@ -270,9 +276,11 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
     def test_save_and_get_assistant_chat(self):
         """Test saving and retrieving assistant chat history."""
         # Create an experiment
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'test_with_assistant_chat',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'test_with_assistant_chat',
+            }
+        )
 
         # Save assistant chat
         assistant_chat = [
@@ -289,9 +297,11 @@ class TestExperimentDesignChatPersistence(unittest.TestCase):
 
     def test_design_and_assistant_chat_independent(self):
         """Test that design chat and assistant chat are stored independently."""
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'test_independent_chats',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'test_independent_chats',
+            }
+        )
 
         # Save different chats
         design_chat = [{'role': 'user', 'content': 'Design message'}]
@@ -322,6 +332,7 @@ class TestChatEndpoints(unittest.TestCase):
         # Patch init_persistence to use our test DB repos instead of creating new ones
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -396,8 +407,7 @@ class TestChatEndpoints(unittest.TestCase):
 
             # Archive via API
             response = self.client.post(
-                '/api/experiments/chat/archive',
-                json={'session_id': 'test_archive_session'}
+                '/api/experiments/chat/archive', json={'session_id': 'test_archive_session'}
             )
             data = response.get_json()
 
@@ -407,10 +417,7 @@ class TestChatEndpoints(unittest.TestCase):
 
     def test_archive_chat_session_requires_session_id(self):
         """Test that archive endpoint requires session_id."""
-        response = self.client.post(
-            '/api/experiments/chat/archive',
-            json={}
-        )
+        response = self.client.post('/api/experiments/chat/archive', json={})
         data = response.get_json()
 
         self.assertEqual(response.status_code, 400)
@@ -431,8 +438,8 @@ class TestChatEndpoints(unittest.TestCase):
                 json={
                     'message': 'Create a 5 tournament experiment',
                     'session_id': None,
-                    'current_config': {'name': '', 'num_tournaments': 1}
-                }
+                    'current_config': {'name': '', 'num_tournaments': 1},
+                },
             )
             data = response.get_json()
 
@@ -455,11 +462,7 @@ class TestChatEndpoints(unittest.TestCase):
             # Send a chat message
             response = self.client.post(
                 '/api/experiments/chat',
-                json={
-                    'message': 'Hello',
-                    'session_id': None,
-                    'current_config': {}
-                }
+                json={'message': 'Hello', 'session_id': None, 'current_config': {}},
             )
             data = response.get_json()
             session_id = data['session_id']
@@ -484,6 +487,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         # Patch init_persistence to use our test DB repos instead of creating new ones
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -526,10 +530,12 @@ class TestExperimentAssistantChat(unittest.TestCase):
         self._auth_patcher.start()
 
         # Create a test experiment
-        self.exp_id = self.experiment_repo.create_experiment({
-            'name': 'test_assistant_experiment',
-            'description': 'Test experiment for assistant chat',
-        })
+        self.exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'test_assistant_experiment',
+                'description': 'Test experiment for assistant chat',
+            }
+        )
 
     def tearDown(self):
         """Clean up temporary database."""
@@ -556,8 +562,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
-                f'/api/experiments/{self.exp_id}/chat',
-                json={'message': 'What were the results?'}
+                f'/api/experiments/{self.exp_id}/chat', json={'message': 'What were the results?'}
             )
             data = response.get_json()
 
@@ -576,8 +581,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             # Send a message
             self.client.post(
-                f'/api/experiments/{self.exp_id}/chat',
-                json={'message': 'Analyze the results'}
+                f'/api/experiments/{self.exp_id}/chat', json={'message': 'Analyze the results'}
             )
 
             # Check history was saved
@@ -588,10 +592,13 @@ class TestExperimentAssistantChat(unittest.TestCase):
     def test_clear_experiment_chat_history(self):
         """Test clearing experiment assistant chat history."""
         # Save some chat history
-        self.experiment_repo.save_experiment_assistant_chat(self.exp_id, [
-            {'role': 'user', 'content': 'Question'},
-            {'role': 'assistant', 'content': 'Answer'},
-        ])
+        self.experiment_repo.save_experiment_assistant_chat(
+            self.exp_id,
+            [
+                {'role': 'user', 'content': 'Question'},
+                {'role': 'assistant', 'content': 'Answer'},
+            ],
+        )
 
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             # Clear history
@@ -610,8 +617,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         """Test that experiment assistant chat requires a message."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
-                f'/api/experiments/{self.exp_id}/chat',
-                json={'message': ''}
+                f'/api/experiments/{self.exp_id}/chat', json={'message': ''}
             )
             data = response.get_json()
 
@@ -621,10 +627,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
     def test_experiment_assistant_chat_nonexistent_experiment(self):
         """Test assistant chat with non-existent experiment."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
-            response = self.client.post(
-                '/api/experiments/99999/chat',
-                json={'message': 'Hello'}
-            )
+            response = self.client.post('/api/experiments/99999/chat', json={'message': 'Hello'})
             data = response.get_json()
 
             self.assertEqual(response.status_code, 404)

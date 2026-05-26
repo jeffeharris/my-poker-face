@@ -2,7 +2,13 @@
 // sheet pattern. Consider extracting a shared Sheet component.
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send } from 'lucide-react';
-import type { CoachStats, CoachMessage, CoachMode, CoachProgression, ProgressionState } from '../../types/coach';
+import type {
+  CoachStats,
+  CoachMessage,
+  CoachMode,
+  CoachProgression,
+  ProgressionState,
+} from '../../types/coach';
 import { StatsBar } from './StatsBar';
 import { ProgressionStrip } from './ProgressionStrip';
 import { ProgressionDetail } from './ProgressionDetail';
@@ -44,14 +50,14 @@ export function CoachPanel({
   const [isClosing, setIsClosing] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(
-    () => safeGetItem('coach_onboarding_dismissed') === 'true',
+    () => safeGetItem('coach_onboarding_dismissed') === 'true'
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
   const hasFetchedProgressionRef = useRef(false);
 
-  const handleToggleDetail = useCallback(() => setShowDetail(d => !d), []);
+  const handleToggleDetail = useCallback(() => setShowDetail((d) => !d), []);
 
   // Drag-to-dismiss
   const dragStartY = useRef(0);
@@ -80,11 +86,14 @@ export function CoachPanel({
     if (isOpen && messagesEndRef.current) {
       const justOpened = !wasOpenRef.current;
       wasOpenRef.current = true;
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({
-          behavior: justOpened ? 'instant' : 'smooth',
-        });
-      }, justOpened ? 0 : 100);
+      setTimeout(
+        () => {
+          messagesEndRef.current?.scrollIntoView({
+            behavior: justOpened ? 'instant' : 'smooth',
+          });
+        },
+        justOpened ? 0 : 100
+      );
     }
     if (!isOpen) {
       wasOpenRef.current = false;
@@ -164,10 +173,7 @@ export function CoachPanel({
   if (!isOpen) return null;
 
   return (
-    <div
-      className={`coach-overlay ${isClosing ? 'coach-closing' : ''}`}
-      onClick={handleClose}
-    >
+    <div className={`coach-overlay ${isClosing ? 'coach-closing' : ''}`} onClick={handleClose}>
       <div
         ref={sheetRef}
         className={`coach-sheet ${isClosing ? 'coach-sheet-closing' : ''}`}
@@ -214,45 +220,43 @@ export function CoachPanel({
           progressionFull &&
           progressionFull.profile?.self_reported_level === 'beginner' &&
           !progressionFull.profile?.onboarding_completed_at && (
-          <div className="coach-onboarding">
-            <p className="coach-onboarding__text">
-              How much poker do you know?
-            </p>
-            <div className="coach-onboarding__actions">
-              <button
-                className="coach-onboarding__btn coach-onboarding__btn--dismiss"
-                onClick={() => {
-                  // Also call API so onboarding_completed_at is set in the database
-                  onSkipAhead?.('beginner');
-                  setOnboardingDismissed(true);
-                  safeSetItem('coach_onboarding_dismissed', 'true');
-                }}
-              >
-                New to poker
-              </button>
-              <button
-                className="coach-onboarding__btn coach-onboarding__btn--skip"
-                onClick={() => {
-                  onSkipAhead?.('intermediate');
-                  setOnboardingDismissed(true);
-                  safeSetItem('coach_onboarding_dismissed', 'true');
-                }}
-              >
-                I know the basics
-              </button>
-              <button
-                className="coach-onboarding__btn coach-onboarding__btn--skip"
-                onClick={() => {
-                  onSkipAhead?.('experienced');
-                  setOnboardingDismissed(true);
-                  safeSetItem('coach_onboarding_dismissed', 'true');
-                }}
-              >
-                Experienced
-              </button>
+            <div className="coach-onboarding">
+              <p className="coach-onboarding__text">How much poker do you know?</p>
+              <div className="coach-onboarding__actions">
+                <button
+                  className="coach-onboarding__btn coach-onboarding__btn--dismiss"
+                  onClick={() => {
+                    // Also call API so onboarding_completed_at is set in the database
+                    onSkipAhead?.('beginner');
+                    setOnboardingDismissed(true);
+                    safeSetItem('coach_onboarding_dismissed', 'true');
+                  }}
+                >
+                  New to poker
+                </button>
+                <button
+                  className="coach-onboarding__btn coach-onboarding__btn--skip"
+                  onClick={() => {
+                    onSkipAhead?.('intermediate');
+                    setOnboardingDismissed(true);
+                    safeSetItem('coach_onboarding_dismissed', 'true');
+                  }}
+                >
+                  I know the basics
+                </button>
+                <button
+                  className="coach-onboarding__btn coach-onboarding__btn--skip"
+                  onClick={() => {
+                    onSkipAhead?.('experienced');
+                    setOnboardingDismissed(true);
+                    safeSetItem('coach_onboarding_dismissed', 'true');
+                  }}
+                >
+                  Experienced
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {showDetail ? (
           <ProgressionDetail
@@ -260,34 +264,40 @@ export function CoachPanel({
             progressionLite={progression ?? null}
           />
         ) : (
-        <div className="coach-messages">
-          {messages.length === 0 ? (
-            <div className="coach-empty">
-              <span className="coach-empty-text">
-                Ask me anything about your hand, odds, or strategy!
-              </span>
-            </div>
-          ) : (
-            messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`coach-msg coach-msg-${msg.role} ${msg.type ? `coach-msg-${msg.type}` : ''}`}
-              >
-                <span className="coach-msg-sender">
-                  {msg.type === 'review' ? 'Hand Review' : msg.type === 'tip' ? 'Tip' : msg.role === 'user' ? 'You' : 'Coach'}
+          <div className="coach-messages">
+            {messages.length === 0 ? (
+              <div className="coach-empty">
+                <span className="coach-empty-text">
+                  Ask me anything about your hand, odds, or strategy!
                 </span>
-                <span className="coach-msg-text">{msg.content}</span>
               </div>
-            ))
-          )}
-          {isThinking && (
-            <div className="coach-msg coach-msg-coach">
-              <span className="coach-msg-sender">Coach</span>
-              <span className="coach-msg-text coach-thinking">Thinking...</span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+            ) : (
+              messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`coach-msg coach-msg-${msg.role} ${msg.type ? `coach-msg-${msg.type}` : ''}`}
+                >
+                  <span className="coach-msg-sender">
+                    {msg.type === 'review'
+                      ? 'Hand Review'
+                      : msg.type === 'tip'
+                        ? 'Tip'
+                        : msg.role === 'user'
+                          ? 'You'
+                          : 'Coach'}
+                  </span>
+                  <span className="coach-msg-text">{msg.content}</span>
+                </div>
+              ))
+            )}
+            {isThinking && (
+              <div className="coach-msg coach-msg-coach">
+                <span className="coach-msg-sender">Coach</span>
+                <span className="coach-msg-text coach-thinking">Thinking...</span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         )}
 
         <form

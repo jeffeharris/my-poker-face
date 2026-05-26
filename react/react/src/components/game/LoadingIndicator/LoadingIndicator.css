@@ -56,7 +56,8 @@
 }
 
 @keyframes avatarPulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
   }
@@ -103,7 +104,9 @@
 }
 
 @keyframes thinking {
-  0%, 60%, 100% {
+  0%,
+  60%,
+  100% {
     opacity: 0.3;
     transform: scale(0.8);
   }
@@ -199,15 +202,15 @@
 }
 
 /* Player-specific thinking styles */
-.loading-overlay[data-player-type="aggressive"] .avatar-circle {
+.loading-overlay[data-player-type='aggressive'] .avatar-circle {
   background: linear-gradient(135deg, #ff6b6b, #ff4444);
 }
 
-.loading-overlay[data-player-type="conservative"] .avatar-circle {
+.loading-overlay[data-player-type='conservative'] .avatar-circle {
   background: linear-gradient(135deg, #4ecdc4, #44a08d);
 }
 
-.loading-overlay[data-player-type="wild"] .avatar-circle {
+.loading-overlay[data-player-type='wild'] .avatar-circle {
   background: linear-gradient(135deg, #f093fb, #f5576c);
 }
 
@@ -217,21 +220,21 @@
     padding: 30px 20px;
     max-width: 90%;
   }
-  
+
   .ai-avatar {
     width: 60px;
     height: 60px;
   }
-  
+
   .avatar-circle {
     width: 60px;
     height: 60px;
   }
-  
+
   .avatar-initial {
     font-size: 24px;
   }
-  
+
   .player-thinking-name {
     font-size: 20px;
   }

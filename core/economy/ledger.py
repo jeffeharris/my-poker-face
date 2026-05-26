@@ -31,62 +31,62 @@ logger = logging.getLogger(__name__)
 
 # The full vocabulary. Adding a reason requires editing this set so
 # anyone grepping for chip-flow categories sees them in one place.
-LEDGER_REASONS = frozenset({
-    # Creations: central_bank → X
-    'player_seed',         # first-time player entry into cash mode
-    'ai_seed',             # first AI bankroll write in a given sandbox
-    'ai_regen',            # AI bankroll write where projected > stored
-    'house_stake_issue',   # house-archetype stake principal issued to borrower
-    'pre_ledger_universe', # one-shot seed at migration so day-1 drift is 0
-    'tourist_injection',   # bank pool → fish bankroll (closed-economy refill)
-    'side_hustle_earning', # bank pool → broke AI bankroll. The side-hustle
-                           # faucet that replaces passive `ai_regen`: a broke
-                           # AI goes off-grid to earn, drawing a lump from the
-                           # recyclable pool (caller clamps to pool depth).
-                           # See CASH_MODE_SIDE_HUSTLE.md.
-    'casino_seat_seed',    # bank pool → fish seat chips at casino spawn
-                           # (atomic seed event — chips land at the seat,
-                           # not the bankroll; same pool draw semantics
-                           # as tourist_injection just routed differently)
-    'bank_pool_sim_seed',  # sim-only: central_bank → synthetic donor as
-                           # the creation half of a paired (creation +
-                           # bank_pool_deposit) seed flow. Paired form
-                           # keeps drift at 0 while inflating the pool
-                           # at sandbox start.
-
-    # Destructions: X → central_bank
-    'cap_clamp',           # DEPRECATED — historical entries only. Was emitted
-                           # when AI winnings would push bankroll above
-                           # `bankroll_cap`; that cap concept was retired when
-                           # `starting_bankroll` became a regen target rather
-                           # than a ceiling. Kept in the vocabulary so the
-                           # audit can still query historical entries.
-    'house_stake_settle',  # leave-time settlement of a house-archetype stake
-    'table_rake',          # per-hand pot rake skimmed at award time. Feeds
-                           # the recyclable bank pool (see
-                           # BANK_POOL_DEPOSIT_REASONS) — the chips are still
-                           # removed from circulation, but become drawable by
-                           # the side hustle / tourist injection rather than
-                           # evaporating. See CASH_MODE_SIDE_HUSTLE.md.
-    'bank_pool_deposit',   # stub vice (and other operator-driven deposits)
-                           # → bank pool; the recyclable subset of central_bank
-                           # chips that fund `tourist_injection` /
-                           # `casino_seat_seed`.
-    'vice_spending',       # AI voluntary spend-down (real vice mechanic).
-                           # Fires from the lobby refresh when a flush AI
-                           # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
-                           # this also feeds the bank pool — see
-                           # BANK_POOL_DEPOSIT_REASONS below.
-    'casino_seat_return',  # ai → bank pool: residual seat chips returned
-                           # when a casino tears down (or a tourist leaves
-                           # mid-life). Mirror of `casino_seat_seed` —
-                           # ephemeral-tourist chips were never on a
-                           # bankroll, so the seat balance returns
-                           # straight to the pool to preserve drift==0.
-
-    # Annotation (amount=0, audit reconciliation only)
-    'forgive_balance',     # borrower left short of principal on a house stake
-})
+LEDGER_REASONS = frozenset(
+    {
+        # Creations: central_bank → X
+        'player_seed',  # first-time player entry into cash mode
+        'ai_seed',  # first AI bankroll write in a given sandbox
+        'ai_regen',  # AI bankroll write where projected > stored
+        'house_stake_issue',  # house-archetype stake principal issued to borrower
+        'pre_ledger_universe',  # one-shot seed at migration so day-1 drift is 0
+        'tourist_injection',  # bank pool → fish bankroll (closed-economy refill)
+        'side_hustle_earning',  # bank pool → broke AI bankroll. The side-hustle
+        # faucet that replaces passive `ai_regen`: a broke
+        # AI goes off-grid to earn, drawing a lump from the
+        # recyclable pool (caller clamps to pool depth).
+        # See CASH_MODE_SIDE_HUSTLE.md.
+        'casino_seat_seed',  # bank pool → fish seat chips at casino spawn
+        # (atomic seed event — chips land at the seat,
+        # not the bankroll; same pool draw semantics
+        # as tourist_injection just routed differently)
+        'bank_pool_sim_seed',  # sim-only: central_bank → synthetic donor as
+        # the creation half of a paired (creation +
+        # bank_pool_deposit) seed flow. Paired form
+        # keeps drift at 0 while inflating the pool
+        # at sandbox start.
+        # Destructions: X → central_bank
+        'cap_clamp',  # DEPRECATED — historical entries only. Was emitted
+        # when AI winnings would push bankroll above
+        # `bankroll_cap`; that cap concept was retired when
+        # `starting_bankroll` became a regen target rather
+        # than a ceiling. Kept in the vocabulary so the
+        # audit can still query historical entries.
+        'house_stake_settle',  # leave-time settlement of a house-archetype stake
+        'table_rake',  # per-hand pot rake skimmed at award time. Feeds
+        # the recyclable bank pool (see
+        # BANK_POOL_DEPOSIT_REASONS) — the chips are still
+        # removed from circulation, but become drawable by
+        # the side hustle / tourist injection rather than
+        # evaporating. See CASH_MODE_SIDE_HUSTLE.md.
+        'bank_pool_deposit',  # stub vice (and other operator-driven deposits)
+        # → bank pool; the recyclable subset of central_bank
+        # chips that fund `tourist_injection` /
+        # `casino_seat_seed`.
+        'vice_spending',  # AI voluntary spend-down (real vice mechanic).
+        # Fires from the lobby refresh when a flush AI
+        # rolls a vice. Per CASH_MODE_CLOSED_ECONOMY.md
+        # this also feeds the bank pool — see
+        # BANK_POOL_DEPOSIT_REASONS below.
+        'casino_seat_return',  # ai → bank pool: residual seat chips returned
+        # when a casino tears down (or a tourist leaves
+        # mid-life). Mirror of `casino_seat_seed` —
+        # ephemeral-tourist chips were never on a
+        # bankroll, so the seat balance returns
+        # straight to the pool to preserve drift==0.
+        # Annotation (amount=0, audit reconciliation only)
+        'forgive_balance',  # borrower left short of principal on a house stake
+    }
+)
 
 # Pool of reasons that fund tourist injections / casino seat seeds —
 # chips destroyed under any of these reasons are considered "recyclable"
@@ -102,27 +102,32 @@ LEDGER_REASONS = frozenset({
 # the recyclable pool is what funds the side hustle / tourist injection.
 # The ledger entry direction is unchanged (winner → central_bank) — only
 # its pool-depth classification moved.
-BANK_POOL_DEPOSIT_REASONS = frozenset({
-    'bank_pool_deposit',
-    'vice_spending',
-    'casino_seat_return',
-    'table_rake',
-})
+BANK_POOL_DEPOSIT_REASONS = frozenset(
+    {
+        'bank_pool_deposit',
+        'vice_spending',
+        'casino_seat_return',
+        'table_rake',
+    }
+)
 
 # Pool draws — creations that pull from the recyclable pool. Adding a
 # new draw reason (e.g. a per-hand fish subsidy) just appends to this
 # set; depth math automatically subtracts it.
-BANK_POOL_DRAW_REASONS = frozenset({
-    'tourist_injection',
-    'casino_seat_seed',
-    'side_hustle_earning',
-})
+BANK_POOL_DRAW_REASONS = frozenset(
+    {
+        'tourist_injection',
+        'casino_seat_seed',
+        'side_hustle_earning',
+    }
+)
 
 
 # Convenience constructors for source/sink strings. Keeps the format
 # (e.g. 'player:<owner_id>') in one place — and the type system catches
 # `player(None)` mistakes that the f-string equivalent would let
 # through silently.
+
 
 def bank() -> str:
     """The central bank as a source/sink."""
@@ -181,7 +186,10 @@ def record(
         logger.warning(
             "chip ledger: rejecting record() with unknown reason=%r "
             "(amount=%s source=%s sink=%s); add to LEDGER_REASONS first",
-            reason, amount, source, sink,
+            reason,
+            amount,
+            source,
+            sink,
         )
         return None
 
@@ -190,7 +198,8 @@ def record(
     except (TypeError, ValueError):
         logger.warning(
             "chip ledger: rejecting record() with non-int amount=%r (reason=%s)",
-            amount, reason,
+            amount,
+            reason,
         )
         return None
 
@@ -198,7 +207,10 @@ def record(
         logger.warning(
             "chip ledger: rejecting record() with negative amount=%d "
             "(reason=%s source=%s sink=%s); flip source/sink instead",
-            amount_int, reason, source, sink,
+            amount_int,
+            reason,
+            source,
+            sink,
         )
         return None
 
@@ -206,7 +218,9 @@ def record(
         logger.warning(
             "chip ledger: rejecting record() with no central_bank side "
             "(source=%s sink=%s reason=%s); v0 tracks only creations/destructions",
-            source, sink, reason,
+            source,
+            sink,
+            reason,
         )
         return None
 
@@ -222,7 +236,9 @@ def record(
     except Exception as e:
         logger.warning(
             "chip ledger: record() failed (reason=%s amount=%d): %s",
-            reason, amount_int, e,
+            reason,
+            amount_int,
+            e,
         )
         return None
 
@@ -233,6 +249,7 @@ def record(
 # `ledger.record_ai_regen(...)` rather than re-stating the reason
 # string and source/sink direction. If any of these grow real logic
 # (e.g. central bank v1 reserves check), it lives here once.
+
 
 def record_player_seed(
     repo: Optional[ChipLedgerRepository],

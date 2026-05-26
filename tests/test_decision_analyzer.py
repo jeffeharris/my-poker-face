@@ -3,8 +3,8 @@
 import pytest
 
 from poker.decision_analyzer import (
-    DecisionAnalyzer,
     DecisionAnalysis,
+    DecisionAnalyzer,
     calculate_max_winnable,
 )
 
@@ -20,7 +20,7 @@ class TestCalculateMaxWinnable:
         - Main pot = 100 (hero) + 100 (matched from villain) = 200
         """
         all_players_bets = [
-            (0, False),    # Hero: bet=0
+            (0, False),  # Hero: bet=0
             (500, False),  # Villain: bet=500
         ]
 
@@ -37,7 +37,7 @@ class TestCalculateMaxWinnable:
     def test_big_stack_unchanged(self):
         """Big stack EV uses full pot (no side pot limit)."""
         all_players_bets = [
-            (0, False),    # Hero
+            (0, False),  # Hero
             (100, False),  # Villain
         ]
 
@@ -54,7 +54,7 @@ class TestCalculateMaxWinnable:
     def test_multiway_short_stack(self):
         """3-way pot: short stack can only win from matched contributions."""
         all_players_bets = [
-            (0, False),    # Hero (stack=100)
+            (0, False),  # Hero (stack=100)
             (300, False),  # Villain1
             (300, False),  # Villain2
         ]
@@ -72,8 +72,8 @@ class TestCalculateMaxWinnable:
     def test_with_folded_players(self):
         """Folded players' bets are dead money - still winnable."""
         all_players_bets = [
-            (50, False),   # Hero (stack=100, already bet 50)
-            (50, True),    # Folded player (dead money)
+            (50, False),  # Hero (stack=100, already bet 50)
+            (50, True),  # Folded player (dead money)
             (200, False),  # Villain
         ]
 
@@ -398,13 +398,15 @@ class TestPositionAdjustments:
 
     def test_button_is_late_position(self):
         """Button should map to late position group."""
-        from poker.hand_ranges import get_position_group, Position
+        from poker.hand_ranges import Position, get_position_group
+
         position_group = get_position_group('button')
         assert position_group == Position.LATE
 
     def test_utg_is_early_position(self):
         """UTG should map to early position group."""
-        from poker.hand_ranges import get_position_group, Position
+        from poker.hand_ranges import Position, get_position_group
+
         position_group = get_position_group('under_the_gun')
         assert position_group == Position.EARLY
 
@@ -425,9 +427,7 @@ class TestPositionAdjustments:
         }
 
         # Late position (button) - more likely to raise with 60% equity
-        late_result = analyzer.determine_optimal_action(
-            **base_args, player_position='button'
-        )
+        late_result = analyzer.determine_optimal_action(**base_args, player_position='button')
 
         # Early position (UTG) - less likely to raise, needs more equity
         early_result = analyzer.determine_optimal_action(
@@ -458,9 +458,7 @@ class TestPositionAdjustments:
         }
 
         # Late position - more willing to call
-        late_result = analyzer.determine_optimal_action(
-            **base_args, player_position='button'
-        )
+        late_result = analyzer.determine_optimal_action(**base_args, player_position='button')
 
         # Both positions should call with positive EV
         assert late_result == 'call'
@@ -540,8 +538,14 @@ class TestQualityScore:
         return DecisionAnalyzer(iterations=10)
 
     def _make_analysis(self, **kwargs):
-        defaults = dict(game_id="test", player_name="Hero", pot_total=100,
-                        cost_to_call=50, player_stack=500, num_opponents=1)
+        defaults = dict(
+            game_id="test",
+            player_name="Hero",
+            pot_total=100,
+            cost_to_call=50,
+            player_stack=500,
+            num_opponents=1,
+        )
         defaults.update(kwargs)
         return DecisionAnalysis(**defaults)
 
@@ -550,8 +554,11 @@ class TestQualityScore:
         analyzer = self._make_analyzer()
         # Set up a clear fold scenario (low equity, negative EV)
         analysis = self._make_analysis(
-            equity=0.1, ev_call=-30.0, required_equity=0.33,
-            action_taken='fold', phase='FLOP',
+            equity=0.1,
+            ev_call=-30.0,
+            required_equity=0.33,
+            action_taken='fold',
+            phase='FLOP',
         )
         analyzer._evaluate_quality(analysis)
         assert analysis.decision_quality == 'correct'
@@ -562,8 +569,11 @@ class TestQualityScore:
         analyzer = self._make_analyzer()
         # Folding when can check for free = mistake
         analysis = self._make_analysis(
-            cost_to_call=0, equity=0.5, ev_call=0,
-            action_taken='fold', phase='FLOP',
+            cost_to_call=0,
+            equity=0.5,
+            ev_call=0,
+            action_taken='fold',
+            phase='FLOP',
         )
         analyzer._evaluate_quality(analysis)
         assert analysis.decision_quality == 'mistake'
@@ -574,8 +584,11 @@ class TestQualityScore:
         analyzer = self._make_analyzer()
         # Call when should raise = marginal
         analysis = self._make_analysis(
-            equity=0.7, ev_call=50.0, required_equity=0.25,
-            action_taken='call', phase='FLOP',
+            equity=0.7,
+            ev_call=50.0,
+            required_equity=0.25,
+            action_taken='call',
+            phase='FLOP',
         )
         analyzer._evaluate_quality(analysis)
         assert analysis.decision_quality == 'marginal'
@@ -585,7 +598,9 @@ class TestQualityScore:
         """Unknown decision (no ev_call) should get quality_score=None."""
         analyzer = self._make_analyzer()
         analysis = self._make_analysis(
-            ev_call=None, action_taken='call', phase='FLOP',
+            ev_call=None,
+            action_taken='call',
+            phase='FLOP',
         )
         analyzer._evaluate_quality(analysis)
         assert analysis.decision_quality == 'unknown'
@@ -604,8 +619,14 @@ class TestEffectiveEquity:
         return DecisionAnalyzer(iterations=10)
 
     def _make_analysis(self, **kwargs):
-        defaults = dict(game_id="test", player_name="Hero", pot_total=100,
-                        cost_to_call=50, player_stack=500, num_opponents=1)
+        defaults = dict(
+            game_id="test",
+            player_name="Hero",
+            pot_total=100,
+            cost_to_call=50,
+            player_stack=500,
+            num_opponents=1,
+        )
         defaults.update(kwargs)
         return DecisionAnalysis(**defaults)
 
@@ -664,8 +685,10 @@ class TestMenuCompliance:
 
     def _make_analysis(self, action='call', raise_amount=None):
         return DecisionAnalysis(
-            game_id="test", player_name="Hero",
-            action_taken=action, raise_amount=raise_amount,
+            game_id="test",
+            player_name="Hero",
+            action_taken=action,
+            raise_amount=raise_amount,
         )
 
     def test_picks_best_plus_ev_option(self):

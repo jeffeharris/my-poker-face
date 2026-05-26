@@ -4,9 +4,11 @@ Tests for BB (Big Blind) normalization functionality.
 Tests the _format_money helper, message conversion, and BB-to-dollar
 conversion logic. BB mode is always active for AI prompts.
 """
+
 import unittest
 from unittest.mock import MagicMock, patch
-from poker.controllers import _format_money, _convert_messages_to_bb, AIPlayerController
+
+from poker.controllers import AIPlayerController, _convert_messages_to_bb, _format_money
 from poker.prompt_config import PromptConfig
 
 
@@ -97,11 +99,13 @@ class TestConvertMessagesToBB(unittest.TestCase):
 
 def _make_controller():
     """Create a minimal AIPlayerController for testing internal methods."""
-    with patch('poker.controllers.AIPokerPlayer') as mock_player, \
-         patch('poker.controllers.PromptManager'), \
-         patch('poker.controllers.ChattinessManager'), \
-         patch('poker.controllers.ResponseValidator'), \
-         patch('poker.controllers.PlayerPsychology') as mock_psych:
+    with (
+        patch('poker.controllers.AIPokerPlayer') as mock_player,
+        patch('poker.controllers.PromptManager'),
+        patch('poker.controllers.ChattinessManager'),
+        patch('poker.controllers.ResponseValidator'),
+        patch('poker.controllers.PlayerPsychology') as mock_psych,
+    ):
         mock_player.return_value.assistant = MagicMock()
         mock_player.return_value.personality_config = {}
         mock_psych.from_personality_config.return_value = MagicMock()

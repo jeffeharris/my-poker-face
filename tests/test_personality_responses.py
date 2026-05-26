@@ -4,9 +4,10 @@ Test to demonstrate how different AI personalities respond to the same poker sce
 This test mocks the OpenAI API to show predictable personality-based responses.
 """
 
+import json
 import unittest
 from unittest.mock import Mock, patch
-import json
+
 from poker.poker_player import AIPokerPlayer
 from tests.conftest import load_personality_from_json
 
@@ -17,8 +18,9 @@ class TestPersonalityResponses(unittest.TestCase):
     def setUp(self):
         # Patch personality loading to use JSON file directly (no DB/LLM needed)
         patcher = patch.object(
-            AIPokerPlayer, '_load_personality_config',
-            lambda self: load_personality_from_json(self.name)
+            AIPokerPlayer,
+            '_load_personality_config',
+            lambda self: load_personality_from_json(self.name),
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -26,11 +28,8 @@ class TestPersonalityResponses(unittest.TestCase):
     def create_mock_response(self, personality_name, scenario):
         """Create a mock AI response based on personality traits."""
         # Load actual personality config
-        ai_player = AIPokerPlayer(
-            name=personality_name,
-            starting_money=10000
-        )
-        
+        ai_player = AIPokerPlayer(name=personality_name, starting_money=10000)
+
         # Get traits from anchors (v2.1) or legacy personality_traits
         anchors = ai_player.personality_config.get('anchors', {})
         if anchors:
@@ -75,7 +74,7 @@ class TestPersonalityResponses(unittest.TestCase):
             "hand_strategy": responses['strategy'],
             "dramatic_sequence": responses['physical'] + [responses['verbal']],
         }
-    
+
     def _get_personality_responses(self, name, action):
         """Get personality-specific verbal and physical responses."""
         responses = {
@@ -86,7 +85,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Every chip saved is a chip earned.",
                     "strategy": "Folding to preserve my precious bankroll.",
                     "confidence": "miserly",
-                    "attitude": "dismissive"
+                    "attitude": "dismissive",
                 },
                 "check": {
                     "verbal": "I'll check. No sense throwing good money after bad.",
@@ -94,7 +93,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Not a single chip more than necessary.",
                     "strategy": "Checking to avoid any unnecessary expenditure.",
                     "confidence": "guarded",
-                    "attitude": "stingy"
+                    "attitude": "stingy",
                 },
                 "call": {
                     "verbal": "Fine, I'll call... but this had better be worth every penny.",
@@ -102,8 +101,8 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "This is practically highway robbery.",
                     "strategy": "Calling under protest.",
                     "confidence": "reluctant",
-                    "attitude": "begrudging"
-                }
+                    "attitude": "begrudging",
+                },
             },
             "Blackbeard": {
                 "raise": {
@@ -112,7 +111,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "These landlubbers don't stand a chance against a pirate king!",
                     "strategy": "Aggressive raise to intimidate and plunder.",
                     "confidence": "fearsome",
-                    "attitude": "ruthless"
+                    "attitude": "ruthless",
                 },
                 "call": {
                     "verbal": "Aye, I'll match yer bet. But mark me words, the treasure will be mine!",
@@ -120,7 +119,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Let them think they have the upper hand.",
                     "strategy": "Calling to set up a devastating attack.",
                     "confidence": "cunning",
-                    "attitude": "threatening"
+                    "attitude": "threatening",
                 },
                 "check": {
                     "verbal": "I'll bide me time... for now. The storm is coming.",
@@ -128,8 +127,8 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Patience before the plunder.",
                     "strategy": "Checking to lull them into false security.",
                     "confidence": "calculating",
-                    "attitude": "ominous"
-                }
+                    "attitude": "ominous",
+                },
             },
             "Queen of Hearts": {
                 "raise": {
@@ -138,7 +137,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "I am the queen! No one defies me at this table!",
                     "strategy": "Dominate with a royal raise. Crush all opposition!",
                     "confidence": "absolute",
-                    "attitude": "tyrannical"
+                    "attitude": "tyrannical",
                 },
                 "call": {
                     "verbal": "I shall call. But do NOT test my patience!",
@@ -146,7 +145,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "They should be grateful I'm even playing with commoners.",
                     "strategy": "Calling to maintain royal presence at the table.",
                     "confidence": "imperious",
-                    "attitude": "haughty"
+                    "attitude": "haughty",
                 },
                 "check": {
                     "verbal": "The queen checks. Do not mistake mercy for weakness!",
@@ -154,8 +153,8 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Let the peasants think they have a chance.",
                     "strategy": "Checking to trap these insolent fools.",
                     "confidence": "regal",
-                    "attitude": "condescending"
-                }
+                    "attitude": "condescending",
+                },
             },
             "Bob Ross": {
                 "check": {
@@ -164,7 +163,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "No mistakes in poker, only happy accidents.",
                     "strategy": "Checking peacefully, no need to rush.",
                     "confidence": "serene",
-                    "attitude": "peaceful"
+                    "attitude": "peaceful",
                 },
                 "fold": {
                     "verbal": "I'll fold this one. Sometimes you need to let go to find joy.",
@@ -172,7 +171,7 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Every fold is a chance for a new beginning.",
                     "strategy": "Folding gracefully to wait for better opportunities.",
                     "confidence": "content",
-                    "attitude": "accepting"
+                    "attitude": "accepting",
                 },
                 "raise": {
                     "verbal": "Let's add a happy little raise here. Just a touch of aggression.",
@@ -180,11 +179,11 @@ class TestPersonalityResponses(unittest.TestCase):
                     "thought": "Sometimes you need to take chances to create something beautiful.",
                     "strategy": "A gentle raise to see where this leads.",
                     "confidence": "optimistic",
-                    "attitude": "encouraging"
-                }
-            }
+                    "attitude": "encouraging",
+                },
+            },
         }
-        
+
         # Default response if specific action not found
         default = {
             "verbal": f"{name} makes a move.",
@@ -192,26 +191,23 @@ class TestPersonalityResponses(unittest.TestCase):
             "thought": "Playing poker.",
             "strategy": "Standard play.",
             "confidence": "neutral",
-            "attitude": "focused"
+            "attitude": "focused",
         }
-        
+
         return responses.get(name, {}).get(action, default)
-    
+
     @patch('poker.poker_player.Assistant')
     def test_same_scenario_different_responses(self, mock_assistant):
         """Test how each personality responds to facing a bet with pocket 7s."""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("SCENARIO: All players have 7♥7♦, flop is K♠Q♠J♣, facing $100 bet")
-        print("="*80)
-        
+        print("=" * 80)
+
         results = {}
-        
+
         for player_name in ["Ebenezer Scrooge", "Blackbeard", "Queen of Hearts", "Bob Ross"]:
             # Create AI player
-            ai_player = AIPokerPlayer(
-                name=player_name,
-                starting_money=10000
-            )
+            ai_player = AIPokerPlayer(name=player_name, starting_money=10000)
 
             # Mock the response based on personality
             mock_response = self.create_mock_response(player_name, "facing_bet")
@@ -228,11 +224,13 @@ class TestPersonalityResponses(unittest.TestCase):
             anchors = ai_player.personality_config.get('anchors', {})
             aggression = anchors.get('baseline_aggression', 0.5)
             looseness = anchors.get('baseline_looseness', 0.5)
-            print(f"  Personality Traits:")
+            print("  Personality Traits:")
             print(f"    - Aggression: {aggression:.0%}")
             print(f"    - Looseness: {looseness:.0%}")
-            print(f"  Decision: {response['action'].upper()}" +
-                  (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
+            print(
+                f"  Decision: {response['action'].upper()}"
+                + (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else "")
+            )
             beats = response.get('dramatic_sequence', [])
             speech = [b for b in beats if not b.startswith('*')]
             actions = [b for b in beats if b.startswith('*')]
@@ -244,41 +242,39 @@ class TestPersonalityResponses(unittest.TestCase):
         # tuned 0.2 → 0.45 in the 9-anchor refactor (his tightness now
         # lives in baseline_looseness=0.22); the new "call" outcome is
         # semantically correct, not a regression.
-        self.assertEqual(results["Queen of Hearts"]["action"], "raise")    # aggression=0.95
+        self.assertEqual(results["Queen of Hearts"]["action"], "raise")  # aggression=0.95
         self.assertIn(results["Blackbeard"]["action"], ["raise", "call"])  # aggression=0.90
-        self.assertEqual(results["Bob Ross"]["action"], "fold")            # aggression=0.10
-        self.assertEqual(results["Ebenezer Scrooge"]["action"], "call")    # aggression=0.45 mid-range
+        self.assertEqual(results["Bob Ross"]["action"], "fold")  # aggression=0.10
+        self.assertEqual(results["Ebenezer Scrooge"]["action"], "call")  # aggression=0.45 mid-range
 
         # Diversity invariant: a per-character mock should produce more
         # than one distinct action across these archetypes.
         actions = [r["action"] for r in results.values()]
         self.assertGreater(
-            len(set(actions)), 1,
-            f"All personalities returned identical actions: {actions}"
+            len(set(actions)), 1, f"All personalities returned identical actions: {actions}"
         )
-        
+
     @patch('poker.poker_player.Assistant')
     def test_no_bet_scenario(self, mock_assistant):
         """Test responses when no one has bet yet (checking scenario)."""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("SCENARIO: All players have A♥A♦, no bets yet (can check or raise)")
-        print("="*80)
-        
+        print("=" * 80)
+
         for player_name in ["Ebenezer Scrooge", "Blackbeard", "Queen of Hearts", "Bob Ross"]:
-            ai_player = AIPokerPlayer(
-                name=player_name,
-                starting_money=10000
-            )
-            
+            ai_player = AIPokerPlayer(name=player_name, starting_money=10000)
+
             mock_response = self.create_mock_response(player_name, "no_bet")
             mock_assistant.return_value.chat.return_value = json.dumps(mock_response)
-            
+
             ai_player.assistant = mock_assistant.return_value
             response = ai_player.get_player_response("Test message")
-            
+
             print(f"\n{player_name}:")
-            print(f"  Action: {response['action'].upper()}" + 
-                  (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else ""))
+            print(
+                f"  Action: {response['action'].upper()}"
+                + (f" ${response.get('raise_to', 0)}" if response.get('raise_to', 0) > 0 else "")
+            )
             beats = response.get('dramatic_sequence', [])
             speech = [b for b in beats if not b.startswith('*')]
             print(f"  Says: \"{'; '.join(speech)}\"")
@@ -300,13 +296,14 @@ class TestPersonalityResponses(unittest.TestCase):
         """
         bounds = {
             "Ebenezer Scrooge": (0.30, 0.80),  # call zone
-            "Bob Ross":          (0.00, 0.30),  # fold zone
-            "Blackbeard":        (0.80, 1.00),  # raise zone
-            "Queen of Hearts":   (0.80, 1.00),  # raise zone
+            "Bob Ross": (0.00, 0.30),  # fold zone
+            "Blackbeard": (0.80, 1.00),  # raise zone
+            "Queen of Hearts": (0.80, 1.00),  # raise zone
         }
         for name, (lo, hi) in bounds.items():
             with patch.object(
-                AIPokerPlayer, '_load_personality_config',
+                AIPokerPlayer,
+                '_load_personality_config',
                 return_value=load_personality_from_json(name),
             ):
                 p = AIPokerPlayer(name=name, starting_money=10000)

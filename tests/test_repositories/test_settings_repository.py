@@ -1,5 +1,7 @@
 """Tests for SettingsRepository."""
+
 import pytest
+
 from poker.repositories.settings_repository import SettingsRepository
 
 

@@ -13,9 +13,9 @@ And NOT cleared during normal betting phases (PRE_FLOP, FLOP, TURN, RIVER).
 import unittest
 from unittest.mock import MagicMock
 
+from poker.game_helpers import should_clear_player_options
 from poker.poker_game import Player, PokerGameState
 from poker.poker_state_machine import PokerPhase
-from poker.game_helpers import should_clear_player_options
 
 
 def create_mock_game_data(phase: PokerPhase, run_it_out: bool = False):

@@ -86,15 +86,11 @@ export function CashOutSummary({
       <div className="cashout-content">
         <div className="cashout-header">
           <h1 className="cashout-title">{headline}</h1>
-          {stakeLabel && (
-            <div className="cashout-subtitle">{stakeLabel} cash game</div>
-          )}
+          {stakeLabel && <div className="cashout-subtitle">{stakeLabel} cash game</div>}
         </div>
 
         <div className={`cashout-pnl ${outcomeClass}`}>
-          <div className="cashout-pnl__label">
-            {isStaked ? 'Your Take-Home' : 'Net P&L'}
-          </div>
+          <div className="cashout-pnl__label">{isStaked ? 'Your Take-Home' : 'Net P&L'}</div>
           <div className="cashout-pnl__value">
             {summary.net_pnl >= 0 ? '+' : ''}
             {formatChips(summary.net_pnl)}
@@ -131,15 +127,11 @@ export function CashOutSummary({
             <span className="cashout-stat__label">Hands Won</span>
           </div>
           <div className="cashout-stat">
-            <span className="cashout-stat__value">
-              {formatChips(summary.biggest_pot_won)}
-            </span>
+            <span className="cashout-stat__value">{formatChips(summary.biggest_pot_won)}</span>
             <span className="cashout-stat__label">Biggest Pot Won</span>
           </div>
           <div className="cashout-stat">
-            <span className="cashout-stat__value">
-              {formatDuration(summary.duration_seconds)}
-            </span>
+            <span className="cashout-stat__value">{formatDuration(summary.duration_seconds)}</span>
             <span className="cashout-stat__label">Time at Table</span>
           </div>
         </div>
@@ -156,16 +148,10 @@ export function CashOutSummary({
 
         <div className="cashout-bankroll">
           <span className="cashout-bankroll__label">Bankroll now</span>
-          <span className="cashout-bankroll__value">
-            {formatChips(finalBankroll)}
-          </span>
+          <span className="cashout-bankroll__value">{formatChips(finalBankroll)}</span>
         </div>
 
-        <button
-          type="button"
-          className="cashout-continue"
-          onClick={onContinue}
-        >
+        <button type="button" className="cashout-continue" onClick={onContinue}>
           Return to Lobby
         </button>
       </div>

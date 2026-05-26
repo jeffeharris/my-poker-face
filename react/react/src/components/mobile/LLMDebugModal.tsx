@@ -33,7 +33,9 @@ export function LLMDebugModal({ isOpen, onClose, playerName, debugInfo }: LLMDeb
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = ''; };
+      return () => {
+        document.body.style.overflow = '';
+      };
     }
   }, [isOpen]);
 
@@ -44,7 +46,7 @@ export function LLMDebugModal({ isOpen, onClose, playerName, debugInfo }: LLMDeb
       <div
         ref={modalRef}
         className="llm-debug-modal"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="llm-debug-title"
@@ -58,7 +60,9 @@ export function LLMDebugModal({ isOpen, onClose, playerName, debugInfo }: LLMDeb
           <div className="llm-debug-header">
             <div className="llm-debug-title-row">
               <span className="block-char"></span>
-              <h3 id="llm-debug-title" className="llm-debug-title">SYS.DEBUG</h3>
+              <h3 id="llm-debug-title" className="llm-debug-title">
+                SYS.DEBUG
+              </h3>
               <span className="block-char"></span>
             </div>
             <button className="llm-debug-close" onClick={onClose} aria-label="Close">
@@ -103,7 +107,9 @@ export function LLMDebugModal({ isOpen, onClose, playerName, debugInfo }: LLMDeb
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">AVG COST</span>
-                  <span className={`stat-value cost-value ${debugInfo.avg_cost_per_call > 0.01 ? 'high-cost' : ''}`}>
+                  <span
+                    className={`stat-value cost-value ${debugInfo.avg_cost_per_call > 0.01 ? 'high-cost' : ''}`}
+                  >
                     {formatCost(debugInfo.avg_cost_per_call)}
                   </span>
                 </div>

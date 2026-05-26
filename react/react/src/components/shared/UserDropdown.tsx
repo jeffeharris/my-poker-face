@@ -29,7 +29,17 @@ export interface UserDropdownProps {
  * - Escape key to close
  * - Smooth open/close animation
  */
-export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEnabled, onCoachToggle, handsPlayed, handsLimit, onOpen }: UserDropdownProps) {
+export function UserDropdown({
+  user,
+  onLogout,
+  onMainMenu,
+  onAdminTools,
+  coachEnabled,
+  onCoachToggle,
+  handsPlayed,
+  handsLimit,
+  onOpen,
+}: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -110,21 +120,23 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
           {/* User info header */}
           <div className="user-dropdown__header">
             <span className="user-dropdown__header-name">{user.name}</span>
-            {user.is_guest && (
-              <span className="user-dropdown__header-guest">Guest</span>
-            )}
+            {user.is_guest && <span className="user-dropdown__header-guest">Guest</span>}
           </div>
 
           {user.is_guest && handsPlayed != null && handsLimit != null && (
             <div className="user-dropdown__hands-tracker">
               <div className="user-dropdown__hands-label">
                 <span>Hands played</span>
-                <span className="user-dropdown__hands-count">{handsPlayed}/{handsLimit}</span>
+                <span className="user-dropdown__hands-count">
+                  {handsPlayed}/{handsLimit}
+                </span>
               </div>
               <div className="user-dropdown__hands-bar">
                 <div
                   className="user-dropdown__hands-bar-fill"
-                  style={{ width: `${handsLimit > 0 ? Math.min((handsPlayed / handsLimit) * 100, 100) : 100}%` }}
+                  style={{
+                    width: `${handsLimit > 0 ? Math.min((handsPlayed / handsLimit) * 100, 100) : 100}%`,
+                  }}
                 />
               </div>
             </div>
@@ -133,7 +145,10 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
           {onMainMenu && (
             <button
               className="user-dropdown__menu-item"
-              onClick={() => { setIsOpen(false); onMainMenu(); }}
+              onClick={() => {
+                setIsOpen(false);
+                onMainMenu();
+              }}
               role="menuitem"
             >
               <Home size={16} />
@@ -144,7 +159,10 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
           {user.can_access_admin_tools && onAdminTools && (
             <button
               className="user-dropdown__menu-item"
-              onClick={() => { setIsOpen(false); onAdminTools(); }}
+              onClick={() => {
+                setIsOpen(false);
+                onAdminTools();
+              }}
               role="menuitem"
             >
               <Settings size={16} />
@@ -155,13 +173,17 @@ export function UserDropdown({ user, onLogout, onMainMenu, onAdminTools, coachEn
           {onCoachToggle && (
             <button
               className="user-dropdown__menu-item user-dropdown__menu-item--toggle"
-              onClick={() => { onCoachToggle(); }}
+              onClick={() => {
+                onCoachToggle();
+              }}
               role="menuitemcheckbox"
               aria-checked={coachEnabled}
             >
               <GraduationCap size={18} />
               <span>Poker Coach</span>
-              <span className={`user-dropdown__toggle-dot ${coachEnabled ? 'user-dropdown__toggle-dot--on' : ''}`} />
+              <span
+                className={`user-dropdown__toggle-dot ${coachEnabled ? 'user-dropdown__toggle-dot--on' : ''}`}
+              />
             </button>
           )}
 

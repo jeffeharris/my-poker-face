@@ -98,7 +98,7 @@ class RelationshipEvent(Enum):
     UNKNOWN = "_unknown"
 
     @classmethod
-    def from_string(cls, value: str) -> "RelationshipEvent":
+    def from_string(cls, value: str) -> RelationshipEvent:
         """Parse a DB-side memory_type string into the enum.
 
         Unknown strings coerce to `UNKNOWN` rather than raising — this
@@ -122,6 +122,7 @@ class AxisShift:
     heat is bounded [0,1] with 0.0 default (one-sided axis).
     Clamping is the caller's responsibility — these are raw deltas.
     """
+
     heat: float = 0.0
     respect: float = 0.0
     likability: float = 0.0
@@ -135,13 +136,13 @@ class AxisShift:
 # tuning them changes behavior shape, not deployment config.
 ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # Hand-outcome events
-    RelationshipEvent.BLUFFED_OFF:        AxisShift(heat=+0.20, respect=-0.05, likability=-0.02),
-    RelationshipEvent.HERO_CALL:          AxisShift(heat=-0.05, respect=-0.10, likability=+0.01),
-    RelationshipEvent.BIG_LOSS:           AxisShift(heat=+0.15, respect=+0.08, likability=-0.05),
-    RelationshipEvent.BIG_WIN:            AxisShift(heat=-0.10, respect=-0.05, likability=+0.02),
-    RelationshipEvent.BAD_BEAT:           AxisShift(heat=+0.30, respect=-0.15, likability=-0.10),
-    RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat= 0.00, respect=-0.15, likability= 0.00),
-    RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect=+0.10, likability= 0.00),
+    RelationshipEvent.BLUFFED_OFF: AxisShift(heat=+0.20, respect=-0.05, likability=-0.02),
+    RelationshipEvent.HERO_CALL: AxisShift(heat=-0.05, respect=-0.10, likability=+0.01),
+    RelationshipEvent.BIG_LOSS: AxisShift(heat=+0.15, respect=+0.08, likability=-0.05),
+    RelationshipEvent.BIG_WIN: AxisShift(heat=-0.10, respect=-0.05, likability=+0.02),
+    RelationshipEvent.BAD_BEAT: AxisShift(heat=+0.30, respect=-0.15, likability=-0.10),
+    RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat=0.00, respect=-0.15, likability=0.00),
+    RelationshipEvent.STRONG_FOLD_SHOWN: AxisShift(heat=0.00, respect=+0.10, likability=0.00),
     # COOLER actor: the loser brought a strong hand and ran into a
     # stronger one. Emotional signature differs from BAD_BEAT (no
     # equity injustice) and from DOMINATED_SHOWDOWN (where the loser
@@ -150,14 +151,12 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # (winner had even more), likability down slightly (no malice).
     # Starting calibration; tune from play data once distribution vs
     # BAD_BEAT and DOMINATED_SHOWDOWN is visible.
-    RelationshipEvent.COOLER:             AxisShift(heat=+0.10, respect=+0.10, likability=-0.05),
-
+    RelationshipEvent.COOLER: AxisShift(heat=+0.10, respect=+0.10, likability=-0.05),
     # Chat events
-    RelationshipEvent.TRASH_TALK:         AxisShift(heat=+0.10, respect= 0.00, likability=-0.05),
-    RelationshipEvent.COMPLIMENT:         AxisShift(heat= 0.00, respect=+0.03, likability=+0.05),
-    RelationshipEvent.TAUNT_POST_WIN:     AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
-    RelationshipEvent.FRIENDLY_BANTER:    AxisShift(heat= 0.00, respect= 0.00, likability=+0.03),
-
+    RelationshipEvent.TRASH_TALK: AxisShift(heat=+0.10, respect=0.00, likability=-0.05),
+    RelationshipEvent.COMPLIMENT: AxisShift(heat=0.00, respect=+0.03, likability=+0.05),
+    RelationshipEvent.TAUNT_POST_WIN: AxisShift(heat=+0.20, respect=0.00, likability=-0.10),
+    RelationshipEvent.FRIENDLY_BANTER: AxisShift(heat=0.00, respect=0.00, likability=+0.03),
     # Cash-mode staking. Actor = AI staker; their view of the borrower
     # moves on stake lifecycle events.
     #   STAKE_OFFERED: staker extends trust → small respect bump, small
@@ -173,10 +172,10 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     #   STAKE_FORGIVEN: staker wrote off a carry on request → small
     #     heat drop, small respect/likability bump (forgiveness reads
     #     as generous, not pushover, at this magnitude).
-    RelationshipEvent.STAKE_OFFERED:   AxisShift(heat= 0.00, respect=+0.05, likability=+0.03),
-    RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.15, likability=+0.10),
+    RelationshipEvent.STAKE_OFFERED: AxisShift(heat=0.00, respect=+0.05, likability=+0.03),
+    RelationshipEvent.STAKE_REPAID: AxisShift(heat=-0.05, respect=+0.15, likability=+0.10),
     RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.30, respect=-0.30, likability=-0.20),
-    RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.05, likability=+0.05),
+    RelationshipEvent.STAKE_FORGIVEN: AxisShift(heat=-0.10, respect=+0.05, likability=+0.05),
     # STAKE_FORGIVENESS_REFUSED: borrower asked for forgiveness and the
     # staker refused. Small actor-side hit — "you have some nerve
     # asking" — without escalating to the full STAKE_DEFAULTED magnitude
@@ -186,9 +185,10 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # mildly — the borrower wasn't expecting the ask to be granted, but
     # being refused does cool their warmth toward the staker a touch.
     RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
-        heat=+0.02, respect= 0.00, likability=-0.05,
+        heat=+0.02,
+        respect=0.00,
+        likability=-0.05,
     ),
-
     # STACK_DOMINANCE: observer (actor) resents a deep-stacked peer
     # (target). Per-hand drip, scaled at dispatch time by the deep
     # stack's excess above the 1.5× max-buy-in threshold via the
@@ -199,11 +199,12 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # exploitation path. Small respect + likability drips compose into
     # a meaningful pair-state shift only after sustained co-presence.
     RelationshipEvent.STACK_DOMINANCE: AxisShift(
-        heat= 0.00, respect=-0.002, likability=-0.003,
+        heat=0.00,
+        respect=-0.002,
+        likability=-0.003,
     ),
-
     # Quarantine — no axis impact
-    RelationshipEvent.UNKNOWN:            AxisShift(),
+    RelationshipEvent.UNKNOWN: AxisShift(),
 }
 
 
@@ -227,53 +228,51 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
 MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     # Hand-outcome events. Mirror is the OPPONENT of the actor —
     # if actor was bluffed off, target is the one who bluffed them.
-    RelationshipEvent.BLUFFED_OFF:        AxisShift(heat= 0.00, respect= 0.00, likability= 0.00),
-    RelationshipEvent.HERO_CALL:          AxisShift(heat=+0.10, respect=+0.05, likability= 0.00),
-    RelationshipEvent.BIG_LOSS:           AxisShift(heat=-0.05, respect= 0.00, likability=+0.02),
-    RelationshipEvent.BIG_WIN:            AxisShift(heat=+0.10, respect= 0.00, likability=-0.02),
-    RelationshipEvent.BAD_BEAT:           AxisShift(heat= 0.00, respect=+0.05, likability=-0.05),
-    RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat=-0.02, respect= 0.00, likability=-0.02),
-    RelationshipEvent.STRONG_FOLD_SHOWN:  AxisShift(heat= 0.00, respect= 0.00, likability= 0.00),
+    RelationshipEvent.BLUFFED_OFF: AxisShift(heat=0.00, respect=0.00, likability=0.00),
+    RelationshipEvent.HERO_CALL: AxisShift(heat=+0.10, respect=+0.05, likability=0.00),
+    RelationshipEvent.BIG_LOSS: AxisShift(heat=-0.05, respect=0.00, likability=+0.02),
+    RelationshipEvent.BIG_WIN: AxisShift(heat=+0.10, respect=0.00, likability=-0.02),
+    RelationshipEvent.BAD_BEAT: AxisShift(heat=0.00, respect=+0.05, likability=-0.05),
+    RelationshipEvent.DOMINATED_SHOWDOWN: AxisShift(heat=-0.02, respect=0.00, likability=-0.02),
+    RelationshipEvent.STRONG_FOLD_SHOWN: AxisShift(heat=0.00, respect=0.00, likability=0.00),
     # COOLER mirror: the winner had a monster too and ran over the
     # loser's strong hand. Small respect bump (the loser put up a
     # fight, not a passive loss); heat near zero (no animosity from
     # the winner — they got there cleanly); likability roughly neutral.
-    RelationshipEvent.COOLER:             AxisShift(heat= 0.00, respect=+0.05, likability= 0.00),
-
+    RelationshipEvent.COOLER: AxisShift(heat=0.00, respect=+0.05, likability=0.00),
     # Chat events. Mirror is the speaker's TARGET (who hears the
     # message). Trash-talk-toward-target moves target's heat against
     # the speaker; compliments do the inverse.
-    RelationshipEvent.TRASH_TALK:         AxisShift(heat=+0.05, respect= 0.00, likability=-0.10),
-    RelationshipEvent.COMPLIMENT:         AxisShift(heat=-0.02, respect=+0.02, likability=+0.05),
-    RelationshipEvent.TAUNT_POST_WIN:     AxisShift(heat=+0.15, respect= 0.00, likability=-0.10),
-    RelationshipEvent.FRIENDLY_BANTER:    AxisShift(heat= 0.00, respect= 0.00, likability=+0.03),
-
+    RelationshipEvent.TRASH_TALK: AxisShift(heat=+0.05, respect=0.00, likability=-0.10),
+    RelationshipEvent.COMPLIMENT: AxisShift(heat=-0.02, respect=+0.02, likability=+0.05),
+    RelationshipEvent.TAUNT_POST_WIN: AxisShift(heat=+0.15, respect=0.00, likability=-0.10),
+    RelationshipEvent.FRIENDLY_BANTER: AxisShift(heat=0.00, respect=0.00, likability=+0.03),
     # Cash-mode staking. Mirror = borrower's view of the AI staker.
     # Receiving a stake creates gratitude; repaying confirms the
     # staker was trustworthy; defaulting curdles into mutual animosity
     # (borrower sees staker as a creditor breathing down their neck);
     # forgiveness leaves the borrower with strong positive feeling
     # toward someone who let them off the hook.
-    RelationshipEvent.STAKE_OFFERED:   AxisShift(heat= 0.00, respect=+0.05, likability=+0.05),
-    RelationshipEvent.STAKE_REPAID:    AxisShift(heat=-0.05, respect=+0.05, likability=+0.05),
-    RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.20, respect= 0.00, likability=-0.10),
-    RelationshipEvent.STAKE_FORGIVEN:  AxisShift(heat=-0.10, respect=+0.10, likability=+0.15),
+    RelationshipEvent.STAKE_OFFERED: AxisShift(heat=0.00, respect=+0.05, likability=+0.05),
+    RelationshipEvent.STAKE_REPAID: AxisShift(heat=-0.05, respect=+0.05, likability=+0.05),
+    RelationshipEvent.STAKE_DEFAULTED: AxisShift(heat=+0.20, respect=0.00, likability=-0.10),
+    RelationshipEvent.STAKE_FORGIVEN: AxisShift(heat=-0.10, respect=+0.10, likability=+0.15),
     # Mirror: borrower felt rejected. Small negative — being told "no"
     # cools the borrower's warmth a touch, but not as much as the
     # staker's annoyance moves their own axes.
     RelationshipEvent.STAKE_FORGIVENESS_REFUSED: AxisShift(
-        heat=+0.03, respect= 0.00, likability=-0.03,
+        heat=+0.03,
+        respect=0.00,
+        likability=-0.03,
     ),
-
     # STACK_DOMINANCE mirror: the deep stack's view of the resenting
     # peer is unchanged. The bully doesn't notice; the social cost is
     # one-sided. Keeps the dynamic asymmetric — a player who runs hot
     # at a table loses standing with peers without gaining any
     # corresponding contempt or affinity in return.
     RelationshipEvent.STACK_DOMINANCE: AxisShift(),
-
     # Quarantine — no axis impact, same as actor table.
-    RelationshipEvent.UNKNOWN:            AxisShift(),
+    RelationshipEvent.UNKNOWN: AxisShift(),
 }
 
 

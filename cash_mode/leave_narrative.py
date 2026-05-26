@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 from core.llm.config import FAST_MODEL, FAST_PROVIDER
 from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
 
@@ -87,8 +87,10 @@ class LeaveNarrativeContext:
     default_attitude: str
     verbal_tics: Tuple[str, ...] = field(default_factory=tuple)
     physical_tics: Tuple[str, ...] = field(default_factory=tuple)
-    decision: str = ""          # 'forced_leave' | 'stake_up_queued' | 'take_break' | 'bored_move'
-    dominant_signal: str = ""   # 'bust' | 'stake_up' | 'short' | 'stake_up_blocked' | 'detached' | 'tenure'
+    decision: str = ""  # 'forced_leave' | 'stake_up_queued' | 'take_break' | 'bored_move'
+    dominant_signal: str = (
+        ""  # 'bust' | 'stake_up' | 'short' | 'stake_up_blocked' | 'detached' | 'tenure'
+    )
     stake_label: str = ""
     chips_at_exit: int = 0
     min_buy_in: int = 0
@@ -228,8 +230,7 @@ def generate_join_comment(
             owner_id=owner_id,
         )
     except Exception as exc:
-        logger.debug("join_narrative: LLM call failed for %s: %s",
-                     ctx.personality_name, exc)
+        logger.debug("join_narrative: LLM call failed for %s: %s", ctx.personality_name, exc)
         return None
 
     content = (response.content or "").strip()
@@ -237,11 +238,13 @@ def generate_join_comment(
         return None
 
     import json as _json
+
     try:
         payload = _json.loads(content)
     except _json.JSONDecodeError:
-        logger.debug("join_narrative: non-JSON response for %s: %r",
-                     ctx.personality_name, content[:120])
+        logger.debug(
+            "join_narrative: non-JSON response for %s: %r", ctx.personality_name, content[:120]
+        )
         return None
 
     return _render_sequence(payload)
@@ -295,8 +298,7 @@ def generate_leave_comment(
             owner_id=owner_id,
         )
     except Exception as exc:
-        logger.debug("leave_narrative: LLM call failed for %s: %s",
-                     ctx.personality_name, exc)
+        logger.debug("leave_narrative: LLM call failed for %s: %s", ctx.personality_name, exc)
         return None
 
     content = (response.content or "").strip()
@@ -304,11 +306,13 @@ def generate_leave_comment(
         return None
 
     import json as _json
+
     try:
         payload = _json.loads(content)
     except _json.JSONDecodeError:
-        logger.debug("leave_narrative: non-JSON response for %s: %r",
-                     ctx.personality_name, content[:120])
+        logger.debug(
+            "leave_narrative: non-JSON response for %s: %r", ctx.personality_name, content[:120]
+        )
         return None
 
     return _render_sequence(payload)
@@ -355,9 +359,12 @@ def _store_result(key: Tuple[str, str, str], comment: str) -> None:
             _results.pop(next(iter(_results)))
 
 
-def _worker(key: Tuple[str, str, str], ctx: LeaveNarrativeContext,
-            owner_id: Optional[str],
-            on_complete: Optional[Callable[[str], None]]) -> None:
+def _worker(
+    key: Tuple[str, str, str],
+    ctx: LeaveNarrativeContext,
+    owner_id: Optional[str],
+    on_complete: Optional[Callable[[str], None]],
+) -> None:
     try:
         comment = generate_leave_comment(ctx, owner_id=owner_id)
     except Exception as exc:
@@ -377,9 +384,12 @@ def _worker(key: Tuple[str, str, str], ctx: LeaveNarrativeContext,
             logger.debug("leave_narrative on_complete crashed: %s", exc)
 
 
-def _join_worker(key: Tuple[str, str, str], ctx: JoinNarrativeContext,
-                 owner_id: Optional[str],
-                 on_complete: Optional[Callable[[str], None]]) -> None:
+def _join_worker(
+    key: Tuple[str, str, str],
+    ctx: JoinNarrativeContext,
+    owner_id: Optional[str],
+    on_complete: Optional[Callable[[str], None]],
+) -> None:
     try:
         comment = generate_join_comment(ctx, owner_id=owner_id)
     except Exception as exc:
@@ -404,7 +414,9 @@ def is_disabled() -> bool:
     just go out without comments.
     """
     return os.environ.get("CASH_LEAVE_NARRATIVE_DISABLED", "").lower() in (
-        "1", "true", "yes",
+        "1",
+        "true",
+        "yes",
     )
 
 

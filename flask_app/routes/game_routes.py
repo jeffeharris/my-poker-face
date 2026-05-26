@@ -1,54 +1,83 @@
 """Game-related routes and socket events."""
 
-import time
 import json
 import logging
 import secrets
+import time
 from datetime import datetime
 from typing import Dict, Optional
 
-from flask import Blueprint, jsonify, request, redirect, send_from_directory
-from flask_socketio import join_room, emit
+from flask import Blueprint, jsonify, redirect, request, send_from_directory
+from flask_socketio import emit, join_room
 
-from poker.controllers import AIPlayerController
-from poker.hybrid_ai_controller import HybridAIController
-from poker.poker_game import initialize_game_state, play_turn, advance_to_next_active_player
-from poker.prompt_config import PromptConfig
+from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
+from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+from poker.authorization import get_authorization_service
 from poker.betting_context import BettingContext
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.utils import get_celebrities
+from poker.controllers import AIPlayerController
+
 # TiltState removed - now using ComposureState from player_psychology
 from poker.emotional_state import EmotionalState
-from poker.pressure_detector import PressureEventDetector
-from poker.pressure_stats import PressureStatsTracker
+from poker.guest_limits import (
+    GUEST_LIMITS_ENABLED,
+    GUEST_MAX_ACTIVE_GAMES,
+    GUEST_MAX_HANDS,
+    GUEST_MAX_OPPONENTS,
+    check_guest_game_limit,
+    check_guest_hands_limit,
+    check_guest_message_limit,
+    is_guest,
+    validate_guest_opponent_count,
+)
+from poker.hybrid_ai_controller import HybridAIController
 from poker.memory import AIMemoryManager
 from poker.memory.opponent_model import OpponentModelManager
+from poker.poker_game import advance_to_next_active_player, initialize_game_state, play_turn
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.pressure_detector import PressureEventDetector
+from poker.pressure_stats import PressureStatsTracker
+from poker.prompt_config import PromptConfig
 from poker.tournament_tracker import TournamentTracker
-from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+from poker.utils import get_celebrities
 
+from .. import config
+from ..extensions import (
+    auth_manager,
+    capture_label_repo,
+    coach_repo,
+    decision_analysis_repo,
+    game_repo,
+    guest_tracking_repo,
+    hand_history_repo,
+    limiter,
+    llm_repo,
+    persistence_db_path,
+    personality_repo,
+    prompt_preset_repo,
+    relationship_repo,
+    socketio,
+    tournament_repo,
+    user_repo,
+)
 from ..game_adapter import StateMachineAdapter
-from ..extensions import socketio, auth_manager, limiter, game_repo, user_repo, guest_tracking_repo, llm_repo, tournament_repo, hand_history_repo, prompt_preset_repo, decision_analysis_repo, capture_label_repo, coach_repo, relationship_repo, persistence_db_path, personality_repo
-from ..socket_rate_limit import socket_rate_limit
-from ..services import game_state_service
-from ..services.elasticity_service import format_elasticity_data
+from ..handlers.avatar_handler import start_background_avatar_generation
+from ..handlers.chat_relationship import dispatch_chat_relationship_event
 from ..handlers.game_handler import (
-    progress_game, update_and_emit_game_state, restore_ai_controllers,
-    recover_stuck_runout
+    progress_game,
+    recover_stuck_runout,
+    restore_ai_controllers,
+    update_and_emit_game_state,
 )
 from ..handlers.message_handler import (
-    send_message, format_action_message, record_action_in_memory, format_messages_for_api
+    format_action_message,
+    format_messages_for_api,
+    record_action_in_memory,
+    send_message,
 )
-from ..handlers.chat_relationship import dispatch_chat_relationship_event
-from ..handlers.avatar_handler import start_background_avatar_generation
-from .. import config
+from ..services import game_state_service
+from ..services.elasticity_service import format_elasticity_data
+from ..socket_rate_limit import socket_rate_limit
 from ..validation import validate_player_action
-from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
-from poker.authorization import get_authorization_service
-from poker.guest_limits import (
-    is_guest, check_guest_game_limit, validate_guest_opponent_count,
-    check_guest_message_limit, check_guest_hands_limit
-)
-from poker.guest_limits import GUEST_MAX_HANDS, GUEST_MAX_ACTIVE_GAMES, GUEST_MAX_OPPONENTS, GUEST_LIMITS_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +112,14 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
     """Authorize access to a game using owner-or-admin checks."""
     current_user = auth_manager.get_current_user() if auth_manager else None
     if not current_user or not current_user.get('id'):
-        return None, None, None, (
-            jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}),
-            401,
+        return (
+            None,
+            None,
+            None,
+            (
+                jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}),
+                401,
+            ),
         )
 
     user_id = current_user['id']
@@ -137,9 +171,7 @@ def load_game_mode_preset(game_mode: str) -> PromptConfig:
         PromptConfig with the preset's settings applied
     """
     if game_mode == 'competitive':
-        logger.warning(
-            "Game mode 'competitive' is deprecated; mapping to 'pro'."
-        )
+        logger.warning("Game mode 'competitive' is deprecated; mapping to 'pro'.")
         game_mode = 'pro'
 
     preset = prompt_preset_repo.get_prompt_preset_by_name(game_mode)
@@ -190,13 +222,16 @@ def analyze_player_decision(
         # Get cards in format equity calculator understands
         from poker.card_utils import card_to_string
 
-        community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+        community_cards = (
+            [card_to_string(c) for c in game_state.community_cards]
+            if game_state.community_cards
+            else []
+        )
         player_hand = [card_to_string(c) for c in player.hand] if player.hand else []
 
         # Count opponents still in hand
         opponents_in_hand = [
-            p for p in game_state.players
-            if not p.is_folded and p.name != player_name
+            p for p in game_state.players if not p.is_folded and p.name != player_name
         ]
         num_opponents = len(opponents_in_hand)
 
@@ -211,8 +246,11 @@ def analyze_player_decision(
 
         # Build OpponentInfo objects with observed stats and personality data
         from poker.hand_ranges import build_opponent_info
+
         opponent_infos = []
-        opponent_model_manager = memory_manager.get_opponent_model_manager() if memory_manager else None
+        opponent_model_manager = (
+            memory_manager.get_opponent_model_manager() if memory_manager else None
+        )
 
         for opp in opponents_in_hand:
             opp_position = position_by_name.get(opp.name, "button")
@@ -224,11 +262,13 @@ def analyze_player_decision(
                 if opp_model and opp_model.tendencies:
                     opp_model_data = opp_model.tendencies.to_dict()
 
-            opponent_infos.append(build_opponent_info(
-                name=opp.name,
-                position=opp_position,
-                opponent_model=opp_model_data,
-            ))
+            opponent_infos.append(
+                build_opponent_info(
+                    name=opp.name,
+                    position=opp_position,
+                    opponent_model=opp_model_data,
+                )
+            )
 
         # Calculate effective cost to call (capped at player's stack)
         raw_cost_to_call = max(0, game_state.highest_bet - player.bet)
@@ -264,6 +304,7 @@ def analyze_player_decision(
                     _serialize_intervention_trace,
                     _serialize_pipeline_snapshot,
                 )
+
                 analysis.intervention_trace_json = _serialize_intervention_trace(
                     getattr(controller, '_last_intervention_trace', None),
                     player_name=player_name,
@@ -283,9 +324,9 @@ def analyze_player_decision(
         logger.warning(f"[DECISION_ANALYSIS] Failed to analyze decision for {player_name}: {e}")
 
 
-def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
-                                 amount: int, game_data: dict,
-                                 pre_action_state) -> None:
+def _evaluate_coach_progression(
+    game_id: str, player_name: str, action: str, amount: int, game_data: dict, pre_action_state
+) -> None:
     """Post-action hook: evaluate the human player's action against skill targets.
 
     Uses a broad try/except intentionally: this entire function is a non-critical
@@ -305,12 +346,17 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
 
         # Compute coaching data from the pre-action state for accurate evaluation
         coaching_data = compute_coaching_data(
-            game_id, player_name, game_data=game_data,
+            game_id,
+            player_name,
+            game_data=game_data,
             game_state_override=pre_action_state,
         )
         if not coaching_data:
-            logger.debug("[COACH_PROGRESSION] Skipped: no coaching_data for game=%s player=%s",
-                         game_id, player_name)
+            logger.debug(
+                "[COACH_PROGRESSION] Skipped: no coaching_data for game=%s player=%s",
+                game_id,
+                player_name,
+            )
             return
 
         # Inject current action's bet sizing (not available from hand_actions
@@ -330,14 +376,12 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
         classifier = SituationClassifier()
         unlocked = [g for g, gp in player_state['gate_progress'].items() if gp.unlocked]
         classification = classifier.classify(
-            coaching_data, unlocked, player_state['skill_states'],
-            range_targets=range_targets
+            coaching_data, unlocked, player_state['skill_states'], range_targets=range_targets
         )
 
         if classification.relevant_skills:
             evaluations = service.evaluate_and_update(
-                user_id, action, coaching_data, classification,
-                range_targets=range_targets
+                user_id, action, coaching_data, classification, range_targets=range_targets
             )
             if evaluations:
                 logger.debug(
@@ -356,7 +400,9 @@ def _evaluate_coach_progression(game_id: str, player_name: str, action: str,
                     hand_number = getattr(memory_manager.hand_recorder, 'hand_count', 0)
                 else:
                     hand_number = 0
-                    logger.debug("[COACH_PROGRESSION] No memory_manager; recording under hand_number=0")
+                    logger.debug(
+                        "[COACH_PROGRESSION] No memory_manager; recording under hand_number=0"
+                    )
 
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
@@ -372,7 +418,6 @@ def generate_game_id() -> str:
     return secrets.token_urlsafe(16)
 
 
-
 @game_bp.route('/api/usage-stats')
 def get_usage_stats():
     """Get guest usage stats (hands played, limits)."""
@@ -385,18 +430,18 @@ def get_usage_stats():
         if tracking_id:
             hands_played = guest_tracking_repo.get_hands_played(tracking_id)
 
-    hands_limit_reached = (
-        guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
-    )
+    hands_limit_reached = guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
 
-    return jsonify({
-        'hands_played': hands_played,
-        'hands_limit': GUEST_MAX_HANDS,
-        'hands_limit_reached': hands_limit_reached,
-        'max_opponents': GUEST_MAX_OPPONENTS if guest else 9,
-        'max_active_games': GUEST_MAX_ACTIVE_GAMES if guest else 10,
-        'is_guest': guest,
-    })
+    return jsonify(
+        {
+            'hands_played': hands_played,
+            'hands_limit': GUEST_MAX_HANDS,
+            'hands_limit_reached': hands_limit_reached,
+            'max_opponents': GUEST_MAX_OPPONENTS if guest else 9,
+            'max_active_games': GUEST_MAX_ACTIVE_GAMES if guest else 10,
+            'is_guest': guest,
+        }
+    )
 
 
 @game_bp.route('/api/games')
@@ -413,7 +458,9 @@ def list_games():
     offset = max(0, offset)
 
     if current_user:
-        saved_games = game_repo.list_games(owner_id=current_user.get('id'), limit=limit, offset=offset)
+        saved_games = game_repo.list_games(
+            owner_id=current_user.get('id'), limit=limit, offset=offset
+        )
     else:
         saved_games = []
 
@@ -453,20 +500,22 @@ def list_games():
             logger.warning(f"Failed to parse phase for game {game.game_id}")
             phase_name = game.phase
 
-        games_data.append({
-            'game_id': game.game_id,
-            'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
-            'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
-            'phase': phase_name,
-            'num_players': game.num_players,
-            'pot_size': game.pot_size,
-            'player_names': player_names,
-            'is_owner': True,
-            'active_players': active_players,
-            'total_players': total_players,
-            'human_stack': human_stack,
-            'big_blind': big_blind
-        })
+        games_data.append(
+            {
+                'game_id': game.game_id,
+                'created_at': game.created_at.strftime("%Y-%m-%d %H:%M"),
+                'updated_at': game.updated_at.strftime("%Y-%m-%d %H:%M"),
+                'phase': phase_name,
+                'num_players': game.num_players,
+                'pot_size': game.pot_size,
+                'player_names': player_names,
+                'is_owner': True,
+                'active_players': active_players,
+                'total_players': total_players,
+                'human_stack': human_stack,
+                'big_blind': big_blind,
+            }
+        )
 
     return jsonify({'games': games_data})
 
@@ -483,8 +532,12 @@ def api_game_state(game_id):
     # Auto-advance cached games that are stuck in non-action phases
     if current_game_data:
         state_machine = current_game_data['state_machine']
-        if not state_machine.game_state.awaiting_action and not current_game_data.get('game_started', False):
-            logger.debug(f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}")
+        if not state_machine.game_state.awaiting_action and not current_game_data.get(
+            'game_started', False
+        ):
+            logger.debug(
+                f"[CACHE] Auto-advancing cached game {game_id}, phase: {state_machine.current_phase}"
+            )
             current_game_data['game_started'] = True
             progress_game(game_id)
 
@@ -514,12 +567,15 @@ def api_game_state(game_id):
                         # Load per-player LLM configs for proper provider restoration
                         llm_configs = game_repo.load_llm_configs(game_id) or {}
                         ai_controllers = restore_ai_controllers(
-                            game_id, state_machine, game_repo,
+                            game_id,
+                            state_machine,
+                            game_repo,
                             owner_id=owner_id,
                             player_llm_configs=llm_configs.get('player_llm_configs'),
                             default_llm_config=llm_configs.get('default_llm_config'),
-                            capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo,
-                            bot_types=llm_configs.get('bot_types')
+                            capture_label_repo=capture_label_repo,
+                            decision_analysis_repo=decision_analysis_repo,
+                            bot_types=llm_configs.get('bot_types'),
                         )
                         db_messages = game_repo.load_messages(game_id)
 
@@ -528,6 +584,7 @@ def api_game_state(game_id):
                         # game_id + event_repository, restored games silently lose
                         # both: past stats start empty and new events no-op.
                         from poker.repositories.sqlite_repositories import PressureEventRepository
+
                         event_repository = PressureEventRepository(config.DB_PATH)
                         pressure_detector = PressureEventDetector()
                         pressure_stats = PressureStatsTracker(game_id, event_repository)
@@ -554,25 +611,35 @@ def api_game_state(game_id):
                                 from flask_app.services.sandbox_resolver import (
                                     resolve_default_sandbox_for,
                                 )
+
                                 cold_load_sandbox_id = resolve_default_sandbox_for(
-                                    owner_id, sandbox_repo=_sandbox_repo,
+                                    owner_id,
+                                    sandbox_repo=_sandbox_repo,
                                 )
                             except Exception as e:
                                 logger.warning(
                                     "[LOAD] sandbox resolve failed for cash "
                                     "game %s owner %s: %s — cash_pair_stats "
                                     "writes will be skipped this session",
-                                    game_id, owner_id, e,
+                                    game_id,
+                                    owner_id,
+                                    e,
                                 )
 
-                        memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
-                        memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
+                        memory_manager = AIMemoryManager(
+                            game_id, persistence_db_path, owner_id=owner_id
+                        )
+                        memory_manager.set_hand_history_repo(
+                            hand_history_repo
+                        )  # Enable hand history saving
 
                         # Restore hand count from database
                         restored_hand_count = hand_history_repo.get_hand_count(game_id)
                         if restored_hand_count > 0:
                             memory_manager.hand_count = restored_hand_count
-                            logger.info(f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}")
+                            logger.info(
+                                f"[LOAD] Restored hand count: {restored_hand_count} for game {game_id}"
+                            )
 
                         # Restore opponent models from database. This
                         # swaps `memory_manager.opponent_model_manager`
@@ -582,7 +649,9 @@ def api_game_state(game_id):
                         # below.
                         saved_opponent_models = game_repo.load_opponent_models(game_id)
                         if saved_opponent_models:
-                            memory_manager.opponent_model_manager = OpponentModelManager.from_dict(saved_opponent_models)
+                            memory_manager.opponent_model_manager = OpponentModelManager.from_dict(
+                                saved_opponent_models
+                            )
                             logger.info(f"[LOAD] Restored opponent models for game {game_id}")
 
                         # Phase 3: relationship state populates from hand
@@ -616,7 +685,10 @@ def api_game_state(game_id):
                             # through to the fail-safe suppression below.
                             cash_table_id = None
                             try:
-                                from flask_app.extensions import cash_session_repo as _cash_session_repo
+                                from flask_app.extensions import (
+                                    cash_session_repo as _cash_session_repo,
+                                )
+
                                 if _cash_session_repo is not None:
                                     _cs = _cash_session_repo.load(game_id)
                                     if _cs is not None:
@@ -626,12 +698,16 @@ def api_game_state(game_id):
                                     "[LOAD] cash_sessions lookup for relationship "
                                     "suppression failed for %s: %s — suppressing "
                                     "relationship writes (fail-safe).",
-                                    game_id, e,
+                                    game_id,
+                                    e,
                                 )
                                 suppress_for_casino = True
                             if cash_table_id:
                                 try:
-                                    from flask_app.extensions import cash_table_repo as _cash_table_repo
+                                    from flask_app.extensions import (
+                                        cash_table_repo as _cash_table_repo,
+                                    )
+
                                     if _cash_table_repo is None:
                                         suppress_for_casino = True
                                         logger.warning(
@@ -653,19 +729,20 @@ def api_game_state(game_id):
                                                 "found for cold-load of game "
                                                 "%s; suppressing relationship "
                                                 "writes (fail-safe).",
-                                                cash_table_id, game_id,
+                                                cash_table_id,
+                                                game_id,
                                             )
                                         else:
-                                            suppress_for_casino = (
-                                                _ct.table_type == 'casino'
-                                            )
+                                            suppress_for_casino = _ct.table_type == 'casino'
                                 except Exception as exc:
                                     suppress_for_casino = True
                                     logger.warning(
                                         "[LOAD] cash table load failed for "
                                         "%s (game %s): %s — suppressing "
                                         "relationship writes (fail-safe).",
-                                        cash_table_id, game_id, exc,
+                                        cash_table_id,
+                                        game_id,
+                                        exc,
                                     )
                         if not suppress_for_casino:
                             memory_manager.set_relationship_repo(
@@ -685,10 +762,16 @@ def api_game_state(game_id):
                             except Exception:
                                 pid = None
                             if not player.is_human and player.name in ai_controllers:
-                                memory_manager.initialize_for_player(player.name, personality_id=pid)
+                                memory_manager.initialize_for_player(
+                                    player.name, personality_id=pid
+                                )
                                 controller = ai_controllers[player.name]
-                                controller.session_memory = memory_manager.get_session_memory(player.name)
-                                controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+                                controller.session_memory = memory_manager.get_session_memory(
+                                    player.name
+                                )
+                                controller.opponent_model_manager = (
+                                    memory_manager.get_opponent_model_manager()
+                                )
                                 controller.memory_manager = memory_manager
                             elif player.is_human:
                                 # Register with owner_id (the stable auth id) so
@@ -706,14 +789,16 @@ def api_game_state(game_id):
                         memory_manager.on_hand_start(
                             state_machine.game_state,
                             hand_number=memory_manager.hand_count + 1,
-                            deck_seed=state_machine.current_hand_seed
+                            deck_seed=state_machine.current_hand_seed,
                         )
 
                         # Try to load tournament tracker from database, or create new one
                         tracker_data = game_repo.load_tournament_tracker(game_id)
                         if tracker_data:
                             tournament_tracker = TournamentTracker.from_dict(tracker_data)
-                            logger.info(f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations")
+                            logger.info(
+                                f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
+                            )
                         else:
                             # Fallback: create new tracker with current players
                             starting_players = [
@@ -721,8 +806,7 @@ def api_game_state(game_id):
                                 for p in state_machine.game_state.players
                             ]
                             tournament_tracker = TournamentTracker(
-                                game_id=game_id,
-                                starting_players=starting_players
+                                game_id=game_id, starting_players=starting_players
                             )
                             tournament_tracker.hand_count = memory_manager.hand_count
 
@@ -737,7 +821,8 @@ def api_game_state(game_id):
                             p.name: p.stack for p in state_machine.game_state.players
                         }
                         short_stack_players = {
-                            p.name for p in state_machine.game_state.players
+                            p.name
+                            for p in state_machine.game_state.players
                             if 0 < p.stack < 10 * big_blind
                         }
 
@@ -753,7 +838,9 @@ def api_game_state(game_id):
                             'messages': db_messages,
                             'last_announced_phase': None,  # Reset on game load
                             'game_started': True,
-                            'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
+                            'guest_tracking_id': current_user.get('tracking_id')
+                            if current_user
+                            else None,
                             'hand_start_stacks': hand_start_stacks,
                             'short_stack_players': short_stack_players,
                         }
@@ -765,9 +852,11 @@ def api_game_state(game_id):
                         # right archetype after a hand.
                         if is_cash_game:
                             from flask_app.routes.cash_routes import STAKES_LADDER
+
                             stake_label = next(
                                 (
-                                    label for label, cfg in STAKES_LADDER.items()
+                                    label
+                                    for label, cfg in STAKES_LADDER.items()
                                     if cfg["big_blind"] == big_blind
                                 ),
                                 None,
@@ -777,7 +866,9 @@ def api_game_state(game_id):
                                 if player.is_human:
                                     continue
                                 try:
-                                    pid = personality_repo.resolve_name_to_personality_id(player.name)
+                                    pid = personality_repo.resolve_name_to_personality_id(
+                                        player.name
+                                    )
                                 except Exception:
                                     pid = None
                                 if pid:
@@ -795,6 +886,7 @@ def api_game_state(game_id):
                                 from cash_mode.stakes_ladder import (
                                     table_buy_in_window,
                                 )
+
                                 _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
                                 memory_manager.set_table_max_buy_in(cold_load_max_buy_in)
                             # Restore the four buy-in / start-time / seat
@@ -807,6 +899,7 @@ def api_game_state(game_id):
                             # down by cash_routes._record_cash_session_start.
                             try:
                                 from flask_app.extensions import cash_session_repo
+
                                 if cash_session_repo is not None:
                                     cs = cash_session_repo.load(game_id)
                                     if cs is not None:
@@ -819,7 +912,8 @@ def api_game_state(game_id):
                             except Exception as e:
                                 logger.warning(
                                     "[LOAD] cash_sessions cold-load restore failed for %r: %s",
-                                    game_id, e,
+                                    game_id,
+                                    e,
                                 )
                         # Recover from games persisted mid-all-in-runout (server
                         # crash while run_it_out=True). Without this, the player
@@ -829,15 +923,19 @@ def api_game_state(game_id):
                         # — usually the showdown completes and a new hand
                         # begins. Re-saves so the recovered state is durable.
                         if recover_stuck_runout(state_machine):
-                            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+                            game_repo.save_game(
+                                game_id, state_machine._state_machine, owner_id, owner_name
+                            )
 
                         game_state_service.set_game(game_id, current_game_data)
 
                         game_state = state_machine.game_state
                         current_player = game_state.current_player
-                        logger.debug(f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
-                              f"awaiting_action: {game_state.awaiting_action}, "
-                              f"current_player: {current_player.name} (human: {current_player.is_human})")
+                        logger.debug(
+                            f"[LOAD] Game {game_id} loaded. Phase: {state_machine.current_phase}, "
+                            f"awaiting_action: {game_state.awaiting_action}, "
+                            f"current_player: {current_player.name} (human: {current_player.is_human})"
+                        )
 
                         # Defer the progress_game calls until after the
                         # load lock is released — progress_game acquires
@@ -853,11 +951,13 @@ def api_game_state(game_id):
                         return jsonify({'error': 'Game not found'}), 404
                 except Exception as e:
                     logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
-                    return jsonify({
-                        'error': 'Failed to load game from database',
-                        'message': 'An error occurred while loading the game. Please try again or start a new game.',
-                        'players': []
-                    }), 500
+                    return jsonify(
+                        {
+                            'error': 'Failed to load game from database',
+                            'message': 'An error occurred while loading the game. Please try again or start a new game.',
+                            'players': [],
+                        }
+                    ), 500
 
     if _post_load_should_advance:
         logger.debug(f"[LOAD] Auto-advancing game {game_id} ({_post_load_advance_reason})")
@@ -885,19 +985,23 @@ def api_game_state(game_id):
                 avatar_emotion = 'confident'
             avatar_url = get_avatar_url_with_fallback(game_id, player.name, avatar_emotion)
 
-        players.append({
-            'name': player.name,
-            'stack': player.stack,
-            'bet': player.bet,
-            'is_folded': player.is_folded,
-            'is_all_in': player.is_all_in,
-            'is_human': player.is_human,
-            'hand': hand,
-            'avatar_url': avatar_url,
-            'avatar_emotion': avatar_emotion
-        })
+        players.append(
+            {
+                'name': player.name,
+                'stack': player.stack,
+                'bet': player.bet,
+                'is_folded': player.is_folded,
+                'is_all_in': player.is_all_in,
+                'is_human': player.is_human,
+                'hand': hand,
+                'avatar_url': avatar_url,
+                'avatar_emotion': avatar_emotion,
+            }
+        )
 
-    community_cards = [card.to_dict() if hasattr(card, 'to_dict') else card for card in game_state.community_cards]
+    community_cards = [
+        card.to_dict() if hasattr(card, 'to_dict') else card for card in game_state.community_cards
+    ]
     messages = format_messages_for_api(current_game_data.get('messages', []))
 
     # Build betting context for current player
@@ -906,7 +1010,9 @@ def api_game_state(game_id):
     for cover in opponent_covers:
         controller = ai_controllers.get(cover['name'])
         if controller:
-            cover['nickname'] = controller.ai_player.personality_config.get('nickname', cover['name'].split()[0])
+            cover['nickname'] = controller.ai_player.personality_config.get(
+                'nickname', cover['name'].split()[0]
+            )
         else:
             cover['nickname'] = cover['name'].split()[0]
     betting_context['opponent_covers'] = opponent_covers
@@ -921,7 +1027,9 @@ def api_game_state(game_id):
         'big_blind_idx': game_state.big_blind_idx,
         'phase': state_machine.current_phase.name,
         'highest_bet': game_state.highest_bet,
-        'player_options': list(game_state.current_player_options) if game_state.current_player_options else [],
+        'player_options': list(game_state.current_player_options)
+        if game_state.current_player_options
+        else [],
         'min_raise': game_state.min_raise_amount,
         'big_blind': game_state.current_ante,
         'messages': messages,
@@ -935,6 +1043,7 @@ def api_game_state(game_id):
     # before knowing this is a cash session, leaving the pill hidden
     # on initial paint.
     from flask_app.handlers.game_handler import build_cash_mode_payload
+
     cash_meta = build_cash_mode_payload(current_game_data, game_state)
     if cash_meta is not None:
         response['cash_mode'] = cash_meta
@@ -967,9 +1076,9 @@ def api_user_models():
     """
     from core.llm import (
         AVAILABLE_PROVIDERS,
-        PROVIDER_MODELS,
-        PROVIDER_DEFAULT_MODELS,
         PROVIDER_CAPABILITIES,
+        PROVIDER_DEFAULT_MODELS,
+        PROVIDER_MODELS,
     )
 
     # Get cost tiers from pricing database
@@ -1007,20 +1116,24 @@ def api_user_models():
             if (provider, m) in model_capabilities
         }
 
-        providers.append({
-            'id': provider,
-            'name': provider.title(),
-            'models': models,
-            'default_model': default_model,
-            'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
-            'model_capabilities': provider_model_caps,
-            'model_tiers': model_tiers.get(provider, {}),
-        })
+        providers.append(
+            {
+                'id': provider,
+                'name': provider.title(),
+                'models': models,
+                'default_model': default_model,
+                'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+                'model_capabilities': provider_model_caps,
+                'model_tiers': model_tiers.get(provider, {}),
+            }
+        )
 
-    return jsonify({
-        'providers': providers,
-        'default_provider': 'openai',
-    })
+    return jsonify(
+        {
+            'providers': providers,
+            'default_provider': 'openai',
+        }
+    )
 
 
 @game_bp.route('/api/system-models', methods=['GET'])
@@ -1038,9 +1151,9 @@ def api_system_models():
     """
     from core.llm import (
         AVAILABLE_PROVIDERS,
-        PROVIDER_MODELS,
-        PROVIDER_DEFAULT_MODELS,
         PROVIDER_CAPABILITIES,
+        PROVIDER_DEFAULT_MODELS,
+        PROVIDER_MODELS,
     )
 
     # Get cost tiers from pricing database
@@ -1078,20 +1191,24 @@ def api_system_models():
             if (provider, m) in model_capabilities
         }
 
-        providers.append({
-            'id': provider,
-            'name': provider.title(),
-            'models': models,
-            'default_model': default_model,
-            'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
-            'model_capabilities': provider_model_caps,
-            'model_tiers': model_tiers.get(provider, {}),
-        })
+        providers.append(
+            {
+                'id': provider,
+                'name': provider.title(),
+                'models': models,
+                'default_model': default_model,
+                'capabilities': PROVIDER_CAPABILITIES.get(provider, {}),
+                'model_capabilities': provider_model_caps,
+                'model_tiers': model_tiers.get(provider, {}),
+            }
+        )
 
-    return jsonify({
-        'providers': providers,
-        'default_provider': 'openai',
-    })
+    return jsonify(
+        {
+            'providers': providers,
+            'default_provider': 'openai',
+        }
+    )
 
 
 def _get_enabled_models_map():
@@ -1152,23 +1269,18 @@ def api_new_game():
     if is_guest(current_user):
         allowed, error_msg = check_guest_game_limit(current_user, game_count)
         if not allowed:
-            return jsonify({
-                'error': error_msg,
-                'code': 'GUEST_LIMIT_GAMES'
-            }), 403
+            return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_GAMES'}), 403
     else:
         max_games = 10
         if game_count >= max_games:
-            return jsonify({
-                'error': f'Game limit reached. You can have up to {max_games} saved games.'
-            }), 400
+            return jsonify(
+                {'error': f'Game limit reached. You can have up to {max_games} saved games.'}
+            ), 400
 
     # Prevent duplicate game creation from rapid clicks
     last_created = user_repo.get_last_game_creation_time(owner_id)
     if last_created is not None and (time.time() - last_created) < 3:
-        return jsonify({
-            'error': 'Please wait a moment before creating another game.'
-        }), 429
+        return jsonify({'error': 'Please wait a moment before creating another game.'}), 429
 
     requested_personalities = data.get('personalities', [])
     default_llm_config = data.get('llm_config', {})
@@ -1183,10 +1295,9 @@ def api_new_game():
     # 'competitive' is auto-mapped to 'pro' downstream (kept here for backward compat).
     VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
-        return jsonify({
-            'error': f'Invalid game_mode: {game_mode}',
-            'valid_modes': list(VALID_GAME_MODES)
-        }), 400
+        return jsonify(
+            {'error': f'Invalid game_mode: {game_mode}', 'valid_modes': list(VALID_GAME_MODES)}
+        ), 400
 
     # Validate default LLM config if provided
     if default_llm_config:
@@ -1195,7 +1306,9 @@ def api_new_game():
             return jsonify({'error': f'Invalid default provider: {default_provider}'}), 400
         default_model = default_llm_config.get('model')
         if default_model and default_model not in PROVIDER_MODELS.get(default_provider, []):
-            return jsonify({'error': f'Invalid default model {default_model} for provider {default_provider}'}), 400
+            return jsonify(
+                {'error': f'Invalid default model {default_model} for provider {default_provider}'}
+            ), 400
 
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
@@ -1204,20 +1317,29 @@ def api_new_game():
     # 'standard' / 'sharp' before storage. They are NOT advertised in error
     # responses so new clients don't pick them up as legitimate choices.
     VALID_BOT_TYPES = {
-        'chaos', 'standard', 'lean', 'sharp',
-        'casebot', 'gto_lite', 'baseline_solver',
+        'chaos',
+        'standard',
+        'lean',
+        'sharp',
+        'casebot',
+        'gto_lite',
+        'baseline_solver',
     }
     _BOT_TYPE_ALIASES = {'hybrid': 'standard', 'tiered': 'sharp'}
     _ACCEPTED_BOT_TYPES = VALID_BOT_TYPES | set(_BOT_TYPE_ALIASES)
     bot_types = data.get('bot_types', {}) or {}
     if not isinstance(bot_types, dict):
-        return jsonify({'error': 'bot_types must be an object mapping player name to bot type'}), 400
+        return jsonify(
+            {'error': 'bot_types must be an object mapping player name to bot type'}
+        ), 400
     for _name, _bt in bot_types.items():
         if not isinstance(_name, str) or not isinstance(_bt, str) or _bt not in _ACCEPTED_BOT_TYPES:
-            return jsonify({
-                'error': f'Invalid bot_type for {_name!r}: {_bt!r}',
-                'valid_bot_types': sorted(VALID_BOT_TYPES),
-            }), 400
+            return jsonify(
+                {
+                    'error': f'Invalid bot_type for {_name!r}: {_bt!r}',
+                    'valid_bot_types': sorted(VALID_BOT_TYPES),
+                }
+            ), 400
 
     # Normalize legacy aliases (hybrid → standard, tiered → sharp).
     # Done after validation so callers can still send legacy values during the transition.
@@ -1247,17 +1369,21 @@ def api_new_game():
                             return jsonify({'error': f'Invalid provider: {provider}'}), 400
                         model = p_llm_config.get('model')
                         if model and model not in PROVIDER_MODELS.get(provider, []):
-                            return jsonify({'error': f'Invalid model {model} for provider {provider}'}), 400
+                            return jsonify(
+                                {'error': f'Invalid model {model} for provider {provider}'}
+                            ), 400
                         # Merge with default config (per-player overrides default)
                         player_llm_configs[name] = {**default_llm_config, **p_llm_config}
                     # Handle per-player game_mode override
                     if 'game_mode' in p:
                         p_mode = p['game_mode'].lower()
                         if p_mode not in VALID_GAME_MODES:
-                            return jsonify({
-                                'error': f'Invalid game_mode for {name}: {p_mode}',
-                                'valid_modes': list(VALID_GAME_MODES)
-                            }), 400
+                            return jsonify(
+                                {
+                                    'error': f'Invalid game_mode for {name}: {p_mode}',
+                                    'valid_modes': list(VALID_GAME_MODES),
+                                }
+                            ), 400
                         player_prompt_configs[name] = load_game_mode_preset(p_mode)
     else:
         opponent_count = max(1, min(9, data.get('opponent_count', 3)))
@@ -1265,32 +1391,31 @@ def api_new_game():
 
     # Check for duplicate names (e.g., AI personality matching human player name)
     if player_name.lower() in [n.lower() for n in ai_player_names]:
-        return jsonify({
-            'error': f'An opponent has the same name as you ("{player_name}"). Please choose a different player name or remove that opponent.',
-            'code': 'DUPLICATE_PLAYER_NAME'
-        }), 400
+        return jsonify(
+            {
+                'error': f'An opponent has the same name as you ("{player_name}"). Please choose a different player name or remove that opponent.',
+                'code': 'DUPLICATE_PLAYER_NAME',
+            }
+        ), 400
 
     # Enforce guest opponent limit
     if current_user and is_guest(current_user):
         allowed, error_msg = validate_guest_opponent_count(current_user, len(ai_player_names))
         if not allowed:
-            return jsonify({
-                'error': error_msg,
-                'code': 'GUEST_LIMIT_OPPONENTS'
-            }), 403
+            return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_OPPONENTS'}), 403
 
     game_state = initialize_game_state(
         player_names=ai_player_names,
         human_name=player_name,
         starting_stack=starting_stack,
-        big_blind=big_blind
+        big_blind=big_blind,
     )
 
     # Blind escalation config
     blind_config = {
         'growth': blind_growth,
         'hands_per_level': blinds_increase,
-        'max_blind': max_blind
+        'max_blind': max_blind,
     }
     base_state_machine = PokerStateMachine(game_state=game_state, blind_config=blind_config)
     state_machine = StateMachineAdapter(base_state_machine)
@@ -1312,6 +1437,7 @@ def api_new_game():
 
             if bot_type == 'sharp':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
+
                 new_controller = build_tiered_controller(
                     player_name=player.name,
                     state_machine=state_machine,
@@ -1324,6 +1450,7 @@ def api_new_game():
                 )
             elif bot_type == 'baseline_solver':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
+
                 new_controller = build_tiered_controller(
                     player_name=player.name,
                     state_machine=state_machine,
@@ -1337,6 +1464,7 @@ def api_new_game():
             elif bot_type in ('casebot', 'gto_lite'):
                 # Rule-based bots exposed in Custom Game for training/practice
                 from poker.rule_bot_controller import RuleBotController
+
                 strategy_for_type = {
                     'casebot': 'case_based',
                     'gto_lite': 'pot_odds_robot',
@@ -1354,6 +1482,7 @@ def api_new_game():
             elif bot_type == 'chaos':
                 # Full LLM, full personality — no bounded options
                 from poker.controllers import AIPlayerController
+
                 new_controller = AIPlayerController(
                     player_name=player.name,
                     state_machine=state_machine,
@@ -1367,6 +1496,7 @@ def api_new_game():
             elif bot_type == 'lean':
                 # Minimal LLM prompt, options-bounded — cheap path
                 from poker.lean_bounded_controller import LeanBoundedController
+
                 new_controller = LeanBoundedController(
                     player.name,
                     state_machine,
@@ -1386,11 +1516,13 @@ def api_new_game():
                     prompt_config=player_prompt_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo, decision_analysis_repo=decision_analysis_repo
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
                 )
             ai_controllers[player.name] = new_controller
 
     from poker.repositories.sqlite_repositories import PressureEventRepository
+
     event_repository = PressureEventRepository(config.DB_PATH)
     pressure_detector = PressureEventDetector()
     pressure_stats = PressureStatsTracker(game_id, event_repository)
@@ -1401,7 +1533,8 @@ def api_new_game():
     # Tournament mode (the only mode today) → cash_mode=False;
     # cash_pair_stats stays empty.
     memory_manager.set_relationship_repo(
-        relationship_repo, cash_mode=False,
+        relationship_repo,
+        cash_mode=False,
     )
     for player in state_machine.game_state.players:
         # Resolve each player's stable personality_id (None for humans)
@@ -1431,19 +1564,13 @@ def api_new_game():
     state_machine.run_until_player_action()
 
     memory_manager.on_hand_start(
-        state_machine.game_state,
-        hand_number=1,
-        deck_seed=state_machine.current_hand_seed
+        state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
     )
 
     starting_players = [
-        {'name': p.name, 'is_human': p.is_human}
-        for p in state_machine.game_state.players
+        {'name': p.name, 'is_human': p.is_human} for p in state_machine.game_state.players
     ]
-    tournament_tracker = TournamentTracker(
-        game_id=game_id,
-        starting_players=starting_players
-    )
+    tournament_tracker = TournamentTracker(game_id=game_id, starting_players=starting_players)
 
     game_data = {
         'state_machine': state_machine,
@@ -1461,17 +1588,17 @@ def api_new_game():
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
         'guest_messages_this_action': 0,  # Chat rate limiting for guests
-        'messages': [{
-            'id': '1',
-            'sender': 'Table',
-            'content': '***   GAME START   ***',
-            'timestamp': datetime.now().isoformat(),
-            'type': 'table'
-        }],
+        'messages': [
+            {
+                'id': '1',
+                'sender': 'Table',
+                'content': '***   GAME START   ***',
+                'timestamp': datetime.now().isoformat(),
+                'type': 'table',
+            }
+        ],
         # Stack tracking for pressure events (double_up, crippled, short_stack)
-        'hand_start_stacks': {
-            p.name: p.stack for p in state_machine.game_state.players
-        },
+        'hand_start_stacks': {p.name: p.stack for p in state_machine.game_state.players},
         'short_stack_players': set(),  # No one is short at game start
     }
     game_state_service.set_game(game_id, game_data)
@@ -1487,12 +1614,15 @@ def api_new_game():
             saved_bot_types.setdefault(player.name, 'standard')
 
     game_repo.save_game(
-        game_id, state_machine._state_machine, owner_id, owner_name,
+        game_id,
+        state_machine._state_machine,
+        owner_id,
+        owner_name,
         llm_configs={
             'player_llm_configs': player_llm_configs,
             'default_llm_config': default_llm_config,
             'bot_types': saved_bot_types,
-        }
+        },
     )
     game_repo.save_tournament_tracker(game_id, tournament_tracker)
     game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
@@ -1550,23 +1680,37 @@ def api_player_action(game_id):
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
         analyze_player_decision(
-            game_id, current_player.name, action, amount, state_machine,
-            pre_action_state, hand_number, memory_manager,
+            game_id,
+            current_player.name,
+            action,
+            amount,
+            state_machine,
+            pre_action_state,
+            hand_number,
+            memory_manager,
             ai_controllers=current_game_data.get('ai_controllers'),
         )
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
-            _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
+            _evaluate_coach_progression(
+                game_id, current_player.name, action, amount, current_game_data, pre_action_state
+            )
 
         # Normalize the recorded amount for calls: callers pass amount=0 since
         # they're not raising. Downstream consumers expect the true call cost.
         record_amount = amount
         if action == 'call':
-            record_amount = max(0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack))
-        record_action_in_memory(current_game_data, current_player.name, action, record_amount, game_state, state_machine)
+            record_amount = max(
+                0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack)
+            )
+        record_action_in_memory(
+            current_game_data, current_player.name, action, record_amount, game_state, state_machine
+        )
 
-        table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+        table_message_content = format_action_message(
+            current_player.name, action, amount, highest_bet
+        )
         send_message(game_id, "Table", table_message_content, "table")
 
         advanced_state = advance_to_next_active_player(game_state)
@@ -1582,7 +1726,9 @@ def api_player_action(game_id):
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            game_repo.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+            game_repo.save_opponent_models(
+                game_id, current_game_data['memory_manager'].get_opponent_model_manager()
+            )
 
         progress_game(game_id)
 
@@ -1647,7 +1793,11 @@ def api_send_message(game_id):
     # Drives the AI's find_callouts detection so targeted chat reliably
     # reaches the intended opponent regardless of message wording.
     raw_addressing = data.get('addressing')
-    addressing = [str(n) for n in raw_addressing if isinstance(n, str)] if isinstance(raw_addressing, list) else None
+    addressing = (
+        [str(n) for n in raw_addressing if isinstance(n, str)]
+        if isinstance(raw_addressing, list)
+        else None
+    )
 
     # Quick-chat metadata: when the message originated from a structured
     # tone selector (mid-hand `ChatTone` or post-round `PostRoundTone`),
@@ -1663,7 +1813,9 @@ def api_send_message(game_id):
         return auth_error
 
     if not current_game_data:
-        return jsonify({'success': False, 'error': 'Game not found in memory. Try refreshing the page first.'}), 404
+        return jsonify(
+            {'success': False, 'error': 'Game not found in memory. Try refreshing the page first.'}
+        ), 404
 
     is_guest_user = current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED
 
@@ -1679,7 +1831,11 @@ def api_send_message(game_id):
     if message.strip():
         send_message(game_id, sender, message.strip(), 'player', addressing=addressing)
         dispatch_chat_relationship_event(
-            current_game_data, sender, addressing, tone, intensity,
+            current_game_data,
+            sender,
+            addressing,
+            tone,
+            intensity,
         )
         return jsonify({'success': True})
 
@@ -1711,18 +1867,22 @@ def api_retry_game(game_id):
     }
 
     if current_player.is_human:
-        return jsonify({
-            'status': 'not_stuck',
-            'message': 'Game is waiting for human player action',
-            'diagnostic': diagnostic
-        }), 200
+        return jsonify(
+            {
+                'status': 'not_stuck',
+                'message': 'Game is waiting for human player action',
+                'diagnostic': diagnostic,
+            }
+        ), 200
 
     if not game_state.awaiting_action:
-        return jsonify({
-            'status': 'not_stuck',
-            'message': 'Game is not awaiting action',
-            'diagnostic': diagnostic
-        }), 200
+        return jsonify(
+            {
+                'status': 'not_stuck',
+                'message': 'Game is not awaiting action',
+                'diagnostic': diagnostic,
+            }
+        ), 200
 
     current_game_data['game_started'] = False
 
@@ -1737,11 +1897,13 @@ def api_retry_game(game_id):
     logger.info(f"[RETRY] Force-retrying AI turn for game {game_id}, player: {current_player.name}")
     progress_game(game_id)
 
-    return jsonify({
-        'status': 'retried',
-        'message': f'Retried AI turn for {current_player.name}',
-        'diagnostic': diagnostic
-    }), 200
+    return jsonify(
+        {
+            'status': 'retried',
+            'message': f'Retried AI turn for {current_player.name}',
+            'diagnostic': diagnostic,
+        }
+    ), 200
 
 
 @game_bp.route('/api/game/<game_id>', methods=['DELETE'])
@@ -1851,10 +2013,7 @@ def api_game_llm_configs(game_id):
             config_entry['llm_config'] = player_llm_configs.get(player.name, default_llm_config)
             config_entry['has_custom_config'] = player.name in player_llm_configs
 
-    return jsonify({
-        'default_llm_config': default_llm_config,
-        'player_configs': player_configs
-    })
+    return jsonify({'default_llm_config': default_llm_config, 'player_configs': player_configs})
 
 
 # SocketIO event handlers
@@ -1872,9 +2031,9 @@ def register_socket_events(sio):
         working exactly as before. We never reject the connection.
         """
         try:
+            from flask_app.extensions import sandbox_repo
             from flask_app.services import presence
             from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
-            from flask_app.extensions import sandbox_repo
 
             user = auth_manager.get_current_user() if auth_manager else None
             owner_id = user.get('id') if user else None
@@ -1891,6 +2050,7 @@ def register_socket_events(sio):
         """Drop the socket from cash presence (TTL grace handles gaps)."""
         try:
             from flask_app.services import presence
+
             presence.mark_inactive(request.sid)
         except Exception as e:
             logger.debug(f"[SOCKET] disconnect presence skipped: {e}")
@@ -1941,7 +2101,9 @@ def register_socket_events(sio):
         user = auth_manager.get_current_user() if auth_manager else None
         owner_id = current_game_data.get('owner_id')
         if not user or user.get('id') != owner_id:
-            logger.debug(f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}")
+            logger.debug(
+                f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}"
+            )
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
@@ -1951,10 +2113,14 @@ def register_socket_events(sio):
                 hands_played = guest_tracking_repo.get_hands_played(tracking_id)
                 allowed, _ = check_guest_hands_limit(user, hands_played)
                 if not allowed:
-                    socketio.emit('guest_limit_reached', {
-                        'hands_played': hands_played,
-                        'hands_limit': GUEST_MAX_HANDS,
-                    }, to=game_id)
+                    socketio.emit(
+                        'guest_limit_reached',
+                        {
+                            'hands_played': hands_played,
+                            'hands_limit': GUEST_MAX_HANDS,
+                        },
+                        to=game_id,
+                    )
                     return
 
         state_machine = current_game_data['state_machine']
@@ -1973,24 +2139,38 @@ def register_socket_events(sio):
         memory_manager = current_game_data.get('memory_manager')
         hand_number = memory_manager.hand_count if memory_manager else None
         analyze_player_decision(
-            game_id, current_player.name, action, amount, state_machine,
-            pre_action_state, hand_number, memory_manager,
+            game_id,
+            current_player.name,
+            action,
+            amount,
+            state_machine,
+            pre_action_state,
+            hand_number,
+            memory_manager,
             ai_controllers=current_game_data.get('ai_controllers'),
         )
 
         # Coach progression: evaluate human player actions against skill targets
         if current_player.is_human:
-            _evaluate_coach_progression(game_id, current_player.name, action, amount, current_game_data, pre_action_state)
+            _evaluate_coach_progression(
+                game_id, current_player.name, action, amount, current_game_data, pre_action_state
+            )
 
-        table_message_content = format_action_message(current_player.name, action, amount, highest_bet)
+        table_message_content = format_action_message(
+            current_player.name, action, amount, highest_bet
+        )
         send_message(game_id, "Table", table_message_content, "table")
 
         # Normalize the recorded amount for calls: callers pass amount=0 since
         # they're not raising. Downstream consumers expect the true call cost.
         record_amount = amount
         if action == 'call':
-            record_amount = max(0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack))
-        record_action_in_memory(current_game_data, current_player.name, action, record_amount, game_state, state_machine)
+            record_amount = max(
+                0, min(pre_action_state.highest_bet - current_player.bet, current_player.stack)
+            )
+        record_action_in_memory(
+            current_game_data, current_player.name, action, record_amount, game_state, state_machine
+        )
 
         advanced_state = advance_to_next_active_player(game_state)
         # If None, no active players remain - keep current state, let progress_game handle phase transition
@@ -2005,7 +2185,9 @@ def register_socket_events(sio):
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            game_repo.save_opponent_models(game_id, current_game_data['memory_manager'].get_opponent_model_manager())
+            game_repo.save_opponent_models(
+                game_id, current_game_data['memory_manager'].get_opponent_model_manager()
+            )
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)
@@ -2020,7 +2202,8 @@ def register_socket_events(sio):
         raw_addressing = data.get('addressing')
         addressing = (
             [str(n) for n in raw_addressing if isinstance(n, str)]
-            if isinstance(raw_addressing, list) else None
+            if isinstance(raw_addressing, list)
+            else None
         )
 
         if not game_id:

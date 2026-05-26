@@ -36,7 +36,6 @@ from cash_mode.session_summary import summarize_cash_session
 from poker.repositories.cash_session_repository import CashSessionRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 ANCHOR = datetime(2026, 5, 22, 12, 0, 0)
 OWNER_ID = "alice"
 GAME_ID = "cash-lifecycle-1"
@@ -51,8 +50,9 @@ def repo():
         yield CashSessionRepository(db_path)
 
 
-def _summary_from_row(repo, game_id, *, cash_out, sponsor_repaid=0,
-                      player_take_home=None, now=None):
+def _summary_from_row(
+    repo, game_id, *, cash_out, sponsor_repaid=0, player_take_home=None, now=None
+):
     """Build a summary dict the way the leave route does — from the durable row."""
     session = repo.load(game_id)
     is_staked = session.is_staked if session is not None else False
@@ -168,8 +168,11 @@ def test_finalise_with_top_ups_in_p_and_l(repo):
 
     leave_at = ANCHOR + timedelta(minutes=15)
     summary = _summary_from_row(
-        repo, GAME_ID,
-        cash_out=1200, player_take_home=1200, now=leave_at,
+        repo,
+        GAME_ID,
+        cash_out=1200,
+        player_take_home=1200,
+        now=leave_at,
     )
     # P&L is cash_out (1200) - total_buy_in (1000); NOT cash_out - initial_buy_in.
     assert summary["buy_in"] == 1000
@@ -215,8 +218,12 @@ def test_staked_leave_summary_uses_player_take_home(repo):
     # Player ended with $900 on the table; sponsor pulled $700 off the
     # top; player takes home $200.
     summary = _summary_from_row(
-        repo, GAME_ID,
-        cash_out=900, sponsor_repaid=700, player_take_home=200, now=leave_at,
+        repo,
+        GAME_ID,
+        cash_out=900,
+        sponsor_repaid=700,
+        player_take_home=200,
+        now=leave_at,
     )
     # Headline must NOT be cash_out - sponsor_principal (=400, gross P&L).
     assert summary["net_pnl"] == 200
@@ -261,8 +268,11 @@ def test_memory_miss_leave_can_build_summary_from_persisted_row(repo):
     # Simulate the memory-miss path: live stack is unrecoverable, so
     # cash_out=0 / player_take_home=0.
     summary = _summary_from_row(
-        repo, GAME_ID,
-        cash_out=0, player_take_home=0, now=leave_at,
+        repo,
+        GAME_ID,
+        cash_out=0,
+        player_take_home=0,
+        now=leave_at,
     )
     assert summary is not None
     assert summary["buy_in"] == 800

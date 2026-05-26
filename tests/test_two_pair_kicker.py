@@ -5,9 +5,9 @@ Verifies that when two players have the same two pairs, the kicker
 correctly determines the winner.
 """
 
-from poker.hand_evaluator import HandEvaluator
-from poker.poker_game import determine_winner, PokerGameState, Player
 from core.card import Card
+from poker.hand_evaluator import HandEvaluator
+from poker.poker_game import Player, PokerGameState, determine_winner
 
 
 def make_two_player_state(player1_hand, player2_hand, community_cards, bets=(100, 100)):
@@ -115,12 +115,14 @@ class TestTwoPairKicker:
         ]
         result = HandEvaluator(cards).evaluate_hand()
 
-        assert result['hand_rank'] == 8, f"Expected two-pair (rank 8), got rank {result['hand_rank']}"
+        assert (
+            result['hand_rank'] == 8
+        ), f"Expected two-pair (rank 8), got rank {result['hand_rank']}"
         assert result['hand_name'].startswith('Two Pair')
         # Kicker should be Q (value 12)
-        assert result['kicker_values'] == [12], (
-            f"Expected kicker [12] (Queen), got {result['kicker_values']}"
-        )
+        assert result['kicker_values'] == [
+            12
+        ], f"Expected kicker [12] (Queen), got {result['kicker_values']}"
 
     def test_hand_evaluator_two_pair_selects_best_kicker_from_seven_cards(self):
         """With 7 cards (2 hole + 5 community), the best kicker is chosen.
@@ -141,6 +143,6 @@ class TestTwoPairKicker:
 
         assert result['hand_rank'] == 8  # two-pair
         # The kicker should be Q (12), not 5 or 3
-        assert result['kicker_values'] == [12], (
-            f"Expected best kicker [12] (Queen), got {result['kicker_values']}"
-        )
+        assert result['kicker_values'] == [
+            12
+        ], f"Expected best kicker [12] (Queen), got {result['kicker_values']}"

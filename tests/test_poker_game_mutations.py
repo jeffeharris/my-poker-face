@@ -1,61 +1,64 @@
 """Test mutations in poker_game.py properties that need to be fixed."""
+
 import unittest
-from poker.poker_game import PokerGameState, Player, initialize_game_state
+
+from poker.poker_game import Player, PokerGameState, initialize_game_state
 
 
 class TestPokerGameMutations(unittest.TestCase):
     """Document mutations in PokerGameState properties."""
-    
+
     def test_current_player_options_mutations(self):
         """Test that current_player_options has mutations."""
         # Create a game state
         game_state = initialize_game_state(['Alice', 'Bob'])
-        
+
         # Access the property multiple times
         options1 = game_state.current_player_options
         options2 = game_state.current_player_options
-        
+
         # Currently returns a new list each time (good)
         # But the list is created with mutations (bad)
         self.assertIsInstance(options1, list)
         self.assertIsInstance(options2, list)
-        
+
     def test_table_positions_no_mutations(self):
         """Test that table_positions doesn't mutate."""
         game_state = initialize_game_state(['Alice', 'Bob', 'Charlie'])
-        
+
         # Access property
         positions1 = game_state.table_positions
         positions2 = game_state.table_positions
-        
+
         # Should return new dict each time
         self.assertIsNot(positions1, positions2)
         self.assertEqual(positions1, positions2)
-    
+
     def test_opponent_status_builds_list(self):
         """Test that opponent_status builds a list."""
         game_state = initialize_game_state(['Alice', 'Bob', 'Charlie'])
-        
+
         # This property has a weird signature - it takes a parameter!
         # @property methods shouldn't take parameters
         status = game_state.opponent_status
         self.assertIsInstance(status, list)
-    
+
     def test_create_deck_no_side_effects(self):
         """Test that create_deck has NO side effects."""
-        from poker.poker_game import create_deck
         import random
-        
+
+        from poker.poker_game import create_deck
+
         # Save random state
         state = random.getstate()
-        
+
         # Create deck should NOT modify global random state
         deck1 = create_deck(shuffled=True)
-        
+
         # Check state is unchanged
         new_state = random.getstate()
         self.assertEqual(state, new_state, "create_deck should not modify global random state")
-        
+
         # Using same seed should give same deck
         deck2 = create_deck(shuffled=True, random_seed=42)
         deck3 = create_deck(shuffled=True, random_seed=42)
@@ -139,12 +142,14 @@ class TestResetPlayerActionFlags(unittest.TestCase):
     def test_initialize_game_state_rejects_duplicate_ai_names(self):
         """initialize_game_state should raise ValueError for duplicate AI names."""
         import pytest
+
         with pytest.raises(ValueError, match="Duplicate player names"):
             initialize_game_state(['Alice', 'Alice', 'Bob'])
 
     def test_initialize_game_state_rejects_ai_name_matching_human(self):
         """initialize_game_state should raise ValueError when AI name matches human name."""
         import pytest
+
         with pytest.raises(ValueError, match="Duplicate player names"):
             initialize_game_state(['Player', 'Bob'], human_name='Player')
 

@@ -15,8 +15,8 @@ import pytest
 from poker.memory.cbet_detector import CbetDetector
 from poker.memory.opponent_model import (
     OpponentTendencies,
-    _build_aggregate_from_single,
     _build_aggregate_from_multi,
+    _build_aggregate_from_single,
 )
 from poker.strategy.exploitation import (
     AggregatedOpponentStats,
@@ -24,8 +24,8 @@ from poker.strategy.exploitation import (
     aggregate_from_spots,
 )
 
-
 # ── CbetDetector emission tests ────────────────────────────────────
+
 
 class TestBarrelDetection:
     def test_full_cbet_barrel_third_barrel_sequence(self):
@@ -145,6 +145,7 @@ class TestBarrelDetection:
 
 # ── OpponentTendencies math ────────────────────────────────────────
 
+
 class TestBarrelTendenciesMath:
     def test_neutral_prior_until_first_opportunity(self):
         t = OpponentTendencies()
@@ -163,7 +164,7 @@ class TestBarrelTendenciesMath:
         t.update_barrel_attempt(True)
         t.update_barrel_attempt(True)
         t.update_barrel_attempt(False)
-        assert t.barrel_frequency == pytest.approx(2/3)
+        assert t.barrel_frequency == pytest.approx(2 / 3)
         assert t._barrel_opportunity_count == 3
 
     def test_update_third_barrel_attempt_independent(self):
@@ -178,6 +179,7 @@ class TestBarrelTendenciesMath:
 
 
 # ── Aggregator surface ─────────────────────────────────────────────
+
 
 class TestAggregatorSurface:
     def test_aggregated_stats_defaults(self):
@@ -202,10 +204,12 @@ class TestAggregatorSurface:
 
     def test_build_aggregate_from_multi_averages_rates_min_counters(self):
         t1 = OpponentTendencies(hands_observed=20)
-        t1._barrel_count = 10; t1._barrel_opportunity_count = 10
+        t1._barrel_count = 10
+        t1._barrel_opportunity_count = 10
         t1._recalculate_stats()
         t2 = OpponentTendencies(hands_observed=20)
-        t2._barrel_count = 4; t2._barrel_opportunity_count = 10
+        t2._barrel_count = 4
+        t2._barrel_opportunity_count = 10
         t2._recalculate_stats()
         agg = _build_aggregate_from_multi([t1, t2])
         assert agg.barrel_frequency == pytest.approx(0.7)
@@ -214,14 +218,21 @@ class TestAggregatorSurface:
     def test_aggregate_from_spots_propagates(self):
         stats = AggregatedOpponentStats(
             hands_observed=50,
-            barrel_frequency=0.88, barrel_opportunities=25,
-            third_barrel_frequency=0.6, third_barrel_opportunities=15,
+            barrel_frequency=0.88,
+            barrel_opportunities=25,
+            third_barrel_frequency=0.6,
+            third_barrel_opportunities=15,
         )
         spot = OpponentSpot(
-            name='Villain', stats=stats,
-            is_active=True, is_aggressor=False, is_all_in=False,
-            current_bet=0, stack=10000,
-            committed_this_street=0, committed_this_hand=100,
+            name='Villain',
+            stats=stats,
+            is_active=True,
+            is_aggressor=False,
+            is_all_in=False,
+            current_bet=0,
+            stack=10000,
+            committed_this_street=0,
+            committed_this_hand=100,
         )
         agg = aggregate_from_spots([spot])
         assert agg.barrel_frequency == 0.88

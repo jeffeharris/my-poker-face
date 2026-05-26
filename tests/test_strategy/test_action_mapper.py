@@ -1,13 +1,17 @@
 """Tests for poker.strategy.action_mapper."""
 
-import pytest
 from types import SimpleNamespace
 
-from poker.strategy.action_mapper import resolve_preflop_sizing, resolve_postflop_sizing, _compute_raise_to
+import pytest
+
+from poker.strategy.action_mapper import (
+    _compute_raise_to,
+    resolve_postflop_sizing,
+    resolve_preflop_sizing,
+)
 
 
-def _make_game_state(stack, bet, current_ante, highest_bet, player_idx=0,
-                     min_raise_amount=None):
+def _make_game_state(stack, bet, current_ante, highest_bet, player_idx=0, min_raise_amount=None):
     """Build a minimal mock game state for action mapper tests.
 
     `min_raise_amount` defaults to `current_ante` (BB) which matches the
@@ -30,6 +34,7 @@ def _make_game_state(stack, bet, current_ante, highest_bet, player_idx=0,
 
 # --- Simple actions ---
 
+
 def test_fold():
     gs = _make_game_state(stack=10000, bet=0, current_ante=100, highest_bet=100)
     assert resolve_preflop_sizing('fold', gs, 0) == ('fold', 0)
@@ -46,6 +51,7 @@ def test_check():
 
 
 # --- BB-relative raises ---
+
 
 def test_raise_2_5bb_at_100bb():
     """raise_2.5bb with big_blind=100 → raise to 250."""
@@ -64,6 +70,7 @@ def test_raise_3bb_from_sb():
 
 
 # --- Multiplier-of-bet raises ---
+
 
 def test_raise_3x_vs_open():
     """raise_3x when highest_bet=250 (2.5bb open) → raise to 750."""
@@ -96,7 +103,10 @@ def test_raise_min_clamps_to_prior_raise_size():
     silently sanitizes upward, over-committing chips."""
     # Villain raised to 300, prior open was 100, so last_raise_amount=200
     gs = _make_game_state(
-        stack=10000, bet=0, current_ante=100, highest_bet=300,
+        stack=10000,
+        bet=0,
+        current_ante=100,
+        highest_bet=300,
         min_raise_amount=200,
     )
     # raise_2.5bb wants raise_to=250 — below legal min — so clamps to min
@@ -108,6 +118,7 @@ def test_raise_min_clamps_to_prior_raise_size():
 
 # --- Jam ---
 
+
 def test_jam():
     """jam → all_in with player's total stack."""
     gs = _make_game_state(stack=5000, bet=250, current_ante=100, highest_bet=250)
@@ -117,6 +128,7 @@ def test_jam():
 
 
 # --- Edge cases ---
+
 
 def test_raise_clamped_to_min_raise():
     """When computed raise < min_raise, clamp up to min_raise.
@@ -160,6 +172,7 @@ def test_raise_exactly_equals_stack():
 
 # --- _compute_raise_to helper ---
 
+
 def test_compute_raise_to_normal():
     assert _compute_raise_to(2.5, 100, 200, 10000) == 250
 
@@ -179,6 +192,7 @@ def test_compute_raise_to_rounds():
 
 # --- Error handling ---
 
+
 def test_unknown_action_raises_error():
     gs = _make_game_state(stack=10000, bet=0, current_ante=100, highest_bet=100)
     with pytest.raises(ValueError, match="Unknown abstract action"):
@@ -189,9 +203,17 @@ def test_unknown_action_raises_error():
 # resolve_postflop_sizing tests
 # =====================================================================
 
-def _make_postflop_state(stack, bet, current_ante, highest_bet, pot_total,
-                         other_players=None, player_idx=0,
-                         min_raise_amount=None):
+
+def _make_postflop_state(
+    stack,
+    bet,
+    current_ante,
+    highest_bet,
+    pot_total,
+    other_players=None,
+    player_idx=0,
+    min_raise_amount=None,
+):
     """Build a minimal mock game state for postflop action mapper tests.
 
     `min_raise_amount` defaults to `current_ante` (BB) which mirrors the
@@ -216,6 +238,7 @@ def _make_postflop_state(stack, bet, current_ante, highest_bet, pot_total,
 
 # --- Simple postflop actions ---
 
+
 def test_postflop_fold():
     gs = _make_postflop_state(stack=10000, bet=0, current_ante=100, highest_bet=0, pot_total=1000)
     assert resolve_postflop_sizing('fold', gs, 0) == ('fold', 0)
@@ -232,6 +255,7 @@ def test_postflop_call():
 
 
 # --- Bet actions (first to act, no bet to face) ---
+
 
 def test_bet_33():
     """bet_33 with pot=1000 → raise to 330."""
@@ -259,6 +283,7 @@ def test_bet_100():
 
 # --- Raise actions (facing a bet) ---
 
+
 def test_raise_67():
     """raise_67 facing a flop bet, realistic cumulative state.
 
@@ -273,8 +298,13 @@ def test_raise_67():
         raise_to       = 700 + int(1400 * 0.67) = 700 + 938 = 1638
     """
     gs = _make_postflop_state(
-        stack=9700, bet=300, current_ante=100, highest_bet=700, pot_total=1000,
-        other_players=[(9300, 700)], min_raise_amount=400,
+        stack=9700,
+        bet=300,
+        current_ante=100,
+        highest_bet=700,
+        pot_total=1000,
+        other_players=[(9300, 700)],
+        min_raise_amount=400,
     )
     action, amount = resolve_postflop_sizing('raise_67', gs, 0)
     assert action == 'raise'
@@ -293,8 +323,13 @@ def test_raise_150():
         raise_to       = 400 + int(800 * 1.5) = 400 + 1200 = 1600
     """
     gs = _make_postflop_state(
-        stack=9600, bet=200, current_ante=100, highest_bet=400, pot_total=600,
-        other_players=[(9600, 400)], min_raise_amount=200,
+        stack=9600,
+        bet=200,
+        current_ante=100,
+        highest_bet=400,
+        pot_total=600,
+        other_players=[(9600, 400)],
+        min_raise_amount=200,
     )
     action, amount = resolve_postflop_sizing('raise_150', gs, 0)
     assert action == 'raise'
@@ -319,8 +354,13 @@ def test_bet_adds_correct_fraction_of_true_pot():
     84% of the true pot). This test fails on the old code, passes on the new.
     """
     gs = _make_postflop_state(
-        stack=9700, bet=300, current_ante=100, highest_bet=300, pot_total=600,
-        other_players=[(9700, 300)], min_raise_amount=100,
+        stack=9700,
+        bet=300,
+        current_ante=100,
+        highest_bet=300,
+        pot_total=600,
+        other_players=[(9700, 300)],
+        min_raise_amount=100,
     )
     action, amount = resolve_postflop_sizing('bet_67', gs, 0)
     assert action == 'raise'
@@ -329,6 +369,7 @@ def test_bet_adds_correct_fraction_of_true_pot():
 
 
 # --- Jam ---
+
 
 def test_postflop_jam():
     """jam → all_in with player's total stack."""
@@ -339,6 +380,7 @@ def test_postflop_jam():
 
 
 # --- Clamping ---
+
 
 def test_postflop_min_raise_clamping():
     """bet_33 with tiny pot → clamp up to min_raise.
@@ -375,7 +417,11 @@ def test_postflop_raise_converts_to_all_in():
     player_total = 3000 → 4250 > 3000 → clamp → all_in
     """
     gs = _make_postflop_state(
-        stack=3000, bet=0, current_ante=100, highest_bet=500, pot_total=1500,
+        stack=3000,
+        bet=0,
+        current_ante=100,
+        highest_bet=500,
+        pot_total=1500,
         other_players=[(9500, 500)],
     )
     action, amount = resolve_postflop_sizing('raise_150', gs, 0)
@@ -384,6 +430,7 @@ def test_postflop_raise_converts_to_all_in():
 
 
 # --- Error handling ---
+
 
 def test_postflop_unknown_action_raises_error():
     gs = _make_postflop_state(stack=10000, bet=0, current_ante=100, highest_bet=0, pot_total=1000)

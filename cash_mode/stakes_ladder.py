@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
-
 # --- Stakes ladder: SINGLE SOURCE OF TRUTH ---
 #
 # To add a new stake (or reorder), edit ONLY this dict. Insertion
@@ -31,9 +30,9 @@ from typing import Dict, Tuple
 # can't be generated from a server response). Keep them in lockstep.
 
 STAKES_LADDER: Dict[str, Dict[str, int]] = {
-    "$2":   {"big_blind": 2},
-    "$10":  {"big_blind": 10},
-    "$50":  {"big_blind": 50},
+    "$2": {"big_blind": 2},
+    "$10": {"big_blind": 10},
+    "$50": {"big_blind": 50},
     "$200": {"big_blind": 200},
     "$1000": {"big_blind": 1000},
 }

@@ -11,21 +11,22 @@ positive float and crashed when None reached them (format strings,
 ``eval`` namespaces). These tests pin the None-safe behavior so the
 crashes don't regress.
 """
+
 from __future__ import annotations
 
 import unittest
 
+from poker.prompt_manager import PromptManager, _safe_pot_odds
 from poker.rule_strategies import (
     BUILT_IN_STRATEGIES,
-    _strategy_abc,
     _evaluate_condition,
+    _strategy_abc,
 )
-from poker.prompt_manager import PromptManager, _safe_pot_odds
-
 
 # ---------------------------------------------------------------------------
 # Shared baseline contexts
 # ---------------------------------------------------------------------------
+
 
 def _free_check_context(**overrides):
     """Context that mirrors what HybridAIController produces on a free check."""
@@ -82,6 +83,7 @@ def _facing_bet_context_with_none_pot_odds(**overrides):
 # Rule strategies — None pot_odds must not crash arithmetic
 # ---------------------------------------------------------------------------
 
+
 class TestRuleStrategiesNoneSafety(unittest.TestCase):
     def test_abc_free_check_with_none_pot_odds(self):
         """`_strategy_abc` reaches `1 / (pot_odds + 1)` only when cost>0,
@@ -126,6 +128,7 @@ class TestRuleStrategiesNoneSafety(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # prompt_manager — `{pot_odds:.1f}` format spec is the dangerous bit
 # ---------------------------------------------------------------------------
+
 
 class TestPromptManagerNoneSafety(unittest.TestCase):
     def setUp(self):
@@ -195,10 +198,12 @@ class TestPromptManagerNoneSafety(unittest.TestCase):
 # coach_assistant — already gated, but verify the gate holds
 # ---------------------------------------------------------------------------
 
+
 class TestCoachAssistantPotOddsFormatting(unittest.TestCase):
     def test_format_stats_for_prompt_with_none_pot_odds(self):
         """The coach prompt formatter must not render `None:1` literally."""
         from flask_app.services.coach_assistant import _format_stats_for_prompt
+
         data = {
             'pot_total': 300,
             'cost_to_call': 0,
@@ -217,6 +222,7 @@ class TestCoachAssistantPotOddsFormatting(unittest.TestCase):
     def test_format_stats_for_prompt_with_numeric_pot_odds(self):
         """Numeric pot_odds renders with one decimal place."""
         from flask_app.services.coach_assistant import _format_stats_for_prompt
+
         data = {
             'pot_total': 300,
             'cost_to_call': 100,
@@ -234,6 +240,7 @@ class TestCoachAssistantPotOddsFormatting(unittest.TestCase):
 # HybridAIController integration: free-check path must not crash
 # ---------------------------------------------------------------------------
 
+
 class TestHybridChoicePromptFreeCheck(unittest.TestCase):
     """End-to-end: a hybrid bot acting after a free check on previous street
     receives a context with ``pot_odds=None``. Building the choice prompt
@@ -242,10 +249,11 @@ class TestHybridChoicePromptFreeCheck(unittest.TestCase):
     """
 
     def test_build_choice_prompt_with_none_pot_odds(self):
-        from poker.hybrid_ai_controller import HybridAIController
-        from poker.bounded_options import BoundedOption
-        from poker.prompt_config import PromptConfig
         from types import SimpleNamespace
+
+        from poker.bounded_options import BoundedOption
+        from poker.hybrid_ai_controller import HybridAIController
+        from poker.prompt_config import PromptConfig
 
         # Bypass __init__ — we only need to test _build_choice_prompt which
         # is a pure method that reads `context` and produces a string.
@@ -276,7 +284,7 @@ class TestHybridChoicePromptFreeCheck(unittest.TestCase):
         ]
         context = {
             'equity': 0.45,
-            'pot_odds': None,       # Free to act — the contract under test
+            'pot_odds': None,  # Free to act — the contract under test
             'cost_to_call': 0,
             'pot_total': 300,
         }

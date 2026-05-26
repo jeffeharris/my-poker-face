@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 
 class Card:
@@ -21,11 +21,25 @@ class Card:
         __eq__(self, other): Checks if two Card objects are equal.
 
     """
+
     SUIT_TO_ASCII = {'Hearts': '♥', 'Diamonds': '♦', 'Clubs': '♣', 'Spades': '♠'}
     ASCII_TO_SUIT = {v: k for k, v in SUIT_TO_ASCII.items()}
     SHORT_TO_SUIT = {'s': 'Spades', 'h': 'Hearts', 'd': 'Diamonds', 'c': 'Clubs'}
-    RANK_VALUES = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,'8': 8,
-                   '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+    RANK_VALUES = {
+        '2': 2,
+        '3': 3,
+        '4': 4,
+        '5': 5,
+        '6': 6,
+        '7': 7,
+        '8': 8,
+        '9': 9,
+        '10': 10,
+        'J': 11,
+        'Q': 12,
+        'K': 13,
+        'A': 14,
+    }
 
     def __init__(self, rank, suit):
         self.rank = rank
@@ -37,7 +51,7 @@ class Card:
             'rank': self.rank,
             'suit': self.suit,
             'suit_symbol': self.get_suit_symbol(),
-            'value': self.value
+            'value': self.value,
         }
 
     @staticmethod
@@ -52,7 +66,9 @@ class Card:
         rank = card_dict['rank']
         suit_input = card_dict['suit']
         # Convert from ASCII symbol to full suit name if necessary
-        suit = cls.ASCII_TO_SUIT.get(suit_input, suit_input)  # Default to suit_input if not an ASCII symbol
+        suit = cls.ASCII_TO_SUIT.get(
+            suit_input, suit_input
+        )  # Default to suit_input if not an ASCII symbol
         return cls(rank, suit)
 
     @classmethod
@@ -102,6 +118,7 @@ class CardSet:
     """
     A collection of Card objects with serialization support.
     """
+
     def __init__(self, cards: List[Card] = None):
         self.cards: List[Card] = cards if cards is not None else []
 
@@ -148,18 +165,20 @@ class CardRenderer:
     @staticmethod
     def render_card(card):
         """
-            Render a card object for output to the console.
+        Render a card object for output to the console.
 
-            :param card: (Card)
-                The card object to render.
-            :return: (str)
-                A string representation of the card formatted for console output.
-            :raises KeyError:
-                If the card's suit is not found in the suit-to-ASCII map.
+        :param card: (Card)
+            The card object to render.
+        :return: (str)
+            A string representation of the card formatted for console output.
+        :raises KeyError:
+            If the card's suit is not found in the suit-to-ASCII map.
         """
         rank_left = card.rank.ljust(2)
         rank_right = card.rank.rjust(2)
-        card = CardRenderer._CARD_TEMPLATE.format(rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right)
+        card = CardRenderer._CARD_TEMPLATE.format(
+            rank_left, Card.SUIT_TO_ASCII[card.suit], Card.SUIT_TO_ASCII[card.suit], rank_right
+        )
         return card
 
     @staticmethod
@@ -177,7 +196,7 @@ class CardRenderer:
         if not card_lines:
             return None
         ascii_card_lines = []
-        for lines in zip(*card_lines):
+        for lines in zip(*card_lines, strict=False):
             ascii_card_lines.append('  '.join(lines))
         card_ascii_string = '\n'.join(ascii_card_lines)
         return card_ascii_string
@@ -196,12 +215,14 @@ class CardRenderer:
         :raises KeyError:
             If the suit of either card is not found in the SUIT_TO_ASCII mapping.
         """
-        two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(card_1.rank,
-                                                         card_2.rank,
-                                                         Card.SUIT_TO_ASCII[card_1.suit],
-                                                         Card.SUIT_TO_ASCII[card_2.suit],
-                                                         Card.SUIT_TO_ASCII[card_2.suit],
-                                                         card_2.rank)
+        two_card_ascii_string = CardRenderer._TWO_CARD_TEMPLATE.format(
+            card_1.rank,
+            card_2.rank,
+            Card.SUIT_TO_ASCII[card_1.suit],
+            Card.SUIT_TO_ASCII[card_2.suit],
+            Card.SUIT_TO_ASCII[card_2.suit],
+            card_2.rank,
+        )
         return two_card_ascii_string
 
     @staticmethod

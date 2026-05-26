@@ -102,12 +102,18 @@ def test_broke_ais_hustle_and_recover_from_pool(repos):
         _insert_personality(db_path, pid)
         bankroll.save_ai_bankroll(
             AIBankrollState(personality_id=pid, chips=10, last_regen_tick=T0),
-            sandbox_id=SBX, chip_ledger_repo=ledger,
+            sandbox_id=SBX,
+            chip_ledger_repo=ledger,
         )
-        cash_table.save_idle(IdlePoolEntry(
-            personality_id=pid, left_at=T0, reason="forced_leave",
-            target_stake=None,
-        ), sandbox_id=SBX)
+        cash_table.save_idle(
+            IdlePoolEntry(
+                personality_id=pid,
+                left_at=T0,
+                reason="forced_leave",
+                target_stake=None,
+            ),
+            sandbox_id=SBX,
+        )
 
     # Fund the bank pool so the hustle has chips to draw.
     seed_bank_pool(ledger, sandbox_id=SBX, amount=50_000)
@@ -129,14 +135,12 @@ def test_broke_ais_hustle_and_recover_from_pool(repos):
     _refresh(repos_dict, now=later)
 
     creations = ledger.sum_creations_by_reason(sandbox_id=SBX)
-    assert creations.get("side_hustle_earning", 0) > 0, \
-        "the hustle should have drawn a pool-funded payout"
+    assert (
+        creations.get("side_hustle_earning", 0) > 0
+    ), "the hustle should have drawn a pool-funded payout"
 
     # At least one AI recovered above its broke starting point.
-    recovered = [
-        pid for pid in pids
-        if bankroll.load_ai_bankroll(pid, sandbox_id=SBX).chips > 10
-    ]
+    recovered = [pid for pid in pids if bankroll.load_ai_bankroll(pid, sandbox_id=SBX).chips > 10]
     assert recovered, "a hustling AI should return with chips"
 
     # Pool was drawn down but never went negative.
@@ -158,12 +162,18 @@ def test_empty_pool_blocks_payout_but_keeps_drift_zero(repos):
     _insert_personality(db_path, "broke_solo")
     bankroll.save_ai_bankroll(
         AIBankrollState(personality_id="broke_solo", chips=10, last_regen_tick=T0),
-        sandbox_id=SBX, chip_ledger_repo=ledger,
+        sandbox_id=SBX,
+        chip_ledger_repo=ledger,
     )
-    cash_table.save_idle(IdlePoolEntry(
-        personality_id="broke_solo", left_at=T0, reason="forced_leave",
-        target_stake=None,
-    ), sandbox_id=SBX)
+    cash_table.save_idle(
+        IdlePoolEntry(
+            personality_id="broke_solo",
+            left_at=T0,
+            reason="forced_leave",
+            target_stake=None,
+        ),
+        sandbox_id=SBX,
+    )
     # No seed_bank_pool — the pool is empty.
 
     _refresh(repos_dict, now=T0)

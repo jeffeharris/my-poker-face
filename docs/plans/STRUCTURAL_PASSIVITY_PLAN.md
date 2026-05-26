@@ -574,10 +574,49 @@ Backward-compatible (`hand_class=None` = legacy); unit-tested
 (`test_multiway.py::TestValueExemption`).
 
 This is the principled root fix: value-betting knowledge lives in the multiway
-layer (the situation policy), composes correctly with field size, and makes the
-`value_bet_floor` override redundant. **Status: EV validation in flight**
-(mode-off-with-fix vs jeff/gto/mix, comparing to the floor's −2.6/−52.1/−93.6);
-**if it reproduces, `value_bet_floor` retires.** Until then the override stays
-in place but flag-default-OFF (dormant; no double-apply).
+layer (the situation policy), composes correctly with field size.
+
+**Validation (mode-off WITH the exemption, 3000×3, vs the OFF baseline and the
+floor override):**
+
+| Eval | baseline | value-bet floor | **multiway exemption** | exemption Δ |
+|---|---|---|---|---|
+| jeff | −9.6 | −2.6 | **−4.2** | +5.4 |
+| gto | −78.9 | −52.1 | **−51.5** | **+27.4** |
+| mix | −106.2 | −93.6 | **−99.5** | +6.7 |
+
+The exemption **fully reproduces the floor vs GTO** (−51.5 ≈ −52.1; that win was
+entirely about not suppressing value in 78%-multiway pots) and captures the
+**majority** vs jeff/mix. The floor's residual (+1.6 jeff / +6 mix) came from
+pumping value *above* the chart's raw frequency (0.85 vs ~0.75) — an
+**exploitative over-bet vs call-happy opponents, not GTO**; its proper home is
+the exploitation layer (a future "value-bet bigger vs detected stations" rule),
+not the base policy.
+
+**`value_bet_floor` RETIRED** (module + flag + pipeline call + trace
+registration + `vbf` harness modes removed). The win lives in the multiway
+exemption; git history + this doc preserve the override. Net shipped fix for
+the structural passivity: **the multiway value-class exemption** (+5.4 vs a
+human clone, +27.4 vs GTO-Lite, +6.7 vs the rule mix; default-on, all tiered
+bots).
+
+### Coda — does a *personality* tiered bot adapt? (the opponent-deviation half)
+Quick check vs the built-in fold-fish (`FoldyBot`, folds ~95% to c-bets),
+`analyze_6max_vs_rules`, 1500 hands:
+
+| hero vs 5× FoldyBot | bb/100 | notes |
+|---|---|---|
+| Baseline (no exploitation, multiway-fix on) | **+24.2** | value-bets into the folders |
+| TAG (exploitation + personality) | **+40.5** | **+16.3 adaptation delta** |
+
+The exploitation layer *detects* the leak (`detected_high_fold_to_cbet 65%`;
+all 5 fish tagged `F2C>0.60`) and TAG extracts +16.3 over Baseline — so the bot
+**does adapt**. But the dedicated fold-to-cbet exploit is **HU-gated** and sat
+idle (`fired_high_fold_to_cbet 0`, `detected_but_no_fire 59%`) because the fish
+call → multiway; the multiway-cbet exploit (180×) + personality carried it.
+**Same HU-gating limitation as H1** — un-gating the fold-to-cbet exploit for
+multiway is a clear follow-up (and the natural home for the floor's retired
+exploitative residual). Both architecture halves now demonstrated working:
+situation policy (multiway exemption) ⊕ opponent deviation (exploitation).
 
 

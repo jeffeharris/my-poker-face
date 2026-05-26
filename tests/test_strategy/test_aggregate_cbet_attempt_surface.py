@@ -15,15 +15,15 @@ Verifies all four aggregator entry points propagate the fields:
 
 import pytest
 
+from poker.memory.opponent_model import (
+    OpponentTendencies,
+    _build_aggregate_from_multi,
+    _build_aggregate_from_single,
+)
 from poker.strategy.exploitation import (
     AggregatedOpponentStats,
     OpponentSpot,
     aggregate_from_spots,
-)
-from poker.memory.opponent_model import (
-    OpponentTendencies,
-    _build_aggregate_from_single,
-    _build_aggregate_from_multi,
 )
 
 
@@ -45,10 +45,15 @@ def _tendencies(**kwargs) -> OpponentTendencies:
 
 def _stats(**kwargs) -> AggregatedOpponentStats:
     base = dict(
-        hands_observed=50, vpip=0.5, pfr=0.5,
-        aggression_factor=2.0, all_in_frequency=0.0,
-        fold_to_cbet=0.5, cbet_faced_count=10,
-        cbet_attempt_rate=0.5, postflop_seen_as_pfr_count=10,
+        hands_observed=50,
+        vpip=0.5,
+        pfr=0.5,
+        aggression_factor=2.0,
+        all_in_frequency=0.0,
+        fold_to_cbet=0.5,
+        cbet_faced_count=10,
+        cbet_attempt_rate=0.5,
+        postflop_seen_as_pfr_count=10,
         aggression_factor_postflop=2.0,
         all_in_per_facing_bet=0.0,
         facing_bet_opportunities=0,
@@ -59,17 +64,24 @@ def _stats(**kwargs) -> AggregatedOpponentStats:
     return AggregatedOpponentStats(**base)
 
 
-def _spot(name: str, stats: AggregatedOpponentStats, *,
-          committed_this_hand: int = 100) -> OpponentSpot:
+def _spot(
+    name: str, stats: AggregatedOpponentStats, *, committed_this_hand: int = 100
+) -> OpponentSpot:
     return OpponentSpot(
-        name=name, stats=stats,
-        is_active=True, is_aggressor=False, is_all_in=False,
-        current_bet=0, stack=10000,
-        committed_this_street=0, committed_this_hand=committed_this_hand,
+        name=name,
+        stats=stats,
+        is_active=True,
+        is_aggressor=False,
+        is_all_in=False,
+        current_bet=0,
+        stack=10000,
+        committed_this_street=0,
+        committed_this_hand=committed_this_hand,
     )
 
 
 # ── Dataclass defaults ──────────────────────────────────────────────────
+
 
 class TestDefaults:
     def test_neutral_defaults(self):
@@ -79,6 +91,7 @@ class TestDefaults:
 
 
 # ── opponent_model.py aggregators ───────────────────────────────────────
+
 
 class TestBuildFromSingle:
     def test_propagates_cbet_attempt_rate_from_tendencies(self):
@@ -122,35 +135,60 @@ class TestBuildFromMulti:
 
 # ── exploitation.py spot-based aggregator ───────────────────────────────
 
+
 class TestAggregateFromSpots:
     def test_single_opponent_verbatim(self):
-        spot = _spot('Villain', _stats(
-            cbet_attempt_rate=0.92, postflop_seen_as_pfr_count=33,
-        ))
+        spot = _spot(
+            'Villain',
+            _stats(
+                cbet_attempt_rate=0.92,
+                postflop_seen_as_pfr_count=33,
+            ),
+        )
         agg = aggregate_from_spots([spot])
         assert agg.cbet_attempt_rate == 0.92
         assert agg.postflop_seen_as_pfr_count == 33
 
     def test_dominant_opponent_verbatim(self):
         """60% rule fires — dominant opponent's stats forward verbatim."""
-        dominant = _spot('Dominant', _stats(
-            cbet_attempt_rate=0.80, postflop_seen_as_pfr_count=40,
-        ), committed_this_hand=1000)
-        other = _spot('Other', _stats(
-            cbet_attempt_rate=0.30, postflop_seen_as_pfr_count=10,
-        ), committed_this_hand=100)
+        dominant = _spot(
+            'Dominant',
+            _stats(
+                cbet_attempt_rate=0.80,
+                postflop_seen_as_pfr_count=40,
+            ),
+            committed_this_hand=1000,
+        )
+        other = _spot(
+            'Other',
+            _stats(
+                cbet_attempt_rate=0.30,
+                postflop_seen_as_pfr_count=10,
+            ),
+            committed_this_hand=100,
+        )
         agg = aggregate_from_spots([dominant, other])
         # Dominant committed 1000 / 1100 = 91% > 60% threshold
         assert agg.cbet_attempt_rate == 0.80
         assert agg.postflop_seen_as_pfr_count == 40
 
     def test_multi_opponent_averaged_with_min_counter(self):
-        a = _spot('A', _stats(
-            cbet_attempt_rate=0.80, postflop_seen_as_pfr_count=25,
-        ), committed_this_hand=100)
-        b = _spot('B', _stats(
-            cbet_attempt_rate=0.40, postflop_seen_as_pfr_count=15,
-        ), committed_this_hand=100)
+        a = _spot(
+            'A',
+            _stats(
+                cbet_attempt_rate=0.80,
+                postflop_seen_as_pfr_count=25,
+            ),
+            committed_this_hand=100,
+        )
+        b = _spot(
+            'B',
+            _stats(
+                cbet_attempt_rate=0.40,
+                postflop_seen_as_pfr_count=15,
+            ),
+            committed_this_hand=100,
+        )
         # Equal commitments — 60% rule doesn't fire
         agg = aggregate_from_spots([a, b])
         assert agg.cbet_attempt_rate == pytest.approx(0.60)

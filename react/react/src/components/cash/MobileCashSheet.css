@@ -16,13 +16,21 @@
 }
 
 @keyframes mcs-cash-overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes mcs-cash-overlay-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .mobile-cash-sheet__sheet {
@@ -34,11 +42,7 @@
   max-height: 85dvh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(
-    178deg,
-    rgba(18, 20, 28, 0.99) 0%,
-    rgba(10, 11, 16, 0.995) 100%
-  );
+  background: linear-gradient(178deg, rgba(18, 20, 28, 0.99) 0%, rgba(10, 11, 16, 0.995) 100%);
   border-radius: 20px 20px 0 0;
   border-top: 1px solid rgba(212, 165, 116, 0.18);
   box-shadow:
@@ -57,13 +61,21 @@
 }
 
 @keyframes mcs-cash-sheet-in {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes mcs-cash-sheet-out {
-  from { transform: translateY(0); }
-  to { transform: translateY(100%); }
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
 }
 
 .mobile-cash-sheet__header {
@@ -101,7 +113,9 @@
   cursor: pointer;
   padding: 4px;
   border-radius: 6px;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .mobile-cash-sheet__close:hover {
@@ -210,7 +224,10 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .mobile-cash-sheet__leave:hover:not(:disabled) {

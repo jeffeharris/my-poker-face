@@ -201,7 +201,8 @@ class TestEdgeCases:
 
     def test_no_winners_skipped(self):
         pot = PotShare(
-            amount=100, winners=(),
+            amount=100,
+            winners=(),
             contributions={"alice": 50, "bob": 50},
         )
         assert allocate_chip_flow([pot]) == []

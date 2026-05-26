@@ -39,12 +39,14 @@ def prompt_manager():
 def test_generate_success_populates_all_fields(context, prompt_manager):
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': ['*leans forward*', "I'm in."],
-            'inner_monologue': 'Pocket rockets, time to build the pot.',
-            'hand_strategy': 'Apply pressure pre-flop with a premium hand.',
-            'bluff_likelihood': 25,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': ['*leans forward*', "I'm in."],
+                'inner_monologue': 'Pocket rockets, time to build the pot.',
+                'hand_strategy': 'Apply pressure pre-flop with a premium hand.',
+                'bluff_likelihood': 25,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -97,12 +99,14 @@ def test_generate_empty_content_returns_empty(context, prompt_manager):
 def test_generate_clamps_bluff_likelihood(context, prompt_manager):
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': [],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 500,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 500,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -114,12 +118,14 @@ def test_generate_clamps_bluff_likelihood(context, prompt_manager):
 def test_generate_handles_non_list_sequence(context, prompt_manager):
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': 'not a list',
-            'inner_monologue': 'hi',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': 'not a list',
+                'inner_monologue': 'hi',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -132,12 +138,14 @@ def test_generate_handles_non_list_sequence(context, prompt_manager):
 def test_generate_passes_player_name_to_llm(context, prompt_manager):
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': [],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -152,6 +160,7 @@ def test_generate_passes_player_name_to_llm(context, prompt_manager):
 def test_generate_populates_capture_id_holder(context, prompt_manager):
     """When capture_id_holder is provided, the _on_captured callback writes the id back."""
     mock_llm = MagicMock()
+
     # Simulate the LLMClient invoking our enricher to populate _on_captured,
     # then firing the callback as capture_prompt() would post-insert.
     def fake_complete(**kwargs):
@@ -161,12 +170,17 @@ def test_generate_populates_capture_id_holder(context, prompt_manager):
             on_captured = capture_data.get('_on_captured')
             if callable(on_captured):
                 on_captured(424242)
-        return SimpleNamespace(content=json.dumps({
-            'dramatic_sequence': ['*nods*'],
-            'inner_monologue': 'hm',
-            'hand_strategy': 's',
-            'bluff_likelihood': 0,
-        }))
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    'dramatic_sequence': ['*nods*'],
+                    'inner_monologue': 'hm',
+                    'hand_strategy': 's',
+                    'bluff_likelihood': 0,
+                }
+            )
+        )
+
     mock_llm.complete.side_effect = fake_complete
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -180,12 +194,14 @@ def test_generate_without_holder_omits_enricher(context, prompt_manager):
     """No holder => no capture_enricher passed (callers that don't care don't pay)."""
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': [],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -213,12 +229,16 @@ def _capture_prompt(mock_llm) -> str:
 
 
 def _stub_response():
-    return SimpleNamespace(content=json.dumps({
-        'dramatic_sequence': [],
-        'inner_monologue': '',
-        'hand_strategy': '',
-        'bluff_likelihood': 0,
-    }))
+    return SimpleNamespace(
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
+    )
 
 
 def test_system_user_split(context, prompt_manager):
@@ -298,9 +318,9 @@ def test_optional_sections_render_when_fields_populated(prompt_manager):
     assert 'Bob called' in prompt
     # situation block carries new fields
     assert 'BTN' in prompt
-    assert '42.0' in prompt        # stack_bb
-    assert '9.0' in prompt         # pot_bb
-    assert '2.5' in prompt         # cost_to_call_bb
+    assert '42.0' in prompt  # stack_bb
+    assert '9.0' in prompt  # pot_bb
+    assert '2.5' in prompt  # cost_to_call_bb
 
 
 def test_relationship_context_block_appears_when_populated(context, prompt_manager):
@@ -355,13 +375,15 @@ def test_addressing_field_passes_through(context, prompt_manager):
     """LLM-declared addressing names are preserved through parse."""
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': ["Your move, Bob."],
-            'addressing': ["Bob"],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': ["Your move, Bob."],
+                'addressing': ["Bob"],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -374,12 +396,14 @@ def test_addressing_defaults_empty_when_missing(context, prompt_manager):
     """Responses without an addressing field collapse to []."""
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': [],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -392,13 +416,15 @@ def test_addressing_rejects_non_list(context, prompt_manager):
     """Defensive — non-list addressing falls back to []."""
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': [],
-            'addressing': "Bob",  # wrong shape
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': [],
+                'addressing': "Bob",  # wrong shape
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)
@@ -425,12 +451,14 @@ def test_generate_with_empty_tics(prompt_manager):
 
     mock_llm = MagicMock()
     mock_llm.complete.return_value = SimpleNamespace(
-        content=json.dumps({
-            'dramatic_sequence': ['Check.'],
-            'inner_monologue': '',
-            'hand_strategy': '',
-            'bluff_likelihood': 0,
-        })
+        content=json.dumps(
+            {
+                'dramatic_sequence': ['Check.'],
+                'inner_monologue': '',
+                'hand_strategy': '',
+                'bluff_likelihood': 0,
+            }
+        )
     )
 
     gen = ExpressionGenerator(mock_llm, prompt_manager)

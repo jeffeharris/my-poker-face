@@ -6,11 +6,7 @@
   flex-direction: column;
   width: 260px;
   height: 100%;
-  background: linear-gradient(
-    180deg,
-    rgba(18, 18, 24, 0.98) 0%,
-    rgba(12, 12, 16, 0.99) 100%
-  );
+  background: linear-gradient(180deg, rgba(18, 18, 24, 0.98) 0%, rgba(12, 12, 16, 0.99) 100%);
   border-right: 1px solid rgba(255, 193, 7, 0.12);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
@@ -201,7 +197,10 @@
   border-radius: 10px;
   color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
   text-align: left;
   overflow: hidden;
 }
@@ -213,21 +212,13 @@
 }
 
 .admin-sidebar__link--active {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 193, 7, 0.12) 0%,
-    rgba(255, 152, 0, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.12) 0%, rgba(255, 152, 0, 0.08) 100%);
   border-color: rgba(255, 193, 7, 0.25);
   color: #ffc107;
 }
 
 .admin-sidebar__link--active:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 193, 7, 0.16) 0%,
-    rgba(255, 152, 0, 0.12) 100%
-  );
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.16) 0%, rgba(255, 152, 0, 0.12) 100%);
   border-color: rgba(255, 193, 7, 0.35);
 }
 

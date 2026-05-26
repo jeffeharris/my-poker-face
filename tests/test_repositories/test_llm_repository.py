@@ -1,5 +1,7 @@
 """Tests for LLMRepository."""
+
 import pytest
+
 from poker.repositories.llm_repository import LLMRepository
 
 

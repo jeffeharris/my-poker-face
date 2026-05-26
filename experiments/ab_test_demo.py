@@ -10,15 +10,14 @@ Usage:
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime
-from dataclasses import asdict
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, TournamentResult
+from experiments.run_ai_tournament import AITournamentRunner, ExperimentConfig
 
 
 def run_ab_test(db_path: str = None):
@@ -62,7 +61,7 @@ def run_ab_test(db_path: str = None):
         tags=["ab-test", "variant-a", "demo"],
         model="gpt-5-nano",
         provider="openai",
-        **base_config
+        **base_config,
     )
 
     # Variant B: same model (in real test, would differ)
@@ -73,17 +72,14 @@ def run_ab_test(db_path: str = None):
         tags=["ab-test", "variant-b", "demo"],
         model="gpt-5-nano",  # In real A/B test, this might be different
         provider="openai",
-        **base_config
+        **base_config,
     )
-
-    results_a = []
-    results_b = []
 
     # Run Variant A
     print("Running Variant A...")
     print("-" * 40)
     runner_a = AITournamentRunner(config_a, db_path=db_path)
-    results_a = runner_a.run_experiment()
+    runner_a.run_experiment()
     experiment_id_a = runner_a.experiment_id
     print(f"Variant A complete. Experiment ID: {experiment_id_a}")
     print()
@@ -92,7 +88,7 @@ def run_ab_test(db_path: str = None):
     print("Running Variant B...")
     print("-" * 40)
     runner_b = AITournamentRunner(config_b, db_path=db_path)
-    results_b = runner_b.run_experiment()
+    runner_b.run_experiment()
     experiment_id_b = runner_b.experiment_id
     print(f"Variant B complete. Experiment ID: {experiment_id_b}")
     print()
@@ -103,6 +99,7 @@ def run_ab_test(db_path: str = None):
     print("=" * 60)
 
     from poker.repositories import create_repos
+
     repos = create_repos(db_path)
     experiment_repo = repos['experiment_repo']
 
@@ -156,11 +153,15 @@ def run_ab_test(db_path: str = None):
 
     if experiment_id_a:
         stats_a = experiment_repo.get_experiment_decision_stats(experiment_id_a)
-        print(f"\nVariant A: {stats_a.get('total', 0)} decisions, {stats_a.get('correct_pct', 0)}% correct")
+        print(
+            f"\nVariant A: {stats_a.get('total', 0)} decisions, {stats_a.get('correct_pct', 0)}% correct"
+        )
 
     if experiment_id_b:
         stats_b = experiment_repo.get_experiment_decision_stats(experiment_id_b)
-        print(f"Variant B: {stats_b.get('total', 0)} decisions, {stats_b.get('correct_pct', 0)}% correct")
+        print(
+            f"Variant B: {stats_b.get('total', 0)} decisions, {stats_b.get('correct_pct', 0)}% correct"
+        )
 
     print("\n" + "=" * 60)
     print("A/B Test Demo Complete!")

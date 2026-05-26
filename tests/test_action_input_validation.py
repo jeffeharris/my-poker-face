@@ -3,9 +3,10 @@
 Validates that the validate_player_action function correctly rejects
 invalid actions, wrong turn, and bad amounts before they reach play_turn().
 """
+
 from unittest.mock import MagicMock
 
-from flask_app.validation import validate_player_action, VALID_ACTIONS
+from flask_app.validation import VALID_ACTIONS, validate_player_action
 
 
 def _make_game_state(is_human=True, options=None, awaiting_action=True, run_it_out=False):

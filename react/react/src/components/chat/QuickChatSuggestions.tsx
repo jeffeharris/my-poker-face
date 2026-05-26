@@ -1,5 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { MessageCircle, Flame, Crosshair, CircleDot, Zap, Sparkles, Handshake, type LucideIcon } from 'lucide-react';
+import {
+  MessageCircle,
+  Flame,
+  Crosshair,
+  CircleDot,
+  Zap,
+  Sparkles,
+  Handshake,
+  type LucideIcon,
+} from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
 import { gameAPI } from '../../utils/api';
@@ -33,7 +42,7 @@ interface QuickChatSuggestionsProps {
     text: string,
     addressing?: string[],
     tone?: ChatTone,
-    intensity?: ChatIntensity,
+    intensity?: ChatIntensity
   ) => void;
   defaultExpanded?: boolean;
   hideHeader?: boolean;
@@ -110,57 +119,69 @@ export function QuickChatSuggestions({
   // Folded targets are still useful: the player can needle a busted opponent
   // or reach out to a friend who just mucked. Folded state is reflected
   // visually so the affordance is honest about who's still in the hand.
-  const aiPlayers = players.filter(p => !p.is_human);
-  const fetchSuggestions = useCallback(async (target: string | null, tone: ChatTone, forceRefresh = false) => {
-    // Block fetching when guest chat is disabled
-    if (guestChatDisabled) return;
+  const aiPlayers = players.filter((p) => !p.is_human);
+  const fetchSuggestions = useCallback(
+    async (target: string | null, tone: ChatTone, forceRefresh = false) => {
+      // Block fetching when guest chat is disabled
+      if (guestChatDisabled) return;
 
-    // Cooldown check (skip if force refresh)
-    const now = Date.now();
-    if (!forceRefresh && now - lastFetchTimeRef.current < SUGGESTION_FETCH_COOLDOWN_MS) {
-      return;
-    }
-
-    // Capture current height before loading to prevent jitter
-    if (suggestionsRef.current) {
-      setContainerHeight(suggestionsRef.current.offsetHeight);
-    }
-
-    setLoading(true);
-    try {
-      // Convert 'table' to null for API (general table talk)
-      const apiTarget = target === 'table' ? null : target;
-      const response = await gameAPI.getTargetedChatSuggestions(
-        gameId,
-        playerName,
-        apiTarget,
-        tone,
-        length,
-        intensity,
-        lastAction
-      );
-      if (response.fallback) {
-        logger.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
+      // Cooldown check (skip if force refresh)
+      const now = Date.now();
+      if (!forceRefresh && now - lastFetchTimeRef.current < SUGGESTION_FETCH_COOLDOWN_MS) {
+        return;
       }
-      const newSuggestions = response.suggestions || [];
-      setSuggestions(newSuggestions);
-      // Cache the suggestions
-      const cacheKey = getCacheKey(target, tone, length, intensity);
-      suggestionsCache.current[cacheKey] = newSuggestions;
-      lastFetchTimeRef.current = now;
-    } catch (error) {
-      logger.error('[QuickChat] Failed to fetch suggestions:', error);
-      // Set fallback suggestions
-      setSuggestions([
-        { text: 'Nice play!', tone },
-        { text: 'Interesting...', tone }
-      ]);
-    } finally {
-      setLoading(false);
-      setContainerHeight(null); // Release fixed height
-      onSuggestionsLoaded?.();
-    }
-  }, [gameId, playerName, lastAction, length, intensity, getCacheKey, onSuggestionsLoaded, guestChatDisabled]);
+
+      // Capture current height before loading to prevent jitter
+      if (suggestionsRef.current) {
+        setContainerHeight(suggestionsRef.current.offsetHeight);
+      }
+
+      setLoading(true);
+      try {
+        // Convert 'table' to null for API (general table talk)
+        const apiTarget = target === 'table' ? null : target;
+        const response = await gameAPI.getTargetedChatSuggestions(
+          gameId,
+          playerName,
+          apiTarget,
+          tone,
+          length,
+          intensity,
+          lastAction
+        );
+        if (response.fallback) {
+          logger.warn('[QuickChat] Using fallback suggestions! API error:', response.error);
+        }
+        const newSuggestions = response.suggestions || [];
+        setSuggestions(newSuggestions);
+        // Cache the suggestions
+        const cacheKey = getCacheKey(target, tone, length, intensity);
+        suggestionsCache.current[cacheKey] = newSuggestions;
+        lastFetchTimeRef.current = now;
+      } catch (error) {
+        logger.error('[QuickChat] Failed to fetch suggestions:', error);
+        // Set fallback suggestions
+        setSuggestions([
+          { text: 'Nice play!', tone },
+          { text: 'Interesting...', tone },
+        ]);
+      } finally {
+        setLoading(false);
+        setContainerHeight(null); // Release fixed height
+        onSuggestionsLoaded?.();
+      }
+    },
+    [
+      gameId,
+      playerName,
+      lastAction,
+      length,
+      intensity,
+      getCacheKey,
+      onSuggestionsLoaded,
+      guestChatDisabled,
+    ]
+  );
 
   // Check cache when length/intensity changes and auto-fetch if no cache
   useEffect(() => {
@@ -178,7 +199,15 @@ export function QuickChatSuggestions({
         fetchSuggestions(selectedTarget, selectedTone, true);
       }
     }
-  }, [length, intensity, selectedTarget, selectedTone, getCacheKey, fetchSuggestions, onSuggestionsLoaded]);
+  }, [
+    length,
+    intensity,
+    selectedTarget,
+    selectedTone,
+    getCacheKey,
+    fetchSuggestions,
+    onSuggestionsLoaded,
+  ]);
 
   const handleTargetSelect = (target: string | null) => {
     setSelectedTarget(target);
@@ -198,19 +227,12 @@ export function QuickChatSuggestions({
     // Only attach addressing when targeting a specific opponent. The
     // "table" pseudo-target is broadcast chat and should leave the
     // addressing list empty so AIs don't treat it as a direct callout.
-    const addressing = selectedTarget && selectedTarget !== 'table'
-      ? [selectedTarget]
-      : undefined;
+    const addressing = selectedTarget && selectedTarget !== 'table' ? [selectedTarget] : undefined;
     // Forward the user's structured tone choice and intensity so the
     // backend can map this message to a RelationshipEvent. Both are
     // null-safe — selectedTone is guaranteed truthy at click time (the
     // suggestion list only renders after a tone is picked).
-    onSelectSuggestion(
-      text,
-      addressing,
-      selectedTone ?? undefined,
-      intensity,
-    );
+    onSelectSuggestion(text, addressing, selectedTone ?? undefined, intensity);
     // Reset state after selection
     setSelectedTarget(null);
     setSelectedTone(null);

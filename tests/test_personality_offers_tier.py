@@ -16,13 +16,13 @@ from typing import List, Optional
 
 import pytest
 
-from cash_mode.staker_profile import StakerProfile
 from cash_mode.sponsor_offers import (
     GARNISHMENT_RATE_CAP,
-    LenderRejection,
     TIER_RATE_BUMP,
+    LenderRejection,
     compute_personality_offers,
 )
+from cash_mode.staker_profile import StakerProfile
 from cash_mode.stakes import (
     BORROWER_KIND_HUMAN,
     STAKE_STATUS_CARRY,
@@ -37,7 +37,6 @@ from cash_mode.staking_tier import (
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 
-
 PLAYER = "alice"
 MIN_BUY_IN = 400
 MAX_BUY_IN = 1000
@@ -45,6 +44,7 @@ ANCHOR = datetime(2026, 5, 20, 12, 0, 0)
 
 
 # --- Fakes (mirrors test_personality_offers.py for consistency) ---
+
 
 @dataclass
 class _RelState:
@@ -86,6 +86,7 @@ def _default_profile() -> StakerProfile:
 
 # --- Test repo fixture (real StakeRepository on tempdb) ---
 
+
 @pytest.fixture
 def stake_repo():
     with tempfile.TemporaryDirectory() as d:
@@ -102,24 +103,26 @@ def _seed_carry(
     staker_id: str,
     carry_amount: int,
 ) -> None:
-    repo.create_stake(Stake(
-        stake_id=stake_id,
-        session_id=f"sess-{stake_id}",
-        staker_id=staker_id,
-        staker_kind=STAKER_KIND_PERSONALITY,
-        borrower_id=borrower_id,
-        borrower_kind=BORROWER_KIND_HUMAN,
-        format="pure",
-        principal=carry_amount,
-        match_amount=0,
-        origination_fee=0,
-        cut=0.20,
-        status=STAKE_STATUS_CARRY,
-        carry_amount=carry_amount,
-        stake_tier="$10",
-        created_at=ANCHOR,
-        settled_at=ANCHOR,
-    ))
+    repo.create_stake(
+        Stake(
+            stake_id=stake_id,
+            session_id=f"sess-{stake_id}",
+            staker_id=staker_id,
+            staker_kind=STAKER_KIND_PERSONALITY,
+            borrower_id=borrower_id,
+            borrower_kind=BORROWER_KIND_HUMAN,
+            format="pure",
+            principal=carry_amount,
+            match_amount=0,
+            origination_fee=0,
+            cut=0.20,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=carry_amount,
+            stake_tier="$10",
+            created_at=ANCHOR,
+            settled_at=ANCHOR,
+        )
+    )
 
 
 def _make_candidate(pid: str) -> dict:
@@ -138,7 +141,8 @@ class TestTierBumpsRate:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -157,7 +161,8 @@ class TestTierBumpsRate:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -177,7 +182,8 @@ class TestTierBumpsRate:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),  # default neutral
@@ -192,12 +198,15 @@ class TestTierBumpsRate:
         _seed_carry(stake_repo, stake_id="old", staker_id="bezos", carry_amount=2400)
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         # Napoleon trusts + likes Alice (above the restricted floor).
-        rel_repo = _FakeRelationshipRepo(states={
-            ("napoleon", PLAYER): _RelState(respect=0.7, likability=0.7),
-        })
+        rel_repo = _FakeRelationshipRepo(
+            states={
+                ("napoleon", PLAYER): _RelState(respect=0.7, likability=0.7),
+            }
+        )
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
@@ -220,7 +229,8 @@ class TestHouseOnlyShortCircuit:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -244,7 +254,8 @@ class TestPerStakerGarnishment:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -263,7 +274,8 @@ class TestPerStakerGarnishment:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -283,7 +295,8 @@ class TestPerStakerGarnishment:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -302,13 +315,16 @@ class TestRejectionsSideOutput:
     def test_low_respect_captured(self, stake_repo):
         # Default profile's respect_floor is 0.30. Napoleon respects Alice at 0.1.
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
-        rel_repo = _FakeRelationshipRepo(states={
-            ("napoleon", PLAYER): _RelState(respect=0.1, likability=0.5),
-        })
+        rel_repo = _FakeRelationshipRepo(
+            states={
+                ("napoleon", PLAYER): _RelState(respect=0.1, likability=0.5),
+            }
+        )
         rejections: List[LenderRejection] = []
         compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
@@ -328,13 +344,16 @@ class TestRejectionsSideOutput:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         # Napoleon's relationship is acceptable for the legacy gates
         # but doesn't clear the restricted-tier floor.
-        rel_repo = _FakeRelationshipRepo(states={
-            ("napoleon", PLAYER): _RelState(respect=0.55, likability=0.4),
-        })
+        rel_repo = _FakeRelationshipRepo(
+            states={
+                ("napoleon", PLAYER): _RelState(respect=0.55, likability=0.4),
+            }
+        )
         rejections: List[LenderRejection] = []
         compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=rel_repo,
@@ -352,7 +371,8 @@ class TestRejectionsSideOutput:
         rejections: List[LenderRejection] = []
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),
@@ -377,7 +397,8 @@ class TestBackwardCompat:
         bankroll_repo = _FakeBankrollRepo(bankrolls={"napoleon": 5_000})
         offers = compute_personality_offers(
             player_owner_id=PLAYER,
-            min_buy_in=MIN_BUY_IN, max_buy_in=MAX_BUY_IN,
+            min_buy_in=MIN_BUY_IN,
+            max_buy_in=MAX_BUY_IN,
             candidate_personalities=[_make_candidate("napoleon")],
             bankroll_repo=bankroll_repo,
             relationship_repo=_FakeRelationshipRepo(),

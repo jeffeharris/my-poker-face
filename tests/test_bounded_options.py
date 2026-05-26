@@ -5,14 +5,15 @@ Tests the core blocking logic that prevents catastrophic folds and calls.
 """
 
 import pytest
+
 from poker.bounded_options import (
     BoundedOption,
-    calculate_required_equity,
-    generate_bounded_options,
-    format_options_for_prompt,
-    _should_block_fold,
-    _should_block_call,
     _get_raise_options,
+    _should_block_call,
+    _should_block_fold,
+    calculate_required_equity,
+    format_options_for_prompt,
+    generate_bounded_options,
 )
 
 
@@ -483,9 +484,9 @@ class TestNeutralFloorFix:
 
         assert len(raise_options) >= 1
         for r in raise_options:
-            assert r.ev_estimate == '-EV', (
-                f"Expected -EV for 35% equity raise with tight_passive profile, got {r.ev_estimate}"
-            )
+            assert (
+                r.ev_estimate == '-EV'
+            ), f"Expected -EV for 35% equity raise with tight_passive profile, got {r.ev_estimate}"
 
     def test_profiles_diverge_on_same_equity_postflop(self):
         """Different profiles should produce different EV labels for
@@ -495,9 +496,7 @@ class TestNeutralFloorFix:
         # 40% equity: above LAG postflop_raise_neutral (0.30) but below Rock (0.60)
         context = self._postflop_check_raise_context(equity=0.40)
 
-        rock_opts = generate_bounded_options(
-            context, STYLE_PROFILES['tight_passive'], phase='FLOP'
-        )
+        rock_opts = generate_bounded_options(context, STYLE_PROFILES['tight_passive'], phase='FLOP')
         lag_opts = generate_bounded_options(
             context, STYLE_PROFILES['loose_aggressive'], phase='FLOP'
         )
@@ -560,9 +559,7 @@ class TestPostflopRaiseOptionLimit:
 
         context = self._postflop_many_raises_context()
 
-        rock_opts = generate_bounded_options(
-            context, STYLE_PROFILES['tight_passive'], phase='FLOP'
-        )
+        rock_opts = generate_bounded_options(context, STYLE_PROFILES['tight_passive'], phase='FLOP')
         lag_opts = generate_bounded_options(
             context, STYLE_PROFILES['loose_aggressive'], phase='FLOP'
         )
@@ -570,9 +567,9 @@ class TestPostflopRaiseOptionLimit:
         rock_raises = sum(1 for o in rock_opts if o.action == 'raise')
         lag_raises = sum(1 for o in lag_opts if o.action == 'raise')
 
-        assert lag_raises > rock_raises, (
-            f"LAG should have more raises than Rock: {lag_raises} vs {rock_raises}"
-        )
+        assert (
+            lag_raises > rock_raises
+        ), f"LAG should have more raises than Rock: {lag_raises} vs {rock_raises}"
 
     def test_preflop_not_limited(self):
         """Preflop raise options should not be affected by postflop limit."""
@@ -628,9 +625,9 @@ class TestCheckPromotionDifferentiation:
         check_opts = [o for o in options if o.action == 'check']
 
         assert len(check_opts) == 1
-        assert 'pot control' in check_opts[0].rationale.lower(), (
-            f"Expected 'pot control' in rationale, got: {check_opts[0].rationale}"
-        )
+        assert (
+            'pot control' in check_opts[0].rationale.lower()
+        ), f"Expected 'pot control' in rationale, got: {check_opts[0].rationale}"
 
     def test_lag_does_not_promote_check_when_raises_exist(self):
         """LAG should not promote check to +EV when raise options exist."""
@@ -646,9 +643,9 @@ class TestCheckPromotionDifferentiation:
         if has_raises:
             # Check should NOT be promoted to +EV
             for c in check_opts:
-                assert c.ev_estimate != '+EV', (
-                    f"LAG check should not be +EV when raises exist, got: {c.ev_estimate}"
-                )
+                assert (
+                    c.ev_estimate != '+EV'
+                ), f"LAG check should not be +EV when raises exist, got: {c.ev_estimate}"
 
     def test_tag_promotes_check_only_without_decent_raises(self):
         """TAG should promote check only when no raise has neutral/+EV."""
@@ -666,9 +663,9 @@ class TestCheckPromotionDifferentiation:
         has_decent_raise = any(o.ev_estimate in ('+EV', 'neutral') for o in raise_opts)
         if has_decent_raise:
             for c in check_opts:
-                assert c.ev_estimate != '+EV', (
-                    f"TAG check should not be +EV when decent raises exist, got: {c.ev_estimate}"
-                )
+                assert (
+                    c.ev_estimate != '+EV'
+                ), f"TAG check should not be +EV when decent raises exist, got: {c.ev_estimate}"
 
     def test_default_profile_promotes_check_as_before(self):
         """Default profile should maintain original promotion behavior."""
@@ -732,15 +729,19 @@ class TestQualitativeTuning:
 
         context = self._postflop_context(equity=0.35)
 
-        tag_opts = generate_bounded_options(context, STYLE_PROFILES['tight_aggressive'], phase='FLOP')
+        tag_opts = generate_bounded_options(
+            context, STYLE_PROFILES['tight_aggressive'], phase='FLOP'
+        )
         rock_opts = generate_bounded_options(context, STYLE_PROFILES['tight_passive'], phase='FLOP')
 
         tag_neg_raises = sum(1 for o in tag_opts if o.action == 'raise' and o.ev_estimate == '-EV')
-        rock_neg_raises = sum(1 for o in rock_opts if o.action == 'raise' and o.ev_estimate == '-EV')
-
-        assert tag_neg_raises < rock_neg_raises, (
-            f"TAG should have fewer -EV raises than Rock: TAG={tag_neg_raises}, Rock={rock_neg_raises}"
+        rock_neg_raises = sum(
+            1 for o in rock_opts if o.action == 'raise' and o.ev_estimate == '-EV'
         )
+
+        assert (
+            tag_neg_raises < rock_neg_raises
+        ), f"TAG should have fewer -EV raises than Rock: TAG={tag_neg_raises}, Rock={rock_neg_raises}"
 
     # --- Fix 2: Check penalty threshold ---
 
@@ -755,12 +756,12 @@ class TestQualitativeTuning:
         check_opts = [o for o in options if o.action == 'check']
 
         assert len(check_opts) == 1
-        assert check_opts[0].ev_estimate == 'marginal', (
-            f"LAG check at 40% equity should be marginal, got: {check_opts[0].ev_estimate}"
-        )
-        assert 'betting equity' in check_opts[0].rationale.lower(), (
-            f"Expected 'betting equity' in rationale, got: {check_opts[0].rationale}"
-        )
+        assert (
+            check_opts[0].ev_estimate == 'marginal'
+        ), f"LAG check at 40% equity should be marginal, got: {check_opts[0].ev_estimate}"
+        assert (
+            'betting equity' in check_opts[0].rationale.lower()
+        ), f"Expected 'betting equity' in rationale, got: {check_opts[0].rationale}"
 
     def test_passive_check_not_penalized(self):
         """Passive profiles should not have check penalty at 40% equity.
@@ -778,9 +779,9 @@ class TestQualitativeTuning:
 
         assert len(check_opts) == 1
         # Should not contain "betting equity" penalty text
-        assert 'betting equity' not in check_opts[0].rationale.lower(), (
-            f"Passive check should not have betting equity penalty: {check_opts[0].rationale}"
-        )
+        assert (
+            'betting equity' not in check_opts[0].rationale.lower()
+        ), f"Passive check should not have betting equity penalty: {check_opts[0].rationale}"
 
     def test_tag_check_marginal_above_threshold(self):
         """TAG check at 45% equity should be 'marginal' (above 0.40 penalty threshold)."""
@@ -793,9 +794,9 @@ class TestQualitativeTuning:
         check_opts = [o for o in options if o.action == 'check']
 
         assert len(check_opts) == 1
-        assert check_opts[0].ev_estimate == 'marginal', (
-            f"TAG check at 45% equity should be marginal, got: {check_opts[0].ev_estimate}"
-        )
+        assert (
+            check_opts[0].ev_estimate == 'marginal'
+        ), f"TAG check at 45% equity should be marginal, got: {check_opts[0].ev_estimate}"
 
     # --- Fix 3: EV-aware rationale ---
 
@@ -811,12 +812,10 @@ class TestQualitativeTuning:
         neg_raises = [o for o in options if o.action == 'raise' and o.ev_estimate == '-EV']
 
         for r in neg_raises:
-            assert 'value bet' not in r.rationale.lower(), (
-                f"-EV raise should not say 'value bet': {r.rationale}"
-            )
-            assert 'bluff' in r.rationale.lower(), (
-                f"-EV raise should say 'bluff': {r.rationale}"
-            )
+            assert (
+                'value bet' not in r.rationale.lower()
+            ), f"-EV raise should not say 'value bet': {r.rationale}"
+            assert 'bluff' in r.rationale.lower(), f"-EV raise should say 'bluff': {r.rationale}"
 
     def test_positive_ev_raise_still_says_value(self):
         """Raises labeled +EV should still say 'value bet'."""
@@ -831,9 +830,9 @@ class TestQualitativeTuning:
 
         assert len(pos_raises) >= 1
         for r in pos_raises:
-            assert 'bluff' not in r.rationale.lower(), (
-                f"+EV raise should not say 'bluff': {r.rationale}"
-            )
+            assert (
+                'bluff' not in r.rationale.lower()
+            ), f"+EV raise should not say 'bluff': {r.rationale}"
 
 
 if __name__ == '__main__':

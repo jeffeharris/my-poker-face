@@ -50,8 +50,8 @@ export interface CharacterDossierData {
   /** Observed-at-table stats (only shown if handsObserved > 0). */
   observed?: {
     handsObserved?: number;
-    vpip?: number;          // 0–1
-    pfr?: number;           // 0–1
+    vpip?: number; // 0–1
+    pfr?: number; // 0–1
     aggressionFactor?: number;
   };
   /** Live chip context — shown when present (in-game only). */
@@ -99,12 +99,12 @@ export interface CharacterDetailCardProps {
 }
 
 const RELATIONSHIP_COPY: Record<RelationshipKind, { label: string; tone: string }> = {
-  rival:       { label: 'RIVALRY', tone: 'crimson' },
-  friend:      { label: 'TRUSTED', tone: 'emerald' },
-  sponsor:     { label: 'BACKED BY', tone: 'gold' },
-  neutral:     { label: 'NEUTRAL', tone: 'ink' },
-  admirer:     { label: 'ADMIRER', tone: 'gold' },
-  antagonist:  { label: 'ANTAGONIST', tone: 'crimson' },
+  rival: { label: 'RIVALRY', tone: 'crimson' },
+  friend: { label: 'TRUSTED', tone: 'emerald' },
+  sponsor: { label: 'BACKED BY', tone: 'gold' },
+  neutral: { label: 'NEUTRAL', tone: 'ink' },
+  admirer: { label: 'ADMIRER', tone: 'gold' },
+  antagonist: { label: 'ANTAGONIST', tone: 'crimson' },
 };
 
 function deriveFileNumber(name: string): string {
@@ -144,9 +144,7 @@ function TallyStrip({ value, label, readout }: { value: number; label: string; r
           />
         ))}
       </div>
-      <div className="dossier__tally-readout">
-        {readout ?? `${Math.round(value * 100)}%`}
-      </div>
+      <div className="dossier__tally-readout">{readout ?? `${Math.round(value * 100)}%`}</div>
     </div>
   );
 }
@@ -278,7 +276,7 @@ export function CharacterDetailCard({
           });
       }, 600);
     },
-    [identifier],
+    [identifier]
   );
 
   // Flush on close: if there's an unsaved draft when the card closes,
@@ -299,9 +297,9 @@ export function CharacterDetailCard({
           // Silent — the card is gone, no UI surface to report into.
         });
     }
-  // Intentionally only depends on isOpen — we want flush on
-  // close, not on every draft keystroke.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally only depends on isOpen — we want flush on
+    // close, not on every draft keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const handleNoteChange = useCallback(
@@ -310,7 +308,7 @@ export function CharacterDetailCard({
       setNoteDraft(next);
       scheduleNoteSave(next);
     },
-    [scheduleNoteSave],
+    [scheduleNoteSave]
   );
 
   // Nickname autosave mirrors the note autosave but uses its own
@@ -336,7 +334,7 @@ export function CharacterDetailCard({
           });
       }, 600);
     },
-    [identifier, setNicknameInStore],
+    [identifier, setNicknameInStore]
   );
 
   // Flush nickname draft on close, same as notes. Independent effect
@@ -357,8 +355,8 @@ export function CharacterDetailCard({
           // Silent — the card is gone.
         });
     }
-  // Intentionally only depends on isOpen; we want flush on close.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally only depends on isOpen; we want flush on close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const handleNicknameChange = useCallback(
@@ -367,7 +365,7 @@ export function CharacterDetailCard({
       setNicknameDraft(next);
       scheduleNicknameSave(next);
     },
-    [scheduleNicknameSave],
+    [scheduleNicknameSave]
   );
 
   const commitNicknameEdit = useCallback(() => {
@@ -411,7 +409,7 @@ export function CharacterDetailCard({
         e.stopPropagation();
       }
     },
-    [commitNicknameEdit],
+    [commitNicknameEdit]
   );
 
   // Autofocus the input the moment we flip into edit mode so the
@@ -451,25 +449,25 @@ export function CharacterDetailCard({
       // legacy and only fires for callers who pre-populate.
       observed: obs
         ? {
-            handsObserved:    obs.hands_observed,
-            vpip:             obs.vpip,
-            pfr:              obs.pfr,
+            handsObserved: obs.hands_observed,
+            vpip: obs.vpip,
+            pfr: obs.pfr,
             aggressionFactor: obs.aggression_factor,
-            playStyleLabel:   obs.play_style,
+            playStyleLabel: obs.play_style,
           }
         : character.observed && {
-            handsObserved:    character.observed.handsObserved,
-            vpip:             character.observed.vpip,
-            pfr:              character.observed.pfr,
+            handsObserved: character.observed.handsObserved,
+            vpip: character.observed.vpip,
+            pfr: character.observed.pfr,
             aggressionFactor: character.observed.aggressionFactor,
-            playStyleLabel:   undefined as string | undefined,
+            playStyleLabel: undefined as string | undefined,
           },
     };
   }, [fetched, character]);
 
   const fileNumber = useMemo(
     () => character.fileNumber ?? deriveFileNumber(merged.name),
-    [character.fileNumber, merged.name],
+    [character.fileNumber, merged.name]
   );
 
   // Origin-based transform for the open animation. If no origin
@@ -486,11 +484,11 @@ export function CharacterDetailCard({
   // the anchors live on the personality config, which only the
   // dossier endpoint resolves.
   const anchors = fetched?.personality?.anchors ?? null;
-  const hasAnchors = !!anchors && Object.values(anchors).some(v => v != null);
+  const hasAnchors = !!anchors && Object.values(anchors).some((v) => v != null);
   const hasObserved = !!merged.observed && (merged.observed.handsObserved ?? 0) > 0;
-  const hasChips = !!character.chips && (
-    character.chips.atTable !== undefined || character.chips.bankroll !== undefined
-  );
+  const hasChips =
+    !!character.chips &&
+    (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
   const hasAffiliation = !!character.affiliation?.sponsor || !!character.affiliation?.relationship;
   const hasStanding = !!fetched?.relationship;
   // Pressure-summary surfaces only the highlights with non-zero values;
@@ -506,15 +504,9 @@ export function CharacterDetailCard({
         (ps.biggest_pot_lost ?? 0) > 0
           ? ['Biggest pot lost', `$${ps.biggest_pot_lost!.toLocaleString()}`]
           : null,
-        (ps.successful_bluffs ?? 0) > 0
-          ? ['Bluffs landed', `${ps.successful_bluffs}`]
-          : null,
-        (ps.bluffs_caught ?? 0) > 0
-          ? ['Bluffs caught', `${ps.bluffs_caught}`]
-          : null,
-        (ps.bad_beats ?? 0) > 0
-          ? ['Bad beats', `${ps.bad_beats}`]
-          : null,
+        (ps.successful_bluffs ?? 0) > 0 ? ['Bluffs landed', `${ps.successful_bluffs}`] : null,
+        (ps.bluffs_caught ?? 0) > 0 ? ['Bluffs caught', `${ps.bluffs_caught}`] : null,
+        (ps.bad_beats ?? 0) > 0 ? ['Bad beats', `${ps.bad_beats}`] : null,
         (ps.headsup_wins ?? 0) + (ps.headsup_losses ?? 0) > 0
           ? ['Heads-up record', `${ps.headsup_wins ?? 0}–${ps.headsup_losses ?? 0}`]
           : null,
@@ -653,12 +645,13 @@ export function CharacterDetailCard({
                   //      affordance so the player can add one from scratch.
                   // The editor is gated on `identifier` (no auth → no override).
                   const editorAllowed = !!identifier;
-                  const hasOverride =
-                    !!fetched?.personality?.nickname_override;
+                  const hasOverride = !!fetched?.personality?.nickname_override;
                   if (nicknameEditing) {
                     return (
                       <div className="dossier__nickname dossier__nickname--editing">
-                        <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
+                        <span className="dossier__quote-marks" aria-hidden="true">
+                          &ldquo;
+                        </span>
                         <input
                           ref={nicknameInputRef}
                           type="text"
@@ -672,7 +665,9 @@ export function CharacterDetailCard({
                           aria-label="Edit nickname for this opponent"
                           spellCheck
                         />
-                        <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
+                        <span className="dossier__quote-marks" aria-hidden="true">
+                          &rdquo;
+                        </span>
                         <span
                           className={`dossier__nickname-status dossier__nickname-status--${nicknameState}`}
                           aria-live="polite"
@@ -696,9 +691,13 @@ export function CharacterDetailCard({
                           (hasOverride ? ' dossier__nickname--overridden' : '')
                         }
                       >
-                        <span className="dossier__quote-marks" aria-hidden="true">&ldquo;</span>
+                        <span className="dossier__quote-marks" aria-hidden="true">
+                          &ldquo;
+                        </span>
                         {merged.nickname}
-                        <span className="dossier__quote-marks" aria-hidden="true">&rdquo;</span>
+                        <span className="dossier__quote-marks" aria-hidden="true">
+                          &rdquo;
+                        </span>
                         {editorAllowed && (
                           <button
                             type="button"
@@ -734,22 +733,14 @@ export function CharacterDetailCard({
                   }
                   return null;
                 })()}
-                {merged.playStyle && (
-                  <div className="dossier__archetype">
-                    {merged.playStyle}
-                  </div>
-                )}
+                {merged.playStyle && <div className="dossier__archetype">{merged.playStyle}</div>}
               </div>
             </section>
 
             <SectionRule>PROFILE</SectionRule>
             <section className="dossier__profile">
-              {merged.attitude && (
-                <DataRow label="Attitude" value={merged.attitude} />
-              )}
-              {merged.confidence && (
-                <DataRow label="Confidence" value={merged.confidence} />
-              )}
+              {merged.attitude && <DataRow label="Attitude" value={merged.attitude} />}
+              {merged.confidence && <DataRow label="Confidence" value={merged.confidence} />}
             </section>
 
             {hasAnchors && anchors && (
@@ -762,15 +753,11 @@ export function CharacterDetailCard({
                   {anchors.looseness != null && (
                     <TallyStrip value={anchors.looseness} label="Looseness" />
                   )}
-                  {anchors.poise != null && (
-                    <TallyStrip value={anchors.poise} label="Poise" />
-                  )}
+                  {anchors.poise != null && <TallyStrip value={anchors.poise} label="Poise" />}
                   {anchors.expressiveness != null && (
                     <TallyStrip value={anchors.expressiveness} label="Expressiveness" />
                   )}
-                  {anchors.risk != null && (
-                    <TallyStrip value={anchors.risk} label="Risk" />
-                  )}
+                  {anchors.risk != null && <TallyStrip value={anchors.risk} label="Risk" />}
                 </section>
               </>
             )}
@@ -784,17 +771,13 @@ export function CharacterDetailCard({
                     label="Heat"
                     readout={fetched.relationship.heat > 0 ? 'rivalry' : '—'}
                   />
-                  <TallyStrip
-                    value={fetched.relationship.respect}
-                    label="Respect"
-                  />
-                  <TallyStrip
-                    value={fetched.relationship.likability}
-                    label="Likability"
-                  />
+                  <TallyStrip value={fetched.relationship.respect} label="Respect" />
+                  <TallyStrip value={fetched.relationship.likability} label="Likability" />
                   {fetched.relationship.hint && (
                     <div className="dossier__standing-hint">
-                      <span className="dossier__standing-mark" aria-hidden="true">›</span>
+                      <span className="dossier__standing-mark" aria-hidden="true">
+                        ›
+                      </span>
                       <em>{fetched.relationship.hint}</em>
                     </div>
                   )}
@@ -900,19 +883,31 @@ export function CharacterDetailCard({
                   {character.chips?.atTable !== undefined && (
                     <DataRow
                       label="Chips at table"
-                      value={<span className="dossier__money">${character.chips.atTable.toLocaleString()}</span>}
+                      value={
+                        <span className="dossier__money">
+                          ${character.chips.atTable.toLocaleString()}
+                        </span>
+                      }
                     />
                   )}
                   {fetched?.ai_bankroll != null && (
                     <DataRow
                       label="Total bankroll"
-                      value={<span className="dossier__money">${fetched.ai_bankroll.toLocaleString()}</span>}
+                      value={
+                        <span className="dossier__money">
+                          ${fetched.ai_bankroll.toLocaleString()}
+                        </span>
+                      }
                     />
                   )}
                   {character.chips?.bankroll !== undefined && (
                     <DataRow
                       label="Bankroll"
-                      value={<span className="dossier__money">${character.chips.bankroll.toLocaleString()}</span>}
+                      value={
+                        <span className="dossier__money">
+                          ${character.chips.bankroll.toLocaleString()}
+                        </span>
+                      }
                     />
                   )}
                   {fetched?.stake_summary?.as_staker.total_owed_to_them ? (
@@ -922,8 +917,11 @@ export function CharacterDetailCard({
                         <span className="dossier__money">
                           ${fetched.stake_summary.as_staker.total_owed_to_them.toLocaleString()}
                           <span className="dossier__money-note">
-                            {' '}across {fetched.stake_summary.as_staker.carry_count}{' '}
-                            {fetched.stake_summary.as_staker.carry_count === 1 ? 'carry' : 'carries'}
+                            {' '}
+                            across {fetched.stake_summary.as_staker.carry_count}{' '}
+                            {fetched.stake_summary.as_staker.carry_count === 1
+                              ? 'carry'
+                              : 'carries'}
                           </span>
                         </span>
                       }
@@ -936,8 +934,11 @@ export function CharacterDetailCard({
                         <span className="dossier__money">
                           ${fetched.stake_summary.as_borrower.total_carried.toLocaleString()}
                           <span className="dossier__money-note">
-                            {' '}across {fetched.stake_summary.as_borrower.carry_count}{' '}
-                            {fetched.stake_summary.as_borrower.carry_count === 1 ? 'carry' : 'carries'}
+                            {' '}
+                            across {fetched.stake_summary.as_borrower.carry_count}{' '}
+                            {fetched.stake_summary.as_borrower.carry_count === 1
+                              ? 'carry'
+                              : 'carries'}
                           </span>
                         </span>
                       }
@@ -950,16 +951,10 @@ export function CharacterDetailCard({
                     />
                   )}
                   {merged.observed?.vpip !== undefined && (
-                    <DataRow
-                      label="VPIP"
-                      value={`${Math.round(merged.observed.vpip * 100)}%`}
-                    />
+                    <DataRow label="VPIP" value={`${Math.round(merged.observed.vpip * 100)}%`} />
                   )}
                   {merged.observed?.pfr !== undefined && (
-                    <DataRow
-                      label="PFR"
-                      value={`${Math.round(merged.observed.pfr * 100)}%`}
-                    />
+                    <DataRow label="PFR" value={`${Math.round(merged.observed.pfr * 100)}%`} />
                   )}
                   {merged.observed?.aggressionFactor !== undefined && (
                     <DataRow
@@ -968,10 +963,7 @@ export function CharacterDetailCard({
                     />
                   )}
                   {merged.observed?.playStyleLabel && (
-                    <DataRow
-                      label="Read"
-                      value={merged.observed.playStyleLabel}
-                    />
+                    <DataRow label="Read" value={merged.observed.playStyleLabel} />
                   )}
                 </section>
               </>
@@ -982,10 +974,7 @@ export function CharacterDetailCard({
                 <SectionRule>AFFILIATIONS</SectionRule>
                 <section className="dossier__affiliation">
                   {character.affiliation?.sponsor && (
-                    <DataRow
-                      label="Sponsor"
-                      value={character.affiliation.sponsor.toUpperCase()}
-                    />
+                    <DataRow label="Sponsor" value={character.affiliation.sponsor.toUpperCase()} />
                   )}
                   {relMeta && (
                     <div className="dossier__rel-tag-row">
@@ -1008,7 +997,9 @@ export function CharacterDetailCard({
               <>
                 <SectionRule>OBSERVED REMARK</SectionRule>
                 <blockquote className="dossier__remark">
-                  <span className="dossier__remark-flourish" aria-hidden="true">¶</span>
+                  <span className="dossier__remark-flourish" aria-hidden="true">
+                    ¶
+                  </span>
                   <span className="dossier__remark-text">{character.remark}</span>
                   <footer className="dossier__remark-attrib">
                     — table mic, hand №&nbsp;{fileNumber.split('-')[1] ?? '0000'}
@@ -1018,16 +1009,20 @@ export function CharacterDetailCard({
             )}
 
             <footer className="dossier__footer">
-              <span className="dossier__footer-mark" aria-hidden="true">♠</span>
+              <span className="dossier__footer-mark" aria-hidden="true">
+                ♠
+              </span>
               <span className="dossier__footer-text">
                 END OF FILE · DO NOT REMOVE FROM PREMISES
               </span>
-              <span className="dossier__footer-mark" aria-hidden="true">♠</span>
+              <span className="dossier__footer-mark" aria-hidden="true">
+                ♠
+              </span>
             </footer>
           </motion.article>
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    document.body
   );
 }

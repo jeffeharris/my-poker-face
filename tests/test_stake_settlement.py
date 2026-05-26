@@ -37,7 +37,6 @@ from cash_mode.stakes import (
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 
-
 ANCHOR = datetime(2026, 5, 19, 12, 0, 0)
 SETTLE_TIME = ANCHOR + timedelta(hours=1)
 
@@ -89,7 +88,10 @@ class TestCleanSettle:
         _seed_stake(repo, principal=400, cut=0.20)
 
         result = settle_stake_on_leave(
-            "stk-1", 800, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            800,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
 
         # net_winnings = 800 - 400 - 0 = 400
@@ -114,7 +116,10 @@ class TestCleanSettle:
         _seed_stake(repo, principal=400, cut=0.45)
 
         result = settle_stake_on_leave(
-            "stk-1", 800, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            800,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
 
         # net_winnings = 400; staker_cut = int(400 * 0.45) = 180.
@@ -126,7 +131,10 @@ class TestCleanSettle:
         _seed_stake(repo, principal=400, cut=0.30)
 
         result = settle_stake_on_leave(
-            "stk-1", 400, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            400,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
 
         # net_winnings = 0. Cut on zero is zero. Staker gets principal,
@@ -141,7 +149,10 @@ class TestPartialBustCarry:
         _seed_stake(repo, principal=400, cut=0.20)
 
         result = settle_stake_on_leave(
-            "stk-1", 150, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            150,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
 
         # chips_at_leave=150 < principal+match=400.
@@ -161,7 +172,10 @@ class TestPartialBustCarry:
     def test_chips_just_below_principal(self, repo):
         _seed_stake(repo, principal=400)
         result = settle_stake_on_leave(
-            "stk-1", 399, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            399,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result.staker_total == 399
         assert result.carry_amount == 1
@@ -172,7 +186,10 @@ class TestFullBustCarry:
         _seed_stake(repo, principal=400)
 
         result = settle_stake_on_leave(
-            "stk-1", 0, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            0,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
 
         assert result.new_status == STAKE_STATUS_CARRY
@@ -190,7 +207,10 @@ class TestFullBustCarry:
         # should be safe.
         _seed_stake(repo, principal=400)
         result = settle_stake_on_leave(
-            "stk-1", -10, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            -10,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result.carry_amount == 400
 
@@ -204,11 +224,16 @@ class TestMatchShare:
         # borrower_total = 200 + (400 - 200) = 400.
         _seed_stake(
             repo,
-            principal=200, match_amount=200, cut=0.50,
+            principal=200,
+            match_amount=200,
+            cut=0.50,
             format=STAKE_FORMAT_MATCH_SHARE,
         )
         result = settle_stake_on_leave(
-            "stk-1", 800, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            800,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result.staker_total == 400
         assert result.borrower_total == 400
@@ -230,11 +255,16 @@ class TestMatchShare:
         # match"; staker is fine.
         _seed_stake(
             repo,
-            principal=200, match_amount=200, cut=0.50,
+            principal=200,
+            match_amount=200,
+            cut=0.50,
             format=STAKE_FORMAT_MATCH_SHARE,
         )
         result = settle_stake_on_leave(
-            "stk-1", 250, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            250,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result.staker_total == 200
         assert result.borrower_total == 50
@@ -256,13 +286,17 @@ class TestHouseStake:
     def test_house_partial_bust_settles_with_forgive(self, repo):
         _seed_stake(
             repo,
-            principal=200, cut=0.40,
+            principal=200,
+            cut=0.40,
             format=STAKE_FORMAT_HOUSE,
             staker_kind=STAKER_KIND_HOUSE,
             staker_id=None,
         )
         result = settle_stake_on_leave(
-            "stk-1", 50, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            50,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         # House override: status='settled', no carry row even though
         # the math says we'd be short.
@@ -280,13 +314,17 @@ class TestHouseStake:
     def test_house_full_bust_settles_with_forgive(self, repo):
         _seed_stake(
             repo,
-            principal=200, cut=0.40,
+            principal=200,
+            cut=0.40,
             format=STAKE_FORMAT_HOUSE,
             staker_kind=STAKER_KIND_HOUSE,
             staker_id=None,
         )
         result = settle_stake_on_leave(
-            "stk-1", 0, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            0,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result.new_status == STAKE_STATUS_SETTLED
         assert result.carry_amount == 0
@@ -296,13 +334,17 @@ class TestHouseStake:
     def test_house_clean_settle_no_forgive(self, repo):
         _seed_stake(
             repo,
-            principal=200, cut=0.40,
+            principal=200,
+            cut=0.40,
             format=STAKE_FORMAT_HOUSE,
             staker_kind=STAKER_KIND_HOUSE,
             staker_id=None,
         )
         result = settle_stake_on_leave(
-            "stk-1", 400, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            400,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         # Math: net_winnings = 200, staker_cut = 80, staker_total = 280.
         assert result.new_status == STAKE_STATUS_SETTLED
@@ -315,7 +357,10 @@ class TestHouseStake:
 class TestIdempotency:
     def test_missing_stake_returns_none(self, repo):
         result = settle_stake_on_leave(
-            "ghost", 100, stake_repo=repo, now=SETTLE_TIME,
+            "ghost",
+            100,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result is None
 
@@ -324,20 +369,29 @@ class TestIdempotency:
         # The stake repo will load a row with status='settled' even
         # though we seeded it as such; this guard prevents re-settle.
         result = settle_stake_on_leave(
-            "stk-1", 1000, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            1000,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result is None
 
     def test_already_carrying_returns_none(self, repo):
         _seed_stake(repo, status=STAKE_STATUS_CARRY)
         result = settle_stake_on_leave(
-            "stk-1", 1000, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            1000,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result is None
 
     def test_defaulted_returns_none(self, repo):
         _seed_stake(repo, status=STAKE_STATUS_DEFAULTED)
         result = settle_stake_on_leave(
-            "stk-1", 1000, stake_repo=repo, now=SETTLE_TIME,
+            "stk-1",
+            1000,
+            stake_repo=repo,
+            now=SETTLE_TIME,
         )
         assert result is None

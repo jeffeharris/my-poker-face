@@ -39,8 +39,13 @@ interface PokerTableProps {
   onGameLoadFailed?: () => void;
 }
 
-export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, onBack, onGameLoadFailed }: PokerTableProps) {
-
+export function PokerTable({
+  gameId: providedGameId,
+  playerName,
+  onGameCreated,
+  onBack,
+  onGameLoadFailed,
+}: PokerTableProps) {
   // Track last known actions for fade-out animation
   const lastKnownActions = useRef<Map<string, string>>(new Map());
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
@@ -49,14 +54,11 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   // Character dossier — opens when an opponent avatar is clicked.
   const [dossierPlayer, setDossierPlayer] = useState<Player | null>(null);
   const [dossierOrigin, setDossierOrigin] = useState<{ x: number; y: number } | undefined>();
-  const openDossierForPlayer = useCallback(
-    (player: Player, target: HTMLElement) => {
-      const rect = target.getBoundingClientRect();
-      setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-      setDossierPlayer(player);
-    },
-    [],
-  );
+  const openDossierForPlayer = useCallback((player: Player, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    setDossierOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    setDossierPlayer(player);
+  }, []);
   const closeDossier = useCallback(() => setDossierPlayer(null), []);
 
   // Use the shared hook for all socket/state management
@@ -87,7 +89,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
 
   const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(
     gameState?.awaiting_action,
-    handleSendMessage,
+    handleSendMessage
   );
 
   // Pick a flavor quote for shuffle screens. Stable per hand so it doesn't
@@ -121,7 +123,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   const getStadiumSeatStyle = (
     seatOffset: number,
     totalPlayers: number,
-    headsUpShowdownSlot?: number,
+    headsUpShowdownSlot?: number
   ) => {
     if (headsUpShowdownSlot !== undefined) {
       const left = headsUpShowdownSlot === 0 ? 25 : 75;
@@ -144,16 +146,12 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     // Full arc (120°) for 5+ opponents, narrower for fewer
     const maxArcSpread = 120;
     const minArcSpread = 60; // For 2 opponents
-    const arcSpread = totalOpponents <= 2
-      ? minArcSpread
-      : totalOpponents <= 4
-        ? 80
-        : maxArcSpread;
+    const arcSpread = totalOpponents <= 2 ? minArcSpread : totalOpponents <= 4 ? 80 : maxArcSpread;
 
     // Center the arc around 90° (top center)
     const centerAngle = 90;
     const startAngle = centerAngle + arcSpread / 2; // left side
-    const endAngle = centerAngle - arcSpread / 2;   // right side
+    const endAngle = centerAngle - arcSpread / 2; // right side
     const angleRange = startAngle - endAngle;
     const angleStep = totalOpponents > 1 ? angleRange / (totalOpponents - 1) : 0;
     const angle = (startAngle - positionIndex * angleStep) * (Math.PI / 180);
@@ -177,16 +175,13 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
     };
   };
 
-
   // Stadium view helpers
   const humanPlayer = gameState?.players.find((p: Player) => p.is_human);
   const humanPlayerIndex = gameState?.players.findIndex((p: Player) => p.is_human) ?? -1;
   const opponents = gameState?.players.filter((p: Player) => !p.is_human) ?? [];
   const showdownOpponents = opponents.filter((p: Player) => !p.is_folded);
-  const isHeadsUpShowdownLayout = (
-    (gameState?.run_it_out || gameState?.phase === 'SHOWDOWN')
-    && showdownOpponents.length === 2
-  );
+  const isHeadsUpShowdownLayout =
+    (gameState?.run_it_out || gameState?.phase === 'SHOWDOWN') && showdownOpponents.length === 2;
   const isHumanDealer = humanPlayerIndex === gameState?.current_dealer_idx;
   const isHumanSmallBlind = humanPlayerIndex === gameState?.small_blind_idx;
   const isHumanBigBlind = humanPlayerIndex === gameState?.big_blind_idx;
@@ -194,8 +189,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const phase = gameState?.phase;
   const shouldHighlightActivePlayer = isBettingPhase(phase, gameState?.run_it_out);
-  const isHumanCurrentPlayer = shouldHighlightActivePlayer &&
-    humanPlayerIndex === gameState?.current_player_idx;
+  const isHumanCurrentPlayer =
+    shouldHighlightActivePlayer && humanPlayerIndex === gameState?.current_player_idx;
 
   if (error) {
     return (
@@ -268,11 +263,8 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
       />
 
       {/* Tournament Complete */}
-      {!(winnerInfo?.is_final_hand) && (
-        <TournamentComplete
-          result={tournamentResult}
-          onComplete={handleTournamentComplete}
-        />
+      {!winnerInfo?.is_final_hand && (
+        <TournamentComplete result={tournamentResult} onComplete={handleTournamentComplete} />
       )}
     </>
   );
@@ -280,14 +272,19 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
   // Stadium Layout - used for all desktop screen sizes
   return (
     <>
-    <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
-    <StadiumLayout
+      <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+      <StadiumLayout
         header={
           <GameHeader
             handNumber={gameState.hand_number}
             blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
             phase={gameState.phase}
-            onBackClick={onBack ?? (() => { window.location.href = '/'; })}
+            onBackClick={
+              onBack ??
+              (() => {
+                window.location.href = '/';
+              })
+            }
           />
         }
         leftPanel={
@@ -298,9 +295,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                   cashMode={gameState.cash_mode}
                   playerStack={humanPlayer.stack}
                   handInProgress={
-                    gameState.phase !== 'INITIALIZING_HAND'
-                    && gameState.phase !== 'HAND_OVER'
-                    && gameState.phase !== 'EVALUATING_HAND'
+                    gameState.phase !== 'INITIALIZING_HAND' &&
+                    gameState.phase !== 'HAND_OVER' &&
+                    gameState.phase !== 'EVALUATING_HAND'
                   }
                   playerFolded={!!humanPlayer.is_folded}
                 />
@@ -359,7 +356,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
             {/* Opponents in top arc - anchored by seat position relative to human */}
             <div className="players-area">
               {opponents.map((player) => {
-                const playerIndex = gameState.players.findIndex(p => p.name === player.name);
+                const playerIndex = gameState.players.findIndex((p) => p.name === player.name);
                 const totalPlayers = gameState.players.length;
 
                 // Calculate seat offset from human (1 = immediately after human clockwise)
@@ -369,18 +366,19 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                 const isDealer = playerIndex === gameState.current_dealer_idx;
                 const isSmallBlind = playerIndex === gameState.small_blind_idx;
                 const isBigBlind = playerIndex === gameState.big_blind_idx;
-                const isCurrentPlayer = shouldHighlightActivePlayer &&
-                  playerIndex === gameState.current_player_idx;
+                const isCurrentPlayer =
+                  shouldHighlightActivePlayer && playerIndex === gameState.current_player_idx;
 
                 // Compute avatar state: swap to "thinking" when AI is processing
                 const isAiThinking = isCurrentPlayer && aiThinking && !player.is_human;
-                const avatarUrl = isAiThinking && player.avatar_url
-                  ? player.avatar_url.replace(
-                      /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
-                      '/api/avatar/$1/thinking$2'
-                    )
-                  : player.avatar_url;
-                const avatarEmotion = isAiThinking ? 'thinking' : (player.avatar_emotion || 'avatar');
+                const avatarUrl =
+                  isAiThinking && player.avatar_url
+                    ? player.avatar_url.replace(
+                        /\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/,
+                        '/api/avatar/$1/thinking$2'
+                      )
+                    : player.avatar_url;
+                const avatarEmotion = isAiThinking ? 'thinking' : player.avatar_emotion || 'avatar';
                 const headsUpShowdownSlot = isHeadsUpShowdownLayout
                   ? showdownOpponents.findIndex((p: Player) => p.name === player.name)
                   : -1;
@@ -396,13 +394,25 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                     style={getStadiumSeatStyle(
                       seatOffset,
                       totalPlayers,
-                      headsUpShowdownSlot >= 0 ? headsUpShowdownSlot : undefined,
+                      headsUpShowdownSlot >= 0 ? headsUpShowdownSlot : undefined
                     )}
                   >
                     <div className="position-indicators">
-                      {isDealer && <div className="position-chip dealer-button" title="Dealer">D</div>}
-                      {isSmallBlind && <div className="position-chip small-blind" title="Small Blind">SB</div>}
-                      {isBigBlind && <div className="position-chip big-blind" title="Big Blind">BB</div>}
+                      {isDealer && (
+                        <div className="position-chip dealer-button" title="Dealer">
+                          D
+                        </div>
+                      )}
+                      {isSmallBlind && (
+                        <div className="position-chip small-blind" title="Small Blind">
+                          SB
+                        </div>
+                      )}
+                      {isBigBlind && (
+                        <div className="position-chip big-blind" title="Big Blind">
+                          BB
+                        </div>
+                      )}
                     </div>
 
                     <div className="player-info">
@@ -421,7 +431,9 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                             className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
                           />
                         ) : (
-                          <span className="avatar-initial">{player.name.charAt(0).toUpperCase()}</span>
+                          <span className="avatar-initial">
+                            {player.name.charAt(0).toUpperCase()}
+                          </span>
                         )}
                         {player.is_rule_bot && (
                           <span className="bot-badge" title="Rule-based training bot">
@@ -436,7 +448,7 @@ export function PokerTable({ gameId: providedGameId, playerName, onGameCreated, 
                         <ActionBadge
                           player={player}
                           lastKnownActions={lastKnownActions}
-                          onFadeComplete={() => setFadeKey(k => k + 1)}
+                          onFadeComplete={() => setFadeKey((k) => k + 1)}
                         />
                       </div>
                     </div>

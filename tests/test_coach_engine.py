@@ -267,8 +267,14 @@ class TestPositionLabelRoundTrip(unittest.TestCase):
 
     # Every key table_positions can produce (see PokerGameState.table_positions).
     POSITION_KEYS = [
-        'button', 'small_blind_player', 'big_blind_player', 'under_the_gun',
-        'cutoff', 'middle_position_1', 'middle_position_2', 'middle_position_3',
+        'button',
+        'small_blind_player',
+        'big_blind_player',
+        'under_the_gun',
+        'cutoff',
+        'middle_position_1',
+        'middle_position_2',
+        'middle_position_3',
     ]
 
     def _label_for(self, position_key: str) -> str:
@@ -454,18 +460,14 @@ class TestExtractPreflopAction(unittest.TestCase):
         """Empty game_messages list returns None."""
         from flask_app.services.coach_engine import _extract_preflop_action
 
-        result = _extract_preflop_action(
-            'Villain', [], self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', [], self._make_game_state())
         self.assertIsNone(result)
 
     def test_returns_none_for_none_messages(self):
         """None game_messages returns None (via _parse_game_messages)."""
         from flask_app.services.coach_engine import _extract_preflop_action
 
-        result = _extract_preflop_action(
-            'Villain', None, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', None, self._make_game_state())
         self.assertIsNone(result)
 
     def test_detects_open_raise(self):
@@ -473,9 +475,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = ['Villain raises $50']
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertEqual(result, 'open_raise')
 
     def test_detects_3bet(self):
@@ -486,9 +486,7 @@ class TestExtractPreflopAction(unittest.TestCase):
             'Hero raises $20',
             'Villain raises $60',  # 3-bet
         ]
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertEqual(result, '3bet')
 
     def test_detects_4bet(self):
@@ -501,9 +499,7 @@ class TestExtractPreflopAction(unittest.TestCase):
             'Player2 raises $60',
             'Villain raises $180',  # 4-bet
         ]
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertEqual(result, '4bet')
 
     def test_detects_call(self):
@@ -514,9 +510,7 @@ class TestExtractPreflopAction(unittest.TestCase):
             'Hero raises $20',
             'Villain calls $20',
         ]
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertEqual(result, 'call')
 
     def test_detects_limp(self):
@@ -524,9 +518,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = ['Villain calls $10']
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertEqual(result, 'limp')
 
     def test_case_insensitive_opponent_name(self):
@@ -534,9 +526,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = ['VILLAIN raises $50']
-        result = _extract_preflop_action(
-            'villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('villain', messages, self._make_game_state())
         self.assertEqual(result, 'open_raise')
 
     def test_ignores_big_blind_forced_post(self):
@@ -565,9 +555,7 @@ class TestExtractPreflopAction(unittest.TestCase):
             'Hero raises $60',
             'Batman raises $180',  # Re-raise after 2 prior raises = 4bet
         ]
-        result = _extract_preflop_action(
-            'Batman', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Batman', messages, self._make_game_state())
         # raises_this_round=2 → '4bet' (T3-73). '4bet+' fires only at >=3.
         self.assertEqual(result, '4bet')
 
@@ -576,9 +564,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = ['Player1 raises $50', 'Player2 calls']
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertIsNone(result)
 
     def test_opponent_folded_returns_none(self):
@@ -586,9 +572,7 @@ class TestExtractPreflopAction(unittest.TestCase):
         from flask_app.services.coach_engine import _extract_preflop_action
 
         messages = ['Hero raises $50', 'Villain folds']
-        result = _extract_preflop_action(
-            'Villain', messages, self._make_game_state()
-        )
+        result = _extract_preflop_action('Villain', messages, self._make_game_state())
         self.assertIsNone(result)
 
 
@@ -795,9 +779,11 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         """Returns None when no AI has observed the human player."""
         from flask_app.services.coach_engine import _get_player_self_stats
 
-        game_data = self._make_game_data(omm_models={
-            'Batman': {},  # Batman has models but none for Hero
-        })
+        game_data = self._make_game_data(
+            omm_models={
+                'Batman': {},  # Batman has models but none for Hero
+            }
+        )
         result = _get_player_self_stats(game_data, 'Hero')
         self.assertIsNone(result)
 
@@ -806,10 +792,14 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         from flask_app.services.coach_engine import _get_player_self_stats
 
         tendencies = self._make_tendencies(hands_observed=10)
-        game_data = self._make_game_data(omm_models={
-            'Hero': {'Hero': self._make_opponent_model(tendencies)},  # Self-observation
-            'Batman': {'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=15))},
-        })
+        game_data = self._make_game_data(
+            omm_models={
+                'Hero': {'Hero': self._make_opponent_model(tendencies)},  # Self-observation
+                'Batman': {
+                    'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=15))
+                },
+            }
+        )
 
         result = _get_player_self_stats(game_data, 'Hero')
         # Should use Batman's observation (15 hands), not self
@@ -820,11 +810,19 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         """Selects the observer with the most hands observed."""
         from flask_app.services.coach_engine import _get_player_self_stats
 
-        game_data = self._make_game_data(omm_models={
-            'Batman': {'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=10))},
-            'Superman': {'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=25))},
-            'Joker': {'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=5))},
-        })
+        game_data = self._make_game_data(
+            omm_models={
+                'Batman': {
+                    'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=10))
+                },
+                'Superman': {
+                    'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=25))
+                },
+                'Joker': {
+                    'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=5))
+                },
+            }
+        )
 
         result = _get_player_self_stats(game_data, 'Hero')
         # Should use Superman's observation (most hands)
@@ -834,9 +832,13 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         """Returns None when all observers have < 1 hand observed."""
         from flask_app.services.coach_engine import _get_player_self_stats
 
-        game_data = self._make_game_data(omm_models={
-            'Batman': {'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=0))},
-        })
+        game_data = self._make_game_data(
+            omm_models={
+                'Batman': {
+                    'Hero': self._make_opponent_model(self._make_tendencies(hands_observed=0))
+                },
+            }
+        )
 
         result = _get_player_self_stats(game_data, 'Hero')
         self.assertIsNone(result)
@@ -845,10 +847,14 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         """Returns properly formatted stats dict."""
         from flask_app.services.coach_engine import _get_player_self_stats
 
-        tendencies = self._make_tendencies(vpip=0.256, pfr=0.178, aggression=1.83, hands_observed=30)
-        game_data = self._make_game_data(omm_models={
-            'Batman': {'Hero': self._make_opponent_model(tendencies)},
-        })
+        tendencies = self._make_tendencies(
+            vpip=0.256, pfr=0.178, aggression=1.83, hands_observed=30
+        )
+        game_data = self._make_game_data(
+            omm_models={
+                'Batman': {'Hero': self._make_opponent_model(tendencies)},
+            }
+        )
 
         result = _get_player_self_stats(game_data, 'Hero')
 
@@ -863,9 +869,11 @@ class TestGetPlayerSelfStats(unittest.TestCase):
         from flask_app.services.coach_engine import _get_player_self_stats
 
         tendencies = self._make_tendencies(vpip=0.256789, pfr=0.178123, aggression=1.8345)
-        game_data = self._make_game_data(omm_models={
-            'Batman': {'Hero': self._make_opponent_model(tendencies)},
-        })
+        game_data = self._make_game_data(
+            omm_models={
+                'Batman': {'Hero': self._make_opponent_model(tendencies)},
+            }
+        )
 
         result = _get_player_self_stats(game_data, 'Hero')
 
@@ -897,8 +905,9 @@ class TestBuildOpponentInfosHistoricFallback(unittest.TestCase):
         }
         return game_state
 
-    def _make_game_data(self, game_state, state_machine_phase='PRE_FLOP',
-                        memory_manager=None, messages=None):
+    def _make_game_data(
+        self, game_state, state_machine_phase='PRE_FLOP', memory_manager=None, messages=None
+    ):
         """Create game data dict."""
         state_machine = MagicMock()
         state_machine.game_state = game_state

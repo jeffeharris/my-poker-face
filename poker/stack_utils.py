@@ -9,6 +9,7 @@ Note: `BettingContext.effective_stack` in `betting_context.py` is a
 different (per-action) quantity — "stack remaining after calling" — and
 is unrelated to the helpers in this module.
 """
+
 from __future__ import annotations
 
 from typing import Optional

@@ -111,56 +111,59 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
   }, [fetchUsers]);
 
   // Toggle admin status for a user
-  const toggleAdmin = useCallback(async (userId: string, userName: string, isCurrentlyAdmin: boolean) => {
-    setTogglingUser(userId);
-    try {
-      const url = isCurrentlyAdmin
-        ? `${config.API_URL}/api/admin/users/${userId}/groups/admin`
-        : `${config.API_URL}/api/admin/users/${userId}/groups`;
+  const toggleAdmin = useCallback(
+    async (userId: string, userName: string, isCurrentlyAdmin: boolean) => {
+      setTogglingUser(userId);
+      try {
+        const url = isCurrentlyAdmin
+          ? `${config.API_URL}/api/admin/users/${userId}/groups/admin`
+          : `${config.API_URL}/api/admin/users/${userId}/groups`;
 
-      const response = await fetch(url, {
-        method: isCurrentlyAdmin ? 'DELETE' : 'POST',
-        credentials: 'include',
-        headers: isCurrentlyAdmin ? undefined : { 'Content-Type': 'application/json' },
-        body: isCurrentlyAdmin ? undefined : JSON.stringify({ group: 'admin' }),
-      });
+        const response = await fetch(url, {
+          method: isCurrentlyAdmin ? 'DELETE' : 'POST',
+          credentials: 'include',
+          headers: isCurrentlyAdmin ? undefined : { 'Content-Type': 'application/json' },
+          body: isCurrentlyAdmin ? undefined : JSON.stringify({ group: 'admin' }),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to update admin status');
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to update admin status');
+        }
+
+        // Update local state after successful API call
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === userId
+              ? {
+                  ...u,
+                  groups: isCurrentlyAdmin
+                    ? u.groups.filter((g) => g !== 'admin')
+                    : [...u.groups, 'admin'],
+                }
+              : u
+          )
+        );
+
+        setAlert({
+          type: 'success',
+          message: isCurrentlyAdmin
+            ? `Removed admin access from ${userName}`
+            : `Granted admin access to ${userName}`,
+        });
+      } catch (error) {
+        logger.error('Error toggling admin status:', error);
+        setAlert({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Failed to update admin status',
+        });
+      } finally {
+        setTogglingUser(null);
       }
-
-      // Update local state after successful API call
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === userId
-            ? {
-                ...u,
-                groups: isCurrentlyAdmin
-                  ? u.groups.filter((g) => g !== 'admin')
-                  : [...u.groups, 'admin'],
-              }
-            : u
-        )
-      );
-
-      setAlert({
-        type: 'success',
-        message: isCurrentlyAdmin
-          ? `Removed admin access from ${userName}`
-          : `Granted admin access to ${userName}`,
-      });
-    } catch (error) {
-      logger.error('Error toggling admin status:', error);
-      setAlert({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to update admin status',
-      });
-    } finally {
-      setTogglingUser(null);
-    }
-  }, []);
+    },
+    []
+  );
 
   // Render loading state
   if (loading) {
@@ -196,9 +199,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
       <div className="admin-header admin-header--row">
         <div className="admin-header__content">
           <h2 className="admin-header__title">User Management</h2>
-          <p className="admin-header__subtitle">
-            Manage user accounts and permissions
-          </p>
+          <p className="admin-header__subtitle">Manage user accounts and permissions</p>
         </div>
         <div className="admin-header__actions">
           <button
@@ -254,11 +255,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                     <td>
                       <div className="um-user">
                         {user.picture ? (
-                          <img
-                            src={user.picture}
-                            alt={user.name}
-                            className="um-user__avatar"
-                          />
+                          <img src={user.picture} alt={user.name} className="um-user__avatar" />
                         ) : (
                           <div className="um-user__avatar um-user__avatar--placeholder">
                             <User size={16} />
@@ -267,16 +264,10 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                         <div className="um-user__info">
                           <span className="um-user__name">
                             {user.name}
-                            {isCurrentUser && (
-                              <span className="um-user__you">(you)</span>
-                            )}
-                            {user.is_guest && (
-                              <span className="um-user__guest">Guest</span>
-                            )}
+                            {isCurrentUser && <span className="um-user__you">(you)</span>}
+                            {user.is_guest && <span className="um-user__guest">Guest</span>}
                           </span>
-                          {user.email && (
-                            <span className="um-user__email">{user.email}</span>
-                          )}
+                          {user.email && <span className="um-user__email">{user.email}</span>}
                         </div>
                       </div>
                     </td>
@@ -288,9 +279,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                             admin
                           </span>
                         ) : user.groups.includes('user') ? (
-                          <span className="admin-badge admin-badge--default">
-                            user
-                          </span>
+                          <span className="admin-badge admin-badge--default">user</span>
                         ) : (
                           <span className="um-groups__placeholder">-</span>
                         )}
@@ -299,9 +288,7 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                     <td className="um-stat-cell">{formatCost(user.stats.total_cost)}</td>
                     <td className="um-stat-cell">{user.stats.hands_played}</td>
                     <td className="um-stat-cell">{user.stats.games_completed}</td>
-                    <td className="um-date-cell">
-                      {formatDate(user.stats.last_active)}
-                    </td>
+                    <td className="um-date-cell">{formatDate(user.stats.last_active)}</td>
                     <td className="um-actions-cell">
                       {isCurrentUser ? (
                         <span className="um-actions__disabled">-</span>
@@ -322,7 +309,9 @@ export function UserManagement({ embedded = false }: UserManagementProps) {
                           <span>{isAdmin ? 'Revoke' : 'Grant'}</span>
                         </button>
                       ) : (
-                        <span className="um-actions__disabled" title="Guest users cannot be admins">-</span>
+                        <span className="um-actions__disabled" title="Guest users cannot be admins">
+                          -
+                        </span>
                       )}
                     </td>
                   </tr>

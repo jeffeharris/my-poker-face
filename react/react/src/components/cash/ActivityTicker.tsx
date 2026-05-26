@@ -19,7 +19,16 @@
 
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { HandCoins, Gift, ReceiptText, Sparkles, DoorOpen, Briefcase, Flame, Gauge } from 'lucide-react';
+import {
+  HandCoins,
+  Gift,
+  ReceiptText,
+  Sparkles,
+  DoorOpen,
+  Briefcase,
+  Flame,
+  Gauge,
+} from 'lucide-react';
 import type { LobbyEvent, WorldPace } from './types';
 import './CashMode.css';
 
@@ -112,11 +121,7 @@ function renderEventIcon(type: LobbyEvent['type']): ReactNode {
   }
 }
 
-export function ActivityTicker({
-  events,
-  worldPace = null,
-  onPaceChange,
-}: ActivityTickerProps) {
+export function ActivityTicker({ events, worldPace = null, onPaceChange }: ActivityTickerProps) {
   const visibleEvents = useMemo(() => dedupeChipPairs(events), [events]);
   const showPace = worldPace != null && typeof onPaceChange === 'function';
   const prefersReduced = useReducedMotion();

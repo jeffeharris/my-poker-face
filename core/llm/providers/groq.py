@@ -3,16 +3,17 @@
 Groq provides extremely fast inference for open-source models like Llama.
 Uses OpenAI-compatible API, so we leverage the OpenAI SDK.
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai import OpenAI
 
+from ..config import DEFAULT_MAX_TOKENS, GROQ_DEFAULT_MODEL
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, GROQ_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class GroqProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, openai.RateLimitError):
             return True, 30
-        if isinstance(exception, (openai.APITimeoutError, openai.APIConnectionError)):
+        if isinstance(exception, openai.APITimeoutError | openai.APIConnectionError):
             return True, 2
         if isinstance(exception, openai.InternalServerError):
             return True, 2
@@ -184,7 +185,7 @@ class GroqProvider(LLMProvider):
         message = raw_response.choices[0].message
 
         tool_calls = getattr(message, 'tool_calls', None)
-        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+        if tool_calls is None or not isinstance(tool_calls, list | tuple):
             return None
 
         if len(tool_calls) == 0:
@@ -197,7 +198,7 @@ class GroqProvider(LLMProvider):
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,
-                }
+                },
             }
             for tc in tool_calls
         ]

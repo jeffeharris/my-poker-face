@@ -23,17 +23,24 @@ vi.mock('framer-motion', () => ({
       } = props;
       // `style` may contain MotionValues — drop non-serialisable
       // entries so React can apply the rest.
-      const safeStyle = typeof htmlProps.style === 'object' && htmlProps.style !== null
-        ? Object.fromEntries(
-            Object.entries(htmlProps.style as Record<string, unknown>).filter(
-              ([, v]) => typeof v !== 'object' || v === null,
-            ),
-          )
-        : htmlProps.style;
-      return <div {...htmlProps} style={safeStyle as React.CSSProperties}>{children}</div>;
+      const safeStyle =
+        typeof htmlProps.style === 'object' && htmlProps.style !== null
+          ? Object.fromEntries(
+              Object.entries(htmlProps.style as Record<string, unknown>).filter(
+                ([, v]) => typeof v !== 'object' || v === null
+              )
+            )
+          : htmlProps.style;
+      return (
+        <div {...htmlProps} style={safeStyle as React.CSSProperties}>
+          {children}
+        </div>
+      );
     },
   },
-  AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => <>{children}</>,
+  AnimatePresence: ({ children }: React.PropsWithChildren<Record<string, unknown>>) => (
+    <>{children}</>
+  ),
   // Minimal stubs for the swipe-tracking hooks. Tests don't exercise
   // the drag flow itself — the stubs just need to satisfy React's
   // hook-call contract and return MotionValue-shaped objects.
@@ -54,9 +61,7 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 function makePlayerAvatars(): Map<string, string> {
-  return new Map([
-    ['Batman', 'http://localhost:5174/avatars/batman.png'],
-  ]);
+  return new Map([['Batman', 'http://localhost:5174/avatars/batman.png']]);
 }
 
 describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
@@ -77,7 +82,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage()}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       // The floating-chat-stack should be present
@@ -93,7 +98,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage()}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       // Sender shown in .floating-chat-sender (shows action or sender)
@@ -109,7 +114,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage({ message: 'Hello' })}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       // The message container should exist
@@ -135,7 +140,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage({ action: 'raised to $100', message: '' })}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       const senderEl = document.querySelector('.floating-chat-sender');
@@ -158,7 +163,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage()}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       expect(document.querySelector('.floating-chat')).toBeTruthy();
@@ -170,11 +175,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
     it('renders nothing when message is null', () => {
       const onDismiss = vi.fn();
       const { container } = render(
-        <FloatingChat
-          message={null}
-          onDismiss={onDismiss}
-          playerAvatars={makePlayerAvatars()}
-        />,
+        <FloatingChat message={null} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       expect(container.querySelector('.floating-chat-stack')).toBeNull();
@@ -190,7 +191,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage()}
           onDismiss={onDismiss}
           playerAvatars={makePlayerAvatars()}
-        />,
+        />
       );
 
       const avatarImg = document.querySelector('.floating-avatar-img') as HTMLImageElement;
@@ -206,7 +207,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage({ sender: 'Gandalf' })}
           onDismiss={onDismiss}
           playerAvatars={new Map()}
-        />,
+        />
       );
 
       const avatarEl = document.querySelector('.floating-chat-avatar');
@@ -223,7 +224,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
           message={makeMessage({ sender: 'Gandalf', type: 'ai' })}
           onDismiss={onDismiss}
           playerAvatars={new Map()}
-        />,
+        />
       );
 
       const aiBadge = document.querySelector('.ai-badge');
@@ -239,7 +240,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
       const msg2 = makeMessage({ id: 'msg-2', sender: 'Gandalf', message: 'Second' });
 
       const { rerender } = render(
-        <FloatingChat message={msg1} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />,
+        <FloatingChat message={msg1} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       // First message should be rendered
@@ -247,7 +248,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
 
       // Rerender with a new message
       rerender(
-        <FloatingChat message={msg2} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />,
+        <FloatingChat message={msg2} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       // Both messages should be stacked
@@ -259,14 +260,14 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
       const msg = makeMessage({ id: 'msg-dup' });
 
       const { rerender } = render(
-        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />,
+        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       expect(document.querySelectorAll('.floating-chat').length).toBe(1);
 
       // Rerender with same message again
       rerender(
-        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />,
+        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       // Still only one message
@@ -282,7 +283,7 @@ describe('VT-05: FloatingChat — message stacking, timing, dismiss', () => {
       const msg = makeMessage({ id: 'msg-ttl', message: 'Hi' });
 
       render(
-        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />,
+        <FloatingChat message={msg} onDismiss={onDismiss} playerAvatars={makePlayerAvatars()} />
       );
 
       expect(document.querySelector('.floating-chat')).toBeTruthy();

@@ -60,14 +60,16 @@ def _seed_personality(db_path, pid, name, bankroll_chips, cap=10_000, rate=500):
     import json
     import sqlite3
 
-    config_json = json.dumps({
-        "bankroll_knobs": {
-            "starting_bankroll": cap,
-            "bankroll_rate": rate,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        },
-    })
+    config_json = json.dumps(
+        {
+            "bankroll_knobs": {
+                "starting_bankroll": cap,
+                "bankroll_rate": rate,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        }
+    )
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO personalities (name, personality_id, config_json, visibility) "
@@ -141,8 +143,11 @@ def test_refresh_ticks_preserve_drift(repos, db_path):
     # 20 desired seats, but lobby will only fill what fits.
     for i in range(12):
         _seed_personality(
-            db_path, f"p_{i}", f"Pers{i}",
-            bankroll_chips=200_000, cap=500_000,
+            db_path,
+            f"p_{i}",
+            f"Pers{i}",
+            bankroll_chips=200_000,
+            cap=500_000,
         )
 
     ensure_lobby_seeded(
@@ -161,13 +166,17 @@ def test_refresh_ticks_preserve_drift(repos, db_path):
                 # baseline drift starts clean. (We're simulating a
                 # mid-tick state where a seat is open.)
                 from cash_mode.bankroll import debit_bankroll_for_seat
+
                 # Reverse-direction: credit the AI back since we're
                 # forcing the seat open — keep audit balanced.
-                repos["bankroll_repo"].save_ai_bankroll(AIBankrollState(
-                    personality_id=seat["personality_id"],
-                    chips=200_000,  # back to original
-                    last_regen_tick=datetime.utcnow(),
-                ), sandbox_id="test-sandbox-1")
+                repos["bankroll_repo"].save_ai_bankroll(
+                    AIBankrollState(
+                        personality_id=seat["personality_id"],
+                        chips=200_000,  # back to original
+                        last_regen_tick=datetime.utcnow(),
+                    ),
+                    sandbox_id="test-sandbox-1",
+                )
                 tables[0].seats[j] = open_slot()
                 break
         repos["cash_table_repo"].save_table(tables[0], sandbox_id="test-sandbox-1")

@@ -7,9 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from flask_app.services.coach_assistant import (
+    CoachResponse,
     _normalize_action,
     _parse_coach_response,
-    CoachResponse,
 )
 
 

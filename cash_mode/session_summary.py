@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-
 # Preflop actions that count as "voluntary chips in pot" — posting
 # blinds doesn't count, neither does folding/checking.
 _VPIP_ACTIONS = frozenset({"call", "raise", "bet", "all_in"})
@@ -180,11 +179,7 @@ def summarize_cash_session(
     vpip_pct = (vpip_hands / hands_dealt * 100.0) if hands_dealt else 0.0
     pfr_pct = (pfr_hands / hands_dealt * 100.0) if hands_dealt else 0.0
     postflop_total = postflop_aggressive + postflop_passive
-    aggression_pct = (
-        postflop_aggressive / postflop_total * 100.0
-        if postflop_total
-        else 0.0
-    )
+    aggression_pct = postflop_aggressive / postflop_total * 100.0 if postflop_total else 0.0
 
     duration_seconds = 0
     if started_at is not None:
@@ -197,9 +192,7 @@ def summarize_cash_session(
         "is_staked": bool(is_staked),
         "sponsor_principal": int(sponsor_principal),
         "sponsor_repaid": int(sponsor_repaid),
-        "player_take_home": (
-            int(player_take_home) if player_take_home is not None else None
-        ),
+        "player_take_home": (int(player_take_home) if player_take_home is not None else None),
         "hands_played": int(hands_dealt),
         "hands_won": int(hands_won),
         "biggest_pot_won": int(biggest_pot_won),

@@ -99,6 +99,7 @@ class TestExpiration:
         age > max_age."""
         signed = auth_manager._sign_guest_id('guest_' + 'e' * 32)
         import time
+
         time.sleep(2.1)
         result = auth_manager._unsign_guest_id(signed, max_age_seconds=1)
         assert result is None

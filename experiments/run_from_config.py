@@ -16,15 +16,15 @@ Usage:
 import argparse
 import json
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from experiments.run_ai_tournament import ExperimentConfig, AITournamentRunner, print_summary
-from poker.player_psychology import set_zone_params, clear_zone_params, get_all_zone_params
+from experiments.run_ai_tournament import AITournamentRunner, ExperimentConfig, print_summary
+from poker.player_psychology import clear_zone_params, get_all_zone_params, set_zone_params
 
 
 def load_config(config_path: str) -> dict:
@@ -82,7 +82,9 @@ def run_experiment_from_config(
     print(f"Config file: {config_path}")
     print(f"Description: {config_dict.get('description', 'N/A')}")
     print(f"Hypothesis: {config_dict.get('hypothesis', 'N/A')}")
-    print(f"Model: {config_dict.get('provider', 'openai')}/{config_dict.get('model', 'gpt-4o-mini')}")
+    print(
+        f"Model: {config_dict.get('provider', 'openai')}/{config_dict.get('model', 'gpt-4o-mini')}"
+    )
     print(f"Tournaments: {config_dict.get('num_tournaments', 1)}")
     print(f"Hands per tournament: {config_dict.get('hands_per_tournament', 100)}")
     print(f"Players: {config_dict.get('num_players', 4)}")

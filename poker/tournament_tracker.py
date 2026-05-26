@@ -2,14 +2,16 @@
 Tournament tracking for poker games.
 Tracks eliminations, standings, and generates final results.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class EliminationEvent:
     """Records when a player is eliminated from the tournament."""
+
     eliminated_player: str
     eliminator: str
     hand_number: int
@@ -20,6 +22,7 @@ class EliminationEvent:
 @dataclass
 class PlayerStanding:
     """Individual player's tournament result."""
+
     player_name: str
     is_human: bool
     finishing_position: int
@@ -32,7 +35,7 @@ class PlayerStanding:
             'is_human': self.is_human,
             'finishing_position': self.finishing_position,
             'eliminated_by': self.eliminated_by,
-            'eliminated_at_hand': self.eliminated_at_hand
+            'eliminated_at_hand': self.eliminated_at_hand,
         }
 
 
@@ -71,8 +74,9 @@ class TournamentTracker:
         self.hand_count += 1
         self.biggest_pot = max(self.biggest_pot, pot_size)
 
-    def on_player_eliminated(self, player_name: str, eliminator: str,
-                             pot_size: int = 0) -> EliminationEvent:
+    def on_player_eliminated(
+        self, player_name: str, eliminator: str, pot_size: int = 0
+    ) -> EliminationEvent:
         """Record a player elimination.
 
         Args:
@@ -97,7 +101,7 @@ class TournamentTracker:
             eliminator=eliminator,
             hand_number=self.hand_count,
             pot_size=pot_size,
-            finishing_position=finishing_position
+            finishing_position=finishing_position,
         )
         self.eliminations.append(event)
 
@@ -133,29 +137,33 @@ class TournamentTracker:
             winner_name = self.get_winner()
             winner_info = next(
                 (p for p in self.starting_players if p['name'] == winner_name),
-                {'name': winner_name, 'is_human': False}
+                {'name': winner_name, 'is_human': False},
             )
-            standings.append(PlayerStanding(
-                player_name=winner_name,
-                is_human=winner_info.get('is_human', False),
-                finishing_position=1,
-                eliminated_by=None,
-                eliminated_at_hand=None
-            ))
+            standings.append(
+                PlayerStanding(
+                    player_name=winner_name,
+                    is_human=winner_info.get('is_human', False),
+                    finishing_position=1,
+                    eliminated_by=None,
+                    eliminated_at_hand=None,
+                )
+            )
 
         # Add eliminated players in reverse order (most recent = 2nd place, etc.)
         for event in reversed(self.eliminations):
             player_info = next(
                 (p for p in self.starting_players if p['name'] == event.eliminated_player),
-                {'name': event.eliminated_player, 'is_human': False}
+                {'name': event.eliminated_player, 'is_human': False},
             )
-            standings.append(PlayerStanding(
-                player_name=event.eliminated_player,
-                is_human=player_info.get('is_human', False),
-                finishing_position=event.finishing_position,
-                eliminated_by=event.eliminator,
-                eliminated_at_hand=event.hand_number
-            ))
+            standings.append(
+                PlayerStanding(
+                    player_name=event.eliminated_player,
+                    is_human=player_info.get('is_human', False),
+                    finishing_position=event.finishing_position,
+                    eliminated_by=event.eliminator,
+                    eliminated_at_hand=event.hand_number,
+                )
+            )
 
         # Sort by finishing position
         standings.sort(key=lambda s: s.finishing_position)
@@ -171,10 +179,7 @@ class TournamentTracker:
         standings = self.get_standings()
         human_player = self.get_human_player()
 
-        human_standing = next(
-            (s for s in standings if s.is_human),
-            None
-        )
+        human_standing = next((s for s in standings if s.is_human), None)
 
         return {
             'game_id': self.game_id,
@@ -183,9 +188,11 @@ class TournamentTracker:
             'biggest_pot': self.biggest_pot,
             'starting_player_count': self.starting_player_count,
             'human_player_name': human_player['name'] if human_player else None,
-            'human_finishing_position': human_standing.finishing_position if human_standing else None,
+            'human_finishing_position': human_standing.finishing_position
+            if human_standing
+            else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
-            'standings': [s.to_dict() for s in standings]
+            'standings': [s.to_dict() for s in standings],
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -199,14 +206,14 @@ class TournamentTracker:
                     'eliminator': e.eliminator,
                     'hand_number': e.hand_number,
                     'pot_size': e.pot_size,
-                    'finishing_position': e.finishing_position
+                    'finishing_position': e.finishing_position,
                 }
                 for e in self.eliminations
             ],
             'hand_count': self.hand_count,
             'biggest_pot': self.biggest_pot,
             'started_at': self.started_at.isoformat() if self.started_at else None,
-            'active_players': list(self._active_players)
+            'active_players': list(self._active_players),
         }
 
     @classmethod
@@ -217,18 +224,22 @@ class TournamentTracker:
             starting_players=data['starting_players'],
             hand_count=data.get('hand_count', 0),
             biggest_pot=data.get('biggest_pot', 0),
-            started_at=datetime.fromisoformat(data['started_at']) if data.get('started_at') else datetime.now()
+            started_at=datetime.fromisoformat(data['started_at'])
+            if data.get('started_at')
+            else datetime.now(),
         )
 
         # Restore eliminations
         for e_data in data.get('eliminations', []):
-            tracker.eliminations.append(EliminationEvent(
-                eliminated_player=e_data['eliminated_player'],
-                eliminator=e_data['eliminator'],
-                hand_number=e_data['hand_number'],
-                pot_size=e_data.get('pot_size', 0),
-                finishing_position=e_data['finishing_position']
-            ))
+            tracker.eliminations.append(
+                EliminationEvent(
+                    eliminated_player=e_data['eliminated_player'],
+                    eliminator=e_data['eliminator'],
+                    hand_number=e_data['hand_number'],
+                    pot_size=e_data.get('pot_size', 0),
+                    finishing_position=e_data['finishing_position'],
+                )
+            )
 
         # Restore active players
         if 'active_players' in data:

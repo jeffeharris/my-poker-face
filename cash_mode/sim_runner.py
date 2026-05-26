@@ -27,7 +27,7 @@ import random
 import sqlite3
 import time
 from collections import Counter
-from dataclasses import dataclass, field, replace as dc_replace
+from dataclasses import dataclass, replace as dc_replace
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -225,6 +225,7 @@ def run_sim(
     # injection can fire before any vice deposit lands. Drift-safe.
     if config.initial_bank_pool_seed > 0:
         from cash_mode.closed_economy import seed_bank_pool
+
         seed_bank_pool(
             chip_ledger_repo,
             sandbox_id=config.sandbox_id,
@@ -232,7 +233,8 @@ def run_sim(
         )
         logger.info(
             "[sim] seeded bank pool with %d chips for sandbox %s",
-            config.initial_bank_pool_seed, config.sandbox_id,
+            config.initial_bank_pool_seed,
+            config.sandbox_id,
         )
 
     # Cumulative ledger snapshots — diffed each tick to produce
@@ -271,10 +273,7 @@ def run_sim(
         # 2. Metrics capture (every N ticks). The very first and very
         #    last tick always capture so summaries have endpoints.
         is_final_tick = tick == config.num_ticks - 1
-        if (
-            tick % config.metrics_every == 0
-            or is_final_tick
-        ):
+        if tick % config.metrics_every == 0 or is_final_tick:
             tick_metrics, prev_creations, prev_destructions = _capture_tick_metrics(
                 tick=tick,
                 now=now,
@@ -297,15 +296,15 @@ def run_sim(
             metrics.append(tick_metrics)
 
         # 4. Progress log.
-        if (
-            config.progress_every > 0
-            and (tick + 1) % config.progress_every == 0
-        ):
+        if config.progress_every > 0 and (tick + 1) % config.progress_every == 0:
             elapsed = time.monotonic() - wall_start
             rate = (tick + 1) / elapsed if elapsed > 0 else 0.0
             logger.info(
                 "[sim] tick %d/%d (%.1f tick/s, elapsed=%.1fs)",
-                tick + 1, config.num_ticks, rate, elapsed,
+                tick + 1,
+                config.num_ticks,
+                rate,
+                elapsed,
             )
 
     wall_seconds = time.monotonic() - wall_start
@@ -350,7 +349,9 @@ def _capture_tick_metrics(
     per_pid_chips: Dict[str, int] = {}
     for pid in pids:
         chips = bankroll_repo.load_ai_bankroll_current(
-            pid, sandbox_id=sandbox_id, now=now,
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
         )
         per_pid_chips[pid] = int(chips or 0)
 
@@ -383,14 +384,16 @@ def _capture_tick_metrics(
     # Pool depth is virtual (computed from ledger sums), so reading
     # it every tick is one indexed GROUP BY query (already paid for
     # by `sum_*_by_reason` above — same query shape).
+    from cash_mode.casino_provisioning import is_closing
     from cash_mode.closed_economy import (
         compute_bank_pool_reserves,
         list_hungry_grinders,
         load_fish_ids,
     )
-    from cash_mode.casino_provisioning import is_closing
+
     bank_pool_chips = compute_bank_pool_reserves(
-        chip_ledger_repo, sandbox_id=sandbox_id,
+        chip_ledger_repo,
+        sandbox_id=sandbox_id,
     )
     fish_ids_set = load_fish_ids(bankroll_repo, sandbox_id=sandbox_id)
     fish_bankroll_total = sum(per_pid_chips.get(pid, 0) for pid in fish_ids_set)
@@ -398,6 +401,7 @@ def _capture_tick_metrics(
     # Casino lifecycle snapshot — walk active casino tables in the
     # sandbox once and count seats, closing state, and chip totals.
     from poker.repositories.cash_table_repository import CashTableRepository
+
     casino_count = 0
     casino_seated_fish_count = 0
     casino_seated_total_chips = 0
@@ -422,19 +426,23 @@ def _capture_tick_metrics(
                 casino_seated_fish_count += 1
                 fish_seat_chips += chips
 
-    hungry_grinder_count = len(list_hungry_grinders(
-        bankroll_repo, sandbox_id=sandbox_id, now=now,
-    ))
+    hungry_grinder_count = len(
+        list_hungry_grinders(
+            bankroll_repo,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+    )
 
     # Fish drain: chips fish have fed the population (grinders + human).
     # Fish holdings = bankroll (fish_bankroll_total) + chips on the felt
     # (fish_seat_chips). See TickMetrics.fish_net_to_players.
     fish_inflow, fish_outflow = _fish_ledger_flows(
-        db_path, sandbox_id=sandbox_id, fish_ids=fish_ids_set,
+        db_path,
+        sandbox_id=sandbox_id,
+        fish_ids=fish_ids_set,
     )
-    fish_net_to_players = (
-        fish_inflow - fish_outflow - (fish_bankroll_total + fish_seat_chips)
-    )
+    fish_net_to_players = fish_inflow - fish_outflow - (fish_bankroll_total + fish_seat_chips)
 
     metrics = TickMetrics(
         tick=tick,
@@ -769,10 +777,12 @@ def per_pid_jsonl_records(metrics: List[TickMetrics]) -> List[Dict[str, object]]
     out: List[Dict[str, object]] = []
     for m in metrics:
         for pid, chips in sorted(m.per_pid_chips.items()):
-            out.append({
-                'tick': m.tick,
-                'now': m.now,
-                'personality_id': pid,
-                'chips': chips,
-            })
+            out.append(
+                {
+                    'tick': m.tick,
+                    'now': m.now,
+                    'personality_id': pid,
+                    'chips': chips,
+                }
+            )
     return out

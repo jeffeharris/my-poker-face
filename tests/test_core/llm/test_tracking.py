@@ -1,11 +1,12 @@
 """Tests for UsageTracker and CallType."""
-import sqlite3
 
-import pytest
+import sqlite3
 from unittest.mock import patch
 
+import pytest
+
 from core.llm import CallType, UsageTracker
-from core.llm.response import LLMResponse, ImageResponse
+from core.llm.response import ImageResponse, LLMResponse
 from poker.repositories import create_repos
 
 
@@ -333,7 +334,9 @@ class TestUsageTracker:
         tracker = UsageTracker(db_path=self.db_path)
         # Reset the mock for the actual test
         mock_connect.reset_mock()
-        mock_connect.return_value.__enter__.return_value.execute.side_effect = sqlite3.Error("DB Error")
+        mock_connect.return_value.__enter__.return_value.execute.side_effect = sqlite3.Error(
+            "DB Error"
+        )
 
         response = LLMResponse(
             content="Test",

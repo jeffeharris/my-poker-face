@@ -7,13 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import poker.repositories
+import poker.repositories.sqlite_repositories  # noqa: F401  (load into sys.modules)
 from flask_app import create_app
 from flask_app.game_adapter import StateMachineAdapter
 from flask_app.services import game_state_service
 from poker.poker_game import initialize_game_state
 from poker.poker_state_machine import PokerStateMachine
-import poker.repositories
-import poker.repositories.sqlite_repositories  # noqa: F401  (load into sys.modules)
 from poker.repositories import create_repos
 
 # A circular import inside poker.repositories.__init__.py prevents Python
@@ -46,6 +46,7 @@ class TestGameRouteAuth(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = self.repos['game_repo']
             ext.user_repo = self.repos['user_repo']
             ext.settings_repo = self.repos['settings_repo']
@@ -75,13 +76,25 @@ class TestGameRouteAuth(unittest.TestCase):
         self._route_patchers = [
             patch('flask_app.routes.game_routes.game_repo', self.repos['game_repo']),
             patch('flask_app.routes.game_routes.user_repo', self.repos['user_repo']),
-            patch('flask_app.routes.game_routes.prompt_preset_repo', self.repos['prompt_preset_repo']),
-            patch('flask_app.routes.game_routes.guest_tracking_repo', self.repos['guest_tracking_repo']),
-            patch('flask_app.routes.game_routes.hand_history_repo', self.repos['hand_history_repo']),
+            patch(
+                'flask_app.routes.game_routes.prompt_preset_repo', self.repos['prompt_preset_repo']
+            ),
+            patch(
+                'flask_app.routes.game_routes.guest_tracking_repo',
+                self.repos['guest_tracking_repo'],
+            ),
+            patch(
+                'flask_app.routes.game_routes.hand_history_repo', self.repos['hand_history_repo']
+            ),
             patch('flask_app.routes.game_routes.tournament_repo', self.repos['tournament_repo']),
             patch('flask_app.routes.game_routes.llm_repo', self.repos['llm_repo']),
-            patch('flask_app.routes.game_routes.decision_analysis_repo', self.repos['decision_analysis_repo']),
-            patch('flask_app.routes.game_routes.capture_label_repo', self.repos['capture_label_repo']),
+            patch(
+                'flask_app.routes.game_routes.decision_analysis_repo',
+                self.repos['decision_analysis_repo'],
+            ),
+            patch(
+                'flask_app.routes.game_routes.capture_label_repo', self.repos['capture_label_repo']
+            ),
             patch('flask_app.routes.game_routes.coach_repo', self.repos['coach_repo']),
             patch('flask_app.routes.game_routes.persistence_db_path', self.repos['db_path']),
         ]
@@ -151,8 +164,13 @@ class TestGameRouteAuth(unittest.TestCase):
         game_id = self._seed_game()
         user = {'id': 'intruder-1', 'name': 'Intruder'}
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.game_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             response = self.client.get(f'/api/game-state/{game_id}')
 
         self.assertEqual(response.status_code, 403)
@@ -167,13 +185,16 @@ class TestGameRouteAuth(unittest.TestCase):
         stale_cached_state = StateMachineAdapter(
             PokerStateMachine(initialize_game_state(['AI Opponent'], human_name='Player'))
         )
-        game_state_service.set_game(game_id, {
-            'state_machine': stale_cached_state,
-            'owner_id': guest_owner,
-            'owner_name': 'Guest Owner',
-            'messages': [],
-            'game_started': True,
-        })
+        game_state_service.set_game(
+            game_id,
+            {
+                'state_machine': stale_cached_state,
+                'owner_id': guest_owner,
+                'owner_name': 'Guest Owner',
+                'messages': [],
+                'game_started': True,
+            },
+        )
 
         transferred = self.repos['user_repo'].transfer_game_ownership(
             guest_owner,
@@ -183,8 +204,13 @@ class TestGameRouteAuth(unittest.TestCase):
         self.assertEqual(transferred, 1)
 
         user = {'id': new_owner, 'name': 'New Owner'}
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.game_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             response = self.client.get(f'/api/game-state/{game_id}')
 
         self.assertEqual(response.status_code, 200)
@@ -194,8 +220,13 @@ class TestGameRouteAuth(unittest.TestCase):
         game_id = self._seed_game()
         user = {'id': 'intruder-1', 'name': 'Intruder'}
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.game_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             response = self.client.delete(f'/api/game/{game_id}')
 
         self.assertEqual(response.status_code, 403)
@@ -205,8 +236,13 @@ class TestGameRouteAuth(unittest.TestCase):
         game_id = self._seed_game()
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(admin_user)), \
-             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(True)):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(admin_user)),
+            patch(
+                'flask_app.routes.game_routes.get_authorization_service',
+                return_value=self._admin_authz(True),
+            ),
+        ):
             response = self.client.delete(f'/api/game/{game_id}')
 
         self.assertEqual(response.status_code, 200)
@@ -224,11 +260,20 @@ class TestGameRouteAuth(unittest.TestCase):
             ('get', f'/api/game/{game_id}/llm-configs', None),
         ]
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)), \
-             patch('flask_app.routes.game_routes.get_authorization_service', return_value=self._admin_authz(False)):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch(
+                'flask_app.routes.game_routes.get_authorization_service',
+                return_value=self._admin_authz(False),
+            ),
+        ):
             for method, path, payload in requests:
                 if method == 'post':
-                    response = self.client.post(path, json=payload) if payload is not None else self.client.post(path)
+                    response = (
+                        self.client.post(path, json=payload)
+                        if payload is not None
+                        else self.client.post(path)
+                    )
                 else:
                     response = self.client.get(path)
 
@@ -250,11 +295,19 @@ class TestGameRouteAuth(unittest.TestCase):
 
     def test_new_game_allows_guest_session_and_sets_owner(self):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)), \
-             patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub), \
-             patch('flask_app.routes.game_routes.AIMemoryManager', return_value=self._memory_manager_mock()), \
-             patch('poker.repositories.sqlite_repositories.PressureEventRepository', return_value=MagicMock()), \
-             patch('flask_app.routes.game_routes.start_background_avatar_generation'):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)),
+            patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
+            patch(
+                'flask_app.routes.game_routes.AIMemoryManager',
+                return_value=self._memory_manager_mock(),
+            ),
+            patch(
+                'poker.repositories.sqlite_repositories.PressureEventRepository',
+                return_value=MagicMock(),
+            ),
+            patch('flask_app.routes.game_routes.start_background_avatar_generation'),
+        ):
             response = self._post_new_game({'playerName': 'Tester'}, remote_addr='10.0.0.12')
 
         data = response.get_json()
@@ -267,11 +320,19 @@ class TestGameRouteAuth(unittest.TestCase):
 
     def test_guest_can_access_game_after_creation(self):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)), \
-             patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub), \
-             patch('flask_app.routes.game_routes.AIMemoryManager', return_value=self._memory_manager_mock()), \
-             patch('poker.repositories.sqlite_repositories.PressureEventRepository', return_value=MagicMock()), \
-             patch('flask_app.routes.game_routes.start_background_avatar_generation'):
+        with (
+            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)),
+            patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
+            patch(
+                'flask_app.routes.game_routes.AIMemoryManager',
+                return_value=self._memory_manager_mock(),
+            ),
+            patch(
+                'poker.repositories.sqlite_repositories.PressureEventRepository',
+                return_value=MagicMock(),
+            ),
+            patch('flask_app.routes.game_routes.start_background_avatar_generation'),
+        ):
             create_response = self._post_new_game({'playerName': 'Tester'}, remote_addr='10.0.0.13')
 
         create_data = create_response.get_json()

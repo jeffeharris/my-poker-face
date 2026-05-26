@@ -16,16 +16,16 @@ export function TermsOfService() {
         <section>
           <h2>Agreement to Terms</h2>
           <p>
-            By accessing or using My Poker Face, you agree to be bound by these Terms of Service.
-            If you do not agree to these terms, please do not use the application.
+            By accessing or using My Poker Face, you agree to be bound by these Terms of Service. If
+            you do not agree to these terms, please do not use the application.
           </p>
         </section>
 
         <section>
           <h2>Description of Service</h2>
           <p>
-            My Poker Face is a poker game application featuring AI-powered opponents. The game
-            is for entertainment purposes only and does not involve real money gambling.
+            My Poker Face is a poker game application featuring AI-powered opponents. The game is
+            for entertainment purposes only and does not involve real money gambling.
           </p>
         </section>
 
@@ -51,16 +51,16 @@ export function TermsOfService() {
         <section>
           <h2>Intellectual Property</h2>
           <p>
-            The application and its content are owned by Jeff Harris. You may not copy, modify,
-            or distribute the application without permission.
+            The application and its content are owned by Jeff Harris. You may not copy, modify, or
+            distribute the application without permission.
           </p>
         </section>
 
         <section>
           <h2>Disclaimer</h2>
           <p>
-            The service is provided "as is" without warranties of any kind. We do not guarantee
-            that the service will be uninterrupted, secure, or error-free.
+            The service is provided "as is" without warranties of any kind. We do not guarantee that
+            the service will be uninterrupted, secure, or error-free.
           </p>
         </section>
 
@@ -68,16 +68,16 @@ export function TermsOfService() {
           <h2>Limitation of Liability</h2>
           <p>
             To the fullest extent permitted by law, Jeff Harris shall not be liable for any
-            indirect, incidental, special, or consequential damages arising from your use of
-            the service.
+            indirect, incidental, special, or consequential damages arising from your use of the
+            service.
           </p>
         </section>
 
         <section>
           <h2>Termination</h2>
           <p>
-            We reserve the right to suspend or terminate your access to the service at any time,
-            for any reason, without notice.
+            We reserve the right to suspend or terminate your access to the service at any time, for
+            any reason, without notice.
           </p>
         </section>
 
@@ -93,7 +93,9 @@ export function TermsOfService() {
           <h2>Contact</h2>
           <p>
             For questions about these Terms, contact us at:{' '}
-            <a href="mailto:jeff.harris@jeffharrisconsulting.com">jeff.harris@jeffharrisconsulting.com</a>
+            <a href="mailto:jeff.harris@jeffharrisconsulting.com">
+              jeff.harris@jeffharrisconsulting.com
+            </a>
           </p>
         </section>
       </div>

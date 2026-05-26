@@ -12,20 +12,20 @@ interface Props {
 
 // Map template names to call_type values for filtering captures
 const TEMPLATE_TO_CALL_TYPE: Record<string, string[]> = {
-  'poker_player': ['player_decision'],
-  'decision': ['player_decision'],
-  'end_of_hand_commentary': ['commentary'],
-  'quick_chat_tilt': ['targeted_chat'],
-  'quick_chat_bait': ['targeted_chat'],
-  'quick_chat_needle': ['targeted_chat'],
-  'quick_chat_goad': ['targeted_chat'],
-  'quick_chat_bluff': ['targeted_chat'],
-  'quick_chat_befriend': ['targeted_chat'],
-  'quick_chat_table': ['targeted_chat'],
-  'post_round_gloat': ['post_round_chat'],
-  'post_round_humble': ['post_round_chat'],
-  'post_round_salty': ['post_round_chat'],
-  'post_round_gracious': ['post_round_chat'],
+  poker_player: ['player_decision'],
+  decision: ['player_decision'],
+  end_of_hand_commentary: ['commentary'],
+  quick_chat_tilt: ['targeted_chat'],
+  quick_chat_bait: ['targeted_chat'],
+  quick_chat_needle: ['targeted_chat'],
+  quick_chat_goad: ['targeted_chat'],
+  quick_chat_bluff: ['targeted_chat'],
+  quick_chat_befriend: ['targeted_chat'],
+  quick_chat_table: ['targeted_chat'],
+  post_round_gloat: ['post_round_chat'],
+  post_round_humble: ['post_round_chat'],
+  post_round_salty: ['post_round_chat'],
+  post_round_gracious: ['post_round_chat'],
 };
 
 export function TemplateEditor({ onNavigateToCapture }: Props) {
@@ -113,8 +113,8 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
         }
       }
       // Sort by created_at descending and take first 10
-      allCaptures.sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      allCaptures.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setRelatedCaptures(allCaptures.slice(0, 10));
     } catch (err) {
@@ -132,15 +132,12 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
     setShowTestResults(true);
 
     try {
-      const response = await adminAPI.fetch(
-        `/admin/api/playground/captures/${captureId}/replay`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            use_history: true,
-          }),
-        }
-      );
+      const response = await adminAPI.fetch(`/admin/api/playground/captures/${captureId}/replay`, {
+        method: 'POST',
+        body: JSON.stringify({
+          use_history: true,
+        }),
+      });
       const data = await response.json();
       setTestResult(data);
     } catch (err) {
@@ -196,7 +193,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
 
   // Handle section edit
   const handleSectionChange = (sectionName: string, content: string) => {
-    setEditedSections(prev => ({ ...prev, [sectionName]: content }));
+    setEditedSections((prev) => ({ ...prev, [sectionName]: content }));
     setIsDirty(true);
     setSuccessMessage(null);
   };
@@ -217,7 +214,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
   // Extract variables from edited content
   const extractVariables = (content: string): string[] => {
     const matches = content.match(/(?<!\{)\{(\w+)\}(?!\})/g) || [];
-    const vars = matches.map(m => m.slice(1, -1));
+    const vars = matches.map((m) => m.slice(1, -1));
     return [...new Set(vars)].sort();
   };
 
@@ -237,7 +234,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
         </div>
 
         <div className="template-list">
-          {templates.map(template => (
+          {templates.map((template) => (
             <div
               key={template.name}
               className={`template-item ${selectedTemplate?.name === template.name ? 'selected' : ''}`}
@@ -272,11 +269,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
                 <button onClick={handleReset} disabled={!isDirty || saving}>
                   Reset
                 </button>
-                <button
-                  onClick={handleSave}
-                  disabled={!isDirty || saving}
-                  className="save-btn"
-                >
+                <button onClick={handleSave} disabled={!isDirty || saving} className="save-btn">
                   {saving ? 'Saving...' : 'Save'}
                 </button>
               </div>
@@ -290,7 +283,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
             <div className="variables-info">
               <span className="label">Variables:</span>
               <div className="variable-list">
-                {currentVariables.map(v => (
+                {currentVariables.map((v) => (
                   <code key={v} className="variable">{`{${v}}`}</code>
                 ))}
               </div>
@@ -323,7 +316,7 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
 
               {relatedCaptures.length > 0 ? (
                 <div className="captures-list">
-                  {relatedCaptures.map(capture => (
+                  {relatedCaptures.map((capture) => (
                     <div key={capture.id} className="capture-test-item">
                       <div className="capture-info">
                         <span className="capture-player">{capture.player_name || 'Unknown'}</span>
@@ -390,7 +383,9 @@ export function TemplateEditor({ onNavigateToCapture }: Props) {
                         <div className="test-metrics">
                           <span>Provider: {testResult.provider_used}</span>
                           <span>Latency: {testResult.latency_ms}ms</span>
-                          <span>Tokens: {testResult.input_tokens} in / {testResult.output_tokens} out</span>
+                          <span>
+                            Tokens: {testResult.input_tokens} in / {testResult.output_tokens} out
+                          </span>
                         </div>
                       </div>
                     )

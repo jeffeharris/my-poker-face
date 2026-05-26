@@ -6,21 +6,21 @@ decision quality and difficulty metrics without storing full prompts.
 """
 
 import json
-import time
 import logging
-from dataclasses import dataclass, asdict
-from typing import Optional, List, Any, Tuple
+import time
+from dataclasses import asdict, dataclass
+from typing import Any, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+from poker.card_utils import normalize_card_string
 
 # Import equity calculator - gracefully degrade if not available
 try:
-    from poker.equity_calculator import EquityCalculator, EVAL7_AVAILABLE
+    from poker.equity_calculator import EVAL7_AVAILABLE, EquityCalculator
 except ImportError:
     EVAL7_AVAILABLE = False
     EquityCalculator = None
 
-from poker.card_utils import normalize_card_string
+logger = logging.getLogger(__name__)
 
 
 def calculate_max_winnable(
@@ -114,10 +114,10 @@ class DecisionAnalysis:
     quality_score: Optional[float] = None  # Composite: correct=100, marginal=50, mistake=0
 
     # Menu compliance (bounded options)
-    menu_best_ev: Optional[str] = None       # Best ev_estimate available (+EV/neutral/-EV)
-    menu_chosen_ev: Optional[str] = None     # ev_estimate of chosen option
+    menu_best_ev: Optional[str] = None  # Best ev_estimate available (+EV/neutral/-EV)
+    menu_chosen_ev: Optional[str] = None  # ev_estimate of chosen option
     menu_picked_best: Optional[bool] = None  # True if chose best-EV option
-    menu_num_options: Optional[int] = None   # Number of options offered
+    menu_num_options: Optional[int] = None  # Number of options offered
 
     # Hand strength
     hand_rank: Optional[int] = None
@@ -144,31 +144,31 @@ class DecisionAnalysis:
     elastic_table_talk: Optional[float] = None
 
     # Range tracking (v67)
-    opponent_ranges_json: Optional[str] = None    # {"Batman": ["AA", "AKs", ...], ...}
-    board_texture_json: Optional[str] = None      # Board texture dict from analyze_board_texture()
-    player_hand_canonical: Optional[str] = None   # "AKo", "Q7o", etc.
-    player_hand_in_range: Optional[bool] = None   # Is hand in standard range for position?
-    player_hand_tier: Optional[str] = None        # "premium", "strong", ..., "trash"
-    standard_range_pct: Optional[float] = None    # Expected range % for position (e.g., 15)
+    opponent_ranges_json: Optional[str] = None  # {"Batman": ["AA", "AKs", ...], ...}
+    board_texture_json: Optional[str] = None  # Board texture dict from analyze_board_texture()
+    player_hand_canonical: Optional[str] = None  # "AKo", "Q7o", etc.
+    player_hand_in_range: Optional[bool] = None  # Is hand in standard range for position?
+    player_hand_tier: Optional[str] = None  # "premium", "strong", ..., "trash"
+    standard_range_pct: Optional[float] = None  # Expected range % for position (e.g., 15)
 
     # Zone detection snapshot (v71)
-    zone_confidence: Optional[float] = None       # Confidence value at decision time
-    zone_composure: Optional[float] = None        # Composure value at decision time
-    zone_energy: Optional[float] = None           # Energy value at decision time
-    zone_manifestation: Optional[str] = None      # 'low_energy', 'balanced', 'high_energy'
-    zone_sweet_spots_json: Optional[str] = None   # JSON: {"poker_face": 0.8, ...}
-    zone_penalties_json: Optional[str] = None     # JSON: {"tilted": 0.3, ...}
-    zone_primary_sweet_spot: Optional[str] = None # Dominant sweet spot zone
-    zone_primary_penalty: Optional[str] = None    # Dominant penalty zone
+    zone_confidence: Optional[float] = None  # Confidence value at decision time
+    zone_composure: Optional[float] = None  # Composure value at decision time
+    zone_energy: Optional[float] = None  # Energy value at decision time
+    zone_manifestation: Optional[str] = None  # 'low_energy', 'balanced', 'high_energy'
+    zone_sweet_spots_json: Optional[str] = None  # JSON: {"poker_face": 0.8, ...}
+    zone_penalties_json: Optional[str] = None  # JSON: {"tilted": 0.3, ...}
+    zone_primary_sweet_spot: Optional[str] = None  # Dominant sweet spot zone
+    zone_primary_penalty: Optional[str] = None  # Dominant penalty zone
     zone_total_penalty_strength: Optional[float] = None  # Sum of penalty intensities
-    zone_in_neutral_territory: Optional[bool] = None     # Not in any zone
+    zone_in_neutral_territory: Optional[bool] = None  # Not in any zone
 
     # Zone effects tracking (v71)
-    zone_intrusive_thoughts_injected: Optional[bool] = None   # Were thoughts added?
-    zone_intrusive_thoughts_json: Optional[str] = None        # JSON list of injected thoughts
-    zone_penalty_strategy_applied: Optional[str] = None       # Bad advice string if added
-    zone_info_degraded: Optional[bool] = None                 # Was strategic info removed?
-    zone_strategy_selected: Optional[str] = None              # Sweet spot strategy template key
+    zone_intrusive_thoughts_injected: Optional[bool] = None  # Were thoughts added?
+    zone_intrusive_thoughts_json: Optional[str] = None  # JSON list of injected thoughts
+    zone_penalty_strategy_applied: Optional[str] = None  # Bad advice string if added
+    zone_info_degraded: Optional[bool] = None  # Was strategic info removed?
+    zone_strategy_selected: Optional[str] = None  # Sweet spot strategy template key
 
     # Metadata
     analyzer_version: str = "1.0"
@@ -351,13 +351,23 @@ class DecisionAnalyzer:
             analysis.zone_penalties_json = psychology_snapshot.get('zone_penalties_json')
             analysis.zone_primary_sweet_spot = psychology_snapshot.get('zone_primary_sweet_spot')
             analysis.zone_primary_penalty = psychology_snapshot.get('zone_primary_penalty')
-            analysis.zone_total_penalty_strength = psychology_snapshot.get('zone_total_penalty_strength')
-            analysis.zone_in_neutral_territory = psychology_snapshot.get('zone_in_neutral_territory')
+            analysis.zone_total_penalty_strength = psychology_snapshot.get(
+                'zone_total_penalty_strength'
+            )
+            analysis.zone_in_neutral_territory = psychology_snapshot.get(
+                'zone_in_neutral_territory'
+            )
 
             # Zone effects instrumentation (Phase 10)
-            analysis.zone_intrusive_thoughts_injected = psychology_snapshot.get('zone_intrusive_thoughts_injected')
-            analysis.zone_intrusive_thoughts_json = psychology_snapshot.get('zone_intrusive_thoughts_json')
-            analysis.zone_penalty_strategy_applied = psychology_snapshot.get('zone_penalty_strategy_applied')
+            analysis.zone_intrusive_thoughts_injected = psychology_snapshot.get(
+                'zone_intrusive_thoughts_injected'
+            )
+            analysis.zone_intrusive_thoughts_json = psychology_snapshot.get(
+                'zone_intrusive_thoughts_json'
+            )
+            analysis.zone_penalty_strategy_applied = psychology_snapshot.get(
+                'zone_penalty_strategy_applied'
+            )
             analysis.zone_info_degraded = psychology_snapshot.get('zone_info_degraded')
             analysis.zone_strategy_selected = psychology_snapshot.get('zone_strategy_selected')
 
@@ -365,6 +375,7 @@ class DecisionAnalyzer:
         if player_hand and community_cards:
             try:
                 import eval7
+
                 hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
                 board = [eval7.Card(normalize_card_string(c)) for c in community_cards]
                 # eval7.evaluate returns higher scores for better hands
@@ -408,7 +419,8 @@ class DecisionAnalyzer:
                     # Capture opponent ranges for timeline tracking
                     if opponent_infos:
                         try:
-                            from .hand_ranges import get_opponent_range, EquityConfig
+                            from .hand_ranges import EquityConfig, get_opponent_range
+
                             config = EquityConfig()
                             opponent_ranges = {}
                             for opp_info in opponent_infos:
@@ -425,6 +437,7 @@ class DecisionAnalyzer:
         if community_cards:
             try:
                 from .board_analyzer import analyze_board_texture
+
                 board_texture = analyze_board_texture(community_cards)
                 analysis.board_texture_json = json.dumps(board_texture)
             except Exception as e:
@@ -434,6 +447,7 @@ class DecisionAnalyzer:
         if player_hand and len(player_hand) == 2 and player_position:
             try:
                 from .hand_ranges import is_hand_in_standard_range
+
                 range_analysis = is_hand_in_standard_range(
                     player_hand[0], player_hand[1], player_position
                 )
@@ -457,15 +471,15 @@ class DecisionAnalyzer:
             if eq_for_ev is not None:
                 # Use max_winnable for accurate short-stack EV calculation
                 # Falls back to pot_total when max_winnable isn't calculated
-                winnable_pot = analysis.max_winnable if analysis.max_winnable is not None else pot_total
+                winnable_pot = (
+                    analysis.max_winnable if analysis.max_winnable is not None else pot_total
+                )
                 # Cap winnable at pot_total (max_winnable can't exceed actual pot)
                 winnable_pot = min(winnable_pot, pot_total)
                 # EV(call) = (equity * winnable_pot) - ((1-equity) * call_cost)
                 # Note: cost_to_call is already capped at player_stack by caller
                 effective_call = min(cost_to_call, player_stack)
-                analysis.ev_call = (eq_for_ev * winnable_pot) - (
-                    (1 - eq_for_ev) * effective_call
-                )
+                analysis.ev_call = (eq_for_ev * winnable_pot) - ((1 - eq_for_ev) * effective_call)
         else:
             # Free check - no cost to see more cards
             analysis.required_equity = 0
@@ -503,12 +517,17 @@ class DecisionAnalyzer:
             Win probability (0.0-1.0) or None if calculation fails
         """
         try:
-            import eval7
             import random
+
+            import eval7
 
             # Parse hero's hand
             hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
-            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
+            board = (
+                [eval7.Card(normalize_card_string(c)) for c in community_cards]
+                if community_cards
+                else []
+            )
 
             # Build deck excluding known cards
             all_known = set(hero_hand + board)
@@ -535,7 +554,7 @@ class DecisionAnalyzer:
 
                 # Deal remaining board cards
                 cards_needed = 5 - len(board)
-                sim_board = board + deck[deck_idx:deck_idx + cards_needed]
+                sim_board = board + deck[deck_idx : deck_idx + cards_needed]
 
                 # Evaluate hands
                 hero_score = eval7.evaluate(hero_hand + sim_board)
@@ -561,7 +580,7 @@ class DecisionAnalyzer:
         self,
         player_hand: List[str],
         community_cards: List[str],
-        opponent_infos: List[Any]  # List of OpponentInfo or position strings
+        opponent_infos: List[Any],  # List of OpponentInfo or position strings
     ) -> Optional[float]:
         """Calculate equity vs opponent hand ranges using fallback hierarchy.
 
@@ -580,18 +599,23 @@ class DecisionAnalyzer:
             Win probability (0.0-1.0) or None if calculation fails
         """
         try:
-            import eval7
             import random
+
+            import eval7
+
             from .hand_ranges import (
+                EquityConfig,
                 sample_hands_for_opponent_infos,
                 sample_hands_for_opponents,
-                OpponentInfo,
-                EquityConfig,
             )
 
             # Parse hero's hand
             hero_hand = [eval7.Card(normalize_card_string(c)) for c in player_hand]
-            board = [eval7.Card(normalize_card_string(c)) for c in community_cards] if community_cards else []
+            board = (
+                [eval7.Card(normalize_card_string(c)) for c in community_cards]
+                if community_cards
+                else []
+            )
 
             # Build set of excluded cards (hero's hand + board)
             excluded_cards = set(player_hand + (community_cards or []))
@@ -607,9 +631,7 @@ class DecisionAnalyzer:
 
             # Check if we have OpponentInfo objects or just position strings
             use_opponent_infos = (
-                opponent_infos and
-                len(opponent_infos) > 0 and
-                hasattr(opponent_infos[0], 'name')
+                opponent_infos and len(opponent_infos) > 0 and hasattr(opponent_infos[0], 'name')
             )
 
             for _ in range(iterations):
@@ -632,7 +654,10 @@ class DecisionAnalyzer:
                 opponent_hands = []
                 opp_cards_set = set()
                 for hand in opponent_hands_raw:
-                    opp_hand = [eval7.Card(normalize_card_string(hand[0])), eval7.Card(normalize_card_string(hand[1]))]
+                    opp_hand = [
+                        eval7.Card(normalize_card_string(hand[0])),
+                        eval7.Card(normalize_card_string(hand[1])),
+                    ]
                     opponent_hands.append(opp_hand)
                     opp_cards_set.add(opp_hand[0])
                     opp_cards_set.add(opp_hand[1])
@@ -796,10 +821,9 @@ class DecisionAnalyzer:
         analysis.menu_num_options = len(bounded_options)
         analysis.menu_best_ev = best.get('ev_estimate')
         analysis.menu_chosen_ev = chosen_opt.get('ev_estimate') if chosen_opt else None
-        analysis.menu_picked_best = (
-            chosen_opt is not None
-            and _option_sort_key(chosen_opt) == _option_sort_key(best)
-        )
+        analysis.menu_picked_best = chosen_opt is not None and _option_sort_key(
+            chosen_opt
+        ) == _option_sort_key(best)
 
     def _get_position_adjustment(self, player_position: Optional[str]) -> float:
         """
@@ -821,7 +845,7 @@ class DecisionAnalyzer:
             return 0.0
 
         # Import here to avoid circular imports
-        from .hand_ranges import get_position_group, Position
+        from .hand_ranges import Position, get_position_group
 
         position_group = get_position_group(player_position)
 
@@ -829,10 +853,10 @@ class DecisionAnalyzer:
         # Early position: information disadvantage, need stronger hands
         # Late position: information advantage, can play more hands
         adjustments = {
-            Position.EARLY: 0.08,    # Need 8% more equity from UTG
-            Position.MIDDLE: 0.03,   # Need 3% more equity from middle
-            Position.LATE: -0.05,    # Can play 5% looser from button/cutoff
-            Position.BLIND: -0.03,   # Already invested chips, slightly looser
+            Position.EARLY: 0.08,  # Need 8% more equity from UTG
+            Position.MIDDLE: 0.03,  # Need 3% more equity from middle
+            Position.LATE: -0.05,  # Can play 5% looser from button/cutoff
+            Position.BLIND: -0.03,  # Already invested chips, slightly looser
         }
 
         return adjustments.get(position_group, 0.0)
@@ -929,7 +953,11 @@ class DecisionAnalyzer:
             # Below required equity - should fold
             # But if we have very good implied odds (deep SPR), might call
             # Late position gets more implied odds value
-            implied_odds_threshold = (adjusted_required_equity * 0.7) if position_adjustment < 0 else (adjusted_required_equity * 0.8)
+            implied_odds_threshold = (
+                (adjusted_required_equity * 0.7)
+                if position_adjustment < 0
+                else (adjusted_required_equity * 0.8)
+            )
             if spr > 10 and equity > implied_odds_threshold:
                 return "call"  # Implied odds play
             return "fold"

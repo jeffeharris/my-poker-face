@@ -2,11 +2,12 @@
 """
 Test suite for duplicate player name validation in the /api/new-game route.
 """
+
 import os
 import sys
+import tempfile
 import unittest
 import unittest.mock
-import tempfile
 from unittest.mock import patch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -27,6 +28,7 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -64,7 +66,10 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
             patch('flask_app.routes.game_routes.hand_history_repo', repos['hand_history_repo']),
             patch('flask_app.routes.game_routes.tournament_repo', repos['tournament_repo']),
             patch('flask_app.routes.game_routes.llm_repo', repos['llm_repo']),
-            patch('flask_app.routes.game_routes.decision_analysis_repo', repos['decision_analysis_repo']),
+            patch(
+                'flask_app.routes.game_routes.decision_analysis_repo',
+                repos['decision_analysis_repo'],
+            ),
             patch('flask_app.routes.game_routes.capture_label_repo', repos['capture_label_repo']),
             patch('flask_app.routes.game_routes.coach_repo', repos['coach_repo']),
             patch('flask_app.routes.game_routes.persistence_db_path', repos['db_path']),
@@ -119,10 +124,13 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
     def test_non_matching_name_does_not_error(self):
         """Player name that doesn't match any AI personality proceeds past validation."""
         with self._mock_auth():
-            response = self.client.post('/api/new-game', json={
-                'playerName': 'UniquePlayer',
-                'personalities': ['Batman', 'Yoda'],
-            })
+            response = self.client.post(
+                '/api/new-game',
+                json={
+                    'playerName': 'UniquePlayer',
+                    'personalities': ['Batman', 'Yoda'],
+                },
+            )
         # Should not be a 400 with DUPLICATE_PLAYER_NAME
         # (may fail later in game init, but that's fine — we only test the name check)
         if response.status_code == 400:

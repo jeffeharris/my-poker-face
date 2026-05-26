@@ -8,7 +8,6 @@ Used for equity-based pressure event detection and analytics.
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-
 # Street order for iteration and comparison
 STREET_ORDER = ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
 
@@ -16,6 +15,7 @@ STREET_ORDER = ('PRE_FLOP', 'FLOP', 'TURN', 'RIVER')
 @dataclass(frozen=True)
 class EquitySnapshot:
     """Single player's equity at a specific street."""
+
     player_name: str
     street: str  # 'PRE_FLOP', 'FLOP', 'TURN', 'RIVER'
     equity: float  # 0.0 to 1.0
@@ -53,6 +53,7 @@ class EquitySnapshot:
 @dataclass(frozen=True)
 class HandEquityHistory:
     """Complete equity history for a hand across all streets and players."""
+
     hand_history_id: Optional[int]
     game_id: str
     hand_number: int
@@ -67,11 +68,7 @@ class HandEquityHistory:
 
     def get_street_equities(self, street: str) -> Dict[str, float]:
         """Get all player equities at a specific street."""
-        return {
-            snap.player_name: snap.equity
-            for snap in self.snapshots
-            if snap.street == street
-        }
+        return {snap.player_name: snap.equity for snap in self.snapshots if snap.street == street}
 
     def get_active_street_equities(self, street: str) -> Dict[str, float]:
         """Get equities only for players who were still active at this street."""
@@ -85,13 +82,12 @@ class HandEquityHistory:
         """Get equity progression for a player across all streets."""
         return sorted(
             [s for s in self.snapshots if s.player_name == player_name],
-            key=lambda s: STREET_ORDER.index(s.street) if s.street in STREET_ORDER else 99
+            key=lambda s: STREET_ORDER.index(s.street) if s.street in STREET_ORDER else 99,
         )
 
     def get_player_names(self) -> List[str]:
         """Get list of all players with equity data."""
         return list({snap.player_name for snap in self.snapshots})
-
 
     def was_behind_then_won(self, player_name: str, threshold: float = 0.40) -> bool:
         """Check if player was behind (<threshold) on any earlier street but won (1.0 on river)."""

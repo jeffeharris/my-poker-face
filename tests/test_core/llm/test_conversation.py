@@ -1,4 +1,5 @@
 """Tests for ConversationMemory."""
+
 import unittest
 
 from core.llm import ConversationMemory
@@ -16,10 +17,7 @@ class TestConversationMemory(unittest.TestCase):
 
     def test_init_with_params(self):
         """Test initialization with parameters."""
-        memory = ConversationMemory(
-            system_prompt="You are a helpful assistant.",
-            max_messages=10
-        )
+        memory = ConversationMemory(system_prompt="You are a helpful assistant.", max_messages=10)
         self.assertEqual(memory.system_prompt, "You are a helpful assistant.")
         self.assertEqual(memory.max_messages, 10)
 

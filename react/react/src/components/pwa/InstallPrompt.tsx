@@ -61,11 +61,7 @@ export function InstallPrompt() {
   return (
     <div className="install-prompt">
       <div className="install-prompt__content">
-        <img
-          src="/icon-192x192.png"
-          alt="My Poker Face"
-          className="install-prompt__icon"
-        />
+        <img src="/icon-192x192.png" alt="My Poker Face" className="install-prompt__icon" />
         <div className="install-prompt__text">
           <strong>Install My Poker Face</strong>
           <span>Add to home screen for the best experience</span>

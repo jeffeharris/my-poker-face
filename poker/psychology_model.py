@@ -7,9 +7,9 @@ quadrant model, poker face zone, and baseline computation functions.
 
 import logging
 import random
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .zone_config import get_zone_param
 
@@ -38,13 +38,13 @@ def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
 # a recursive instability where chaotic characters drift INTO being more
 # chaotic. Hold them constant.
 DRIFT_BASE_SIGMA: Dict[str, float] = {
-    'baseline_aggression': 0.02,   # identity-load-bearing
-    'baseline_looseness':  0.02,   # identity-load-bearing
-    'risk_identity':       0.05,
-    'ego':                 0.06,
-    'expressiveness':      0.10,
-    'adaptation_bias':     0.08,
-    'baseline_energy':     0.10,
+    'baseline_aggression': 0.02,  # identity-load-bearing
+    'baseline_looseness': 0.02,  # identity-load-bearing
+    'risk_identity': 0.05,
+    'ego': 0.06,
+    'expressiveness': 0.10,
+    'adaptation_bias': 0.08,
+    'baseline_energy': 0.10,
 }
 
 # Below this drift_strength, drift is dust — treat the character as
@@ -104,6 +104,7 @@ class EmotionalQuadrant(Enum):
     - GUARDED: Low conf, high comp - cautious, defensive
     - SHAKEN: Low conf, low comp - desperate, spiraling
     """
+
     COMMANDING = "commanding"
     OVERHEATED = "overheated"
     GUARDED = "guarded"
@@ -120,25 +121,32 @@ class PersonalityAnchors:
 
     All values are 0.0-1.0 inclusive.
     """
+
     baseline_aggression: float  # Default bet/raise frequency (0=passive, 1=aggressive)
-    baseline_looseness: float   # Default hand range width (0=tight, 1=loose)
-    ego: float                  # Confidence sensitivity to outplay events (0=stable, 1=brittle)
-    poise: float                # Composure resistance to bad outcomes (0=volatile, 1=stable)
-    expressiveness: float       # Emotional transparency (0=poker face, 1=open book)
-    risk_identity: float        # Variance tolerance (0=risk-averse, 1=risk-seeking)
-    adaptation_bias: float      # Opponent adjustment rate (0=static, 1=adaptive)
-    baseline_energy: float      # Baseline energy level (0=reserved, 1=animated)
-    recovery_rate: float        # Axis decay speed (0=slow, 1=fast)
+    baseline_looseness: float  # Default hand range width (0=tight, 1=loose)
+    ego: float  # Confidence sensitivity to outplay events (0=stable, 1=brittle)
+    poise: float  # Composure resistance to bad outcomes (0=volatile, 1=stable)
+    expressiveness: float  # Emotional transparency (0=poker face, 1=open book)
+    risk_identity: float  # Variance tolerance (0=risk-averse, 1=risk-seeking)
+    adaptation_bias: float  # Opponent adjustment rate (0=static, 1=adaptive)
+    baseline_energy: float  # Baseline energy level (0=reserved, 1=animated)
+    recovery_rate: float  # Axis decay speed (0=slow, 1=fast)
 
     def __post_init__(self):
         """Validate all anchors are in [0, 1]."""
         for name in [
-            'baseline_aggression', 'baseline_looseness', 'ego', 'poise',
-            'expressiveness', 'risk_identity', 'adaptation_bias',
-            'baseline_energy', 'recovery_rate'
+            'baseline_aggression',
+            'baseline_looseness',
+            'ego',
+            'poise',
+            'expressiveness',
+            'risk_identity',
+            'adaptation_bias',
+            'baseline_energy',
+            'recovery_rate',
         ]:
             val = getattr(self, name)
-            if not isinstance(val, (int, float)):
+            if not isinstance(val, int | float):
                 raise TypeError(f"Anchor '{name}' must be numeric, got {type(val).__name__}")
             if not 0.0 <= val <= 1.0:
                 raise ValueError(f"Anchor '{name}' must be in [0,1], got {val}")
@@ -181,9 +189,10 @@ class EmotionalAxes:
     These change during play and decay back toward anchor-defined baselines.
     All values are auto-clamped to [0, 1].
     """
-    confidence: float = 0.5   # Belief in reads/decisions (0=scared, 1=fearless)
-    composure: float = 0.7    # Emotional regulation (0=tilted, 1=focused)
-    energy: float = 0.5       # Engagement/intensity (0=reserved, 1=animated)
+
+    confidence: float = 0.5  # Belief in reads/decisions (0=scared, 1=fearless)
+    composure: float = 0.7  # Emotional regulation (0=tilted, 1=focused)
+    energy: float = 0.5  # Engagement/intensity (0=reserved, 1=animated)
 
     def __post_init__(self):
         """Auto-clamp all values to [0, 1]."""
@@ -230,16 +239,24 @@ class ComposureState:
     Composure is now a trait in the elastic system, but we still track
     source/nemesis for intrusive thoughts.
     """
-    pressure_source: str = ''    # 'bad_beat', 'bluff_called', 'big_loss', etc.
+
+    pressure_source: str = ''  # 'bad_beat', 'bluff_called', 'big_loss', etc.
     nemesis: Optional[str] = None  # Player who caused pressure
     recent_losses: Tuple[Dict[str, Any], ...] = ()
     losing_streak: int = 0
 
-    def update_from_event(self, event_name: str, opponent: Optional[str] = None) -> 'ComposureState':
+    def update_from_event(
+        self, event_name: str, opponent: Optional[str] = None
+    ) -> 'ComposureState':
         """Return new ComposureState updated from a pressure event."""
         negative_events = {
-            'bad_beat', 'bluff_called', 'big_loss', 'got_sucked_out',
-            'losing_streak', 'crippled', 'nemesis_loss'
+            'bad_beat',
+            'bluff_called',
+            'big_loss',
+            'got_sucked_out',
+            'losing_streak',
+            'crippled',
+            'nemesis_loss',
         }
         if event_name in negative_events:
             return ComposureState(
@@ -277,11 +294,10 @@ class ComposureState:
             else:
                 new_source = self.pressure_source
 
-            new_losses = (self.recent_losses + ({
-                'amount': amount,
-                'opponent': opponent,
-                'was_bad_beat': was_bad_beat
-            },))[-5:]
+            new_losses = (
+                self.recent_losses
+                + ({'amount': amount, 'opponent': opponent, 'was_bad_beat': was_bad_beat},)
+            )[-5:]
 
             return ComposureState(
                 pressure_source=new_source,
@@ -353,6 +369,7 @@ class PokerFaceZone:
     - Low expressiveness = poker face (expressiveness dominates visibility)
     - High expressiveness + high energy = emotions leak through most
     """
+
     # Center coordinates (universal for all players)
     center_confidence: float = 0.52
     center_composure: float = 0.72
@@ -403,9 +420,9 @@ def create_poker_face_zone(anchors: PersonalityAnchors) -> PokerFaceZone:
     # Risk identity asymmetric modifier
     risk_dev = abs(anchors.risk_identity - 0.5)  # 0 to 0.5
     if anchors.risk_identity > 0.5:
-        rc *= (1.0 - risk_dev * 0.4)
+        rc *= 1.0 - risk_dev * 0.4
     else:
-        rcomp *= (1.0 - risk_dev * 0.4)
+        rcomp *= 1.0 - risk_dev * 0.4
 
     return PokerFaceZone(
         radius_confidence=rc,
@@ -428,10 +445,7 @@ def compute_baseline_confidence(anchors: PersonalityAnchors) -> float:
         penalty zones (TIMID and OVERCONFIDENT thresholds).
     """
     baseline = (
-        0.3
-        + anchors.baseline_aggression * 0.25
-        + anchors.risk_identity * 0.20
-        + anchors.ego * 0.25
+        0.3 + anchors.baseline_aggression * 0.25 + anchors.risk_identity * 0.20 + anchors.ego * 0.25
     )
     # Clamp to stay safely outside penalty zones using tunable thresholds
     margin = 0.10
@@ -458,12 +472,7 @@ def compute_baseline_composure(anchors: PersonalityAnchors) -> float:
         outside the TILTED penalty threshold.
     """
     risk_mod = (anchors.risk_identity - 0.5) * 0.3
-    baseline = (
-        0.25
-        + anchors.poise * 0.50
-        + (1.0 - anchors.expressiveness) * 0.15
-        + risk_mod
-    )
+    baseline = 0.25 + anchors.poise * 0.50 + (1.0 - anchors.expressiveness) * 0.15 + risk_mod
     margin = 0.05
     tilted_thresh = get_zone_param('PENALTY_TILTED_THRESHOLD')
     min_comp = min(0.55, tilted_thresh + margin)

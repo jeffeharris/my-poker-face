@@ -6,17 +6,18 @@ Records complete hand data for analysis, learning, and memory.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
 class RecordedAction:
     """Single action within a hand (immutable)."""
+
     player_name: str
-    action: str           # 'fold', 'check', 'call', 'raise', 'all_in'
-    amount: int           # Amount added to pot (0 for fold/check)
-    phase: str            # 'PRE_FLOP', 'FLOP', 'TURN', 'RIVER'
-    pot_after: int        # Pot total after this action
+    action: str  # 'fold', 'check', 'call', 'raise', 'all_in'
+    amount: int  # Amount added to pot (0 for fold/check)
+    phase: str  # 'PRE_FLOP', 'FLOP', 'TURN', 'RIVER'
+    pot_after: int  # Pot total after this action
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -26,7 +27,7 @@ class RecordedAction:
             'amount': self.amount,
             'phase': self.phase,
             'pot_after': self.pot_after,
-            'timestamp': self.timestamp.isoformat()
+            'timestamp': self.timestamp.isoformat(),
         }
 
     @classmethod
@@ -37,16 +38,19 @@ class RecordedAction:
             amount=data['amount'],
             phase=data['phase'],
             pot_after=data['pot_after'],
-            timestamp=datetime.fromisoformat(data['timestamp']) if isinstance(data['timestamp'], str) else data['timestamp']
+            timestamp=datetime.fromisoformat(data['timestamp'])
+            if isinstance(data['timestamp'], str)
+            else data['timestamp'],
         )
 
 
 @dataclass(frozen=True)
 class PlayerHandInfo:
     """Information about a player in a hand."""
+
     name: str
     starting_stack: int
-    position: str         # 'BTN', 'SB', 'BB', 'UTG', etc.
+    position: str  # 'BTN', 'SB', 'BB', 'UTG', etc.
     is_human: bool
 
     def to_dict(self) -> Dict[str, Any]:
@@ -54,7 +58,7 @@ class PlayerHandInfo:
             'name': self.name,
             'starting_stack': self.starting_stack,
             'position': self.position,
-            'is_human': self.is_human
+            'is_human': self.is_human,
         }
 
     @classmethod
@@ -63,24 +67,25 @@ class PlayerHandInfo:
             name=data['name'],
             starting_stack=data['starting_stack'],
             position=data['position'],
-            is_human=data['is_human']
+            is_human=data['is_human'],
         )
 
 
 @dataclass(frozen=True)
 class WinnerInfo:
     """Information about a winner."""
+
     name: str
     amount_won: int
-    hand_name: Optional[str]   # 'Pair of Aces', etc. (None if didn't show)
-    hand_rank: Optional[int]   # 1-10 hand ranking (None if didn't show)
+    hand_name: Optional[str]  # 'Pair of Aces', etc. (None if didn't show)
+    hand_rank: Optional[int]  # 1-10 hand ranking (None if didn't show)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             'name': self.name,
             'amount_won': self.amount_won,
             'hand_name': self.hand_name,
-            'hand_rank': self.hand_rank
+            'hand_rank': self.hand_rank,
         }
 
     @classmethod
@@ -89,21 +94,22 @@ class WinnerInfo:
             name=data['name'],
             amount_won=data['amount_won'],
             hand_name=data.get('hand_name'),
-            hand_rank=data.get('hand_rank')
+            hand_rank=data.get('hand_rank'),
         )
 
 
 @dataclass(frozen=True)
 class RecordedHand:
     """Immutable record of a completed hand."""
+
     game_id: str
     hand_number: int
     timestamp: datetime
-    players: tuple          # Tuple[PlayerHandInfo, ...]
-    hole_cards: Dict[str, List[str]]   # {player_name: ['Ah', 'Kd']}
+    players: tuple  # Tuple[PlayerHandInfo, ...]
+    hole_cards: Dict[str, List[str]]  # {player_name: ['Ah', 'Kd']}
     community_cards: tuple  # Tuple of card strings
-    actions: tuple          # Tuple[RecordedAction, ...]
-    winners: tuple          # Tuple[WinnerInfo, ...]
+    actions: tuple  # Tuple[RecordedAction, ...]
+    winners: tuple  # Tuple[WinnerInfo, ...]
     pot_size: int
     was_showdown: bool
     deck_seed: Optional[int] = None
@@ -122,7 +128,7 @@ class RecordedHand:
             'pot_size': self.pot_size,
             'was_showdown': self.was_showdown,
             'deck_seed': self.deck_seed,
-            'community_cards_by_phase': self.community_cards_by_phase
+            'community_cards_by_phase': self.community_cards_by_phase,
         }
 
     @classmethod
@@ -130,7 +136,9 @@ class RecordedHand:
         return cls(
             game_id=data['game_id'],
             hand_number=data['hand_number'],
-            timestamp=datetime.fromisoformat(data['timestamp']) if isinstance(data['timestamp'], str) else data['timestamp'],
+            timestamp=datetime.fromisoformat(data['timestamp'])
+            if isinstance(data['timestamp'], str)
+            else data['timestamp'],
             players=tuple(PlayerHandInfo.from_dict(p) for p in data['players']),
             hole_cards=data['hole_cards'],
             community_cards=tuple(data['community_cards']),
@@ -139,7 +147,7 @@ class RecordedHand:
             pot_size=data['pot_size'],
             was_showdown=data['was_showdown'],
             deck_seed=data.get('deck_seed'),
-            community_cards_by_phase=data.get('community_cards_by_phase', {})
+            community_cards_by_phase=data.get('community_cards_by_phase', {}),
         )
 
     def get_player_outcome(self, player_name: str) -> str:
@@ -227,20 +235,15 @@ class HandInProgress:
         self.hole_cards: Dict[str, List[str]] = {}
         self.community_cards: List[str] = []
         self.actions: List[RecordedAction] = []
-        self._phase_community: Dict[str, List[str]] = {
-            'FLOP': [],
-            'TURN': [],
-            'RIVER': []
-        }
+        self._phase_community: Dict[str, List[str]] = {'FLOP': [], 'TURN': [], 'RIVER': []}
 
     def add_player(self, name: str, starting_stack: int, position: str, is_human: bool):
         """Add a player to the hand."""
-        self.players.append(PlayerHandInfo(
-            name=name,
-            starting_stack=starting_stack,
-            position=position,
-            is_human=is_human
-        ))
+        self.players.append(
+            PlayerHandInfo(
+                name=name, starting_stack=starting_stack, position=position, is_human=is_human
+            )
+        )
 
     def set_hole_cards(self, player_name: str, cards: List[str]):
         """Set a player's hole cards."""
@@ -253,19 +256,21 @@ class HandInProgress:
             self._phase_community[phase] = cards
             self.community_cards.extend(cards)
 
-    def record_action(self, player_name: str, action: str, amount: int,
-                      phase: str, pot_after: int):
+    def record_action(self, player_name: str, action: str, amount: int, phase: str, pot_after: int):
         """Record a player action."""
-        self.actions.append(RecordedAction(
-            player_name=player_name,
-            action=action,
-            amount=amount,
-            phase=phase,
-            pot_after=pot_after
-        ))
+        self.actions.append(
+            RecordedAction(
+                player_name=player_name,
+                action=action,
+                amount=amount,
+                phase=phase,
+                pot_after=pot_after,
+            )
+        )
 
-    def complete(self, winners: List[WinnerInfo], pot_size: int,
-                 was_showdown: bool) -> RecordedHand:
+    def complete(
+        self, winners: List[WinnerInfo], pot_size: int, was_showdown: bool
+    ) -> RecordedHand:
         """Complete the hand and return an immutable RecordedHand."""
         return RecordedHand(
             game_id=self.game_id,
@@ -279,7 +284,7 @@ class HandInProgress:
             pot_size=pot_size,
             was_showdown=was_showdown,
             deck_seed=self.deck_seed,
-            community_cards_by_phase={k: list(v) for k, v in self._phase_community.items() if v}
+            community_cards_by_phase={k: list(v) for k, v in self._phase_community.items() if v},
         )
 
 
@@ -291,7 +296,9 @@ class HandHistoryRecorder:
         self.current_hand: Optional[HandInProgress] = None
         self.completed_hands: List[RecordedHand] = []
 
-    def start_hand(self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None) -> None:
+    def start_hand(
+        self, game_state: Any, hand_number: int, deck_seed: Optional[int] = None
+    ) -> None:
         """Start recording a new hand.
 
         Args:
@@ -301,7 +308,9 @@ class HandHistoryRecorder:
         self.current_hand = HandInProgress(self.game_id, hand_number, deck_seed=deck_seed)
 
         # Record player information
-        table_positions = game_state.table_positions if hasattr(game_state, 'table_positions') else {}
+        table_positions = (
+            game_state.table_positions if hasattr(game_state, 'table_positions') else {}
+        )
         position_map = {name: pos for pos, name in table_positions.items()}
 
         for player in game_state.players:
@@ -311,10 +320,7 @@ class HandHistoryRecorder:
             stack = player.stack if hasattr(player, 'stack') else player.money
 
             self.current_hand.add_player(
-                name=player_name,
-                starting_stack=stack,
-                position=position,
-                is_human=is_human
+                name=player_name, starting_stack=stack, position=position, is_human=is_human
             )
 
             # Record hole cards if available
@@ -322,8 +328,9 @@ class HandHistoryRecorder:
                 cards = [str(c) for c in player.hand]
                 self.current_hand.set_hole_cards(player_name, cards)
 
-    def record_action(self, player_name: str, action: str, amount: int,
-                      phase: str, pot_total: int) -> None:
+    def record_action(
+        self, player_name: str, action: str, amount: int, phase: str, pot_total: int
+    ) -> None:
         """Record an action during the hand."""
         if self.current_hand:
             self.current_hand.record_action(
@@ -331,7 +338,7 @@ class HandHistoryRecorder:
                 action=action,
                 amount=amount,
                 phase=phase,
-                pot_after=pot_total
+                pot_after=pot_total,
             )
 
     def record_community_cards(self, phase: str, cards: List[str]) -> None:
@@ -339,8 +346,7 @@ class HandHistoryRecorder:
         if self.current_hand:
             self.current_hand.add_community_cards(phase, cards)
 
-    def complete_hand(self, winner_info: Dict[str, Any],
-                      game_state: Any) -> RecordedHand:
+    def complete_hand(self, winner_info: Dict[str, Any], game_state: Any) -> RecordedHand:
         """Complete the hand recording and return the recorded hand.
 
         Args:
@@ -362,12 +368,14 @@ class HandHistoryRecorder:
             for w in pot.get('winners', []):
                 if w['name'] not in seen_winners:
                     seen_winners.add(w['name'])
-                    winners.append(WinnerInfo(
-                        name=w['name'],
-                        amount_won=w.get('amount', 0),
-                        hand_name=pot_hand_name,
-                        hand_rank=winner_info.get('hand_rank')
-                    ))
+                    winners.append(
+                        WinnerInfo(
+                            name=w['name'],
+                            amount_won=w.get('amount', 0),
+                            hand_name=pot_hand_name,
+                            hand_rank=winner_info.get('hand_rank'),
+                        )
+                    )
 
         # Calculate pot size
         pot = game_state.pot if hasattr(game_state, 'pot') else {}
@@ -379,9 +387,7 @@ class HandHistoryRecorder:
 
         # Complete and store the hand
         recorded_hand = self.current_hand.complete(
-            winners=winners,
-            pot_size=pot_size,
-            was_showdown=was_showdown
+            winners=winners, pot_size=pot_size, was_showdown=was_showdown
         )
 
         self.completed_hands.append(recorded_hand)
@@ -396,7 +402,8 @@ class HandHistoryRecorder:
     def get_hands_with_player(self, player_name: str) -> List[RecordedHand]:
         """Get all hands where a specific player participated."""
         return [
-            hand for hand in self.completed_hands
+            hand
+            for hand in self.completed_hands
             if any(p.name == player_name for p in hand.players)
         ]
 

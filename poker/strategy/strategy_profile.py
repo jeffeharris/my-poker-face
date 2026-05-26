@@ -10,6 +10,7 @@ from typing import Dict
 @dataclass(frozen=True)
 class StrategyProfile:
     """Action probability distribution for one decision point."""
+
     action_probabilities: Dict[str, float]
     # e.g. {'fold': 0.3, 'call': 0.5, 'raise_2.5bb': 0.15, 'jam': 0.05}
 

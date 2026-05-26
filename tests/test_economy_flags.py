@@ -77,7 +77,9 @@ class TestRegenFlag:
     def test_regen_on_accrues_chips_over_time(self):
         anchor = datetime(2026, 5, 20, 12, 0, 0)
         state = AIBankrollState(
-            personality_id="napoleon", chips=1000, last_regen_tick=anchor,
+            personality_id="napoleon",
+            chips=1000,
+            last_regen_tick=anchor,
         )
         later = anchor + timedelta(days=2)
         economy_flags.REGEN_ENABLED = True
@@ -87,7 +89,9 @@ class TestRegenFlag:
     def test_regen_off_returns_stored_chips(self):
         anchor = datetime(2026, 5, 20, 12, 0, 0)
         state = AIBankrollState(
-            personality_id="napoleon", chips=1000, last_regen_tick=anchor,
+            personality_id="napoleon",
+            chips=1000,
+            last_regen_tick=anchor,
         )
         later = anchor + timedelta(days=10)
         economy_flags.REGEN_ENABLED = False
@@ -99,20 +103,30 @@ class TestRegenFlag:
         # above the target are kept regardless of REGEN_ENABLED.
         anchor = datetime(2026, 5, 20, 12, 0, 0)
         state = AIBankrollState(
-            personality_id="napoleon", chips=15_000, last_regen_tick=anchor,
+            personality_id="napoleon",
+            chips=15_000,
+            last_regen_tick=anchor,
         )
         economy_flags.REGEN_ENABLED = False
         assert project_bankroll(state, starting_bankroll=10_000, rate=500, now=anchor) == 15_000
 
     def test_regen_off_with_null_last_tick_returns_stored(self):
         state = AIBankrollState(
-            personality_id="napoleon", chips=1000, last_regen_tick=None,
+            personality_id="napoleon",
+            chips=1000,
+            last_regen_tick=None,
         )
         economy_flags.REGEN_ENABLED = False
         # Same fast-path as REGEN_ENABLED=True for the unseeded case.
-        assert project_bankroll(
-            state, starting_bankroll=10_000, rate=500, now=datetime(2026, 5, 20),
-        ) == 1000
+        assert (
+            project_bankroll(
+                state,
+                starting_bankroll=10_000,
+                rate=500,
+                now=datetime(2026, 5, 20),
+            )
+            == 1000
+        )
 
 
 # --- compute_rake -------------------------------------------------------
@@ -211,14 +225,18 @@ class TestRecordTableRake:
 
     def test_no_op_on_zero_amount(self, ledger_repo):
         result = chip_ledger.record_table_rake(
-            ledger_repo, source=chip_ledger.ai("napoleon"), amount=0,
+            ledger_repo,
+            source=chip_ledger.ai("napoleon"),
+            amount=0,
         )
         assert result is None
         assert ledger_repo.recent_entries() == []
 
     def test_no_op_on_none_repo(self):
         result = chip_ledger.record_table_rake(
-            None, source=chip_ledger.ai("napoleon"), amount=100,
+            None,
+            source=chip_ledger.ai("napoleon"),
+            amount=100,
         )
         assert result is None
 
@@ -237,10 +255,12 @@ class TestRakeFeedsBankPool:
 
     def test_table_rake_is_a_bank_pool_deposit_reason(self):
         from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS
+
         assert 'table_rake' in BANK_POOL_DEPOSIT_REASONS
 
     def test_rake_increases_pool_reserves(self, ledger_repo):
         from cash_mode.closed_economy import compute_bank_pool_reserves
+
         assert compute_bank_pool_reserves(ledger_repo, sandbox_id='sb-1') == 0
         chip_ledger.record_table_rake(
             ledger_repo,
@@ -254,12 +274,17 @@ class TestRakeFeedsBankPool:
         """Rake in, tourist injection out — the pool nets the difference,
         proving rake is recyclable fuel for draws."""
         from cash_mode.closed_economy import compute_bank_pool_reserves
+
         chip_ledger.record_table_rake(
-            ledger_repo, source=chip_ledger.ai("napoleon"), amount=100,
+            ledger_repo,
+            source=chip_ledger.ai("napoleon"),
+            amount=100,
             sandbox_id='sb-1',
         )
         chip_ledger.record_tourist_injection(
-            ledger_repo, personality_id='vacation_greg', amount=30,
+            ledger_repo,
+            personality_id='vacation_greg',
+            amount=30,
             sandbox_id='sb-1',
         )
         assert compute_bank_pool_reserves(ledger_repo, sandbox_id='sb-1') == 70
@@ -376,10 +401,7 @@ class TestRakeInFullSim:
         )
         # Clamped to the +10 net the winner actually saw.
         assert final['napoleon'] == 1000
-        rake_rows = [
-            e for e in ledger_repo.recent_entries()
-            if e['reason'] == 'table_rake'
-        ]
+        rake_rows = [e for e in ledger_repo.recent_entries() if e['reason'] == 'table_rake']
         assert rake_rows[0]['amount'] == 10
 
     def test_rake_no_winner_pid_is_noop(self, ledger_repo):

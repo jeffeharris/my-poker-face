@@ -4,6 +4,7 @@ This module provides common logic used by both:
 - flask_app/routes/experiment_routes.py (resume_single_variant_background)
 - experiments/resume_stalled.py (resume_variant)
 """
+
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -12,12 +13,26 @@ logger = logging.getLogger(__name__)
 
 # Valid fields for ExperimentConfig construction
 EXPERIMENT_CONFIG_FIELDS = {
-    'name', 'description', 'hypothesis', 'tags', 'capture_prompts',
-    'num_tournaments', 'hands_per_tournament', 'num_players',
-    'starting_stack', 'big_blind', 'model', 'provider',
-    'personalities', 'random_seed', 'control', 'variants',
-    'parallel_tournaments', 'stagger_start_delay', 'rate_limit_backoff_seconds',
-    'reset_on_elimination'
+    'name',
+    'description',
+    'hypothesis',
+    'tags',
+    'capture_prompts',
+    'num_tournaments',
+    'hands_per_tournament',
+    'num_players',
+    'starting_stack',
+    'big_blind',
+    'model',
+    'provider',
+    'personalities',
+    'random_seed',
+    'control',
+    'variants',
+    'parallel_tournaments',
+    'stagger_start_delay',
+    'rate_limit_backoff_seconds',
+    'reset_on_elimination',
 }
 
 
@@ -36,16 +51,12 @@ def build_experiment_config(config_dict: Dict[str, Any]):
     from experiments.run_ai_tournament import ExperimentConfig
 
     filtered_config = {
-        k: v for k, v in config_dict.items()
-        if k in EXPERIMENT_CONFIG_FIELDS and v is not None
+        k: v for k, v in config_dict.items() if k in EXPERIMENT_CONFIG_FIELDS and v is not None
     }
     return ExperimentConfig(**filtered_config)
 
 
-def determine_llm_config(
-    variant_config: Optional[Dict],
-    exp_config
-) -> Dict[str, str]:
+def determine_llm_config(variant_config: Optional[Dict], exp_config) -> Dict[str, str]:
     """Determine LLM provider and model from variant and experiment config.
 
     Variant config takes precedence over experiment config.
@@ -97,6 +108,7 @@ def create_controllers_for_resume(
 
     # Create memory manager for opponent tracking
     from poker.memory import AIMemoryManager
+
     memory_manager = AIMemoryManager(
         game_id=game_id,
         owner_id=f"experiment_{exp_config.name}",
@@ -213,7 +225,8 @@ def resume_variant_impl(
     # AITournamentRunner._setup_game).
     memory_manager.set_hand_history_repo(repos['hand_history_repo'])
     memory_manager.set_relationship_repo(
-        repos['relationship_repo'], cash_mode=False,
+        repos['relationship_repo'],
+        cash_mode=False,
     )
 
     # Create runner

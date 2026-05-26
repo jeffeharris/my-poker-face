@@ -3,6 +3,7 @@
 In No-Limit Hold'em, raise amounts should not be capped by pot size.
 The max raise should be limited only by player/opponent stacks.
 """
+
 from unittest.mock import MagicMock, patch
 
 from poker.prompt_config import PromptConfig
@@ -13,19 +14,24 @@ class TestControllerMaxRaiseNoPotCap:
 
     def _make_controller(self):
         """Create a minimal AIPlayerController with dependencies mocked."""
-        with patch('poker.controllers.AIPokerPlayer') as mock_player, \
-             patch('poker.controllers.PromptManager'), \
-             patch('poker.controllers.ChattinessManager'), \
-             patch('poker.controllers.ResponseValidator') as mock_validator, \
-             patch('poker.controllers.PlayerPsychology') as mock_psych:
+        with (
+            patch('poker.controllers.AIPokerPlayer') as mock_player,
+            patch('poker.controllers.PromptManager'),
+            patch('poker.controllers.ChattinessManager'),
+            patch('poker.controllers.ResponseValidator') as mock_validator,
+            patch('poker.controllers.PlayerPsychology') as mock_psych,
+        ):
             mock_player.return_value.assistant = MagicMock()
             mock_player.return_value.personality_config = {}
             mock_psych.from_personality_config.return_value = MagicMock()
             mock_psych.from_personality_config.return_value.get_prompt_section.return_value = ""
-            mock_psych.from_personality_config.return_value.apply_tilt_effects.side_effect = lambda x: x
+            mock_psych.from_personality_config.return_value.apply_tilt_effects.side_effect = (
+                lambda x: x
+            )
             mock_psych.from_personality_config.return_value.get_chattiness_traits.return_value = {}
 
             from poker.controllers import AIPlayerController
+
             controller = AIPlayerController('TestPlayer', prompt_config=PromptConfig())
 
             # Make response_validator.clean_response pass through
@@ -94,12 +100,14 @@ class TestControllerMaxRaiseNoPotCap:
         controller._get_ai_decision = capture_get_ai_decision
 
         # Mock internal methods to isolate the max_raise calculation
-        with patch.object(controller, '_build_game_context', return_value={}), \
-             patch.object(controller, '_build_memory_context', return_value=''), \
-             patch.object(controller, '_build_chattiness_guidance', return_value=''), \
-             patch('poker.controllers.summarize_messages', return_value=[]), \
-             patch('poker.controllers._convert_messages_to_bb', return_value=[]), \
-             patch('poker.controllers.build_base_game_state', return_value="mock prompt"):
+        with (
+            patch.object(controller, '_build_game_context', return_value={}),
+            patch.object(controller, '_build_memory_context', return_value=''),
+            patch.object(controller, '_build_chattiness_guidance', return_value=''),
+            patch('poker.controllers.summarize_messages', return_value=[]),
+            patch('poker.controllers._convert_messages_to_bb', return_value=[]),
+            patch('poker.controllers.build_base_game_state', return_value="mock prompt"),
+        ):
             controller.decide_action([])
 
         # The key assertion: max_raise should be 5000, not 200
@@ -130,12 +138,14 @@ class TestControllerMaxRaiseNoPotCap:
 
         controller._get_ai_decision = capture_get_ai_decision
 
-        with patch.object(controller, '_build_game_context', return_value={}), \
-             patch.object(controller, '_build_memory_context', return_value=''), \
-             patch.object(controller, '_build_chattiness_guidance', return_value=''), \
-             patch('poker.controllers.summarize_messages', return_value=[]), \
-             patch('poker.controllers._convert_messages_to_bb', return_value=[]), \
-             patch('poker.controllers.build_base_game_state', return_value="mock prompt"):
+        with (
+            patch.object(controller, '_build_game_context', return_value={}),
+            patch.object(controller, '_build_memory_context', return_value=''),
+            patch.object(controller, '_build_chattiness_guidance', return_value=''),
+            patch('poker.controllers.summarize_messages', return_value=[]),
+            patch('poker.controllers._convert_messages_to_bb', return_value=[]),
+            patch('poker.controllers.build_base_game_state', return_value="mock prompt"),
+        ):
             controller.decide_action([])
 
         # max_raise should be min(5000, 2000) = 2000

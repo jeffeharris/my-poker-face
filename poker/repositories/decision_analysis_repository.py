@@ -2,11 +2,12 @@
 
 Covers the player_decision_analysis table.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from poker.repositories.base_repository import BaseRepository
 from poker.repositories.repository_utils import build_where_clause
@@ -33,7 +34,8 @@ class DecisionAnalysisRepository(BaseRepository):
             data = analysis
 
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO player_decision_analysis (
                     request_id, capture_id,
                     game_id, player_name, hand_number, phase, player_position,
@@ -61,87 +63,89 @@ class DecisionAnalysisRepository(BaseRepository):
                     intervention_trace_json,
                     strategy_pipeline_snapshot_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data.get('request_id'),
-                data.get('capture_id'),
-                data.get('game_id'),
-                data.get('player_name'),
-                data.get('hand_number'),
-                data.get('phase'),
-                data.get('player_position'),
-                data.get('pot_total'),
-                data.get('cost_to_call'),
-                data.get('player_stack'),
-                data.get('num_opponents'),
-                data.get('player_hand'),
-                data.get('community_cards'),
-                data.get('action_taken'),
-                data.get('raise_amount'),
-                data.get('raise_amount_bb'),
-                data.get('bet_sizing'),
-                data.get('equity'),
-                data.get('required_equity'),
-                data.get('ev_call'),
-                data.get('optimal_action'),
-                data.get('decision_quality'),
-                data.get('ev_lost'),
-                data.get('quality_score'),
-                data.get('menu_best_ev'),
-                data.get('menu_chosen_ev'),
-                1 if data.get('menu_picked_best') else (0 if data.get('menu_picked_best') is not None else None),
-                data.get('menu_num_options'),
-                data.get('hand_rank'),
-                data.get('relative_strength'),
-                data.get('equity_vs_ranges'),
-                data.get('opponent_positions'),
-                data.get('tilt_level'),
-                data.get('tilt_source'),
-                data.get('valence'),
-                data.get('arousal'),
-                data.get('control'),
-                data.get('focus'),
-                data.get('display_emotion'),
-                data.get('elastic_aggression'),
-                data.get('elastic_bluff_tendency'),
-                data.get('elastic_tightness'),
-                data.get('elastic_confidence'),
-                data.get('elastic_composure'),
-                data.get('elastic_table_talk'),
-                data.get('opponent_ranges_json'),
-                data.get('board_texture_json'),
-                data.get('player_hand_canonical'),
-                data.get('player_hand_in_range'),
-                data.get('player_hand_tier'),
-                data.get('standard_range_pct'),
-                data.get('zone_confidence'),
-                data.get('zone_composure'),
-                data.get('zone_energy'),
-                data.get('zone_manifestation'),
-                data.get('zone_sweet_spots_json'),
-                data.get('zone_penalties_json'),
-                data.get('zone_primary_sweet_spot'),
-                data.get('zone_primary_penalty'),
-                data.get('zone_total_penalty_strength'),
-                data.get('zone_in_neutral_territory'),
-                data.get('zone_intrusive_thoughts_injected'),
-                data.get('zone_intrusive_thoughts_json'),
-                data.get('zone_penalty_strategy_applied'),
-                data.get('zone_info_degraded'),
-                data.get('zone_strategy_selected'),
-                data.get('analyzer_version'),
-                data.get('processing_time_ms'),
-                data.get('intervention_trace_json'),
-                data.get('strategy_pipeline_snapshot_json'),
-            ))
+            """,
+                (
+                    data.get('request_id'),
+                    data.get('capture_id'),
+                    data.get('game_id'),
+                    data.get('player_name'),
+                    data.get('hand_number'),
+                    data.get('phase'),
+                    data.get('player_position'),
+                    data.get('pot_total'),
+                    data.get('cost_to_call'),
+                    data.get('player_stack'),
+                    data.get('num_opponents'),
+                    data.get('player_hand'),
+                    data.get('community_cards'),
+                    data.get('action_taken'),
+                    data.get('raise_amount'),
+                    data.get('raise_amount_bb'),
+                    data.get('bet_sizing'),
+                    data.get('equity'),
+                    data.get('required_equity'),
+                    data.get('ev_call'),
+                    data.get('optimal_action'),
+                    data.get('decision_quality'),
+                    data.get('ev_lost'),
+                    data.get('quality_score'),
+                    data.get('menu_best_ev'),
+                    data.get('menu_chosen_ev'),
+                    1
+                    if data.get('menu_picked_best')
+                    else (0 if data.get('menu_picked_best') is not None else None),
+                    data.get('menu_num_options'),
+                    data.get('hand_rank'),
+                    data.get('relative_strength'),
+                    data.get('equity_vs_ranges'),
+                    data.get('opponent_positions'),
+                    data.get('tilt_level'),
+                    data.get('tilt_source'),
+                    data.get('valence'),
+                    data.get('arousal'),
+                    data.get('control'),
+                    data.get('focus'),
+                    data.get('display_emotion'),
+                    data.get('elastic_aggression'),
+                    data.get('elastic_bluff_tendency'),
+                    data.get('elastic_tightness'),
+                    data.get('elastic_confidence'),
+                    data.get('elastic_composure'),
+                    data.get('elastic_table_talk'),
+                    data.get('opponent_ranges_json'),
+                    data.get('board_texture_json'),
+                    data.get('player_hand_canonical'),
+                    data.get('player_hand_in_range'),
+                    data.get('player_hand_tier'),
+                    data.get('standard_range_pct'),
+                    data.get('zone_confidence'),
+                    data.get('zone_composure'),
+                    data.get('zone_energy'),
+                    data.get('zone_manifestation'),
+                    data.get('zone_sweet_spots_json'),
+                    data.get('zone_penalties_json'),
+                    data.get('zone_primary_sweet_spot'),
+                    data.get('zone_primary_penalty'),
+                    data.get('zone_total_penalty_strength'),
+                    data.get('zone_in_neutral_territory'),
+                    data.get('zone_intrusive_thoughts_injected'),
+                    data.get('zone_intrusive_thoughts_json'),
+                    data.get('zone_penalty_strategy_applied'),
+                    data.get('zone_info_degraded'),
+                    data.get('zone_strategy_selected'),
+                    data.get('analyzer_version'),
+                    data.get('processing_time_ms'),
+                    data.get('intervention_trace_json'),
+                    data.get('strategy_pipeline_snapshot_json'),
+                ),
+            )
             return cursor.lastrowid
 
     def get_decision_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
         """Get a single decision analysis by ID."""
         with self._get_connection() as conn:
-
             cursor = conn.execute(
-                "SELECT * FROM player_decision_analysis WHERE id = ?",
-                (analysis_id,)
+                "SELECT * FROM player_decision_analysis WHERE id = ?", (analysis_id,)
             )
             row = cursor.fetchone()
             if not row:
@@ -151,10 +155,8 @@ class DecisionAnalysisRepository(BaseRepository):
     def get_decision_analysis_by_request(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Get decision analysis by api_usage request_id."""
         with self._get_connection() as conn:
-
             cursor = conn.execute(
-                "SELECT * FROM player_decision_analysis WHERE request_id = ?",
-                (request_id,)
+                "SELECT * FROM player_decision_analysis WHERE request_id = ?", (request_id,)
             )
             row = cursor.fetchone()
             if not row:
@@ -169,11 +171,9 @@ class DecisionAnalysisRepository(BaseRepository):
         as some providers (Google/Gemini) don't return request IDs.
         """
         with self._get_connection() as conn:
-
             # First try direct capture_id link (preferred, always reliable)
             cursor = conn.execute(
-                "SELECT * FROM player_decision_analysis WHERE capture_id = ?",
-                (capture_id,)
+                "SELECT * FROM player_decision_analysis WHERE capture_id = ?", (capture_id,)
             )
             row = cursor.fetchone()
             if row:
@@ -181,7 +181,8 @@ class DecisionAnalysisRepository(BaseRepository):
 
             # Fall back to request_id link, but ONLY if request_id is non-empty
             # Empty string matches would cause incorrect results
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT pda.*
                 FROM player_decision_analysis pda
                 JOIN prompt_captures pc ON pc.original_request_id = pda.request_id
@@ -190,7 +191,9 @@ class DecisionAnalysisRepository(BaseRepository):
                   AND pc.original_request_id != ''
                   AND pda.request_id IS NOT NULL
                   AND pda.request_id != ''
-            """, (capture_id,))
+            """,
+                (capture_id,),
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -203,7 +206,7 @@ class DecisionAnalysisRepository(BaseRepository):
         decision_quality: Optional[str] = None,
         min_ev_lost: Optional[float] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """List decision analyses with optional filtering.
 
@@ -229,11 +232,9 @@ class DecisionAnalysisRepository(BaseRepository):
         where_clause = build_where_clause(conditions)
 
         with self._get_connection() as conn:
-
             # Get total count
             count_cursor = conn.execute(
-                f"SELECT COUNT(*) FROM player_decision_analysis {where_clause}",
-                params
+                f"SELECT COUNT(*) FROM player_decision_analysis {where_clause}", params
             )
             total = count_cursor.fetchone()[0]
 
@@ -250,10 +251,7 @@ class DecisionAnalysisRepository(BaseRepository):
 
             analyses = [dict(row) for row in cursor.fetchall()]
 
-            return {
-                'analyses': analyses,
-                'total': total
-            }
+            return {'analyses': analyses, 'total': total}
 
     def get_decision_analysis_stats(self, game_id: Optional[str] = None) -> Dict[str, Any]:
         """Get aggregate statistics for decision analyses.
@@ -275,23 +273,30 @@ class DecisionAnalysisRepository(BaseRepository):
 
         with self._get_connection() as conn:
             # Count by quality
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT decision_quality, COUNT(*) as count
                 FROM player_decision_analysis {where_clause}
                 GROUP BY decision_quality
-            """, params)
+            """,
+                params,
+            )
             by_quality = {row[0]: row[1] for row in cursor.fetchall()}
 
             # Count by action
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT action_taken, COUNT(*) as count
                 FROM player_decision_analysis {where_clause}
                 GROUP BY action_taken
-            """, params)
+            """,
+                params,
+            )
             by_action = {row[0]: row[1] for row in cursor.fetchall()}
 
             # Aggregate stats
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT
                     COUNT(*) as total,
                     SUM(ev_lost) as total_ev_lost,
@@ -301,7 +306,9 @@ class DecisionAnalysisRepository(BaseRepository):
                     SUM(CASE WHEN decision_quality = 'mistake' THEN 1 ELSE 0 END) as mistakes,
                     SUM(CASE WHEN decision_quality = 'correct' THEN 1 ELSE 0 END) as correct
                 FROM player_decision_analysis {where_clause}
-            """, params)
+            """,
+                params,
+            )
             row = cursor.fetchone()
 
             return {
@@ -317,7 +324,8 @@ class DecisionAnalysisRepository(BaseRepository):
             }
 
     def get_strategy_pipeline_snapshot(
-        self, analysis_id: int,
+        self,
+        analysis_id: int,
     ) -> Optional[Dict[str, Any]]:
         """Get the persisted pipeline snapshot for a decision.
 
@@ -349,7 +357,8 @@ class DecisionAnalysisRepository(BaseRepository):
             return payload
 
     def get_intervention_trace(
-        self, analysis_id: int,
+        self,
+        analysis_id: int,
     ) -> Optional[List[Dict[str, Any]]]:
         """Get the intervention trace list for a single decision row.
 
@@ -365,8 +374,7 @@ class DecisionAnalysisRepository(BaseRepository):
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT intervention_trace_json "
-                "FROM player_decision_analysis WHERE id = ?",
+                "SELECT intervention_trace_json " "FROM player_decision_analysis WHERE id = ?",
                 (analysis_id,),
             )
             row = cursor.fetchone()
@@ -390,7 +398,9 @@ class DecisionAnalysisRepository(BaseRepository):
             return payload
 
     def get_intervention_traces_for_game(
-        self, game_id: str, hand_number: Optional[int] = None,
+        self,
+        game_id: str,
+        hand_number: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get all intervention traces for a game (optionally filtered by hand).
 
@@ -431,13 +441,15 @@ class DecisionAnalysisRepository(BaseRepository):
                     continue
                 if not isinstance(trace, list):
                     continue
-                results.append({
-                    'id': analysis_id,
-                    'hand_number': hand_num,
-                    'phase': phase,
-                    'action_taken': action,
-                    'trace': trace,
-                })
+                results.append(
+                    {
+                        'id': analysis_id,
+                        'hand_number': hand_num,
+                        'phase': phase,
+                        'action_taken': action,
+                        'trace': trace,
+                    }
+                )
         return results
 
     def get_range_timeline(self, game_id: str, hand_number: int) -> List[Dict[str, Any]]:
@@ -457,7 +469,8 @@ class DecisionAnalysisRepository(BaseRepository):
               player_hand_canonical, player_hand_in_range, player_hand_tier
         """
         with self._get_connection() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     phase,
                     player_name,
@@ -473,6 +486,8 @@ class DecisionAnalysisRepository(BaseRepository):
                 FROM player_decision_analysis
                 WHERE game_id = ? AND hand_number = ?
                 ORDER BY created_at ASC
-            """, (game_id, hand_number))
+            """,
+                (game_id, hand_number),
+            )
 
             return [dict(row) for row in cursor.fetchall()]

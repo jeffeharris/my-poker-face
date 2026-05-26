@@ -59,13 +59,13 @@ export function useGameState(gameId: string | null): UseGameStateResult {
     const positions = new Map<string, number>();
     const humanIndex = players.findIndex((p: Player) => p.is_human);
     let positionIndex = 0;
-    
+
     // Assign human player to position 0 (bottom)
     if (humanIndex !== -1) {
       positions.set(players[humanIndex].name, 0);
       positionIndex = 1;
     }
-    
+
     // Assign other players to remaining positions
     players.forEach((player: Player) => {
       if (!player.is_human) {
@@ -73,7 +73,7 @@ export function useGameState(gameId: string | null): UseGameStateResult {
         positionIndex++;
       }
     });
-    
+
     setPlayerPositions(positions);
   };
 

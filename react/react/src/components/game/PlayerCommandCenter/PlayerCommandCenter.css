@@ -12,11 +12,7 @@
 
 .player-command-center {
   position: relative;
-  background: linear-gradient(
-    165deg,
-    rgba(28, 32, 38, 0.98) 0%,
-    rgba(18, 20, 24, 0.99) 100%
-  );
+  background: linear-gradient(165deg, rgba(28, 32, 38, 0.98) 0%, rgba(18, 20, 24, 0.99) 100%);
   border: 1px solid rgba(212, 175, 55, 0.25);
   border-radius: 1rem;
   box-shadow:
@@ -39,7 +35,8 @@
 }
 
 @keyframes commandCenterPulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 0 15px rgba(212, 175, 55, 0.2),
       0 8px 32px rgba(0, 0, 0, 0.5),
@@ -178,33 +175,21 @@
 }
 
 .position-chip.dealer {
-  background: linear-gradient(
-    135deg,
-    rgba(212, 165, 116, 0.2) 0%,
-    rgba(212, 165, 116, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.2) 0%, rgba(212, 165, 116, 0.1) 100%);
   border: 1px solid rgba(212, 165, 116, 0.5);
   color: var(--color-gold-light);
   box-shadow: 0 2px 8px rgba(212, 165, 116, 0.15);
 }
 
 .position-chip.small-blind {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.2) 0%,
-    rgba(59, 130, 246, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%);
   border: 1px solid rgba(59, 130, 246, 0.4);
   color: var(--color-sapphire);
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
 }
 
 .position-chip.big-blind {
-  background: linear-gradient(
-    135deg,
-    rgba(52, 211, 153, 0.2) 0%,
-    rgba(52, 211, 153, 0.1) 100%
-  );
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.2) 0%, rgba(52, 211, 153, 0.1) 100%);
   border: 1px solid rgba(52, 211, 153, 0.4);
   color: var(--color-emerald);
   box-shadow: 0 2px 8px rgba(52, 211, 153, 0.15);
@@ -218,11 +203,7 @@
   transform: translateX(-50%);
   padding: 0.5rem 1.125rem;
   border-radius: var(--radius-full);
-  background: linear-gradient(
-    135deg,
-    rgba(52, 211, 153, 0.15) 0%,
-    rgba(52, 211, 153, 0.08) 100%
-  );
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.15) 0%, rgba(52, 211, 153, 0.08) 100%);
   border: 1px solid rgba(52, 211, 153, 0.4);
   color: var(--color-emerald);
   font-family: var(--font-mono);
@@ -268,8 +249,13 @@
 }
 
 @keyframes allInPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.75; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.75;
+  }
 }
 
 /* ===========================================
@@ -304,7 +290,10 @@
   padding: 0.45rem 1rem;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
 }
 
 .command-center__ff-button:hover:not(:disabled) {

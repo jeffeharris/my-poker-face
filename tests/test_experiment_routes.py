@@ -2,13 +2,15 @@
 """
 Test suite for experiment routes.
 """
+
+import json
 import os
 import sys
-import unittest
 import tempfile
-import json
+import unittest
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -42,6 +44,7 @@ class TestExperimentRoutes(unittest.TestCase):
         # Patch init_persistence to use our test DB repos instead of creating new ones
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             ext.game_repo = repos['game_repo']
             ext.user_repo = repos['user_repo']
             ext.settings_repo = repos['settings_repo']
@@ -150,8 +153,7 @@ class TestExperimentRoutes(unittest.TestCase):
         """Test validation fails without experiment name."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
-                '/api/experiments/validate',
-                json={'config': {'num_tournaments': 5}}
+                '/api/experiments/validate', json={'config': {'num_tournaments': 5}}
             )
             data = response.get_json()
 
@@ -163,8 +165,7 @@ class TestExperimentRoutes(unittest.TestCase):
         """Test validation fails with invalid name format."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
-                '/api/experiments/validate',
-                json={'config': {'name': 'Invalid Name With Spaces'}}
+                '/api/experiments/validate', json={'config': {'name': 'Invalid Name With Spaces'}}
             )
             data = response.get_json()
 
@@ -177,12 +178,14 @@ class TestExperimentRoutes(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'valid_experiment_name',
-                    'num_tournaments': 3,
-                    'hands_per_tournament': 50,
-                    'num_players': 4,
-                }}
+                json={
+                    'config': {
+                        'name': 'valid_experiment_name',
+                        'num_tournaments': 3,
+                        'hands_per_tournament': 50,
+                        'num_players': 4,
+                    }
+                },
             )
             data = response.get_json()
 
@@ -195,11 +198,13 @@ class TestExperimentRoutes(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'test_experiment',
-                    'num_tournaments': 100,  # Too high
-                    'num_players': 1,  # Too low
-                }}
+                json={
+                    'config': {
+                        'name': 'test_experiment',
+                        'num_tournaments': 100,  # Too high
+                        'num_players': 1,  # Too low
+                    }
+                },
             )
             data = response.get_json()
 
@@ -212,10 +217,12 @@ class TestExperimentRoutes(unittest.TestCase):
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
-                json={'config': {
-                    'name': 'large_experiment',
-                    'num_tournaments': 15,
-                }}
+                json={
+                    'config': {
+                        'name': 'large_experiment',
+                        'num_tournaments': 15,
+                    }
+                },
             )
             data = response.get_json()
 
@@ -237,8 +244,8 @@ class TestExperimentRoutes(unittest.TestCase):
             json={
                 'message': 'I want to test model performance',
                 'session_id': None,
-                'current_config': {}
-            }
+                'current_config': {},
+            },
         )
         data = response.get_json()
 
@@ -261,11 +268,7 @@ This will compare model performance over 5 tournaments.'''
 
         response = self.client.post(
             '/api/experiments/chat',
-            json={
-                'message': 'Compare GPT vs Claude',
-                'session_id': None,
-                'current_config': {}
-            }
+            json={'message': 'Compare GPT vs Claude', 'session_id': None, 'current_config': {}},
         )
         data = response.get_json()
 
@@ -281,12 +284,7 @@ This will compare model performance over 5 tournaments.'''
     def test_chat_requires_message(self):
         """Test chat endpoint requires a message."""
         response = self.client.post(
-            '/api/experiments/chat',
-            json={
-                'message': '',
-                'session_id': None,
-                'current_config': {}
-            }
+            '/api/experiments/chat', json={'message': '', 'session_id': None, 'current_config': {}}
         )
         data = response.get_json()
 
@@ -308,11 +306,13 @@ This will compare model performance over 5 tournaments.'''
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments',
-                json={'config': {
-                    'name': 'test_experiment',
-                    'description': 'A test experiment',
-                    'num_tournaments': 1,
-                }}
+                json={
+                    'config': {
+                        'name': 'test_experiment',
+                        'description': 'A test experiment',
+                        'num_tournaments': 1,
+                    }
+                },
             )
             data = response.get_json()
 
@@ -325,18 +325,19 @@ This will compare model performance over 5 tournaments.'''
         """Test creating experiment with duplicate name fails."""
         with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
             # Create first experiment directly in DB
-            self.experiment_repo.create_experiment({
-                'name': 'duplicate_name',
-                'description': 'First experiment'
-            })
+            self.experiment_repo.create_experiment(
+                {'name': 'duplicate_name', 'description': 'First experiment'}
+            )
 
             # Try to create another with same name
             response = self.client.post(
                 '/api/experiments',
-                json={'config': {
-                    'name': 'duplicate_name',
-                    'description': 'Second experiment',
-                }}
+                json={
+                    'config': {
+                        'name': 'duplicate_name',
+                        'description': 'Second experiment',
+                    }
+                },
             )
             data = response.get_json()
 
@@ -363,14 +364,12 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
         """Test listing experiments with status filter."""
         # Create experiments with different statuses
         # Note: Default status in DB schema is 'running'
-        self.experiment_repo.create_experiment({
-            'name': 'running_exp',
-            'description': 'A running experiment'
-        })
-        exp2_id = self.experiment_repo.create_experiment({
-            'name': 'completed_exp',
-            'description': 'A completed experiment'
-        })
+        self.experiment_repo.create_experiment(
+            {'name': 'running_exp', 'description': 'A running experiment'}
+        )
+        exp2_id = self.experiment_repo.create_experiment(
+            {'name': 'completed_exp', 'description': 'A completed experiment'}
+        )
 
         # Complete one experiment
         self.experiment_repo.complete_experiment(exp2_id, {'winners': {'Batman': 1}})
@@ -391,9 +390,11 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
 
     def test_update_experiment_status(self):
         """Test updating experiment status."""
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'status_test',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'status_test',
+            }
+        )
 
         # Initially 'running' (DB schema default)
         exp = self.experiment_repo.get_experiment(exp_id)
@@ -414,9 +415,11 @@ class TestPersistenceExperimentMethods(unittest.TestCase):
 
     def test_update_experiment_status_invalid(self):
         """Test updating experiment status with invalid value."""
-        exp_id = self.experiment_repo.create_experiment({
-            'name': 'invalid_status_test',
-        })
+        exp_id = self.experiment_repo.create_experiment(
+            {
+                'name': 'invalid_status_test',
+            }
+        )
 
         with self.assertRaises(ValueError):
             self.experiment_repo.update_experiment_status(exp_id, 'invalid_status')

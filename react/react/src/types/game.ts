@@ -9,7 +9,7 @@ export interface OpponentCover {
   name: string;
   nickname: string;
   stack: number;
-  cover_amount: number;  // Raise TO amount that puts this opponent all-in
+  cover_amount: number; // Raise TO amount that puts this opponent all-in
 }
 
 export interface BettingContext {
@@ -84,6 +84,7 @@ export interface PlayerShowdownInfo {
   cards: string[] | { rank: string; suit: string }[];
   hand_name: string;
   hand_rank: number;
+  hand_score?: number;
   kickers?: string[];
 }
 
@@ -98,9 +99,9 @@ export interface PotBreakdown {
 // Used by WinnerAnnouncement component
 export interface WinnerInfo {
   winners: string[];
-  winnings?: { [key: string]: number };  // Optional - may use pot_breakdown instead
-  pot_breakdown?: PotBreakdown[];  // New format from backend
-  pot_contributions?: { [key: string]: number };  // Player name -> amount contributed to pot
+  winnings?: { [key: string]: number }; // Optional - may use pot_breakdown instead
+  pot_breakdown?: PotBreakdown[]; // New format from backend
+  pot_contributions?: { [key: string]: number }; // Player name -> amount contributed to pot
   hand_name: string;
   winning_hand?: string[];
   showdown: boolean;

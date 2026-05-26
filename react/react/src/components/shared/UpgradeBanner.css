@@ -17,7 +17,9 @@
   padding: 10px 16px;
   width: 100%;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
   font-size: 0.875rem;
   color: rgba(255, 255, 255, 0.8);
 }

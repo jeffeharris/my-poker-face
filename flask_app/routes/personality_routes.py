@@ -5,16 +5,15 @@ import logging
 import random
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, redirect
-
-from poker.utils import get_celebrities
-from poker.authorization import require_permission, get_authorization_service
-from core.llm import LLMClient, CallType
-
-from ..extensions import personality_repo, limiter, auth_manager, personality_generator
-from .. import config
+from flask import Blueprint, jsonify, redirect, request
 
 from cash_mode.bankroll import BANKROLL_KNOB_DEFAULTS, BankrollKnobs
+from core.llm import CallType, LLMClient
+from poker.authorization import get_authorization_service, require_permission
+from poker.utils import get_celebrities
+
+from .. import config
+from ..extensions import auth_manager, limiter, personality_generator, personality_repo
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,9 @@ def get_personalities():
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -72,14 +73,16 @@ def get_personalities():
                 else:
                     categories['standard'].append(name)
 
-        return jsonify({
-            'success': True,
-            'personalities': personalities,
-            'categories': categories,
-            'metadata': metadata,
-            'is_admin': bool(is_admin),
-            'user_id': user_id,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'personalities': personalities,
+                'categories': categories,
+                'metadata': metadata,
+                'is_admin': bool(is_admin),
+                'user_id': user_id,
+            }
+        )
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -90,7 +93,9 @@ def get_personality(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -101,24 +106,20 @@ def get_personality(name):
 
         db_personality = personality_repo.load_personality(name)
         if db_personality:
-            return jsonify({
-                'success': True,
-                'personality': db_personality,
-                'name': name
-            })
+            return jsonify({'success': True, 'personality': db_personality, 'name': name})
 
         try:
-            personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            with open(personalities_file, 'r') as f:
+            personalities_file = (
+                Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
+            )
+            with open(personalities_file) as f:
                 data = json.load(f)
 
             if name in data['personalities']:
-                return jsonify({
-                    'success': True,
-                    'personality': data['personalities'][name],
-                    'name': name
-                })
-        except:
+                return jsonify(
+                    {'success': True, 'personality': data['personalities'][name], 'name': name}
+                )
+        except Exception:
             pass
 
         return jsonify({'success': False, 'error': 'Personality not found'})
@@ -135,7 +136,9 @@ def create_personality():
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         data = request.json
         name = data.get('name')
@@ -146,7 +149,9 @@ def create_personality():
         # Check for name collision
         existing = personality_repo.load_personality(name)
         if existing:
-            return jsonify({'success': False, 'error': 'A personality with this name already exists'}), 409
+            return jsonify(
+                {'success': False, 'error': 'A personality with this name already exists'}
+            ), 409
 
         personality_config = {k: v for k, v in data.items() if k != 'name'}
 
@@ -168,15 +173,20 @@ def create_personality():
         # response so clients can persist relationship state, bankrolls,
         # etc. keyed on the stable id rather than the display name.
         personality_id = personality_repo.save_personality(
-            name, personality_config, source='user_created',
-            owner_id=current_user['id'], visibility='private',
+            name,
+            personality_config,
+            source='user_created',
+            owner_id=current_user['id'],
+            visibility='private',
         )
 
-        return jsonify({
-            'success': True,
-            'message': f'Personality {name} created successfully',
-            'personality_id': personality_id or None,
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Personality {name} created successfully',
+                'personality_id': personality_id or None,
+            }
+        )
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -190,7 +200,9 @@ def update_personality(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user['id']
         owner_id = personality_repo.get_personality_owner(name)
@@ -203,18 +215,20 @@ def update_personality(name):
         personality_config = request.json
 
         # Use update method that preserves owner_id and visibility
-        updated = personality_repo.update_personality_config(name, personality_config, source='user_edited')
+        updated = personality_repo.update_personality_config(
+            name, personality_config, source='user_edited'
+        )
         if not updated:
             # Personality doesn't exist yet (e.g., manual create) — create it
             personality_repo.save_personality(
-                name, personality_config, source='user_created',
-                owner_id=user_id, visibility='private',
+                name,
+                personality_config,
+                source='user_created',
+                owner_id=user_id,
+                visibility='private',
             )
 
-        return jsonify({
-            'success': True,
-            'message': f'Personality {name} updated successfully'
-        })
+        return jsonify({'success': True, 'message': f'Personality {name} updated successfully'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -234,7 +248,9 @@ def update_avatar_description(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -243,33 +259,31 @@ def update_avatar_description(name):
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
         if not owner_id and not is_admin:
-            return jsonify({'success': False, 'error': 'Only admins can edit system personalities'}), 403
+            return jsonify(
+                {'success': False, 'error': 'Only admins can edit system personalities'}
+            ), 403
 
         data = request.json
         avatar_description = data.get('avatar_description', '').strip()
 
         if not avatar_description:
-            return jsonify({
-                'success': False,
-                'error': 'avatar_description is required'
-            }), 400
+            return jsonify({'success': False, 'error': 'avatar_description is required'}), 400
 
         # Check if personality exists
         personality_config = personality_generator.get_personality(name)
         if not personality_config:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found'
-            }), 404
+            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         # Update avatar_description via personality_generator (handles both cache and persistence)
         personality_generator.set_avatar_description(name, avatar_description)
 
-        return jsonify({
-            'success': True,
-            'message': f'Avatar description updated for {name}',
-            'avatar_description': avatar_description
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Avatar description updated for {name}',
+                'avatar_description': avatar_description,
+            }
+        )
     except Exception as e:
         logger.error(f"Error updating avatar description for {name}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -285,7 +299,9 @@ def delete_personality(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user['id']
         owner_id = personality_repo.get_personality_owner(name)
@@ -302,15 +318,9 @@ def delete_personality(name):
         deleted = personality_repo.delete_personality(name)
 
         if not deleted:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found'
-            })
+            return jsonify({'success': False, 'error': f'Personality {name} not found'})
 
-        return jsonify({
-            'success': True,
-            'message': f'Personality {name} deleted successfully'
-        })
+        return jsonify({'success': True, 'message': f'Personality {name} deleted successfully'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -332,17 +342,11 @@ def get_reference_image(name):
         # Check if personality exists
         personality_config = personality_generator.get_personality(name)
         if not personality_config:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found'
-            }), 404
+            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         reference_image_id = personality_generator.get_reference_image_id(name)
 
-        return jsonify({
-            'success': True,
-            'reference_image_id': reference_image_id
-        })
+        return jsonify({'success': True, 'reference_image_id': reference_image_id})
     except Exception as e:
         logger.error(f"Error getting reference image for {name}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -365,7 +369,9 @@ def update_reference_image(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -374,7 +380,9 @@ def update_reference_image(name):
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
         if not owner_id and not is_admin:
-            return jsonify({'success': False, 'error': 'Only admins can edit system personalities'}), 403
+            return jsonify(
+                {'success': False, 'error': 'Only admins can edit system personalities'}
+            ), 403
 
         data = request.json
         reference_image_id = data.get('reference_image_id')
@@ -382,19 +390,18 @@ def update_reference_image(name):
         # Check if personality exists
         personality_config = personality_generator.get_personality(name)
         if not personality_config:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found'
-            }), 404
+            return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         # Update reference image ID
         personality_generator.set_reference_image_id(name, reference_image_id)
 
-        return jsonify({
-            'success': True,
-            'message': f'Reference image {"set" if reference_image_id else "cleared"} for {name}',
-            'reference_image_id': reference_image_id
-        })
+        return jsonify(
+            {
+                'success': True,
+                'message': f'Reference image {"set" if reference_image_id else "cleared"} for {name}',
+                'reference_image_id': reference_image_id,
+            }
+        )
     except Exception as e:
         logger.error(f"Error updating reference image for {name}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -545,10 +552,15 @@ Return ONLY the JSON object, no other text."""
         current_user = auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
-        client = LLMClient(model=config.get_assistant_model(), provider=config.get_assistant_provider())
+        client = LLMClient(
+            model=config.get_assistant_model(), provider=config.get_assistant_provider()
+        )
         messages = [
-            {"role": "system", "content": "You are a game designer selecting personalities for themed poker games."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You are a game designer selecting personalities for themed poker games.",
+            },
+            {"role": "user", "content": prompt},
         ]
 
         response = client.complete(
@@ -576,33 +588,44 @@ Return ONLY the JSON object, no other text."""
             else:
                 personalities_list = result.get('personalities', [])
                 game_settings = {
-                    k: result[k] for k in ('description', 'game_mode', 'starting_stack', 'big_blind', 'blind_growth', 'blinds_increase', 'max_blind')
+                    k: result[k]
+                    for k in (
+                        'description',
+                        'game_mode',
+                        'starting_stack',
+                        'big_blind',
+                        'blind_growth',
+                        'blinds_increase',
+                        'max_blind',
+                    )
                     if k in result
                 }
 
-            valid_personalities = _validate_theme_personalities(personalities_list, personality_sample)
+            valid_personalities = _validate_theme_personalities(
+                personalities_list, personality_sample
+            )
 
             if len(valid_personalities) < 3:
-                logger.warning(f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback")
-                valid_personalities = random.sample(personality_sample, min(4, len(personality_sample)))
+                logger.warning(
+                    f"Theme generation returned insufficient valid personalities ({len(valid_personalities)}), using random fallback"
+                )
+                valid_personalities = random.sample(
+                    personality_sample, min(4, len(personality_sample))
+                )
 
             game_settings = _validate_theme_game_settings(game_settings)
 
-            return jsonify({
-                'success': True,
-                'personalities': valid_personalities[:5],
-                **game_settings
-            })
+            return jsonify(
+                {'success': True, 'personalities': valid_personalities[:5], **game_settings}
+            )
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse theme generation response: {e}. Response was: {response_content}")
+            logger.error(
+                f"Failed to parse theme generation response: {e}. Response was: {response_content}"
+            )
             logger.warning("Theme generation using random fallback due to JSON parse error")
             personalities = random.sample(personality_sample, min(4, len(personality_sample)))
-            return jsonify({
-                'success': True,
-                'personalities': personalities,
-                'fallback': True
-            })
+            return jsonify({'success': True, 'personalities': personalities, 'fallback': True})
 
     except Exception as e:
         logger.error(f"Error generating theme: {e}")
@@ -610,12 +633,8 @@ Return ONLY the JSON object, no other text."""
         try:
             all_personalities = list(get_celebrities())
             personalities = random.sample(all_personalities, min(4, len(all_personalities)))
-            return jsonify({
-                'success': True,
-                'personalities': personalities,
-                'fallback': True
-            })
-        except:
+            return jsonify({'success': True, 'personalities': personalities, 'fallback': True})
+        except Exception:
             return jsonify({'error': 'Failed to generate theme'}), 500
 
 
@@ -631,7 +650,9 @@ def generate_personality():
 
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         data = request.json
         name = data.get('name', '').strip()
@@ -645,7 +666,9 @@ def generate_personality():
         if not force_generate:
             existing = personality_repo.load_personality(name)
             if existing:
-                return jsonify({'success': False, 'error': 'A personality with this name already exists'}), 409
+                return jsonify(
+                    {'success': False, 'error': 'A personality with this name already exists'}
+                ), 409
 
         generator = PersonalityGenerator()
 
@@ -656,19 +679,23 @@ def generate_personality():
             owner_id=current_user['id'],
         )
 
-        return jsonify({
-            'success': True,
-            'personality': personality_config,
-            'name': name,
-            'message': f'Successfully generated personality for {name}'
-        })
+        return jsonify(
+            {
+                'success': True,
+                'personality': personality_config,
+                'name': name,
+                'message': f'Successfully generated personality for {name}',
+            }
+        )
 
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'message': 'Failed to generate personality. Please check your OpenAI API key.'
-        })
+        return jsonify(
+            {
+                'success': False,
+                'error': str(e),
+                'message': 'Failed to generate personality. Please check your OpenAI API key.',
+            }
+        )
 
 
 @personality_bp.route('/api/personality/<name>/visibility', methods=['PUT'])
@@ -680,7 +707,9 @@ def update_personality_visibility(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -690,25 +719,36 @@ def update_personality_visibility(name):
         visibility = data.get('visibility')
 
         if visibility not in ('public', 'private', 'disabled'):
-            return jsonify({'success': False, 'error': 'Invalid visibility. Must be public, private, or disabled.'}), 400
+            return jsonify(
+                {
+                    'success': False,
+                    'error': 'Invalid visibility. Must be public, private, or disabled.',
+                }
+            ), 400
 
         # Only admins can set disabled
         if visibility == 'disabled' and not is_admin:
-            return jsonify({'success': False, 'error': 'Only admins can disable personalities'}), 403
+            return jsonify(
+                {'success': False, 'error': 'Only admins can disable personalities'}
+            ), 403
 
         # Check ownership: must be owner or admin
         owner_id = personality_repo.get_personality_owner(name)
         if not is_admin and owner_id != user_id:
-            return jsonify({'success': False, 'error': 'You can only change visibility of your own personalities'}), 403
+            return jsonify(
+                {
+                    'success': False,
+                    'error': 'You can only change visibility of your own personalities',
+                }
+            ), 403
 
         updated = personality_repo.set_visibility(name, visibility)
         if not updated:
             return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
-        return jsonify({
-            'success': True,
-            'message': f'Personality {name} visibility set to {visibility}'
-        })
+        return jsonify(
+            {'success': True, 'message': f'Personality {name} visibility set to {visibility}'}
+        )
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -752,7 +792,9 @@ def get_bankroll_knobs(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -765,6 +807,7 @@ def get_bankroll_knobs(name):
             return jsonify(err[0]), err[1]
 
         from ..extensions import bankroll_repo
+
         knobs = bankroll_repo.load_personality_knobs(pid)
         # Admin route — sum stored chips across every sandbox this
         # personality has a bankroll row in. `current_bankroll` here
@@ -772,23 +815,26 @@ def get_bankroll_knobs(name):
         # Per-sandbox bankroll inspection lives on the future
         # per-sandbox admin surface (Phase 2.5+).
         import sqlite3
+
         from ..extensions import persistence_db_path
+
         with sqlite3.connect(persistence_db_path) as _conn:
             row = _conn.execute(
-                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state "
-                "WHERE personality_id = ?",
+                "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state " "WHERE personality_id = ?",
                 (pid,),
             ).fetchone()
             current_bankroll = int(row[0] or 0) if row else None
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'knobs': _knobs_to_dict(knobs),
-            'defaults': _knobs_to_dict(BANKROLL_KNOB_DEFAULTS),
-            'current_bankroll': current_bankroll,  # None if no row yet
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'knobs': _knobs_to_dict(knobs),
+                'defaults': _knobs_to_dict(BANKROLL_KNOB_DEFAULTS),
+                'current_bankroll': current_bankroll,  # None if no row yet
+            }
+        )
     except Exception as e:
         logger.exception("Error loading bankroll knobs for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -813,7 +859,9 @@ def update_bankroll_knobs(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -830,6 +878,7 @@ def update_bankroll_knobs(name):
             return jsonify({'success': False, 'error': 'Request body must be a JSON object'}), 400
 
         from ..extensions import bankroll_repo
+
         current = bankroll_repo.load_personality_knobs(pid)
 
         # Validate types per-field. Anything not provided keeps the
@@ -838,14 +887,20 @@ def update_bankroll_knobs(name):
             new_knobs = BankrollKnobs(
                 starting_bankroll=int(payload.get('starting_bankroll', current.starting_bankroll)),
                 bankroll_rate=int(payload.get('bankroll_rate', current.bankroll_rate)),
-                buy_in_multiplier=float(payload.get('buy_in_multiplier', current.buy_in_multiplier)),
-                stake_comfort_zone=str(payload.get('stake_comfort_zone', current.stake_comfort_zone)),
+                buy_in_multiplier=float(
+                    payload.get('buy_in_multiplier', current.buy_in_multiplier)
+                ),
+                stake_comfort_zone=str(
+                    payload.get('stake_comfort_zone', current.stake_comfort_zone)
+                ),
             )
         except (TypeError, ValueError) as e:
-            return jsonify({
-                'success': False,
-                'error': f'Invalid knob value: {e}',
-            }), 400
+            return jsonify(
+                {
+                    'success': False,
+                    'error': f'Invalid knob value: {e}',
+                }
+            ), 400
 
         # Light range validation — keep the floor at 0 for caps/rates so
         # we don't produce negative-debit math, and require multipliers > 0.
@@ -858,17 +913,21 @@ def update_bankroll_knobs(name):
 
         saved = bankroll_repo.save_personality_knobs(pid, new_knobs)
         if not saved:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found in database',
-            }), 404
+            return jsonify(
+                {
+                    'success': False,
+                    'error': f'Personality {name} not found in database',
+                }
+            ), 404
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'knobs': _knobs_to_dict(new_knobs),
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'knobs': _knobs_to_dict(new_knobs),
+            }
+        )
     except Exception as e:
         logger.exception("Error updating bankroll knobs for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -881,7 +940,9 @@ def _read_personality_config(pid):
     """Helper — load the raw config dict for a personality. Returns
     {} on any error so callers can default-fill missing pieces."""
     import sqlite3
+
     from ..extensions import persistence_db_path
+
     with sqlite3.connect(persistence_db_path) as conn:
         row = conn.execute(
             "SELECT config_json FROM personalities WHERE personality_id = ?",
@@ -917,7 +978,9 @@ def get_borrower_profile(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -929,11 +992,12 @@ def get_borrower_profile(name):
         if err is not None:
             return jsonify(err[0]), err[1]
 
-        from ..extensions import bankroll_repo
         from cash_mode.staker_profile import (
             BORROWER_PROFILE_DEFAULTS,
             compute_default_willingness_threshold,
         )
+
+        from ..extensions import bankroll_repo
 
         config = _read_personality_config(pid)
         anchors = config.get('anchors') if isinstance(config, dict) else None
@@ -958,20 +1022,22 @@ def get_borrower_profile(name):
         profile = bankroll_repo.load_borrower_profile(pid)
         ego_derived = compute_default_willingness_threshold(ego)
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'willing': profile.willing,
-            'willingness_threshold': profile.willingness_threshold,
-            'willingness_threshold_explicit': explicit,
-            'ego_derived_threshold': ego_derived,
-            'ego': ego,
-            'defaults': {
-                'willing': BORROWER_PROFILE_DEFAULTS.willing,
-                'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
-            },
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'willing': profile.willing,
+                'willingness_threshold': profile.willingness_threshold,
+                'willingness_threshold_explicit': explicit,
+                'ego_derived_threshold': ego_derived,
+                'ego': ego,
+                'defaults': {
+                    'willing': BORROWER_PROFILE_DEFAULTS.willing,
+                    'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
+                },
+            }
+        )
     except Exception as e:
         logger.exception("Error loading borrower profile for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -996,7 +1062,9 @@ def update_borrower_profile(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -1026,15 +1094,19 @@ def update_borrower_profile(name):
                 try:
                     threshold_override = float(wt)
                 except (TypeError, ValueError):
-                    return jsonify({
-                        'success': False,
-                        'error': 'willingness_threshold must be a number or null',
-                    }), 400
+                    return jsonify(
+                        {
+                            'success': False,
+                            'error': 'willingness_threshold must be a number or null',
+                        }
+                    ), 400
                 if threshold_override < 0.0 or threshold_override > 1.0:
-                    return jsonify({
-                        'success': False,
-                        'error': 'willingness_threshold must lie in [0.0, 1.0]',
-                    }), 400
+                    return jsonify(
+                        {
+                            'success': False,
+                            'error': 'willingness_threshold must lie in [0.0, 1.0]',
+                        }
+                    ), 400
         else:
             # Read current explicit value so we don't accidentally
             # clear it on a partial PUT that only set `willing`.
@@ -1049,22 +1121,26 @@ def update_borrower_profile(name):
                 threshold_override = None
 
         from ..extensions import bankroll_repo
+
         saved = bankroll_repo.save_borrower_profile(
             pid,
             willing=bool(payload['willing']),
             willingness_threshold=threshold_override,
         )
         if not saved:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found in database',
-            }), 404
+            return jsonify(
+                {
+                    'success': False,
+                    'error': f'Personality {name} not found in database',
+                }
+            ), 404
 
         # Echo the post-save state — same shape as GET.
         from cash_mode.staker_profile import (
             BORROWER_PROFILE_DEFAULTS,
             compute_default_willingness_threshold,
         )
+
         config = _read_personality_config(pid)
         anchors = config.get('anchors') if isinstance(config, dict) else None
         ego = 0.5
@@ -1076,20 +1152,22 @@ def update_borrower_profile(name):
         profile = bankroll_repo.load_borrower_profile(pid)
         ego_derived = compute_default_willingness_threshold(ego)
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'willing': profile.willing,
-            'willingness_threshold': profile.willingness_threshold,
-            'willingness_threshold_explicit': threshold_override,
-            'ego_derived_threshold': ego_derived,
-            'ego': ego,
-            'defaults': {
-                'willing': BORROWER_PROFILE_DEFAULTS.willing,
-                'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
-            },
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'willing': profile.willing,
+                'willingness_threshold': profile.willingness_threshold,
+                'willingness_threshold_explicit': threshold_override,
+                'ego_derived_threshold': ego_derived,
+                'ego': ego,
+                'defaults': {
+                    'willing': BORROWER_PROFILE_DEFAULTS.willing,
+                    'willingness_threshold': BORROWER_PROFILE_DEFAULTS.willingness_threshold,
+                },
+            }
+        )
     except Exception as e:
         logger.exception("Error updating borrower profile for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1110,7 +1188,9 @@ def get_staker_profile(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -1122,8 +1202,9 @@ def get_staker_profile(name):
         if err is not None:
             return jsonify(err[0]), err[1]
 
-        from ..extensions import bankroll_repo
         from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS
+
+        from ..extensions import bankroll_repo
 
         profile = bankroll_repo.load_staker_profile(pid)
         config = _read_personality_config(pid)
@@ -1136,28 +1217,30 @@ def get_staker_profile(name):
             if isinstance(sp, dict):
                 explicit_sub = sp
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'profile': {
-                'willing': profile.willing,
-                'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
-                'floor_anchor': profile.floor_anchor,
-                'rate_anchor': profile.rate_anchor,
-                'respect_floor': profile.respect_floor,
-                'heat_ceiling': profile.heat_ceiling,
-            },
-            'explicit': explicit_sub,
-            'defaults': {
-                'willing': STAKER_PROFILE_DEFAULTS.willing,
-                'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
-                'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
-                'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
-                'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
-                'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
-            },
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'profile': {
+                    'willing': profile.willing,
+                    'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
+                    'floor_anchor': profile.floor_anchor,
+                    'rate_anchor': profile.rate_anchor,
+                    'respect_floor': profile.respect_floor,
+                    'heat_ceiling': profile.heat_ceiling,
+                },
+                'explicit': explicit_sub,
+                'defaults': {
+                    'willing': STAKER_PROFILE_DEFAULTS.willing,
+                    'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
+                    'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
+                    'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
+                    'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
+                    'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
+                },
+            }
+        )
     except Exception as e:
         logger.exception("Error loading staker profile for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1186,7 +1269,9 @@ def update_staker_profile(name):
     try:
         current_user = auth_manager.get_current_user()
         if not current_user:
-            return jsonify({'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+            return jsonify(
+                {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
+            ), 401
 
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
@@ -1224,14 +1309,17 @@ def update_staker_profile(name):
             except (TypeError, ValueError):
                 return jsonify({'success': False, 'error': f'{field} must be a number'}), 400
             if value < lo or value > hi:
-                return jsonify({
-                    'success': False,
-                    'error': f'{field} must lie in [{lo}, {hi}]',
-                }), 400
+                return jsonify(
+                    {
+                        'success': False,
+                        'error': f'{field} must lie in [{lo}, {hi}]',
+                    }
+                ), 400
             coerced[field] = value
 
-        from ..extensions import bankroll_repo
         from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
+
+        from ..extensions import bankroll_repo
 
         new_profile = StakerProfile(
             willing=bool(payload['willing']),
@@ -1243,38 +1331,42 @@ def update_staker_profile(name):
         )
         saved = bankroll_repo.save_staker_profile(pid, new_profile)
         if not saved:
-            return jsonify({
-                'success': False,
-                'error': f'Personality {name} not found in database',
-            }), 404
+            return jsonify(
+                {
+                    'success': False,
+                    'error': f'Personality {name} not found in database',
+                }
+            ), 404
 
         # Echo post-save state — same shape as GET.
         profile = bankroll_repo.load_staker_profile(pid)
         config = _read_personality_config(pid)
         explicit_sub = config.get('staker_profile') if isinstance(config, dict) else None
 
-        return jsonify({
-            'success': True,
-            'name': name,
-            'personality_id': pid,
-            'profile': {
-                'willing': profile.willing,
-                'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
-                'floor_anchor': profile.floor_anchor,
-                'rate_anchor': profile.rate_anchor,
-                'respect_floor': profile.respect_floor,
-                'heat_ceiling': profile.heat_ceiling,
-            },
-            'explicit': explicit_sub if isinstance(explicit_sub, dict) else None,
-            'defaults': {
-                'willing': STAKER_PROFILE_DEFAULTS.willing,
-                'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
-                'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
-                'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
-                'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
-                'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
-            },
-        })
+        return jsonify(
+            {
+                'success': True,
+                'name': name,
+                'personality_id': pid,
+                'profile': {
+                    'willing': profile.willing,
+                    'max_loan_pct_of_bankroll': profile.max_loan_pct_of_bankroll,
+                    'floor_anchor': profile.floor_anchor,
+                    'rate_anchor': profile.rate_anchor,
+                    'respect_floor': profile.respect_floor,
+                    'heat_ceiling': profile.heat_ceiling,
+                },
+                'explicit': explicit_sub if isinstance(explicit_sub, dict) else None,
+                'defaults': {
+                    'willing': STAKER_PROFILE_DEFAULTS.willing,
+                    'max_loan_pct_of_bankroll': STAKER_PROFILE_DEFAULTS.max_loan_pct_of_bankroll,
+                    'floor_anchor': STAKER_PROFILE_DEFAULTS.floor_anchor,
+                    'rate_anchor': STAKER_PROFILE_DEFAULTS.rate_anchor,
+                    'respect_floor': STAKER_PROFILE_DEFAULTS.respect_floor,
+                    'heat_ceiling': STAKER_PROFILE_DEFAULTS.heat_ceiling,
+                },
+            }
+        )
     except Exception as e:
         logger.exception("Error updating staker profile for %r", name)
         return jsonify({'success': False, 'error': str(e)}), 500

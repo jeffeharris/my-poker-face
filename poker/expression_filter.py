@@ -10,7 +10,6 @@ Also provides prompt guidance for dramatic_sequence length and tempo based on vi
 import random
 from typing import Optional
 
-
 # === Emotion Dampening Map ===
 # Maps true emotions to dampened versions as visibility decreases.
 # Format: true_emotion -> (medium_visibility_emotion, low_visibility_emotion)
@@ -20,13 +19,11 @@ EMOTION_DAMPENING_MAP = {
     'shocked': ('nervous', 'poker_face'),
     'elated': ('happy', 'poker_face'),
     'smug': ('confident', 'poker_face'),
-
     # Medium intensity -> thinking -> poker face
     'frustrated': ('thinking', 'poker_face'),
     'nervous': ('thinking', 'poker_face'),
     'happy': ('thinking', 'poker_face'),
     'confident': ('thinking', 'poker_face'),
-
     # Low intensity emotions stay or go to poker face
     'thinking': ('thinking', 'poker_face'),
     'poker_face': ('poker_face', 'poker_face'),
@@ -58,7 +55,12 @@ def calculate_visibility(expressiveness: float, energy: float) -> float:
     return 0.7 * expressiveness + 0.3 * energy
 
 
-def dampen_emotion(true_emotion: str, visibility: float, use_random: bool = True, rng: Optional[random.Random] = None) -> str:
+def dampen_emotion(
+    true_emotion: str,
+    visibility: float,
+    use_random: bool = True,
+    rng: Optional[random.Random] = None,
+) -> str:
     """
     Dampen emotion based on visibility level.
 
@@ -157,10 +159,7 @@ def get_tempo_guidance(energy: float) -> str:
             "Trust your instincts."
         )
     elif energy >= 0.4:
-        return (
-            "TEMPO: Moderate pace. Normal inner_monologue length. "
-            "Balance analysis with feel."
-        )
+        return "TEMPO: Moderate pace. Normal inner_monologue length. " "Balance analysis with feel."
     else:
         return (
             "TEMPO: You're deliberate and measured. Detailed inner_monologue. "

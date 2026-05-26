@@ -17,12 +17,7 @@ export interface UserBadgeProps {
  * Displays user name (with guest indicator) and logout action.
  * Position using CSS on the parent or with className.
  */
-export function UserBadge({
-  name,
-  isGuest = false,
-  onLogout,
-  className = '',
-}: UserBadgeProps) {
+export function UserBadge({ name, isGuest = false, onLogout, className = '' }: UserBadgeProps) {
   return (
     <div className={`user-badge ${className}`.trim()}>
       <span className="user-badge__name">

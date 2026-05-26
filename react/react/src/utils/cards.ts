@@ -10,16 +10,27 @@ export interface Card {
 }
 
 // Import card images for all packs
-const classicImages = import.meta.glob('../assets/cards/classic/*.png', { eager: true, query: '?url', import: 'default' });
-const standardImages = import.meta.glob('../assets/cards/standard/*.svg', { eager: true, query: '?url', import: 'default' });
-const englishImages = import.meta.glob('../assets/cards/english/*.svg', { eager: true, query: '?url', import: 'default' });
+const classicImages = import.meta.glob('../assets/cards/classic/*.png', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const standardImages = import.meta.glob('../assets/cards/standard/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+const englishImages = import.meta.glob('../assets/cards/english/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
 
 const PACK_IMAGES: Record<string, Record<string, string>> = {
   classic: classicImages as Record<string, string>,
   standard: standardImages as Record<string, string>,
   english: englishImages as Record<string, string>,
 };
-
 
 const PACK_FORMATS: Record<string, string> = {
   classic: 'png',
@@ -31,7 +42,9 @@ const PACK_FORMATS: Record<string, string> = {
 let _activePack = 'classic';
 try {
   _activePack = localStorage.getItem('deckPack') || 'classic';
-} catch { /* SSR or unavailable */ }
+} catch {
+  /* SSR or unavailable */
+}
 
 export function setActivePack(packId: string) {
   _activePack = packId;
@@ -59,45 +72,103 @@ export function getCardImagePathForPack(rank: string, suit: string, packId: stri
 // Unicode playing card symbols (complete deck)
 export const CARD_SYMBOLS = {
   spades: {
-    'A': '🂡', '2': '🂢', '3': '🂣', '4': '🂤', '5': '🂥', '6': '🂦', '7': '🂧', '8': '🂨', 
-    '9': '🂩', '10': '🂪', 'J': '🂫', 'Q': '🂭', 'K': '🂮'
+    A: '🂡',
+    '2': '🂢',
+    '3': '🂣',
+    '4': '🂤',
+    '5': '🂥',
+    '6': '🂦',
+    '7': '🂧',
+    '8': '🂨',
+    '9': '🂩',
+    '10': '🂪',
+    J: '🂫',
+    Q: '🂭',
+    K: '🂮',
   },
   hearts: {
-    'A': '🂱', '2': '🂲', '3': '🂳', '4': '🂴', '5': '🂵', '6': '🂶', '7': '🂷', '8': '🂸',
-    '9': '🂹', '10': '🂺', 'J': '🂻', 'Q': '🂽', 'K': '🂾'
+    A: '🂱',
+    '2': '🂲',
+    '3': '🂳',
+    '4': '🂴',
+    '5': '🂵',
+    '6': '🂶',
+    '7': '🂷',
+    '8': '🂸',
+    '9': '🂹',
+    '10': '🂺',
+    J: '🂻',
+    Q: '🂽',
+    K: '🂾',
   },
   diamonds: {
-    'A': '🃁', '2': '🃂', '3': '🃃', '4': '🃄', '5': '🃅', '6': '🃆', '7': '🃇', '8': '🃈',
-    '9': '🃉', '10': '🃊', 'J': '🃋', 'Q': '🃍', 'K': '🃎'
+    A: '🃁',
+    '2': '🃂',
+    '3': '🃃',
+    '4': '🃄',
+    '5': '🃅',
+    '6': '🃆',
+    '7': '🃇',
+    '8': '🃈',
+    '9': '🃉',
+    '10': '🃊',
+    J: '🃋',
+    Q: '🃍',
+    K: '🃎',
   },
   clubs: {
-    'A': '🃑', '2': '🃒', '3': '🃓', '4': '🃔', '5': '🃕', '6': '🃖', '7': '🃗', '8': '🃘',
-    '9': '🃙', '10': '🃚', 'J': '🃛', 'Q': '🃝', 'K': '🃞'
-  }
+    A: '🃑',
+    '2': '🃒',
+    '3': '🃓',
+    '4': '🃔',
+    '5': '🃕',
+    '6': '🃖',
+    '7': '🃗',
+    '8': '🃘',
+    '9': '🃙',
+    '10': '🃚',
+    J: '🃛',
+    Q: '🃝',
+    K: '🃞',
+  },
 };
 
 // Text-based card representations (fallback)
 const TEXT_SYMBOLS = {
   spades: '♠',
-  hearts: '♥', 
+  hearts: '♥',
   diamonds: '♦',
-  clubs: '♣'
+  clubs: '♣',
 };
 
 export function createDeck(): Card[] {
   const suits: Array<keyof typeof CARD_SYMBOLS> = ['spades', 'hearts', 'diamonds', 'clubs'];
-  const ranks: Array<keyof typeof CARD_SYMBOLS.spades> = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  const ranks: Array<keyof typeof CARD_SYMBOLS.spades> = [
+    'A',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    '10',
+    'J',
+    'Q',
+    'K',
+  ];
   const deck: Card[] = [];
 
-  suits.forEach(suit => {
-    ranks.forEach(rank => {
+  suits.forEach((suit) => {
+    ranks.forEach((rank) => {
       deck.push({
         suit,
         rank,
         value: getRankValue(rank),
         unicode: CARD_SYMBOLS[suit][rank],
         imagePath: getCardImagePath(rank, suit),
-        color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
+        color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black',
       });
     });
   });
@@ -107,11 +178,16 @@ export function createDeck(): Card[] {
 
 export function getRankValue(rank: string): number {
   switch (rank) {
-    case 'A': return 14; // Ace high
-    case 'K': return 13;
-    case 'Q': return 12;
-    case 'J': return 11;
-    default: return parseInt(rank);
+    case 'A':
+      return 14; // Ace high
+    case 'K':
+      return 13;
+    case 'Q':
+      return 12;
+    case 'J':
+      return 11;
+    default:
+      return parseInt(rank);
   }
 }
 
@@ -127,31 +203,40 @@ export function shuffleDeck(deck: Card[]): Card[] {
 // Parse card string like "A♠" or "10♥" to Card object
 export function parseCard(cardString: string): Card | null {
   if (!cardString) return null;
-  
+
   // Extract rank and suit from string like "A♠"
   const suitSymbol = cardString.slice(-1);
   const rank = cardString.slice(0, -1);
-  
+
   let suit: keyof typeof CARD_SYMBOLS;
   switch (suitSymbol) {
-    case '♠': suit = 'spades'; break;
-    case '♥': suit = 'hearts'; break;
-    case '♦': suit = 'diamonds'; break;
-    case '♣': suit = 'clubs'; break;
-    default: return null;
+    case '♠':
+      suit = 'spades';
+      break;
+    case '♥':
+      suit = 'hearts';
+      break;
+    case '♦':
+      suit = 'diamonds';
+      break;
+    case '♣':
+      suit = 'clubs';
+      break;
+    default:
+      return null;
   }
-  
+
   if (!CARD_SYMBOLS[suit][rank as keyof typeof CARD_SYMBOLS.spades]) {
     return null;
   }
-  
+
   return {
     suit,
     rank: rank as Card['rank'],
     value: getRankValue(rank),
     unicode: CARD_SYMBOLS[suit][rank as keyof typeof CARD_SYMBOLS.spades],
     imagePath: getCardImagePath(rank, suit),
-    color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
+    color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black',
   };
 }
 
@@ -161,16 +246,16 @@ export function cardToString(card: Card): string {
 }
 
 // Get a random card from deck
-export function drawCard(deck: Card[]): { card: Card | null, remainingDeck: Card[] } {
+export function drawCard(deck: Card[]): { card: Card | null; remainingDeck: Card[] } {
   if (deck.length === 0) return { card: null, remainingDeck: [] };
-  
+
   const card = deck[0];
   const remainingDeck = deck.slice(1);
   return { card, remainingDeck };
 }
 
 // Get multiple cards from deck
-export function drawCards(deck: Card[], count: number): { cards: Card[], remainingDeck: Card[] } {
+export function drawCards(deck: Card[], count: number): { cards: Card[]; remainingDeck: Card[] } {
   const cards = deck.slice(0, count);
   const remainingDeck = deck.slice(count);
   return { cards, remainingDeck };
@@ -178,10 +263,10 @@ export function drawCards(deck: Card[], count: number): { cards: Card[], remaini
 
 // Map backend suit names to internal suit keys
 const SUIT_MAP: Record<string, 'hearts' | 'diamonds' | 'clubs' | 'spades'> = {
-  'Hearts': 'hearts',
-  'Diamonds': 'diamonds',
-  'Clubs': 'clubs',
-  'Spades': 'spades'
+  Hearts: 'hearts',
+  Diamonds: 'diamonds',
+  Clubs: 'clubs',
+  Spades: 'spades',
 };
 
 // Convert backend card format { rank: string, suit: string } to Card object
@@ -198,6 +283,6 @@ export function cardFromBackend(backendCard: { rank: string; suit: string }): Ca
     value: getRankValue(backendCard.rank),
     unicode,
     imagePath: getCardImagePath(backendCard.rank, suit),
-    color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black'
+    color: suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black',
   };
 }

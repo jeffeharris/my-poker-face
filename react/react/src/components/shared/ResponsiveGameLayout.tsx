@@ -19,7 +19,7 @@ export function ResponsiveGameLayout({
   playerName,
   onGameCreated,
   onBack,
-  onGameLoadFailed
+  onGameLoadFailed,
 }: ResponsiveGameLayoutProps) {
   const { isMobile } = useViewport();
 

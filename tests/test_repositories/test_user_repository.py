@@ -1,5 +1,7 @@
 """Tests for UserRepository."""
+
 import pytest
+
 from poker.repositories.user_repository import UserRepository
 
 
@@ -12,6 +14,7 @@ def repo(db_path):
 
 # --- User CRUD ---
 
+
 def test_create_google_user(repo):
     user = repo.create_google_user("sub123", "alice@example.com", "Alice")
     assert user["id"] == "google_sub123"
@@ -22,9 +25,11 @@ def test_create_google_user(repo):
 
 def test_create_google_user_with_linked_guest(repo):
     user = repo.create_google_user(
-        "sub456", "bob@example.com", "Bob",
+        "sub456",
+        "bob@example.com",
+        "Bob",
         picture="https://pic.example.com/bob.jpg",
-        linked_guest_id="guest_abc"
+        linked_guest_id="guest_abc",
     )
     assert user["linked_guest_id"] == "guest_abc"
     assert user["picture"] == "https://pic.example.com/bob.jpg"
@@ -77,6 +82,7 @@ def test_update_user_last_login(repo):
 
 # --- Rate-limiting helpers ---
 
+
 def test_game_creation_time_round_trip(repo):
     repo.create_google_user("sub5", "rate@e.com", "RateLimited")
     assert repo.get_last_game_creation_time("google_sub5") is None
@@ -90,6 +96,7 @@ def test_count_user_games_empty(repo):
 
 
 # --- Group / RBAC ---
+
 
 def test_get_all_users(repo):
     repo.create_google_user("s1", "a@e.com", "A")
@@ -170,6 +177,7 @@ def test_get_all_groups(repo):
 
 # --- User stats ---
 
+
 def test_get_user_stats(repo):
     repo.create_google_user("st1", "stats@e.com", "StatsUser")
     stats = repo.get_user_stats("google_st1")
@@ -180,6 +188,7 @@ def test_get_user_stats(repo):
 
 # --- Transfer ---
 
+
 def test_transfer_guest_to_user(repo):
     # Create a target user
     repo.create_google_user("tgt1", "target@e.com", "Target")
@@ -189,6 +198,7 @@ def test_transfer_guest_to_user(repo):
 
 
 # --- Admin initialization ---
+
 
 def test_initialize_admin_from_env_no_env(repo, monkeypatch):
     monkeypatch.delenv("INITIAL_ADMIN_EMAIL", raising=False)

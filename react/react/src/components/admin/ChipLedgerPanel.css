@@ -72,12 +72,12 @@
 
 .chip-ledger-drift.drift-pos,
 .chip-ledger-drift.drift-neg {
-  background: rgba(248, 81, 73, 0.10);
+  background: rgba(248, 81, 73, 0.1);
   border-color: rgba(248, 81, 73, 0.4);
 }
 
 .chip-ledger-drift.drift-missing {
-  background: rgba(210, 153, 34, 0.10);
+  background: rgba(210, 153, 34, 0.1);
   border-color: rgba(210, 153, 34, 0.4);
 }
 
@@ -383,7 +383,7 @@
 }
 
 .chip-ledger-holdings-table-wrap tbody tr.highlighted {
-  background: rgba(212, 165, 116, 0.10);
+  background: rgba(212, 165, 116, 0.1);
 }
 
 .chip-ledger-holdings-table-wrap td.sandbox-cell {

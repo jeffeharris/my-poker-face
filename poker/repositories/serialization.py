@@ -3,11 +3,12 @@
 Pure functions for converting game objects to/from dicts suitable for
 JSON storage.
 """
-import logging
-from typing import Dict, Any, List
 
-from poker.poker_game import PokerGameState, Player
+import logging
+from typing import Any, Dict, List
+
 from core.card import Card
+from poker.poker_game import Player, PokerGameState
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def restore_state_from_dict(state_dict: Dict[str, Any]) -> PokerGameState:
             is_all_in=player_data['is_all_in'],
             is_folded=player_data['is_folded'],
             has_acted=player_data['has_acted'],
-            last_action=player_data.get('last_action')
+            last_action=player_data.get('last_action'),
         )
         players.append(player)
 

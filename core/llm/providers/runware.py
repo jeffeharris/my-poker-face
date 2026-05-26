@@ -3,17 +3,18 @@
 Runware.ai is an image-only provider with fast generation times.
 API Documentation: https://runware.ai/docs/image-inference/api-reference
 """
-import os
+
 import logging
+import os
 import time
 import uuid
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import requests
 
-from .base import LLMProvider
 from ..config import DEFAULT_MAX_TOKENS, RUNWARE_DEFAULT_MODEL
+from .base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class RunwareImageResponse:
 
     Mimics the structure expected by extract_* methods.
     """
+
     url: str  # Image URL from Runware CDN
     id: str  # Task UUID
     model: str
@@ -181,8 +183,13 @@ class RunwareProvider(LLMProvider):
             seed_info = seed_image_url[:50] + "..." if len(seed_image_url) > 50 else seed_image_url
             logger.info("Using img2img with seed image (strength=%.2f): %s", strength, seed_info)
 
-        logger.info("Generating image with Runware: model=%s, size=%dx%d, img2img=%s",
-                     self._model, width, height, bool(seed_image_url))
+        logger.info(
+            "Generating image with Runware: model=%s, size=%dx%d, img2img=%s",
+            self._model,
+            width,
+            height,
+            bool(seed_image_url),
+        )
 
         last_exception = None
         for attempt in range(MAX_RETRIES + 1):
@@ -223,16 +230,13 @@ class RunwareProvider(LLMProvider):
             except requests.exceptions.Timeout as e:
                 last_exception = e
                 if attempt < MAX_RETRIES:
-                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    delay = min(INITIAL_RETRY_DELAY * (2**attempt), MAX_RETRY_DELAY)
                     logger.warning(
-                        "Runware timeout, retry %d/%d in %ds",
-                        attempt + 1, MAX_RETRIES, delay
+                        "Runware timeout, retry %d/%d in %ds", attempt + 1, MAX_RETRIES, delay
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(
-                        f"Runware API timeout after {MAX_RETRIES + 1} attempts"
-                    )
+                    raise Exception(f"Runware API timeout after {MAX_RETRIES + 1} attempts") from e
             except requests.exceptions.HTTPError as e:
                 # Extract status code and error details
                 status_code = e.response.status_code if e.response is not None else 0
@@ -254,20 +258,23 @@ class RunwareProvider(LLMProvider):
 
                 # Don't retry client errors (4xx)
                 if 400 <= status_code < 500:
-                    raise Exception(f"Runware API error ({status_code}): {error_text}")
+                    raise Exception(f"Runware API error ({status_code}): {error_text}") from e
                 # Retry server errors (5xx) or unknown errors
                 last_exception = e
                 if attempt < MAX_RETRIES:
-                    delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+                    delay = min(INITIAL_RETRY_DELAY * (2**attempt), MAX_RETRY_DELAY)
                     logger.warning(
                         "Runware server error (%s), retry %d/%d in %ds",
-                        status_code, attempt + 1, MAX_RETRIES, delay
+                        status_code,
+                        attempt + 1,
+                        MAX_RETRIES,
+                        delay,
                     )
                     time.sleep(delay)
                 else:
-                    raise Exception(f"Runware API error ({status_code}): {error_text}")
+                    raise Exception(f"Runware API error ({status_code}): {error_text}") from e
             except requests.exceptions.RequestException as e:
-                raise Exception(f"Runware API request failed: {e}")
+                raise Exception(f"Runware API request failed: {e}") from e
 
         # Should never reach here, but just in case
         raise Exception(f"Runware API failed: {last_exception}")

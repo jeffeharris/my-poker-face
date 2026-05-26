@@ -18,16 +18,17 @@ from unittest.mock import Mock, patch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from poker.memory.hand_history import (
-    RecordedAction, RecordedHand, PlayerHandInfo, WinnerInfo,
-    HandHistoryRecorder
-)
-from poker.memory.session_memory import HandMemory, SessionMemory
-from poker.memory.opponent_model import (
-    OpponentTendencies, OpponentModel, OpponentModelManager
-)
 from poker.memory.commentary_generator import CommentaryGenerator
+from poker.memory.hand_history import (
+    HandHistoryRecorder,
+    PlayerHandInfo,
+    RecordedAction,
+    RecordedHand,
+    WinnerInfo,
+)
 from poker.memory.memory_manager import AIMemoryManager
+from poker.memory.opponent_model import OpponentModel, OpponentModelManager, OpponentTendencies
+from poker.memory.session_memory import HandMemory, SessionMemory
 
 
 class TestRecordedAction(unittest.TestCase):
@@ -36,11 +37,7 @@ class TestRecordedAction(unittest.TestCase):
     def test_action_creation(self):
         """Test creating an action record."""
         action = RecordedAction(
-            player_name="Alice",
-            action="raise",
-            amount=100,
-            phase="PRE_FLOP",
-            pot_after=150
+            player_name="Alice", action="raise", amount=100, phase="PRE_FLOP", pot_after=150
         )
 
         self.assertEqual(action.player_name, "Alice")
@@ -52,11 +49,7 @@ class TestRecordedAction(unittest.TestCase):
     def test_action_immutability(self):
         """Test that RecordedAction is immutable."""
         action = RecordedAction(
-            player_name="Alice",
-            action="fold",
-            amount=0,
-            phase="FLOP",
-            pot_after=200
+            player_name="Alice", action="fold", amount=0, phase="FLOP", pot_after=200
         )
 
         with self.assertRaises(AttributeError):
@@ -65,11 +58,7 @@ class TestRecordedAction(unittest.TestCase):
     def test_action_serialization(self):
         """Test to_dict and from_dict round-trip."""
         original = RecordedAction(
-            player_name="Bob",
-            action="call",
-            amount=50,
-            phase="TURN",
-            pot_after=300
+            player_name="Bob", action="call", amount=50, phase="TURN", pot_after=300
         )
 
         data = original.to_dict()
@@ -106,7 +95,7 @@ class TestRecordedHand(unittest.TestCase):
             ),
             winners=(WinnerInfo("Alice", 120, "Royal Flush", 1),),
             pot_size=120,
-            was_showdown=True
+            was_showdown=True,
         )
 
     def test_get_player_outcome_winner(self):
@@ -153,17 +142,23 @@ class TestRecordedHand(unittest.TestCase):
         so the second raise doesn't double-count the first raise's
         commitment.
         """
-        from poker.memory.hand_history import RecordedHand, RecordedAction, WinnerInfo
+        from poker.memory.hand_history import RecordedAction, RecordedHand, WinnerInfo
+
         hand = RecordedHand(
-            game_id="g", hand_number=1, timestamp=self.hand.timestamp,
-            players=self.hand.players, hole_cards={}, community_cards=(),
+            game_id="g",
+            hand_number=1,
+            timestamp=self.hand.timestamp,
+            players=self.hand.players,
+            hole_cards={},
+            community_cards=(),
             actions=(
                 RecordedAction("A", "raise", 100, "PRE_FLOP", 100),
                 RecordedAction("B", "raise", 300, "PRE_FLOP", 400),
                 RecordedAction("A", "call", 200, "PRE_FLOP", 600),
             ),
             winners=(WinnerInfo("B", 600, "Pair", 1),),
-            pot_size=600, was_showdown=True,
+            pot_size=600,
+            was_showdown=True,
         )
         contribs = hand.get_player_contributions()
         # A raised to 100 then called for an additional 200 = 300
@@ -221,7 +216,7 @@ class TestHandHistoryRecorder(unittest.TestCase):
             ],
             "winnings": {"Alice": 100},
             "hand_name": "High Card",
-            "hand_rank": 10
+            "hand_rank": 10,
         }
         recorded = recorder.complete_hand(winner_info, mock_state)
 
@@ -248,7 +243,7 @@ class TestSessionMemory(unittest.TestCase):
             outcome="won",
             pot_size=500,
             amount_won_or_lost=500,
-            notable_events=["Hit a flush"]
+            notable_events=["Hit a flush"],
         )
 
         self.assertEqual(self.memory.context.hands_played, 1)
@@ -259,10 +254,7 @@ class TestSessionMemory(unittest.TestCase):
     def test_record_hand_outcome_loss(self):
         """Test recording a losing hand."""
         self.memory.record_hand_outcome(
-            hand_number=1,
-            outcome="lost",
-            pot_size=300,
-            amount_won_or_lost=-150
+            hand_number=1, outcome="lost", pot_size=300, amount_won_or_lost=-150
         )
 
         self.assertEqual(self.memory.context.hands_played, 1)
@@ -291,7 +283,7 @@ class TestSessionMemory(unittest.TestCase):
     def test_memory_trimming(self):
         """Test that old hands are trimmed when max is exceeded."""
         for i in range(10):
-            self.memory.record_hand_outcome(i+1, "won", 100, 100)
+            self.memory.record_hand_outcome(i + 1, "won", 100, 100)
 
         self.assertEqual(len(self.memory.hand_memories), 5)  # max_hand_memory=5
         self.assertEqual(self.memory.hand_memories[0].hand_number, 6)  # Oldest kept
@@ -497,8 +489,7 @@ class TestOpponentModel(unittest.TestCase):
         self.assertEqual(len(model.memorable_hands), 5)
         # Highest impact should be first
         self.assertGreater(
-            model.memorable_hands[0].impact_score,
-            model.memorable_hands[4].impact_score
+            model.memorable_hands[0].impact_score, model.memorable_hands[4].impact_score
         )
 
 
@@ -595,12 +586,10 @@ class TestCommentaryGenerator(unittest.TestCase):
             players=(PlayerHandInfo("Alice", 1000, "BTN", False),),
             hole_cards={},
             community_cards=(),
-            actions=(
-                RecordedAction("Alice", "all_in", 1000, "PRE_FLOP", 1000),
-            ),
+            actions=(RecordedAction("Alice", "all_in", 1000, "PRE_FLOP", 1000),),
             winners=(WinnerInfo("Alice", 1500, "Flush", 5),),
             pot_size=1500,
-            was_showdown=True
+            was_showdown=True,
         )
 
         events = generator.extract_notable_events(hand, "Alice")
@@ -623,7 +612,7 @@ class TestCommentaryGenerator(unittest.TestCase):
             confidence="high",
             attitude="confident",
             chattiness=0.8,
-            assistant=Mock()
+            assistant=Mock(),
         )
 
         self.assertIsNone(result)
@@ -733,7 +722,7 @@ class TestAIMemoryManager(unittest.TestCase):
             actions=(),
             winners=(WinnerInfo("Alice", 100, "Pair", 9),),
             pot_size=100,
-            was_showdown=False
+            was_showdown=False,
         )
 
         # Set the recorded hand
@@ -770,7 +759,7 @@ class TestHandMemorySerialization(unittest.TestCase):
             pot_size=500,
             amount_won_or_lost=500,
             notable_events=["Caught bluff", "River suckout"],
-            emotional_impact=0.8
+            emotional_impact=0.8,
         )
 
         data = memory.to_dict()
@@ -788,7 +777,7 @@ class TestHandMemorySerialization(unittest.TestCase):
             amount_won_or_lost=0,
             notable_events=[],
             emotional_impact=-0.1,
-            timestamp=now
+            timestamp=now,
         )
 
         data = memory.to_dict()
@@ -836,7 +825,7 @@ class TestIntegrationScenario(unittest.TestCase):
                 ],
                 "winnings": {winner: 100},
                 "hand_name": "Pair",
-                "hand_rank": 9
+                "hand_rank": 9,
             }
 
             manager.on_hand_complete(winner_info, mock_state, skip_commentary=True)

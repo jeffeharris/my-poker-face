@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class SkillEvaluation:
     """Result of evaluating one action against one skill."""
+
     skill_id: str
     action_taken: str
-    evaluation: str       # 'correct', 'incorrect', 'marginal', 'not_applicable'
-    confidence: float     # 0.0 to 1.0
+    evaluation: str  # 'correct', 'incorrect', 'marginal', 'not_applicable'
+    confidence: float  # 0.0 to 1.0
     reasoning: str
     in_personal_range: bool = False  # True when hand is within player's personal range target
 
@@ -139,8 +140,10 @@ class SkillEvaluator:
 
     @staticmethod
     def _position_reasoning(
-        has_personal_range: bool, range_str: str,
-        personal_msg: str, fallback_msg: str,
+        has_personal_range: bool,
+        range_str: str,
+        personal_msg: str,
+        fallback_msg: str,
     ) -> str:
         """Build a reasoning string that uses personal range when available."""
         if has_personal_range:
@@ -170,9 +173,9 @@ class SkillEvaluator:
 
         # Format range as percentage string for reasoning messages
         range_str = f"top {int(range_pct * 100)}%" if has_personal_range else ""
-        _reason = lambda personal, fallback: self._position_reasoning(
-            has_personal_range, range_str, personal, fallback,
-        )
+
+        def _reason(personal, fallback):
+            return self._position_reasoning(has_personal_range, range_str, personal, fallback)
 
         # Helper: use personal range if available, else fall back to a static tier flag
         def in_range_for(fallback_key: str) -> bool:
@@ -511,8 +514,10 @@ class SkillEvaluator:
         """Draw + facing bet: call when pot odds are good, fold when bad."""
         if not ctx.get('has_draw', False) or ctx['cost_to_call'] <= 0:
             return SkillEvaluation(
-                skill_id='draws_need_price', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='draws_need_price',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Not facing bet with draw',
             )
 
@@ -523,33 +528,43 @@ class SkillEvaluator:
             if equity >= required_equity:
                 if action == 'call' or action.startswith('raise'):
                     return SkillEvaluation(
-                        skill_id='draws_need_price', action_taken=action,
-                        evaluation='correct', confidence=0.9,
+                        skill_id='draws_need_price',
+                        action_taken=action,
+                        evaluation='correct',
+                        confidence=0.9,
                         reasoning='Called/raised with good pot odds on draw',
                     )
                 if action == 'fold':
                     return SkillEvaluation(
-                        skill_id='draws_need_price', action_taken=action,
-                        evaluation='incorrect', confidence=0.8,
+                        skill_id='draws_need_price',
+                        action_taken=action,
+                        evaluation='incorrect',
+                        confidence=0.8,
                         reasoning='Folded a profitable draw',
                     )
             else:
                 if action == 'fold':
                     return SkillEvaluation(
-                        skill_id='draws_need_price', action_taken=action,
-                        evaluation='correct', confidence=0.9,
+                        skill_id='draws_need_price',
+                        action_taken=action,
+                        evaluation='correct',
+                        confidence=0.9,
                         reasoning='Folded draw without proper pot odds',
                     )
                 if action == 'call':
                     return SkillEvaluation(
-                        skill_id='draws_need_price', action_taken=action,
-                        evaluation='incorrect', confidence=0.8,
+                        skill_id='draws_need_price',
+                        action_taken=action,
+                        evaluation='incorrect',
+                        confidence=0.8,
                         reasoning='Called draw without pot odds to justify it',
                     )
 
         return SkillEvaluation(
-            skill_id='draws_need_price', action_taken=action,
-            evaluation='marginal', confidence=0.3,
+            skill_id='draws_need_price',
+            action_taken=action,
+            evaluation='marginal',
+            confidence=0.3,
             reasoning='Insufficient equity data to evaluate pot odds',
         )
 
@@ -557,32 +572,42 @@ class SkillEvaluator:
         """Medium hand + big bet on turn/river: fold is correct."""
         if not (ctx.get('is_big_bet') and ctx.get('is_marginal_hand')):
             return SkillEvaluation(
-                skill_id='respect_big_bets', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='respect_big_bets',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Not a big bet with medium hand',
             )
 
         if action == 'fold':
             return SkillEvaluation(
-                skill_id='respect_big_bets', action_taken=action,
-                evaluation='correct', confidence=0.9,
+                skill_id='respect_big_bets',
+                action_taken=action,
+                evaluation='correct',
+                confidence=0.9,
                 reasoning='Folded medium hand facing big bet — good discipline',
             )
         if action == 'call':
             return SkillEvaluation(
-                skill_id='respect_big_bets', action_taken=action,
-                evaluation='incorrect', confidence=0.8,
+                skill_id='respect_big_bets',
+                action_taken=action,
+                evaluation='incorrect',
+                confidence=0.8,
                 reasoning='Called big bet with medium hand — likely dominated',
             )
         if action.startswith('raise'):
             return SkillEvaluation(
-                skill_id='respect_big_bets', action_taken=action,
-                evaluation='incorrect', confidence=0.8,
+                skill_id='respect_big_bets',
+                action_taken=action,
+                evaluation='incorrect',
+                confidence=0.8,
                 reasoning='Raised into big bet with medium hand',
             )
         return SkillEvaluation(
-            skill_id='respect_big_bets', action_taken=action,
-            evaluation='marginal', confidence=0.5,
+            skill_id='respect_big_bets',
+            action_taken=action,
+            evaluation='marginal',
+            confidence=0.5,
             reasoning='Ambiguous action facing big bet',
         )
 
@@ -590,38 +615,50 @@ class SkillEvaluator:
         """Turn after betting flop: check-fold = incorrect, follow through = correct."""
         if not ctx.get('player_bet_flop'):
             return SkillEvaluation(
-                skill_id='have_a_plan', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='have_a_plan',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Player did not bet the flop',
             )
 
         if action in ('raise', 'bet') or action.startswith('raise'):
             return SkillEvaluation(
-                skill_id='have_a_plan', action_taken=action,
-                evaluation='correct', confidence=0.9,
+                skill_id='have_a_plan',
+                action_taken=action,
+                evaluation='correct',
+                confidence=0.9,
                 reasoning='Followed through on flop aggression',
             )
         if action == 'call':
             return SkillEvaluation(
-                skill_id='have_a_plan', action_taken=action,
-                evaluation='marginal', confidence=0.6,
+                skill_id='have_a_plan',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.6,
                 reasoning='Called on turn after flop bet — passive but not a collapse',
             )
         if action == 'check':
             return SkillEvaluation(
-                skill_id='have_a_plan', action_taken=action,
-                evaluation='marginal', confidence=0.5,
+                skill_id='have_a_plan',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.5,
                 reasoning='Checked turn after flop bet — lost initiative',
             )
         if action == 'fold':
             return SkillEvaluation(
-                skill_id='have_a_plan', action_taken=action,
-                evaluation='incorrect', confidence=0.8,
+                skill_id='have_a_plan',
+                action_taken=action,
+                evaluation='incorrect',
+                confidence=0.8,
                 reasoning='Bet flop then folded turn — no plan',
             )
         return SkillEvaluation(
-            skill_id='have_a_plan', action_taken=action,
-            evaluation='marginal', confidence=0.4,
+            skill_id='have_a_plan',
+            action_taken=action,
+            evaluation='marginal',
+            confidence=0.4,
             reasoning='Ambiguous action on turn after flop bet',
         )
 
@@ -631,39 +668,51 @@ class SkillEvaluator:
         """Facing double barrel with marginal hand: fold is correct."""
         if not ctx.get('opponent_double_barrel') or ctx['cost_to_call'] <= 0:
             return SkillEvaluation(
-                skill_id='dont_pay_double_barrels', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='dont_pay_double_barrels',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Not facing double barrel',
             )
 
         if not ctx.get('is_marginal_hand'):
             return SkillEvaluation(
-                skill_id='dont_pay_double_barrels', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='dont_pay_double_barrels',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Hand is not marginal',
             )
 
         if action == 'fold':
             return SkillEvaluation(
-                skill_id='dont_pay_double_barrels', action_taken=action,
-                evaluation='correct', confidence=0.9,
+                skill_id='dont_pay_double_barrels',
+                action_taken=action,
+                evaluation='correct',
+                confidence=0.9,
                 reasoning='Folded marginal hand vs double barrel',
             )
         if action == 'call':
             return SkillEvaluation(
-                skill_id='dont_pay_double_barrels', action_taken=action,
-                evaluation='incorrect', confidence=0.8,
+                skill_id='dont_pay_double_barrels',
+                action_taken=action,
+                evaluation='incorrect',
+                confidence=0.8,
                 reasoning='Called double barrel with marginal hand',
             )
         if action.startswith('raise'):
             return SkillEvaluation(
-                skill_id='dont_pay_double_barrels', action_taken=action,
-                evaluation='marginal', confidence=0.5,
+                skill_id='dont_pay_double_barrels',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.5,
                 reasoning='Raised vs double barrel — could be a bluff raise',
             )
         return SkillEvaluation(
-            skill_id='dont_pay_double_barrels', action_taken=action,
-            evaluation='marginal', confidence=0.4,
+            skill_id='dont_pay_double_barrels',
+            action_taken=action,
+            evaluation='marginal',
+            confidence=0.4,
             reasoning='Ambiguous action vs double barrel',
         )
 
@@ -671,40 +720,52 @@ class SkillEvaluator:
         """When player bets/raises: check bet-to-pot ratio is in 33%-100% range."""
         if action not in ('bet', 'all_in') and not action.startswith('raise'):
             return SkillEvaluation(
-                skill_id='size_bets_with_purpose', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='size_bets_with_purpose',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='Player did not bet or raise',
             )
 
         ratio = ctx.get('bet_to_pot_ratio', 0)
         if ratio <= 0:
             return SkillEvaluation(
-                skill_id='size_bets_with_purpose', action_taken=action,
-                evaluation='not_applicable', confidence=1.0,
+                skill_id='size_bets_with_purpose',
+                action_taken=action,
+                evaluation='not_applicable',
+                confidence=1.0,
                 reasoning='No bet sizing data',
             )
 
         if 0.33 <= ratio <= 1.0:
             return SkillEvaluation(
-                skill_id='size_bets_with_purpose', action_taken=action,
-                evaluation='correct', confidence=0.9,
+                skill_id='size_bets_with_purpose',
+                action_taken=action,
+                evaluation='correct',
+                confidence=0.9,
                 reasoning=f'Good bet sizing ({ratio:.0%} of pot)',
             )
         if 0.25 <= ratio < 0.33 or 1.0 < ratio <= 1.5:
             return SkillEvaluation(
-                skill_id='size_bets_with_purpose', action_taken=action,
-                evaluation='marginal', confidence=0.6,
+                skill_id='size_bets_with_purpose',
+                action_taken=action,
+                evaluation='marginal',
+                confidence=0.6,
                 reasoning=f'Borderline bet sizing ({ratio:.0%} of pot)',
             )
         if ratio < 0.25:
             return SkillEvaluation(
-                skill_id='size_bets_with_purpose', action_taken=action,
-                evaluation='incorrect', confidence=0.8,
+                skill_id='size_bets_with_purpose',
+                action_taken=action,
+                evaluation='incorrect',
+                confidence=0.8,
                 reasoning=f'Bet too small ({ratio:.0%} of pot) — gives cheap draws',
             )
         # ratio > 1.5
         return SkillEvaluation(
-            skill_id='size_bets_with_purpose', action_taken=action,
-            evaluation='incorrect', confidence=0.7,
+            skill_id='size_bets_with_purpose',
+            action_taken=action,
+            evaluation='incorrect',
+            confidence=0.7,
             reasoning=f'Bet too large ({ratio:.0%} of pot) — overcommitting',
         )

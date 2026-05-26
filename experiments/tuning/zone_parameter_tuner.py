@@ -5,19 +5,19 @@ Analyzes experiment results and recommends parameter adjustments
 to achieve PRD targets for tilt band distributions.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from experiments.analysis.zone_metrics_analyzer import (
-    ZoneMetricsAnalyzer,
     TiltBandDistribution,
-    PRD_TARGETS,
+    ZoneMetricsAnalyzer,
 )
 
 
 @dataclass
 class TunableParameter:
     """Definition of a tunable parameter."""
+
     name: str
     current_value: float
     min_value: float
@@ -29,17 +29,19 @@ class TunableParameter:
 @dataclass
 class TuningRecommendation:
     """A recommended parameter adjustment."""
+
     parameter: str
     current_value: float
     recommended_value: float
     reason: str
     confidence: str  # 'high', 'medium', 'low'
-    priority: int    # 1=highest, 3=lowest
+    priority: int  # 1=highest, 3=lowest
 
 
 @dataclass
 class AnalysisResult:
     """Result of analyzing an experiment for tuning."""
+
     experiment_id: int
     total_decisions: int
     tilt_band_comparison: Dict[str, Dict[str, Any]]
@@ -115,7 +117,6 @@ TUNABLE_PARAMETERS: Dict[str, TunableParameter] = {
         description='Composure threshold for detached zone',
         category='penalty_threshold',
     ),
-
     # Sweet spot radii
     'ZONE_POKER_FACE_RADIUS': TunableParameter(
         name='ZONE_POKER_FACE_RADIUS',
@@ -149,7 +150,6 @@ TUNABLE_PARAMETERS: Dict[str, TunableParameter] = {
         description='Radius of aggro sweet spot zone',
         category='zone_radius',
     ),
-
     # Recovery constants
     'RECOVERY_BELOW_BASELINE_FLOOR': TunableParameter(
         name='RECOVERY_BELOW_BASELINE_FLOOR',
@@ -175,7 +175,6 @@ TUNABLE_PARAMETERS: Dict[str, TunableParameter] = {
         description='Recovery modifier when above baseline (hot streaks)',
         category='recovery',
     ),
-
 }
 
 
@@ -225,22 +224,34 @@ class ZoneParameterTuner:
                     f"(target: {baseline_data['target_min']:.0%}-{baseline_data['target_max']:.0%})"
                 )
                 # Recommend making penalty zones narrower
-                recommendations.append(TuningRecommendation(
-                    parameter='PENALTY_TILTED_THRESHOLD',
-                    current_value=TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value,
-                    recommended_value=max(0.20, TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value - 0.05),
-                    reason='Lower tilted threshold to reduce penalty zone entry',
-                    confidence='medium',
-                    priority=1,
-                ))
-                recommendations.append(TuningRecommendation(
-                    parameter='RECOVERY_BELOW_BASELINE_FLOOR',
-                    current_value=TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value,
-                    recommended_value=min(0.8, TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value + 0.1),
-                    reason='Increase recovery floor to help players exit tilt faster',
-                    confidence='medium',
-                    priority=2,
-                ))
+                recommendations.append(
+                    TuningRecommendation(
+                        parameter='PENALTY_TILTED_THRESHOLD',
+                        current_value=TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value,
+                        recommended_value=max(
+                            0.20,
+                            TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value - 0.05,
+                        ),
+                        reason='Lower tilted threshold to reduce penalty zone entry',
+                        confidence='medium',
+                        priority=1,
+                    )
+                )
+                recommendations.append(
+                    TuningRecommendation(
+                        parameter='RECOVERY_BELOW_BASELINE_FLOOR',
+                        current_value=TUNABLE_PARAMETERS[
+                            'RECOVERY_BELOW_BASELINE_FLOOR'
+                        ].current_value,
+                        recommended_value=min(
+                            0.8,
+                            TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value + 0.1,
+                        ),
+                        reason='Increase recovery floor to help players exit tilt faster',
+                        confidence='medium',
+                        priority=2,
+                    )
+                )
 
         # Analyze medium (should be 10-20%)
         medium_data = comparison['medium']
@@ -255,14 +266,18 @@ class ZoneParameterTuner:
                     f"Medium tilt too high: {medium_data['value']:.1%} "
                     f"(target: {medium_data['target_min']:.0%}-{medium_data['target_max']:.0%})"
                 )
-                recommendations.append(TuningRecommendation(
-                    parameter='RECOVERY_ABOVE_BASELINE',
-                    current_value=TUNABLE_PARAMETERS['RECOVERY_ABOVE_BASELINE'].current_value,
-                    recommended_value=min(1.0, TUNABLE_PARAMETERS['RECOVERY_ABOVE_BASELINE'].current_value + 0.1),
-                    reason='Increase recovery rate to reduce time in medium tilt',
-                    confidence='low',
-                    priority=2,
-                ))
+                recommendations.append(
+                    TuningRecommendation(
+                        parameter='RECOVERY_ABOVE_BASELINE',
+                        current_value=TUNABLE_PARAMETERS['RECOVERY_ABOVE_BASELINE'].current_value,
+                        recommended_value=min(
+                            1.0, TUNABLE_PARAMETERS['RECOVERY_ABOVE_BASELINE'].current_value + 0.1
+                        ),
+                        reason='Increase recovery rate to reduce time in medium tilt',
+                        confidence='low',
+                        priority=2,
+                    )
+                )
 
         # Analyze high (should be 2-7%)
         high_data = comparison['high']
@@ -271,30 +286,41 @@ class ZoneParameterTuner:
                 f"High tilt too frequent: {high_data['value']:.1%} "
                 f"(target: {high_data['target_min']:.0%}-{high_data['target_max']:.0%})"
             )
-            recommendations.append(TuningRecommendation(
-                parameter='PENALTY_TILTED_THRESHOLD',
-                current_value=TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value,
-                recommended_value=max(0.20, TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value - 0.05),
-                reason='Lower tilted threshold to make severe tilt less common',
-                confidence='medium',
-                priority=1,
-            ))
+            recommendations.append(
+                TuningRecommendation(
+                    parameter='PENALTY_TILTED_THRESHOLD',
+                    current_value=TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value,
+                    recommended_value=max(
+                        0.20, TUNABLE_PARAMETERS['PENALTY_TILTED_THRESHOLD'].current_value - 0.05
+                    ),
+                    reason='Lower tilted threshold to make severe tilt less common',
+                    confidence='medium',
+                    priority=1,
+                )
+            )
 
         # Analyze full tilt (should be 0-2%)
         full_tilt_data = comparison['full_tilt']
-        if full_tilt_data['status'] == 'fail' and full_tilt_data['value'] > full_tilt_data['target_max']:
+        if (
+            full_tilt_data['status'] == 'fail'
+            and full_tilt_data['value'] > full_tilt_data['target_max']
+        ):
             issues.append(
                 f"Full tilt too frequent: {full_tilt_data['value']:.1%} "
                 f"(target: {full_tilt_data['target_min']:.0%}-{full_tilt_data['target_max']:.0%})"
             )
-            recommendations.append(TuningRecommendation(
-                parameter='RECOVERY_BELOW_BASELINE_FLOOR',
-                current_value=TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value,
-                recommended_value=min(0.8, TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value + 0.1),
-                reason='Increase recovery floor to prevent extreme tilt states',
-                confidence='high',
-                priority=1,
-            ))
+            recommendations.append(
+                TuningRecommendation(
+                    parameter='RECOVERY_BELOW_BASELINE_FLOOR',
+                    current_value=TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value,
+                    recommended_value=min(
+                        0.8, TUNABLE_PARAMETERS['RECOVERY_BELOW_BASELINE_FLOOR'].current_value + 0.1
+                    ),
+                    reason='Increase recovery floor to prevent extreme tilt states',
+                    confidence='high',
+                    priority=1,
+                )
+            )
 
         # Check for no issues
         if not issues:
@@ -309,9 +335,7 @@ class ZoneParameterTuner:
             aggregate_tilt=aggregate_tilt,
         )
 
-    def recommend_adjustments(
-        self, analysis: AnalysisResult
-    ) -> List[TuningRecommendation]:
+    def recommend_adjustments(self, analysis: AnalysisResult) -> List[TuningRecommendation]:
         """
         Get sorted recommendations from an analysis result.
 

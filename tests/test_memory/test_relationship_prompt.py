@@ -17,12 +17,11 @@ pytestmark = pytest.mark.integration
 from poker.memory.opponent_model import OpponentModelManager, RelationshipState
 from poker.memory.relationship_events import RelationshipEvent
 from poker.memory.relationship_prompt import (
-    build_relationship_context,
     _classify,
+    build_relationship_context,
 )
 from poker.repositories.relationship_repository import RelationshipRepository
 from poker.repositories.schema_manager import SchemaManager
-
 
 NOW = datetime(2026, 5, 20, 12, 0)
 
@@ -48,8 +47,11 @@ def manager(repo):
 def _seed_state(repo, observer_id, opponent_id, *, heat=0.0, respect=0.5, likability=0.5):
     """Seed a relationship row with the given axes pinned to NOW."""
     state = RelationshipState(
-        heat=heat, respect=respect, likability=likability,
-        last_seen=NOW, last_decay_tick=NOW,
+        heat=heat,
+        respect=respect,
+        likability=likability,
+        last_seen=NOW,
+        last_decay_tick=NOW,
     )
     repo.save_relationship_state(observer_id, opponent_id, state)
 
@@ -170,9 +172,13 @@ class TestBuildRelationshipContext:
         model = manager.get_model("alice", "bob")
         # Add three hands at distinct timestamps; only the 2 most-recent
         # should land in the output.
-        for i, (offset_hours, label) in enumerate([
-            (3, "oldest"), (2, "middle"), (1, "newest"),
-        ]):
+        for i, (offset_hours, label) in enumerate(
+            [
+                (3, "oldest"),
+                (2, "middle"),
+                (1, "newest"),
+            ]
+        ):
             model.add_memorable_hand(
                 hand_id=i,
                 event=RelationshipEvent.BIG_LOSS,
@@ -213,12 +219,13 @@ class TestPromptInjection:
     """
 
     def test_helper_returns_prompt_unchanged_when_flag_off(self, manager):
-        from poker.prompt_config import PromptConfig
         from types import SimpleNamespace
+
         # Synthesize the minimum surface AIPlayerController._append…
         # touches. We don't construct the full controller because
         # that pulls in the whole game stack.
         from poker.controllers import AIPlayerController
+        from poker.prompt_config import PromptConfig
 
         prompt_config = PromptConfig(relationship_context=False)
         fake_self = SimpleNamespace(
@@ -238,9 +245,10 @@ class TestPromptInjection:
 
     def test_helper_appends_block_when_flag_on(self, manager, repo):
         _seed_state(repo, "alice_pid", "bob_pid", heat=0.65)
-        from poker.prompt_config import PromptConfig
         from types import SimpleNamespace
+
         from poker.controllers import AIPlayerController
+        from poker.prompt_config import PromptConfig
 
         prompt_config = PromptConfig(relationship_context=True)
         fake_self = SimpleNamespace(

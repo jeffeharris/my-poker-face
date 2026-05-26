@@ -10,9 +10,10 @@ Tests cover:
 """
 
 import unittest
+
 import pytest
 
-from poker.poker_game import determine_winner, award_pot_winnings, PokerGameState, Player, Card
+from poker.poker_game import Card, Player, PokerGameState, award_pot_winnings, determine_winner
 
 pytestmark = pytest.mark.slow
 
@@ -46,7 +47,8 @@ class TestSplitPots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -107,7 +109,8 @@ class TestSplitPots(unittest.TestCase):
             Card('6', 'diamonds'),
         )
         # Alice is dealer (idx 0), Bob is to her left
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 201},
@@ -162,7 +165,8 @@ class TestSplitPots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 300},
@@ -226,7 +230,8 @@ class TestSplitPots(unittest.TestCase):
             Card('6', 'diamonds'),
         )
         # Alice is dealer (idx 0)
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3, player4),
             community_cards=community_cards,
             pot={'total': 302},
@@ -289,7 +294,8 @@ class TestSidePots(unittest.TestCase):
             Card('2', 'hearts'),
             Card('3', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -353,7 +359,8 @@ class TestSidePots(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -412,7 +419,8 @@ class TestSidePots(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(tiny, small, medium),
             community_cards=community_cards,
             pot={'total': 190},
@@ -476,7 +484,8 @@ class TestSidePots(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(short_stack, big_stack1, big_stack2),
             community_cards=community_cards,
             pot={'total': 450},
@@ -547,7 +556,8 @@ class TestOddChipDistribution(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 101},
@@ -607,7 +617,8 @@ class TestOddChipDistribution(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3, player4),
             community_cards=community_cards,
             pot={'total': 101},
@@ -657,7 +668,8 @@ class TestChipConservation(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -666,9 +678,7 @@ class TestChipConservation(unittest.TestCase):
         result = determine_winner(game_state)
 
         total_distributed = sum(
-            w['amount']
-            for pot in result['pot_breakdown']
-            for w in pot['winners']
+            w['amount'] for pot in result['pot_breakdown'] for w in pot['winners']
         )
         total_pot = sum(pot['total_amount'] for pot in result['pot_breakdown'])
 
@@ -711,7 +721,8 @@ class TestChipConservation(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(tiny, small, medium),
             community_cards=community_cards,
             pot={'total': 190},
@@ -720,9 +731,7 @@ class TestChipConservation(unittest.TestCase):
         result = determine_winner(game_state)
 
         total_from_pots = sum(
-            w['amount']
-            for pot in result['pot_breakdown']
-            for w in pot['winners']
+            w['amount'] for pot in result['pot_breakdown'] for w in pot['winners']
         )
         total_returned = sum(result.get('returned_chips', {}).values())
         total_distributed = total_from_pots + total_returned
@@ -765,7 +774,8 @@ class TestChipConservation(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 201},  # 201 / 3 = 67 remainder 0
@@ -774,9 +784,7 @@ class TestChipConservation(unittest.TestCase):
         result = determine_winner(game_state)
 
         total_distributed = sum(
-            w['amount']
-            for pot in result['pot_breakdown']
-            for w in pot['winners']
+            w['amount'] for pot in result['pot_breakdown'] for w in pot['winners']
         )
 
         self.assertEqual(total_distributed, 201)
@@ -810,7 +818,8 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -852,7 +861,8 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('7', 'hearts'),
             Card('6', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -901,7 +911,8 @@ class TestAwardPotWinnings(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(short_stack, big_stack, other),
             community_cards=community_cards,
             pot={'total': 450},
@@ -943,7 +954,8 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 200},
@@ -988,7 +1000,8 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('Q', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 175},
@@ -1033,7 +1046,8 @@ class TestEdgeCases(unittest.TestCase):
             Card('J', 'hearts'),
             Card('2', 'diamonds'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2, player3),
             community_cards=community_cards,
             pot={'total': 200},
@@ -1058,7 +1072,7 @@ class TestGameHandlerIntegration(unittest.TestCase):
         3. run_until_player_action() executes evaluating_hand_transition
         4. evaluating_hand_transition calls award_pot_winnings AGAIN
         """
-        from poker.poker_state_machine import PokerStateMachine, PokerPhase
+        from poker.poker_state_machine import PokerPhase, PokerStateMachine
 
         player1 = Player(
             name='Alice',
@@ -1083,7 +1097,8 @@ class TestGameHandlerIntegration(unittest.TestCase):
             Card('Q', 'hearts'),
             Card('2', 'spades'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 60, 'Alice': 30, 'Bob': 30},
@@ -1107,7 +1122,7 @@ class TestGameHandlerIntegration(unittest.TestCase):
 
     def test_double_award_without_phase_skip(self):
         """Demonstrate the bug: NOT skipping EVALUATING_HAND causes double-award."""
-        from poker.poker_state_machine import PokerStateMachine, PokerPhase
+        from poker.poker_state_machine import PokerPhase, PokerStateMachine
 
         player1 = Player(
             name='Alice',
@@ -1132,7 +1147,8 @@ class TestGameHandlerIntegration(unittest.TestCase):
             Card('Q', 'hearts'),
             Card('2', 'spades'),
         )
-        game_state = PokerGameState(deck=(),
+        game_state = PokerGameState(
+            deck=(),
             players=(player1, player2),
             community_cards=community_cards,
             pot={'total': 60, 'Alice': 30, 'Bob': 30},
@@ -1150,8 +1166,9 @@ class TestGameHandlerIntegration(unittest.TestCase):
         final_pot = state_machine.game_state.pot.get('total', 0)
         final_chips = final_stacks + final_pot
 
-        self.assertNotEqual(final_chips, 2000,
-            "This test should show chip leak when EVALUATING_HAND is not skipped")
+        self.assertNotEqual(
+            final_chips, 2000, "This test should show chip leak when EVALUATING_HAND is not skipped"
+        )
         self.assertGreater(final_chips, 2000, f"Expected chip leak, got {final_chips}")
 
 

@@ -166,9 +166,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
   describe('Case 2: Fold (no showdown)', () => {
     it('displays winner name and amount', () => {
       render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })}
-        />,
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })} />
       );
 
       expect(screen.getByText('Batman')).toBeTruthy();
@@ -177,9 +175,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
 
     it('shows "All opponents folded" text', () => {
       render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })}
-        />,
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })} />
       );
 
       expect(screen.getByText('All opponents folded')).toBeTruthy();
@@ -187,9 +183,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
 
     it('does not show showdown cards section', () => {
       render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })}
-        />,
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: makeFoldWinnerInfo() })} />
       );
 
       act(() => {
@@ -217,11 +211,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
         ],
       });
 
-      render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: splitWinnerInfo })}
-        />,
-      );
+      render(<MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: splitWinnerInfo })} />);
 
       expect(screen.getByText('Batman & TestPlayer split')).toBeTruthy();
       expect(screen.getByText('$300')).toBeTruthy();
@@ -247,11 +237,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
         ],
       });
 
-      render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: finalHandInfo })}
-        />,
-      );
+      render(<MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: finalHandInfo })} />);
 
       expect(screen.getByText('CHAMPION!')).toBeTruthy();
     });
@@ -265,11 +251,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
         },
       });
 
-      render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: finalHandInfo })}
-        />,
-      );
+      render(<MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: finalHandInfo })} />);
 
       expect(screen.getByText('Finished 2nd')).toBeTruthy();
     });
@@ -283,11 +265,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
         },
       });
 
-      render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: finalHandInfo })}
-        />,
-      );
+      render(<MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: finalHandInfo })} />);
 
       expect(screen.getByText('Continue to Results')).toBeTruthy();
     });
@@ -305,7 +283,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
       render(
         <MobileWinnerAnnouncement
           {...makeDefaultProps({ winnerInfo: finalHandInfo, onComplete })}
-        />,
+        />
       );
 
       // Advance well past the auto-dismiss timer (12s for showdown)
@@ -320,11 +298,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
   describe('Auto-dismiss behavior', () => {
     it('auto-dismisses showdown after 12 seconds', () => {
       const onComplete = vi.fn();
-      render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ onComplete })}
-        />,
-      );
+      render(<MobileWinnerAnnouncement {...makeDefaultProps({ onComplete })} />);
 
       act(() => {
         vi.advanceTimersByTime(12000);
@@ -341,7 +315,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
             winnerInfo: makeFoldWinnerInfo(),
             onComplete,
           })}
-        />,
+        />
       );
 
       act(() => {
@@ -355,9 +329,7 @@ describe('VT-04: MobileWinnerAnnouncement — showdown vs fold display', () => {
   describe('Returns null when no winnerInfo', () => {
     it('renders nothing when winnerInfo is null', () => {
       const { container } = render(
-        <MobileWinnerAnnouncement
-          {...makeDefaultProps({ winnerInfo: null })}
-        />,
+        <MobileWinnerAnnouncement {...makeDefaultProps({ winnerInfo: null })} />
       );
 
       expect(container.querySelector('.mobile-winner-overlay')).toBeNull();

@@ -30,7 +30,6 @@ from cash_mode.stakes import (
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.stake_repository import StakeRepository
 
-
 ANCHOR = datetime(2026, 5, 19, 12, 0, 0)
 
 
@@ -132,8 +131,10 @@ class TestLoadActiveForSession:
     def test_returns_the_active_stake(self, repo):
         active = _make_stake(stake_id="stk-active", session_id="sess-1")
         settled = _make_stake(
-            stake_id="stk-settled", session_id="sess-2",
-            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+            stake_id="stk-settled",
+            session_id="sess-2",
+            status=STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR,
         )
         repo.create_stake(active)
         repo.create_stake(settled)
@@ -143,8 +144,10 @@ class TestLoadActiveForSession:
 
     def test_returns_none_when_no_active(self, repo):
         settled = _make_stake(
-            stake_id="stk-settled", session_id="sess-1",
-            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+            stake_id="stk-settled",
+            session_id="sess-1",
+            status=STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR,
         )
         repo.create_stake(settled)
         assert repo.load_active_for_session("sess-1") is None
@@ -160,8 +163,10 @@ class TestLoadActiveForBorrower:
 
     def test_returns_active_stake_for_human_borrower(self, repo):
         active = _make_stake(
-            stake_id="stk-h", session_id="sess-h",
-            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            stake_id="stk-h",
+            session_id="sess-h",
+            borrower_id="alice",
+            borrower_kind=BORROWER_KIND_HUMAN,
         )
         repo.create_stake(active)
         loaded = repo.load_active_for_borrower("alice", BORROWER_KIND_HUMAN)
@@ -171,52 +176,75 @@ class TestLoadActiveForBorrower:
     def test_borrower_kind_filter(self, repo):
         # Same id, different borrower kind — must not collide.
         human_stake = _make_stake(
-            stake_id="stk-h", session_id="sess-h",
-            borrower_id="napoleon", borrower_kind=BORROWER_KIND_HUMAN,
+            stake_id="stk-h",
+            session_id="sess-h",
+            borrower_id="napoleon",
+            borrower_kind=BORROWER_KIND_HUMAN,
         )
         ai_stake = _make_stake(
-            stake_id="stk-ai", session_id="sess-ai",
+            stake_id="stk-ai",
+            session_id="sess-ai",
             borrower_id="napoleon",
             borrower_kind=BORROWER_KIND_PERSONALITY,
         )
         repo.create_stake(human_stake)
         repo.create_stake(ai_stake)
-        assert repo.load_active_for_borrower(
-            "napoleon", BORROWER_KIND_HUMAN,
-        ).stake_id == "stk-h"
-        assert repo.load_active_for_borrower(
-            "napoleon", BORROWER_KIND_PERSONALITY,
-        ).stake_id == "stk-ai"
+        assert (
+            repo.load_active_for_borrower(
+                "napoleon",
+                BORROWER_KIND_HUMAN,
+            ).stake_id
+            == "stk-h"
+        )
+        assert (
+            repo.load_active_for_borrower(
+                "napoleon",
+                BORROWER_KIND_PERSONALITY,
+            ).stake_id
+            == "stk-ai"
+        )
 
     def test_returns_none_when_no_active_stake(self, repo):
         settled = _make_stake(
-            stake_id="stk-old", session_id="sess-old",
-            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
-            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+            stake_id="stk-old",
+            session_id="sess-old",
+            borrower_id="alice",
+            borrower_kind=BORROWER_KIND_HUMAN,
+            status=STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR,
         )
         repo.create_stake(settled)
-        assert repo.load_active_for_borrower(
-            "alice", BORROWER_KIND_HUMAN,
-        ) is None
+        assert (
+            repo.load_active_for_borrower(
+                "alice",
+                BORROWER_KIND_HUMAN,
+            )
+            is None
+        )
 
     def test_returns_most_recent_when_multiple_active(self, repo):
         # Shouldn't happen post-Phase-4 (the lobby's borrower-profile
         # gate prevents double-take-stake) — but the read path stays
         # deterministic if the invariant slips.
         older = _make_stake(
-            stake_id="stk-old", session_id="sess-old",
-            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            stake_id="stk-old",
+            session_id="sess-old",
+            borrower_id="alice",
+            borrower_kind=BORROWER_KIND_HUMAN,
             created_at=ANCHOR,
         )
         newer = _make_stake(
-            stake_id="stk-new", session_id="sess-new",
-            borrower_id="alice", borrower_kind=BORROWER_KIND_HUMAN,
+            stake_id="stk-new",
+            session_id="sess-new",
+            borrower_id="alice",
+            borrower_kind=BORROWER_KIND_HUMAN,
             created_at=ANCHOR + timedelta(hours=1),
         )
         repo.create_stake(older)
         repo.create_stake(newer)
         loaded = repo.load_active_for_borrower(
-            "alice", BORROWER_KIND_HUMAN,
+            "alice",
+            BORROWER_KIND_HUMAN,
         )
         assert loaded.stake_id == "stk-new"
 
@@ -225,27 +253,34 @@ class TestListCarriesForBorrower:
     def test_returns_all_carries_for_borrower(self, repo):
         # Same borrower, two carries (different stakers), one settled.
         carry_a = _make_stake(
-            stake_id="stk-a", session_id="sess-1",
+            stake_id="stk-a",
+            session_id="sess-1",
             staker_id="napoleon",
-            status=STAKE_STATUS_CARRY, carry_amount=120,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=120,
             created_at=ANCHOR,
         )
         carry_b = _make_stake(
-            stake_id="stk-b", session_id="sess-2",
+            stake_id="stk-b",
+            session_id="sess-2",
             staker_id="bezos",
-            status=STAKE_STATUS_CARRY, carry_amount=80,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=80,
             created_at=ANCHOR + timedelta(hours=1),
         )
         settled = _make_stake(
-            stake_id="stk-c", session_id="sess-3",
-            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+            stake_id="stk-c",
+            session_id="sess-3",
+            status=STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR,
         )
         repo.create_stake(carry_a)
         repo.create_stake(carry_b)
         repo.create_stake(settled)
 
         carries = repo.list_carries_for_borrower(
-            "alice", BORROWER_KIND_HUMAN,
+            "alice",
+            BORROWER_KIND_HUMAN,
         )
         assert len(carries) == 2
         # Oldest first, per the ORDER BY in the repo.
@@ -256,13 +291,18 @@ class TestListCarriesForBorrower:
         # Same id, different borrower kind — must not collide.
         human_carry = _make_stake(
             stake_id="stk-human",
-            borrower_id="zeus", borrower_kind=BORROWER_KIND_HUMAN,
-            status=STAKE_STATUS_CARRY, carry_amount=50,
+            borrower_id="zeus",
+            borrower_kind=BORROWER_KIND_HUMAN,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=50,
         )
         ai_carry = _make_stake(
-            stake_id="stk-ai", session_id="sess-2",
-            borrower_id="zeus", borrower_kind=BORROWER_KIND_PERSONALITY,
-            status=STAKE_STATUS_CARRY, carry_amount=70,
+            stake_id="stk-ai",
+            session_id="sess-2",
+            borrower_id="zeus",
+            borrower_kind=BORROWER_KIND_PERSONALITY,
+            status=STAKE_STATUS_CARRY,
+            carry_amount=70,
         )
         repo.create_stake(human_carry)
         repo.create_stake(ai_carry)
@@ -276,20 +316,29 @@ class TestListCarriesForBorrower:
 class TestListCarriesForStaker:
     def test_returns_carries_owed_to_staker(self, repo):
         owed_to_napoleon_a = _make_stake(
-            stake_id="stk-1", session_id="sess-1",
-            staker_id="napoleon", borrower_id="alice",
-            status=STAKE_STATUS_CARRY, carry_amount=100,
+            stake_id="stk-1",
+            session_id="sess-1",
+            staker_id="napoleon",
+            borrower_id="alice",
+            status=STAKE_STATUS_CARRY,
+            carry_amount=100,
         )
         owed_to_napoleon_b = _make_stake(
-            stake_id="stk-2", session_id="sess-2",
-            staker_id="napoleon", borrower_id="bob",
-            status=STAKE_STATUS_CARRY, carry_amount=60,
+            stake_id="stk-2",
+            session_id="sess-2",
+            staker_id="napoleon",
+            borrower_id="bob",
+            status=STAKE_STATUS_CARRY,
+            carry_amount=60,
             created_at=ANCHOR + timedelta(hours=1),
         )
         owed_to_bezos = _make_stake(
-            stake_id="stk-3", session_id="sess-3",
-            staker_id="bezos", borrower_id="alice",
-            status=STAKE_STATUS_CARRY, carry_amount=200,
+            stake_id="stk-3",
+            session_id="sess-3",
+            staker_id="bezos",
+            borrower_id="alice",
+            status=STAKE_STATUS_CARRY,
+            carry_amount=200,
         )
         repo.create_stake(owed_to_napoleon_a)
         repo.create_stake(owed_to_napoleon_b)
@@ -311,7 +360,9 @@ class TestUpdateStatus:
     def test_transition_active_to_settled(self, repo):
         repo.create_stake(_make_stake())
         ok = repo.update_status(
-            "stk-1", STAKE_STATUS_SETTLED, settled_at=ANCHOR + timedelta(hours=2),
+            "stk-1",
+            STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR + timedelta(hours=2),
         )
         assert ok is True
         loaded = repo.load_stake("stk-1")
@@ -343,9 +394,12 @@ class TestUpdateCarryAmount:
         assert loaded.carry_amount == 250
 
     def test_can_zero_a_carry(self, repo):
-        repo.create_stake(_make_stake(
-            status=STAKE_STATUS_CARRY, carry_amount=300,
-        ))
+        repo.create_stake(
+            _make_stake(
+                status=STAKE_STATUS_CARRY,
+                carry_amount=300,
+            )
+        )
         repo.update_carry_amount("stk-1", 0)
         loaded = repo.load_stake("stk-1")
         assert loaded.carry_amount == 0
@@ -357,12 +411,15 @@ class TestUpdateCarryAmount:
 class TestListStakesForSession:
     def test_returns_all_stakes_oldest_first(self, repo):
         s_old = _make_stake(
-            stake_id="stk-old", session_id="sess-1",
-            status=STAKE_STATUS_SETTLED, settled_at=ANCHOR,
+            stake_id="stk-old",
+            session_id="sess-1",
+            status=STAKE_STATUS_SETTLED,
+            settled_at=ANCHOR,
             created_at=ANCHOR,
         )
         s_new = _make_stake(
-            stake_id="stk-new", session_id="sess-1",
+            stake_id="stk-new",
+            session_id="sess-1",
             created_at=ANCHOR + timedelta(hours=1),
         )
         repo.create_stake(s_old)

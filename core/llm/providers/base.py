@@ -1,6 +1,7 @@
 """Abstract base class for LLM providers."""
+
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from ..config import DEFAULT_MAX_TOKENS
 

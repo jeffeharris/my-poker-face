@@ -12,7 +12,13 @@ export interface BottomSheetProps {
   desktopMode?: 'sheet' | 'modal';
 }
 
-export function BottomSheet({ isOpen, onClose, title, children, desktopMode = 'sheet' }: BottomSheetProps) {
+export function BottomSheet({
+  isOpen,
+  onClose,
+  title,
+  children,
+  desktopMode = 'sheet',
+}: BottomSheetProps) {
   if (!isOpen) return null;
 
   // Portaled to <body> so the fixed sheet + backdrop escape any ancestor
@@ -30,11 +36,9 @@ export function BottomSheet({ isOpen, onClose, title, children, desktopMode = 's
             <X size={20} />
           </button>
         </div>
-        <div className="bottom-sheet__content">
-          {children}
-        </div>
+        <div className="bottom-sheet__content">{children}</div>
       </div>
     </>,
-    document.body,
+    document.body
   );
 }

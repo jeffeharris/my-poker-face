@@ -10,25 +10,26 @@ Tests the new architecture:
 """
 
 import pytest
+
 from poker.player_psychology import (
-    PersonalityAnchors,
+    ComposureState,
     EmotionalAxes,
     EmotionalQuadrant,
+    PersonalityAnchors,
     PlayerPsychology,
-    ComposureState,
     PokerFaceZone,
     ZoneEffects,
+    _clamp,
+    compute_baseline_composure,
+    compute_baseline_confidence,
+    compute_modifiers,
     create_poker_face_zone,
     get_quadrant,
-    compute_modifiers,
-    compute_baseline_confidence,
-    compute_baseline_composure,
-    _clamp,
 )
 from poker.range_guidance import (
-    looseness_to_range_pct,
-    get_range_percentage,
     POSITION_CLAMPS,
+    get_range_percentage,
+    looseness_to_range_pct,
 )
 
 pytestmark = pytest.mark.slow
@@ -112,7 +113,9 @@ class TestPersonalityAnchors:
             baseline_energy=0.5,
             recovery_rate=0.15,
         )
-        with pytest.raises(Exception):  # FrozenInstanceError
+        from dataclasses import FrozenInstanceError
+
+        with pytest.raises(FrozenInstanceError):
             anchors.baseline_aggression = 0.8
 
     def test_from_dict(self):
@@ -319,28 +322,52 @@ class TestBaselineFormulas:
     def test_baseline_confidence_high_aggression(self):
         """Test that high aggression increases baseline confidence."""
         low_agg = PersonalityAnchors(
-            baseline_aggression=0.2, baseline_looseness=0.5, ego=0.5, poise=0.7,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.2,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_agg = PersonalityAnchors(
-            baseline_aggression=0.8, baseline_looseness=0.5, ego=0.5, poise=0.7,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.8,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         assert compute_baseline_confidence(high_agg) > compute_baseline_confidence(low_agg)
 
     def test_baseline_confidence_high_ego_raises(self):
         """Test that high ego RAISES baseline confidence (high self-regard)."""
         low_ego = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.2, poise=0.7,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.2,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_ego = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.8, poise=0.7,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.8,
+            poise=0.7,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         # High ego = higher baseline (thinks highly of themselves)
         # Note: brittleness (bigger drops when challenged) is in event impacts, not baseline
@@ -367,14 +394,26 @@ class TestBaselineFormulas:
     def test_baseline_composure_high_poise(self):
         """Test that high poise increases baseline composure."""
         low_poise = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.3,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.3,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_poise = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.85,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.85,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         assert compute_baseline_composure(high_poise) > compute_baseline_composure(low_poise)
 
@@ -382,9 +421,15 @@ class TestBaselineFormulas:
         """Test that baseline_composure has a floor of 0.40."""
         # Create extreme low-composure personality
         extreme = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.0,
-            expressiveness=1.0, risk_identity=0.0, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.0,
+            expressiveness=1.0,
+            risk_identity=0.0,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         # Even with worst anchors, composure should be >= 0.40
         baseline = compute_baseline_composure(extreme)
@@ -451,7 +496,7 @@ class TestBaselineFormulas:
 
         # Verify baselines are personality-specific, not universal
         assert psych._baseline_confidence > 0.55  # Higher than universal 0.5
-        assert psych._baseline_composure > 0.72   # Higher than universal 0.7
+        assert psych._baseline_composure > 0.72  # Higher than universal 0.7
 
         # Manually set axes to low values (simulating being shaken)
         psych.axes = psych.axes.update(confidence=0.3, composure=0.4)
@@ -465,7 +510,9 @@ class TestBaselineFormulas:
         # If baseline_conf ~0.65: new_conf = 0.3 + (0.65 - 0.3) * 0.5 = 0.475
         # If baseline_comp ~0.77: new_comp = 0.4 + (0.77 - 0.4) * 0.5 = 0.585
         assert psych.axes.confidence > 0.4  # Moved toward baseline
-        assert psych.axes.composure > 0.5   # Moved toward baseline (higher than 0.55 which old 0.7 baseline would give)
+        assert (
+            psych.axes.composure > 0.5
+        )  # Moved toward baseline (higher than 0.55 which old 0.7 baseline would give)
 
     def test_volatile_personality_recovery_lower_baseline(self):
         """Test that volatile personality recovers to LOWER baseline composure."""
@@ -536,14 +583,14 @@ class TestPositionOffsets:
         """Napoleon-like LAG (0.79) gets wide ranges at every position."""
         ep = looseness_to_range_pct(0.79, 'early')
         btn = looseness_to_range_pct(0.79, 'button')
-        assert abs(ep - 0.64) < 0.01   # 0.79 - 0.15
+        assert abs(ep - 0.64) < 0.01  # 0.79 - 0.15
         assert abs(btn - 0.84) < 0.01  # 0.79 + 0.05
 
     def test_rock_gets_tight_range(self):
         """Buddha-like rock (0.22) gets tight ranges."""
         ep = looseness_to_range_pct(0.22, 'early')
         btn = looseness_to_range_pct(0.22, 'button')
-        assert abs(ep - 0.07) < 0.01   # 0.22 - 0.15
+        assert abs(ep - 0.07) < 0.01  # 0.22 - 0.15
         assert abs(btn - 0.27) < 0.01  # 0.22 + 0.05
 
     def test_backward_compat_get_range_percentage(self):
@@ -576,7 +623,7 @@ class TestPlayerPsychologyIntegration:
                 'adaptation_bias': 0.5,
                 'baseline_energy': 0.7,
                 'recovery_rate': 0.2,
-            }
+            },
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
         assert psych.anchors.baseline_aggression == 0.8
@@ -595,10 +642,10 @@ class TestPlayerPsychologyIntegration:
             'anchors': {
                 'baseline_aggression': 0.2,  # Low -> lower confidence
                 'baseline_looseness': 0.5,
-                'ego': 0.2,                   # Low ego -> lower confidence baseline
-                'poise': 0.8,                 # High poise -> higher composure
-                'expressiveness': 0.3,        # Low expressiveness -> higher composure
-                'risk_identity': 0.3,         # Low -> lower confidence, lower composure
+                'ego': 0.2,  # Low ego -> lower confidence baseline
+                'poise': 0.8,  # High poise -> higher composure
+                'expressiveness': 0.3,  # Low expressiveness -> higher composure
+                'risk_identity': 0.3,  # Low -> lower confidence, lower composure
                 'adaptation_bias': 0.5,
                 'baseline_energy': 0.5,
                 'recovery_rate': 0.15,
@@ -730,6 +777,7 @@ class TestPlayerPsychologyIntegration:
 
 # === Phase 2 Tests: Energy + Expression ===
 
+
 class TestEnergyImpacts:
     """Tests for Phase 2 energy impacts in pressure events."""
 
@@ -737,9 +785,15 @@ class TestEnergyImpacts:
         """Test that win events include energy impact."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -754,9 +808,15 @@ class TestEnergyImpacts:
         """Test that loss events include energy impact."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -771,9 +831,15 @@ class TestEnergyImpacts:
         """Test that energy-only events don't change confidence/composure."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -792,9 +858,15 @@ class TestEnergyImpacts:
         """Test that pressure events (all_in_moment) affect both composure and energy."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.3,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.3,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -811,16 +883,28 @@ class TestEnergyImpacts:
         # Create two personalities with different poise/ego
         low_sens_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.2, 'poise': 0.9,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.2,
+                'poise': 0.9,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         high_sens_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.9, 'poise': 0.2,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.9,
+                'poise': 0.2,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
 
@@ -841,9 +925,15 @@ class TestEnergyRecovery:
         """Test that energy recovers toward baseline_energy anchor."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.6, 'recovery_rate': 0.5,  # High rate for faster recovery
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.6,
+                'recovery_rate': 0.5,  # High rate for faster recovery
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -862,9 +952,15 @@ class TestEnergyRecovery:
         """Test that edge spring pushes away from 0."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.1,  # Low base rate
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.1,  # Low base rate
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -886,9 +982,15 @@ class TestEnergyRecovery:
         """Test that edge spring pushes away from 1."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.1,  # Low base rate
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.1,  # Low base rate
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -914,9 +1016,15 @@ class TestConsecutiveFoldTracking:
         """Test that folding increments the consecutive_folds counter."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -933,9 +1041,15 @@ class TestConsecutiveFoldTracking:
         """Test that non-fold actions reset the consecutive_folds counter."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -951,9 +1065,15 @@ class TestConsecutiveFoldTracking:
         """Test that 3 consecutive folds triggers consecutive_folds_3 event."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -975,9 +1095,15 @@ class TestConsecutiveFoldTracking:
         """Test that 5 consecutive folds triggers card_dead_5 event."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -997,9 +1123,15 @@ class TestConsecutiveFoldTracking:
         """Test that consecutive_folds persists through serialization."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1063,10 +1195,15 @@ class TestExpressionFiltering:
         """Test that get_display_emotion applies expression filtering."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.7, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.3,
+                'baseline_aggression': 0.7,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.3,
                 'expressiveness': 0.2,  # Low expressiveness
-                'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1088,10 +1225,15 @@ class TestExpressionFiltering:
         """Test that high expressiveness + high energy shows true emotion."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.7, 'baseline_looseness': 0.5, 'ego': 0.7, 'poise': 0.3,
+                'baseline_aggression': 0.7,
+                'baseline_looseness': 0.5,
+                'ego': 0.7,
+                'poise': 0.3,
                 'expressiveness': 0.9,  # High expressiveness
-                'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.8, 'recovery_rate': 0.15,  # High energy
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.8,
+                'recovery_rate': 0.15,  # High energy
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1138,6 +1280,7 @@ class TestExpressionFiltering:
 
 
 # === Phase 3 Tests: Poker Face Zone ===
+
 
 class TestPokerFaceZoneGeometry:
     """Tests for PokerFaceZone ellipse geometry."""
@@ -1213,17 +1356,29 @@ class TestPokerFaceZoneRadiusModifiers:
 
     def test_high_poise_larger_composure_radius(self):
         """Test that high poise gives larger composure radius."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+        from poker.player_psychology import PersonalityAnchors, create_poker_face_zone
 
         low_poise = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.2,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.2,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_poise = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.9,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.9,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
 
         zone_low = create_poker_face_zone(low_poise)
@@ -1233,17 +1388,29 @@ class TestPokerFaceZoneRadiusModifiers:
 
     def test_low_ego_larger_confidence_radius(self):
         """Test that low ego gives larger confidence radius."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+        from poker.player_psychology import PersonalityAnchors, create_poker_face_zone
 
         low_ego = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.2, poise=0.5,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.2,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_ego = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.8, poise=0.5,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.8,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
 
         zone_low = create_poker_face_zone(low_ego)
@@ -1253,17 +1420,29 @@ class TestPokerFaceZoneRadiusModifiers:
 
     def test_risk_seeking_narrows_confidence_radius(self):
         """Test that risk-seeking (>0.5) narrows confidence radius."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+        from poker.player_psychology import PersonalityAnchors, create_poker_face_zone
 
         neutral_risk = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         high_risk = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.5, risk_identity=0.9, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.9,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
 
         zone_neutral = create_poker_face_zone(neutral_risk)
@@ -1276,17 +1455,29 @@ class TestPokerFaceZoneRadiusModifiers:
 
     def test_risk_averse_narrows_composure_radius(self):
         """Test that risk-averse (<0.5) narrows composure radius."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+        from poker.player_psychology import PersonalityAnchors, create_poker_face_zone
 
         neutral_risk = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.5, risk_identity=0.5, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.5,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         low_risk = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5, ego=0.5, poise=0.5,
-            expressiveness=0.5, risk_identity=0.1, adaptation_bias=0.5,
-            baseline_energy=0.5, recovery_rate=0.15,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
+            ego=0.5,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.1,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
 
         zone_neutral = create_poker_face_zone(neutral_risk)
@@ -1297,25 +1488,31 @@ class TestPokerFaceZoneRadiusModifiers:
 
     def test_radius_ranges(self):
         """Test that radius modifiers produce values in expected ranges."""
-        from poker.player_psychology import create_poker_face_zone, PersonalityAnchors
+        from poker.player_psychology import PersonalityAnchors, create_poker_face_zone
 
         # Extreme personality with all modifiers maximizing zone size
         max_zone = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
             ego=0.0,  # Max confidence radius
             poise=1.0,  # Max composure radius
             expressiveness=0.0,
             risk_identity=0.5,  # No asymmetric penalty
-            adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
         # Extreme personality with all modifiers minimizing zone size
         min_zone = PersonalityAnchors(
-            baseline_aggression=0.5, baseline_looseness=0.5,
+            baseline_aggression=0.5,
+            baseline_looseness=0.5,
             ego=1.0,  # Min confidence radius
             poise=0.0,  # Min composure radius
             expressiveness=1.0,
             risk_identity=1.0,  # Asymmetric penalty on confidence
-            adaptation_bias=0.5, baseline_energy=0.5, recovery_rate=0.15,
+            adaptation_bias=0.5,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
         )
 
         zone_max = create_poker_face_zone(max_zone)
@@ -1446,9 +1643,15 @@ class TestPokerFaceZoneIntegration:
         """Test that zone_distance property returns expected values."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1466,9 +1669,15 @@ class TestPokerFaceZoneIntegration:
         """Test that serialization includes zone information."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1484,9 +1693,15 @@ class TestPokerFaceZoneIntegration:
         """Test that deserialization recomputes zone from anchors."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.3, 'poise': 0.8,
-                'expressiveness': 0.4, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.3,
+                'poise': 0.8,
+                'expressiveness': 0.4,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -1528,7 +1743,9 @@ class TestPokerFaceZoneIntegration:
 
         # Verify their true emotion would be something other than poker_face
         true_emotion = psych.get_display_emotion(use_expression_filter=False)
-        assert true_emotion != 'poker_face', f"True emotion should not be poker_face, got {true_emotion}"
+        assert (
+            true_emotion != 'poker_face'
+        ), f"True emotion should not be poker_face, got {true_emotion}"
 
         # But display emotion should be poker_face
         display_emotion = psych.get_display_emotion(use_expression_filter=True)
@@ -1567,12 +1784,13 @@ class TestPokerFaceZoneIntegration:
 
 # === Phase 4 Tests: Severity Sensitivity + Asymmetric Recovery ===
 
+
 class TestSeveritySensitivity:
     """Tests for Phase 4 severity-based sensitivity floors."""
 
     def test_minor_event_uses_low_floor(self):
         """Minor events use floor=0.20, giving lower sensitivity."""
-        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+        from poker.player_psychology import _calculate_sensitivity, _get_severity_floor
 
         floor = _get_severity_floor('win')  # Minor event
         assert floor == 0.20
@@ -1584,7 +1802,7 @@ class TestSeveritySensitivity:
 
     def test_normal_event_uses_default_floor(self):
         """Normal events use floor=0.30 (the default)."""
-        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+        from poker.player_psychology import _calculate_sensitivity, _get_severity_floor
 
         floor = _get_severity_floor('big_loss')  # Normal event
         assert floor == 0.30
@@ -1596,7 +1814,7 @@ class TestSeveritySensitivity:
 
     def test_major_event_uses_high_floor(self):
         """Major events use floor=0.40, giving higher minimum sensitivity."""
-        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+        from poker.player_psychology import _calculate_sensitivity, _get_severity_floor
 
         floor = _get_severity_floor('bad_beat')  # Major event
         assert floor == 0.40
@@ -1608,7 +1826,7 @@ class TestSeveritySensitivity:
 
     def test_high_ego_major_event_near_full(self):
         """High ego + major event approaches full impact."""
-        from poker.player_psychology import _get_severity_floor, _calculate_sensitivity
+        from poker.player_psychology import _calculate_sensitivity, _get_severity_floor
 
         floor = _get_severity_floor('bad_beat')  # Major event
         # sensitivity = 0.40 + 0.60 × 0.9 = 0.94
@@ -1626,11 +1844,15 @@ class TestSeveritySensitivity:
         """Verify that minor and major events have different impacts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
                 'ego': 0.3,  # Low-moderate ego
                 'poise': 0.3,  # Low-moderate poise (sensitive to composure)
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         # Test minor event (win)
@@ -1654,19 +1876,29 @@ class TestSeveritySensitivity:
         # High poise player
         high_poise_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.9,  # High poise
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         # Low poise player
         low_poise_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.1,  # Low poise
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
 
@@ -1703,10 +1935,15 @@ class TestAsymmetricRecovery:
         """
         config = {
             'anchors': {
-                'baseline_aggression': 0.2, 'baseline_looseness': 0.5, 'ego': 0.2,
+                'baseline_aggression': 0.2,
+                'baseline_looseness': 0.5,
+                'ego': 0.2,
                 'poise': 0.7,  # Baseline composure around 0.625
-                'expressiveness': 0.5, 'risk_identity': 0.3, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.3,  # Use same rate
+                'expressiveness': 0.5,
+                'risk_identity': 0.3,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.3,  # Use same rate
             }
         }
 
@@ -1746,10 +1983,15 @@ class TestAsymmetricRecovery:
         """
         config = {
             'anchors': {
-                'baseline_aggression': 0.3, 'baseline_looseness': 0.5, 'ego': 0.3,
+                'baseline_aggression': 0.3,
+                'baseline_looseness': 0.5,
+                'ego': 0.3,
                 'poise': 0.4,  # Lower poise gives baseline composure around 0.52
-                'expressiveness': 0.5, 'risk_identity': 0.4, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.5,  # High rate
+                'expressiveness': 0.5,
+                'risk_identity': 0.4,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.5,  # High rate
             }
         }
 
@@ -1775,10 +2017,15 @@ class TestAsymmetricRecovery:
         # High-poise player has high baseline composure
         high_poise_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.9,  # High poise -> high baseline
-                'expressiveness': 0.3, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.9,  # Very high rate for convergence
+                'expressiveness': 0.3,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.9,  # Very high rate for convergence
             }
         }
 
@@ -1802,9 +2049,15 @@ class TestAsymmetricRecovery:
         """Energy still uses edge springs, not asymmetric recovery."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5, 'poise': 0.7,
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.7,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.5,
             }
         }
 
@@ -1827,11 +2080,15 @@ class TestAsymmetricRecovery:
         """
         config = {
             'anchors': {
-                'baseline_aggression': 0.4, 'baseline_looseness': 0.5,
+                'baseline_aggression': 0.4,
+                'baseline_looseness': 0.5,
                 'ego': 0.4,  # Lower ego gives baseline confidence around 0.52
                 'poise': 0.4,  # Lower poise gives baseline composure around 0.52
-                'expressiveness': 0.5, 'risk_identity': 0.4,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.4,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.5,
             }
         }
 
@@ -1854,6 +2111,7 @@ class TestAsymmetricRecovery:
 # === Zone Gravity Tests ===
 
 # === Phase 6 Tests: Zone-Based Intrusive Thoughts ===
+
 
 class TestProbabilisticInjection:
     """Tests for Phase 6 probabilistic thought injection."""
@@ -1903,10 +2161,15 @@ class TestZoneThoughtSelection:
         """Tilted zone should use pressure_source-based thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.2,  # Low poise to get into tilted zone
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -1916,16 +2179,22 @@ class TestZoneThoughtSelection:
 
         # Should include bad_beat thoughts
         from poker.player_psychology import INTRUSIVE_THOUGHTS
+
         assert any(t in thoughts for t in INTRUSIVE_THOUGHTS['bad_beat'])
 
     def test_shaken_zone_risk_seeking_thoughts(self):
         """Shaken zone with risk_identity > 0.5 should get risk-seeking thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
                 'risk_identity': 0.8,  # Risk-seeking
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -1933,6 +2202,7 @@ class TestZoneThoughtSelection:
         thoughts = psych._get_zone_thoughts('shaken', 'balanced', 0.5)
 
         from poker.player_psychology import SHAKEN_THOUGHTS
+
         assert any(t in thoughts for t in SHAKEN_THOUGHTS['risk_seeking'])
         assert not any(t in thoughts for t in SHAKEN_THOUGHTS['risk_averse'])
 
@@ -1940,10 +2210,15 @@ class TestZoneThoughtSelection:
         """Shaken zone with risk_identity < 0.5 should get risk-averse thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
                 'risk_identity': 0.2,  # Risk-averse
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -1951,6 +2226,7 @@ class TestZoneThoughtSelection:
         thoughts = psych._get_zone_thoughts('shaken', 'balanced', 0.5)
 
         from poker.player_psychology import SHAKEN_THOUGHTS
+
         assert any(t in thoughts for t in SHAKEN_THOUGHTS['risk_averse'])
         assert not any(t in thoughts for t in SHAKEN_THOUGHTS['risk_seeking'])
 
@@ -1958,9 +2234,15 @@ class TestZoneThoughtSelection:
         """Overheated zone should return overheated thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -1968,15 +2250,22 @@ class TestZoneThoughtSelection:
         thoughts = psych._get_zone_thoughts('overheated', 'balanced', 0.5)
 
         from poker.player_psychology import OVERHEATED_THOUGHTS
+
         assert any(t in thoughts for t in OVERHEATED_THOUGHTS)
 
     def test_overconfident_zone_thoughts(self):
         """Overconfident zone should return overconfident thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -1984,15 +2273,22 @@ class TestZoneThoughtSelection:
         thoughts = psych._get_zone_thoughts('overconfident', 'balanced', 0.5)
 
         from poker.player_psychology import OVERCONFIDENT_THOUGHTS
+
         assert any(t in thoughts for t in OVERCONFIDENT_THOUGHTS)
 
     def test_detached_zone_thoughts(self):
         """Detached zone should return detached thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2000,6 +2296,7 @@ class TestZoneThoughtSelection:
         thoughts = psych._get_zone_thoughts('detached', 'balanced', 0.5)
 
         from poker.player_psychology import DETACHED_THOUGHTS
+
         assert any(t in thoughts for t in DETACHED_THOUGHTS)
 
 
@@ -2010,9 +2307,15 @@ class TestEnergyManifestationThoughts:
         """Low energy manifestation should add energy-specific thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2029,9 +2332,15 @@ class TestEnergyManifestationThoughts:
         """High energy manifestation should add energy-specific thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2048,9 +2357,15 @@ class TestEnergyManifestationThoughts:
         """Balanced energy manifestation should not add energy thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2076,10 +2391,15 @@ class TestPenaltyStrategy:
         """Tilted zone should get tiered advice based on intensity."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.2,  # Very low poise
-                'expressiveness': 0.5, 'risk_identity': 0.5, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2087,7 +2407,7 @@ class TestPenaltyStrategy:
         # Force into tilted zone by setting very low composure
         psych.axes = psych.axes.update(composure=0.1)
 
-        from poker.player_psychology import ZoneEffects, PENALTY_STRATEGY
+        from poker.player_psychology import PENALTY_STRATEGY, ZoneEffects
 
         # Test mild intensity
         mild_effects = ZoneEffects(penalties={'tilted': 0.30}, composure=0.1)
@@ -2104,26 +2424,40 @@ class TestPenaltyStrategy:
         # Risk-seeking personality
         risk_seeking_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
                 'risk_identity': 0.8,  # Risk-seeking
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
-        psych_risk_seeking = PlayerPsychology.from_personality_config('RiskSeeker', risk_seeking_config)
+        psych_risk_seeking = PlayerPsychology.from_personality_config(
+            'RiskSeeker', risk_seeking_config
+        )
 
         # Risk-averse personality
         risk_averse_config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
                 'risk_identity': 0.2,  # Risk-averse
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
-        psych_risk_averse = PlayerPsychology.from_personality_config('RiskAverse', risk_averse_config)
+        psych_risk_averse = PlayerPsychology.from_personality_config(
+            'RiskAverse', risk_averse_config
+        )
 
-        from poker.player_psychology import ZoneEffects, PENALTY_STRATEGY
+        from poker.player_psychology import PENALTY_STRATEGY, ZoneEffects
 
         shaken_effects = ZoneEffects(penalties={'shaken': 0.50}, composure=0.2, confidence=0.2)
 
@@ -2142,14 +2476,20 @@ class TestZoneDegradation:
         """Tilted zone should remove conservative/caution phrases."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.2, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.2,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
 
-        from poker.player_psychology import ZoneEffects, PHRASES_TO_REMOVE_BY_ZONE
+        from poker.player_psychology import PHRASES_TO_REMOVE_BY_ZONE, ZoneEffects
 
         test_prompt = (
             "Consider your options. Preserve your chips for when the odds are in your favor. "
@@ -2168,9 +2508,15 @@ class TestZoneDegradation:
         """Overconfident zone should remove caution/doubt phrases."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2190,9 +2536,15 @@ class TestZoneDegradation:
         """Heavy total penalty should replace pot odds guidance."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2219,10 +2571,15 @@ class TestZoneEffectsIntegration:
         """Players with no penalty zones should get unmodified prompt."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.3,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.3,
                 'poise': 0.85,  # High poise = high composure baseline
-                'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2240,10 +2597,15 @@ class TestZoneEffectsIntegration:
         """Tilted player should get intrusive thoughts and bad advice."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.8,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.8,
                 'poise': 0.2,  # Very low poise
-                'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Tilted', config)
@@ -2268,9 +2630,15 @@ class TestZoneEffectsIntegration:
         """apply_tilt_effects should also work."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
-                'poise': 0.5, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2284,10 +2652,15 @@ class TestZoneEffectsIntegration:
         """Multiple active penalty zones should both contribute thoughts."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': 0.5,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': 0.5,
                 'poise': 0.2,  # Low poise for tilted
-                'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         psych = PlayerPsychology.from_personality_config('Test', config)
@@ -2309,9 +2682,15 @@ class TestHandEventResolution:
         """Helper to create a psychology instance for testing."""
         config = {
             'anchors': {
-                'baseline_aggression': 0.5, 'baseline_looseness': 0.5, 'ego': ego,
-                'poise': poise, 'expressiveness': 0.5, 'risk_identity': 0.5,
-                'adaptation_bias': 0.5, 'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.5,
+                'baseline_looseness': 0.5,
+                'ego': ego,
+                'poise': poise,
+                'expressiveness': 0.5,
+                'risk_identity': 0.5,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             }
         }
         return PlayerPsychology.from_personality_config('TestPlayer', config)
@@ -2337,8 +2716,9 @@ class TestHandEventResolution:
         # Both ego events present, only first should apply
         result = psych.resolve_hand_events(['successful_bluff', 'nemesis_win'])
 
-        ego_events_applied = [e for e in result['events_applied']
-                              if e in PlayerPsychology.EGO_EVENTS]
+        ego_events_applied = [
+            e for e in result['events_applied'] if e in PlayerPsychology.EGO_EVENTS
+        ]
         assert len(ego_events_applied) == 1
 
         # The delta should reflect 50% scaling

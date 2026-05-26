@@ -21,8 +21,8 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def repo_with_v85(tmp_path):
     """A PersonalityRepository pointing at a fresh v85-shape database."""
-    from poker.repositories.schema_manager import SchemaManager
     from poker.repositories.personality_repository import PersonalityRepository
+    from poker.repositories.schema_manager import SchemaManager
 
     db_path = str(tmp_path / "factory.db")
     SchemaManager(db_path).ensure_schema()
@@ -37,9 +37,7 @@ class TestPersonalityGeneratorAssignsId:
         the returned config includes `id` (from load_personality)."""
         from poker.personality_generator import PersonalityGenerator
 
-        repo_with_v85.save_personality(
-            "Returning Hero", {"play_style": "calm"}
-        )
+        repo_with_v85.save_personality("Returning Hero", {"play_style": "calm"})
         gen = PersonalityGenerator(personality_repo=repo_with_v85)
         result = gen.get_personality("Returning Hero")
         assert result["id"] == "returning_hero"
@@ -104,9 +102,9 @@ class TestCreatePersonalityRoute:
         binding directly — patching `flask_app.extensions.auth_manager`
         wouldn't propagate to the already-bound name inside the route
         module."""
-        from flask_app.ui_web import create_app
-        from flask_app.routes import personality_routes as route_mod
         from flask_app import extensions as ext
+        from flask_app.routes import personality_routes as route_mod
+        from flask_app.ui_web import create_app
 
         app = create_app()
 
@@ -158,9 +156,7 @@ class TestCreatePersonalityRoute:
         from flask_app.routes import personality_routes as route_mod
 
         route_mod.personality_repo.delete_personality("Conflict Hero")
-        route_mod.personality_repo.save_personality(
-            "Conflict Hero", {"play_style": "existing"}
-        )
+        route_mod.personality_repo.save_personality("Conflict Hero", {"play_style": "existing"})
         try:
             response = authed_client.post(
                 "/api/personality",

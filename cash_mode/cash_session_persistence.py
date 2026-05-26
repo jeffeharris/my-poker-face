@@ -72,12 +72,15 @@ def record_cash_session_start(
         logger.warning(
             "[CASH] cash_sessions row create failed for %r: %s "
             "(session_summary will be best-effort on leave)",
-            game_id, e,
+            game_id,
+            e,
         )
 
 
 def increment_cash_session_buy_in(
-    cash_session_repo, game_id: str, amount: int,
+    cash_session_repo,
+    game_id: str,
+    amount: int,
 ) -> None:
     """Add `amount` to the session's `total_buy_in`.
 
@@ -96,12 +99,15 @@ def increment_cash_session_buy_in(
         if session is None:
             return
         cash_session_repo.update_total_buy_in(
-            game_id, session.total_buy_in + int(amount),
+            game_id,
+            session.total_buy_in + int(amount),
         )
     except Exception as e:
         logger.warning(
             "[CASH] cash_sessions buy-in increment failed for %r (+%d): %s",
-            game_id, amount, e,
+            game_id,
+            amount,
+            e,
         )
 
 
@@ -139,5 +145,7 @@ def finalise_cash_session(
         )
     except Exception as e:
         logger.warning(
-            "[CASH] cash_sessions.finalise failed for %r: %s", game_id, e,
+            "[CASH] cash_sessions.finalise failed for %r: %s",
+            game_id,
+            e,
         )

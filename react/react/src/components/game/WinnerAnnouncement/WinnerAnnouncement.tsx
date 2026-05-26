@@ -23,9 +23,9 @@ interface PotBreakdown {
 
 interface WinnerInfo {
   winners: string[];
-  winnings?: { [key: string]: number };  // Optional - may use pot_breakdown instead
-  pot_breakdown?: PotBreakdown[];  // New format from backend
-  pot_contributions?: { [key: string]: number };  // Player name -> amount contributed to pot
+  winnings?: { [key: string]: number }; // Optional - may use pot_breakdown instead
+  pot_breakdown?: PotBreakdown[]; // New format from backend
+  pot_contributions?: { [key: string]: number }; // Player name -> amount contributed to pot
   hand_name: string;
   winning_hand?: string[];
   showdown: boolean;
@@ -62,9 +62,8 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
   const avatarByName = useMemo(() => {
     const map = new Map<string, { url?: string; emotion?: string }>();
     for (const p of players ?? []) {
-      const url = p.avatar_url && !p.avatar_url.endsWith('/full')
-        ? `${p.avatar_url}/full`
-        : p.avatar_url;
+      const url =
+        p.avatar_url && !p.avatar_url.endsWith('/full') ? `${p.avatar_url}/full` : p.avatar_url;
       map.set(p.name, { url, emotion: p.avatar_emotion });
     }
     return map;
@@ -87,11 +86,14 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
       }
 
       // Auto-hide after animation (for non-final hands)
-      const timer = setTimeout(() => {
-        setShow(false);
-        setRevealCards(false);
-        setTimeout(onComplete, 500); // Wait for fade out
-      }, winnerInfo.showdown ? 6000 : 3000); // Longer for showdowns
+      const timer = setTimeout(
+        () => {
+          setShow(false);
+          setRevealCards(false);
+          setTimeout(onComplete, 500); // Wait for fade out
+        },
+        winnerInfo.showdown ? 6000 : 3000
+      ); // Longer for showdowns
 
       return () => clearTimeout(timer);
     }
@@ -99,9 +101,12 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
 
   if (!winnerInfo || !show) return null;
 
-  const winnersString = winnerInfo.winners.length > 1
-    ? winnerInfo.winners.slice(0, -1).join(', ') + ' and ' + winnerInfo.winners[winnerInfo.winners.length - 1]
-    : winnerInfo.winners[0];
+  const winnersString =
+    winnerInfo.winners.length > 1
+      ? winnerInfo.winners.slice(0, -1).join(', ') +
+        ' and ' +
+        winnerInfo.winners[winnerInfo.winners.length - 1]
+      : winnerInfo.winners[0];
 
   // Calculate net profit (winnings minus contributions) - standard poker display
   // Gross winnings = what winners receive from pots
@@ -139,7 +144,9 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
 
       <div className="winner-content">
         <div className="winner-header">
-          <h1 className="winner-title"><Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} /></h1>
+          <h1 className="winner-title">
+            <Trophy size={28} /> {isSplitPot ? 'Split Pot!' : 'Winner!'} <Trophy size={28} />
+          </h1>
           {winnerInfo.winners.length > 0 && (
             <div className="winner-avatars-row" data-testid="winner-avatars-row">
               {winnerInfo.winners.map((name) => {
@@ -156,7 +163,9 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
                         src={`${config.API_URL}${avatar.url}`}
                         alt={`${name} - ${avatar.emotion || 'neutral'}`}
                         className="winner-avatar-image"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
                       />
                     ) : (
                       <span className="winner-avatar-initial">{name.charAt(0).toUpperCase()}</span>
@@ -171,15 +180,26 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
 
         {/* Tournament Outcome Banner - only shown on final hand */}
         {winnerInfo.is_final_hand && winnerInfo.tournament_outcome && (
-          <div className={`tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}>
-            {winnerInfo.tournament_outcome.human_won
-              ? <><Trophy size={20} /> YOU WON THE TOURNAMENT! <Trophy size={20} /></>
-              : <><HeartCrack size={20} /> YOU'RE OUT! Finished {getOrdinal(winnerInfo.tournament_outcome.human_position)}</>}
+          <div
+            className={`tournament-outcome-banner ${winnerInfo.tournament_outcome.human_won ? 'victory' : 'defeat'}`}
+          >
+            {winnerInfo.tournament_outcome.human_won ? (
+              <>
+                <Trophy size={20} /> YOU WON THE TOURNAMENT! <Trophy size={20} />
+              </>
+            ) : (
+              <>
+                <HeartCrack size={20} /> YOU'RE OUT! Finished{' '}
+                {getOrdinal(winnerInfo.tournament_outcome.human_position)}
+              </>
+            )}
           </div>
         )}
 
         <div className="winner-details">
-          <div className="pot-won">{isSplitPot ? `Split Pot +$${netProfit}` : `+$${netProfit}`}</div>
+          <div className="pot-won">
+            {isSplitPot ? `Split Pot +$${netProfit}` : `+$${netProfit}`}
+          </div>
           {winnerInfo.showdown && winnerInfo.hand_name && (
             <div className="hand-name">with {winnerInfo.hand_name}</div>
           )}
@@ -198,7 +218,7 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
                 </div>
               </div>
             )}
-            
+
             {/* Player Cards - sorted by hand rank (best first) */}
             {winnerInfo.players_showdown && (
               <div className="players-section">
@@ -224,7 +244,9 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
                                 src={`${config.API_URL}${avatar.url}`}
                                 alt={`${player} - ${avatar.emotion || 'neutral'}`}
                                 className="player-showdown-avatar-image"
-                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
                               />
                             ) : (
                               <span className="player-showdown-avatar-initial">
@@ -237,7 +259,10 @@ export function WinnerAnnouncement({ winnerInfo, onComplete, players }: WinnerAn
                               <div className="player-hand-name">
                                 {playerInfo.hand_name}
                                 {hasKickers && (
-                                  <span className="player-kickers"> (kicker: {playerInfo.kickers!.join(', ')})</span>
+                                  <span className="player-kickers">
+                                    {' '}
+                                    (kicker: {playerInfo.kickers!.join(', ')})
+                                  </span>
                                 )}
                               </div>
                             )}

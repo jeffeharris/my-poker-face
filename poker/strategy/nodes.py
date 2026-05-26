@@ -12,9 +12,10 @@ from typing import FrozenSet
 @dataclass(frozen=True)
 class PreflopNode:
     """Preflop decision point -- 169 canonical hands, not suit-exact."""
-    hand: str             # 'AKs', 'AKo', 'AA', 'T9s', etc. (canonical hand)
-    position: str         # 'UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'
-    scenario: str         # 'rfi', 'vs_open', 'vs_3bet', 'vs_4bet'
+
+    hand: str  # 'AKs', 'AKo', 'AA', 'T9s', etc. (canonical hand)
+    position: str  # 'UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'
+    scenario: str  # 'rfi', 'vs_open', 'vs_3bet', 'vs_4bet'
     opener_position: str  # Position of original raiser ('' for RFI)
 
     @property
@@ -30,14 +31,15 @@ class PostflopNode:
     Data model is v2-ready. Phase 1 uses check/fold fallback for all
     postflop decisions, so this node type is not actively used yet.
     """
-    street: str           # 'flop', 'turn', 'river'
-    position: str         # 'IP', 'OOP'
-    pot_type: str         # 'SRP', '3BP'
-    board_texture: str    # 'dry_high', 'monotone', 'wet_rainbow', etc.
-    made_tier: str        # 'nuts', 'strong_made', 'medium_made', 'weak_made', 'air'
-    draw_modifier: str    # 'no_draw', 'strong_draw', 'weak_draw', 'backdoor'
-    facing_action: str    # 'unopened', 'facing_bet', 'facing_raise'
-    spr_bucket: str       # 'high', 'medium', 'low'
+
+    street: str  # 'flop', 'turn', 'river'
+    position: str  # 'IP', 'OOP'
+    pot_type: str  # 'SRP', '3BP'
+    board_texture: str  # 'dry_high', 'monotone', 'wet_rainbow', etc.
+    made_tier: str  # 'nuts', 'strong_made', 'medium_made', 'weak_made', 'air'
+    draw_modifier: str  # 'no_draw', 'strong_draw', 'weak_draw', 'backdoor'
+    facing_action: str  # 'unopened', 'facing_bet', 'facing_raise'
+    spr_bucket: str  # 'high', 'medium', 'low'
     # Plan §1 additions: extended hand classification. NOT part of `key`,
     # so existing strategy-table lookups stay stable. Consumers that need
     # board-aware adjustments (§2 defense floor, diagnostics) read these

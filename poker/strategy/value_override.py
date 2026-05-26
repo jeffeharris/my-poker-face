@@ -29,16 +29,14 @@ out at ~30% probability shift but the right play is 100% commit, the
 offset framework can't express it. This module does.
 """
 
-from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 from .exploitation import (
-    AggregatedOpponentStats,
-    DecisionContext,
     GATING_FLOOR,
     MIN_HANDS_DEFAULT,
-    classify_detected_patterns,
+    AggregatedOpponentStats,
+    DecisionContext,
     classify_opponent_archetype,
 )
 from .intervention_trace import (
@@ -64,6 +62,7 @@ class HandStrengthClass(str, Enum):
     STRONG. Phase 7.5 Item 1 bluff-catch override consumes MEDIUM_MADE /
     WEAK_MADE. The two are mutually exclusive by hand class.
     """
+
     NUTS = 'nuts'
     STRONG_MADE = 'strong_made'
     # Preflop archetype-relative "strong" (top N% of starting hands,
@@ -77,19 +76,23 @@ class HandStrengthClass(str, Enum):
     NOT_STRONG = 'not_strong'
 
 
-_OVERRIDE_TRIGGER_CLASSES = frozenset({
-    HandStrengthClass.NUTS.value,
-    HandStrengthClass.STRONG_MADE.value,
-    HandStrengthClass.STRONG.value,
-})
+_OVERRIDE_TRIGGER_CLASSES = frozenset(
+    {
+        HandStrengthClass.NUTS.value,
+        HandStrengthClass.STRONG_MADE.value,
+        HandStrengthClass.STRONG.value,
+    }
+)
 
 # Phase 7.5 Item 1: bluff-catch trigger classes. Disjoint from
 # _OVERRIDE_TRIGGER_CLASSES — guarantees the two overrides can't both
 # fire on the same decision.
-BLUFF_CATCH_TRIGGER_CLASSES = frozenset({
-    HandStrengthClass.MEDIUM_MADE.value,
-    HandStrengthClass.WEAK_MADE.value,
-})
+BLUFF_CATCH_TRIGGER_CLASSES = frozenset(
+    {
+        HandStrengthClass.MEDIUM_MADE.value,
+        HandStrengthClass.WEAK_MADE.value,
+    }
+)
 
 
 def _has_raise_or_jam(available_actions: List[str]) -> bool:
@@ -103,13 +106,11 @@ def _has_raise_or_jam(available_actions: List[str]) -> bool:
 
 
 def _raise_actions(available_actions: List[str]) -> List[str]:
-    return [
-        a for a in available_actions
-        if a == 'jam' or a.startswith(('bet_', 'raise_'))
-    ]
+    return [a for a in available_actions if a == 'jam' or a.startswith(('bet_', 'raise_'))]
 
 
 # ── Public API ──────────────────────────────────────────────────────────
+
 
 def should_apply_value_override(
     stats: AggregatedOpponentStats,
@@ -183,7 +184,8 @@ def compute_value_override_strategy(
     """
     if is_rule_disabled(disable_rules, 'strong_hand_override', 'default'):
         return strategy, make_disabled_trace(
-            layer='strong_hand_override', rule_id='default',
+            layer='strong_hand_override',
+            rule_id='default',
             layer_order=layer_order_for('strong_hand_override'),
         )
 
@@ -200,21 +202,23 @@ def compute_value_override_strategy(
         if has_call:
             output = StrategyProfile(action_probabilities={'call': 1.0})
             return output, _build_strong_hand_trace(
-                input_strategy=strategy, output_strategy=output,
-                hand_strength=hand_strength, spot='facing_all_in',
+                input_strategy=strategy,
+                output_strategy=output,
+                hand_strength=hand_strength,
+                spot='facing_all_in',
                 reason_code='facing_all_in_call',
             )
         if 'jam' in available:
             output = StrategyProfile(action_probabilities={'jam': 1.0})
             return output, _build_strong_hand_trace(
-                input_strategy=strategy, output_strategy=output,
-                hand_strength=hand_strength, spot='facing_all_in',
+                input_strategy=strategy,
+                output_strategy=output,
+                hand_strength=hand_strength,
+                spot='facing_all_in',
                 reason_code='facing_all_in_jam',
             )
         # Pathological: no call or jam available. Fall back to strategy.
-        return strategy, _strong_hand_pathological_trace(
-            'facing_all_in_no_continuing_action'
-        )
+        return strategy, _strong_hand_pathological_trace('facing_all_in_no_continuing_action')
 
     # ── Facing any other bet (big or small) ──
     if has_fold:
@@ -226,31 +230,33 @@ def compute_value_override_strategy(
                 dist[action] = 0.5 / n
             output = StrategyProfile(action_probabilities=dist)
             return output, _build_strong_hand_trace(
-                input_strategy=strategy, output_strategy=output,
-                hand_strength=hand_strength, spot='facing_bet',
+                input_strategy=strategy,
+                output_strategy=output,
+                hand_strength=hand_strength,
+                spot='facing_bet',
                 reason_code='facing_bet_call_or_raise',
             )
         if has_call:
             output = StrategyProfile(action_probabilities={'call': 1.0})
             return output, _build_strong_hand_trace(
-                input_strategy=strategy, output_strategy=output,
-                hand_strength=hand_strength, spot='facing_bet',
+                input_strategy=strategy,
+                output_strategy=output,
+                hand_strength=hand_strength,
+                spot='facing_bet',
                 reason_code='facing_bet_call_only',
             )
         if has_raise:
             n = len(raises)
-            output = StrategyProfile(action_probabilities={
-                a: 1.0 / n for a in raises
-            })
+            output = StrategyProfile(action_probabilities={a: 1.0 / n for a in raises})
             return output, _build_strong_hand_trace(
-                input_strategy=strategy, output_strategy=output,
-                hand_strength=hand_strength, spot='facing_bet',
+                input_strategy=strategy,
+                output_strategy=output,
+                hand_strength=hand_strength,
+                spot='facing_bet',
                 reason_code='facing_bet_raise_only',
             )
         # Pathological — leave strategy alone
-        return strategy, _strong_hand_pathological_trace(
-            'facing_bet_no_continuing_action'
-        )
+        return strategy, _strong_hand_pathological_trace('facing_bet_no_continuing_action')
 
     # ── Open spot (no bet to face) ──
     # Raise probability scales with hand strength: nuts > strong_pre > strong_made.
@@ -274,16 +280,16 @@ def compute_value_override_strategy(
             dist = {a: 1.0 / n for a in raises}
         output = StrategyProfile(action_probabilities=dist)
         return output, _build_strong_hand_trace(
-            input_strategy=strategy, output_strategy=output,
-            hand_strength=hand_strength, spot='open',
+            input_strategy=strategy,
+            output_strategy=output,
+            hand_strength=hand_strength,
+            spot='open',
             reason_code=f'open_value_bet_{hand_strength}',
             extra={'raise_prob': round(raise_prob, 4)},
         )
 
     # No raise option (pathological for an open spot) — leave alone.
-    return strategy, _strong_hand_pathological_trace(
-        'open_no_raise_action'
-    )
+    return strategy, _strong_hand_pathological_trace('open_no_raise_action')
 
 
 def _build_strong_hand_trace(
@@ -354,6 +360,7 @@ def _strong_hand_pathological_trace(reason_code: str) -> InterventionTrace:
     these as data-shape anomalies separately from "the gate said no."
     """
     from .intervention_trace import make_no_op_trace
+
     return make_no_op_trace(
         layer='strong_hand_override',
         rule_id='default',
@@ -371,12 +378,14 @@ def _strong_hand_pathological_trace(reason_code: str) -> InterventionTrace:
 # poker/board_analyzer.classify_texture_bucket. Paired boards collapse
 # into 'dry_low_static' in the bucket; the paired-board signal is passed
 # separately as `is_paired_board` to the dampener.
-_DANGEROUS_TEXTURES = frozenset({
-    'monotone',           # 3+ same suit on board — flush threats real
-    'wet_rainbow',        # connected rainbow — straight threats
-    'two_tone_broadway',  # connected two-tone with broadway cards
-    'two_tone_connected', # connected two-tone — backdoor draws got there
-})
+_DANGEROUS_TEXTURES = frozenset(
+    {
+        'monotone',  # 3+ same suit on board — flush threats real
+        'wet_rainbow',  # connected rainbow — straight threats
+        'two_tone_broadway',  # connected two-tone with broadway cards
+        'two_tone_connected',  # connected two-tone — backdoor draws got there
+    }
+)
 
 
 def _base_call_prob(hand_strength: str, bet_size_pot_ratio: float) -> float:
@@ -399,6 +408,7 @@ def _base_call_prob(hand_strength: str, bet_size_pot_ratio: float) -> float:
     the caller is expected to gate on hand class before calling this.
     """
     from .phase_7_5_config import CONFIG
+
     sizing = CONFIG.bluff_catch.sizing
 
     if hand_strength == HandStrengthClass.MEDIUM_MADE.value:
@@ -453,6 +463,7 @@ def _board_danger_dampener(
             paired-board into 'dry_low_static'.
     """
     from .phase_7_5_config import CONFIG
+
     d = CONFIG.bluff_catch.dampener
 
     dampener = 1.0
@@ -496,7 +507,10 @@ def _bluff_catch_call_probability(
     if base <= 0.0:
         return 0.0
     return base * _board_danger_dampener(
-        street, board_texture, hand_strength, is_paired_board,
+        street,
+        board_texture,
+        hand_strength,
+        is_paired_board,
     )
 
 
@@ -540,9 +554,7 @@ def _clamp_to_envelope(
     if l1 <= max_total_shift or l1 == 0.0:
         # Return a fresh StrategyProfile filtered to nonzero entries
         # to match the caller's expectation.
-        return StrategyProfile(
-            action_probabilities={a: p[a] for a in all_actions if p[a] > 0.0}
-        )
+        return StrategyProfile(action_probabilities={a: p[a] for a in all_actions if p[a] > 0.0})
 
     # Linear interpolation from baseline toward proposed: scale = cap / l1.
     scale = max_total_shift / l1
@@ -554,9 +566,7 @@ def _clamp_to_envelope(
     if total > 0:
         clamped = {a: v / total for a, v in clamped.items()}
 
-    return StrategyProfile(
-        action_probabilities={a: v for a, v in clamped.items() if v > 0.0}
-    )
+    return StrategyProfile(action_probabilities={a: v for a, v in clamped.items() if v > 0.0})
 
 
 # ── Phase 7.5 Item 1b: bluff-catch gate + strategy builder ──────────────
@@ -588,10 +598,10 @@ def _is_station(stats) -> bool:
     so noisy reads don't suppress the override unnecessarily.
     """
     from .phase_7_5_config import CONFIG
+
     min_sample = CONFIG.sample_thresholds.medium_min_opportunities
     return (
-        stats.vpip_per_voluntary_opportunity
-        > _STATION_VPIP_PER_VOL_THRESHOLD
+        stats.vpip_per_voluntary_opportunity > _STATION_VPIP_PER_VOL_THRESHOLD
         and stats.aggression_factor < _STATION_AF_CEILING
         and stats.hands_observed >= min_sample
     )
@@ -612,11 +622,11 @@ def _continuing_opponents_block_bluff_catch(spots, aggressor_name) -> bool:
     continuing opponents) returns False (no suppression).
     """
     from .phase_7_5_config import CONFIG
+
     min_sample = CONFIG.sample_thresholds.medium_min_opportunities
 
     continuing = [
-        s for s in spots
-        if s.is_active and (aggressor_name is None or s.name != aggressor_name)
+        s for s in spots if s.is_active and (aggressor_name is None or s.name != aggressor_name)
     ]
     if not continuing:
         return False  # HU — nothing to suppress
@@ -732,7 +742,8 @@ def compute_bluff_catch_strategy(
     """
     if is_rule_disabled(disable_rules, 'bluff_catch_override', 'default'):
         return strategy, make_disabled_trace(
-            layer='bluff_catch_override', rule_id='default',
+            layer='bluff_catch_override',
+            rule_id='default',
             layer_order=layer_order_for('bluff_catch_override'),
         )
 
@@ -744,7 +755,11 @@ def compute_bluff_catch_strategy(
     is_paired = bool(getattr(decision_context, 'is_paired_board', False))
 
     call_prob = _bluff_catch_call_probability(
-        hand_strength, bet_ratio, street, texture, is_paired_board=is_paired,
+        hand_strength,
+        bet_ratio,
+        street,
+        texture,
+        is_paired_board=is_paired,
     )
     fold_prob = max(0.0, 1.0 - call_prob)
 
@@ -753,10 +768,12 @@ def compute_bluff_catch_strategy(
     if legal and 'call' not in legal and 'all_in' in legal:
         call_action = 'all_in'
 
-    proposed = StrategyProfile(action_probabilities={
-        call_action: call_prob,
-        'fold': fold_prob,
-    })
+    proposed = StrategyProfile(
+        action_probabilities={
+            call_action: call_prob,
+            'fold': fold_prob,
+        }
+    )
     clamped = _clamp_to_envelope(proposed, strategy, max_total_shift)
 
     trace = _build_bluff_catch_trace(
@@ -876,10 +893,9 @@ def _select_bluff_catch_config(config, street: str, hand_strength: str) -> Dict:
         # Street and texture dampeners that scaled the base.
         dampener = getattr(bluff, 'dampener', None)
         if dampener is not None:
-            for attr in (f'street_{street}', 'dangerous_texture_mult',
-                         'paired_board_mult'):
+            for attr in (f'street_{street}', 'dangerous_texture_mult', 'paired_board_mult'):
                 value = getattr(dampener, attr, None)
-                if isinstance(value, (int, float)):
+                if isinstance(value, int | float):
                     snapshot[f'dampener.{attr}'] = float(value)
     except AttributeError:
         # Config layout drift — degrade quietly. The trace is still
@@ -895,13 +911,12 @@ def _safe_band_dump(band) -> Dict[str, float]:
     empty dict on unknown shape rather than raising.
     """
     if isinstance(band, dict):
-        return {str(k): float(v) for k, v in band.items()
-                if isinstance(v, (int, float))}
+        return {str(k): float(v) for k, v in band.items() if isinstance(v, int | float)}
     out: Dict[str, float] = {}
     for attr in dir(band):
         if attr.startswith('_'):
             continue
         value = getattr(band, attr, None)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, int | float) and not isinstance(value, bool):
             out[attr] = float(value)
     return out

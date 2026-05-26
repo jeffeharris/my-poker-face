@@ -87,10 +87,7 @@ export function MonitoringPokerTable({
             style={getSeatStyle(player.seat_index)}
             className="monitoring-table__player-wrapper"
           >
-            <MonitoringPlayerSlot
-              player={player}
-              onClick={() => onPlayerClick(player.name)}
-            />
+            <MonitoringPlayerSlot player={player} onClick={() => onPlayerClick(player.name)} />
           </div>
         ))}
       </div>

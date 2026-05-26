@@ -15,21 +15,21 @@ import logging
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .zone_detection import (
+    ZONE_AGGRO_CENTER,
+    ZONE_COMMANDING_CENTER,
     ZONE_GUARDED_CENTER,
     ZONE_POKER_FACE_CENTER,
-    ZONE_COMMANDING_CENTER,
-    ZONE_AGGRO_CENTER,
     ZoneContext,
     ZoneEffects,
     build_zone_guidance,
 )
 
 if TYPE_CHECKING:
-    from .prompt_manager import PromptManager
     from .memory.opponent_model import OpponentModel
+    from .prompt_manager import PromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +118,11 @@ PLANNING_PROMPTS = {
 
 # === DATA CLASSES ===
 
+
 @dataclass
 class PlaystyleState:
     """Tracks the current playstyle selection state."""
+
     active_playstyle: str = 'poker_face'
     primary_playstyle: str = 'poker_face'
     style_scores: Dict[str, float] = field(default_factory=dict)
@@ -173,6 +175,7 @@ class PlaystyleState:
 @dataclass(frozen=True)
 class PlaystyleBriefing:
     """Complete playstyle output: guidance text + prompt suppressions."""
+
     guidance: str
     engagement: str
     suppress_equity_verdict: bool = False
@@ -181,6 +184,7 @@ class PlaystyleBriefing:
 
 
 # === PURE FUNCTIONS ===
+
 
 def compute_playstyle_affinities(
     confidence: float,
@@ -196,7 +200,7 @@ def compute_playstyle_affinities(
     raw = {}
     for style, center in ZONE_CENTERS.items():
         distance_sq = (confidence - center[0]) ** 2 + (composure - center[1]) ** 2
-        raw[style] = math.exp(-distance_sq / (2 * AFFINITY_SIGMA ** 2))
+        raw[style] = math.exp(-distance_sq / (2 * AFFINITY_SIGMA**2))
 
     total = sum(raw.values())
     if total == 0:
@@ -214,7 +218,7 @@ def compute_raw_affinity(
     """Compute raw (unnormalized) Gaussian affinity for a single style."""
     center = ZONE_CENTERS[style]
     distance_sq = (confidence - center[0]) ** 2 + (composure - center[1]) ** 2
-    return math.exp(-distance_sq / (2 * AFFINITY_SIGMA ** 2))
+    return math.exp(-distance_sq / (2 * AFFINITY_SIGMA**2))
 
 
 def derive_primary_playstyle(
@@ -371,10 +375,14 @@ def build_exploit_tips(
 
         if active_playstyle in ('aggro', 'commanding'):
             if t.fold_to_cbet > 0.60:
-                tips.append(f"{name} folds to c-bets {t.fold_to_cbet:.0%} — c-bet as a bluff, they'll fold.")
+                tips.append(
+                    f"{name} folds to c-bets {t.fold_to_cbet:.0%} — c-bet as a bluff, they'll fold."
+                )
                 continue
             if t.aggression_factor < 0.8:
-                tips.append(f"{name} is passive — bet thin for value, they won't raise without the nuts.")
+                tips.append(
+                    f"{name} is passive — bet thin for value, they won't raise without the nuts."
+                )
                 continue
 
         if active_playstyle == 'aggro' and t.vpip < 0.20:
@@ -390,7 +398,9 @@ def build_exploit_tips(
                 tips.append(f"{name} is hyper-aggressive — let them bluff into your strong hands.")
                 continue
             if t.fold_to_cbet < 0.30:
-                tips.append(f"{name} never folds to c-bets — skip the bluff, value bet relentlessly.")
+                tips.append(
+                    f"{name} never folds to c-bets — skip the bluff, value bet relentlessly."
+                )
                 continue
 
         if t.bluff_frequency > 0.50:
@@ -441,10 +451,7 @@ def _softmax(scores: Dict[str, float], temperature: float) -> Dict[str, float]:
     """
     # Shift scores for numerical stability
     max_score = max(scores.values())
-    exp_scores = {
-        s: math.exp((v - max_score) / max(temperature, 0.01))
-        for s, v in scores.items()
-    }
+    exp_scores = {s: math.exp((v - max_score) / max(temperature, 0.01)) for s, v in scores.items()}
     total = sum(exp_scores.values())
     return {s: v / total for s, v in exp_scores.items()}
 
@@ -504,8 +511,10 @@ def select_playstyle(
 
     # 3. Check if election is due
     shock = _detect_emotional_shock(
-        confidence, composure,
-        current_state.last_confidence, current_state.last_composure,
+        confidence,
+        composure,
+        current_state.last_confidence,
+        current_state.last_composure,
     )
     election_due = current_state.hands_until_election <= 0 or shock
 
@@ -556,6 +565,7 @@ def select_playstyle(
 
 # === PLAYSTYLE BRIEFING ===
 
+
 def _build_stat_lines(
     active_playstyle: str,
     player_stack: int = 0,
@@ -575,7 +585,9 @@ def _build_stat_lines(
         if pot_total > 0 and big_blind > 0:
             spr = player_stack / max(pot_total, 1)
             if spr > 0:
-                lines.append(f"SPR is {spr:.1f} — {'room for multi-street value' if spr > 4 else 'commit-or-fold territory'}.")
+                lines.append(
+                    f"SPR is {spr:.1f} — {'room for multi-street value' if spr > 4 else 'commit-or-fold territory'}."
+                )
 
     elif active_playstyle == 'aggro':
         if threat_name:
@@ -661,7 +673,10 @@ def build_playstyle_briefing(
 
     # Medium+ engagement: exploit tips from opponent data
     exploit_tips = build_exploit_tips(
-        active_playstyle, engagement, threat_model, focal_model,
+        active_playstyle,
+        engagement,
+        threat_model,
+        focal_model,
     )
     if exploit_tips:
         parts.append(exploit_tips)

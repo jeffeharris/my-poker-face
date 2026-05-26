@@ -12,7 +12,7 @@ and replay experiments. Supports:
 
 import json
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
 # Import prompt config for type hints
 from poker.prompt_config import PromptConfig
@@ -38,6 +38,7 @@ class VariantConfig:
         enable_psychology: Enable tilt + emotional state generation
         enable_commentary: Enable commentary generation
     """
+
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
@@ -129,9 +130,17 @@ class VariantConfig:
         Filters out unknown keys for forward compatibility.
         """
         known_fields = {
-            'label', 'model', 'provider', 'personality', 'game_mode',
-            'prompt_preset_id', 'prompt_config', 'guidance_injection',
-            'reasoning_effort', 'enable_psychology', 'enable_commentary'
+            'label',
+            'model',
+            'provider',
+            'personality',
+            'game_mode',
+            'prompt_preset_id',
+            'prompt_config',
+            'guidance_injection',
+            'reasoning_effort',
+            'enable_psychology',
+            'enable_commentary',
         }
         filtered = {k: v for k, v in d.items() if k in known_fields}
         return cls(**filtered)
@@ -155,6 +164,7 @@ class ControlConfig:
         enable_psychology: Enable tilt + emotional state generation
         enable_commentary: Enable commentary generation
     """
+
     label: str
     model: Optional[str] = None
     provider: Optional[str] = None
@@ -183,9 +193,15 @@ class ControlConfig:
     def from_dict(cls, d: Dict[str, Any]) -> 'ControlConfig':
         """Create ControlConfig from dictionary."""
         known_fields = {
-            'label', 'model', 'provider', 'game_mode', 'prompt_config',
-            'guidance_injection', 'reasoning_effort',
-            'enable_psychology', 'enable_commentary'
+            'label',
+            'model',
+            'provider',
+            'game_mode',
+            'prompt_config',
+            'guidance_injection',
+            'reasoning_effort',
+            'enable_psychology',
+            'enable_commentary',
         }
         filtered = {k: v for k, v in d.items() if k in known_fields}
         return cls(**filtered)
@@ -232,8 +248,14 @@ def build_effective_variant_config(
 
     # Apply control settings if available
     if control_dict:
-        for key in ['game_mode', 'prompt_config', 'guidance_injection', 'reasoning_effort',
-                    'enable_psychology', 'enable_commentary']:
+        for key in [
+            'game_mode',
+            'prompt_config',
+            'guidance_injection',
+            'reasoning_effort',
+            'enable_psychology',
+            'enable_commentary',
+        ]:
             if key in control_dict and control_dict[key] is not None:
                 effective[key] = control_dict[key]
 

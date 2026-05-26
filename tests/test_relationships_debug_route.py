@@ -44,6 +44,7 @@ class TestRelationshipsRoute(unittest.TestCase):
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key, repo in self.repos.items():
                 if key == 'db_path':
                     ext.persistence_db_path = repo
@@ -88,9 +89,12 @@ class TestRelationshipsRoute(unittest.TestCase):
         self.game_id = "test_game"
         fake_memory_manager = MagicMock()
         fake_memory_manager.get_opponent_model_manager.return_value = self.opp_manager
-        game_state_service.set_game(self.game_id, {
-            'memory_manager': fake_memory_manager,
-        })
+        game_state_service.set_game(
+            self.game_id,
+            {
+                'memory_manager': fake_memory_manager,
+            },
+        )
 
     def tearDown(self):
         self._auth_ctx.stop()
@@ -104,10 +108,14 @@ class TestRelationshipsRoute(unittest.TestCase):
     def _seed(self, observer_id, opponent_id, **axes):
         now = datetime.utcnow()
         state = RelationshipState(
-            last_seen=now, last_decay_tick=now, **axes,
+            last_seen=now,
+            last_decay_tick=now,
+            **axes,
         )
         self.relationship_repo.save_relationship_state(
-            observer_id, opponent_id, state,
+            observer_id,
+            opponent_id,
+            state,
         )
 
     def test_game_not_in_memory_returns_404(self):
@@ -135,9 +143,7 @@ class TestRelationshipsRoute(unittest.TestCase):
 
         self.assertEqual(data['game_id'], self.game_id)
         self.assertEqual(data['pair_count'], 2)
-        pairs_by_direction = {
-            (p['observer'], p['opponent']): p for p in data['pairs']
-        }
+        pairs_by_direction = {(p['observer'], p['opponent']): p for p in data['pairs']}
         self.assertEqual(pairs_by_direction[('alice', 'bob')]['label'], 'rival')
         self.assertEqual(pairs_by_direction[('bob', 'alice')]['label'], 'friendly')
 
@@ -169,8 +175,7 @@ class TestRelationshipsRoute(unittest.TestCase):
         response = self.client.get(f'/api/game/{self.game_id}/relationships')
         data = response.get_json()
         rival_pair = next(
-            p for p in data['pairs']
-            if p['observer'] == 'alice' and p['opponent'] == 'bob'
+            p for p in data['pairs'] if p['observer'] == 'alice' and p['opponent'] == 'bob'
         )
         self.assertEqual(len(rival_pair['memorable_hands']), 1)
         self.assertEqual(rival_pair['memorable_hands'][0]['event'], 'bad_beat')
@@ -197,7 +202,8 @@ class TestRelationshipsRoute(unittest.TestCase):
             hand_summary="set vs flush",
         )
         self.repos['game_repo'].save_opponent_models(
-            evicted_game_id, self.opp_manager,
+            evicted_game_id,
+            self.opp_manager,
         )
 
         response = self.client.get(f'/api/game/{evicted_game_id}/relationships')
@@ -205,8 +211,7 @@ class TestRelationshipsRoute(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data['source'], 'db')
         rival_pair = next(
-            p for p in data['pairs']
-            if p['observer'] == 'alice' and p['opponent'] == 'bob'
+            p for p in data['pairs'] if p['observer'] == 'alice' and p['opponent'] == 'bob'
         )
         # Axis values came from the cross-session relationship_states row.
         self.assertEqual(rival_pair['label'], 'rival')

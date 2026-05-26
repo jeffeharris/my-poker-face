@@ -21,7 +21,6 @@ Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 2 Commit 1.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional
 
 from cash_mode.stakes import BORROWER_KIND_HUMAN
 from cash_mode.stakes_ladder import MIN_BUY_IN_BB, STAKES_LADDER

@@ -21,7 +21,6 @@ from cash_mode.cash_sessions import (
 from poker.repositories.cash_session_repository import CashSessionRepository
 from poker.repositories.schema_manager import SchemaManager
 
-
 ANCHOR = datetime(2026, 5, 22, 12, 0, 0)
 
 
@@ -159,31 +158,37 @@ def test_finalise_is_idempotent(repo):
     """Second finalise call (e.g., retry) must not overwrite the first's numbers."""
     session = _self_funded()
     repo.create(session)
-    assert repo.finalise(
-        session.session_id,
-        ended_at=ANCHOR + timedelta(minutes=15),
-        final_chips_at_table=950,
-        sponsor_repaid=0,
-        player_take_home=950,
-        hands_played=10,
-        hands_won=4,
-        biggest_pot_won=120,
-        duration_seconds=900,
-        closed_status=CLOSED_STATUS_LEFT,
-    ) is True
+    assert (
+        repo.finalise(
+            session.session_id,
+            ended_at=ANCHOR + timedelta(minutes=15),
+            final_chips_at_table=950,
+            sponsor_repaid=0,
+            player_take_home=950,
+            hands_played=10,
+            hands_won=4,
+            biggest_pot_won=120,
+            duration_seconds=900,
+            closed_status=CLOSED_STATUS_LEFT,
+        )
+        is True
+    )
     # Retry with different numbers.
-    assert repo.finalise(
-        session.session_id,
-        ended_at=ANCHOR + timedelta(minutes=20),
-        final_chips_at_table=1,
-        sponsor_repaid=999,
-        player_take_home=1,
-        hands_played=1,
-        hands_won=0,
-        biggest_pot_won=1,
-        duration_seconds=1,
-        closed_status=CLOSED_STATUS_GHOST_CLEANUP,
-    ) is False
+    assert (
+        repo.finalise(
+            session.session_id,
+            ended_at=ANCHOR + timedelta(minutes=20),
+            final_chips_at_table=1,
+            sponsor_repaid=999,
+            player_take_home=1,
+            hands_played=1,
+            hands_won=0,
+            biggest_pot_won=1,
+            duration_seconds=1,
+            closed_status=CLOSED_STATUS_GHOST_CLEANUP,
+        )
+        is False
+    )
     loaded = repo.load(session.session_id)
     assert loaded.final_chips_at_table == 950
     assert loaded.closed_status == CLOSED_STATUS_LEFT
@@ -215,10 +220,12 @@ def test_list_for_owner_orders_by_started_at_desc(repo):
 def test_list_for_owner_respects_limit(repo):
     """Default limit caps at 50; explicit limit overrides."""
     for i in range(5):
-        repo.create(_self_funded(
-            session_id=f"s-{i}",
-            started_at=ANCHOR - timedelta(minutes=i),
-        ))
+        repo.create(
+            _self_funded(
+                session_id=f"s-{i}",
+                started_at=ANCHOR - timedelta(minutes=i),
+            )
+        )
     assert len(repo.list_for_owner("alice", limit=3)) == 3
 
 

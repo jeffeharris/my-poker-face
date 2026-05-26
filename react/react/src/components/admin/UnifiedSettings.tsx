@@ -139,9 +139,15 @@ const CATEGORIES: CategoryConfig[] = [
 // Main Component
 // ============================================
 
-export function UnifiedSettings({ embedded = false, initialCategory, onCategoryChange }: UnifiedSettingsProps) {
+export function UnifiedSettings({
+  embedded = false,
+  initialCategory,
+  onCategoryChange,
+}: UnifiedSettingsProps) {
   const { isDesktop, isMobile } = useViewport();
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory || 'models');
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(
+    initialCategory || 'models'
+  );
   const [masterPanelOpen, setMasterPanelOpen] = useState(false);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [alert, setAlert] = useState<AlertState | null>(null);
@@ -154,19 +160,22 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
   }, [initialCategory]);
 
   // Unified category change handler — updates local state + notifies parent for URL sync
-  const handleCategoryChange = useCallback((category: SettingsCategory) => {
-    setActiveCategory(category);
-    onCategoryChange?.(category);
-  }, [onCategoryChange]);
+  const handleCategoryChange = useCallback(
+    (category: SettingsCategory) => {
+      setActiveCategory(category);
+      onCategoryChange?.(category);
+    },
+    [onCategoryChange]
+  );
 
   // Models state - using hook for initial fetch, local state for optimistic updates
-  const {
-    data: fetchedModels,
-    loading: modelsLoading,
-  } = useAdminResource<Model[]>('/admin/api/models', {
-    transform: (result) => (result as { models: Model[] }).models,
-    onError: (err) => showAlert('error', err),
-  });
+  const { data: fetchedModels, loading: modelsLoading } = useAdminResource<Model[]>(
+    '/admin/api/models',
+    {
+      transform: (result) => (result as { models: Model[] }).models,
+      onError: (err) => showAlert('error', err),
+    }
+  );
   const [models, setModels] = useState<Model[] | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
@@ -188,9 +197,9 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
   // System settings state - each stores "provider:model" combined value
   const [systemSettings, setSystemSettings] = useState<SystemSettingsData | null>(null);
   const [systemLoading, setSystemLoading] = useState(true);
-  const [editedGeneralModel, setEditedGeneralModel] = useState('');    // "openai:gpt-5-nano"
-  const [editedFastModel, setEditedFastModel] = useState('');          // "openai:gpt-5-nano"
-  const [editedImageModel, setEditedImageModel] = useState('');        // "runware:runware:101@1"
+  const [editedGeneralModel, setEditedGeneralModel] = useState(''); // "openai:gpt-5-nano"
+  const [editedFastModel, setEditedFastModel] = useState(''); // "openai:gpt-5-nano"
+  const [editedImageModel, setEditedImageModel] = useState(''); // "runware:runware:101@1"
   const [editedAssistantModel, setEditedAssistantModel] = useState(''); // "deepseek:deepseek-reasoner"
   const [systemSaving, setSystemSaving] = useState(false);
 
@@ -217,7 +226,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
   // Initialize expanded providers when models load
   useEffect(() => {
     if (models && models.length > 0 && expandedProviders.size === 0) {
-      setExpandedProviders(new Set(models.map(m => m.provider)));
+      setExpandedProviders(new Set(models.map((m) => m.provider)));
     }
   }, [models, expandedProviders.size]);
 
@@ -235,11 +244,12 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     const newUserEnabled = visibility === 'users';
 
     // Optimistic update
-    setModels(prev => prev?.map(m =>
-      m.id === modelId
-        ? { ...m, enabled: newEnabled, user_enabled: newUserEnabled }
-        : m
-    ) ?? null);
+    setModels(
+      (prev) =>
+        prev?.map((m) =>
+          m.id === modelId ? { ...m, enabled: newEnabled, user_enabled: newUserEnabled } : m
+        ) ?? null
+    );
 
     try {
       // Set both flags via two API calls (or we could add a new endpoint)
@@ -275,7 +285,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
   };
 
   const toggleProvider = (provider: string) => {
-    setExpandedProviders(prev => {
+    setExpandedProviders((prev) => {
       const next = new Set(prev);
       if (next.has(provider)) {
         next.delete(provider);
@@ -288,31 +298,36 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
 
   const modelsByProvider = useMemo(() => {
     if (!models) return {};
-    return models.reduce((acc, model) => {
-      if (!acc[model.provider]) {
-        acc[model.provider] = [];
-      }
-      acc[model.provider].push(model);
-      return acc;
-    }, {} as Record<string, Model[]>);
+    return models.reduce(
+      (acc, model) => {
+        if (!acc[model.provider]) {
+          acc[model.provider] = [];
+        }
+        acc[model.provider].push(model);
+        return acc;
+      },
+      {} as Record<string, Model[]>
+    );
   }, [models]);
 
   // Filtered models for system settings
   // General: all enabled models (excludes image-only models like DALL-E, Runware)
-  const generalModels = useMemo(() =>
-    models?.filter(m => m.enabled) || [], [models]);
+  const generalModels = useMemo(() => models?.filter((m) => m.enabled) || [], [models]);
 
   // Image: models that support image generation
-  const imageModels = useMemo(() =>
-    models?.filter(m => m.enabled && m.supports_image_gen) || [], [models]);
+  const imageModels = useMemo(
+    () => models?.filter((m) => m.enabled && m.supports_image_gen) || [],
+    [models]
+  );
 
   // Fast: all enabled models (same pool as general)
-  const fastModels = useMemo(() =>
-    models?.filter(m => m.enabled) || [], [models]);
+  const fastModels = useMemo(() => models?.filter((m) => m.enabled) || [], [models]);
 
   // Reasoning: models that support reasoning
-  const reasoningModels = useMemo(() =>
-    models?.filter(m => m.enabled && m.supports_reasoning) || [], [models]);
+  const reasoningModels = useMemo(
+    () => models?.filter((m) => m.enabled && m.supports_reasoning) || [],
+    [models]
+  );
 
   // ============================================
   // Capture Logic
@@ -355,30 +370,46 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       const updates: Promise<Response>[] = [];
 
       if (editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'LLM_PROMPT_CAPTURE', value: editedCapture }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'LLM_PROMPT_CAPTURE', value: editedCapture }),
+          })
+        );
       }
 
       if (editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'LLM_PROMPT_RETENTION_DAYS', value: editedRetention }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'LLM_PROMPT_RETENTION_DAYS', value: editedRetention }),
+          })
+        );
       }
 
       await Promise.all(updates);
       showAlert('success', 'Settings saved');
 
       // Update local state
-      setCaptureSettings(prev => prev ? {
-        ...prev,
-        LLM_PROMPT_CAPTURE: { ...prev.LLM_PROMPT_CAPTURE, value: editedCapture, is_db_override: true },
-        LLM_PROMPT_RETENTION_DAYS: { ...prev.LLM_PROMPT_RETENTION_DAYS, value: editedRetention, is_db_override: true },
-      } : null);
+      setCaptureSettings((prev) =>
+        prev
+          ? {
+              ...prev,
+              LLM_PROMPT_CAPTURE: {
+                ...prev.LLM_PROMPT_CAPTURE,
+                value: editedCapture,
+                is_db_override: true,
+              },
+              LLM_PROMPT_RETENTION_DAYS: {
+                ...prev.LLM_PROMPT_RETENTION_DAYS,
+                value: editedRetention,
+                is_db_override: true,
+              },
+            }
+          : null
+      );
     } catch {
       showAlert('error', 'Failed to save settings');
     } finally {
@@ -409,10 +440,10 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     }
   };
 
-  const hasCaptureChanges = captureSettings && (
-    editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value ||
-    editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value
-  );
+  const hasCaptureChanges =
+    captureSettings &&
+    (editedCapture !== captureSettings.LLM_PROMPT_CAPTURE.value ||
+      editedRetention !== captureSettings.LLM_PROMPT_RETENTION_DAYS.value);
 
   // ============================================
   // System Settings Logic
@@ -431,7 +462,9 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
         setEditedGeneralModel(`${settings.DEFAULT_PROVIDER.value}:${settings.DEFAULT_MODEL.value}`);
         setEditedFastModel(`${settings.FAST_PROVIDER.value}:${settings.FAST_MODEL.value}`);
         setEditedImageModel(`${settings.IMAGE_PROVIDER.value}:${settings.IMAGE_MODEL.value}`);
-        setEditedAssistantModel(`${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`);
+        setEditedAssistantModel(
+          `${settings.ASSISTANT_PROVIDER.value}:${settings.ASSISTANT_MODEL.value}`
+        );
       } else {
         showAlert('error', data.error || 'Failed to load system settings');
       }
@@ -454,16 +487,20 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       const generalModel = generalModelParts.join(':');
       const originalGeneral = `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}`;
       if (editedGeneralModel !== originalGeneral) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'DEFAULT_PROVIDER', value: generalProvider }),
-        }));
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'DEFAULT_PROVIDER', value: generalProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'DEFAULT_MODEL', value: generalModel }),
+          })
+        );
       }
 
       // Parse fast model
@@ -471,16 +508,20 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       const fastModel = fastModelParts.join(':');
       const originalFast = `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}`;
       if (editedFastModel !== originalFast) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'FAST_PROVIDER', value: fastProvider }),
-        }));
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'FAST_MODEL', value: fastModel }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'FAST_PROVIDER', value: fastProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'FAST_MODEL', value: fastModel }),
+          })
+        );
       }
 
       // Parse image model
@@ -488,16 +529,20 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       const imageModel = imageModelParts.join(':');
       const originalImage = `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}`;
       if (editedImageModel !== originalImage) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'IMAGE_PROVIDER', value: imageProvider }),
-        }));
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'IMAGE_MODEL', value: imageModel }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'IMAGE_PROVIDER', value: imageProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'IMAGE_MODEL', value: imageModel }),
+          })
+        );
       }
 
       // Parse assistant model
@@ -505,16 +550,20 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       const assistantModel = assistantModelParts.join(':');
       const originalAssistant = `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`;
       if (editedAssistantModel !== originalAssistant) {
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'ASSISTANT_PROVIDER', value: assistantProvider }),
-        }));
-        updates.push(adminFetch(`/admin/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'ASSISTANT_MODEL', value: assistantModel }),
-        }));
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'ASSISTANT_PROVIDER', value: assistantProvider }),
+          })
+        );
+        updates.push(
+          adminFetch(`/admin/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'ASSISTANT_MODEL', value: assistantModel }),
+          })
+        );
       }
 
       await Promise.all(updates);
@@ -532,18 +581,24 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     try {
       // Reset all system settings to defaults
       const keys = [
-        'DEFAULT_PROVIDER', 'DEFAULT_MODEL',
-        'FAST_PROVIDER', 'FAST_MODEL',
-        'IMAGE_PROVIDER', 'IMAGE_MODEL',
-        'ASSISTANT_PROVIDER', 'ASSISTANT_MODEL',
+        'DEFAULT_PROVIDER',
+        'DEFAULT_MODEL',
+        'FAST_PROVIDER',
+        'FAST_MODEL',
+        'IMAGE_PROVIDER',
+        'IMAGE_MODEL',
+        'ASSISTANT_PROVIDER',
+        'ASSISTANT_MODEL',
       ];
-      await Promise.all(keys.map(key =>
-        adminFetch(`/admin/api/settings/reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key }),
-        })
-      ));
+      await Promise.all(
+        keys.map((key) =>
+          adminFetch(`/admin/api/settings/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key }),
+          })
+        )
+      );
       showAlert('success', 'System settings reset to defaults');
       await fetchSystemData();
     } catch {
@@ -553,12 +608,16 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
     }
   };
 
-  const hasSystemChanges = systemSettings && (
-    editedGeneralModel !== `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
-    editedFastModel !== `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}` ||
-    editedImageModel !== `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
-    editedAssistantModel !== `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`
-  );
+  const hasSystemChanges =
+    systemSettings &&
+    (editedGeneralModel !==
+      `${systemSettings.DEFAULT_PROVIDER.value}:${systemSettings.DEFAULT_MODEL.value}` ||
+      editedFastModel !==
+        `${systemSettings.FAST_PROVIDER.value}:${systemSettings.FAST_MODEL.value}` ||
+      editedImageModel !==
+        `${systemSettings.IMAGE_PROVIDER.value}:${systemSettings.IMAGE_MODEL.value}` ||
+      editedAssistantModel !==
+        `${systemSettings.ASSISTANT_PROVIDER.value}:${systemSettings.ASSISTANT_MODEL.value}`);
 
   // ============================================
   // Storage Logic
@@ -593,9 +652,17 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       fetchStorage();
     }
     // Pricing is handled by the PricingManager component
-  }, [activeCategory, systemSettings, captureSettings, storage, fetchSystemData, fetchCaptureData, fetchStorage]);
+  }, [
+    activeCategory,
+    systemSettings,
+    captureSettings,
+    storage,
+    fetchSystemData,
+    fetchCaptureData,
+    fetchStorage,
+  ]);
 
-  const activeCategoryConfig = CATEGORIES.find(c => c.id === activeCategory);
+  const activeCategoryConfig = CATEGORIES.find((c) => c.id === activeCategory);
 
   // ============================================
   // Render Sections
@@ -622,9 +689,10 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
       modelSetting: SettingConfig | undefined
     ) => {
       const isOverridden = providerSetting?.is_db_override || modelSetting?.is_db_override;
-      const defaultValue = providerSetting && modelSetting
-        ? `${providerSetting.env_default}:${modelSetting.env_default}`
-        : '';
+      const defaultValue =
+        providerSetting && modelSetting
+          ? `${providerSetting.env_default}:${modelSetting.env_default}`
+          : '';
 
       return (
         <div className="us-default-card">
@@ -754,34 +822,49 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
               onClick={() => toggleProvider(provider)}
               type="button"
             >
-              <span className={`us-provider__chevron ${expandedProviders.has(provider) ? 'us-provider__chevron--open' : ''}`}>
+              <span
+                className={`us-provider__chevron ${expandedProviders.has(provider) ? 'us-provider__chevron--open' : ''}`}
+              >
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path
+                    d="M7.5 5L12.5 10L7.5 15"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </span>
               <span className="us-provider__name">{provider}</span>
               <span className="us-provider__count">
-                {providerModels.filter(m => m.enabled).length}/{providerModels.length} enabled
+                {providerModels.filter((m) => m.enabled).length}/{providerModels.length} enabled
               </span>
             </button>
 
             {expandedProviders.has(provider) && (
               <div className="us-provider__models">
-                {providerModels.map(model => (
-                  <div key={model.id} className={`us-model ${!model.enabled ? 'us-model--disabled' : ''}`}>
+                {providerModels.map((model) => (
+                  <div
+                    key={model.id}
+                    className={`us-model ${!model.enabled ? 'us-model--disabled' : ''}`}
+                  >
                     <div className="us-model__info">
-                      <span className="us-model__name">
-                        {model.display_name || model.model}
-                      </span>
+                      <span className="us-model__name">{model.display_name || model.model}</span>
                       <div className="us-model__capabilities">
                         {model.supports_reasoning && (
-                          <span className="us-cap us-cap--reasoning" title="Supports reasoning">R</span>
+                          <span className="us-cap us-cap--reasoning" title="Supports reasoning">
+                            R
+                          </span>
                         )}
                         {model.supports_json_mode && (
-                          <span className="us-cap us-cap--json" title="Supports JSON mode">J</span>
+                          <span className="us-cap us-cap--json" title="Supports JSON mode">
+                            J
+                          </span>
                         )}
                         {model.supports_image_gen && (
-                          <span className="us-cap us-cap--image" title="Supports image generation">I</span>
+                          <span className="us-cap us-cap--image" title="Supports image generation">
+                            I
+                          </span>
                         )}
                       </div>
                     </div>
@@ -789,8 +872,8 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
                       {(['off', 'system', 'users'] as const).map((state) => {
                         const current = getModelVisibility(model);
                         // "System" appears enabled when current is 'system' OR 'users'
-                        const isEnabled = state === current ||
-                          (state === 'system' && current === 'users');
+                        const isEnabled =
+                          state === current || (state === 'system' && current === 'users');
                         return (
                           <button
                             key={state}
@@ -841,7 +924,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
           </div>
           <p className="admin-card__subtitle">{captureSettings.LLM_PROMPT_CAPTURE.description}</p>
           <div className="us-capture__options">
-            {captureSettings.LLM_PROMPT_CAPTURE.options?.map(option => (
+            {captureSettings.LLM_PROMPT_CAPTURE.options?.map((option) => (
               <button
                 key={option}
                 className={`us-option ${editedCapture === option ? 'us-option--selected' : ''}`}
@@ -865,7 +948,9 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
               <span className="admin-badge admin-badge--primary">Custom</span>
             )}
           </div>
-          <p className="admin-card__subtitle">{captureSettings.LLM_PROMPT_RETENTION_DAYS.description}</p>
+          <p className="admin-card__subtitle">
+            {captureSettings.LLM_PROMPT_RETENTION_DAYS.description}
+          </p>
           <div className="us-capture__retention">
             <input
               type="number"
@@ -973,7 +1058,6 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
               </div>
             ))}
         </div>
-
       </div>
     );
   };
@@ -1015,7 +1099,9 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
               {alert.type === 'info' && 'i'}
             </span>
             <span className="admin-alert__content">{alert.message}</span>
-            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>×</button>
+            <button className="admin-alert__dismiss" onClick={() => setAlert(null)}>
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -1026,7 +1112,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
           <h3 className="admin-master__title">Settings</h3>
         </div>
         <div className="admin-master__list">
-          {CATEGORIES.map(category => (
+          {CATEGORIES.map((category) => (
             <button
               key={category.id}
               type="button"
@@ -1064,7 +1150,7 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
               title="Settings"
             >
               <div className="us-category-sheet__list">
-                {CATEGORIES.map(category => (
+                {CATEGORIES.map((category) => (
                   <button
                     key={category.id}
                     type="button"
@@ -1110,19 +1196,13 @@ export function UnifiedSettings({ embedded = false, initialCategory, onCategoryC
           </div>
         )}
 
-        <div className="admin-detail__content">
-          {renderContent()}
-        </div>
+        <div className="admin-detail__content">{renderContent()}</div>
       </main>
 
       {/* Backdrop for tablet sidebar */}
       {!isMobile && !isDesktop && masterPanelOpen && (
-        <div
-          className="us-backdrop"
-          onClick={() => setMasterPanelOpen(false)}
-        />
+        <div className="us-backdrop" onClick={() => setMasterPanelOpen(false)} />
       )}
-
     </div>
   );
 }
@@ -1186,7 +1266,7 @@ function DeckPackPicker() {
       <p className="us-appearance__subtitle">Choose the visual style for your playing cards</p>
 
       <div className="us-appearance__packs">
-        {DECK_PACKS.map(pack => {
+        {DECK_PACKS.map((pack) => {
           const isActive = pack.id === activePackId;
           return (
             <button
@@ -1230,9 +1310,7 @@ function DeckPackPicker() {
               <div className="us-deck-pack__info">
                 <span className="us-deck-pack__name">{pack.name}</span>
                 <span className="us-deck-pack__desc">{pack.description}</span>
-                {pack.attribution && (
-                  <span className="us-deck-pack__license">{pack.license}</span>
-                )}
+                {pack.attribution && <span className="us-deck-pack__license">{pack.license}</span>}
               </div>
 
               {/* Selected indicator */}

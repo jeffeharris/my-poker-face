@@ -76,9 +76,7 @@ class TestFlopOOPCheckBehavior:
         # which is system-entropy seeded, so reproducibility within a
         # single test run is impractical. The check still detects
         # gross deviations (e.g. 0% or 100%).
-        assert 0.60 < observed_rate < 0.80, (
-            f'Expected ~70% check rate, got {observed_rate:.3f}'
-        )
+        assert 0.60 < observed_rate < 0.80, f'Expected ~70% check rate, got {observed_rate:.3f}'
 
     def test_flop_ip_does_not_force_check(self):
         """SB seat (IP postflop in HU) skips the trap-bait check — should
@@ -90,19 +88,19 @@ class TestFlopOOPCheckBehavior:
             decision = _strategy_trap_bait(_ctx(position='small_blind_player'))
             if decision['action'] == 'raise':
                 raises += 1
-        assert raises >= 40, (
-            f'Maniac fallback should raise most of the time IP, got {raises}/50'
-        )
+        assert raises >= 40, f'Maniac fallback should raise most of the time IP, got {raises}/50'
 
     def test_flop_oop_facing_bet_does_not_check(self):
         """When facing a bet (cost > 0), trap-bait check skipped — delegates
         to maniac call/fold logic."""
         for _ in range(20):
-            decision = _strategy_trap_bait(_ctx(
-                cost_to_call=300,
-                pot_odds=2.0,
-                valid_actions=['fold', 'call', 'raise'],
-            ))
+            decision = _strategy_trap_bait(
+                _ctx(
+                    cost_to_call=300,
+                    pot_odds=2.0,
+                    valid_actions=['fold', 'call', 'raise'],
+                )
+            )
             assert decision['action'] != 'check'
 
 
@@ -113,35 +111,41 @@ class TestTurnRiverBarrelBehavior:
 
     def test_turn_first_to_act_barrels(self):
         """Turn OOP first-to-act with moderate equity → raise (maniac)."""
-        decision = _strategy_trap_bait(_ctx(
-            phase='TURN',
-            community_cards=['2h', '7d', 'Jc', '3s'],
-            valid_actions=['check', 'raise'],
-        ))
+        decision = _strategy_trap_bait(
+            _ctx(
+                phase='TURN',
+                community_cards=['2h', '7d', 'Jc', '3s'],
+                valid_actions=['check', 'raise'],
+            )
+        )
         assert decision['action'] == 'raise'
 
     def test_river_first_to_act_barrels(self):
         """River OOP first-to-act with moderate equity → raise (maniac)."""
-        decision = _strategy_trap_bait(_ctx(
-            phase='RIVER',
-            community_cards=['2h', '7d', 'Jc', '3s', '9h'],
-            valid_actions=['check', 'raise'],
-        ))
+        decision = _strategy_trap_bait(
+            _ctx(
+                phase='RIVER',
+                community_cards=['2h', '7d', 'Jc', '3s', '9h'],
+                valid_actions=['check', 'raise'],
+            )
+        )
         assert decision['action'] == 'raise'
 
     def test_preflop_delegates_to_maniac(self):
         """Preflop: trap-bait is dormant; maniac raises most hands."""
         raises = 0
         for _ in range(20):
-            decision = _strategy_trap_bait(_ctx(
-                phase='PRE_FLOP',
-                community_cards=[],
-                cost_to_call=100,
-                pot_odds=2.0,
-                valid_actions=['fold', 'call', 'raise'],
-            ))
+            decision = _strategy_trap_bait(
+                _ctx(
+                    phase='PRE_FLOP',
+                    community_cards=[],
+                    cost_to_call=100,
+                    pot_odds=2.0,
+                    valid_actions=['fold', 'call', 'raise'],
+                )
+            )
             if decision['action'] == 'raise':
                 raises += 1
-        assert raises >= 15, (
-            f'Preflop maniac should raise most hands with 0.55 equity, got {raises}/20'
-        )
+        assert (
+            raises >= 15
+        ), f'Preflop maniac should raise most hands with 0.55 equity, got {raises}/20'

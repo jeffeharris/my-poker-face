@@ -8,19 +8,24 @@ Tests the _execute_sql_query function to ensure:
 3. LIMIT is properly enforced (including comment bypass prevention)
 4. Only SELECT and specific PRAGMAs are allowed
 """
+
 import json
 import re
 import sqlite3
 from unittest.mock import MagicMock, patch
 
-
 # Copy the security logic from experiment_routes for standalone testing
 # This avoids Flask app initialization issues while testing the core security logic
 
 ALLOWED_SQL_TABLES = {
-    'prompt_captures', 'capture_labels', 'player_decision_analysis',
-    'prompt_presets', 'personalities', 'replay_experiments',
-    'replay_results', 'api_usage'
+    'prompt_captures',
+    'capture_labels',
+    'player_decision_analysis',
+    'prompt_presets',
+    'personalities',
+    'replay_experiments',
+    'replay_results',
+    'api_usage',
 }
 
 
@@ -48,10 +53,25 @@ def _execute_sql_query_standalone(sql: str, db_path: str) -> str:
         pragma_name = pragma_match.group(1)
         allowed_pragmas = {'TABLE_INFO', 'TABLE_LIST', 'INDEX_LIST', 'INDEX_INFO', 'DATABASE_LIST'}
         if pragma_name not in allowed_pragmas:
-            return json.dumps({"error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"})
+            return json.dumps(
+                {
+                    "error": f"PRAGMA {pragma_name} not allowed. Use: TABLE_INFO, TABLE_LIST, INDEX_LIST"
+                }
+            )
 
     # Validate: no dangerous keywords (even in subqueries)
-    forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'REPLACE', 'ATTACH', 'DETACH']
+    forbidden = [
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'DROP',
+        'ALTER',
+        'CREATE',
+        'TRUNCATE',
+        'REPLACE',
+        'ATTACH',
+        'DETACH',
+    ]
     for kw in forbidden:
         # Check for keyword as a standalone word (not part of another word)
         if re.search(rf'\b{kw}\b', normalized):
@@ -70,7 +90,11 @@ def _execute_sql_query_standalone(sql: str, db_path: str) -> str:
         allowed_lower = {t.lower() for t in ALLOWED_SQL_TABLES}
         disallowed = tables - allowed_lower
         if disallowed:
-            return json.dumps({"error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"})
+            return json.dumps(
+                {
+                    "error": f"Tables not allowed: {', '.join(sorted(disallowed))}. Allowed: {', '.join(sorted(ALLOWED_SQL_TABLES))}"
+                }
+            )
 
     # Execute with row limit for SELECT queries
     try:
@@ -162,18 +186,14 @@ class TestSQLQuerySecurity:
     def test_join_with_disallowed_table_blocked(self, db_path):
         """Verify JOINs with non-whitelisted tables are rejected."""
         self._setup_db(db_path)
-        data = self._execute(
-            "SELECT * FROM prompt_captures JOIN admin_tokens ON 1=1", db_path
-        )
+        data = self._execute("SELECT * FROM prompt_captures JOIN admin_tokens ON 1=1", db_path)
         assert "error" in data
         assert "not allowed" in data["error"].lower()
 
     def test_left_join_with_disallowed_table_blocked(self, db_path):
         """Verify LEFT JOINs with non-whitelisted tables are rejected."""
         self._setup_db(db_path)
-        data = self._execute(
-            "SELECT * FROM personalities LEFT JOIN users ON 1=1", db_path
-        )
+        data = self._execute("SELECT * FROM personalities LEFT JOIN users ON 1=1", db_path)
         assert "error" in data
         assert "not allowed" in data["error"].lower()
 
@@ -193,17 +213,13 @@ class TestSQLQuerySecurity:
     def test_insert_blocked(self, db_path):
         """Verify INSERT statements are blocked."""
         self._setup_db(db_path)
-        data = self._execute(
-            "INSERT INTO personalities (name) VALUES ('test')", db_path
-        )
+        data = self._execute("INSERT INTO personalities (name) VALUES ('test')", db_path)
         assert "error" in data
 
     def test_update_blocked(self, db_path):
         """Verify UPDATE statements are blocked."""
         self._setup_db(db_path)
-        data = self._execute(
-            "UPDATE personalities SET name='hacked'", db_path
-        )
+        data = self._execute("UPDATE personalities SET name='hacked'", db_path)
         assert "error" in data
 
     def test_delete_blocked(self, db_path):
@@ -221,9 +237,7 @@ class TestSQLQuerySecurity:
     def test_alter_blocked(self, db_path):
         """Verify ALTER statements are blocked."""
         self._setup_db(db_path)
-        data = self._execute(
-            "ALTER TABLE personalities ADD COLUMN pwned TEXT", db_path
-        )
+        data = self._execute("ALTER TABLE personalities ADD COLUMN pwned TEXT", db_path)
         assert "error" in data
 
     def test_attach_blocked(self, db_path):
@@ -244,7 +258,7 @@ class TestSQLQuerySecurity:
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
-                (f"test_personality_{i}", "{}")
+                (f"test_personality_{i}", "{}"),
             )
         conn.commit()
         conn.close()
@@ -263,7 +277,7 @@ class TestSQLQuerySecurity:
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
-                (f"comment_test_{i}", "{}")
+                (f"comment_test_{i}", "{}"),
             )
         conn.commit()
         conn.close()
@@ -282,7 +296,7 @@ class TestSQLQuerySecurity:
         for i in range(150):
             conn.execute(
                 "INSERT INTO personalities (name, config_json) VALUES (?, ?)",
-                (f"block_comment_test_{i}", "{}")
+                (f"block_comment_test_{i}", "{}"),
             )
         conn.commit()
         conn.close()

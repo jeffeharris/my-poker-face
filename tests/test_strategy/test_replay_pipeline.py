@@ -76,7 +76,7 @@ class TestReplayDisableRulesPropagation:
             'cost_to_call': 100,
             'pot_total': 5000,
             'player_stack': 400,  # 4 BB - above short_stack
-            'player_bet': 800,    # invested more than remaining stack → committed
+            'player_bet': 800,  # invested more than remaining stack → committed
             'big_blind': 100,
         }
         live = replay_strategy_pipeline(snapshot)
@@ -98,17 +98,27 @@ class TestReplayPersonalityLayer:
         snapshot = {
             'phase': 'POSTFLOP',
             'base_strategy_probs': {
-                'fold': 0.3, 'call': 0.4, 'raise_2.5bb': 0.2, 'jam': 0.1,
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_2.5bb': 0.2,
+                'jam': 0.1,
             },
             'legal_actions': ['fold', 'call', 'raise', 'all_in'],
             'anchors': {
-                'baseline_aggression': 0.9, 'baseline_looseness': 0.7,
-                'ego': 0.6, 'poise': 0.5, 'expressiveness': 0.5,
-                'risk_identity': 0.6, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.9,
+                'baseline_looseness': 0.7,
+                'ego': 0.6,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.6,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             },
             'emotional_state': {
-                'state': 'composed', 'severity': 'none', 'intensity': 0.0,
+                'state': 'composed',
+                'severity': 'none',
+                'intensity': 0.0,
             },
             'deviation_profile_name': 'lag',
         }
@@ -121,17 +131,27 @@ class TestReplayPersonalityLayer:
         snapshot = {
             'phase': 'POSTFLOP',
             'base_strategy_probs': {
-                'fold': 0.3, 'call': 0.4, 'raise_2.5bb': 0.2, 'jam': 0.1,
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_2.5bb': 0.2,
+                'jam': 0.1,
             },
             'legal_actions': ['fold', 'call', 'raise', 'all_in'],
             'anchors': {
-                'baseline_aggression': 0.9, 'baseline_looseness': 0.7,
-                'ego': 0.6, 'poise': 0.5, 'expressiveness': 0.5,
-                'risk_identity': 0.6, 'adaptation_bias': 0.5,
-                'baseline_energy': 0.5, 'recovery_rate': 0.15,
+                'baseline_aggression': 0.9,
+                'baseline_looseness': 0.7,
+                'ego': 0.6,
+                'poise': 0.5,
+                'expressiveness': 0.5,
+                'risk_identity': 0.6,
+                'adaptation_bias': 0.5,
+                'baseline_energy': 0.5,
+                'recovery_rate': 0.15,
             },
             'emotional_state': {
-                'state': 'composed', 'severity': 'none', 'intensity': 0.0,
+                'state': 'composed',
+                'severity': 'none',
+                'intensity': 0.0,
             },
             'deviation_profile_name': 'lag',
         }

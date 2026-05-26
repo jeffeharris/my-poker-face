@@ -2,14 +2,16 @@
 AI-powered personality generator for poker players.
 Uses LLM to generate unique personality configurations based on character names.
 """
+
 import json
 import logging
 import random
-from typing import Dict, Any, Optional
 from pathlib import Path
+from typing import Any, Dict, Optional
 
-from core.llm import LLMClient, CallType
+from core.llm import CallType, LLMClient
 from core.llm.settings import get_default_model, get_default_provider
+
 from .repositories import PersonalityRepository
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ def _default_anchors() -> Dict[str, float]:
 
 class PersonalityGenerator:
     """Generates unique poker player personalities using AI."""
-    
+
     GENERATION_PROMPT = """
 You are creating a personality profile for an AI poker player named "{name}".
 {description}
@@ -267,8 +269,12 @@ Respond with ONLY a JSON object in this exact format:
     }}
 }}
 """
-    
-    def __init__(self, personality_repo: Optional[PersonalityRepository] = None, db_path: Optional[str] = None):
+
+    def __init__(
+        self,
+        personality_repo: Optional[PersonalityRepository] = None,
+        db_path: Optional[str] = None,
+    ):
         """Initialize the personality generator.
 
         Args:
@@ -279,6 +285,7 @@ Respond with ONLY a JSON object in this exact format:
             self.personality_repo = personality_repo
         else:
             from .repositories import SchemaManager
+
             db_path = db_path or self._get_default_db_path()
             SchemaManager(db_path).ensure_schema()
             self.personality_repo = PersonalityRepository(db_path)
@@ -288,16 +295,21 @@ Respond with ONLY a JSON object in this exact format:
 
         # Cache for this session
         self._cache = {}
-    
+
     def _get_default_db_path(self) -> str:
         """Get the default database path based on environment."""
         if Path('/app/data').exists():
             return '/app/data/poker_games.db'
         else:
             return Path(__file__).parent.parent / 'poker_games.db'
-    
-    def get_personality(self, name: str, description: Optional[str] = None,
-                        force_generate: bool = False, owner_id: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_personality(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        force_generate: bool = False,
+        owner_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get a personality for a character, generating if needed.
 
         Personality loading hierarchy:
@@ -343,20 +355,21 @@ Respond with ONLY a JSON object in this exact format:
         # it instead of the display name.
         visibility = 'private' if owner_id else 'public'
         personality_id = self.personality_repo.save_personality(
-            name, generated, source='ai_generated',
-            owner_id=owner_id, visibility=visibility,
+            name,
+            generated,
+            source='ai_generated',
+            owner_id=owner_id,
+            visibility=visibility,
         )
         if personality_id:
             generated['id'] = personality_id
-            logger.info(
-                f"[PERSONALITY] Assigned personality_id={personality_id!r} to {name}"
-            )
+            logger.info(f"[PERSONALITY] Assigned personality_id={personality_id!r} to {name}")
 
         # Cache it
         self._cache[name] = generated
 
         return generated
-    
+
     def _generate_personality(self, name: str, description: Optional[str] = None) -> Dict[str, Any]:
         """Generate a new personality using AI."""
         # Build the description part
@@ -368,16 +381,22 @@ Respond with ONLY a JSON object in this exact format:
             if name.lower().startswith("a "):
                 # It's an animal or object
                 desc_text = f"This character is literally {name}. Consider how {name} would behave at a poker table."
-            elif any(title in name.lower() for title in ["king", "queen", "lord", "lady", "dr.", "captain"]):
+            elif any(
+                title in name.lower()
+                for title in ["king", "queen", "lord", "lady", "dr.", "captain"]
+            ):
                 desc_text = "This character has a title suggesting authority or expertise."
-        
+
         prompt = self.GENERATION_PROMPT.format(name=name, description=desc_text)
-        
+
         try:
             response = self._client.complete(
                 messages=[
-                    {"role": "system", "content": "You are a creative AI that generates unique poker player personalities."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a creative AI that generates unique poker player personalities.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 json_format=True,
                 call_type=CallType.PERSONALITY_GENERATION,
@@ -388,14 +407,21 @@ Respond with ONLY a JSON object in this exact format:
             result = json.loads(response.content)
 
             # Validate the response has required fields
-            required_fields = ['play_style', 'default_confidence', 'default_attitude', 'personality_traits']
+            required_fields = [
+                'play_style',
+                'default_confidence',
+                'default_attitude',
+                'personality_traits',
+            ]
             if not all(field in result for field in required_fields):
                 return self._create_default_personality(name)
 
             # Ensure visual_identity exists with non-empty required subfields
             vi = result.get('visual_identity', {})
             if not all(vi.get(k) for k in ['identity', 'appearance', 'apparel']):
-                logger.warning(f"[PERSONALITY] Missing visual_identity fields for {name}, using name as identity")
+                logger.warning(
+                    f"[PERSONALITY] Missing visual_identity fields for {name}, using name as identity"
+                )
                 result['visual_identity'] = {
                     'identity': name,
                     'appearance': vi.get('appearance'),
@@ -406,24 +432,33 @@ Respond with ONLY a JSON object in this exact format:
             # omitted them. Cash-mode reads tolerate missing sub-dicts (per-field
             # fallback to BANKROLL_KNOB_DEFAULTS / STAKER_PROFILE_DEFAULTS), but
             # persisting explicit defaults keeps the DB row introspectable.
-            result.setdefault('bankroll_knobs', {
-                'starting_bankroll': 10000,
-                'bankroll_rate': 500,
-                'buy_in_multiplier': 1.0,
-                'stake_comfort_zone': '$10',
-            })
-            result.setdefault('staker_profile', {
-                'willing': True,
-                'max_loan_pct_of_bankroll': 0.05,
-                'floor_anchor': 1.20,
-                'rate_anchor': 0.30,
-                'respect_floor': -0.5,
-                'heat_ceiling': 0.7,
-            })
-            result.setdefault('borrower_profile', {
-                'willing': True,
-                'willingness_threshold': 0.30,
-            })
+            result.setdefault(
+                'bankroll_knobs',
+                {
+                    'starting_bankroll': 10000,
+                    'bankroll_rate': 500,
+                    'buy_in_multiplier': 1.0,
+                    'stake_comfort_zone': '$10',
+                },
+            )
+            result.setdefault(
+                'staker_profile',
+                {
+                    'willing': True,
+                    'max_loan_pct_of_bankroll': 0.05,
+                    'floor_anchor': 1.20,
+                    'rate_anchor': 0.30,
+                    'respect_floor': -0.5,
+                    'heat_ceiling': 0.7,
+                },
+            )
+            result.setdefault(
+                'borrower_profile',
+                {
+                    'willing': True,
+                    'willingness_threshold': 0.30,
+                },
+            )
             # Anchors drive tiered-bot archetype classification. Without
             # them, every personality collapses to default-TAG. The schema
             # documents the field in SECTION 4; this setdefault is the
@@ -441,14 +476,14 @@ Respond with ONLY a JSON object in this exact format:
         except Exception as e:
             logger.info(f"[PERSONALITY] Error generating personality for {name}: {e}")
             return self._create_default_personality(name)
-    
+
     def _create_default_personality(self, name: str) -> Dict[str, Any]:
         """Create a default personality with some randomization."""
         # Add some variety to defaults
         styles = ["balanced", "careful", "unpredictable", "analytical", "instinctive"]
         confidences = ["steady", "variable", "growing", "shaky", "overconfident"]
         attitudes = ["friendly", "mysterious", "competitive", "relaxed", "focused"]
-        
+
         return {
             "play_style": random.choice(styles),
             "default_confidence": random.choice(confidences),
@@ -456,17 +491,14 @@ Respond with ONLY a JSON object in this exact format:
             "personality_traits": {
                 "bluff_tendency": round(random.uniform(0.2, 0.8), 2),
                 "aggression": round(random.uniform(0.3, 0.7), 2),
-                "emoji_usage": round(random.uniform(0.1, 0.6), 2)
+                "emoji_usage": round(random.uniform(0.1, 0.6), 2),
             },
             "verbal_tics": [
-                f"Interesting move",
-                f"I see what you're doing",
-                f"Let's make this interesting"
+                "Interesting move",
+                "I see what you're doing",
+                "Let's make this interesting",
             ],
-            "physical_tics": [
-                "*taps table thoughtfully*",
-                "*adjusts position*"
-            ],
+            "physical_tics": ["*taps table thoughtfully*", "*adjusts position*"],
             "bankroll_knobs": {
                 "starting_bankroll": 10000,
                 "bankroll_rate": 500,

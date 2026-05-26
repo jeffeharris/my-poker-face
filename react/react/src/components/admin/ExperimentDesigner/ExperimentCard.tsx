@@ -1,4 +1,12 @@
-import { Clock, CheckCircle, XCircle, Loader2, Pause, AlertTriangle, ChevronRight } from 'lucide-react';
+import {
+  Clock,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Pause,
+  AlertTriangle,
+  ChevronRight,
+} from 'lucide-react';
 import type { ExperimentSummary } from './types';
 import type { ExperimentStatus } from './experimentStatus';
 import { formatDate } from '../../../utils/formatters';
@@ -41,20 +49,18 @@ const STATUS_LABELS: Record<ExperimentStatus, string> = {
  */
 export function ExperimentCard({ experiment, onClick }: ExperimentCardProps) {
   const status = experiment.status as ExperimentStatus;
-  const progressPct = experiment.num_tournaments > 0
-    ? Math.min(100, Math.round((experiment.games_count / experiment.num_tournaments) * 100))
-    : 0;
+  const progressPct =
+    experiment.num_tournaments > 0
+      ? Math.min(100, Math.round((experiment.games_count / experiment.num_tournaments) * 100))
+      : 0;
 
-  const modelDisplay = experiment.provider && experiment.model
-    ? `${experiment.provider}/${experiment.model}`
-    : 'default';
+  const modelDisplay =
+    experiment.provider && experiment.model
+      ? `${experiment.provider}/${experiment.model}`
+      : 'default';
 
   return (
-    <button
-      className="experiment-card"
-      onClick={onClick}
-      type="button"
-    >
+    <button className="experiment-card" onClick={onClick} type="button">
       {/* Header: Name + Status */}
       <div className="experiment-card__header">
         <h3 className="experiment-card__name">{experiment.name}</h3>
@@ -73,10 +79,7 @@ export function ExperimentCard({ experiment, onClick }: ExperimentCardProps) {
       {status === 'running' && (
         <div className="experiment-card__progress">
           <div className="experiment-card__progress-bar-container">
-            <div
-              className="experiment-card__progress-bar"
-              style={{ width: `${progressPct}%` }}
-            />
+            <div className="experiment-card__progress-bar" style={{ width: `${progressPct}%` }} />
           </div>
           <span className="experiment-card__progress-text">
             {experiment.games_count}/{experiment.num_tournaments} tournaments

@@ -36,7 +36,6 @@ from poker.strategy.value_override import (
 )
 from poker.tiered_bot_controller import _fill_prior_action_source
 
-
 # ── compute_value_override_strategy: fire-path traces ────────────────────
 
 
@@ -93,9 +92,13 @@ class TestStrongHandFacingAllInTrace:
 
 class TestStrongHandFacingBetTrace:
     def test_call_plus_raise_emits_combined_trace(self):
-        s = StrategyProfile(action_probabilities={
-            'fold': 0.5, 'call': 0.3, 'raise_67': 0.2,
-        })
+        s = StrategyProfile(
+            action_probabilities={
+                'fold': 0.5,
+                'call': 0.3,
+                'raise_67': 0.2,
+            }
+        )
         _result, trace = compute_value_override_strategy(
             strategy=s,
             decision_context=DecisionContext(facing_big_bet=True),
@@ -209,18 +212,23 @@ class TestStrongHandTraceSerialization:
 class TestFillPriorActionSource:
     def _make_fire_trace(self, layer: str, rule_id: str = 'default') -> InterventionTrace:
         return InterventionTrace(
-            layer=layer, rule_id=rule_id, layer_order=0,
+            layer=layer,
+            rule_id=rule_id,
+            layer_order=0,
             fired=True,
             operation=InterventionOperation.OVERRIDE.value,
             effect='distribution_replaced',
             replaced_prior_action=True,
-            primary_action_before='fold', primary_action_after='call',
+            primary_action_before='fold',
+            primary_action_after='call',
         )
 
     def test_fills_in_from_last_fired_earlier_trace(self):
         earlier = [
             make_no_op_trace(
-                layer='personality', rule_id='default', layer_order=0,
+                layer='personality',
+                rule_id='default',
+                layer_order=0,
                 reason_code='no_distortion',
             ),
             self._make_fire_trace('strong_hand_override'),
@@ -234,7 +242,9 @@ class TestFillPriorActionSource:
         anything, so 'prior_action_source' semantics don't apply."""
         earlier = [self._make_fire_trace('strong_hand_override')]
         current = make_no_op_trace(
-            layer='bluff_catch_override', rule_id='default', layer_order=3,
+            layer='bluff_catch_override',
+            rule_id='default',
+            layer_order=3,
             reason_code='gate_rejected',
         )
         updated = _fill_prior_action_source(current, earlier)
@@ -245,7 +255,9 @@ class TestFillPriorActionSource:
     def test_no_earlier_fired_layer_leaves_empty(self):
         earlier = [
             make_no_op_trace(
-                layer='strong_hand_override', rule_id='default', layer_order=2,
+                layer='strong_hand_override',
+                rule_id='default',
+                layer_order=2,
                 reason_code='gate_rejected',
             ),
         ]
@@ -258,6 +270,7 @@ class TestFillPriorActionSource:
         # Caller pre-populated prior_action_source (e.g. for testing).
         # Helper should NOT overwrite.
         from dataclasses import replace
+
         current = replace(
             self._make_fire_trace('bluff_catch_override'),
             prior_action_source='manual.override',
@@ -270,7 +283,9 @@ class TestFillPriorActionSource:
             self._make_fire_trace('personality'),
             self._make_fire_trace('exploitation', rule_id='hyper_aggressive'),
             make_no_op_trace(
-                layer='strong_hand_override', rule_id='default', layer_order=2,
+                layer='strong_hand_override',
+                rule_id='default',
+                layer_order=2,
                 reason_code='gate_rejected',
             ),
         ]

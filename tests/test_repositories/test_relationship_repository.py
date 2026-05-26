@@ -21,9 +21,9 @@ import pytest
 pytestmark = pytest.mark.integration
 
 from poker.memory.opponent_model import (
-    CashPairStats,
     HEAT_DECAY_HALF_LIFE_DAYS,
     HEAT_DECAY_PLATEAU_DAYS,
+    CashPairStats,
     RelationshipState,
 )
 from poker.repositories.relationship_repository import RelationshipRepository
@@ -88,6 +88,7 @@ class TestSchemaMigrationV87:
         # Running the v87 migration on a DB that already has v87 must
         # be a no-op (CREATE TABLE IF NOT EXISTS).
         from poker.repositories.schema_manager import SchemaManager
+
         sm = SchemaManager.__new__(SchemaManager)
         with sqlite3.connect(db_path) as conn:
             sm._migrate_v87_add_relationship_tables(conn)
@@ -115,9 +116,7 @@ class TestSchemaMigrationV87:
         SchemaManager(path).ensure_schema()
         with sqlite3.connect(path) as conn:
             tables = {
-                row[0] for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
+                row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
             }
             assert "relationship_states" in tables
             assert "cash_pair_stats" in tables
@@ -206,7 +205,8 @@ class TestProjectionOnRead:
         # 3 days elapsed — still in plateau, heat stays at 0.6
         now = tick + timedelta(days=3)
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.6, last_decay_tick=tick),
         )
         loaded = repo.load_relationship_state("alice", "bob", now=now)
@@ -216,7 +216,8 @@ class TestProjectionOnRead:
         tick = datetime(2026, 5, 1, 12, 0)
         now = tick + timedelta(days=365)  # one year — should snap
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.95, last_decay_tick=tick),
         )
         loaded = repo.load_relationship_state("alice", "bob", now=now)
@@ -243,7 +244,8 @@ class TestLoadAllRelationships:
         now = datetime(2026, 5, 17, 12, 0)
         for opp in ("bob", "carol"):
             repo.save_relationship_state(
-                "alice", opp,
+                "alice",
+                opp,
                 RelationshipState(heat=0.8, last_decay_tick=tick),
             )
 
@@ -277,12 +279,14 @@ class TestCashPairStatsRoundTrip:
 
     def test_save_is_upsert(self, repo):
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=1000, hands_played_cash=10),
             sandbox_id="sb-1",
         )
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=-500, hands_played_cash=22),
             sandbox_id="sb-1",
         )
@@ -294,7 +298,8 @@ class TestCashPairStatsRoundTrip:
         # Observer-POV PnL is negative when they've lost net to opponent.
         # Mirror pair (opponent, observer) has the positive value.
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=-7500, hands_played_cash=100),
             sandbox_id="sb-1",
         )
@@ -306,12 +311,14 @@ class TestCashPairStatsRoundTrip:
         # across every sandbox so the dossier "Track Record" surface
         # keeps showing lifetime totals after v109.
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=1000, hands_played_cash=10),
             sandbox_id="sb-1",
         )
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=2500, hands_played_cash=25),
             sandbox_id="sb-2",
         )
@@ -327,12 +334,14 @@ class TestCashPairStatsRoundTrip:
         # The admin Chip Economy panel calls aggregate_cash_pnl_by_entity
         # with the selected sandbox so Won/Lost/Net reflects the dropdown.
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=500, hands_played_cash=5),
             sandbox_id="sb-1",
         )
         repo.save_cash_pair_stats(
-            "alice", "bob",
+            "alice",
+            "bob",
             CashPairStats("alice", "bob", cumulative_pnl=-200, hands_played_cash=3),
             sandbox_id="sb-2",
         )
@@ -429,7 +438,8 @@ class TestNicknameOverrideRoundTrip:
         # Saving an override on a row with existing affinity axes
         # must leave those axes intact.
         repo.save_relationship_state(
-            "alice", "bob",
+            "alice",
+            "bob",
             RelationshipState(heat=0.6, respect=0.7, likability=0.4),
         )
         repo.save_nickname_override("alice", "bob", "label")
@@ -449,7 +459,7 @@ class TestLoadAllNicknameOverrides:
         repo.save_nickname_override("zeke", "bob", "zeke's label")
         result = repo.load_all_nickname_overrides("alice")
         assert result == {
-            "bob":   "alice's label for bob",
+            "bob": "alice's label for bob",
             "carol": "alice's label for carol",
         }
 

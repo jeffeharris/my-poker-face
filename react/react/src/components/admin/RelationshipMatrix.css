@@ -90,7 +90,9 @@
   padding: var(--space-2);
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
-  transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+  transition:
+    transform 80ms ease-out,
+    box-shadow 80ms ease-out;
   vertical-align: middle;
   text-align: center;
   min-width: 84px;

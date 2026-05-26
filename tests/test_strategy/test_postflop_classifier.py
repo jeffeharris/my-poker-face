@@ -5,22 +5,27 @@ from types import SimpleNamespace
 import pytest
 
 from poker.strategy.postflop_classifier import (
-    build_postflop_node,
     _determine_facing_action,
     _determine_position,
     _determine_spr_bucket,
+    build_postflop_node,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers to build minimal mock game states
 # ---------------------------------------------------------------------------
 
+
 def _player(name, stack=1000, bet=0, is_folded=False, is_all_in=False):
     return SimpleNamespace(
-        name=name, stack=stack, bet=bet,
-        is_folded=is_folded, is_all_in=is_all_in,
-        is_human=False, has_acted=False, last_action=None,
+        name=name,
+        stack=stack,
+        bet=bet,
+        is_folded=is_folded,
+        is_all_in=is_all_in,
+        is_human=False,
+        has_acted=False,
+        last_action=None,
         hand=(),
     )
 
@@ -49,11 +54,16 @@ def _game_state(
     # Build table_positions based on 6-max seating from dealer
     n = len(players)
     if n == 6:
-        keys = ['button', 'small_blind_player', 'big_blind_player',
-                'under_the_gun', 'middle_position_1', 'cutoff']
+        keys = [
+            'button',
+            'small_blind_player',
+            'big_blind_player',
+            'under_the_gun',
+            'middle_position_1',
+            'cutoff',
+        ]
     elif n == 5:
-        keys = ['button', 'small_blind_player', 'big_blind_player',
-                'under_the_gun', 'cutoff']
+        keys = ['button', 'small_blind_player', 'big_blind_player', 'under_the_gun', 'cutoff']
     elif n == 4:
         keys = ['button', 'small_blind_player', 'big_blind_player', 'cutoff']
     elif n == 3:
@@ -86,6 +96,7 @@ def _game_state(
 # Street detection
 # ---------------------------------------------------------------------------
 
+
 class TestStreetDetection:
     def test_flop(self):
         gs = _game_state()
@@ -106,6 +117,7 @@ class TestStreetDetection:
 # ---------------------------------------------------------------------------
 # Position (IP / OOP)
 # ---------------------------------------------------------------------------
+
 
 class TestPositionDetection:
     def test_button_is_ip(self):
@@ -129,6 +141,7 @@ class TestPositionDetection:
 # Facing action
 # ---------------------------------------------------------------------------
 
+
 class TestFacingAction:
     def test_unopened(self):
         gs = _game_state(raises=0)
@@ -150,6 +163,7 @@ class TestFacingAction:
 # ---------------------------------------------------------------------------
 # SPR bucket
 # ---------------------------------------------------------------------------
+
 
 class TestSPRBucket:
     def test_high_spr(self):
@@ -185,6 +199,7 @@ class TestSPRBucket:
 # Full build_postflop_node integration
 # ---------------------------------------------------------------------------
 
+
 class TestBuildPostflopNode:
     def test_basic_flop_node(self):
         gs = _game_state(dealer_idx=0, current_idx=0, raises=0, pot_total=100)
@@ -206,8 +221,10 @@ class TestBuildPostflopNode:
 
     def test_river_facing_raise_low_spr(self):
         gs = _game_state(
-            dealer_idx=0, current_idx=2,  # BB is OOP
-            raises=2, pot_total=800,
+            dealer_idx=0,
+            current_idx=2,  # BB is OOP
+            raises=2,
+            pot_total=800,
             players=[
                 _player('Alice', stack=1000),
                 _player('Bob', stack=1000),
@@ -218,7 +235,10 @@ class TestBuildPostflopNode:
             ],
         )
         node = build_postflop_node(
-            gs, 2, ['Ah', 'Qd'], ['Ks', '8c', '3h', '5d', '2s'],
+            gs,
+            2,
+            ['Ah', 'Qd'],
+            ['Ks', '8c', '3h', '5d', '2s'],
         )
         assert node.street == 'river'
         assert node.position == 'OOP'

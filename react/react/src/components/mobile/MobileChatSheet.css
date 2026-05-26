@@ -23,13 +23,21 @@
 }
 
 @keyframes mcsOverlayIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes mcsOverlayOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* Sheet container */
@@ -38,11 +46,7 @@
   max-height: 82dvh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(
-    178deg,
-    rgba(18, 20, 28, 0.99) 0%,
-    rgba(10, 11, 16, 0.995) 100%
-  );
+  background: linear-gradient(178deg, rgba(18, 20, 28, 0.99) 0%, rgba(10, 11, 16, 0.995) 100%);
   border-radius: 20px 20px 0 0;
   border-top: 1px solid rgba(212, 165, 116, 0.18);
   box-shadow:
@@ -57,13 +61,21 @@
 }
 
 @keyframes mcsSheetIn {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes mcsSheetOut {
-  from { transform: translateY(0); }
-  to { transform: translateY(100%); }
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
 }
 
 /* Header */

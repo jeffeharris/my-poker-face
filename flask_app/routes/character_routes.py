@@ -57,6 +57,7 @@ def _resolve_observer_id() -> Optional[str]:
     the relationship / pair-stats / notes axes all need an observer.
     """
     from flask_app.extensions import auth_manager
+
     user = auth_manager.get_current_user() if auth_manager else None
     return user.get("id") if user and user.get("id") else None
 
@@ -69,6 +70,7 @@ def _resolve_personality_id(identifier: str) -> Optional[str]:
     React Player blob exposes today). Returning None means neither hit.
     """
     from flask_app.extensions import personality_repo
+
     try:
         if personality_repo.load_personality_by_id(identifier):
             return identifier
@@ -89,13 +91,17 @@ def _find_active_cash_game_id_for_owner(owner_id: str) -> Optional[str]:
     """
     try:
         from flask_app.routes.cash_routes import _find_active_cash_game_id
+
         return _find_active_cash_game_id(owner_id)
     except Exception:
         return None
 
 
 def _relationship_hint(
-    *, likability: float, heat: float, respect: float,
+    *,
+    likability: float,
+    heat: float,
+    respect: float,
 ) -> str:
     """Mirrors `cash_mode.sponsor_offers._relationship_hint`.
 
@@ -142,14 +148,14 @@ def _curated_anchors(personality: dict) -> Optional[dict]:
 
     def get(key: str) -> Optional[float]:
         v = anchors.get(key)
-        return float(v) if isinstance(v, (int, float)) else None
+        return float(v) if isinstance(v, int | float) else None
 
     return {
-        'aggression':     get('baseline_aggression'),
-        'looseness':      get('baseline_looseness'),
-        'poise':          get('poise'),
+        'aggression': get('baseline_aggression'),
+        'looseness': get('baseline_looseness'),
+        'poise': get('poise'),
         'expressiveness': get('expressiveness'),
-        'risk':           get('risk_identity'),
+        'risk': get('risk_identity'),
     }
 
 
@@ -167,6 +173,7 @@ def _build_personality_payload(
     `nickname_override` is the raw stored value (None when unset).
     """
     from flask_app.extensions import personality_repo
+
     try:
         p = personality_repo.load_personality_by_id(personality_id) or {}
     except Exception:
@@ -197,6 +204,7 @@ def _find_game_data_with_player(player_name: str) -> Optional[dict]:
     """
     try:
         from flask_app.services import game_state_service
+
         for _gid, gdata in game_state_service.games.items():
             sm = gdata.get('state_machine')
             if sm is None:
@@ -218,7 +226,7 @@ def _build_live_emotion(game_data: dict, player_name: str) -> Optional[str]:
     controller = controllers.get(player_name)
     if controller is None:
         return None
-    runout = (game_data.get('runout_emotion_overrides') or {})
+    runout = game_data.get('runout_emotion_overrides') or {}
     if player_name in runout:
         return runout[player_name]
     psych = getattr(controller, 'psychology', None)
@@ -391,14 +399,17 @@ def get_dossier(identifier: str):
     if observer_id:
         try:
             from flask_app.extensions import relationship_repo
+
             nickname_override = relationship_repo.load_nickname_override(
-                observer_id, personality_id,
+                observer_id,
+                personality_id,
             )
         except Exception as e:
             logger.debug("[CHARACTER] nickname_override load failed: %s", e)
 
     personality = _build_personality_payload(
-        personality_id, nickname_override=nickname_override,
+        personality_id,
+        nickname_override=nickname_override,
     )
 
     # Live in-memory game data — needed for emotion / observation /
@@ -415,9 +426,11 @@ def get_dossier(identifier: str):
     try:
         from flask_app.extensions import bankroll_repo, sandbox_repo
         from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
         sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
         ai_bankroll_chips = bankroll_repo.load_ai_bankroll_current(
-            personality_id, sandbox_id=sandbox_id,
+            personality_id,
+            sandbox_id=sandbox_id,
         )
     except Exception as e:
         logger.debug("[CHARACTER] ai_bankroll lookup failed: %s", e)
@@ -434,14 +447,17 @@ def get_dossier(identifier: str):
     # detail view).
     stake_summary = {
         'as_borrower': {'carry_count': 0, 'total_carried': 0},
-        'as_staker':   {'carry_count': 0, 'total_owed_to_them': 0},
+        'as_staker': {'carry_count': 0, 'total_owed_to_them': 0},
     }
     try:
         from flask_app.extensions import stake_repo
+
         if stake_repo is not None:
             from cash_mode.stakes import BORROWER_KIND_PERSONALITY
+
             borrower_carries = stake_repo.list_carries_for_borrower(
-                personality_id, BORROWER_KIND_PERSONALITY,
+                personality_id,
+                BORROWER_KIND_PERSONALITY,
             )
             stake_summary['as_borrower'] = {
                 'carry_count': len(borrower_carries),
@@ -450,9 +466,7 @@ def get_dossier(identifier: str):
             staker_carries = stake_repo.list_carries_for_staker(personality_id)
             stake_summary['as_staker'] = {
                 'carry_count': len(staker_carries),
-                'total_owed_to_them': sum(
-                    int(s.carry_amount) for s in staker_carries
-                ),
+                'total_owed_to_them': sum(int(s.carry_amount) for s in staker_carries),
             }
     except Exception as e:
         logger.debug("[CHARACTER] stake_summary lookup failed: %s", e)
@@ -489,7 +503,9 @@ def get_dossier(identifier: str):
             'likability': rs.likability,
             'last_seen': rs.last_seen.isoformat() if rs.last_seen else None,
             'hint': _relationship_hint(
-                likability=rs.likability, heat=rs.heat, respect=rs.respect,
+                likability=rs.likability,
+                heat=rs.heat,
+                respect=rs.respect,
             ),
         }
 
@@ -540,6 +556,7 @@ def get_nickname_overrides():
         return jsonify(response)
 
     from flask_app.extensions import personality_repo, relationship_repo
+
     try:
         by_id = relationship_repo.load_all_nickname_overrides(observer_id)
     except Exception as e:
@@ -594,12 +611,15 @@ def put_note(identifier: str):
         return jsonify({'error': 'note exceeds 2000 character limit'}), 400
 
     from flask_app.extensions import relationship_repo
+
     try:
         relationship_repo.save_note(observer_id, personality_id, note)
     except Exception as e:
         logger.error(
             "[CHARACTER] save_note failed observer=%r personality=%r: %s",
-            observer_id, personality_id, e,
+            observer_id,
+            personality_id,
+            e,
         )
         return jsonify({'error': 'Failed to save note'}), 500
 
@@ -638,21 +658,26 @@ def put_nickname_override(identifier: str):
     if nickname is not None and not isinstance(nickname, str):
         return jsonify({'error': 'nickname must be a string'}), 400
     if isinstance(nickname, str) and len(nickname) > NICKNAME_OVERRIDE_MAX_LEN:
-        return jsonify({
-            'error': (
-                f'nickname exceeds {NICKNAME_OVERRIDE_MAX_LEN} character limit'
-            ),
-        }), 400
+        return jsonify(
+            {
+                'error': (f'nickname exceeds {NICKNAME_OVERRIDE_MAX_LEN} character limit'),
+            }
+        ), 400
 
     from flask_app.extensions import relationship_repo
+
     try:
         relationship_repo.save_nickname_override(
-            observer_id, personality_id, nickname,
+            observer_id,
+            personality_id,
+            nickname,
         )
     except Exception as e:
         logger.error(
             "[CHARACTER] save_nickname_override failed observer=%r personality=%r: %s",
-            observer_id, personality_id, e,
+            observer_id,
+            personality_id,
+            e,
         )
         return jsonify({'error': 'Failed to save nickname'}), 500
 

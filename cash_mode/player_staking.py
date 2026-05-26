@@ -57,7 +57,7 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from cash_mode.stakes import (
     BORROWER_KIND_PERSONALITY,
@@ -123,12 +123,12 @@ class StakeableAICandidate:
 
     personality_id: str
     name: str
-    comfort_zone: str       # AI's natural tier, e.g., "$10"
-    target_stake_label: str # the +1 tier the player can stake them into
+    comfort_zone: str  # AI's natural tier, e.g., "$10"
+    target_stake_label: str  # the +1 tier the player can stake them into
     min_buy_in: int
     max_buy_in: int
     suggested_principal: int  # default principal for the modal
-    relationship_hint: str    # short blurb from the AI's POV of player
+    relationship_hint: str  # short blurb from the AI's POV of player
     likability: float
     respect: float
     heat: float
@@ -154,13 +154,13 @@ class OfferEvaluation:
     """
 
     accepted: bool
-    score: float                # relationship-axes score
-    base_threshold: float       # profile.willingness_threshold
-    cut_penalty: float          # max(0, cut - FAIR_CUT_REFERENCE) × slope
-    desperation: float          # ego × wealth_deficit
-    desperation_relief: float   # desperation × DESPERATION_RELIEF
+    score: float  # relationship-axes score
+    base_threshold: float  # profile.willingness_threshold
+    cut_penalty: float  # max(0, cut - FAIR_CUT_REFERENCE) × slope
+    desperation: float  # ego × wealth_deficit
+    desperation_relief: float  # desperation × DESPERATION_RELIEF
     effective_threshold: float  # base + cut_penalty - desperation_relief
-    reason: str                 # 'accepted' | 'cut_too_steep' | 'low_goodwill'
+    reason: str  # 'accepted' | 'cut_too_steep' | 'low_goodwill'
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -269,7 +269,8 @@ def _met_before(
     """
     try:
         rel = relationship_repo.load_relationship_state(
-            observer_id=observer_id, opponent_id=opponent_id,
+            observer_id=observer_id,
+            opponent_id=opponent_id,
         )
     except Exception:
         return False
@@ -290,7 +291,9 @@ def _relationship_axes(
     the caller doesn't need to apply its own decay."""
     try:
         rel = relationship_repo.load_relationship_state(
-            observer_id=observer_id, opponent_id=opponent_id, now=now,
+            observer_id=observer_id,
+            opponent_id=opponent_id,
+            now=now,
         )
     except Exception:
         rel = None
@@ -300,7 +303,10 @@ def _relationship_axes(
 
 
 def _relationship_hint(
-    *, likability: float, heat: float, respect: float,
+    *,
+    likability: float,
+    heat: float,
+    respect: float,
 ) -> str:
     """Match the lobby/sponsor-offer hint phrasing so the staking UI
     speaks the same language as the lender flow."""
@@ -433,7 +439,8 @@ def list_stakeable_ai(
 
         # Gate 7: no active stake as borrower.
         active = stake_repo.load_active_for_borrower(
-            pid, BORROWER_KIND_PERSONALITY,
+            pid,
+            BORROWER_KIND_PERSONALITY,
         )
         if active is not None:
             continue
@@ -480,7 +487,9 @@ def list_stakeable_ai(
         # Compute desperation for the preview (so the UI can hint at
         # who's likely to accept worse terms).
         current_chips = bankroll_repo.load_ai_bankroll_current(
-            pid, sandbox_id=sandbox_id, now=now,
+            pid,
+            sandbox_id=sandbox_id,
+            now=now,
         )
         if current_chips is None:
             current_chips = 0
@@ -494,7 +503,9 @@ def list_stakeable_ai(
         )
 
         hint = _relationship_hint(
-            likability=likability, heat=heat, respect=respect,
+            likability=likability,
+            heat=heat,
+            respect=respect,
         )
 
         # Suggested principal = min_buy_in @ target tier (lowest
@@ -563,7 +574,9 @@ def evaluate_player_offer(
     ego = _ego_from_personality(personality)
 
     current_chips = bankroll_repo.load_ai_bankroll_current(
-        target_pid, sandbox_id=sandbox_id, now=now,
+        target_pid,
+        sandbox_id=sandbox_id,
+        now=now,
     )
     if current_chips is None:
         current_chips = 0
@@ -575,7 +588,9 @@ def evaluate_player_offer(
         now=now,
     )
     score = _relationship_score(
-        likability=likability, respect=respect, heat=heat,
+        likability=likability,
+        respect=respect,
+        heat=heat,
     )
 
     base_threshold = float(profile.willingness_threshold)

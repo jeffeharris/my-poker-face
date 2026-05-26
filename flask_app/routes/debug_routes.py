@@ -1,13 +1,14 @@
 """Debug and diagnostic routes."""
 
 import logging
-from flask import Blueprint, jsonify, request, redirect, Response
 
+from flask import Blueprint, Response, jsonify, redirect, request
+
+from .. import config
+from ..extensions import persistence_db_path
+from ..route_utils import register_admin_guard
 from ..services import game_state_service
 from ..services.elasticity_service import format_elasticity_data
-from ..extensions import persistence_db_path
-from .. import config
-from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,24 @@ def api_game_diagnostic(game_id):
         game_state = state_machine.game_state
         current_player = game_state.current_player
 
-        diagnostic.update({
-            'phase': state_machine.current_phase.name,
-            'awaiting_action': game_state.awaiting_action,
-            'current_player': current_player.name,
-            'current_player_is_human': current_player.is_human,
-            'current_player_is_folded': current_player.is_folded,
-            'game_started_flag': current_game_data.get('game_started', False),
-            'has_ai_controllers': 'ai_controllers' in current_game_data,
-            'player_count': len(game_state.players),
-            'pot': game_state.pot,
-        })
+        diagnostic.update(
+            {
+                'phase': state_machine.current_phase.name,
+                'awaiting_action': game_state.awaiting_action,
+                'current_player': current_player.name,
+                'current_player_is_human': current_player.is_human,
+                'current_player_is_folded': current_player.is_folded,
+                'game_started_flag': current_game_data.get('game_started', False),
+                'has_ai_controllers': 'ai_controllers' in current_game_data,
+                'player_count': len(game_state.players),
+                'pot': game_state.pot,
+            }
+        )
 
         is_stuck = (
-            game_state.awaiting_action and
-            not current_player.is_human and
-            not current_player.is_folded
+            game_state.awaiting_action
+            and not current_player.is_human
+            and not current_player.is_folded
         )
         diagnostic['appears_stuck'] = is_stuck
         if is_stuck:
@@ -97,7 +100,7 @@ def get_memory_debug(game_id):
         'session_memories': {},
         'opponent_models': {},
         'current_hand': None,
-        'completed_hands_count': len(memory_manager.hand_recorder.completed_hands)
+        'completed_hands_count': len(memory_manager.hand_recorder.completed_hands),
     }
 
     for player_name, session in memory_manager.session_memories.items():
@@ -108,7 +111,9 @@ def get_memory_debug(game_id):
             'streak_count': session.context.streak_count,
             'total_winnings': session.context.total_winnings,
             'hand_memories_count': len(session.hand_memories),
-            'context_preview': session.get_context_for_prompt(100)[:200] if session.hand_memories else 'No hands yet'
+            'context_preview': session.get_context_for_prompt(100)[:200]
+            if session.hand_memories
+            else 'No hands yet',
         }
 
     all_models = memory_manager.opponent_model_manager.models
@@ -121,7 +126,7 @@ def get_memory_debug(game_id):
                 'pfr': round(model.tendencies.pfr, 2),
                 'aggression_factor': round(model.tendencies.aggression_factor, 2),
                 'play_style': model.tendencies.get_play_style_label(),
-                'summary': model.get_prompt_summary()
+                'summary': model.get_prompt_summary(),
             }
 
     if memory_manager.hand_recorder.current_hand:
@@ -129,7 +134,7 @@ def get_memory_debug(game_id):
         debug_info['current_hand'] = {
             'hand_number': current.hand_number,
             'actions_recorded': len(current.actions),
-            'phase': current.actions[-1].phase if current.actions else 'PRE_FLOP'
+            'phase': current.actions[-1].phase if current.actions else 'PRE_FLOP',
         }
 
     return jsonify(debug_info)
@@ -157,13 +162,10 @@ def get_tilt_debug(game_id):
             'tilt_source': tilt.tilt_source or 'none',
             'nemesis': tilt.nemesis,
             'losing_streak': tilt.losing_streak,
-            'recent_losses': tilt.recent_losses[-3:] if tilt.recent_losses else []
+            'recent_losses': tilt.recent_losses[-3:] if tilt.recent_losses else [],
         }
 
-    return jsonify({
-        'game_id': game_id,
-        'tilt_states': tilt_info
-    })
+    return jsonify({'game_id': game_id, 'tilt_states': tilt_info})
 
 
 @debug_bp.route('/api/game/<game_id>/tilt-debug/<player_name>', methods=['POST'])
@@ -175,10 +177,12 @@ def set_tilt_debug(game_id, player_name):
 
     ai_controllers = game_data.get('ai_controllers', {})
     if player_name not in ai_controllers:
-        return jsonify({
-            'error': f'AI player "{player_name}" not found',
-            'available_players': list(ai_controllers.keys())
-        }), 404
+        return jsonify(
+            {
+                'error': f'AI player "{player_name}" not found',
+                'available_players': list(ai_controllers.keys()),
+            }
+        ), 404
 
     controller = ai_controllers[player_name]
     if controller.psychology is None:
@@ -196,17 +200,19 @@ def set_tilt_debug(game_id, player_name):
     if 'losing_streak' in data:
         tilt.losing_streak = int(data['losing_streak'])
 
-    return jsonify({
-        'success': True,
-        'player': player_name,
-        'new_state': {
-            'tilt_level': round(tilt.tilt_level, 2),
-            'tilt_category': tilt.get_tilt_category(),
-            'tilt_source': tilt.tilt_source,
-            'nemesis': tilt.nemesis,
-            'losing_streak': tilt.losing_streak
+    return jsonify(
+        {
+            'success': True,
+            'player': player_name,
+            'new_state': {
+                'tilt_level': round(tilt.tilt_level, 2),
+                'tilt_category': tilt.get_tilt_category(),
+                'tilt_source': tilt.tilt_source,
+                'nemesis': tilt.nemesis,
+                'losing_streak': tilt.losing_streak,
+            },
         }
-    })
+    )
 
 
 @debug_bp.route('/api/game/<game_id>/pressure-stats', methods=['GET'])
@@ -250,39 +256,37 @@ def get_psychology_debug(game_id):
             'player_name': player_name,
             'hand_count': psych.hand_count,
             'last_updated': psych.last_updated,
-
             # v2.1: Quadrant-based emotional state
             'quadrant': psych.quadrant.value if hasattr(psych, 'quadrant') else None,
             'display_emotion': psych.get_display_emotion(),
             'mood': psych.mood,
-
             # v2.1: Dynamic axes
             'axes': {
                 'confidence': round(psych.confidence, 2),
                 'composure': round(psych.composure, 2),
-                'energy': round(psych.energy, 2) if hasattr(psych, 'energy') else round(psych.table_talk, 2),
+                'energy': round(psych.energy, 2)
+                if hasattr(psych, 'energy')
+                else round(psych.table_talk, 2),
             },
-
             # v2.1: Derived values
             'derived': {
-                'effective_aggression': round(psych.effective_aggression, 2) if hasattr(psych, 'effective_aggression') else round(psych.aggression, 2),
-                'effective_looseness': round(psych.effective_looseness, 2) if hasattr(psych, 'effective_looseness') else round(1.0 - psych.tightness, 2),
+                'effective_aggression': round(psych.effective_aggression, 2)
+                if hasattr(psych, 'effective_aggression')
+                else round(psych.aggression, 2),
+                'effective_looseness': round(psych.effective_looseness, 2)
+                if hasattr(psych, 'effective_looseness')
+                else round(1.0 - psych.tightness, 2),
             },
-
             # v2.1: Static anchors (if available)
             'anchors': psych.anchors.to_dict() if hasattr(psych, 'anchors') else None,
-
             # Backward compat: tilt indicators
             'tilt_level': round(psych.tilt_level, 2),
             'tilt_category': psych.tilt_category,
             'is_tilted': psych.is_tilted,
-
             # Backward compat: Current trait values
             'traits': {k: round(v, 2) for k, v in psych.traits.items()},
-
             # Emotional narrative (LLM-generated)
             'emotional': None,
-
             # Composure/tilt tracking
             'composure_state': None,
         }
@@ -312,11 +316,9 @@ def get_psychology_debug(game_id):
 
         psychology_data[player_name] = player_data
 
-    return jsonify({
-        'game_id': game_id,
-        'player_count': len(psychology_data),
-        'players': psychology_data
-    })
+    return jsonify(
+        {'game_id': game_id, 'player_count': len(psychology_data), 'players': psychology_data}
+    )
 
 
 @debug_bp.route('/api/game/<game_id>/relationships', methods=['GET'])
@@ -345,7 +347,9 @@ def get_relationships_debug(game_id):
     so the frontend doesn't need to care which one served the response.
     """
     from datetime import datetime
+
     from poker.memory.relationship_prompt import _classify
+
     from ..extensions import game_repo, relationship_repo
 
     now = datetime.utcnow()
@@ -356,9 +360,13 @@ def get_relationships_debug(game_id):
         if memory_manager is not None:
             opp_manager = memory_manager.get_opponent_model_manager()
             if opp_manager is not None and opp_manager.has_relationship_repo:
-                return jsonify(_build_relationships_response_from_memory(
-                    game_id, opp_manager, now,
-                ))
+                return jsonify(
+                    _build_relationships_response_from_memory(
+                        game_id,
+                        opp_manager,
+                        now,
+                    )
+                )
 
     # Fallback: read everything from the DB. `relationship_states`
     # rows are cross-game (keyed on personality_id pairs), so they
@@ -370,16 +378,22 @@ def get_relationships_debug(game_id):
 
     models_dict = game_repo.load_opponent_models(game_id)
     if not models_dict:
-        return jsonify({
-            'error': (
-                f'No relationship data for game {game_id} — '
-                'no opponent_models rows in DB.'
-            ),
-        }), 404
+        return jsonify(
+            {
+                'error': (
+                    f'No relationship data for game {game_id} — ' 'no opponent_models rows in DB.'
+                ),
+            }
+        ), 404
 
-    return jsonify(_build_relationships_response_from_db(
-        game_id, models_dict, relationship_repo, now,
-    ))
+    return jsonify(
+        _build_relationships_response_from_db(
+            game_id,
+            models_dict,
+            relationship_repo,
+            now,
+        )
+    )
 
 
 def _build_relationships_response_from_memory(game_id, opp_manager, now):
@@ -396,42 +410,55 @@ def _build_relationships_response_from_memory(game_id, opp_manager, now):
                 continue
 
             state = repo.load_relationship_state(
-                observer_id, opponent_id, now=now,
+                observer_id,
+                opponent_id,
+                now=now,
             )
             if state is None:
-                pairs.append(_neutral_pair_payload(
-                    observer_name, opponent_name, observer_id, opponent_id,
-                ))
+                pairs.append(
+                    _neutral_pair_payload(
+                        observer_name,
+                        opponent_name,
+                        observer_id,
+                        opponent_id,
+                    )
+                )
                 continue
 
             label = _classify(state)
-            memorable = sorted(
-                model.memorable_hands,
-                key=lambda h: h.timestamp,
-                reverse=True,
-            )[:5] if model and model.memorable_hands else []
+            memorable = (
+                sorted(
+                    model.memorable_hands,
+                    key=lambda h: h.timestamp,
+                    reverse=True,
+                )[:5]
+                if model and model.memorable_hands
+                else []
+            )
 
-            pairs.append({
-                'observer': observer_name,
-                'opponent': opponent_name,
-                'observer_id': observer_id,
-                'opponent_id': opponent_id,
-                'heat': round(state.heat, 4),
-                'respect': round(state.respect, 4),
-                'likability': round(state.likability, 4),
-                'label': label,
-                'last_seen': state.last_seen.isoformat() if state.last_seen else None,
-                'memorable_hands': [
-                    {
-                        'hand_id': h.hand_id,
-                        'event': h.event.value,
-                        'impact_score': round(h.impact_score, 3),
-                        'narrative': h.narrative,
-                        'timestamp': h.timestamp.isoformat(),
-                    }
-                    for h in memorable
-                ],
-            })
+            pairs.append(
+                {
+                    'observer': observer_name,
+                    'opponent': opponent_name,
+                    'observer_id': observer_id,
+                    'opponent_id': opponent_id,
+                    'heat': round(state.heat, 4),
+                    'respect': round(state.respect, 4),
+                    'likability': round(state.likability, 4),
+                    'label': label,
+                    'last_seen': state.last_seen.isoformat() if state.last_seen else None,
+                    'memorable_hands': [
+                        {
+                            'hand_id': h.hand_id,
+                            'event': h.event.value,
+                            'impact_score': round(h.impact_score, 3),
+                            'narrative': h.narrative,
+                            'timestamp': h.timestamp.isoformat(),
+                        }
+                        for h in memorable
+                    ],
+                }
+            )
 
     return {
         'game_id': game_id,
@@ -461,26 +488,25 @@ def _build_relationships_response_from_db(game_id, models_dict, rel_repo, now):
             # Sidecar entry — not a real observer.
             continue
         for opponent_name, entry in opp_map.items():
-            observer_id = (
-                entry.get('observer_id')
-                or name_to_id.get(observer_name)
-                or observer_name
-            )
-            opponent_id = (
-                entry.get('opponent_id')
-                or name_to_id.get(opponent_name)
-                or opponent_name
-            )
+            observer_id = entry.get('observer_id') or name_to_id.get(observer_name) or observer_name
+            opponent_id = entry.get('opponent_id') or name_to_id.get(opponent_name) or opponent_name
             if not observer_id or not opponent_id or observer_id == opponent_id:
                 continue
 
             state = rel_repo.load_relationship_state(
-                observer_id, opponent_id, now=now,
+                observer_id,
+                opponent_id,
+                now=now,
             )
             if state is None:
-                pairs.append(_neutral_pair_payload(
-                    observer_name, opponent_name, observer_id, opponent_id,
-                ))
+                pairs.append(
+                    _neutral_pair_payload(
+                        observer_name,
+                        opponent_name,
+                        observer_id,
+                        opponent_id,
+                    )
+                )
                 continue
 
             label = _classify(state)
@@ -494,27 +520,29 @@ def _build_relationships_response_from_db(game_id, models_dict, rel_repo, now):
                 reverse=True,
             )[:5]
 
-            pairs.append({
-                'observer': observer_name,
-                'opponent': opponent_name,
-                'observer_id': observer_id,
-                'opponent_id': opponent_id,
-                'heat': round(state.heat, 4),
-                'respect': round(state.respect, 4),
-                'likability': round(state.likability, 4),
-                'label': label,
-                'last_seen': state.last_seen.isoformat() if state.last_seen else None,
-                'memorable_hands': [
-                    {
-                        'hand_id': h.get('hand_id'),
-                        'event': h.get('memory_type'),
-                        'impact_score': round(h.get('impact_score') or 0.0, 3),
-                        'narrative': h.get('narrative') or '',
-                        'timestamp': h.get('timestamp') or '',
-                    }
-                    for h in sorted_hands
-                ],
-            })
+            pairs.append(
+                {
+                    'observer': observer_name,
+                    'opponent': opponent_name,
+                    'observer_id': observer_id,
+                    'opponent_id': opponent_id,
+                    'heat': round(state.heat, 4),
+                    'respect': round(state.respect, 4),
+                    'likability': round(state.likability, 4),
+                    'label': label,
+                    'last_seen': state.last_seen.isoformat() if state.last_seen else None,
+                    'memorable_hands': [
+                        {
+                            'hand_id': h.get('hand_id'),
+                            'event': h.get('memory_type'),
+                            'impact_score': round(h.get('impact_score') or 0.0, 3),
+                            'narrative': h.get('narrative') or '',
+                            'timestamp': h.get('timestamp') or '',
+                        }
+                        for h in sorted_hands
+                    ],
+                }
+            )
 
     return {
         'game_id': game_id,
@@ -546,6 +574,7 @@ def game_trajectory_viewer(game_id):
     """Generate and serve interactive psychology trajectory viewer for any game."""
     try:
         from experiments.generate_trajectory_viewer import extract_data_for_game, generate_html
+
         data = extract_data_for_game(persistence_db_path, game_id)
         if not data:
             return jsonify({'error': f'No psychology data for game {game_id}'}), 404

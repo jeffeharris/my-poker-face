@@ -56,15 +56,23 @@ def reset_state():
 
 # --- is_enabled --------------------------------------------------------
 
+
 def test_is_enabled_defaults_true(monkeypatch):
     monkeypatch.delenv("WORLD_TICKER_ENABLED", raising=False)
     assert ticker_service.is_enabled() is True
 
 
-@pytest.mark.parametrize("val,expected", [
-    ("false", False), ("False", False), ("FALSE", False),
-    ("true", True), ("1", True), ("", True),
-])
+@pytest.mark.parametrize(
+    "val,expected",
+    [
+        ("false", False),
+        ("False", False),
+        ("FALSE", False),
+        ("true", True),
+        ("1", True),
+        ("", True),
+    ],
+)
 def test_is_enabled_env(monkeypatch, val, expected):
     monkeypatch.setenv("WORLD_TICKER_ENABLED", val)
     assert ticker_service.is_enabled() is expected
@@ -72,35 +80,43 @@ def test_is_enabled_env(monkeypatch, val, expected):
 
 # --- _resolve_pace -----------------------------------------------------
 
-@pytest.mark.parametrize("pace,expected", [
-    ("subtle", (0.15, 3)),
-    ("lively", (0.40, 1)),
-    ("bustling", (0.90, 1)),
-])
+
+@pytest.mark.parametrize(
+    "pace,expected",
+    [
+        ("subtle", (0.15, 3)),
+        ("lively", (0.40, 1)),
+        ("bustling", (0.90, 1)),
+    ],
+)
 def test_resolve_pace_maps(monkeypatch, pace, expected):
     from flask_app import extensions
+
     monkeypatch.setattr(extensions, "user_prefs_repo", FakePrefsRepo(pace=pace), raising=False)
     assert ticker_service._resolve_pace("u1") == expected
 
 
 def test_resolve_pace_unknown_falls_back(monkeypatch):
     from flask_app import extensions
+
     monkeypatch.setattr(extensions, "user_prefs_repo", FakePrefsRepo(pace="turbo"), raising=False)
     assert ticker_service._resolve_pace("u1") == ticker_service._PACE_PARAMS["lively"]
 
 
 def test_resolve_pace_repo_error_falls_back(monkeypatch):
     from flask_app import extensions
+
     monkeypatch.setattr(extensions, "user_prefs_repo", FakePrefsRepo(raises=True), raising=False)
     assert ticker_service._resolve_pace("u1") == ticker_service._PACE_PARAMS["lively"]
 
 
 # --- _tick_sandbox -----------------------------------------------------
 
+
 def _patch_tick(monkeypatch, *, pace="lively", events=None):
     """Wire up the lazy imports _tick_sandbox reaches for."""
-    import cash_mode.lobby as lobby_mod
     import cash_mode.activity as activity_mod
+    import cash_mode.lobby as lobby_mod
     from flask_app import extensions
 
     calls = {}
@@ -111,7 +127,8 @@ def _patch_tick(monkeypatch, *, pace="lively", events=None):
     monkeypatch.setattr(lobby_mod, "refresh_unseated_tables", fake_refresh)
     monkeypatch.setattr(activity_mod, "recent_events", lambda *a, **k: list(events or []))
     monkeypatch.setattr(
-        activity_mod, "serialize_event",
+        activity_mod,
+        "serialize_event",
         lambda e: {"type": e.type, "created_at": e.created_at, "personality_id": e.personality_id},
     )
     monkeypatch.setattr(extensions, "user_prefs_repo", FakePrefsRepo(pace=pace), raising=False)

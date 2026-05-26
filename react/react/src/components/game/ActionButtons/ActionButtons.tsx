@@ -16,8 +16,8 @@ interface ActionButtonsProps {
   bigBlind: number;
   potSize: number;
   onAction: (action: string, amount?: number) => void;
-  inline?: boolean;  // When true, disables fixed positioning for embedded use
-  bettingContext?: BettingContext;  // Optional - use if provided by backend
+  inline?: boolean; // When true, disables fixed positioning for embedded use
+  bettingContext?: BettingContext; // Optional - use if provided by backend
 }
 
 export function ActionButtons({
@@ -36,14 +36,16 @@ export function ActionButtons({
   const [isEditingAmount, setIsEditingAmount] = useState(false);
 
   // Create betting context from props if not provided
-  const bettingContext = providedContext ?? createBettingContext({
-    playerStack: currentPlayerStack,
-    playerCurrentBet: currentPlayerBet,
-    highestBet,
-    potSize,
-    minRaise,
-    playerOptions,
-  });
+  const bettingContext =
+    providedContext ??
+    createBettingContext({
+      playerStack: currentPlayerStack,
+      playerCurrentBet: currentPlayerBet,
+      highestBet,
+      potSize,
+      minRaise,
+      playerOptions,
+    });
 
   // Use the shared hook for all calculations
   const calc = useBettingCalculations(bettingContext, bigBlind);
@@ -85,9 +87,7 @@ export function ActionButtons({
     return (
       <div className={`action-panel betting-interface ${inline ? 'inline' : ''}`}>
         <div className="bet-header">
-          <div className="bet-title">
-            {playerOptions.includes('raise') ? 'Raise' : 'Bet'}
-          </div>
+          <div className="bet-title">{playerOptions.includes('raise') ? 'Raise' : 'Bet'}</div>
           <div className="bet-info">
             <span className="info-item">Stack: ${calc.safeStack}</span>
             <span className="info-item">Pot: ${calc.safePotSize}</span>
@@ -98,7 +98,9 @@ export function ActionButtons({
         {/* Unified Bet Display */}
         <div className="unified-bet-display">
           <div className="bet-preview">
-            <span className="bet-label">You'll {playerOptions.includes('raise') ? 'raise to' : 'bet'}:</span>
+            <span className="bet-label">
+              You'll {playerOptions.includes('raise') ? 'raise to' : 'bet'}:
+            </span>
             <div className="bet-amount-row">
               {isEditingAmount ? (
                 <input
@@ -118,7 +120,9 @@ export function ActionButtons({
                     const val = parseInt(e.target.value);
                     if (!isNaN(val)) {
                       // No snapping - let user be specific (consistent with mobile)
-                      setRaiseAmount(Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val)));
+                      setRaiseAmount(
+                        Math.min(calc.safeMaxRaiseTo, Math.max(calc.safeMinRaiseTo, val))
+                      );
                     } else {
                       setRaiseAmount(calc.safeMinRaiseTo);
                     }
@@ -155,7 +159,9 @@ export function ActionButtons({
                 className="double-btn"
                 onClick={() => {
                   // Double the raise portion (amount above the call)
-                  setRaiseAmount(Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.raisePortion));
+                  setRaiseAmount(
+                    Math.min(calc.safeMaxRaiseTo, raiseAmount + breakdown.raisePortion)
+                  );
                 }}
                 disabled={raiseAmount + breakdown.raisePortion > calc.safeMaxRaiseTo}
               >
@@ -174,9 +180,7 @@ export function ActionButtons({
               <span className="total-portion">Adding ${breakdown.totalToAdd} to pot</span>
             )}
           </div>
-          <div className="stack-after">
-            Stack after: ${breakdown.stackAfter}
-          </div>
+          <div className="stack-after">Stack after: ${breakdown.stackAfter}</div>
         </div>
 
         <div className="bet-options">
@@ -189,7 +193,8 @@ export function ActionButtons({
                 onClick={() => selectBetAmount(amount, id)}
                 disabled={amount > calc.safeMaxRaiseTo}
               >
-                {label}<br/>${amount}
+                {label}
+                <br />${amount}
               </button>
             ))}
           </div>
@@ -203,7 +208,12 @@ export function ActionButtons({
                 onClick={() => selectBetAmount(amount, id)}
                 disabled={amount > calc.safeMaxRaiseTo}
               >
-                {label}<br/>{isCover && <Crosshair size={12} style={{verticalAlign: 'middle', display: 'inline'}} />} ${amount}
+                {label}
+                <br />
+                {isCover && (
+                  <Crosshair size={12} style={{ verticalAlign: 'middle', display: 'inline' }} />
+                )}{' '}
+                ${amount}
               </button>
             ))}
           </div>
@@ -252,59 +262,43 @@ export function ActionButtons({
     <div className={`action-panel ${inline ? 'inline' : ''}`}>
       <div className="action-buttons">
         {playerOptions.includes('fold') && (
-          <button
-            className="action-button fold"
-            onClick={() => onAction('fold')}
-          >
+          <button className="action-button fold" onClick={() => onAction('fold')}>
             Fold
           </button>
         )}
 
         {playerOptions.includes('check') && (
-          <button
-            className="action-button check"
-            onClick={() => onAction('check')}
-          >
+          <button className="action-button check" onClick={() => onAction('check')}>
             Check
           </button>
         )}
 
         {playerOptions.includes('call') && (
-          <button
-            className="action-button call"
-            onClick={() => onAction('call')}
-          >
+          <button className="action-button call" onClick={() => onAction('call')}>
             Call ${calc.callAmount}
           </button>
         )}
 
         {playerOptions.includes('bet') && (
-          <button
-            className="action-button bet"
-            onClick={handleBetRaise}
-          >
+          <button className="action-button bet" onClick={handleBetRaise}>
             Bet
           </button>
         )}
 
         {playerOptions.includes('raise') && (
-          <button
-            className="action-button raise"
-            onClick={handleBetRaise}
-          >
+          <button className="action-button raise" onClick={handleBetRaise}>
             Raise
           </button>
         )}
 
         {/* When only all_in is available (can't call or raise), show button to open raise interface */}
-        {playerOptions.includes('all_in') && !playerOptions.includes('raise') && !playerOptions.includes('bet') && (
-          <button
-            className="action-button all-in"
-            onClick={handleBetRaise}
-          >
-            All-In ${currentPlayerStack}
-          </button>
-        )}
+        {playerOptions.includes('all_in') &&
+          !playerOptions.includes('raise') &&
+          !playerOptions.includes('bet') && (
+            <button className="action-button all-in" onClick={handleBetRaise}>
+              All-In ${currentPlayerStack}
+            </button>
+          )}
       </div>
     </div>
   );

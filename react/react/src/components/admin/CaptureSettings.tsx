@@ -165,10 +165,10 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
   };
 
   // Check if there are unsaved changes
-  const hasChanges = settings && (
-    editedCapture !== settings.LLM_PROMPT_CAPTURE.value ||
-    editedRetention !== settings.LLM_PROMPT_RETENTION_DAYS.value
-  );
+  const hasChanges =
+    settings &&
+    (editedCapture !== settings.LLM_PROMPT_CAPTURE.value ||
+      editedRetention !== settings.LLM_PROMPT_RETENTION_DAYS.value);
 
   // Save all changes
   const saveAllChanges = async () => {
@@ -200,11 +200,7 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
   }
 
   if (!settings) {
-    return (
-      <div className="cs-error">
-        Failed to load settings. Please try again.
-      </div>
-    );
+    return <div className="cs-error">Failed to load settings. Please try again.</div>;
   }
 
   return (
@@ -216,7 +212,9 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
             {alert.type === 'success' ? '✓' : alert.type === 'error' ? '✕' : 'i'}
           </span>
           <span className="cs-alert__message">{alert.message}</span>
-          <button className="cs-alert__close" onClick={() => setAlert(null)}>×</button>
+          <button className="cs-alert__close" onClick={() => setAlert(null)}>
+            ×
+          </button>
         </div>
       )}
 
@@ -238,11 +236,9 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
               <span className="cs-setting__badge">Custom</span>
             )}
           </div>
-          <p className="cs-setting__description">
-            {settings.LLM_PROMPT_CAPTURE.description}
-          </p>
+          <p className="cs-setting__description">{settings.LLM_PROMPT_CAPTURE.description}</p>
           <div className="cs-setting__options">
-            {settings.LLM_PROMPT_CAPTURE.options?.map(option => (
+            {settings.LLM_PROMPT_CAPTURE.options?.map((option) => (
               <button
                 key={option}
                 className={`cs-option ${editedCapture === option ? 'cs-option--selected' : ''}`}
@@ -280,9 +276,7 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
               disabled={saving}
             />
             <span className="cs-input__suffix">days</span>
-            {editedRetention === '0' && (
-              <span className="cs-input__hint">Unlimited retention</span>
-            )}
+            {editedRetention === '0' && <span className="cs-input__hint">Unlimited retention</span>}
           </div>
         </div>
 
@@ -352,7 +346,9 @@ export function CaptureSettings({ embedded = false }: CaptureSettingsProps) {
                 .map(([category, stats]) => (
                   <div key={category} className="cs-storage__category">
                     <div className="cs-storage__category-header">
-                      <span className="cs-storage__category-name">{formatCategoryName(category)}</span>
+                      <span className="cs-storage__category-name">
+                        {formatCategoryName(category)}
+                      </span>
                       <span className="cs-storage__category-size">{formatBytes(stats.bytes)}</span>
                     </div>
                     <div className="cs-storage__bar">

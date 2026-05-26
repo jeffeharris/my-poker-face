@@ -2,14 +2,22 @@
 
 import unittest
 
-from poker.coach_models import (
-    CoachingDecision, CoachingMode, EvidenceRules,
-    GateProgress, PlayerSkillState, SkillState,
-)
 from flask_app.services.context_builder import build_poker_context
 from flask_app.services.skill_definitions import (
-    ALL_GATES, ALL_SKILLS, GateDefinition, SkillDefinition,
-    get_skill_by_id, get_skills_for_gate,
+    ALL_GATES,
+    ALL_SKILLS,
+    GateDefinition,
+    SkillDefinition,
+    get_skill_by_id,
+    get_skills_for_gate,
+)
+from poker.coach_models import (
+    CoachingDecision,
+    CoachingMode,
+    EvidenceRules,
+    GateProgress,
+    PlayerSkillState,
+    SkillState,
 )
 
 
@@ -375,25 +383,31 @@ class TestBuildPokerContextMultiStreet(unittest.TestCase):
         return defaults
 
     def test_player_bet_flop_detected(self):
-        data = self._make_data(hand_actions=[
-            {'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
-        ])
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Hero', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            ]
+        )
         ctx = build_poker_context(data)
         self.assertTrue(ctx['player_bet_flop'])
 
     def test_opponent_double_barrel_detected(self):
-        data = self._make_data(hand_actions=[
-            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
-            {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
-        ])
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'TURN', 'amount': 40},
+            ]
+        )
         ctx = build_poker_context(data)
         self.assertTrue(ctx['opponent_double_barrel'])
         self.assertTrue(ctx['opponent_bet_turn'])
 
     def test_no_double_barrel_when_only_flop(self):
-        data = self._make_data(hand_actions=[
-            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
-        ])
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            ]
+        )
         ctx = build_poker_context(data)
         self.assertFalse(ctx['opponent_double_barrel'])
 
@@ -404,9 +418,11 @@ class TestBuildPokerContextMultiStreet(unittest.TestCase):
         self.assertFalse(ctx['opponent_double_barrel'])
 
     def test_player_name_filtering(self):
-        data = self._make_data(hand_actions=[
-            {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
-        ])
+        data = self._make_data(
+            hand_actions=[
+                {'player_name': 'Villain', 'action': 'bet', 'phase': 'FLOP', 'amount': 20},
+            ]
+        )
         ctx = build_poker_context(data)
         self.assertFalse(ctx['player_bet_flop'])  # Villain's bet, not Hero's
 

@@ -54,7 +54,6 @@ from poker.repositories.personality_repository import PersonalityRepository
 from poker.repositories.schema_manager import SchemaManager
 from poker.repositories.vice_state_repository import ViceState, ViceStateRepository
 
-
 ANCHOR = datetime(2026, 5, 23, 12, 0, 0)
 SBX = "test-sandbox-vice"
 
@@ -91,7 +90,8 @@ class TestExcessRatio(unittest.TestCase):
     def test_above_threshold_linear(self):
         # bankroll = 5x median; concentration = 5; excess = 5 - 2.5 = 2.5
         self.assertAlmostEqual(
-            compute_excess_ratio(70_000, 14_000), 5.0 - CONCENTRATION_FLOOR,
+            compute_excess_ratio(70_000, 14_000),
+            5.0 - CONCENTRATION_FLOOR,
             places=3,
         )
 
@@ -110,13 +110,15 @@ class TestPressure(unittest.TestCase):
     def test_min_axis_drives_pressure(self):
         # composure is the worst → pressure = 1 - composure
         self.assertAlmostEqual(
-            compute_pressure(0.8, 0.3, 0.5), 1.0 - 0.3,
+            compute_pressure(0.8, 0.3, 0.5),
+            1.0 - 0.3,
         )
 
     def test_calm_ai_has_floor_pressure(self):
         # All axes near baseline (0.7) → pressure ~ 0.3
         self.assertAlmostEqual(
-            compute_pressure(0.7, 0.7, 0.7), 0.3,
+            compute_pressure(0.7, 0.7, 0.7),
+            0.3,
         )
 
     def test_perfectly_calm_axes_zero_pressure(self):
@@ -136,7 +138,8 @@ class TestViceProbability(unittest.TestCase):
     def test_capped_at_max_prob(self):
         # Extremely flush + maxed pressure → MAX_PROB
         self.assertAlmostEqual(
-            compute_vice_probability(50.0, 1.0), MAX_PROB,
+            compute_vice_probability(50.0, 1.0),
+            MAX_PROB,
         )
 
     def test_doc_bezos_calm(self):
@@ -188,7 +191,8 @@ class TestViceAmount(unittest.TestCase):
 class TestRecoveryFactor(unittest.TestCase):
     def test_min_amount_yields_base(self):
         self.assertAlmostEqual(
-            compute_recovery_factor(MIN_VICE_AMOUNT), BASE_RECOVERY,
+            compute_recovery_factor(MIN_VICE_AMOUNT),
+            BASE_RECOVERY,
         )
 
     def test_logarithmic_scaling(self):
@@ -207,7 +211,9 @@ class TestRecoveredAxes(unittest.TestCase):
     def test_pulls_toward_baseline(self):
         # current below baseline → moves up by factor of the gap
         new_conf, _, _ = compute_recovered_axes(
-            confidence=0.2, composure=0.7, energy=0.5,
+            confidence=0.2,
+            composure=0.7,
+            energy=0.5,
             baseline_confidence=0.6,
             baseline_composure=0.7,
             baseline_energy=0.5,
@@ -218,17 +224,24 @@ class TestRecoveredAxes(unittest.TestCase):
 
     def test_no_pull_when_factor_zero(self):
         out = compute_recovered_axes(
-            confidence=0.2, composure=0.3, energy=0.4,
-            baseline_confidence=0.7, baseline_composure=0.7, baseline_energy=0.5,
+            confidence=0.2,
+            composure=0.3,
+            energy=0.4,
+            baseline_confidence=0.7,
+            baseline_composure=0.7,
+            baseline_energy=0.5,
             recovery_factor=0.0,
         )
         self.assertEqual(out, (0.2, 0.3, 0.4))
 
     def test_clamps_to_unit_range(self):
         out = compute_recovered_axes(
-            confidence=0.95, composure=0.5, energy=0.5,
+            confidence=0.95,
+            composure=0.5,
+            energy=0.5,
             baseline_confidence=1.5,  # bad baseline > 1
-            baseline_composure=0.5, baseline_energy=0.5,
+            baseline_composure=0.5,
+            baseline_energy=0.5,
             recovery_factor=1.0,
         )
         # Output should still be clamped to [0, 1]
@@ -273,23 +286,35 @@ def db_setup(tmp_path):
     vice_repo = ViceStateRepository(db)
     personality = PersonalityRepository(db)
 
-    bankroll.save_ai_bankroll(AIBankrollState(
-        personality_id="flush_ai",
-        chips=50_000,
-        last_regen_tick=ANCHOR,
-    ), sandbox_id=SBX, chip_ledger_repo=ledger)
-    bankroll.save_ai_bankroll(AIBankrollState(
-        personality_id="broke_ai",
-        chips=5_000,
-        last_regen_tick=ANCHOR,
-    ), sandbox_id=SBX, chip_ledger_repo=ledger)
+    bankroll.save_ai_bankroll(
+        AIBankrollState(
+            personality_id="flush_ai",
+            chips=50_000,
+            last_regen_tick=ANCHOR,
+        ),
+        sandbox_id=SBX,
+        chip_ledger_repo=ledger,
+    )
+    bankroll.save_ai_bankroll(
+        AIBankrollState(
+            personality_id="broke_ai",
+            chips=5_000,
+            last_regen_tick=ANCHOR,
+        ),
+        sandbox_id=SBX,
+        chip_ledger_repo=ledger,
+    )
     # 7 background AIs at $14K each — anchors the cast median there.
     for i in range(7):
-        bankroll.save_ai_bankroll(AIBankrollState(
-            personality_id=f"bg_ai_{i}",
-            chips=14_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id=SBX, chip_ledger_repo=ledger)
+        bankroll.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=f"bg_ai_{i}",
+                chips=14_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+            chip_ledger_repo=ledger,
+        )
 
     # Seed an emotional state for the flush AI — pressure 0.3-ish.
     flush_psych = {
@@ -297,7 +322,9 @@ def db_setup(tmp_path):
         'anchors': {'baseline_aggression': 0.5},
     }
     bankroll.save_emotional_state_json(
-        "flush_ai", json.dumps(flush_psych), sandbox_id=SBX,
+        "flush_ai",
+        json.dumps(flush_psych),
+        sandbox_id=SBX,
     )
 
     return {
@@ -351,20 +378,28 @@ class TestViceStateRepository:
 
     def test_list_active_excludes_expired(self, db_setup):
         repo = db_setup["vice"]
-        repo.insert_vice_state(ViceState(
-            personality_id="active",
-            sandbox_id=SBX,
-            started_at=ANCHOR,
-            ends_at=ANCHOR + timedelta(hours=2),
-            amount=500, duration_bucket='medium', narration='x',
-        ))
-        repo.insert_vice_state(ViceState(
-            personality_id="expired",
-            sandbox_id=SBX,
-            started_at=ANCHOR - timedelta(hours=2),
-            ends_at=ANCHOR - timedelta(hours=1),
-            amount=500, duration_bucket='medium', narration='y',
-        ))
+        repo.insert_vice_state(
+            ViceState(
+                personality_id="active",
+                sandbox_id=SBX,
+                started_at=ANCHOR,
+                ends_at=ANCHOR + timedelta(hours=2),
+                amount=500,
+                duration_bucket='medium',
+                narration='x',
+            )
+        )
+        repo.insert_vice_state(
+            ViceState(
+                personality_id="expired",
+                sandbox_id=SBX,
+                started_at=ANCHOR - timedelta(hours=2),
+                ends_at=ANCHOR - timedelta(hours=1),
+                amount=500,
+                duration_bucket='medium',
+                narration='y',
+            )
+        )
         active = repo.list_active(sandbox_id=SBX, now=ANCHOR)
         assert {v.personality_id for v in active} == {"active"}
         expired = repo.list_expired(sandbox_id=SBX, now=ANCHOR)
@@ -372,25 +407,42 @@ class TestViceStateRepository:
 
     def test_is_on_vice(self, db_setup):
         repo = db_setup["vice"]
-        repo.insert_vice_state(ViceState(
-            personality_id="on", sandbox_id=SBX,
-            started_at=ANCHOR, ends_at=ANCHOR + timedelta(hours=1),
-            amount=100, duration_bucket='short', narration='x',
-        ))
+        repo.insert_vice_state(
+            ViceState(
+                personality_id="on",
+                sandbox_id=SBX,
+                started_at=ANCHOR,
+                ends_at=ANCHOR + timedelta(hours=1),
+                amount=100,
+                duration_bucket='short',
+                narration='x',
+            )
+        )
         assert repo.is_on_vice("on", sandbox_id=SBX, now=ANCHOR) is True
         assert repo.is_on_vice("off", sandbox_id=SBX, now=ANCHOR) is False
         # After expiry passes, no longer on vice
-        assert repo.is_on_vice(
-            "on", sandbox_id=SBX, now=ANCHOR + timedelta(hours=2),
-        ) is False
+        assert (
+            repo.is_on_vice(
+                "on",
+                sandbox_id=SBX,
+                now=ANCHOR + timedelta(hours=2),
+            )
+            is False
+        )
 
     def test_delete(self, db_setup):
         repo = db_setup["vice"]
-        repo.insert_vice_state(ViceState(
-            personality_id="x", sandbox_id=SBX,
-            started_at=ANCHOR, ends_at=ANCHOR + timedelta(hours=1),
-            amount=100, duration_bucket='short', narration='x',
-        ))
+        repo.insert_vice_state(
+            ViceState(
+                personality_id="x",
+                sandbox_id=SBX,
+                started_at=ANCHOR,
+                ends_at=ANCHOR + timedelta(hours=1),
+                amount=100,
+                duration_bucket='short',
+                narration='x',
+            )
+        )
         assert repo.delete("x", sandbox_id=SBX) is True
         assert repo.load("x", sandbox_id=SBX) is None
         # Second delete returns False
@@ -398,12 +450,17 @@ class TestViceStateRepository:
 
     def test_sandbox_isolation(self, db_setup):
         repo = db_setup["vice"]
-        repo.insert_vice_state(ViceState(
-            personality_id="shared",
-            sandbox_id="sbx-A",
-            started_at=ANCHOR, ends_at=ANCHOR + timedelta(hours=1),
-            amount=100, duration_bucket='short', narration='x',
-        ))
+        repo.insert_vice_state(
+            ViceState(
+                personality_id="shared",
+                sandbox_id="sbx-A",
+                started_at=ANCHOR,
+                ends_at=ANCHOR + timedelta(hours=1),
+                amount=100,
+                duration_bucket='short',
+                narration='x',
+            )
+        )
         # Same personality_id in a different sandbox is invisible
         assert repo.load("shared", sandbox_id="sbx-B") is None
         assert repo.is_on_vice("shared", sandbox_id="sbx-B", now=ANCHOR) is False
@@ -467,9 +524,15 @@ class TestResolveAiViceSpending:
         # Seed multiple flush AIs; only `max_starts` fire
         for i in range(5):
             pid = f"flush_{i}"
-            db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
-                personality_id=pid, chips=50_000, last_regen_tick=ANCHOR,
-            ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+            db_setup["bankroll"].save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid,
+                    chips=50_000,
+                    last_regen_tick=ANCHOR,
+                ),
+                sandbox_id=SBX,
+                chip_ledger_repo=db_setup["ledger"],
+            )
 
         # Use a low concentration_floor override so we're testing the
         # cap mechanic, not the median-shift effect from adding 5
@@ -507,9 +570,8 @@ class TestResolveAiViceSpending:
         )
         assert len(result) == 1
         after_destructions = ledger.sum_destructions_by_reason()
-        vice_destroyed = (
-            after_destructions.get('vice_spending', 0)
-            - before_destructions.get('vice_spending', 0)
+        vice_destroyed = after_destructions.get('vice_spending', 0) - before_destructions.get(
+            'vice_spending', 0
         )
         assert vice_destroyed == result[0].amount
 
@@ -520,16 +582,28 @@ class TestResolveAiViceSpending:
         the rich, not the relatively-richer-than-broke."""
         # Drop everyone (including flush_ai) to near-zero so median collapses
         for pid in ["flush_ai", "broke_ai"] + [f"bg_ai_{i}" for i in range(7)]:
-            db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
-                personality_id=pid, chips=500, last_regen_tick=ANCHOR,
-            ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+            db_setup["bankroll"].save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid,
+                    chips=500,
+                    last_regen_tick=ANCHOR,
+                ),
+                sandbox_id=SBX,
+                chip_ledger_repo=db_setup["ledger"],
+            )
         # Now make one AI "relatively rich" by cast standards: $5K
         # against a median of $500. Concentration = 10 (above floor).
         # But cast median ($500) is below MIN_CAST_MEDIAN_FOR_VICE, so
         # the pass short-circuits.
-        db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
-            personality_id="flush_ai", chips=5_000, last_regen_tick=ANCHOR,
-        ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+        db_setup["bankroll"].save_ai_bankroll(
+            AIBankrollState(
+                personality_id="flush_ai",
+                chips=5_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+            chip_ledger_repo=db_setup["ledger"],
+        )
 
         result = resolve_ai_vice_spending(
             candidates={"flush_ai"},
@@ -548,11 +622,15 @@ class TestResolveAiViceSpending:
         an AI at $24K is only 1.71× — below the floor — so doesn't vice.
         """
         # Seed an "Ace-like" AI at $24K against the standing $14K median
-        db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
-            personality_id="ace_like",
-            chips=24_000,
-            last_regen_tick=ANCHOR,
-        ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
+        db_setup["bankroll"].save_ai_bankroll(
+            AIBankrollState(
+                personality_id="ace_like",
+                chips=24_000,
+                last_regen_tick=ANCHOR,
+            ),
+            sandbox_id=SBX,
+            chip_ledger_repo=db_setup["ledger"],
+        )
 
         result = resolve_ai_vice_spending(
             candidates={"ace_like"},
@@ -585,15 +663,17 @@ class TestTickViceExpirations:
 
     def test_expires_past_due_row(self, db_setup):
         # Insert a vice that already ended
-        db_setup["vice"].insert_vice_state(ViceState(
-            personality_id="flush_ai",
-            sandbox_id=SBX,
-            started_at=ANCHOR - timedelta(hours=2),
-            ends_at=ANCHOR - timedelta(minutes=5),
-            amount=1500,
-            duration_bucket='medium',
-            narration='cosmic foundation gift',
-        ))
+        db_setup["vice"].insert_vice_state(
+            ViceState(
+                personality_id="flush_ai",
+                sandbox_id=SBX,
+                started_at=ANCHOR - timedelta(hours=2),
+                ends_at=ANCHOR - timedelta(minutes=5),
+                amount=1500,
+                duration_bucket='medium',
+                narration='cosmic foundation gift',
+            )
+        )
         ends = tick_vice_expirations(
             vice_repo=db_setup["vice"],
             bankroll_repo=db_setup["bankroll"],
@@ -607,13 +687,17 @@ class TestTickViceExpirations:
         assert db_setup["vice"].load("flush_ai", sandbox_id=SBX) is None
 
     def test_does_not_expire_active_row(self, db_setup):
-        db_setup["vice"].insert_vice_state(ViceState(
-            personality_id="flush_ai",
-            sandbox_id=SBX,
-            started_at=ANCHOR,
-            ends_at=ANCHOR + timedelta(hours=1),
-            amount=500, duration_bucket='medium', narration='x',
-        ))
+        db_setup["vice"].insert_vice_state(
+            ViceState(
+                personality_id="flush_ai",
+                sandbox_id=SBX,
+                started_at=ANCHOR,
+                ends_at=ANCHOR + timedelta(hours=1),
+                amount=500,
+                duration_bucket='medium',
+                narration='x',
+            )
+        )
         ends = tick_vice_expirations(
             vice_repo=db_setup["vice"],
             bankroll_repo=db_setup["bankroll"],
@@ -632,19 +716,23 @@ class TestTickViceExpirations:
             'anchors': {},
         }
         db_setup["bankroll"].save_emotional_state_json(
-            "flush_ai", json.dumps(tilted_psych), sandbox_id=SBX,
+            "flush_ai",
+            json.dumps(tilted_psych),
+            sandbox_id=SBX,
         )
         # Insert a vice that just ended; amount large enough to push
         # recovery factor past BASE_RECOVERY.
-        db_setup["vice"].insert_vice_state(ViceState(
-            personality_id="flush_ai",
-            sandbox_id=SBX,
-            started_at=ANCHOR - timedelta(hours=2),
-            ends_at=ANCHOR - timedelta(minutes=5),
-            amount=5000,
-            duration_bucket='medium',
-            narration='x',
-        ))
+        db_setup["vice"].insert_vice_state(
+            ViceState(
+                personality_id="flush_ai",
+                sandbox_id=SBX,
+                started_at=ANCHOR - timedelta(hours=2),
+                ends_at=ANCHOR - timedelta(minutes=5),
+                amount=5000,
+                duration_bucket='medium',
+                narration='x',
+            )
+        )
         ends = tick_vice_expirations(
             vice_repo=db_setup["vice"],
             bankroll_repo=db_setup["bankroll"],
@@ -657,7 +745,8 @@ class TestTickViceExpirations:
 
         # Re-load and check composure moved up
         blob = db_setup["bankroll"].load_emotional_state_json(
-            "flush_ai", sandbox_id=SBX,
+            "flush_ai",
+            sandbox_id=SBX,
         )
         data = json.loads(blob)
         new_composure = data['axes']['composure']
@@ -665,16 +754,26 @@ class TestTickViceExpirations:
 
     def test_recovery_skipped_when_no_psych_state(self, db_setup):
         # Insert vice for an AI with no emotional_state_json row
-        db_setup["bankroll"].save_ai_bankroll(AIBankrollState(
-            personality_id="no_psych", chips=10_000, last_regen_tick=ANCHOR,
-        ), sandbox_id=SBX, chip_ledger_repo=db_setup["ledger"])
-        db_setup["vice"].insert_vice_state(ViceState(
-            personality_id="no_psych",
+        db_setup["bankroll"].save_ai_bankroll(
+            AIBankrollState(
+                personality_id="no_psych",
+                chips=10_000,
+                last_regen_tick=ANCHOR,
+            ),
             sandbox_id=SBX,
-            started_at=ANCHOR - timedelta(hours=2),
-            ends_at=ANCHOR - timedelta(minutes=5),
-            amount=500, duration_bucket='medium', narration='x',
-        ))
+            chip_ledger_repo=db_setup["ledger"],
+        )
+        db_setup["vice"].insert_vice_state(
+            ViceState(
+                personality_id="no_psych",
+                sandbox_id=SBX,
+                started_at=ANCHOR - timedelta(hours=2),
+                ends_at=ANCHOR - timedelta(minutes=5),
+                amount=500,
+                duration_bucket='medium',
+                narration='x',
+            )
+        )
         ends = tick_vice_expirations(
             vice_repo=db_setup["vice"],
             bankroll_repo=db_setup["bankroll"],
@@ -694,6 +793,7 @@ class TestFormatViceStartMessage:
 
     def test_name_led_narration_passes_through(self):
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message(
             "Napoleon",
             "Napoleon commissioned an oversized bronze bust",
@@ -702,6 +802,7 @@ class TestFormatViceStartMessage:
 
     def test_case_insensitive_name_lead(self):
         from cash_mode.activity import format_vice_start_message
+
         # LLM lowercased the name — still counts as name-led.
         out = format_vice_start_message(
             "Buddha",
@@ -711,6 +812,7 @@ class TestFormatViceStartMessage:
 
     def test_possessive_name_lead(self):
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message(
             "Napoleon",
             "Napoleon's tailor delivered a new uniform",
@@ -721,6 +823,7 @@ class TestFormatViceStartMessage:
         """The reported UX bug: LLM dropped the name → ticker reads as
         unattributed. The formatter prepends the name as a fallback."""
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message(
             "Bezos",
             "Pre-ordered a private flight he won't be on for two years",
@@ -730,18 +833,21 @@ class TestFormatViceStartMessage:
 
     def test_empty_narration_falls_back_to_name(self):
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message("Hemingway", "")
         assert "Hemingway" in out
         assert "stepped out" in out
 
     def test_whitespace_only_narration_falls_back(self):
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message("Hemingway", "   \n  ")
         assert "Hemingway" in out
 
     def test_no_double_prepend_when_name_already_there(self):
         """Don't produce 'Napoleon — Napoleon did X' on name-led inputs."""
         from cash_mode.activity import format_vice_start_message
+
         out = format_vice_start_message(
             "Napoleon",
             "Napoleon did the thing",
@@ -756,6 +862,7 @@ class TestEmitViceSpendingEvents:
     def _setup_personality_repo(self, db_setup, pid: str, display_name: str):
         """Insert a minimal personality row so name lookups work."""
         import sqlite3
+
         with sqlite3.connect(db_setup["db"]) as conn:
             conn.execute(
                 """

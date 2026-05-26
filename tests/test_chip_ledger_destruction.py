@@ -45,8 +45,7 @@ def ledger_repo(db_path):
 def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO personalities (name, config_json, personality_id) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO personalities (name, config_json, personality_id) " "VALUES (?, ?, ?)",
             (
                 f"Personality {personality_id}",
                 json.dumps({"bankroll_knobs": knobs}),
@@ -68,23 +67,40 @@ def _insert_personality(db_path: str, personality_id: str, *, knobs: dict) -> No
 
 class TestNoCapClampOnCredit:
     def test_winnings_above_target_dont_fire_cap_clamp(
-        self, bankroll_repo, ledger_repo, db_path,
+        self,
+        bankroll_repo,
+        ledger_repo,
+        db_path,
     ):
         # starting_bankroll = 5000, stored = 4500, player_stack = 1000
         # → final bankroll = 5500 (no clamp). No cap_clamp ledger
         # entry, no chips destroyed.
-        _insert_personality(db_path, "napoleon", knobs={
-            "starting_bankroll": 5_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            knobs={
+                "starting_bankroll": 5_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         anchor = datetime(2026, 5, 18, 12, 0, 0)
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=4_500, last_regen_tick=anchor,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=4_500,
+                last_regen_tick=anchor,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         credit_ai_cash_out(
-            bankroll_repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=anchor,
+            bankroll_repo,
+            "napoleon",
+            1_000,
+            sandbox_id="test-sandbox-1",
+            now=anchor,
             chip_ledger_repo=ledger_repo,
         )
 
@@ -94,21 +110,38 @@ class TestNoCapClampOnCredit:
         assert stored.chips == 5_500
 
     def test_no_clamp_when_post_credit_below_target(
-        self, bankroll_repo, ledger_repo, db_path,
+        self,
+        bankroll_repo,
+        ledger_repo,
+        db_path,
     ):
         # Sanity: the no-overflow case still works.
-        _insert_personality(db_path, "napoleon", knobs={
-            "starting_bankroll": 50_000, "bankroll_rate": 500,
-            "buy_in_multiplier": 1.0,
-            "stake_comfort_zone": "$10",
-        })
+        _insert_personality(
+            db_path,
+            "napoleon",
+            knobs={
+                "starting_bankroll": 50_000,
+                "bankroll_rate": 500,
+                "buy_in_multiplier": 1.0,
+                "stake_comfort_zone": "$10",
+            },
+        )
         anchor = datetime(2026, 5, 18, 12, 0, 0)
-        bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id="napoleon", chips=5_000, last_regen_tick=anchor,
-        ), sandbox_id="test-sandbox-1")
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id="napoleon",
+                chips=5_000,
+                last_regen_tick=anchor,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
 
         credit_ai_cash_out(
-            bankroll_repo, "napoleon", 1_000, sandbox_id="test-sandbox-1", now=anchor,
+            bankroll_repo,
+            "napoleon",
+            1_000,
+            sandbox_id="test-sandbox-1",
+            now=anchor,
             chip_ledger_repo=ledger_repo,
         )
 
@@ -131,28 +164,36 @@ class TestNoCapClampOnCredit:
 class TestDestructionHelpers:
     def test_cap_clamp_helper_no_op_when_overflow_zero(self, ledger_repo):
         result = chip_ledger.record_cap_clamp(
-            ledger_repo, personality_id="zeus", overflow=0,
+            ledger_repo,
+            personality_id="zeus",
+            overflow=0,
         )
         assert result is None
         assert ledger_repo.recent_entries() == []
 
     def test_house_stake_settle_helper_no_op_when_amount_zero(self, ledger_repo):
         result = chip_ledger.record_house_stake_settle(
-            ledger_repo, owner_id="alice", amount=0,
+            ledger_repo,
+            owner_id="alice",
+            amount=0,
         )
         assert result is None
         assert ledger_repo.recent_entries() == []
 
     def test_forgive_balance_helper_no_op_when_principal_zero(self, ledger_repo):
         result = chip_ledger.record_forgive_balance(
-            ledger_repo, owner_id="alice", forgiven_principal=0,
+            ledger_repo,
+            owner_id="alice",
+            forgiven_principal=0,
         )
         assert result is None
         assert ledger_repo.recent_entries() == []
 
     def test_forgive_balance_stamps_principal_in_context(self, ledger_repo):
         chip_ledger.record_forgive_balance(
-            ledger_repo, owner_id="alice", forgiven_principal=150,
+            ledger_repo,
+            owner_id="alice",
+            forgiven_principal=150,
             context={'loan_amount': 200},
         )
         entries = ledger_repo.recent_entries()

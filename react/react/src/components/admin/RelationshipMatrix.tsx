@@ -87,8 +87,7 @@ export function RelationshipMatrix({ data }: RelationshipMatrixProps) {
   if (players.length === 0) {
     return (
       <div className="rmx-empty">
-        No relationship data yet. Pairs appear once `OpponentModel` rows
-        exist for the game.
+        No relationship data yet. Pairs appear once `OpponentModel` rows exist for the game.
       </div>
     );
   }
@@ -106,7 +105,7 @@ export function RelationshipMatrix({ data }: RelationshipMatrixProps) {
               <span className="rmx-corner-row">observer ↓</span>
               <span className="rmx-corner-col">target →</span>
             </th>
-            {players.map(name => (
+            {players.map((name) => (
               <th key={`col-${name}`} className="rmx-header rmx-header-col">
                 {name}
               </th>
@@ -114,10 +113,10 @@ export function RelationshipMatrix({ data }: RelationshipMatrixProps) {
           </tr>
         </thead>
         <tbody>
-          {players.map(observer => (
+          {players.map((observer) => (
             <tr key={`row-${observer}`}>
               <th className="rmx-header rmx-header-row">{observer}</th>
-              {players.map(opponent => {
+              {players.map((opponent) => {
                 if (observer === opponent) {
                   // Self-pair: render a muted diagonal cell so the
                   // grid stays rectangular.
@@ -128,12 +127,9 @@ export function RelationshipMatrix({ data }: RelationshipMatrixProps) {
                   );
                 }
                 const pair = pairsByKey.get(`${observer}\x00${opponent}`);
-                const labelClass = pair?.label
-                  ? `rmx-cell-${pair.label}`
-                  : 'rmx-cell-neutral';
+                const labelClass = pair?.label ? `rmx-cell-${pair.label}` : 'rmx-cell-neutral';
                 const isSelected =
-                  selectedKey?.observer === observer
-                  && selectedKey?.opponent === opponent;
+                  selectedKey?.observer === observer && selectedKey?.opponent === opponent;
                 return (
                   <td
                     key={`${observer}-${opponent}`}
@@ -150,12 +146,7 @@ export function RelationshipMatrix({ data }: RelationshipMatrixProps) {
         </tbody>
       </table>
 
-      {selectedPair && (
-        <DetailPanel
-          pair={selectedPair}
-          onClose={() => setSelectedKey(null)}
-        />
-      )}
+      {selectedPair && <DetailPanel pair={selectedPair} onClose={() => setSelectedKey(null)} />}
     </div>
   );
 }
@@ -176,7 +167,9 @@ function CellBars({ pair }: { pair: RelationshipPair }) {
 }
 
 function AxisBar({
-  label, value, colorClass,
+  label,
+  value,
+  colorClass,
 }: {
   label: string;
   value: number;
@@ -187,10 +180,7 @@ function AxisBar({
     <div className="rmx-bar-row">
       <span className="rmx-bar-label">{label}</span>
       <div className="rmx-bar-track">
-        <div
-          className={`rmx-bar-fill ${colorClass}`}
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`rmx-bar-fill ${colorClass}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -199,20 +189,15 @@ function AxisBar({
 function formatTooltip(pair: RelationshipPair): string {
   const label = pair.label ?? 'neutral';
   return (
-    `${pair.observer} → ${pair.opponent}: ${label}\n`
-    + `heat ${pair.heat.toFixed(2)}  respect ${pair.respect.toFixed(2)}  likability ${pair.likability.toFixed(2)}`
+    `${pair.observer} → ${pair.opponent}: ${label}\n` +
+    `heat ${pair.heat.toFixed(2)}  respect ${pair.respect.toFixed(2)}  likability ${pair.likability.toFixed(2)}`
   );
 }
 
 /** Side panel that surfaces the selected pair's full state plus its
  *  memorable hands. Close button returns to the matrix-only view.
  */
-function DetailPanel({
-  pair, onClose,
-}: {
-  pair: RelationshipPair;
-  onClose: () => void;
-}) {
+function DetailPanel({ pair, onClose }: { pair: RelationshipPair; onClose: () => void }) {
   const label = pair.label ?? 'neutral';
   return (
     <div className="rmx-detail" data-testid="rmx-detail">
@@ -260,9 +245,7 @@ function DetailPanel({
             <li key={`${h.hand_id}-${i}`}>
               <div className="rmx-hand-row">
                 <span className="rmx-hand-event">{h.event}</span>
-                <span className="rmx-hand-impact">
-                  impact {h.impact_score.toFixed(2)}
-                </span>
+                <span className="rmx-hand-impact">impact {h.impact_score.toFixed(2)}</span>
               </div>
               <div className="rmx-hand-narrative">{h.narrative}</div>
             </li>

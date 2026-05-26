@@ -30,38 +30,38 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
         '.poker-layout__table-container',
         '.poker-table',
         '.table-felt',
-        '.players-area'
+        '.players-area',
       ];
 
       const info: ElementInfo[] = [];
-      
+
       // First, check parent chain of poker-layout
       const pokerLayout = document.querySelector('.poker-layout') as HTMLElement;
       if (pokerLayout) {
         logger.log('=== Parent Chain Analysis ===');
         let current = pokerLayout;
         let level = 0;
-        
+
         while (current && level < 10) {
           const computed = window.getComputedStyle(current);
           const tagName = current.tagName.toLowerCase();
           const className = current.className || 'no-class';
           const id = current.id || 'no-id';
-          
+
           logger.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
             width: computed.width,
             maxWidth: computed.maxWidth,
             display: computed.display,
             position: computed.position,
-            offsetWidth: current.offsetWidth
+            offsetWidth: current.offsetWidth,
           });
-          
+
           current = current.parentElement as HTMLElement;
           level++;
         }
       }
 
-      selectors.forEach(selector => {
+      selectors.forEach((selector) => {
         const element = document.querySelector(selector) as HTMLElement;
         if (element) {
           const computed = window.getComputedStyle(element);
@@ -75,7 +75,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
             position: computed.position,
             padding: computed.padding,
             margin: computed.margin,
-            boxSizing: computed.boxSizing
+            boxSizing: computed.boxSizing,
           });
         }
       });
@@ -85,7 +85,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
         width: window.innerWidth,
         height: window.innerHeight,
         documentWidth: document.documentElement.clientWidth,
-        documentHeight: document.documentElement.clientHeight
+        documentHeight: document.documentElement.clientHeight,
       });
 
       setElementInfo(info);
@@ -94,7 +94,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
     // Update on mount and resize
     updateInfo();
     window.addEventListener('resize', updateInfo);
-    
+
     // Update every 2 seconds to catch dynamic changes
     const interval = setInterval(updateInfo, 2000);
 
@@ -118,7 +118,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
           fontFamily: 'monospace',
           border: '1px solid #0f0',
           zIndex: 99999,
-          cursor: 'pointer'
+          cursor: 'pointer',
         }}
         onClick={() => setIsMinimized(false)}
       >
@@ -127,29 +127,31 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
     );
   }
 
-  const containerStyle = standalone ? {
-    position: 'fixed' as const,
-    top: '10px',
-    right: '10px',
-    background: 'rgba(0, 0, 0, 0.9)',
-    color: '#0f0',
-    padding: '10px',
-    fontSize: '11px',
-    fontFamily: 'monospace',
-    maxWidth: '400px',
-    maxHeight: '80vh',
-    overflow: 'auto',
-    border: '1px solid #0f0',
-    zIndex: 99999
-  } : {
-    color: '#0f0',
-    padding: '10px',
-    fontSize: '11px',
-    fontFamily: 'monospace',
-    height: '100%',
-    overflow: 'auto',
-    background: 'rgba(0, 0, 0, 0.5)'
-  };
+  const containerStyle = standalone
+    ? {
+        position: 'fixed' as const,
+        top: '10px',
+        right: '10px',
+        background: 'rgba(0, 0, 0, 0.9)',
+        color: '#0f0',
+        padding: '10px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        maxWidth: '400px',
+        maxHeight: '80vh',
+        overflow: 'auto',
+        border: '1px solid #0f0',
+        zIndex: 99999,
+      }
+    : {
+        color: '#0f0',
+        padding: '10px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        height: '100%',
+        overflow: 'auto',
+        background: 'rgba(0, 0, 0, 0.5)',
+      };
 
   return (
     <div style={containerStyle}>
@@ -163,23 +165,30 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
               border: 'none',
               color: '#0f0',
               cursor: 'pointer',
-              fontSize: '16px'
+              fontSize: '16px',
             }}
           >
             [-]
           </button>
         </div>
       )}
-      
+
       <div style={{ marginBottom: '10px' }}>
         <strong>Viewport:</strong> {window.innerWidth} x {window.innerHeight}
       </div>
 
       {elementInfo.map((info, index) => (
-        <div key={index} style={{ marginBottom: '10px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>
+        <div
+          key={index}
+          style={{ marginBottom: '10px', borderBottom: '1px solid #333', paddingBottom: '5px' }}
+        >
           <div style={{ color: '#ff0', fontWeight: 'bold' }}>{info.selector}</div>
-          <div>Size: {info.computedWidth} x {info.computedHeight}</div>
-          <div>Offset: {info.offsetWidth} x {info.offsetHeight}</div>
+          <div>
+            Size: {info.computedWidth} x {info.computedHeight}
+          </div>
+          <div>
+            Offset: {info.offsetWidth} x {info.offsetHeight}
+          </div>
           <div>Display: {info.display}</div>
           <div>Position: {info.position}</div>
           <div>Padding: {info.padding}</div>
@@ -197,7 +206,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
             '.poker-layout__table-container',
             '.poker-table',
             '.table-felt',
-            '.players-area'
+            '.players-area',
           ];
 
           selectors.forEach((selector, index) => {
@@ -205,7 +214,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
             if (element) {
               element.style.outline = `3px solid ${colors[index]}`;
               element.style.outlineOffset = `${-3 * (index + 1)}px`;
-              
+
               // Remove after 3 seconds
               setTimeout(() => {
                 element.style.outline = '';
@@ -221,7 +230,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
           color: '#000',
           border: 'none',
           cursor: 'pointer',
-          width: '100%'
+          width: '100%',
         }}
       >
         Flash Container Outlines (3s)
@@ -230,10 +239,10 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
       <button
         onClick={() => {
           logger.log('=== CSS Debug Snapshot ===');
-          elementInfo.forEach(info => {
+          elementInfo.forEach((info) => {
             logger.log(`${info.selector}:`, info);
           });
-          
+
           // Log computed styles for table-felt
           const tableFelt = document.querySelector('.table-felt') as HTMLElement;
           if (tableFelt) {
@@ -246,24 +255,24 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
               borderRadius: computed.borderRadius,
               transform: computed.transform,
               margin: computed.margin,
-              padding: computed.padding
+              padding: computed.padding,
             });
           }
-          
+
           // Analyze parent chain
           const pokerLayout = document.querySelector('.poker-layout') as HTMLElement;
           if (pokerLayout) {
             logger.log('\n=== Parent Chain Analysis ===');
             let current = pokerLayout;
             let level = 0;
-            
+
             while (current && level < 10) {
               const computed = window.getComputedStyle(current);
               const rect = current.getBoundingClientRect();
               const tagName = current.tagName.toLowerCase();
               const className = current.className || 'no-class';
               const id = current.id || 'no-id';
-              
+
               logger.log(`Level ${level}: <${tagName}> class="${className}" id="${id}"`, {
                 computedWidth: computed.width,
                 offsetWidth: current.offsetWidth,
@@ -273,14 +282,16 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
                 position: computed.position,
                 overflow: computed.overflow,
                 maxWidth: computed.maxWidth,
-                flex: computed.flex || 'none'
+                flex: computed.flex || 'none',
               });
-              
+
               // Check if this element is constraining width
               if (level > 0 && current.offsetWidth < window.innerWidth * 0.5) {
-                logger.warn(`⚠️ Potential constraint at level ${level}: width=${current.offsetWidth}px`);
+                logger.warn(
+                  `⚠️ Potential constraint at level ${level}: width=${current.offsetWidth}px`
+                );
               }
-              
+
               current = current.parentElement as HTMLElement;
               level++;
             }
@@ -293,7 +304,7 @@ export function CSSDebugger({ standalone = true }: CSSDebuggerProps) {
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
-          width: '100%'
+          width: '100%',
         }}
       >
         Log to Console

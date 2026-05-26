@@ -17,7 +17,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -71,26 +71,43 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                         'floor_anchor': 1.10,
                         'rate_anchor': 0.20,
                         'respect_floor': -1.0,  # never floored out
-                        'heat_ceiling': 1.0,    # never ceiling-ed out
+                        'heat_ceiling': 1.0,  # never ceiling-ed out
                     },
                 },
             )
-            cls.bankroll_repo.save_ai_bankroll(AIBankrollState(
-                personality_id=pid, chips=100_000,
-                last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-            ), sandbox_id="test-sandbox-1")
+            cls.bankroll_repo.save_ai_bankroll(
+                AIBankrollState(
+                    personality_id=pid,
+                    chips=100_000,
+                    last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
+                ),
+                sandbox_id="test-sandbox-1",
+            )
             cls.personality_ids.append(pid)
 
         def mock_init_persistence():
             import flask_app.extensions as ext
+
             for key in (
-                'game_repo', 'user_repo', 'settings_repo', 'personality_repo',
-                'experiment_repo', 'prompt_capture_repo',
-                'decision_analysis_repo', 'prompt_preset_repo',
-                'capture_label_repo', 'replay_experiment_repo',
-                'llm_repo', 'guest_tracking_repo', 'hand_history_repo',
-                'tournament_repo', 'coach_repo', 'relationship_repo',
-                'bankroll_repo', 'cash_table_repo', 'chip_ledger_repo',
+                'game_repo',
+                'user_repo',
+                'settings_repo',
+                'personality_repo',
+                'experiment_repo',
+                'prompt_capture_repo',
+                'decision_analysis_repo',
+                'prompt_preset_repo',
+                'capture_label_repo',
+                'replay_experiment_repo',
+                'llm_repo',
+                'guest_tracking_repo',
+                'hand_history_repo',
+                'tournament_repo',
+                'coach_repo',
+                'relationship_repo',
+                'bankroll_repo',
+                'cash_table_repo',
+                'chip_ledger_repo',
                 'stake_repo',
             ):
                 if key in repos:
@@ -105,11 +122,19 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
         # Rebind module-level repo capture in game_routes (see commit 6
         # commit message for context on this flake).
         import flask_app.routes.game_routes as _gr
+
         for key in (
-            'prompt_preset_repo', 'game_repo', 'user_repo',
-            'guest_tracking_repo', 'llm_repo', 'tournament_repo',
-            'hand_history_repo', 'decision_analysis_repo',
-            'capture_label_repo', 'coach_repo', 'relationship_repo',
+            'prompt_preset_repo',
+            'game_repo',
+            'user_repo',
+            'guest_tracking_repo',
+            'llm_repo',
+            'tournament_repo',
+            'hand_history_repo',
+            'decision_analysis_repo',
+            'capture_label_repo',
+            'coach_repo',
+            'relationship_repo',
             'personality_repo',
         ):
             if key in repos:
@@ -146,9 +171,13 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
     def test_no_table_id_returns_broad_pool(self):
         """Without `table_id`, behavior is the same as before (broad pool)."""
         # Set bankroll < min buy-in of $200 table (8000) but ≥ $50 min (2000).
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID, chips=4_000, starting_bankroll=4_000,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=4_000,
+                starting_bankroll=4_000,
+            )
+        )
         resp = self.client.get("/api/cash/sponsor-offers?stake_label=$200")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -160,9 +189,13 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
 
     def test_with_table_id_narrows_to_seated_ais(self):
         # Set bankroll for sponsor at $50 (min 2000).
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID, chips=600, starting_bankroll=600,
-        ))
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=600,
+                starting_bankroll=600,
+            )
+        )
         # Seat only 4 of the 20 personalities at the $50 table.
         seated_pids = self.personality_ids[:4]
         seats = [ai_slot(pid, 2000) for pid in seated_pids] + [open_slot(), open_slot()]
@@ -200,10 +233,14 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
                 },
             },
         )
-        self.bankroll_repo.save_ai_bankroll(AIBankrollState(
-            personality_id=unwilling_pid, chips=100_000,
-            last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
-        ), sandbox_id="test-sandbox-1")
+        self.bankroll_repo.save_ai_bankroll(
+            AIBankrollState(
+                personality_id=unwilling_pid,
+                chips=100_000,
+                last_regen_tick=datetime(2026, 5, 18, 12, 0, 0),
+            ),
+            sandbox_id="test-sandbox-1",
+        )
         # Seat only the unwilling personality.
         seats = [ai_slot(unwilling_pid, 80)] + [open_slot()] * 5
         custom_table = CashTableState(
@@ -212,13 +249,15 @@ class TestSponsorOffersNarrowing(_CashLobbyIntegrationBase):
             seats=seats,
         )
         self.cash_table_repo.save_table(custom_table, sandbox_id="test-sandbox-1")
-        self.bankroll_repo.save_player_bankroll(PlayerBankrollState(
-            player_id=PLAYER_OWNER_ID, chips=50, starting_bankroll=50,
-        ))
-
-        resp = self.client.get(
-            "/api/cash/sponsor-offers?stake_label=$2&table_id=cash-table-2-001"
+        self.bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=PLAYER_OWNER_ID,
+                chips=50,
+                starting_bankroll=50,
+            )
         )
+
+        resp = self.client.get("/api/cash/sponsor-offers?stake_label=$2&table_id=cash-table-2-001")
         assert resp.status_code == 200
         data = resp.get_json()
         # Narrow pool had zero qualifying, so we fell back to broad.

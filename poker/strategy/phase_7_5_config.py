@@ -8,14 +8,15 @@ See docs/plans/PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md for semantics.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Tuple
 
 import yaml
 
-
 _CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), 'data', 'phase_7_5_config.yaml',
+    os.path.dirname(__file__),
+    'data',
+    'phase_7_5_config.yaml',
 )
 
 
@@ -57,6 +58,7 @@ class BenchmarkPrior:
 @dataclass(frozen=True)
 class BluffCatchSizing:
     """Hand-class × bet/pot base call probabilities."""
+
     medium_made_le_50_pct: float
     medium_made_le_100_pct: float
     medium_made_le_200_pct: float
@@ -69,6 +71,7 @@ class BluffCatchSizing:
 @dataclass(frozen=True)
 class BluffCatchDampener:
     """Multipliers applied to base call prob."""
+
     street_river: float
     street_turn: float
     street_flop: float

@@ -36,6 +36,7 @@ Usage:
     docker compose exec backend python -m experiments.measure_passivity --opponents mix --hands 3000 --seeds 42,142,242
     docker compose exec backend python -m experiments.measure_passivity --opponents gto --mode on --hands 3000
 """
+
 import argparse
 import logging
 import os
@@ -54,18 +55,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # dominate runtime and bury the report.
 logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
-from poker.poker_game import (
-    play_turn, advance_to_next_active_player,
-)
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.strategy.strategy_table import load_strategy_table
-from poker.strategy.multistreet_context import derive_signals, H1_BARREL_TARGET, H2_FOLD_TARGET
-from poker.strategy.preflop_isolate import build_isolation_table
 from experiments.simulate_bb100 import (
-    ARCHETYPES, make_controller, make_game_state, compute_stats,
-    DEFAULT_RULE_OPPONENTS, MAX_ACTIONS_PER_HAND, TERMINAL_PHASES,
+    ARCHETYPES,
+    DEFAULT_RULE_OPPONENTS,
+    MAX_ACTIONS_PER_HAND,
+    TERMINAL_PHASES,
     _make_seat_names,
+    compute_stats,
+    make_controller,
+    make_game_state,
 )
+from poker.poker_game import (
+    advance_to_next_active_player,
+    play_turn,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
+from poker.strategy.preflop_isolate import build_isolation_table
+from poker.strategy.strategy_table import load_strategy_table
 
 # Default frozen clone profile (Track 2 eval). Resolved relative to this
 # module so it works regardless of cwd / worktree.
@@ -94,6 +101,7 @@ def _ensure_clone_registered(profile_path: str) -> str:
     Returns the archetype key (e.g. 'Jeff_clone').
     """
     from poker.human_clone import load_profile_from_file, register_clone_strategy
+
     profile = load_profile_from_file(profile_path)
     player_name = profile.source_player
     strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
@@ -101,6 +109,7 @@ def _ensure_clone_registered(profile_path: str) -> str:
     archetype_key = f"{player_name}_clone"
     ARCHETYPES[archetype_key] = {'kind': 'rule_bot', 'strategy': strategy_key}
     return archetype_key
+
 
 _AGGRESSIVE = {'bet', 'raise', 'all_in'}
 _POSTFLOP_STREETS = ('FLOP', 'TURN', 'RIVER')
@@ -110,10 +119,9 @@ _PREV_STREET = {'TURN': 'FLOP', 'RIVER': 'TURN'}
 @dataclass
 class PassivityStats:
     """Tier-A accumulator across a run (one hero archetype, all seeds)."""
+
     # action_context -> resolved_action -> count
-    ctx_action: Dict[str, Counter] = field(
-        default_factory=lambda: defaultdict(Counter)
-    )
+    ctx_action: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
     # (action_context, hand_class) -> resolved_action -> count
     ctx_class_action: Dict[Tuple[str, str], Counter] = field(
         default_factory=lambda: defaultdict(Counter)
@@ -122,18 +130,18 @@ class PassivityStats:
     double_barrel_action: Counter = field(default_factory=Counter)
 
     # Per-hand line metrics
-    flop_aggressor_with_turn: int = 0   # hero bet/raised flop AND saw a turn action
-    turn_barrel: int = 0                # ...and bet/raised the turn
-    cbet_then_give_up: int = 0          # ...but checked/folded the turn
+    flop_aggressor_with_turn: int = 0  # hero bet/raised flop AND saw a turn action
+    turn_barrel: int = 0  # ...and bet/raised the turn
+    cbet_then_give_up: int = 0  # ...but checked/folded the turn
 
-    callcall_river: int = 0             # called flop + called turn + reached river
-    payoff_loss: int = 0                # ...and lost the hand
+    callcall_river: int = 0  # called flop + called turn + reached river
+    payoff_loss: int = 0  # ...and lost the hand
 
     postflop_decisions: int = 0
 
     # Multi-street layer fire tracking (the inert-trap check): how often the
     # layer fired and actually changed the action distribution.
-    layer_fires: Counter = field(default_factory=Counter)        # rule_id -> count
+    layer_fires: Counter = field(default_factory=Counter)  # rule_id -> count
     layer_action_changed: Counter = field(default_factory=Counter)  # rule_id -> count
     layer_noop_reasons: Counter = field(default_factory=Counter)  # reason_code -> count
 
@@ -141,12 +149,12 @@ class PassivityStats:
     # layer fires — answers "do the spots even occur?"). The crux of the
     # honest-null vs gate-too-tight question.
     unopened_decisions: int = 0
-    unopened_prev_aggressor: int = 0       # ...where hero had prior-round initiative
+    unopened_prev_aggressor: int = 0  # ...where hero had prior-round initiative
     # active-player count when H1's spot (unopened + prev_aggressor + value class) holds
     h1_spot_by_active: Counter = field(default_factory=Counter)
     facing_bet_decisions: int = 0
-    facing_double_barrel: int = 0          # facing bet AND opp double-barreled
-    h2_spot_marginal: int = 0              # ...with a marginal made hand (H2 target)
+    facing_double_barrel: int = 0  # facing bet AND opp double-barreled
+    h2_spot_marginal: int = 0  # ...with a marginal made hand (H2 target)
 
     # Field size at hero postflop decisions — the Track 1 leading indicator.
     # If sharpening preflop ENTRY (isolate) works, this distribution shifts
@@ -162,8 +170,20 @@ class PassivityStats:
     sig_action: Dict[tuple, Counter] = field(default_factory=lambda: defaultdict(Counter))
     sig_chart_agg_sum: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
 
-    def record_decision(self, node_key: str, action: str,
-                        opp_bet_flop: bool, opp_bet_prev: bool, street: str):
+    # Preflop instrumentation — the 100bb-ranges-at-short-stacks leak is likely
+    # mostly preflop (ranges too loose, raises too small, missed jams), which
+    # the postflop surface can't see. Captures the hero's preflop decisions by
+    # scenario (rfi/vs_open/vs_3bet/vs_4bet) so VPIP/PFR/jam%/avg-open-size are
+    # readable and comparable across stack depths.
+    pf_decisions: int = 0
+    pf_action: Counter = field(default_factory=Counter)  # overall fold/check/call/raise/all_in
+    pf_scenario_action: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    pf_raise_to_bb_sum: float = 0.0  # sum of resolved raise-to (in BB) for raises (excl all_in)
+    pf_raise_n: int = 0  # count of raises (excl all_in) — for avg open size
+
+    def record_decision(
+        self, node_key: str, action: str, opp_bet_flop: bool, opp_bet_prev: bool, street: str
+    ):
         """Record one hero postflop decision keyed by its node context."""
         parts = node_key.split('|')
         if len(parts) < 7:
@@ -178,7 +198,8 @@ class PassivityStats:
         if (
             street in ('TURN', 'RIVER')
             and action_context in ('facing_bet', 'facing_raise')
-            and opp_bet_flop and opp_bet_prev
+            and opp_bet_flop
+            and opp_bet_prev
         ):
             self.double_barrel_action[action] += 1
 
@@ -223,21 +244,27 @@ def _aggregate(into: PassivityStats, src: PassivityStats):
         into.sig_action[sig].update(c)
     for sig, v in src.sig_chart_agg_sum.items():
         into.sig_chart_agg_sum[sig] += v
+    into.pf_decisions += src.pf_decisions
+    into.pf_action.update(src.pf_action)
+    for sc, c in src.pf_scenario_action.items():
+        into.pf_scenario_action[sc].update(c)
+    into.pf_raise_to_bb_sum += src.pf_raise_to_bb_sum
+    into.pf_raise_n += src.pf_raise_n
 
 
-MODES = ('off', 'h1', 'h2', 'on', 'vbf', 'vbfon')
+MODES = ('off', 'h1', 'h2', 'on')
 
 
 def _apply_mode(controller, mode: str):
-    """Set the A/B arm on the hero controller.
+    """Set the multi-street-context A/B arm on the hero controller.
 
-    'off' = current behavior. h1/h2/on = multi-street layer arms. vbf =
-    value-bet floor only. vbfon = value-bet floor + full multi-street layer.
+    'off' = current behavior. h1/h2/on = multi-street layer arms.
+    (The value-bet-floor 'vbf' modes were retired — its win was baked into
+    multiway.py's VALUE_CLASSES exemption; see STRUCTURAL_PASSIVITY_PLAN §14.)
     """
-    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on', 'vbfon')
-    controller.multistreet_h1_barrel = mode in ('h1', 'on', 'vbfon')
-    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on', 'vbfon')
-    controller.enable_value_bet_floor = mode in ('vbf', 'vbfon')
+    controller.enable_multistreet_context = mode in ('h1', 'h2', 'on')
+    controller.multistreet_h1_barrel = mode in ('h1', 'on')
+    controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
 def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
@@ -259,8 +286,8 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
     if hero is not None:
         hero._sim_last_preflop_aggressor = None
         hero._sim_recent_aggressor = None
-        hero._sim_hero_bet_by_street = {}   # {phase: True} streets hero bet/raised
-        hero._sim_opp_bet_by_street = {}    # {phase: True} streets any opp bet/raised
+        hero._sim_hero_bet_by_street = {}  # {phase: True} streets hero bet/raised
+        hero._sim_opp_bet_by_street = {}  # {phase: True} streets any opp bet/raised
     sim_current_street: Optional[str] = None
 
     # Per-hand line tracking (hero perspective).
@@ -301,6 +328,20 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
 
+        # ── Instrument the hero's preflop decision ──────────────────────────
+        # Bucket by scenario from raises_this_round (0=rfi, 1=vs_open,
+        # 2=vs_3bet, 3+=vs_4bet) so VPIP/PFR/jam%/avg-open-size are readable
+        # and comparable across stack depths (the short-stack range leak).
+        if is_hero and phase_name == 'PRE_FLOP':
+            raises = getattr(gs, 'raises_this_round', 0)
+            scenario = {0: 'rfi', 1: 'vs_open', 2: 'vs_3bet'}.get(raises, 'vs_4bet')
+            stats.pf_decisions += 1
+            stats.pf_action[action] += 1
+            stats.pf_scenario_action[scenario][action] += 1
+            if action == 'raise':
+                stats.pf_raise_to_bb_sum += raise_to / 100.0  # big_blind=100 in sim
+                stats.pf_raise_n += 1
+
         # ── Instrument the hero's postflop decision ─────────────────────────
         if is_hero and phase_name in _POSTFLOP_STREETS:
             snap = getattr(controller, '_last_pipeline_snapshot', {}) or {}
@@ -310,7 +351,8 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
                 opp_bet_flop = opp_bet_by_street.get('FLOP', False)
                 opp_bet_prev = opp_bet_by_street.get(prev, False) if prev else False
                 stats.record_decision(
-                    node_key, action,
+                    node_key,
+                    action,
                     opp_bet_flop=opp_bet_flop,
                     opp_bet_prev=opp_bet_prev,
                     street=phase_name,
@@ -336,12 +378,18 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
                         if hand_strength in H2_FOLD_TARGET:
                             stats.h2_spot_marginal += 1
                 # Per-signature leak surface: realized action vs chart intent.
-                signature = (phase_name, action_context, hand_strength,
-                             sig.was_prev_street_aggressor, sig.facing_double_barrel)
+                signature = (
+                    phase_name,
+                    action_context,
+                    hand_strength,
+                    sig.was_prev_street_aggressor,
+                    sig.facing_double_barrel,
+                )
                 stats.sig_action[signature][action] += 1
                 base = snap.get('base_strategy_probs', {})
                 stats.sig_chart_agg_sum[signature] += sum(
-                    p for a, p in base.items()
+                    p
+                    for a, p in base.items()
                     if a in ('jam', 'all_in') or a.startswith(('bet_', 'raise_'))
                 )
             hero_actions_by_street[phase_name].append(action)
@@ -404,7 +452,7 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
     called_turn = 'call' in hero_actions_by_street.get('TURN', [])
     if called_flop and called_turn and hero_reached_river:
         stats.callcall_river += 1
-        delta = final_stacks.get(hero_name, 0)
+        final_stacks.get(hero_name, 0)
         # delta computed by caller vs starting stack; here just flag a loss
         # via the returned stacks (caller passes starting_stack for the real
         # delta). We mark payoff_loss using the returned stacks below.
@@ -436,15 +484,9 @@ def run_passivity_matchup(
     if len(opponents) != 5:
         raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
 
-    hero_table = (
-        build_isolation_table(strategy_table) if entry == 'isolate'
-        else strategy_table
-    )
+    hero_table = build_isolation_table(strategy_table) if entry == 'isolate' else strategy_table
 
-    hero_name = (
-        hero_archetype if hero_archetype not in opponents
-        else f"{hero_archetype}_hero"
-    )
+    hero_name = hero_archetype if hero_archetype not in opponents else f"{hero_archetype}_hero"
     opponent_seats = _make_seat_names(opponents)
     if hero_name in opponent_seats:
         hero_name = f"{hero_archetype}_hero"
@@ -462,17 +504,16 @@ def run_passivity_matchup(
         random.seed(hand_seed)  # per-hand global-random reset (rule bots)
 
         gs = make_game_state(
-            player_names=all_names, big_blind=big_blind,
-            starting_stack=starting_stack, dealer_idx=dealer_idx,
+            player_names=all_names,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            dealer_idx=dealer_idx,
             seed=hand_seed,
         )
         sm = PokerStateMachine(gs)
         sm.current_hand_seed = hand_seed
 
-        controllers = [
-            make_controller(hero_name, config_arch, hero_table, sm,
-                            rng_seed=hand_seed)
-        ]
+        controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
         # No opponent_manager: Baseline (anchors=None) skips exploitation and
         # equity recording only writes to models, so omitting it is identical
         # for decisions/stacks and disables equity-MC (plan requirement).
@@ -480,14 +521,18 @@ def run_passivity_matchup(
         _apply_mode(controllers[0], mode)
         controllers[0].multistreet_h1_classes = h1_classes
 
-        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
+        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
             controllers.append(
-                make_controller(seat, cfg, strategy_table, sm,
-                                rng_seed=hand_seed + 1_000_000 * (i + 1))
+                make_controller(
+                    seat, cfg, strategy_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1)
+                )
             )
 
         final_stacks, callcall_river = run_passivity_hand(
-            sm, controllers, hero_name, stats,
+            sm,
+            controllers,
+            hero_name,
+            stats,
         )
         delta = final_stacks.get(hero_name, starting_stack) - starting_stack
         deltas.append(delta)
@@ -499,6 +544,7 @@ def run_passivity_matchup(
 
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
+
 def _pct(counter: Counter, key: str) -> float:
     total = sum(counter.values())
     return 100.0 * counter[key] / total if total else 0.0
@@ -507,16 +553,52 @@ def _pct(counter: Counter, key: str) -> float:
 def _fmt_ctx(label: str, counter: Counter) -> str:
     n = sum(counter.values())
     if label == 'unopened':
-        return (f"  {label:<12}(n={n:>4}): "
-                f"check {_pct(counter,'check'):4.0f}%, "
-                f"bet {_pct(counter,'bet'):4.0f}%, "
-                f"raise {_pct(counter,'raise'):4.0f}%")
+        return (
+            f"  {label:<12}(n={n:>4}): "
+            f"check {_pct(counter,'check'):4.0f}%, "
+            f"bet {_pct(counter,'bet'):4.0f}%, "
+            f"raise {_pct(counter,'raise'):4.0f}%"
+        )
     agg = sum(counter[a] for a in _AGGRESSIVE)
     raise_pct = 100.0 * agg / n if n else 0.0
-    return (f"  {label:<12}(n={n:>4}): "
-            f"fold {_pct(counter,'fold'):4.0f}%, "
-            f"call {_pct(counter,'call'):4.0f}%, "
-            f"RAISE {raise_pct:4.0f}%")
+    return (
+        f"  {label:<12}(n={n:>4}): "
+        f"fold {_pct(counter,'fold'):4.0f}%, "
+        f"call {_pct(counter,'call'):4.0f}%, "
+        f"RAISE {raise_pct:4.0f}%"
+    )
+
+
+def print_preflop(stats: PassivityStats):
+    """Preflop summary: VPIP/PFR/jam%/avg-open-size overall + by scenario.
+
+    The short-stack range leak surfaces here: does the bot tighten / jam more
+    as stacks shorten, or play the same 100bb ranges at 25bb? (It uses one
+    depth-agnostic preflop chart, so the expectation is little/no adjustment.)
+    """
+    n = stats.pf_decisions
+    if not n:
+        return
+    a = stats.pf_action
+    vpip = 100.0 * (a['call'] + a['raise'] + a['all_in']) / n
+    pfr = 100.0 * (a['raise'] + a['all_in']) / n
+    jam = 100.0 * a['all_in'] / n
+    avg_open = stats.pf_raise_to_bb_sum / stats.pf_raise_n if stats.pf_raise_n else 0.0
+    print("\n── PREFLOP (the short-stack range leak shows here) ──")
+    print(
+        f"  decisions {n} | VPIP {vpip:.0f}% | PFR {pfr:.0f}% | jam {jam:.1f}% | "
+        f"avg raise-to {avg_open:.1f}bb"
+    )
+    print(f"  {'scenario':<10} {'n':>5}  {'fold':>4} {'call':>4} {'raise':>5} {'jam':>4}")
+    for sc in ('rfi', 'vs_open', 'vs_3bet', 'vs_4bet'):
+        c = stats.pf_scenario_action.get(sc)
+        if not c:
+            continue
+        sn = sum(c.values())
+        print(
+            f"  {sc:<10} {sn:>5}  {_pct(c,'fold'):>4.0f} {_pct(c,'call'):>4.0f} "
+            f"{_pct(c,'raise'):>5.0f} {_pct(c,'all_in'):>4.0f}"
+        )
 
 
 def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
@@ -543,25 +625,39 @@ def print_leak_surface(stats: PassivityStats, min_n: int = 25, top: int = 20):
     rows.sort(key=lambda r: -abs(r[5]) * r[1])  # biggest systematic divergence first
 
     print(f"\n── PER-SIGNATURE LEAK SURFACE (n≥{min_n}, top {top} by |gap|×vol) ──")
-    print(f"  {'street':<6} {'ctx':<12} {'class':<14} {'agg?':<4} {'dbl?':<4} "
-          f"{'n':>5}  {'fold':>4} {'chk':>4} {'call':>4} {'AGG':>4} | {'chart':>5} {'gap':>5}")
+    print(
+        f"  {'street':<6} {'ctx':<12} {'class':<14} {'agg?':<4} {'dbl?':<4} "
+        f"{'n':>5}  {'fold':>4} {'chk':>4} {'call':>4} {'AGG':>4} | {'chart':>5} {'gap':>5}"
+    )
     for sig, n, counter, realized, chart, gap in rows[:top]:
         street, ctx, cls, prev_aggr, dbl = sig
-        print(f"  {street:<6} {ctx:<12} {cls:<14} "
-              f"{'Y' if prev_aggr else '-':<4} {'Y' if dbl else '-':<4} "
-              f"{n:>5}  {_pct(counter,'fold'):>4.0f} {_pct(counter,'check'):>4.0f} "
-              f"{_pct(counter,'call'):>4.0f} {100*realized:>4.0f} | "
-              f"{100*chart:>5.0f} {100*gap:>+5.0f}")
+        print(
+            f"  {street:<6} {ctx:<12} {cls:<14} "
+            f"{'Y' if prev_aggr else '-':<4} {'Y' if dbl else '-':<4} "
+            f"{n:>5}  {_pct(counter,'fold'):>4.0f} {_pct(counter,'check'):>4.0f} "
+            f"{_pct(counter,'call'):>4.0f} {100*realized:>4.0f} | "
+            f"{100*chart:>5.0f} {100*gap:>+5.0f}"
+        )
 
 
-def print_report(hero: str, opponents: List[str], n_hands: int,
-                 seeds: List[int], stats: PassivityStats,
-                 per_seed_bb100: List[Tuple[int, float]], mode: str,
-                 entry: str = 'default', leak_report: bool = False):
+def print_report(
+    hero: str,
+    opponents: List[str],
+    n_hands: int,
+    seeds: List[int],
+    stats: PassivityStats,
+    per_seed_bb100: List[Tuple[int, float]],
+    mode: str,
+    entry: str = 'default',
+    leak_report: bool = False,
+    stack_bb: int = 100,
+):
     opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
-    print(f"PASSIVITY (Tier A): {hero} vs {opp_desc} | mode={mode} entry={entry}")
+    print(
+        f"PASSIVITY (Tier A): {hero} vs {opp_desc} | mode={mode} entry={entry} stack={stack_bb}bb"
+    )
     print(f"{total_hands} hands ({n_hands} x seeds {seeds})")
     print("=" * 72)
 
@@ -572,6 +668,8 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     pac_desc = ', '.join(f"{k}p={v}" for k, v in sorted(pac.items()))
     print(f"\n  Field size @ postflop decisions: [{pac_desc}]")
     print(f"    → HU (2p): {hu_pct:.0f}%  (Track 1 target: ↑ = more initiative spots)")
+
+    print_preflop(stats)
 
     print("\n── PER-CONTEXT ACTION SPLIT ──")
     for ctx in ('unopened', 'facing_bet', 'facing_raise'):
@@ -587,8 +685,10 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
         if n == 0:
             continue
         agg = sum(counter[a] for a in _AGGRESSIVE)
-        print(f"  {cls:<14} n={n:>4}  bet/raise {100.0*agg/n:4.0f}%  "
-              f"check {_pct(counter,'check'):4.0f}%")
+        print(
+            f"  {cls:<14} n={n:>4}  bet/raise {100.0*agg/n:4.0f}%  "
+            f"check {_pct(counter,'check'):4.0f}%"
+        )
 
     print("\n── facing_bet / facing_raise: raise% by hand_class ──")
     for (ctx, cls), counter in sorted(stats.ctx_class_action.items()):
@@ -598,9 +698,11 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
         if n == 0:
             continue
         agg = sum(counter[a] for a in _AGGRESSIVE)
-        print(f"  {ctx:<12} {cls:<14} n={n:>4}  "
-              f"fold {_pct(counter,'fold'):4.0f}%  call {_pct(counter,'call'):4.0f}%  "
-              f"RAISE {100.0*agg/n:4.0f}%")
+        print(
+            f"  {ctx:<12} {cls:<14} n={n:>4}  "
+            f"fold {_pct(counter,'fold'):4.0f}%  call {_pct(counter,'call'):4.0f}%  "
+            f"RAISE {100.0*agg/n:4.0f}%"
+        )
 
     print(f"\n  Postflop AggFactor (agg / passive) = {stats.agg_factor():.3f}")
 
@@ -608,39 +710,53 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     fa = stats.flop_aggressor_with_turn
     barrel_rate = 100.0 * stats.turn_barrel / fa if fa else 0.0
     giveup_rate = 100.0 * stats.cbet_then_give_up / fa if fa else 0.0
-    print(f"  Barrel continuation P(bet turn | bet flop): "
-          f"{barrel_rate:4.0f}%  ({stats.turn_barrel}/{fa})")
-    print(f"  C-bet then check/fold turn (give-up):        "
-          f"{giveup_rate:4.0f}%  ({stats.cbet_then_give_up}/{fa})")
+    print(
+        f"  Barrel continuation P(bet turn | bet flop): "
+        f"{barrel_rate:4.0f}%  ({stats.turn_barrel}/{fa})"
+    )
+    print(
+        f"  C-bet then check/fold turn (give-up):        "
+        f"{giveup_rate:4.0f}%  ({stats.cbet_then_give_up}/{fa})"
+    )
     cc = stats.callcall_river
     payoff_rate = 100.0 * stats.payoff_loss / cc if cc else 0.0
-    print(f"  Pay-off rate (call-call-river -> lose):      "
-          f"{payoff_rate:4.0f}%  ({stats.payoff_loss}/{cc})")
+    print(
+        f"  Pay-off rate (call-call-river -> lose):      "
+        f"{payoff_rate:4.0f}%  ({stats.payoff_loss}/{cc})"
+    )
     db = stats.double_barrel_action
     db_n = sum(db.values())
     if db_n:
-        print(f"  Facing double-barrel split (n={db_n}): "
-              f"fold {_pct(db,'fold'):3.0f}%  call {_pct(db,'call'):3.0f}%  "
-              f"RAISE {100.0*sum(db[a] for a in _AGGRESSIVE)/db_n:3.0f}%")
+        print(
+            f"  Facing double-barrel split (n={db_n}): "
+            f"fold {_pct(db,'fold'):3.0f}%  call {_pct(db,'call'):3.0f}%  "
+            f"RAISE {100.0*sum(db[a] for a in _AGGRESSIVE)/db_n:3.0f}%"
+        )
     else:
-        print(f"  Facing double-barrel split (n=0): (no such spots sampled)")
+        print("  Facing double-barrel split (n=0): (no such spots sampled)")
 
     print("\n── SIGNAL-FREQUENCY DIAGNOSTICS (do the layer's spots occur?) ──")
     ud = stats.unopened_decisions
     upa = stats.unopened_prev_aggressor
-    print(f"  unopened decisions: {ud}; with prior-round initiative "
-          f"(was_prev_street_aggressor): {upa} ({100.0*upa/ud if ud else 0:.0f}%)")
+    print(
+        f"  unopened decisions: {ud}; with prior-round initiative "
+        f"(was_prev_street_aggressor): {upa} ({100.0*upa/ud if ud else 0:.0f}%)"
+    )
     h1n = sum(stats.h1_spot_by_active.values())
     by_active = ', '.join(f"{k}p={v}" for k, v in sorted(stats.h1_spot_by_active.items()))
-    print(f"  H1 spots (unopened + initiative + value class): {h1n}  "
-          f"by active players: [{by_active}]")
+    print(
+        f"  H1 spots (unopened + initiative + value class): {h1n}  "
+        f"by active players: [{by_active}]"
+    )
     hu_h1 = stats.h1_spot_by_active.get(2, 0)
     print(f"    → of those, HU (2 players, current H1 gate): {hu_h1}")
     fb = stats.facing_bet_decisions
     fdb = stats.facing_double_barrel
-    print(f"  facing-bet decisions: {fb}; facing a double-barrel: {fdb} "
-          f"({100.0*fdb/fb if fb else 0:.0f}%); of those marginal (H2 spot): "
-          f"{stats.h2_spot_marginal}")
+    print(
+        f"  facing-bet decisions: {fb}; facing a double-barrel: {fdb} "
+        f"({100.0*fdb/fb if fb else 0:.0f}%); of those marginal (H2 spot): "
+        f"{stats.h2_spot_marginal}"
+    )
 
     if mode != 'off':
         print("\n── MULTI-STREET LAYER ACTIVITY (inert-trap check) ──")
@@ -660,27 +776,38 @@ def print_report(hero: str, opponents: List[str], n_hands: int,
     for s, bb in per_seed_bb100:
         print(f"  seed {s}: {bb:+8.1f} bb/100")
     sign_disagree = len({(v > 0) for v in vals}) > 1
-    print(f"  MEAN:    {mean_bb:+8.1f} bb/100"
-          + ("   ⚠ per-seed SIGN DISAGREEMENT (noise)" if sign_disagree else ""))
+    print(
+        f"  MEAN:    {mean_bb:+8.1f} bb/100"
+        + ("   ⚠ per-seed SIGN DISAGREEMENT (noise)" if sign_disagree else "")
+    )
 
     if leak_report:
         print_leak_surface(stats)
 
 
-def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset]]):
+def _run_seed_worker(
+    args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int],
+):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
     deltas, stats = run_passivity_matchup(
-        hero, opponents, n_hands, strategy_table, base_seed=seed, mode=mode,
-        entry=entry, h1_classes=h1_classes,
+        hero,
+        opponents,
+        n_hands,
+        strategy_table,
+        base_seed=seed,
+        mode=mode,
+        entry=entry,
+        h1_classes=h1_classes,
+        starting_stack=stack_bb * 100,  # big_blind=100 → stack_bb effective
     )
     return seed, deltas, stats
 
@@ -688,28 +815,52 @@ def _run_seed_worker(args: Tuple[str, List[str], int, int, str, str, Optional[st
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--hero', default='Baseline', help='hero archetype (default Baseline)')
-    p.add_argument('--opponents', default='gto',
-                   help="roster preset (gto|mix) or comma-separated 5 archetypes")
+    p.add_argument(
+        '--opponents', default='gto', help="roster preset (gto|mix) or comma-separated 5 archetypes"
+    )
     p.add_argument('--hands', type=int, default=2000, help='hands per seed')
     p.add_argument('--seeds', default='42', help='comma-separated base seeds (e.g. 42,142,242)')
-    p.add_argument('--mode', default='off', choices=list(MODES),
-                   help='A/B arm: off | h1 | h2 | on (multi-street) | '
-                        'vbf (value-bet floor) | vbfon (both)')
-    p.add_argument('--entry', default='default', choices=['default', 'isolate'],
-                   help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)")
-    p.add_argument('--clone-profile', default=None,
-                   help=f"frozen CloneProfile JSON for a *_clone opponent "
-                        f"(default {DEFAULT_CLONE_PROFILE} when roster uses a clone)")
-    p.add_argument('--h1-classes', default='all', choices=['all', 'value'],
-                   help="H1 barrel classes: 'all' (incl. air_strong_draw bluff-barrel) "
-                        "or 'value' (nuts/strong/medium only — for high-WtSD opponents)")
-    p.add_argument('--leak-report', action='store_true',
-                   help="print the per-signature leak surface (realized vs chart "
-                        "aggression by line-signature) — the leak finder")
+    p.add_argument(
+        '--mode',
+        default='off',
+        choices=list(MODES),
+        help='A/B arm: off | h1 | h2 | on (multi-street layer)',
+    )
+    p.add_argument(
+        '--stack-bb',
+        type=int,
+        default=100,
+        help='effective starting stack in BB (default 100). Sweep '
+        '100/50/25/15 to probe the 100bb-tables-at-short-stack leak.',
+    )
+    p.add_argument(
+        '--entry',
+        default='default',
+        choices=['default', 'isolate'],
+        help="preflop entry: 'isolate' shifts OOP vs_open flat-calls to 3-bets (Track 1)",
+    )
+    p.add_argument(
+        '--clone-profile',
+        default=None,
+        help=f"frozen CloneProfile JSON for a *_clone opponent "
+        f"(default {DEFAULT_CLONE_PROFILE} when roster uses a clone)",
+    )
+    p.add_argument(
+        '--h1-classes',
+        default='all',
+        choices=['all', 'value'],
+        help="H1 barrel classes: 'all' (incl. air_strong_draw bluff-barrel) "
+        "or 'value' (nuts/strong/medium only — for high-WtSD opponents)",
+    )
+    p.add_argument(
+        '--leak-report',
+        action='store_true',
+        help="print the per-signature leak surface (realized vs chart "
+        "aggression by line-signature) — the leak finder",
+    )
     args = p.parse_args()
     h1_classes = (
-        frozenset({'nuts', 'strong_made', 'medium_made'})
-        if args.h1_classes == 'value' else None
+        frozenset({'nuts', 'strong_made', 'medium_made'}) if args.h1_classes == 'value' else None
     )
 
     if args.opponents in ROSTERS:
@@ -742,9 +893,20 @@ def main():
 
     # Run seeds concurrently (one child process per seed). The cost is the
     # opponents' equity-MC, so seeds are CPU-bound and parallelize cleanly.
-    work = [(args.hero, opponents, args.hands, s, args.mode, args.entry,
-             clone_profile, h1_classes)
-            for s in seeds]
+    work = [
+        (
+            args.hero,
+            opponents,
+            args.hands,
+            s,
+            args.mode,
+            args.entry,
+            clone_profile,
+            h1_classes,
+            args.stack_bb,
+        )
+        for s in seeds
+    ]
     results = []
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -759,8 +921,18 @@ def main():
         ms = compute_stats(deltas, big_blind=100)
         per_seed_bb100.append((seed, ms.bb100))
 
-    print_report(args.hero, opponents, args.hands, sorted(seeds), agg_stats,
-                 per_seed_bb100, args.mode, args.entry, leak_report=args.leak_report)
+    print_report(
+        args.hero,
+        opponents,
+        args.hands,
+        sorted(seeds),
+        agg_stats,
+        per_seed_bb100,
+        args.mode,
+        args.entry,
+        leak_report=args.leak_report,
+        stack_bb=args.stack_bb,
+    )
 
 
 if __name__ == '__main__':

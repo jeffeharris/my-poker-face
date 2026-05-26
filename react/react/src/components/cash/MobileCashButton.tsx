@@ -24,9 +24,7 @@ export function MobileCashButton({ bankroll, onClick }: MobileCashButtonProps) {
       aria-label="Open cash controls"
     >
       <Wallet className="mobile-cash-button__icon" size={16} />
-      <span className="mobile-cash-button__amount">
-        ${bankroll.toLocaleString()}
-      </span>
+      <span className="mobile-cash-button__amount">${bankroll.toLocaleString()}</span>
     </button>
   );
 }

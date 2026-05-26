@@ -2,12 +2,13 @@
 
 Covers the capture_labels table and label-based searching of prompt_captures.
 """
+
 from __future__ import annotations
 
-import sqlite3
 import json
 import logging
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+import sqlite3
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from poker.repositories.prompt_capture_repository import PromptCaptureRepository
@@ -26,10 +27,7 @@ class CaptureLabelRepository(BaseRepository):
         self._prompt_capture_repo = prompt_capture_repo
 
     def add_capture_labels(
-        self,
-        capture_id: int,
-        labels: List[str],
-        label_type: str = 'user'
+        self, capture_id: int, labels: List[str], label_type: str = 'user'
     ) -> List[str]:
         """Add labels to a captured AI decision.
 
@@ -48,10 +46,13 @@ class CaptureLabelRepository(BaseRepository):
                 if not label:
                     continue
                 try:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO capture_labels (capture_id, label, label_type)
                         VALUES (?, ?, ?)
-                    """, (capture_id, label, label_type))
+                    """,
+                        (capture_id, label, label_type),
+                    )
                     added.append(label)
                 except sqlite3.IntegrityError:
                     # Label already exists for this capture, skip
@@ -60,7 +61,9 @@ class CaptureLabelRepository(BaseRepository):
             logger.debug(f"Added labels {added} to capture {capture_id}")
         return added
 
-    def compute_and_store_auto_labels(self, capture_id: int, capture_data: Dict[str, Any]) -> List[str]:
+    def compute_and_store_auto_labels(
+        self, capture_id: int, capture_data: Dict[str, Any]
+    ) -> List[str]:
         """Compute auto-labels for a capture based on rules and store them.
 
         Labels are computed based on the capture data at capture time.
@@ -84,10 +87,12 @@ class CaptureLabelRepository(BaseRepository):
             labels.append('short_stack_fold')
 
         # POT_COMMITTED: Folding after investing more than remaining stack
-        if (action == 'fold' and
-                already_bet_bb is not None and
-                stack_bb is not None and
-                already_bet_bb > stack_bb):
+        if (
+            action == 'fold'
+            and already_bet_bb is not None
+            and stack_bb is not None
+            and already_bet_bb > stack_bb
+        ):
             labels.append('pot_committed_fold')
 
         # SUS_FOLD: Suspicious fold - high pot odds (getting good price)
@@ -123,11 +128,7 @@ class CaptureLabelRepository(BaseRepository):
 
         return labels
 
-    def remove_capture_labels(
-        self,
-        capture_id: int,
-        labels: List[str]
-    ) -> int:
+    def remove_capture_labels(self, capture_id: int, labels: List[str]) -> int:
         """Remove labels from a captured AI decision.
 
         Args:
@@ -143,10 +144,13 @@ class CaptureLabelRepository(BaseRepository):
                 label = label.strip().lower()
                 if not label:
                     continue
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     DELETE FROM capture_labels
                     WHERE capture_id = ? AND label = ?
-                """, (capture_id, label))
+                """,
+                    (capture_id, label),
+                )
                 total_removed += cursor.rowcount
         if total_removed:
             logger.debug(f"Removed {total_removed} label(s) from capture {capture_id}")
@@ -162,13 +166,15 @@ class CaptureLabelRepository(BaseRepository):
             List of label dicts with 'label', 'label_type', 'created_at'
         """
         with self._get_connection() as conn:
-
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT label, label_type, created_at
                 FROM capture_labels
                 WHERE capture_id = ?
                 ORDER BY label
-            """, (capture_id,))
+            """,
+                (capture_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def list_all_labels(self, label_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -181,15 +187,17 @@ class CaptureLabelRepository(BaseRepository):
             List of dicts with 'name', 'count', 'label_type'
         """
         with self._get_connection() as conn:
-
             if label_type:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT label as name, label_type, COUNT(*) as count
                     FROM capture_labels
                     WHERE label_type = ?
                     GROUP BY label, label_type
                     ORDER BY count DESC, label
-                """, (label_type,))
+                """,
+                    (label_type,),
+                )
             else:
                 cursor = conn.execute("""
                     SELECT label as name, label_type, COUNT(*) as count
@@ -203,7 +211,7 @@ class CaptureLabelRepository(BaseRepository):
         self,
         game_id: Optional[str] = None,
         player_name: Optional[str] = None,
-        call_type: Optional[str] = None
+        call_type: Optional[str] = None,
     ) -> Dict[str, int]:
         """Get label counts filtered by game_id, player_name, and/or call_type.
 
@@ -231,15 +239,17 @@ class CaptureLabelRepository(BaseRepository):
         where_clause = build_where_clause(conditions)
 
         with self._get_connection() as conn:
-
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 SELECT cl.label, COUNT(*) as count
                 FROM capture_labels cl
                 JOIN prompt_captures pc ON cl.capture_id = pc.id
                 {where_clause}
                 GROUP BY cl.label
                 ORDER BY count DESC, cl.label
-            """, params)
+            """,
+                params,
+            )
             return {row['label']: row['count'] for row in cursor.fetchall()}
 
     def search_captures_with_labels(
@@ -261,7 +271,7 @@ class CaptureLabelRepository(BaseRepository):
         has_error: Optional[bool] = None,
         is_correction: Optional[bool] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> Dict[str, Any]:
         """Search captures by labels and optional filters.
 
@@ -304,7 +314,7 @@ class CaptureLabelRepository(BaseRepository):
                 has_error=has_error,
                 is_correction=is_correction,
                 limit=limit,
-                offset=offset
+                offset=offset,
             )
 
         # Build base conditions
@@ -361,7 +371,6 @@ class CaptureLabelRepository(BaseRepository):
         where_clause = build_where_clause(conditions)
 
         with self._get_connection() as conn:
-
             # Build label matching subquery
             label_placeholders = ','.join(['?' for _ in labels])
             params_for_labels = [l for l in labels]
@@ -428,21 +437,19 @@ class CaptureLabelRepository(BaseRepository):
                         try:
                             capture[field] = json.loads(capture[field])
                         except json.JSONDecodeError:
-                            logger.debug("Failed to parse JSON for field '%s' in capture id=%s", field, capture.get('id'))
+                            logger.debug(
+                                "Failed to parse JSON for field '%s' in capture id=%s",
+                                field,
+                                capture.get('id'),
+                            )
                 # Get labels for this capture
                 capture['labels'] = self.get_capture_labels(capture['id'])
                 captures.append(capture)
 
-            return {
-                'captures': captures,
-                'total': total
-            }
+            return {'captures': captures, 'total': total}
 
     def bulk_add_capture_labels(
-        self,
-        capture_ids: List[int],
-        labels: List[str],
-        label_type: str = 'user'
+        self, capture_ids: List[int], labels: List[str], label_type: str = 'user'
     ) -> Dict[str, int]:
         """Add labels to multiple captures at once.
 
@@ -465,10 +472,13 @@ class CaptureLabelRepository(BaseRepository):
             for capture_id in capture_ids:
                 for label in labels:
                     try:
-                        conn.execute("""
+                        conn.execute(
+                            """
                             INSERT INTO capture_labels (capture_id, label, label_type)
                             VALUES (?, ?, ?)
-                        """, (capture_id, label, label_type))
+                        """,
+                            (capture_id, label, label_type),
+                        )
                         total_added += 1
                         captures_touched.add(capture_id)
                     except sqlite3.IntegrityError:
@@ -476,15 +486,10 @@ class CaptureLabelRepository(BaseRepository):
                         pass
 
         logger.info(f"Bulk added {total_added} label(s) to {len(captures_touched)} capture(s)")
-        return {
-            'captures_affected': len(captures_touched),
-            'labels_added': total_added
-        }
+        return {'captures_affected': len(captures_touched), 'labels_added': total_added}
 
     def bulk_remove_capture_labels(
-        self,
-        capture_ids: List[int],
-        labels: List[str]
+        self, capture_ids: List[int], labels: List[str]
     ) -> Dict[str, int]:
         """Remove labels from multiple captures at once.
 
@@ -504,15 +509,15 @@ class CaptureLabelRepository(BaseRepository):
             id_placeholders = ','.join(['?' for _ in capture_ids])
             label_placeholders = ','.join(['?' for _ in labels])
 
-            cursor = conn.execute(f"""
+            cursor = conn.execute(
+                f"""
                 DELETE FROM capture_labels
                 WHERE capture_id IN ({id_placeholders})
                 AND label IN ({label_placeholders})
-            """, capture_ids + labels)
+            """,
+                capture_ids + labels,
+            )
             removed = cursor.rowcount
 
         logger.info(f"Bulk removed {removed} label(s) from captures")
-        return {
-            'captures_affected': len(capture_ids),
-            'labels_removed': removed
-        }
+        return {'captures_affected': len(capture_ids), 'labels_removed': removed}

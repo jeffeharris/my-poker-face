@@ -2,7 +2,18 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import './AdminSidebar.css';
 
-export type AdminTab = 'users' | 'personalities' | 'analyzer' | 'hand-replay' | 'playground' | 'experiments' | 'presets' | 'templates' | 'settings' | 'debug' | 'chip-ledger';
+export type AdminTab =
+  | 'users'
+  | 'personalities'
+  | 'analyzer'
+  | 'hand-replay'
+  | 'playground'
+  | 'experiments'
+  | 'presets'
+  | 'templates'
+  | 'settings'
+  | 'debug'
+  | 'chip-ledger';
 
 export interface SidebarItem {
   id: AdminTab;
@@ -122,9 +133,7 @@ export function AdminSidebar({
               >
                 <span className="admin-sidebar__link-icon">{item.icon}</span>
                 <span className="admin-sidebar__link-text">{item.label}</span>
-                {activeTab === item.id && (
-                  <span className="admin-sidebar__link-indicator" />
-                )}
+                {activeTab === item.id && <span className="admin-sidebar__link-indicator" />}
               </button>
             </li>
           ))}
@@ -133,23 +142,18 @@ export function AdminSidebar({
 
       {/* Footer with hint */}
       <div className="admin-sidebar__footer">
-        <div className="admin-sidebar__footer-hint">
-          {collapsed ? '⌘K' : 'Press ⌘K to toggle'}
-        </div>
+        <div className="admin-sidebar__footer-hint">{collapsed ? '⌘K' : 'Press ⌘K to toggle'}</div>
       </div>
 
       {/* Tooltip (only visible when collapsed) */}
       {collapsed && tooltipItem && (
-        <div
-          className="admin-sidebar__tooltip"
-          style={{ top: tooltipPosition.top }}
-        >
+        <div className="admin-sidebar__tooltip" style={{ top: tooltipPosition.top }}>
           <div className="admin-sidebar__tooltip-content">
             <span className="admin-sidebar__tooltip-label">
-              {items.find(i => i.id === tooltipItem)?.label}
+              {items.find((i) => i.id === tooltipItem)?.label}
             </span>
             <span className="admin-sidebar__tooltip-desc">
-              {items.find(i => i.id === tooltipItem)?.description}
+              {items.find((i) => i.id === tooltipItem)?.description}
             </span>
           </div>
         </div>

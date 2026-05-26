@@ -19,7 +19,7 @@ Spec: `docs/plans/CASH_MODE_AND_RELATIONSHIPS.md` Part 2
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -140,6 +140,7 @@ def project_bankroll(
     is off — returns stored chips unchanged.
     """
     from cash_mode import economy_flags
+
     if state.last_regen_tick is None:
         return state.chips
     if state.chips >= starting_bankroll:
@@ -221,7 +222,8 @@ def credit_ai_cash_out(
         )
         try:
             bankroll_repo.save_ai_bankroll(
-                new_state, sandbox_id=sandbox_id,
+                new_state,
+                sandbox_id=sandbox_id,
                 chip_ledger_repo=chip_ledger_repo,
             )
         except TypeError as e:
@@ -230,7 +232,9 @@ def credit_ai_cash_out(
             bankroll_repo.save_ai_bankroll(new_state)
         logger.info(
             "[CASH] AI cash-out (first-write) %r: +%d → %d",
-            personality_id, effective_stack, effective_stack,
+            personality_id,
+            effective_stack,
+            effective_stack,
         )
         return new_state
     projected = project_bankroll(stored, knobs.starting_bankroll, knobs.bankroll_rate, now)
@@ -248,6 +252,7 @@ def credit_ai_cash_out(
         bankroll_repo.save_ai_bankroll(new_state)
     if chip_ledger_repo is not None:
         from core.economy import ledger as chip_ledger
+
         ctx = {'site': 'credit_ai_cash_out', 'sandbox_id': sandbox_id}
         if ledger_context:
             ctx.update(ledger_context)
@@ -261,7 +266,10 @@ def credit_ai_cash_out(
         )
     logger.info(
         "[CASH] AI cash-out %r: +%d (projected=%d) → %d",
-        personality_id, effective_stack, projected, new_chips,
+        personality_id,
+        effective_stack,
+        projected,
+        new_chips,
     )
     return new_state
 
@@ -332,21 +340,29 @@ def debit_bankroll_for_seat(
     if chip_ledger_repo is not None:
         knobs = bankroll_repo.load_personality_knobs(personality_id)
         projected = project_bankroll(
-            stored, knobs.starting_bankroll, knobs.bankroll_rate, now,
+            stored,
+            knobs.starting_bankroll,
+            knobs.bankroll_rate,
+            now,
         )
         if projected < amount:
             logger.warning(
                 "[CASH] seat debit refused: pid=%s sandbox=%s "
                 "stored=%d projected=%d amount=%d (shortfall=%d) — "
                 "caller must unwind pre-placed seat",
-                personality_id, sandbox_id, stored.chips, projected,
-                amount, amount - projected,
+                personality_id,
+                sandbox_id,
+                stored.chips,
+                projected,
+                amount,
+                amount - projected,
             )
             return None
         # Commit pending regen as a ledger row so `ai_bankrolls_stored`
         # is allowed to grow from `stored.chips` to `projected` without
         # breaking conservation. No-op when projected == stored.
         from core.economy.ledger import record_ai_regen
+
         record_ai_regen(
             chip_ledger_repo,
             personality_id=personality_id,
@@ -363,7 +379,10 @@ def debit_bankroll_for_seat(
                 "sandbox=%s stored=%d amount=%d (shortfall=%d) — "
                 "caller must unwind pre-placed seat OR pass "
                 "chip_ledger_repo so pending regen can be committed",
-                personality_id, sandbox_id, stored.chips, amount,
+                personality_id,
+                sandbox_id,
+                stored.chips,
+                amount,
                 amount - stored.chips,
             )
             return None

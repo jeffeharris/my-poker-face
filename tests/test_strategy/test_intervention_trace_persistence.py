@@ -32,7 +32,6 @@ from poker.strategy.intervention_trace import (
     make_no_op_trace,
 )
 
-
 # ── Serializer ────────────────────────────────────────────────────────────
 
 
@@ -44,10 +43,14 @@ class TestSerializeInterventionTrace:
         assert _serialize_intervention_trace([], player_name='Hero') is None
 
     def test_single_trace_round_trips(self):
-        traces = [make_no_op_trace(
-            layer='bluff_catch_override', rule_id='default', layer_order=3,
-            reason_code='hand_class_not_eligible',
-        )]
+        traces = [
+            make_no_op_trace(
+                layer='bluff_catch_override',
+                rule_id='default',
+                layer_order=3,
+                reason_code='hand_class_not_eligible',
+            )
+        ]
         payload = _serialize_intervention_trace(traces, player_name='Hero')
         assert payload is not None
         decoded = json.loads(payload)
@@ -59,11 +62,15 @@ class TestSerializeInterventionTrace:
     def test_multiple_traces_round_trip(self):
         traces = [
             make_no_op_trace(
-                layer='personality', rule_id='default', layer_order=0,
+                layer='personality',
+                rule_id='default',
+                layer_order=0,
                 reason_code='no_distortion',
             ),
             InterventionTrace(
-                layer='bluff_catch_override', rule_id='default', layer_order=3,
+                layer='bluff_catch_override',
+                rule_id='default',
+                layer_order=3,
                 fired=True,
                 operation=InterventionOperation.OVERRIDE.value,
                 effect='distribution_replaced',
@@ -95,7 +102,8 @@ class TestDecisionAnalysisField:
 
     def test_to_dict_includes_intervention_trace_json(self):
         analysis = DecisionAnalysis(
-            game_id='g1', player_name='Hero',
+            game_id='g1',
+            player_name='Hero',
             intervention_trace_json='[]',
         )
         d = analysis.to_dict()
@@ -151,10 +159,16 @@ class TestSchemaAndPersistence:
             conn.close()
 
         repo = DecisionAnalysisRepository(tmp_db)
-        trace_payload = json.dumps([
-            {'layer': 'bluff_catch_override', 'rule_id': 'default',
-             'fired': True, 'operation': 'override'},
-        ])
+        trace_payload = json.dumps(
+            [
+                {
+                    'layer': 'bluff_catch_override',
+                    'rule_id': 'default',
+                    'fired': True,
+                    'operation': 'override',
+                },
+            ]
+        )
         analysis = DecisionAnalysis(
             game_id='test_game',
             player_name='Hero',
@@ -183,7 +197,8 @@ class TestSchemaAndPersistence:
 
         repo = DecisionAnalysisRepository(tmp_db)
         analysis = DecisionAnalysis(
-            game_id='g2', player_name='Hero',
+            game_id='g2',
+            player_name='Hero',
             intervention_trace_json=None,
         )
         analysis_id = repo.save_decision_analysis(analysis)
@@ -202,21 +217,34 @@ class TestSchemaAndPersistence:
 
         repo = DecisionAnalysisRepository(tmp_db)
         for i in range(3):
-            payload = json.dumps([{'layer': 'personality', 'fired': i > 0,
-                                  'operation': 'adjust' if i > 0 else 'no_op'}])
+            payload = json.dumps(
+                [
+                    {
+                        'layer': 'personality',
+                        'fired': i > 0,
+                        'operation': 'adjust' if i > 0 else 'no_op',
+                    }
+                ]
+            )
             analysis = DecisionAnalysis(
-                game_id='multi_game', player_name='Hero',
-                hand_number=i, phase='FLOP',
+                game_id='multi_game',
+                player_name='Hero',
+                hand_number=i,
+                phase='FLOP',
                 intervention_trace_json=payload,
             )
             repo.save_decision_analysis(analysis)
 
         # Save one row without a trace — should be excluded from the query.
-        repo.save_decision_analysis(DecisionAnalysis(
-            game_id='multi_game', player_name='Hero',
-            hand_number=99, phase='FLOP',
-            intervention_trace_json=None,
-        ))
+        repo.save_decision_analysis(
+            DecisionAnalysis(
+                game_id='multi_game',
+                player_name='Hero',
+                hand_number=99,
+                phase='FLOP',
+                intervention_trace_json=None,
+            )
+        )
 
         rows = repo.get_intervention_traces_for_game('multi_game')
         assert len(rows) == 3  # No-trace row excluded
@@ -237,14 +265,19 @@ class TestSchemaAndPersistence:
 
         repo = DecisionAnalysisRepository(tmp_db)
         for h in (1, 1, 2):
-            repo.save_decision_analysis(DecisionAnalysis(
-                game_id='hand_filter', player_name='Hero',
-                hand_number=h, phase='FLOP',
-                intervention_trace_json=json.dumps([{'layer': 'personality'}]),
-            ))
+            repo.save_decision_analysis(
+                DecisionAnalysis(
+                    game_id='hand_filter',
+                    player_name='Hero',
+                    hand_number=h,
+                    phase='FLOP',
+                    intervention_trace_json=json.dumps([{'layer': 'personality'}]),
+                )
+            )
 
         only_hand_1 = repo.get_intervention_traces_for_game(
-            'hand_filter', hand_number=1,
+            'hand_filter',
+            hand_number=1,
         )
         assert len(only_hand_1) == 2
         assert all(r['hand_number'] == 1 for r in only_hand_1)

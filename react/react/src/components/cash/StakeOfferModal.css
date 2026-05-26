@@ -25,15 +25,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(16px, env(safe-area-inset-top, 0px))
-           16px
-           max(16px, env(safe-area-inset-bottom, 0px));
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
   animation: stake-offer-modal-fade-in 0.18s ease-out;
 }
 
 @keyframes stake-offer-modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .stake-offer-modal__sheet {
@@ -209,7 +211,9 @@
   color: var(--text-primary, #f5f5f5);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 .stake-offer-modal__format:hover:not(:disabled) {
   background: rgba(185, 224, 245, 0.06);
@@ -264,7 +268,9 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-primary, #f5f5f5);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
   font-size: 12px;
 }
 .stake-offer-modal__tier:hover:not(:disabled) {

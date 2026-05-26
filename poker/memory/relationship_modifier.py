@@ -44,8 +44,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from .opponent_model import RelationshipState, project_heat
-
 if TYPE_CHECKING:
     from .opponent_model import OpponentModelManager
 
@@ -91,6 +89,7 @@ class RelationshipModifier:
                              means "chase wider" (lower equity bar
                              to call).
     """
+
     bluff_freq_mult: float = 1.0
     fold_to_pressure_mult: float = 1.0
     call_threshold_offset: float = 0.0
@@ -152,7 +151,7 @@ def _modifier_from_axes(
 
 
 def get_relationship_modifier(
-    manager: "OpponentModelManager",
+    manager: OpponentModelManager,
     observer_id: str,
     target_opponent_id: str,
     now: datetime,
@@ -183,7 +182,9 @@ def get_relationship_modifier(
         return RelationshipModifier()
 
     state = manager._relationship_repo.load_relationship_state(
-        observer_id, target_opponent_id, now=now,
+        observer_id,
+        target_opponent_id,
+        now=now,
     )
     if state is None:
         return RelationshipModifier()

@@ -35,9 +35,7 @@ const BASE = `${config.API_URL}/api/cash`;
 /** POST without throwing on non-2xx — caller branches on status. Used
  *  when the route's "error" responses (like 429) carry information
  *  the caller wants to act on rather than surface as a generic Error. */
-async function postJsonRaw(
-  path: string, body: object = {},
-): Promise<Response> {
+async function postJsonRaw(path: string, body: object = {}): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     method: 'POST',
     credentials: 'include',
@@ -73,7 +71,7 @@ async function getJson<T>(path: string): Promise<T> {
 export async function startCashSession(
   stakeLabel: StakeLabel,
   buyIn: number,
-  seatIndex = 0,
+  seatIndex = 0
 ): Promise<CashApiResponse & { game_id: string }> {
   return postJson('/start', {
     stake_label: stakeLabel,
@@ -82,10 +80,7 @@ export async function startCashSession(
   });
 }
 
-export async function submitAction(
-  action: CashAction,
-  raiseTo = 0,
-): Promise<CashApiResponse> {
+export async function submitAction(action: CashAction, raiseTo = 0): Promise<CashApiResponse> {
   return postJson('/action', { action, raise_to: raiseTo });
 }
 
@@ -101,23 +96,19 @@ export async function getState(): Promise<CashStateResponse> {
   return getJson('/state');
 }
 
-export async function getSponsorOffers(
-  stakeLabel: StakeLabel,
-): Promise<SponsorOffersResponse> {
+export async function getSponsorOffers(stakeLabel: StakeLabel): Promise<SponsorOffersResponse> {
   return getJson(`/sponsor-offers?stake_label=${encodeURIComponent(stakeLabel)}`);
 }
 
 export async function sponsorAndSit(
   stakeLabel: StakeLabel,
-  acceptor:
-    | { archetype_id: string }
-    | { lender_id: string },
+  acceptor: { archetype_id: string } | { lender_id: string },
   // Lobby v1.5: when the sponsor flow originated from a specific seat
   // tap, pass the table identity so the game is built against the AIs
   // the lobby showed. Omitting both falls back to the legacy fresh-
   // sample path (sponsor flow opened from a stake card with no seat
   // context).
-  origin?: { table_id: string; seat_index: number },
+  origin?: { table_id: string; seat_index: number }
 ): Promise<{ game_id: string; offer: SponsorOffer }> {
   return postJson('/sponsor-and-sit', {
     stake_label: stakeLabel,
@@ -168,14 +159,12 @@ export async function payOffCarry(stakeId: string): Promise<PayoffResponse> {
  *  is distinguished from a normal Error so the caller can surface a
  *  countdown rather than a generic message. */
 export async function requestForgiveness(
-  stakeId: string,
+  stakeId: string
 ): Promise<
   | { kind: 'decided'; data: ForgivenessResponse }
   | { kind: 'rate_limited'; data: ForgivenessRateLimited }
 > {
-  const res = await postJsonRaw(
-    `/stakes/${encodeURIComponent(stakeId)}/request-forgiveness`,
-  );
+  const res = await postJsonRaw(`/stakes/${encodeURIComponent(stakeId)}/request-forgiveness`);
   if (res.status === 429) {
     return {
       kind: 'rate_limited',
@@ -206,12 +195,9 @@ export async function getForgivenessRequests(): Promise<ForgivenessRequestsRespo
  *  fires (cooler). Either way the badge clears for this stake. */
 export async function stakerForgive(
   stakeId: string,
-  grant: boolean,
+  grant: boolean
 ): Promise<StakerForgiveResponse> {
-  return postJson(
-    `/stakes/${encodeURIComponent(stakeId)}/staker-forgive`,
-    { grant },
-  );
+  return postJson(`/stakes/${encodeURIComponent(stakeId)}/staker-forgive`, { grant });
 }
 
 // --- Phase 5: Player as staker ---
@@ -265,7 +251,7 @@ export async function offerStake(args: {
 export async function sitAtTable(
   tableId: string,
   seatIndex: number,
-  buyIn?: number,
+  buyIn?: number
 ): Promise<SitResponse | { kind: 'requires_sponsor'; data: SitRequiresSponsor }> {
   const body: Record<string, unknown> = {
     table_id: tableId,

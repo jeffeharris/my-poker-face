@@ -14,6 +14,7 @@ import tempfile
 
 import pytest
 
+from poker.hand_tiers import PREMIUM_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_95_HANDS
 from poker.human_clone import (
     CloneProfile,
     _mine_hand_history,
@@ -26,8 +27,6 @@ from poker.human_clone import (
     profile_to_dict,
     register_clone_strategy,
 )
-from poker.hand_tiers import PREMIUM_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_95_HANDS
-
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -53,14 +52,15 @@ def temp_db_with_opponent_models():
         "aggression_factor, fold_to_cbet, bluff_frequency, showdown_win_rate) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
         [
-            ('Batman',   'Jeff', 100, 0.30, 0.18, 1.0, 0.40, 0.25, 0.55),
-            ('Cleopatra','Jeff',  50, 0.40, 0.22, 2.5, 0.50, 0.30, 0.50),
+            ('Batman', 'Jeff', 100, 0.30, 0.18, 1.0, 0.40, 0.25, 0.55),
+            ('Cleopatra', 'Jeff', 50, 0.40, 0.22, 2.5, 0.50, 0.30, 0.50),
         ],
     )
     conn.commit()
     conn.close()
     yield path
     import os
+
     os.unlink(path)
 
 
@@ -110,7 +110,9 @@ class TestDeriveProfileFromDb:
         # default min_hands=20; with explicit higher threshold we should fail
         with pytest.raises(ValueError, match="need at least 1000"):
             derive_profile_from_db(
-                temp_db_with_opponent_models, 'Jeff', min_hands=1000,
+                temp_db_with_opponent_models,
+                'Jeff',
+                min_hands=1000,
             )
 
 
@@ -119,11 +121,16 @@ class TestDeriveProfileFromDb:
 
 def _build_jeff_strategy():
     """Convenience: a Jeff-like profile (VPIP 35%, PFR 18%, AF 2.0)."""
-    return build_clone_strategy(CloneProfile(
-        source_player='Jeff', hands_observed=200,
-        vpip=0.35, pfr=0.18, aggression_factor=2.0,
-        fold_to_cbet=0.30,
-    ))
+    return build_clone_strategy(
+        CloneProfile(
+            source_player='Jeff',
+            hands_observed=200,
+            vpip=0.35,
+            pfr=0.18,
+            aggression_factor=2.0,
+            fold_to_cbet=0.30,
+        )
+    )
 
 
 def _ctx(**kw):
@@ -162,10 +169,13 @@ class TestPreflopBehavior:
 
     def test_checks_when_free(self):
         strat = _build_jeff_strategy()
-        result = strat(_ctx(
-            cost_to_call=0, canonical_hand='72o',
-            valid_actions=['check', 'raise'],
-        ))
+        result = strat(
+            _ctx(
+                cost_to_call=0,
+                canonical_hand='72o',
+                valid_actions=['check', 'raise'],
+            )
+        )
         assert result['action'] == 'check'
 
 
@@ -174,26 +184,40 @@ class TestPostflopBehavior:
         strat = _build_jeff_strategy()
         # equity=0.10, cost=200 into pot=200 → required=0.50; effective=0.50*0.65=0.325
         # equity 0.10 < 0.325 → fold
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=200, pot_total=200, equity=0.10,
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=200,
+                pot_total=200,
+                equity=0.10,
+            )
+        )
         assert result['action'] == 'fold'
 
     def test_calls_marginal_due_to_sticky_multiplier(self):
         strat = _build_jeff_strategy()  # fold_to_cbet=0.30 → multiplier=0.65
         # cost=50 into pot=200 → required_equity=0.20; effective=0.20*0.65=0.13
         # Jeff calls at any equity above 0.13 — sticky behavior
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=50, pot_total=200, equity=0.18,
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.18,
+            )
+        )
         assert result['action'] == 'call'
 
     def test_checks_when_free_with_weak_hand(self):
         strat = _build_jeff_strategy()
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=0, equity=0.20,
-            valid_actions=['check', 'raise'],
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=0,
+                equity=0.20,
+                valid_actions=['check', 'raise'],
+            )
+        )
         assert result['action'] == 'check'
 
     def test_bets_strong_hand_when_free(self):
@@ -201,10 +225,14 @@ class TestPostflopBehavior:
         # this is probabilistic; seed to land on raise.
         random.seed(0)
         strat = _build_jeff_strategy()
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=0, equity=0.75,
-            valid_actions=['check', 'raise'],
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=0,
+                equity=0.75,
+                valid_actions=['check', 'raise'],
+            )
+        )
         # With AF=2.0 and equity 0.75, very likely to raise — but not guaranteed.
         # Just check that the bot doesn't fold when free and strong.
         assert result['action'] in ('raise', 'check')
@@ -220,27 +248,42 @@ class TestStickyCallerVsCaseBot:
     """
 
     def _make(self, fold_to_cbet: float):
-        return build_clone_strategy(CloneProfile(
-            source_player='X', hands_observed=100,
-            vpip=0.30, pfr=0.15, aggression_factor=1.5,
-            fold_to_cbet=fold_to_cbet,
-        ))
+        return build_clone_strategy(
+            CloneProfile(
+                source_player='X',
+                hands_observed=100,
+                vpip=0.30,
+                pfr=0.15,
+                aggression_factor=1.5,
+                fold_to_cbet=fold_to_cbet,
+            )
+        )
 
     def test_high_ftc_folds_marginal(self):
         # fold_to_cbet=1.0 → multiplier=1.0 → fold at any equity < required
         strat = self._make(1.0)
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=50, pot_total=200, equity=0.18,
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.18,
+            )
+        )
         # required_equity = 0.20, effective = 0.20 — equity 0.18 < 0.20 → fold
         assert result['action'] == 'fold'
 
     def test_low_ftc_calls_marginal(self):
         # fold_to_cbet=0.0 → multiplier=0.5 → call way wider
         strat = self._make(0.0)
-        result = strat(_ctx(
-            phase='FLOP', cost_to_call=50, pot_total=200, equity=0.12,
-        ))
+        result = strat(
+            _ctx(
+                phase='FLOP',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.12,
+            )
+        )
         # required_equity = 0.20, effective = 0.10 — equity 0.12 > 0.10 → call
         assert result['action'] == 'call'
 
@@ -282,9 +325,11 @@ class TestMineHandHistory:
 
     def test_returns_none_when_insufficient_data(self):
         # Single hand → all stats below the 5-sample minimum
-        path = self._make_db_with_actions([
-            [self._action('Jeff', 'fold')],
-        ])
+        path = self._make_db_with_actions(
+            [
+                [self._action('Jeff', 'fold')],
+            ]
+        )
         try:
             result = _mine_hand_history(path, 'Jeff')
             assert result['wtsd'] is None
@@ -359,8 +404,12 @@ class TestV2StrategyUsesPerStreetAF:
 
     def _make(self, **kw):
         defaults = dict(
-            source_player='X', hands_observed=200, vpip=0.30, pfr=0.15,
-            aggression_factor=1.0, fold_to_cbet=0.50,
+            source_player='X',
+            hands_observed=200,
+            vpip=0.30,
+            pfr=0.15,
+            aggression_factor=1.0,
+            fold_to_cbet=0.50,
         )
         defaults.update(kw)
         return build_clone_strategy(CloneProfile(**defaults))
@@ -372,9 +421,12 @@ class TestV2StrategyUsesPerStreetAF:
         strat = self._make(aggression_factor=2.0, river_af=0.1)
         random.seed(99)
         raise_count = sum(
-            1 for _ in range(100)
-            if strat(_ctx(phase='RIVER', cost_to_call=0, equity=0.75,
-                          valid_actions=['check', 'raise']))['action'] == 'raise'
+            1
+            for _ in range(100)
+            if strat(
+                _ctx(phase='RIVER', cost_to_call=0, equity=0.75, valid_actions=['check', 'raise'])
+            )['action']
+            == 'raise'
         )
         # river_af=0.1 → rate = 0.1/1.1 ≈ 9%. Allow wide bounds for sampling.
         assert raise_count < 25  # would be ~67% without override (AF=2.0)
@@ -386,9 +438,14 @@ class TestV2StrategyUsesPerStreetAF:
         # cost=50 into pot=200 → required=0.20; multiplier = 0.65 * wtsd_adjust
         # wtsd_adjust = 1.0 - (0.55-0.40)*0.5 = 0.925
         # effective = 0.20 * 0.65 * 0.925 = 0.12
-        result = strat(_ctx(
-            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.15,
-        ))
+        result = strat(
+            _ctx(
+                phase='RIVER',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.15,
+            )
+        )
         # equity 0.15 > 0.12 → call
         assert result['action'] == 'call'
 
@@ -398,18 +455,28 @@ class TestV2StrategyUsesPerStreetAF:
         # wtsd_adjust = 1.0 - (0.15-0.40)*0.5 = 1.125
         # multiplier = 0.75 * 1.125 = 0.84
         # required=0.20; effective = 0.20 * 0.84 = 0.169
-        result = strat(_ctx(
-            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.15,
-        ))
+        result = strat(
+            _ctx(
+                phase='RIVER',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.15,
+            )
+        )
         # equity 0.15 < 0.169 → fold
         assert result['action'] == 'fold'
 
     def test_v2_fields_optional_falls_back_to_v1(self):
         # No V2 fields → behavior matches V1 (uses global AF, no wtsd adjust)
         strat = self._make()  # all V2 fields default to None
-        result = strat(_ctx(
-            phase='RIVER', cost_to_call=50, pot_total=200, equity=0.18,
-        ))
+        result = strat(
+            _ctx(
+                phase='RIVER',
+                cost_to_call=50,
+                pot_total=200,
+                equity=0.18,
+            )
+        )
         # Should fold since equity (0.18) < required (0.20) * fold_mult (0.75) = 0.15
         # 0.18 > 0.15 → call. Verify V1 behavior unchanged.
         assert result['action'] == 'call'
@@ -418,9 +485,14 @@ class TestV2StrategyUsesPerStreetAF:
 class TestRegisterCloneStrategy:
     def test_register_adds_to_built_in(self):
         from poker.rule_strategies import BUILT_IN_STRATEGIES
+
         profile = CloneProfile(
-            source_player='TestUser', hands_observed=50,
-            vpip=0.3, pfr=0.15, aggression_factor=1.0, fold_to_cbet=0.5,
+            source_player='TestUser',
+            hands_observed=50,
+            vpip=0.3,
+            pfr=0.15,
+            aggression_factor=1.0,
+            fold_to_cbet=0.5,
         )
         name = register_clone_strategy('clone_testuser', profile)
         try:
@@ -440,11 +512,19 @@ class TestProfileSerialization:
     def _full_profile(self):
         # Every field populated, including V2, to prove nothing is dropped.
         return CloneProfile(
-            source_player='Jeff', hands_observed=4669,
-            vpip=0.3867, pfr=0.1588, aggression_factor=1.2239,
-            fold_to_cbet=0.4470, bluff_frequency=0.30, showdown_win_rate=0.4583,
-            wtsd=0.5859, threebet_rate=0.0171,
-            flop_af=0.30, turn_af=0.3462, river_af=0.3268,
+            source_player='Jeff',
+            hands_observed=4669,
+            vpip=0.3867,
+            pfr=0.1588,
+            aggression_factor=1.2239,
+            fold_to_cbet=0.4470,
+            bluff_frequency=0.30,
+            showdown_win_rate=0.4583,
+            wtsd=0.5859,
+            threebet_rate=0.0171,
+            flop_af=0.30,
+            turn_af=0.3462,
+            river_af=0.3268,
         )
 
     def test_dict_round_trip_preserves_all_fields(self):
@@ -472,13 +552,16 @@ class TestProfileSerialization:
     def test_from_dict_fills_missing_optional_with_defaults(self):
         # A pre-V2 snapshot (no wtsd/threebet/street-AF) still loads.
         data = {
-            'source_player': 'Legacy', 'hands_observed': 80,
-            'vpip': 0.30, 'pfr': 0.15, 'aggression_factor': 1.0,
+            'source_player': 'Legacy',
+            'hands_observed': 80,
+            'vpip': 0.30,
+            'pfr': 0.15,
+            'aggression_factor': 1.0,
             'fold_to_cbet': 0.50,
         }
         profile = profile_from_dict(data)
         assert profile.bluff_frequency == 0.30  # field default
-        assert profile.wtsd is None             # V2 field default
+        assert profile.wtsd is None  # V2 field default
 
     def test_committed_jeff_snapshot_loads_and_registers(self):
         # The repo ships experiments/clone_profiles/jeff.json so any checkout
@@ -489,6 +572,7 @@ class TestProfileSerialization:
         assert profile.source_player == 'Jeff'
         assert profile.display_name == 'Jeff_clone'
         from poker.rule_strategies import BUILT_IN_STRATEGIES
+
         register_clone_strategy('clone_jeff', profile)
         try:
             assert 'clone_jeff' in BUILT_IN_STRATEGIES

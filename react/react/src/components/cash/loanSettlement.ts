@@ -32,7 +32,7 @@ export interface LeaveBreakdown {
 
 export function computeLeaveBreakdown(
   stack: number,
-  loan: CashActiveLoan | null | undefined,
+  loan: CashActiveLoan | null | undefined
 ): LeaveBreakdown {
   if (!loan || loan.amount <= 0) {
     return {

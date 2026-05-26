@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
-  FlaskConical, Clapperboard, Medal, Crown, Music, Laugh, Skull, Sparkles, Dices,
+  FlaskConical,
+  Clapperboard,
+  Medal,
+  Crown,
+  Music,
+  Laugh,
+  Skull,
+  Sparkles,
+  Dices,
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -17,17 +25,56 @@ interface ThemedGameSelectorProps {
 
 // Predefined theme prompts that will be sent to OpenAI
 const THEME_PROMPTS: Theme[] = [
-  { id: 'science', name: 'Science Masters', icon: FlaskConical, description: 'Great minds think alike... or do they?' },
-  { id: 'hollywood', name: 'Hollywood Legends', icon: Clapperboard, description: 'Lights, camera, all-in!' },
-  { id: 'sports', name: 'Sports Champions', icon: Medal, description: 'Bring your A-game to the table' },
-  { id: 'history', name: 'Historical Figures', icon: Crown, description: 'Making history one hand at a time' },
+  {
+    id: 'science',
+    name: 'Science Masters',
+    icon: FlaskConical,
+    description: 'Great minds think alike... or do they?',
+  },
+  {
+    id: 'hollywood',
+    name: 'Hollywood Legends',
+    icon: Clapperboard,
+    description: 'Lights, camera, all-in!',
+  },
+  {
+    id: 'sports',
+    name: 'Sports Champions',
+    icon: Medal,
+    description: 'Bring your A-game to the table',
+  },
+  {
+    id: 'history',
+    name: 'Historical Figures',
+    icon: Crown,
+    description: 'Making history one hand at a time',
+  },
   { id: 'music', name: 'Music Icons', icon: Music, description: 'Feel the rhythm of the cards' },
-  { id: 'comedy', name: 'Comedy Legends', icon: Laugh, description: 'No joke - these players are serious!' },
-  { id: 'villains', name: 'Famous Villains', icon: Skull, description: 'Sometimes it pays to be bad' },
-  { id: 'surprise', name: 'Surprise Me!', icon: Sparkles, description: 'A mysterious mix of personalities' }
+  {
+    id: 'comedy',
+    name: 'Comedy Legends',
+    icon: Laugh,
+    description: 'No joke - these players are serious!',
+  },
+  {
+    id: 'villains',
+    name: 'Famous Villains',
+    icon: Skull,
+    description: 'Sometimes it pays to be bad',
+  },
+  {
+    id: 'surprise',
+    name: 'Surprise Me!',
+    icon: Sparkles,
+    description: 'A mysterious mix of personalities',
+  },
 ];
 
-export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = false }: ThemedGameSelectorProps) {
+export function ThemedGameSelector({
+  onSelectTheme,
+  onBack,
+  isCreatingGame = false,
+}: ThemedGameSelectorProps) {
   const { user } = useAuth();
   const [themes, setThemes] = useState<Theme[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -60,7 +107,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
           body: JSON.stringify({
             theme: theme.id,
             themeName: theme.name,
-            description: theme.description
+            description: theme.description,
           }),
         });
       } catch {
@@ -92,7 +139,8 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
 
       await onSelectTheme(themedGame);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to generate themed game. Please try again.';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to generate themed game. Please try again.';
       setError(errorMessage);
       logger.error('Theme generation error:', err);
     } finally {
@@ -110,11 +158,7 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
           titleVariant="primary"
         />
 
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
+        {error && <div className="error-message">{error}</div>}
 
         <div className="theme-grid">
           {themes.map((theme) => (
@@ -124,21 +168,25 @@ export function ThemedGameSelector({ onSelectTheme, onBack, isCreatingGame = fal
               onClick={() => handleGenerateTheme(theme)}
               disabled={generating || isCreatingGame}
             >
-              <div className="theme-icon"><theme.icon size={32} /></div>
+              <div className="theme-icon">
+                <theme.icon size={32} />
+              </div>
               <h3>{theme.name}</h3>
               <p>{theme.description}</p>
               {theme.id === 'surprise' && (
-                <div className="surprise-badge"><Dices size={16} /></div>
+                <div className="surprise-badge">
+                  <Dices size={16} />
+                </div>
               )}
             </button>
           ))}
         </div>
 
-      <div className="themed-selector__footer">
-        <p className="hint">
-          Personalities won't be revealed until the game starts - it's part of the surprise!
-        </p>
-      </div>
+        <div className="themed-selector__footer">
+          <p className="hint">
+            Personalities won't be revealed until the game starts - it's part of the surprise!
+          </p>
+        </div>
       </PageLayout>
     </>
   );

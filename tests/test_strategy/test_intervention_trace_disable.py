@@ -71,24 +71,36 @@ class TestIsRuleDisabled:
 
 def _anchors() -> PersonalityAnchors:
     return PersonalityAnchors(
-        baseline_aggression=0.9, baseline_looseness=0.7,
-        ego=0.6, poise=0.5, expressiveness=0.5,
-        risk_identity=0.6, adaptation_bias=0.5,
-        baseline_energy=0.5, recovery_rate=0.15,
+        baseline_aggression=0.9,
+        baseline_looseness=0.7,
+        ego=0.6,
+        poise=0.5,
+        expressiveness=0.5,
+        risk_identity=0.6,
+        adaptation_bias=0.5,
+        baseline_energy=0.5,
+        recovery_rate=0.15,
     )
 
 
 COMPOSED = EmotionalShift(state='composed', severity='none', intensity=0.0)
-BASE_STRATEGY = StrategyProfile(action_probabilities={
-    'fold': 0.3, 'call': 0.4, 'raise_2.5bb': 0.2, 'jam': 0.1,
-})
+BASE_STRATEGY = StrategyProfile(
+    action_probabilities={
+        'fold': 0.3,
+        'call': 0.4,
+        'raise_2.5bb': 0.2,
+        'jam': 0.1,
+    }
+)
 LEGAL = ['fold', 'call', 'raise', 'all_in']
 
 
 class TestPersonalityDisable:
     def test_disabled_skips_distortion(self):
         result, trace = modify_strategy(
-            base=BASE_STRATEGY, legal_actions=LEGAL, anchors=_anchors(),
+            base=BASE_STRATEGY,
+            legal_actions=LEGAL,
+            anchors=_anchors(),
             emotional_state=COMPOSED,
             deviation_profile=DEVIATION_PROFILES['lag'],
             disable_rules=frozenset({('personality', 'default')}),
@@ -100,7 +112,9 @@ class TestPersonalityDisable:
 
     def test_unaffected_when_other_rule_disabled(self):
         result, trace = modify_strategy(
-            base=BASE_STRATEGY, legal_actions=LEGAL, anchors=_anchors(),
+            base=BASE_STRATEGY,
+            legal_actions=LEGAL,
+            anchors=_anchors(),
             emotional_state=COMPOSED,
             deviation_profile=DEVIATION_PROFILES['lag'],
             disable_rules=frozenset({('bluff_catch_override', 'default')}),
@@ -115,7 +129,8 @@ class TestPersonalityDisable:
 def _maniac_stats() -> AggregatedOpponentStats:
     return AggregatedOpponentStats(
         hands_observed=100,
-        vpip=0.85, pfr=0.70,
+        vpip=0.85,
+        pfr=0.70,
         aggression_factor=8.0,
         all_in_frequency=0.45,
     )
@@ -133,8 +148,7 @@ class TestExploitationDisable:
         )
         # The disabled rule's trace reports the ablation reason.
         hyper_agg = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('exploitation', 'hyper_aggressive')
+            t for t in traces if (t.layer, t.rule_id) == ('exploitation', 'hyper_aggressive')
         )
         assert hyper_agg.fired is False
         assert hyper_agg.reason_code == 'disabled_by_ablation'
@@ -149,7 +163,8 @@ class TestExploitationDisable:
         on a different stat profile."""
         nit_stats = AggregatedOpponentStats(
             hands_observed=100,
-            vpip=0.08, pfr=0.06,
+            vpip=0.08,
+            pfr=0.06,
             # _is_tight_nit reads vpip_per_voluntary_opportunity (<0.30).
             vpip_per_voluntary_opportunity=0.12,
             preflop_voluntary_opportunities=80,
@@ -160,17 +175,16 @@ class TestExploitationDisable:
             stats=nit_stats,
             adaptation_bias=0.85,
             decision_context=DecisionContext(
-                is_preflop=True, facing_all_in=False, facing_big_bet=False,
+                is_preflop=True,
+                facing_all_in=False,
+                facing_big_bet=False,
             ),
             available_actions=['fold', 'call', 'raise_3bb'],
             tilt_factor=1.0,
             disable_rules=frozenset({('exploitation', 'hyper_aggressive')}),
         )
         # tight_nit still fired.
-        nit = next(
-            t for t in traces
-            if (t.layer, t.rule_id) == ('exploitation', 'tight_nit')
-        )
+        nit = next(t for t in traces if (t.layer, t.rule_id) == ('exploitation', 'tight_nit'))
         assert nit.fired is True
 
     def test_legacy_wrapper_propagates_disable_rules(self):
@@ -209,13 +223,19 @@ class TestStrongHandDisable:
 class TestBluffCatchDisable:
     def test_disabled_returns_unchanged_strategy(self):
         ctx = SimpleNamespace(
-            bet_size_pot_ratio=1.0, facing_all_in=False, facing_big_bet=True,
-            street='flop', board_texture='dry_high', is_paired_board=False,
+            bet_size_pot_ratio=1.0,
+            facing_all_in=False,
+            facing_big_bet=True,
+            street='flop',
+            board_texture='dry_high',
+            is_paired_board=False,
         )
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         result, trace = compute_bluff_catch_strategy(
-            strategy=baseline, decision_context=ctx,
-            hand_strength='medium_made', max_total_shift=0.8,
+            strategy=baseline,
+            decision_context=ctx,
+            hand_strength='medium_made',
+            max_total_shift=0.8,
             disable_rules=frozenset({('bluff_catch_override', 'default')}),
         )
         assert result is baseline
@@ -228,11 +248,16 @@ class TestBluffCatchDisable:
 
 class TestShortStackDisable:
     def test_disabled_returns_unchanged_strategy(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.3, 'call': 0.4, 'raise_3bb': 0.3,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.3,
+                'call': 0.4,
+                'raise_3bb': 0.3,
+            }
+        )
         result, trace = apply_short_stack_heuristics(
-            strategy=base, effective_stack_bb=8.0,
+            strategy=base,
+            effective_stack_bb=8.0,
             legal_actions=['fold', 'call', 'raise', 'all_in'],
             disable_rules=frozenset({('short_stack', 'default')}),
         )
@@ -242,12 +267,19 @@ class TestShortStackDisable:
 
 class TestMathFloorDisable:
     def test_disabled_returns_unchanged_strategy(self):
-        base = StrategyProfile(action_probabilities={
-            'fold': 0.8, 'call': 0.2,
-        })
+        base = StrategyProfile(
+            action_probabilities={
+                'fold': 0.8,
+                'call': 0.2,
+            }
+        )
         result, trace = apply_pot_odds_floor(
-            strategy=base, cost_to_call=200, pot_total=600,
-            player_stack=200, player_bet=100, big_blind=100,
+            strategy=base,
+            cost_to_call=200,
+            pot_total=600,
+            player_stack=200,
+            player_bet=100,
+            big_blind=100,
             legal_actions=['fold', 'call', 'all_in'],
             disable_rules=frozenset({('math_floor', 'default')}),
         )
@@ -263,6 +295,7 @@ class TestControllerDisableRulesAttribute:
         """Real TieredBotController instantiation sets disable_rules to
         an empty frozenset by default."""
         from poker.tiered_bot_controller import TieredBotController
+
         # We can't easily instantiate without strategy_table, but we can
         # check the attribute is set via _new__ + manual __init__ call.
         controller = TieredBotController.__new__(TieredBotController)
@@ -282,18 +315,19 @@ class TestControllerDisableRulesAttribute:
 
         manager = _make_manager(_make_extreme_maniac_stats())
         controller = _make_controller(manager=manager)
-        controller.disable_rules = frozenset(
-            {('bluff_catch_override', 'default')}
-        )
+        controller.disable_rules = frozenset({('bluff_catch_override', 'default')})
 
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         anchors = SimpleNamespace(adaptation_bias=0.5)
         emotional = SimpleNamespace(state='composed')
 
         result, trace = controller._apply_bluff_catch_override(
-            strategy=baseline, game_state=controller.state_machine.game_state,
-            player_idx=0, valid_actions=['fold', 'call'],
-            anchors=anchors, emotional_state=emotional,
+            strategy=baseline,
+            game_state=controller.state_machine.game_state,
+            player_idx=0,
+            valid_actions=['fold', 'call'],
+            anchors=anchors,
+            emotional_state=emotional,
             hand_strength='medium_made',
         )
         assert result is baseline

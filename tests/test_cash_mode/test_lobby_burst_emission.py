@@ -86,11 +86,13 @@ class TestEmitBurstEvents(unittest.TestCase):
     def setUp(self):
         clear_events()
         self.now = datetime(2026, 5, 19, 12, 0, 0)
-        self.repo = _personality_repo_with({
-            "p-napoleon": "Napoleon",
-            "p-lincoln": "Abraham Lincoln",
-            "p-buddha": "Buddha",
-        })
+        self.repo = _personality_repo_with(
+            {
+                "p-napoleon": "Napoleon",
+                "p-lincoln": "Abraham Lincoln",
+                "p-buddha": "Buddha",
+            }
+        )
         self.table = _make_table()
 
     def test_empty_burst_emits_nothing(self):
@@ -105,8 +107,10 @@ class TestEmitBurstEvents(unittest.TestCase):
     def test_single_no_big_event_emits_nothing(self):
         results = [_hand_result(winner="p-napoleon", loser="p-lincoln", delta=200)]
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=self.repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=self.repo,
+            now=self.now,
         )
         # No big_event, no hand_events, single hand → nothing surfaced.
         assert recent_events(limit=10) == []
@@ -114,13 +118,17 @@ class TestEmitBurstEvents(unittest.TestCase):
     def test_single_big_event_emits_win_loss_pair_no_summary(self):
         results = [
             _hand_result(
-                winner="p-napoleon", loser="p-lincoln",
-                delta=1200, big_event=True,
+                winner="p-napoleon",
+                loser="p-lincoln",
+                delta=1200,
+                big_event=True,
             ),
         ]
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=self.repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=self.repo,
+            now=self.now,
         )
 
         types = [e.type for e in recent_events(limit=10)]
@@ -135,21 +143,29 @@ class TestEmitBurstEvents(unittest.TestCase):
         and a single summary regardless of how many were compressed."""
         results = [
             _hand_result(
-                winner="p-napoleon", loser="p-lincoln",
-                delta=400, big_event=True,
+                winner="p-napoleon",
+                loser="p-lincoln",
+                delta=400,
+                big_event=True,
             ),
             _hand_result(
-                winner="p-buddha", loser="p-napoleon",
-                delta=1200, big_event=True,   # bigger → headline
+                winner="p-buddha",
+                loser="p-napoleon",
+                delta=1200,
+                big_event=True,  # bigger → headline
             ),
             _hand_result(
-                winner="p-lincoln", loser="p-buddha",
-                delta=600, big_event=True,
+                winner="p-lincoln",
+                loser="p-buddha",
+                delta=600,
+                big_event=True,
             ),
         ]
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=self.repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=self.repo,
+            now=self.now,
         )
 
         events = recent_events(limit=10)
@@ -173,19 +189,25 @@ class TestEmitBurstEvents(unittest.TestCase):
         ]
         results = [
             _hand_result(
-                winner="p-napoleon", loser="p-lincoln",
-                delta=5000, big_event=True,
+                winner="p-napoleon",
+                loser="p-lincoln",
+                delta=5000,
+                big_event=True,
                 hand_events=bust_events_each,
             ),
             _hand_result(
-                winner="p-buddha", loser="p-lincoln",
-                delta=4000, big_event=True,
-                hand_events=bust_events_each,   # second bust — should be dropped
+                winner="p-buddha",
+                loser="p-lincoln",
+                delta=4000,
+                big_event=True,
+                hand_events=bust_events_each,  # second bust — should be dropped
             ),
         ]
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=self.repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=self.repo,
+            now=self.now,
         )
 
         types = [e.type for e in recent_events(limit=10)]
@@ -202,8 +224,10 @@ class TestEmitBurstEvents(unittest.TestCase):
         ]
         # Napoleon won 1200 net; Lincoln lost 800; Buddha lost 400.
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=self.repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=self.repo,
+            now=self.now,
         )
 
         summary = next(
@@ -219,14 +243,18 @@ class TestEmitBurstEvents(unittest.TestCase):
         repo = _personality_repo_with({})  # no name maps
         results = [
             _hand_result(
-                winner="p-mystery", loser="p-other",
-                delta=1000, big_event=True,
+                winner="p-mystery",
+                loser="p-other",
+                delta=1000,
+                big_event=True,
             ),
         ]
         # Doesn't raise.
         _emit_burst_events(
-            table=self.table, sim_results=results,
-            personality_repo=repo, now=self.now,
+            table=self.table,
+            sim_results=results,
+            personality_repo=repo,
+            now=self.now,
         )
         # And doesn't emit (winner_name resolves to None → skipped).
         assert recent_events(limit=10) == []
@@ -250,8 +278,7 @@ class TestDealerRotationInBurst(unittest.TestCase):
         table = CashTableState(
             table_id="cash-table-2-001",
             stake_label="$2",
-            seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)]
-            + [open_slot(), open_slot()],
+            seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)] + [open_slot(), open_slot()],
         )
 
         # Simulate the lobby's per-hand rotation by hand. We don't
@@ -262,7 +289,8 @@ class TestDealerRotationInBurst(unittest.TestCase):
         visited: List[int] = []
         for _ in range(6):
             nxt = _next_occupied_seat(
-                table.seats, start_after=table.dealer_idx,
+                table.seats,
+                start_after=table.dealer_idx,
             )
             assert nxt is not None
             table.dealer_idx = nxt
@@ -280,7 +308,9 @@ class TestDealerRotationInBurst(unittest.TestCase):
         occupied seat instead of pointing at an empty slot."""
         from cash_mode.lobby import get_dealer_index
         from cash_mode.tables import (
-            CashTableState, ai_slot, open_slot,
+            CashTableState,
+            ai_slot,
+            open_slot,
         )
 
         seats = [
@@ -329,8 +359,7 @@ class TestDealerIdxRoundTrip(unittest.TestCase):
             table = CashTableState(
                 table_id="cash-table-2-001",
                 stake_label="$2",
-                seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)]
-                + [open_slot(), open_slot()],
+                seats=[ai_slot(f"pid-{i}", 5_000) for i in range(4)] + [open_slot(), open_slot()],
                 dealer_idx=3,
             )
             repo.save_table(table, sandbox_id="test-sandbox-1")

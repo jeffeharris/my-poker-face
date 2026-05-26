@@ -19,10 +19,10 @@ from poker.strategy.hand_classification import (
     simplify_hand_class,
 )
 
-
 # ---------------------------------------------------------------------------
 # Made-tier tests
 # ---------------------------------------------------------------------------
+
 
 class TestMadeTierClassification:
     """Test made-hand tier assignment."""
@@ -90,6 +90,7 @@ class TestMadeTierClassification:
 # Draw-modifier tests
 # ---------------------------------------------------------------------------
 
+
 class TestDrawModifierClassification:
     """Test draw modifier assignment."""
 
@@ -132,6 +133,7 @@ class TestDrawModifierClassification:
 # simplify_hand_class tests
 # ---------------------------------------------------------------------------
 
+
 class TestSimplifyHandClass:
     """Test the simplified 6-class mapping."""
 
@@ -173,6 +175,7 @@ class TestSimplifyHandClass:
 # Integration: classify_hand → simplify_hand_class
 # ---------------------------------------------------------------------------
 
+
 class TestEndToEnd:
     """Full pipeline from cards to simplified class."""
 
@@ -195,6 +198,7 @@ class TestEndToEnd:
 # ---------------------------------------------------------------------------
 # §1: Danger flag detection
 # ---------------------------------------------------------------------------
+
 
 class TestDangerFlags:
     """Board-level + hand-vs-board danger flag detection."""
@@ -262,6 +266,7 @@ class TestDangerFlags:
 # ---------------------------------------------------------------------------
 # §1: nut_status assignment
 # ---------------------------------------------------------------------------
+
 
 class TestNutStatus:
     """nut_status: actual_nuts / near_nuts / non_nut_strong / bluff_catcher."""
@@ -339,6 +344,7 @@ class TestNutStatus:
 # §1: made_tier downgrades
 # ---------------------------------------------------------------------------
 
+
 class TestMadeTierDowngrades:
     """The downgrade flow: raw 'nuts' / 'strong_made' → corrected tier."""
 
@@ -398,6 +404,7 @@ class TestMadeTierDowngrades:
 # §1: HandClassification dataclass shape
 # ---------------------------------------------------------------------------
 
+
 class TestHandClassificationDataclass:
     """The new `classify_hand_full` returns a populated dataclass."""
 
@@ -410,8 +417,10 @@ class TestHandClassificationDataclass:
         assert isinstance(result.danger_flags, frozenset)
 
     def test_dataclass_is_frozen(self):
+        from dataclasses import FrozenInstanceError
+
         result = classify_hand_full(['Ah', 'Kd'], ['Ks', '7c', '2h'])
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             result.made_tier = 'air'
 
     def test_preflop_no_community_cards_returns_empty_flags(self):

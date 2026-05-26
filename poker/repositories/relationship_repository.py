@@ -26,12 +26,12 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
-from poker.repositories.base_repository import BaseRepository
 from poker.memory.opponent_model import (
     CashPairStats,
     RelationshipState,
     project_heat,
 )
+from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
 
@@ -197,10 +197,7 @@ class RelationshipRepository(BaseRepository):
                 """,
                 (observer_id,),
             ).fetchall()
-            return {
-                row['opponent_id']: _state_from_row(row, project_to=now)
-                for row in rows
-            }
+            return {row['opponent_id']: _state_from_row(row, project_to=now) for row in rows}
 
     # --- cash_pair_stats ---
 
@@ -295,13 +292,9 @@ class RelationshipRepository(BaseRepository):
             ).fetchone()
 
             winner_pnl = (winner_row['cumulative_pnl'] if winner_row else 0) + chips
-            winner_hands = (
-                winner_row['hands_played_cash'] if winner_row else 0
-            ) + hand_delta
+            winner_hands = (winner_row['hands_played_cash'] if winner_row else 0) + hand_delta
             loser_pnl = (loser_row['cumulative_pnl'] if loser_row else 0) - chips
-            loser_hands = (
-                loser_row['hands_played_cash'] if loser_row else 0
-            ) + hand_delta
+            loser_hands = (loser_row['hands_played_cash'] if loser_row else 0) + hand_delta
 
             conn.execute(
                 """
@@ -484,7 +477,9 @@ class RelationshipRepository(BaseRepository):
     # --- nickname_override (v101) ---
 
     def load_nickname_override(
-        self, observer_id: str, opponent_id: str,
+        self,
+        observer_id: str,
+        opponent_id: str,
     ) -> Optional[str]:
         """Return the player-authored nickname override, or None.
 
@@ -506,7 +501,8 @@ class RelationshipRepository(BaseRepository):
             return row['nickname_override']
 
     def load_all_nickname_overrides(
-        self, observer_id: str,
+        self,
+        observer_id: str,
     ) -> Dict[str, str]:
         """Return every nickname override this observer has set.
 

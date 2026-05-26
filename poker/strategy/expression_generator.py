@@ -69,6 +69,7 @@ class ExpressionGenerator:
         self.prompt_manager = prompt_manager
         if drama_contexts is None or tone_modifiers is None:
             from poker.prompt_manager import DRAMA_CONTEXTS, TONE_MODIFIERS
+
             drama_contexts = drama_contexts or DRAMA_CONTEXTS
             tone_modifiers = tone_modifiers or TONE_MODIFIERS
         self.drama_contexts = drama_contexts
@@ -84,7 +85,8 @@ class ExpressionGenerator:
             return self._cleanup_client
         try:
             from core.llm import LLMClient
-            from core.llm.settings import get_fast_provider, get_fast_model
+            from core.llm.settings import get_fast_model, get_fast_provider
+
             self._cleanup_client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
@@ -119,23 +121,22 @@ class ExpressionGenerator:
             system_text, user_text = self._render_prompt(context)
         except Exception as e:
             logger.warning(
-                f"[EXPRESSION] Failed to render prompt for "
-                f"{context.personality_name}: {e}"
+                f"[EXPRESSION] Failed to render prompt for " f"{context.personality_name}: {e}"
             )
             return _empty()
 
         capture_enricher = None
         if capture_id_holder is not None:
+
             def capture_enricher(capture_data):
-                capture_data['_on_captured'] = (
-                    lambda cid: capture_id_holder.__setitem__(0, cid)
-                )
+                capture_data['_on_captured'] = lambda cid: capture_id_holder.__setitem__(0, cid)
                 return capture_data
 
         # Default the tracked call_type to COMMENTARY so narration calls
         # land in api_usage under a meaningful category instead of UNKNOWN.
         if call_type is None:
             from core.llm.tracking import CallType
+
             call_type = CallType.COMMENTARY
 
         try:
@@ -152,10 +153,7 @@ class ExpressionGenerator:
                 capture_enricher=capture_enricher,
             )
         except Exception as e:
-            logger.warning(
-                f"[EXPRESSION] LLM call failed for "
-                f"{context.personality_name}: {e}"
-            )
+            logger.warning(f"[EXPRESSION] LLM call failed for " f"{context.personality_name}: {e}")
             return _empty()
 
         parsed = self._parse_response(response, context)
@@ -168,8 +166,10 @@ class ExpressionGenerator:
         seq = parsed.get('dramatic_sequence')
         if seq:
             from poker.response_validator import (
-                needs_llm_normalization, llm_normalize_beats,
+                llm_normalize_beats,
+                needs_llm_normalization,
             )
+
             if needs_llm_normalization(seq):
                 parsed['dramatic_sequence'] = llm_normalize_beats(
                     seq,
@@ -270,9 +270,7 @@ class ExpressionGenerator:
         # Build situational-reads bullet list from boolean flags.
         reads_lines = []
         if ctx.short_stack:
-            reads_lines.append(
-                "- Short stack (< 3 BB) — every chip matters; do-or-die mode."
-            )
+            reads_lines.append("- Short stack (< 3 BB) — every chip matters; do-or-die mode.")
         if ctx.pot_committed:
             reads_lines.append(
                 "- Pot-committed — already invested too much to fold without a fight."
@@ -302,12 +300,8 @@ class ExpressionGenerator:
             'cost_to_call_bb': f"{ctx.cost_to_call_bb:.1f}",
             'hand_name': ctx.hand_name,
             'recent_actions': ctx.recent_actions,
-            'recent_own_beats': "\n".join(
-                f'  - "{b}"' for b in ctx.recent_own_speech_beats
-            ),
-            'recent_own_action_beats': "\n".join(
-                f'  - {b}' for b in ctx.recent_own_action_beats
-            ),
+            'recent_own_beats': "\n".join(f'  - "{b}"' for b in ctx.recent_own_speech_beats),
+            'recent_own_action_beats': "\n".join(f'  - {b}' for b in ctx.recent_own_action_beats),
             'callouts': "\n".join(f'  - {c}' for c in ctx.callouts),
             'tier_paren': tier_paren,
             'situational_reads': situational_reads,
@@ -384,6 +378,7 @@ class ExpressionGenerator:
         if not observations:
             return ''
         from poker.memory.opponent_model import format_opponent_observations
+
         try:
             return format_opponent_observations(list(observations))
         except Exception as e:  # noqa: BLE001 — graceful degradation
@@ -418,11 +413,11 @@ class ExpressionGenerator:
             return ''
         try:
             from .narration_facts import render_narration_prompt
+
             return render_narration_prompt(facts)
         except Exception as e:  # noqa: BLE001 — graceful degradation
             logger.warning(
-                f"[EXPRESSION] Failed to render narration_facts for "
-                f"{ctx.personality_name}: {e}"
+                f"[EXPRESSION] Failed to render narration_facts for " f"{ctx.personality_name}: {e}"
             )
             return ''
 
@@ -435,10 +430,7 @@ class ExpressionGenerator:
         try:
             data = json.loads(content)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(
-                f"[EXPRESSION] Bad JSON from LLM for "
-                f"{ctx.personality_name}: {e}"
-            )
+            logger.warning(f"[EXPRESSION] Bad JSON from LLM for " f"{ctx.personality_name}: {e}")
             return _empty()
 
         if not isinstance(data, dict):
@@ -456,10 +448,9 @@ class ExpressionGenerator:
             if ctx.should_gesture:
                 # Keep only *action* beats (gestures wrapped in asterisks)
                 sequence = [
-                    b for b in sequence
-                    if isinstance(b, str)
-                    and b.strip().startswith('*')
-                    and b.strip().endswith('*')
+                    b
+                    for b in sequence
+                    if isinstance(b, str) and b.strip().startswith('*') and b.strip().endswith('*')
                 ]
             else:
                 sequence = []
@@ -476,8 +467,7 @@ class ExpressionGenerator:
         addressing_raw = data.get('addressing', [])
         if isinstance(addressing_raw, list):
             addressing = [
-                str(n).strip() for n in addressing_raw
-                if isinstance(n, str) and n.strip()
+                str(n).strip() for n in addressing_raw if isinstance(n, str) and n.strip()
             ]
         else:
             addressing = []

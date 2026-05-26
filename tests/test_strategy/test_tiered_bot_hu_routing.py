@@ -17,7 +17,6 @@ from poker.strategy.strategy_profile import StrategyProfile
 from poker.strategy.strategy_table import StrategyTable
 from poker.tiered_bot_controller import TieredBotController
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 # Sentinel actions let tests distinguish which table was hit.
@@ -28,10 +27,14 @@ _SIXMAX_OPEN = 'raise_2.5bb'
 def _make_hu_table():
     """HU table: SB opens AA with raise_3bb. Distinct action from 6-max."""
     data = {
-        PreflopNode(hand='AA', position='SB', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={_HU_OPEN: 1.0}),
-        PreflopNode(hand='72o', position='SB', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={_HU_OPEN: 1.0}),  # HU SB still opens 72o sometimes; for routing test we don't care
+        PreflopNode(
+            hand='AA', position='SB', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={_HU_OPEN: 1.0}),
+        PreflopNode(
+            hand='72o', position='SB', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(
+            action_probabilities={_HU_OPEN: 1.0}
+        ),  # HU SB still opens 72o sometimes; for routing test we don't care
     }
     return StrategyTable(data)
 
@@ -40,16 +43,20 @@ def _make_sixmax_table():
     """6-max table: AA opens with raise_2.5bb. Distinct action from HU."""
     data = {
         # SB rfi from 6-max (this is the entry HU would hit if routing is broken)
-        PreflopNode(hand='AA', position='SB', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={_SIXMAX_OPEN: 1.0}),
+        PreflopNode(
+            hand='AA', position='SB', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={_SIXMAX_OPEN: 1.0}),
         # UTG rfi for 6-max-only test cases
-        PreflopNode(hand='AA', position='UTG', scenario='rfi', opener_position='').key:
-            StrategyProfile(action_probabilities={_SIXMAX_OPEN: 1.0}),
+        PreflopNode(
+            hand='AA', position='UTG', scenario='rfi', opener_position=''
+        ).key: StrategyProfile(action_probabilities={_SIXMAX_OPEN: 1.0}),
     }
     return StrategyTable(data)
 
 
-def _make_game_state(num_players: int, num_folded: int = 0, position_key: str = 'small_blind_player'):
+def _make_game_state(
+    num_players: int, num_folded: int = 0, position_key: str = 'small_blind_player'
+):
     """Build a minimal game state with the test player at position_key.
 
     num_players: total seated (this controls the HU routing gate)
@@ -60,7 +67,7 @@ def _make_game_state(num_players: int, num_folded: int = 0, position_key: str = 
     players = []
     for i in range(num_players):
         name = 'Hero' if i == 0 else f'Opp{i}'
-        is_folded = (i > 0 and i <= num_folded)
+        is_folded = i > 0 and i <= num_folded
         p = SimpleNamespace(
             name=name,
             stack=10000,
@@ -84,8 +91,12 @@ def _make_game_state(num_players: int, num_folded: int = 0, position_key: str = 
     else:
         # Generic 6-max mapping; Hero takes the requested position_key
         slot_names = [
-            'button', 'small_blind_player', 'big_blind_player',
-            'under_the_gun', 'middle_position_1', 'cutoff',
+            'button',
+            'small_blind_player',
+            'big_blind_player',
+            'under_the_gun',
+            'middle_position_1',
+            'cutoff',
         ][:num_players]
         positions = {}
         for i, slot in enumerate(slot_names):
@@ -135,8 +146,12 @@ def _make_sm(game_state, phase_name='PRE_FLOP'):
 
 
 def _make_controller(
-    *, game_state, sixmax_table, hu_table,
-    phase='PRE_FLOP', skip_distortion=True,
+    *,
+    game_state,
+    sixmax_table,
+    hu_table,
+    phase='PRE_FLOP',
+    skip_distortion=True,
 ):
     """Build a TieredBotController bypassing parent __init__."""
     with patch('poker.tiered_bot_controller.AIPlayerController.__init__', return_value=None):
@@ -160,6 +175,7 @@ def _make_controller(
 
 # ── Tests ────────────────────────────────────────────────────────────────
 
+
 class TestHURouting:
     """Verify that the HU chart is used iff len(players) == 2."""
 
@@ -178,9 +194,9 @@ class TestHURouting:
         )
         # HU AA -> raise_3bb. The exact concrete game action is 'raise',
         # but the hand_strategy string carries the abstract action chosen.
-        assert _HU_OPEN in result['hand_strategy'], (
-            f"Expected HU open action ({_HU_OPEN}) in {result['hand_strategy']!r}"
-        )
+        assert (
+            _HU_OPEN in result['hand_strategy']
+        ), f"Expected HU open action ({_HU_OPEN}) in {result['hand_strategy']!r}"
 
     def test_sixmax_table_used_when_three_seated(self):
         """3-player game → uses 6-max table even if positions look HU-ish."""
@@ -195,9 +211,9 @@ class TestHURouting:
             valid_actions=['fold', 'call', 'raise', 'all_in'],
             call_amount=100,
         )
-        assert _SIXMAX_OPEN in result['hand_strategy'], (
-            f"Expected 6-max open ({_SIXMAX_OPEN}) in {result['hand_strategy']!r}"
-        )
+        assert (
+            _SIXMAX_OPEN in result['hand_strategy']
+        ), f"Expected 6-max open ({_SIXMAX_OPEN}) in {result['hand_strategy']!r}"
 
     def test_sixmax_used_when_six_seated_with_four_folds(self):
         """6 seated but 4 folded → still 6-max (gate is seated count, not active).
@@ -223,8 +239,7 @@ class TestHURouting:
             call_amount=100,
         )
         assert _SIXMAX_OPEN in result['hand_strategy'], (
-            f"6-max collapse-to-2 must use 6-max chart, got "
-            f"{result['hand_strategy']!r}"
+            f"6-max collapse-to-2 must use 6-max chart, got " f"{result['hand_strategy']!r}"
         )
 
     def test_sixmax_used_when_hu_table_missing(self):

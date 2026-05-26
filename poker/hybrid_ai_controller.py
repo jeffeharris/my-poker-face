@@ -14,38 +14,39 @@ Benefits:
 - Graceful degradation (if LLM fails, use rule engine's top pick)
 """
 
-import json
 import logging
 from typing import Dict, List, Optional
 
+from .ai_resilience import parse_json_response
 from .archetypes import classify_from_anchors
-from .controllers import (
-    AIPlayerController, _get_canonical_hand, card_to_string,
-)
 from .bounded_options import (
+    STYLE_PROFILES,
     BoundedOption,
     OptionProfile,
-    STYLE_PROFILES,
-    generate_bounded_options,
-    format_options_for_prompt,
-    calculate_required_equity,
     apply_emotional_window_shift,
+    calculate_required_equity,
+    format_options_for_prompt,
+    generate_bounded_options,
     get_emotional_shift,
 )
-from .nudge_phrases import apply_composed_nudges
-from .hand_ranges import (
-    calculate_equity_vs_ranges,
-    build_opponent_info,
-    EquityConfig,
+from .controllers import (
+    AIPlayerController,
+    _get_canonical_hand,
+    card_to_string,
 )
-from .ai_resilience import parse_json_response
-from .range_guidance import (
-    looseness_to_range_pct,
-    _game_position_to_range_key,
-    _position_display_name,
+from .hand_ranges import (
+    EquityConfig,
+    build_opponent_info,
+    calculate_equity_vs_ranges,
 )
 from .hand_tiers import is_hand_in_range
-from .stack_utils import effective_stack_chips, effective_stack_bb, spr as compute_spr
+from .nudge_phrases import apply_composed_nudges
+from .range_guidance import (
+    _game_position_to_range_key,
+    _position_display_name,
+    looseness_to_range_pct,
+)
+from .stack_utils import effective_stack_bb, effective_stack_chips, spr as compute_spr
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,9 @@ class HybridAIController(AIPlayerController):
 
         num_opponents = rule_context.get('num_opponents')
         range_key = _game_position_to_range_key(game_position)
-        range_pct = looseness_to_range_pct(effective_looseness, range_key, num_opponents=num_opponents)
+        range_pct = looseness_to_range_pct(
+            effective_looseness, range_key, num_opponents=num_opponents
+        )
         in_range = is_hand_in_range(canonical, range_pct) if canonical else True
         position_display = _position_display_name(range_key)
 
@@ -181,7 +184,9 @@ class HybridAIController(AIPlayerController):
 
         if not options:
             logger.warning(f"[HYBRID] No options generated for {self.player_name}, using fallback")
-            return self._create_fallback_response('check' if 'check' in context.get('valid_actions', []) else 'fold')
+            return self._create_fallback_response(
+                'check' if 'check' in context.get('valid_actions', []) else 'fold'
+            )
 
         # Step 2a: Composed nudges (replace raw rationale with playstyle phrases).
         # Mirrors the lean controller's wiring so the standard bot honours
@@ -194,7 +199,10 @@ class HybridAIController(AIPlayerController):
         emotional_shift = get_emotional_shift(self.psychology)
         if emotional_shift.severity != 'none':
             options = apply_emotional_window_shift(
-                options, emotional_shift, rule_context, profile,
+                options,
+                emotional_shift,
+                rule_context,
+                profile,
             )
 
         # Step 3: Build choice prompt for LLM
@@ -211,7 +219,10 @@ class HybridAIController(AIPlayerController):
                 hand_number=self.current_hand_number,
                 prompt_template='decision_bounded',
                 capture_enricher=self._make_hybrid_enricher(
-                    options, rule_context, capture_id, profile_key=profile_key,
+                    options,
+                    rule_context,
+                    capture_id,
+                    profile_key=profile_key,
                     range_data=range_data,
                 ),
             )
@@ -254,7 +265,11 @@ class HybridAIController(AIPlayerController):
 
         # Calculate equity
         hole_cards = [card_to_string(c) for c in player.hand] if player.hand else []
-        community_cards = [card_to_string(c) for c in game_state.community_cards] if game_state.community_cards else []
+        community_cards = (
+            [card_to_string(c) for c in game_state.community_cards]
+            if game_state.community_cards
+            else []
+        )
 
         # Count opponents
         opponents = [p for p in game_state.players if not p.is_folded and p.name != player.name]
@@ -279,16 +294,17 @@ class HybridAIController(AIPlayerController):
                 if opp_model and opp_model.tendencies:
                     opp_model_data = opp_model.tendencies.to_dict()
 
-            opponent_infos.append(build_opponent_info(
-                name=opp.name,
-                position=opp_position,
-                opponent_model=opp_model_data,
-            ))
+            opponent_infos.append(
+                build_opponent_info(
+                    name=opp.name,
+                    position=opp_position,
+                    opponent_model=opp_model_data,
+                )
+            )
 
         equity_config = EquityConfig(use_enhanced_ranges=True)
         equity = calculate_equity_vs_ranges(
-            hole_cards, community_cards, opponent_infos,
-            iterations=300, config=equity_config
+            hole_cards, community_cards, opponent_infos, iterations=300, config=equity_config
         )
         if equity is None:
             logger.warning(
@@ -310,7 +326,11 @@ class HybridAIController(AIPlayerController):
                 break
 
         # Get phase
-        phase = self.state_machine.current_phase.name if self.state_machine.current_phase else 'PRE_FLOP'
+        phase = (
+            self.state_machine.current_phase.name
+            if self.state_machine.current_phase
+            else 'PRE_FLOP'
+        )
 
         # Calculate required equity for pot odds
         required_equity = calculate_required_equity(pot_total, cost_to_call)
@@ -347,7 +367,9 @@ class HybridAIController(AIPlayerController):
             'raises_this_round': game_state.raises_this_round,
         }
 
-    def _build_choice_prompt(self, base_message: str, options: List[BoundedOption], context: Dict) -> str:
+    def _build_choice_prompt(
+        self, base_message: str, options: List[BoundedOption], context: Dict
+    ) -> str:
         """Build the choice prompt for the LLM.
 
         Presents the bounded options and asks the LLM to pick one with narrative.
@@ -358,7 +380,10 @@ class HybridAIController(AIPlayerController):
         pot_odds = context.get('pot_odds', 0)
 
         options_text = format_options_for_prompt(
-            options, equity, pot_odds, big_blind=context.get('big_blind'),
+            options,
+            equity,
+            pot_odds,
+            big_blind=context.get('big_blind'),
         )
 
         choice_template = """
@@ -394,7 +419,9 @@ CRITICAL RULES:
         # Append relationship-history block (shared with chaos via the
         # parent helper). Gated on prompt_config.relationship_context.
         return self._append_relationship_context_if_enabled(
-            rendered, self.state_machine.game_state, self.state_machine.game_state.current_player,
+            rendered,
+            self.state_machine.game_state,
+            self.state_machine.game_state.current_player,
         )
 
     def _validate_and_select(self, response: Optional[Dict], options: List[BoundedOption]) -> Dict:
@@ -410,13 +437,13 @@ CRITICAL RULES:
         default_option = self._get_best_fallback_option(options)
 
         if response is None:
-            logger.warning(f"[HYBRID] No response from LLM, using fallback")
+            logger.warning("[HYBRID] No response from LLM, using fallback")
             return self._option_to_response(default_option, {})
 
         # Extract and validate choice
         choice = response.get('choice')
         if choice is None:
-            logger.warning(f"[HYBRID] No choice in response, using fallback")
+            logger.warning("[HYBRID] No choice in response, using fallback")
             return self._option_to_response(default_option, response)
 
         # Strategy 1: direct int conversion (handles int and string digits)
@@ -437,7 +464,9 @@ CRITICAL RULES:
 
         # Validate range
         if choice_idx is None or choice_idx < 0 or choice_idx >= len(options):
-            logger.warning(f"[HYBRID] Invalid/out-of-range choice: {choice!r} (1-{len(options)}), using fallback")
+            logger.warning(
+                f"[HYBRID] Invalid/out-of-range choice: {choice!r} (1-{len(options)}), using fallback"
+            )
             return self._option_to_response(default_option, response)
 
         selected = options[choice_idx]
@@ -453,9 +482,11 @@ CRITICAL RULES:
         if not options:
             logger.error("[HYBRID] _get_best_fallback_option called with empty options list")
             return BoundedOption(
-                action='check', raise_to=0,
+                action='check',
+                raise_to=0,
                 rationale="Fallback (no options available)",
-                ev_estimate="neutral", style_tag="conservative",
+                ev_estimate="neutral",
+                style_tag="conservative",
             )
 
         ev_priority = {'+EV': 0, 'neutral': 1, 'marginal': 2, '-EV': 3}
@@ -463,10 +494,7 @@ CRITICAL RULES:
 
         sorted_options = sorted(
             options,
-            key=lambda o: (
-                ev_priority.get(o.ev_estimate, 3),
-                style_priority.get(o.style_tag, 4)
-            )
+            key=lambda o: (ev_priority.get(o.ev_estimate, 3), style_priority.get(o.style_tag, 4)),
         )
 
         return sorted_options[0]
@@ -477,7 +505,9 @@ CRITICAL RULES:
             'action': option.action,
             'raise_to': option.raise_to,
             'dramatic_sequence': llm_response.get('dramatic_sequence', []),
-            'hand_strategy': llm_response.get('hand_strategy', f'{option.style_tag} {option.action}'),
+            'hand_strategy': llm_response.get(
+                'hand_strategy', f'{option.style_tag} {option.action}'
+            ),
             'inner_monologue': llm_response.get('inner_monologue', ''),
             'bluff_likelihood': 0,  # Could be inferred from option.ev_estimate in future
         }
@@ -521,44 +551,49 @@ CRITICAL RULES:
 
         def enrich_capture(capture_data: Dict) -> Dict:
             # Core hybrid data
-            capture_data.update({
-                'hybrid_mode': True,
-                'lean_bounded': self.LEAN_BOUNDED,
-                'style_profile': profile_key,
-                'bounded_options': [o.to_dict() for o in options],
-                'equity': context.get('equity'),
-                'pot_odds': context.get('pot_odds'),
-                'required_equity': context.get('required_equity'),
-                'phase': context.get('phase'),
-                'stack_bb': context.get('stack_bb'),
-                # Match parent enricher fields for consistency
-                'pot_total': context.get('pot_total'),
-                'cost_to_call': context.get('cost_to_call'),
-                'player_stack': context.get('player_stack'),
-                'already_bet_bb': player.bet / big_blind if big_blind > 0 else None,
-                'community_cards': context.get('community_cards', []),
-                'player_hand': context.get('hole_cards', []),
-                'valid_actions': context.get('valid_actions', []),
-                # Rule context fields for replay experiments
-                'position': context.get('position'),
-                'min_raise': context.get('min_raise'),
-                'max_raise': context.get('max_raise'),
-                'big_blind': big_blind,
-                'canonical_hand': context.get('canonical_hand'),
-                'num_opponents': context.get('num_opponents'),
-                'effective_stack': context.get('effective_stack'),
-                'spr': context.get('spr'),
-                # Emotional window shift tracking
-                'emotional_shift': emotional_shift.to_dict(),
-                # Capture ID callback for post-update
-                '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
-            })
+            capture_data.update(
+                {
+                    'hybrid_mode': True,
+                    'lean_bounded': self.LEAN_BOUNDED,
+                    'style_profile': profile_key,
+                    'bounded_options': [o.to_dict() for o in options],
+                    'equity': context.get('equity'),
+                    'pot_odds': context.get('pot_odds'),
+                    'required_equity': context.get('required_equity'),
+                    'phase': context.get('phase'),
+                    'stack_bb': context.get('stack_bb'),
+                    # Match parent enricher fields for consistency
+                    'pot_total': context.get('pot_total'),
+                    'cost_to_call': context.get('cost_to_call'),
+                    'player_stack': context.get('player_stack'),
+                    'already_bet_bb': player.bet / big_blind if big_blind > 0 else None,
+                    'community_cards': context.get('community_cards', []),
+                    'player_hand': context.get('hole_cards', []),
+                    'valid_actions': context.get('valid_actions', []),
+                    # Rule context fields for replay experiments
+                    'position': context.get('position'),
+                    'min_raise': context.get('min_raise'),
+                    'max_raise': context.get('max_raise'),
+                    'big_blind': big_blind,
+                    'canonical_hand': context.get('canonical_hand'),
+                    'num_opponents': context.get('num_opponents'),
+                    'effective_stack': context.get('effective_stack'),
+                    'spr': context.get('spr'),
+                    # Emotional window shift tracking
+                    'emotional_shift': emotional_shift.to_dict(),
+                    # Capture ID callback for post-update
+                    '_on_captured': lambda cid: capture_id_holder.__setitem__(0, cid),
+                }
+            )
             # Range gate tracking
             if rd:
-                capture_data.update({
-                    'in_range': rd.get('in_range'),
-                    'range_pct': rd.get('range_pct'),
-                    'effective_looseness': rd.get('effective_looseness'),
-                })
+                capture_data.update(
+                    {
+                        'in_range': rd.get('in_range'),
+                        'range_pct': rd.get('range_pct'),
+                        'effective_looseness': rd.get('effective_looseness'),
+                    }
+                )
             return capture_data
+
         return enrich_capture

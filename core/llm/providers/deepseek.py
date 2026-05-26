@@ -15,16 +15,17 @@ Tool calling notes:
 - deepseek-chat supports tools, and can enable thinking mode via extra_body parameter
 - When tools are provided with reasoning_effort, we use deepseek-chat + thinking:enabled
 """
-import os
+
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai import OpenAI
 
+from ..config import DEEPSEEK_DEFAULT_MODEL, DEFAULT_MAX_TOKENS
 from .base import LLMProvider
 from .http_client import shared_http_client
-from ..config import DEFAULT_MAX_TOKENS, DEEPSEEK_DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class DeepSeekProvider(LLMProvider):
     def is_retryable_error(self, exception: Exception) -> tuple[bool, int]:
         if isinstance(exception, openai.RateLimitError):
             return True, 30
-        if isinstance(exception, (openai.APITimeoutError, openai.APIConnectionError)):
+        if isinstance(exception, openai.APITimeoutError | openai.APIConnectionError):
             return True, 2
         if isinstance(exception, openai.InternalServerError):
             return True, 2
@@ -237,7 +238,7 @@ class DeepSeekProvider(LLMProvider):
         message = raw_response.choices[0].message
 
         tool_calls = getattr(message, 'tool_calls', None)
-        if tool_calls is None or not isinstance(tool_calls, (list, tuple)):
+        if tool_calls is None or not isinstance(tool_calls, list | tuple):
             return None
 
         if len(tool_calls) == 0:
@@ -250,7 +251,7 @@ class DeepSeekProvider(LLMProvider):
                 "function": {
                     "name": tc.function.name,
                     "arguments": tc.function.arguments,
-                }
+                },
             }
             for tc in tool_calls
         ]

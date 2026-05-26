@@ -37,7 +37,9 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
       // Fetch both tournament and replay experiments in parallel
       const [tournamentResponse, replayResponse] = await Promise.all([
         typeFilter !== 'replay' ? adminFetch(`/api/experiments?${tournamentParams}`) : null,
-        typeFilter !== 'tournament' ? adminFetch(`/api/replay-experiments?${tournamentParams}`) : null,
+        typeFilter !== 'tournament'
+          ? adminFetch(`/api/replay-experiments?${tournamentParams}`)
+          : null,
       ]);
 
       const allExperiments: ExperimentSummary[] = [];
@@ -59,39 +61,41 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
         const replayData = await replayResponse.json();
         if (replayData.success && replayData.experiments) {
           // Map replay experiment fields to our ExperimentSummary format
-          const replays = replayData.experiments.map((exp: {
-            id: number;
-            name: string;
-            description?: string;
-            hypothesis?: string;
-            status: string;
-            created_at: string;
-            completed_at?: string;
-            capture_count?: number;
-            variant_count?: number;
-          }) => ({
-            id: exp.id,
-            name: exp.name,
-            description: exp.description || '',
-            hypothesis: exp.hypothesis || '',
-            tags: [],
-            status: exp.status as ExperimentStatus,
-            created_at: exp.created_at,
-            completed_at: exp.completed_at || null,
-            games_count: exp.capture_count || 0,
-            num_tournaments: exp.variant_count || 0,
-            model: null,
-            provider: null,
-            summary: null,
-            experiment_type: 'replay' as ExperimentType,
-          }));
+          const replays = replayData.experiments.map(
+            (exp: {
+              id: number;
+              name: string;
+              description?: string;
+              hypothesis?: string;
+              status: string;
+              created_at: string;
+              completed_at?: string;
+              capture_count?: number;
+              variant_count?: number;
+            }) => ({
+              id: exp.id,
+              name: exp.name,
+              description: exp.description || '',
+              hypothesis: exp.hypothesis || '',
+              tags: [],
+              status: exp.status as ExperimentStatus,
+              created_at: exp.created_at,
+              completed_at: exp.completed_at || null,
+              games_count: exp.capture_count || 0,
+              num_tournaments: exp.variant_count || 0,
+              model: null,
+              provider: null,
+              summary: null,
+              experiment_type: 'replay' as ExperimentType,
+            })
+          );
           allExperiments.push(...replays);
         }
       }
 
       // Sort by created_at descending
-      allExperiments.sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      allExperiments.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
       setExperiments(allExperiments);
@@ -111,7 +115,7 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
 
   // Auto-refresh for running experiments
   useEffect(() => {
-    const hasRunning = experiments.some(e => e.status === 'running');
+    const hasRunning = experiments.some((e) => e.status === 'running');
     if (!hasRunning) return;
 
     const interval = setInterval(fetchExperiments, 5000);
@@ -214,21 +218,13 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
           <RefreshCw size={16} />
         </button>
 
-        <button
-          className="experiment-list__new-btn"
-          onClick={handleNewExperiment}
-          type="button"
-        >
+        <button className="experiment-list__new-btn" onClick={handleNewExperiment} type="button">
           <Plus size={16} />
           New Experiment
         </button>
       </div>
 
-      {error && (
-        <div className="experiment-list__error">
-          {error}
-        </div>
-      )}
+      {error && <div className="experiment-list__error">{error}</div>}
 
       {experiments.length === 0 ? (
         <div className="experiment-list__empty">
@@ -268,11 +264,15 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
                     <td className="experiment-list__name-cell">
                       <span className="experiment-list__name">{experiment.name}</span>
                       {experiment.description && (
-                        <span className="experiment-list__description">{experiment.description}</span>
+                        <span className="experiment-list__description">
+                          {experiment.description}
+                        </span>
                       )}
                     </td>
                     <td>
-                      <span className={`experiment-list__type-badge experiment-list__type-badge--${experiment.experiment_type || 'tournament'}`}>
+                      <span
+                        className={`experiment-list__type-badge experiment-list__type-badge--${experiment.experiment_type || 'tournament'}`}
+                      >
                         {isReplay ? <Repeat2 size={12} /> : <Beaker size={12} />}
                         {isReplay ? 'Replay' : 'Tournament'}
                       </span>
@@ -293,27 +293,29 @@ export function ExperimentList({ onViewExperiment }: ExperimentListProps) {
                             />
                           </div>
                           <span className="experiment-list__progress-text">
-                            {isReplay ? `${experiment.games_count} captures` : getProgress(experiment)}
+                            {isReplay
+                              ? `${experiment.games_count} captures`
+                              : getProgress(experiment)}
                           </span>
                         </div>
+                      ) : isReplay ? (
+                        `${experiment.games_count} captures x ${experiment.num_tournaments} variants`
                       ) : (
-                        isReplay
-                          ? `${experiment.games_count} captures x ${experiment.num_tournaments} variants`
-                          : getProgress(experiment)
+                        getProgress(experiment)
                       )}
                     </td>
                     <td className="experiment-list__model">
                       {isReplay ? (
                         <span className="experiment-list__model--default">varied</span>
                       ) : experiment.provider && experiment.model ? (
-                        <span>{experiment.provider}/{experiment.model}</span>
+                        <span>
+                          {experiment.provider}/{experiment.model}
+                        </span>
                       ) : (
                         <span className="experiment-list__model--default">default</span>
                       )}
                     </td>
-                    <td className="experiment-list__date">
-                      {formatDate(experiment.created_at)}
-                    </td>
+                    <td className="experiment-list__date">{formatDate(experiment.created_at)}</td>
                     <td>
                       <button
                         className="experiment-list__view-btn"

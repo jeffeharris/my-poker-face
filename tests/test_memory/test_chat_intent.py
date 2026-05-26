@@ -14,28 +14,40 @@ from poker.memory.relationship_events import RelationshipEvent
 
 
 class TestMidHandTones:
-    @pytest.mark.parametrize("tone, expected_event, base_mult", [
-        ("tilt", RelationshipEvent.TRASH_TALK, 1.0),
-        ("goad", RelationshipEvent.TRASH_TALK, 1.0),
-        ("needle", RelationshipEvent.TRASH_TALK, 0.5),
-        ("bait", RelationshipEvent.TRASH_TALK, 0.5),
-        ("befriend", RelationshipEvent.FRIENDLY_BANTER, 1.0),
-    ])
+    @pytest.mark.parametrize(
+        "tone, expected_event, base_mult",
+        [
+            ("tilt", RelationshipEvent.TRASH_TALK, 1.0),
+            ("goad", RelationshipEvent.TRASH_TALK, 1.0),
+            ("needle", RelationshipEvent.TRASH_TALK, 0.5),
+            ("bait", RelationshipEvent.TRASH_TALK, 0.5),
+            ("befriend", RelationshipEvent.FRIENDLY_BANTER, 1.0),
+        ],
+    )
     def test_spicy_intensity_applies_full_base_multiplier(
-        self, tone, expected_event, base_mult,
+        self,
+        tone,
+        expected_event,
+        base_mult,
     ):
         result = map_tone(tone, intensity="spicy")
         assert result is not None
         assert result.event is expected_event
         assert result.multiplier == pytest.approx(base_mult)
 
-    @pytest.mark.parametrize("tone, expected_event, base_mult", [
-        ("tilt", RelationshipEvent.TRASH_TALK, 1.0),
-        ("needle", RelationshipEvent.TRASH_TALK, 0.5),
-        ("befriend", RelationshipEvent.FRIENDLY_BANTER, 1.0),
-    ])
+    @pytest.mark.parametrize(
+        "tone, expected_event, base_mult",
+        [
+            ("tilt", RelationshipEvent.TRASH_TALK, 1.0),
+            ("needle", RelationshipEvent.TRASH_TALK, 0.5),
+            ("befriend", RelationshipEvent.FRIENDLY_BANTER, 1.0),
+        ],
+    )
     def test_chill_intensity_halves_multiplier(
-        self, tone, expected_event, base_mult,
+        self,
+        tone,
+        expected_event,
+        base_mult,
     ):
         result = map_tone(tone, intensity="chill")
         assert result is not None
@@ -54,14 +66,19 @@ class TestMidHandTones:
 
 
 class TestPostRoundTones:
-    @pytest.mark.parametrize("tone, expected_event", [
-        ("gloat", RelationshipEvent.TAUNT_POST_WIN),
-        ("humble", RelationshipEvent.FRIENDLY_BANTER),
-        ("salty", RelationshipEvent.TRASH_TALK),
-        ("gracious", RelationshipEvent.COMPLIMENT),
-    ])
+    @pytest.mark.parametrize(
+        "tone, expected_event",
+        [
+            ("gloat", RelationshipEvent.TAUNT_POST_WIN),
+            ("humble", RelationshipEvent.FRIENDLY_BANTER),
+            ("salty", RelationshipEvent.TRASH_TALK),
+            ("gracious", RelationshipEvent.COMPLIMENT),
+        ],
+    )
     def test_post_round_tone_maps_at_full_multiplier(
-        self, tone, expected_event,
+        self,
+        tone,
+        expected_event,
     ):
         result = map_tone(tone)
         assert result is not None

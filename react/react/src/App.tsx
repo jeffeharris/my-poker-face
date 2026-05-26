@@ -1,38 +1,62 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import { HomeMenu } from './components/menus/HomeMenu'
-import { TournamentMenu, type QuickPlayConfig } from './components/menus/TournamentMenu'
-import { LoginForm } from './components/auth/LoginForm'
-import { ProtectedRoute } from './components/auth/ProtectedRoute'
-import { GamePage } from './components/game/GamePage'
-import { useAuth } from './hooks/useAuth'
-import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { useUsageStats } from './hooks/useUsageStats'
-import { useNicknameOverridesStore } from './stores/nicknameOverridesStore'
-import { fetchNicknameOverrides } from './components/character/api'
-import { ShuffleLoading, GuestLimitModal } from './components/shared'
-import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor'
-import { logger } from './utils/logger'
-import { config } from './config'
-import { type Theme } from './types/theme'
-import toast, { Toaster } from 'react-hot-toast'
-import './App.css'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { HomeMenu } from './components/menus/HomeMenu';
+import { TournamentMenu, type QuickPlayConfig } from './components/menus/TournamentMenu';
+import { LoginForm } from './components/auth/LoginForm';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { GamePage } from './components/game/GamePage';
+import { useAuth } from './hooks/useAuth';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { useUsageStats } from './hooks/useUsageStats';
+import { useNicknameOverridesStore } from './stores/nicknameOverridesStore';
+import { fetchNicknameOverrides } from './components/character/api';
+import { ShuffleLoading, GuestLimitModal } from './components/shared';
+import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor';
+import { logger } from './utils/logger';
+import { config } from './config';
+import { type Theme } from './types/theme';
+import toast, { Toaster } from 'react-hot-toast';
+import './App.css';
 
 // Lazy-loaded routes — only downloaded when navigated to
-const GameSelector = lazy(() => import('./components/menus/GameSelector').then(m => ({ default: m.GameSelector })))
-const PlayerNameEntry = lazy(() => import('./components/menus/PlayerNameEntry').then(m => ({ default: m.PlayerNameEntry })))
-const PersonalityManager = lazy(() => import('./components/admin/PersonalityManager').then(m => ({ default: m.PersonalityManager })))
-const ThemedGameSelector = lazy(() => import('./components/menus/ThemedGameSelector').then(m => ({ default: m.ThemedGameSelector })))
-const CustomGameConfig = lazy(() => import('./components/menus/CustomGameConfig').then(m => ({ default: m.CustomGameConfig })))
-const CareerStats = lazy(() => import('./components/stats/CareerStats').then(m => ({ default: m.CareerStats })))
-const InstallPrompt = lazy(() => import('./components/pwa/InstallPrompt').then(m => ({ default: m.InstallPrompt })))
-const AdminRoutes = lazy(() => import('./components/admin/AdminRoutes').then(m => ({ default: m.AdminRoutes })))
-const LandingPage = lazy(() => import('./components/landing').then(m => ({ default: m.LandingPage })))
-const Lobby = lazy(() => import('./components/cash/Lobby').then(m => ({ default: m.Lobby })))
-const PrivacyPolicy = lazy(() => import('./components/legal').then(m => ({ default: m.PrivacyPolicy })))
-const TermsOfService = lazy(() => import('./components/legal').then(m => ({ default: m.TermsOfService })))
-const WinnerLayoutSandbox = lazy(() => import('./components/dev/WinnerLayoutSandbox').then(m => ({ default: m.WinnerLayoutSandbox })))
+const GameSelector = lazy(() =>
+  import('./components/menus/GameSelector').then((m) => ({ default: m.GameSelector }))
+);
+const PlayerNameEntry = lazy(() =>
+  import('./components/menus/PlayerNameEntry').then((m) => ({ default: m.PlayerNameEntry }))
+);
+const PersonalityManager = lazy(() =>
+  import('./components/admin/PersonalityManager').then((m) => ({ default: m.PersonalityManager }))
+);
+const ThemedGameSelector = lazy(() =>
+  import('./components/menus/ThemedGameSelector').then((m) => ({ default: m.ThemedGameSelector }))
+);
+const CustomGameConfig = lazy(() =>
+  import('./components/menus/CustomGameConfig').then((m) => ({ default: m.CustomGameConfig }))
+);
+const CareerStats = lazy(() =>
+  import('./components/stats/CareerStats').then((m) => ({ default: m.CareerStats }))
+);
+const InstallPrompt = lazy(() =>
+  import('./components/pwa/InstallPrompt').then((m) => ({ default: m.InstallPrompt }))
+);
+const AdminRoutes = lazy(() =>
+  import('./components/admin/AdminRoutes').then((m) => ({ default: m.AdminRoutes }))
+);
+const LandingPage = lazy(() =>
+  import('./components/landing').then((m) => ({ default: m.LandingPage }))
+);
+const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
+const PrivacyPolicy = lazy(() =>
+  import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
+);
+const TermsOfService = lazy(() =>
+  import('./components/legal').then((m) => ({ default: m.TermsOfService }))
+);
+const WinnerLayoutSandbox = lazy(() =>
+  import('./components/dev/WinnerLayoutSandbox').then((m) => ({ default: m.WinnerLayoutSandbox }))
+);
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -54,7 +78,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
   '/terms': 'Terms of Service - My Poker Face',
-  '/': 'My Poker Face - Play Poker Against AI'
+  '/': 'My Poker Face - Play Poker Against AI',
 };
 
 function App() {
@@ -65,18 +89,22 @@ function App() {
   const { stats: usageStats } = useUsageStats();
   const [showGuestLimitModal, setShowGuestLimitModal] = useState(false);
 
-const [playerName, setPlayerName] = useState<string>(user?.name || '')
-  const [savedGamesCount, setSavedGamesCount] = useState(0)
-  const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(null)
-  const [isCreatingGame, setIsCreatingGame] = useState(false)
-  const [loadingSubmessage, setLoadingSubmessage] = useState('Preparing the table and seating your opponents')
+  const [playerName, setPlayerName] = useState<string>(user?.name || '');
+  const [savedGamesCount, setSavedGamesCount] = useState(0);
+  const [maxGamesError, setMaxGamesError] = useState<{ message: string; maxGames: number } | null>(
+    null
+  );
+  const [isCreatingGame, setIsCreatingGame] = useState(false);
+  const [loadingSubmessage, setLoadingSubmessage] = useState(
+    'Preparing the table and seating your opponents'
+  );
 
   // Fresh quote each time game creation kicks off.
   const creatingGameQuote = useMemo(() => {
     if (!isCreatingGame) return undefined;
     const q = pickQuote('between_hands');
     return q ? { text: q.text, attribution: q.attribution } : undefined;
-  }, [isCreatingGame])
+  }, [isCreatingGame]);
 
   // Check if guest hand limit is already reached on load
   useEffect(() => {
@@ -117,7 +145,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         // nicknames keep showing — the existing behaviour pre-feature.
         logger.warn('[nickname-overrides] fetch failed', e);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated, user?.id, hydrateOverrides, resetOverrides]);
 
   // Update page title based on current route
@@ -137,7 +167,10 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
   // Fetch saved games count when authenticated or navigating to a menu page
   useEffect(() => {
-    if (isAuthenticated && (location.pathname === '/menu' || location.pathname === '/menu/tournament')) {
+    if (
+      isAuthenticated &&
+      (location.pathname === '/menu' || location.pathname === '/menu/tournament')
+    ) {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, location.pathname]);
@@ -158,7 +191,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   const fetchSavedGamesCount = async () => {
     try {
       const response = await fetch(`${config.API_URL}/api/games`, {
-        credentials: 'include'
+        credentials: 'include',
       });
       const data = await response.json();
       setSavedGamesCount(data.games?.length || 0);
@@ -168,10 +201,16 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   // Helper to check for and handle max games limit error
-  const checkMaxGamesError = (response: Response, data: { error?: string; code?: string }): boolean => {
-    if ((response.status === 400 || response.status === 403) &&
-        (data.code === 'GUEST_LIMIT_GAMES' || data.error?.includes('Game limit reached'))) {
-      const maxGames = usageStats?.max_active_games ?? (user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER);
+  const checkMaxGamesError = (
+    response: Response,
+    data: { error?: string; code?: string }
+  ): boolean => {
+    if (
+      (response.status === 400 || response.status === 403) &&
+      (data.code === 'GUEST_LIMIT_GAMES' || data.error?.includes('Game limit reached'))
+    ) {
+      const maxGames =
+        usageStats?.max_active_games ?? (user?.is_guest ? MAX_GAMES_GUEST : MAX_GAMES_USER);
       setMaxGamesError({ message: data.error || 'Game limit reached', maxGames });
       return true;
     }
@@ -239,10 +278,29 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
   };
 
   const handleStartCustomGame = async (
-    selectedPersonalities: Array<string | { name: string; llm_config: { provider: string; model: string; reasoning_effort?: string }; game_mode?: string }>,
-    llmConfig?: { provider: string; model: string; reasoning_effort: string; starting_stack?: number; big_blind?: number; blind_growth?: number; blinds_increase?: number; max_blind?: number },
+    selectedPersonalities: Array<
+      | string
+      | {
+          name: string;
+          llm_config: { provider: string; model: string; reasoning_effort?: string };
+          game_mode?: string;
+        }
+    >,
+    llmConfig?: {
+      provider: string;
+      model: string;
+      reasoning_effort: string;
+      starting_stack?: number;
+      big_blind?: number;
+      blind_growth?: number;
+      blinds_increase?: number;
+      max_blind?: number;
+    },
     gameMode?: string,
-    botTypes?: Record<string, 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver'>
+    botTypes?: Record<
+      string,
+      'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver'
+    >
   ) => {
     if (isCreatingGame) return;
     setIsCreatingGame(true);
@@ -317,7 +375,9 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       }
 
       if (response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait a few minutes before starting a new game.');
+        throw new Error(
+          'Rate limit exceeded. Please wait a few minutes before starting a new game.'
+        );
       }
 
       const data = await response.json();
@@ -362,115 +422,161 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
 
       {/* Routes */}
       <ErrorBoundary>
-      <Suspense fallback={<div className="loading-screen"><div className="loading-spinner" /></div>}>
-      <Routes>
-        {/* Public routes */}
-        <Route path="/login" element={
-          isAuthenticated ? <Navigate to="/menu" replace /> : <LoginForm onLogin={handleLogin} />
-        } />
-        <Route path="/name-entry" element={
-          <PlayerNameEntry onSubmit={handleNameSubmit} />
-        } />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
-        <Route path="/terms" element={<TermsOfService />} />
-        <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
-
-        {/* Protected routes */}
-        <Route path="/menu" element={
-          <ProtectedRoute>
-            <HomeMenu
-              playerName={playerName}
-              onCashMode={() => navigate('/cash')}
-              onTournament={() => navigate('/menu/tournament')}
-              onAdminDashboard={() => navigate('/admin')}
+        <Suspense
+          fallback={
+            <div className="loading-screen">
+              <div className="loading-spinner" />
+            </div>
+          }
+        >
+          <Routes>
+            {/* Public routes */}
+            <Route
+              path="/login"
+              element={
+                isAuthenticated ? (
+                  <Navigate to="/menu" replace />
+                ) : (
+                  <LoginForm onLogin={handleLogin} />
+                )
+              }
             />
-          </ProtectedRoute>
-        } />
+            <Route path="/name-entry" element={<PlayerNameEntry onSubmit={handleNameSubmit} />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
 
-        <Route path="/menu/tournament" element={
-          <ProtectedRoute>
-            <TournamentMenu
-              playerName={playerName}
-              onQuickPlay={handleQuickPlay}
-              onCustomGame={() => navigate('/game/new/custom')}
-              onThemedGame={() => navigate('/game/new/themed')}
-              onContinueGame={() => navigate('/games')}
-              onViewStats={() => navigate('/stats')}
-              onAdminDashboard={() => navigate('/admin')}
-              onBack={() => navigate('/menu')}
-              savedGamesCount={savedGamesCount}
-              isCreatingGame={isCreatingGame}
+            {/* Protected routes */}
+            <Route
+              path="/menu"
+              element={
+                <ProtectedRoute>
+                  <HomeMenu
+                    playerName={playerName}
+                    onCashMode={() => navigate('/cash')}
+                    onTournament={() => navigate('/menu/tournament')}
+                    onAdminDashboard={() => navigate('/admin')}
+                  />
+                </ProtectedRoute>
+              }
             />
-          </ProtectedRoute>
-        } />
 
-        <Route path="/games" element={
-          <ProtectedRoute>
-            <GameSelector
-              onSelectGame={handleSelectGame}
-              onBack={() => navigate('/menu/tournament')}
-              onGamesChanged={handleGamesChanged}
+            <Route
+              path="/menu/tournament"
+              element={
+                <ProtectedRoute>
+                  <TournamentMenu
+                    playerName={playerName}
+                    onQuickPlay={handleQuickPlay}
+                    onCustomGame={() => navigate('/game/new/custom')}
+                    onThemedGame={() => navigate('/game/new/themed')}
+                    onContinueGame={() => navigate('/games')}
+                    onViewStats={() => navigate('/stats')}
+                    onAdminDashboard={() => navigate('/admin')}
+                    onBack={() => navigate('/menu')}
+                    savedGamesCount={savedGamesCount}
+                    isCreatingGame={isCreatingGame}
+                  />
+                </ProtectedRoute>
+              }
             />
-          </ProtectedRoute>
-        } />
 
-        <Route path="/game/new/custom" element={
-          <ProtectedRoute>
-            <CustomGameConfig
-              onStartGame={handleStartCustomGame}
-              onBack={() => navigate('/menu/tournament')}
-              isCreatingGame={isCreatingGame}
+            <Route
+              path="/games"
+              element={
+                <ProtectedRoute>
+                  <GameSelector
+                    onSelectGame={handleSelectGame}
+                    onBack={() => navigate('/menu/tournament')}
+                    onGamesChanged={handleGamesChanged}
+                  />
+                </ProtectedRoute>
+              }
             />
-          </ProtectedRoute>
-        } />
 
-        <Route path="/game/new/themed" element={
-          <ProtectedRoute>
-            <ThemedGameSelector
-              onSelectTheme={handleSelectTheme}
-              onBack={() => navigate('/menu/tournament')}
-              isCreatingGame={isCreatingGame}
+            <Route
+              path="/game/new/custom"
+              element={
+                <ProtectedRoute>
+                  <CustomGameConfig
+                    onStartGame={handleStartCustomGame}
+                    onBack={() => navigate('/menu/tournament')}
+                    isCreatingGame={isCreatingGame}
+                  />
+                </ProtectedRoute>
+              }
             />
-          </ProtectedRoute>
-        } />
 
-        <Route path="/game/:gameId" element={
-          <ProtectedRoute>
-            <ErrorBoundary fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}>
-              <GamePage playerName={playerName} />
-            </ErrorBoundary>
-          </ProtectedRoute>
-        } />
+            <Route
+              path="/game/new/themed"
+              element={
+                <ProtectedRoute>
+                  <ThemedGameSelector
+                    onSelectTheme={handleSelectTheme}
+                    onBack={() => navigate('/menu/tournament')}
+                    isCreatingGame={isCreatingGame}
+                  />
+                </ProtectedRoute>
+              }
+            />
 
-        <Route path="/stats" element={
-          <ProtectedRoute>
-            <CareerStats onBack={() => navigate('/menu/tournament')} />
-          </ProtectedRoute>
-        } />
+            <Route
+              path="/game/:gameId"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary
+                    fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}
+                  >
+                    <GamePage playerName={playerName} />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
 
-        <Route path="/admin/*" element={
-          <ProtectedRoute>
-            <AdminRoutes />
-          </ProtectedRoute>
-        } />
+            <Route
+              path="/stats"
+              element={
+                <ProtectedRoute>
+                  <CareerStats onBack={() => navigate('/menu/tournament')} />
+                </ProtectedRoute>
+              }
+            />
 
-        <Route path="/cash" element={
-          <ProtectedRoute>
-            <Lobby />
-          </ProtectedRoute>
-        } />
+            <Route
+              path="/admin/*"
+              element={
+                <ProtectedRoute>
+                  <AdminRoutes />
+                </ProtectedRoute>
+              }
+            />
 
-        <Route path="/personalities" element={
-          <ProtectedRoute>
-            <PersonalityManager onBack={() => navigate('/menu')} />
-          </ProtectedRoute>
-        } />
+            <Route
+              path="/cash"
+              element={
+                <ProtectedRoute>
+                  <Lobby />
+                </ProtectedRoute>
+              }
+            />
 
-        {/* Landing page and fallback */}
-        <Route path="/" element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />} />
-        <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
-      </Routes>
-      </Suspense>
+            <Route
+              path="/personalities"
+              element={
+                <ProtectedRoute>
+                  <PersonalityManager onBack={() => navigate('/menu')} />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Landing page and fallback */}
+            <Route
+              path="/"
+              element={isAuthenticated ? <Navigate to="/menu" replace /> : <LandingPage />}
+            />
+            <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
+          </Routes>
+        </Suspense>
       </ErrorBoundary>
 
       {/* ShuffleLoading overlay - blocks all interaction during game creation */}
@@ -487,14 +593,15 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
         <div className="max-games-modal">
           <div className="max-games-modal__content">
             <div className="max-games-modal__icon">
-              <span role="img" aria-label="warning">&#x26A0;&#xFE0F;</span>
+              <span role="img" aria-label="warning">
+                &#x26A0;&#xFE0F;
+              </span>
             </div>
-            <h2 className="max-games-modal__title">
-              Game Limit Reached
-            </h2>
+            <h2 className="max-games-modal__title">Game Limit Reached</h2>
             <p className="max-games-modal__message">
-              You have reached the maximum of {maxGamesError.maxGames} saved game{maxGamesError.maxGames > 1 ? 's' : ''}.
-              Would you like to manage your saved games to make room for a new one?
+              You have reached the maximum of {maxGamesError.maxGames} saved game
+              {maxGamesError.maxGames > 1 ? 's' : ''}. Would you like to manage your saved games to
+              make room for a new one?
             </p>
             <div className="max-games-modal__actions">
               <button
@@ -532,7 +639,7 @@ const [playerName, setPlayerName] = useState<string>(user?.name || '')
       {/* PWA Install Prompt */}
       <InstallPrompt />
     </>
-  )
+  );
 }
 
-export default App
+export default App;

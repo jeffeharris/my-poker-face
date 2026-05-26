@@ -426,10 +426,7 @@ export function quotesForMood(mood: QuoteMood): PokerQuote[] {
   return POKER_QUOTES.filter((q) => q.mood === mood);
 }
 
-export function pickQuote(
-  trigger: QuoteTrigger,
-  moodFilter?: QuoteMood[],
-): PokerQuote | undefined {
+export function pickQuote(trigger: QuoteTrigger, moodFilter?: QuoteMood[]): PokerQuote | undefined {
   let pool = quotesForTrigger(trigger);
   if (moodFilter && moodFilter.length > 0) {
     pool = pool.filter((q) => moodFilter.includes(q.mood));

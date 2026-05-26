@@ -32,7 +32,7 @@ class ExpressionContext:
     # Game situation
     hand_cards: List[str]
     community_cards: List[str]
-    phase: str                  # 'pre_flop' | 'flop' | 'turn' | 'river'
+    phase: str  # 'pre_flop' | 'flop' | 'turn' | 'river'
     pot_size: int
     opponent_count: int
 
@@ -44,8 +44,8 @@ class ExpressionContext:
     physical_tics: List[str] = field(default_factory=list)
 
     # Dramatic calibration (from MomentAnalyzer)
-    drama_level: str = 'routine'    # routine | notable | high_stakes | climactic
-    drama_tone: str = 'neutral'     # neutral | confident | desperate | triumphant
+    drama_level: str = 'routine'  # routine | notable | high_stakes | climactic
+    drama_tone: str = 'neutral'  # neutral | confident | desperate | triumphant
 
     # Emotional state (from psychology)
     emotional_state: str = 'composed'

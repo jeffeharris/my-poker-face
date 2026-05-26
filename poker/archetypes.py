@@ -22,8 +22,8 @@ Both scales produce the same 4-quadrant archetype names:
 #   < ANCHOR_TIGHT  → tight (selective hand range)
 #   > ANCHOR_LOOSE  → loose (wide hand range)
 #   between         → balanced/default
-ANCHOR_TIGHT = 0.45       # looseness below this = tight
-ANCHOR_LOOSE = 0.65       # looseness above this = loose
+ANCHOR_TIGHT = 0.45  # looseness below this = tight
+ANCHOR_LOOSE = 0.65  # looseness above this = loose
 ANCHOR_AGGRESSIVE = 0.50  # aggression at or above this = aggressive
 
 
@@ -57,9 +57,9 @@ def archetype_label_from_anchors(looseness: float, aggression: float) -> str:
 #
 # VPIP (Voluntarily Put $ In Pot): fraction of hands player enters
 # AF (Aggression Factor): (bets + raises) / calls
-VPIP_TIGHT = 0.30          # VPIP below this = tight player
-VPIP_LOOSE = 0.50          # VPIP above this = loose player
-VPIP_VERY_SELECTIVE = 0.20 # VPIP below this = very selective (nit territory)
-AF_PASSIVE = 0.50          # AF below this = passive player
-AF_AGGRESSIVE = 1.50       # AF above this = aggressive player
+VPIP_TIGHT = 0.30  # VPIP below this = tight player
+VPIP_LOOSE = 0.50  # VPIP above this = loose player
+VPIP_VERY_SELECTIVE = 0.20  # VPIP below this = very selective (nit territory)
+AF_PASSIVE = 0.50  # AF below this = passive player
+AF_AGGRESSIVE = 1.50  # AF above this = aggressive player
 AF_VERY_AGGRESSIVE = 2.00  # AF above this = very aggressive (maniac territory)

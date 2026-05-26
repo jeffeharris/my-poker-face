@@ -54,18 +54,15 @@ export function PageLayout({
     `page-layout--glow-${glowColor}`,
     hasMenuBar && 'page-layout--has-menu-bar',
     className,
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
-  const contentClasses = [
-    'page-layout__content',
-    `page-layout__content--${maxWidth}`,
-  ].join(' ');
+  const contentClasses = ['page-layout__content', `page-layout__content--${maxWidth}`].join(' ');
 
   return (
     <div className={containerClasses}>
-      <div className={contentClasses}>
-        {children}
-      </div>
+      <div className={contentClasses}>{children}</div>
     </div>
   );
 }

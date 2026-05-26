@@ -21,7 +21,7 @@ export function usePolling(
 
   const start = useCallback(() => {
     if (intervalRef.current) return; // Already running
-    
+
     const tick = async () => {
       await savedCallback.current();
     };

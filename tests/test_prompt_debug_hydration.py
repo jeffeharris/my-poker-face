@@ -19,12 +19,16 @@ def test_returns_none_when_row_is_none():
 def test_parses_both_json_columns():
     row = {
         'id': 1,
-        'intervention_trace_json': json.dumps([
-            {'layer': 'exploitation', 'rule_id': 'hyper_aggressive', 'effect_size': 0.4},
-        ]),
-        'strategy_pipeline_snapshot_json': json.dumps({
-            'baseline_strategy': {'fold': 0.2, 'call': 0.5, 'raise': 0.3},
-        }),
+        'intervention_trace_json': json.dumps(
+            [
+                {'layer': 'exploitation', 'rule_id': 'hyper_aggressive', 'effect_size': 0.4},
+            ]
+        ),
+        'strategy_pipeline_snapshot_json': json.dumps(
+            {
+                'baseline_strategy': {'fold': 0.2, 'call': 0.5, 'raise': 0.3},
+            }
+        ),
     }
     hydrated = hydrate_decision_analysis(row)
 

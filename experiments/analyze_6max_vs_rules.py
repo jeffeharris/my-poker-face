@@ -13,35 +13,45 @@ Usage:
     docker compose exec backend python -m experiments.analyze_6max_vs_rules Maniac
     docker compose exec backend python -m experiments.analyze_6max_vs_rules LAG --hands 500
 """
+
 import argparse
-import sys
 import os
-import random
-from collections import Counter, defaultdict
+import sys
+from collections import defaultdict
 from typing import Dict, List
-from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from poker.poker_game import (
-    PokerGameState, Player, create_deck,
-    play_turn, advance_to_next_active_player,
-)
-from poker.poker_state_machine import PokerStateMachine, PokerPhase
-from poker.strategy.strategy_table import load_strategy_table
-from poker.memory.opponent_model import OpponentModelManager
-from poker.memory.cbet_detector import CbetDetector
-from experiments.simulate_bb100 import (
-    ARCHETYPES, make_controller, make_game_state,
-    DEFAULT_RULE_OPPONENTS, MAX_ACTIONS_PER_HAND, TERMINAL_PHASES,
-    _make_seat_names, apply_adaptation_bias_override,
-)
 from typing import Optional
 
+from experiments.simulate_bb100 import (
+    ARCHETYPES,
+    DEFAULT_RULE_OPPONENTS,
+    MAX_ACTIONS_PER_HAND,
+    TERMINAL_PHASES,
+    _make_seat_names,
+    apply_adaptation_bias_override,
+    make_controller,
+    make_game_state,
+)
+from poker.memory.cbet_detector import CbetDetector
+from poker.memory.opponent_model import OpponentModelManager
+from poker.poker_game import (
+    advance_to_next_active_player,
+    play_turn,
+)
+from poker.poker_state_machine import PokerPhase, PokerStateMachine
+from poker.strategy.strategy_table import load_strategy_table
 
-def run_hand_traced(sm, controllers, big_blind, archetype_seat,
-                    opponent_manager: Optional[OpponentModelManager] = None,
-                    hand_number: Optional[int] = None):
+
+def run_hand_traced(
+    sm,
+    controllers,
+    big_blind,
+    archetype_seat,
+    opponent_manager: Optional[OpponentModelManager] = None,
+    hand_number: Optional[int] = None,
+):
     """Drive one hand and capture per-action trace for one player.
 
     Returns dict with:
@@ -106,9 +116,7 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
         # CbetDetector uses this to seed its facing-set on flop c-bets;
         # taking the snapshot after play_turn would already exclude any
         # opponent who just folded, breaking the c-bet response tracking.
-        active_players_snapshot = [
-            p.name for p in gs.players if not getattr(p, 'is_folded', False)
-        ]
+        active_players_snapshot = [p.name for p in gs.players if not getattr(p, 'is_folded', False)]
 
         if cur.name == archetype_seat:
             actions_arch.append((phase, action, raise_to))
@@ -133,7 +141,9 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
         # opponent_manager.get_model(hero, responder).
         if opponent_manager is not None and cur.name != archetype_seat:
             cbet_responses = cbet_detector.record_action(
-                player_name=cur.name, action=action, phase=phase,
+                player_name=cur.name,
+                action=action,
+                phase=phase,
                 active_players=active_players_snapshot,
             )
             for opp_name, folded in cbet_responses:
@@ -145,7 +155,9 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
             # produce no observations to apply (we don't track hero
             # folding to themselves).
             cbet_detector.record_action(
-                player_name=cur.name, action=action, phase=phase,
+                player_name=cur.name,
+                action=action,
+                phase=phase,
                 active_players=active_players_snapshot,
             )
 
@@ -154,11 +166,7 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
         # production MemoryManager.on_action path — set only after
         # play_turn() has validated the action so we don't record
         # controller intent that the engine rejected.
-        if (
-            phase == 'PRE_FLOP'
-            and action in ('raise', 'all_in')
-            and hero_controller is not None
-        ):
+        if phase == 'PRE_FLOP' and action in ('raise', 'all_in') and hero_controller is not None:
             hero_controller._sim_last_preflop_aggressor = cur.name
 
         # Phase 6.7a: per-street live aggressor for spot-aware exploit
@@ -168,10 +176,7 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
             if sim_current_street != phase:
                 hero_controller._sim_recent_aggressor = None
                 sim_current_street = phase
-            if (
-                phase in ('FLOP', 'TURN', 'RIVER')
-                and action in ('bet', 'raise', 'all_in')
-            ):
+            if phase in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
                 hero_controller._sim_recent_aggressor = cur.name
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs
@@ -189,10 +194,14 @@ def run_hand_traced(sm, controllers, big_blind, archetype_seat,
     }
 
 
-def analyze(archetype: str, n_hands: int, seed: int = 42,
-            opponents: List[str] = None,
-            adaptation_bias: Optional[float] = None,
-            exploitation_strength: float = 1.0):
+def analyze(
+    archetype: str,
+    n_hands: int,
+    seed: int = 42,
+    opponents: List[str] = None,
+    adaptation_bias: Optional[float] = None,
+    exploitation_strength: float = 1.0,
+):
     strategy_table = load_strategy_table()
     big_blind = 100
     starting_stack = 10000
@@ -209,9 +218,7 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     archetype_seat = hero_name
     all_names = [archetype_seat] + opponent_seats
 
-    config_arch = apply_adaptation_bias_override(
-        ARCHETYPES[archetype], adaptation_bias
-    )
+    config_arch = apply_adaptation_bias_override(ARCHETYPES[archetype], adaptation_bias)
     opp_configs = [ARCHETYPES[o] for o in opponents]
 
     # Per-archetype stats
@@ -220,16 +227,16 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     folds_pf = 0
     raises_pf = 0
     calls_pf = 0
-    aggressive_post = 0       # bets/raises postflop
-    passive_post = 0          # checks/calls postflop
+    aggressive_post = 0  # bets/raises postflop
+    passive_post = 0  # checks/calls postflop
     folds_post = 0
 
     # Per-hand outcomes
     deltas: List[float] = []
     wins = 0
     losses = 0
-    preflop_only_hands = 0    # archetype acted only preflop (folded or took it down preflop)
-    showdown_hands = 0        # got to river action
+    preflop_only_hands = 0  # archetype acted only preflop (folded or took it down preflop)
+    showdown_hands = 0  # got to river action
 
     # Chip transfer per opponent name
     chip_transfer: Dict[str, int] = defaultdict(int)
@@ -243,20 +250,22 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         dealer_idx = hand_num % 6
 
         gs = make_game_state(
-            player_names=all_names, big_blind=big_blind,
-            starting_stack=starting_stack, dealer_idx=dealer_idx,
+            player_names=all_names,
+            big_blind=big_blind,
+            starting_stack=starting_stack,
+            dealer_idx=dealer_idx,
             seed=hand_seed,
         )
         sm = PokerStateMachine(gs)
 
         controllers = [
-            make_controller(archetype_seat, config_arch, strategy_table, sm,
-                            rng_seed=hand_seed)
+            make_controller(archetype_seat, config_arch, strategy_table, sm, rng_seed=hand_seed)
         ]
-        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs)):
+        for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
             controllers.append(
-                make_controller(seat, cfg, strategy_table, sm,
-                                rng_seed=hand_seed + 1_000_000 * (i + 1))
+                make_controller(
+                    seat, cfg, strategy_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1)
+                )
             )
 
         # Hero is at index 0; attach the shared manager so the controller
@@ -275,7 +284,10 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         )
 
         trace = run_hand_traced(
-            sm, controllers, big_blind, archetype_seat,
+            sm,
+            controllers,
+            big_blind,
+            archetype_seat,
             opponent_manager=opponent_manager,
             hand_number=hand_num,
         )
@@ -285,9 +297,12 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         for phase, action, _ in trace['actions']:
             if phase == 'PRE_FLOP':
                 total_actions_pf += 1
-                if action == 'fold': folds_pf += 1
-                elif action == 'raise': raises_pf += 1
-                elif action == 'call': calls_pf += 1
+                if action == 'fold':
+                    folds_pf += 1
+                elif action == 'raise':
+                    raises_pf += 1
+                elif action == 'call':
+                    calls_pf += 1
             else:
                 had_post = True
                 total_actions_post += 1
@@ -302,8 +317,10 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
         final = trace['final_stacks']
         delta = final.get(archetype_seat, starting_stack) - starting_stack
         deltas.append(delta)
-        if delta > 0: wins += 1
-        elif delta < 0: losses += 1
+        if delta > 0:
+            wins += 1
+        elif delta < 0:
+            losses += 1
 
         if not had_post:
             preflop_only_hands += 1
@@ -321,8 +338,7 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     total_delta = sum(deltas)
     bb100 = (total_delta / big_blind) * 100 / n_hands
     bias_note = (
-        f" [adaptation_bias overridden to {adaptation_bias}]"
-        if adaptation_bias is not None else ""
+        f" [adaptation_bias overridden to {adaptation_bias}]" if adaptation_bias is not None else ""
     )
     print(f"\n{'=' * 70}")
     print(f"ANALYSIS: {archetype} vs {opponents}{bias_note}")
@@ -349,7 +365,9 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     print("\n── POSTFLOP ACTIONS ──")
     print(f"  Total:        {total_actions_post}")
     print(f"  Folds:        {folds_post:>5} ({100*folds_post/max(1,total_actions_post):.0f}%)")
-    print(f"  Aggressive:   {aggressive_post:>5} ({100*aggressive_post/max(1,total_actions_post):.0f}%)")
+    print(
+        f"  Aggressive:   {aggressive_post:>5} ({100*aggressive_post/max(1,total_actions_post):.0f}%)"
+    )
     print(f"  Passive:      {passive_post:>5} ({100*passive_post/max(1,total_actions_post):.0f}%)")
     af = aggressive_post / max(1, passive_post)
     print(f"  AggFactor:    {af:.2f}")
@@ -398,9 +416,11 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
     hero_models = opponent_manager.get_all_models_for_observer(archetype_seat)
     if hero_models:
         print("\n── PER-OPPONENT TENDENCIES (hero's view) ──")
-        print(f"  {'opponent':<18} {'dealt':>6} {'acted':>6} "
-              f"{'VPIP':>6} {'PFR':>6} {'AF':>6} {'all_in%':>8} "
-              f"{'f2cbet':>7} {'cbet_n':>7} triggers")
+        print(
+            f"  {'opponent':<18} {'dealt':>6} {'acted':>6} "
+            f"{'VPIP':>6} {'PFR':>6} {'AF':>6} {'all_in%':>8} "
+            f"{'f2cbet':>7} {'cbet_n':>7} triggers"
+        )
         for opp_name, model in sorted(hero_models.items()):
             t = model.tendencies
             triggers = []
@@ -416,12 +436,14 @@ def analyze(archetype: str, n_hands: int, seed: int = 42,
             if t.fold_to_cbet > 0.60 and t._cbet_faced_count >= 5:
                 triggers.append('F2C>0.60')
             trigger_str = ' '.join(triggers) if triggers else '-'
-            print(f"  {opp_name:<18} "
-                  f"{t.hands_dealt:>6} {t.hands_observed:>6} "
-                  f"{t.vpip:>6.2f} {t.pfr:>6.2f} "
-                  f"{t.aggression_factor:>6.2f} {t.all_in_frequency:>8.2f} "
-                  f"{t.fold_to_cbet:>7.2f} {t._cbet_faced_count:>7d} "
-                  f"{trigger_str}")
+            print(
+                f"  {opp_name:<18} "
+                f"{t.hands_dealt:>6} {t.hands_observed:>6} "
+                f"{t.vpip:>6.2f} {t.pfr:>6.2f} "
+                f"{t.aggression_factor:>6.2f} {t.all_in_frequency:>8.2f} "
+                f"{t.fold_to_cbet:>7.2f} {t._cbet_faced_count:>7d} "
+                f"{trigger_str}"
+            )
 
 
 def main():
@@ -430,22 +452,28 @@ def main():
     p.add_argument('--hands', type=int, default=200)
     p.add_argument('--seed', type=int, default=42)
     p.add_argument(
-        '--opponents', type=str, default=None,
+        '--opponents',
+        type=str,
+        default=None,
         help='Comma-separated list of exactly 5 ARCHETYPES keys '
-             '(e.g. "CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"). '
-             'Duplicates allowed; seats get suffixed (CaseBot01, etc.).',
+        '(e.g. "CaseBot,CaseBot,CaseBot,GTO-Lite,ABCBot"). '
+        'Duplicates allowed; seats get suffixed (CaseBot01, etc.).',
     )
     p.add_argument(
-        '--adaptation-bias', type=float, default=None,
+        '--adaptation-bias',
+        type=float,
+        default=None,
         help='Override adaptation_bias on the hero archetype anchors. '
-             'Phase 6 validation gates: 0.05 = no-exploit floor, '
-             '0.85 = full exploitation.',
+        'Phase 6 validation gates: 0.05 = no-exploit floor, '
+        '0.85 = full exploitation.',
     )
     p.add_argument(
-        '--exploitation-strength', type=float, default=1.0,
+        '--exploitation-strength',
+        type=float,
+        default=1.0,
         help='Global multiplier on exploitation offset magnitudes. '
-             'Used for the calibration sweep — default 1.0; sweep '
-             '[1.0, 1.5, 2.0, 2.5] to find optimal magnitude.',
+        'Used for the calibration sweep — default 1.0; sweep '
+        '[1.0, 1.5, 2.0, 2.5] to find optimal magnitude.',
     )
     args = p.parse_args()
 
@@ -463,7 +491,9 @@ def main():
                 sys.exit(1)
 
     analyze(
-        args.archetype, args.hands, args.seed,
+        args.archetype,
+        args.hands,
+        args.seed,
         opponents=opponents,
         adaptation_bias=args.adaptation_bias,
         exploitation_strength=args.exploitation_strength,

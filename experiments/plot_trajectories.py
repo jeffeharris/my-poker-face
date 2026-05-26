@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 
 # Zone centers and radii
@@ -42,7 +41,8 @@ def get_trajectory_data(db_path: str, experiment_id: int):
     cursor = conn.cursor()
 
     # Get one point per hand per player (first decision of each hand)
-    cursor.execute('''
+    cursor.execute(
+        '''
         SELECT player_name, hand_number, zone_confidence, zone_composure,
                zone_primary_sweet_spot, zone_primary_penalty
         FROM player_decision_analysis pda
@@ -51,7 +51,9 @@ def get_trajectory_data(db_path: str, experiment_id: int):
           AND zone_confidence IS NOT NULL
         GROUP BY pda.game_id, player_name, hand_number
         ORDER BY player_name, hand_number
-    ''', (experiment_id,))
+    ''',
+        (experiment_id,),
+    )
 
     trajectories = {}
     for row in cursor:
@@ -82,15 +84,21 @@ def plot_trajectories(trajectories: dict, output_path: str, experiment_id: int):
     # Sweet spot circles
     zone_colors = {
         'poker_face': '#90EE90',  # Light green
-        'guarded': '#87CEEB',     # Light blue
+        'guarded': '#87CEEB',  # Light blue
         'commanding': '#FFD700',  # Gold
-        'aggro': '#FFA500',       # Orange
+        'aggro': '#FFA500',  # Orange
     }
 
     for zone_name, center in ZONE_CENTERS.items():
         radius = ZONE_RADII[zone_name]
-        circle = plt.Circle(center, radius, fill=True, alpha=0.2,
-                          color=zone_colors[zone_name], label=f'{zone_name} zone')
+        circle = plt.Circle(
+            center,
+            radius,
+            fill=True,
+            alpha=0.2,
+            color=zone_colors[zone_name],
+            label=f'{zone_name} zone',
+        )
         ax.add_patch(circle)
         ax.annotate(zone_name, center, ha='center', va='center', fontsize=8, alpha=0.7)
 
@@ -106,7 +114,7 @@ def plot_trajectories(trajectories: dict, output_path: str, experiment_id: int):
     # Plot trajectories
     colors = plt.cm.tab10(np.linspace(0, 1, len(trajectories)))
 
-    for (player, data), color in zip(trajectories.items(), colors):
+    for (player, data), color in zip(trajectories.items(), colors, strict=False):
         conf = data['confidence']
         comp = data['composure']
 
@@ -119,12 +127,15 @@ def plot_trajectories(trajectories: dict, output_path: str, experiment_id: int):
 
         # Add arrows to show direction (every 10 points)
         for i in range(0, len(conf) - 1, max(1, len(conf) // 10)):
-            dx = conf[min(i+1, len(conf)-1)] - conf[i]
-            dy = comp[min(i+1, len(comp)-1)] - comp[i]
+            dx = conf[min(i + 1, len(conf) - 1)] - conf[i]
+            dy = comp[min(i + 1, len(comp) - 1)] - comp[i]
             if abs(dx) > 0.001 or abs(dy) > 0.001:
-                ax.annotate('', xy=(conf[i] + dx*0.5, comp[i] + dy*0.5),
-                           xytext=(conf[i], comp[i]),
-                           arrowprops=dict(arrowstyle='->', color=color, alpha=0.4))
+                ax.annotate(
+                    '',
+                    xy=(conf[i] + dx * 0.5, comp[i] + dy * 0.5),
+                    xytext=(conf[i], comp[i]),
+                    arrowprops=dict(arrowstyle='->', color=color, alpha=0.4),
+                )
 
     # Labels and formatting
     ax.set_xlim(0, 1)

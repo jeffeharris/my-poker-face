@@ -47,7 +47,9 @@ def _make_lean_prompt_stub():
     cfg.show_ev_labels = None
     stub.prompt_config = cfg
     stub._build_lean_prompt = LeanBoundedController._build_lean_prompt.__get__(stub)
-    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(stub)
+    stub._build_street_action_summary = LeanBoundedController._build_street_action_summary.__get__(
+        stub
+    )
     return stub
 
 
@@ -151,8 +153,12 @@ class TestHeadsUpBoundedOptions:
         hu_ctx = _bounded_context(num_opponents=1, cost_to_call=100)
         mw_ctx = _bounded_context(num_opponents=2, cost_to_call=100)
 
-        hu = generate_bounded_options(hu_ctx, in_range=False, range_pct=0.25, position_display='the button')
-        mw = generate_bounded_options(mw_ctx, in_range=False, range_pct=0.25, position_display='the button')
+        hu = generate_bounded_options(
+            hu_ctx, in_range=False, range_pct=0.25, position_display='the button'
+        )
+        mw = generate_bounded_options(
+            mw_ctx, in_range=False, range_pct=0.25, position_display='the button'
+        )
 
         hu_call = next(o for o in hu if o.action == 'call')
         mw_call = next(o for o in mw if o.action == 'call')
@@ -163,8 +169,9 @@ class TestHeadsUpBoundedOptions:
     def test_hu_equity_offset_gated_off_by_default(self):
         """T1-34 (gated): without apply_hu_equity_offset=True, HU equity is
         unchanged (offsets stay opt-in for A/B work)."""
-        ctx = _bounded_context(equity=0.40, num_opponents=1, position='button',
-                               cost_to_call=100, pot_total=200)
+        ctx = _bounded_context(
+            equity=0.40, num_opponents=1, position='button', cost_to_call=100, pot_total=200
+        )
         opts_default = generate_bounded_options(ctx)
         opts_explicit_off = generate_bounded_options(ctx, apply_hu_equity_offset=False)
         # EV labels are identical without the offset.
@@ -173,8 +180,9 @@ class TestHeadsUpBoundedOptions:
     def test_hu_equity_offset_when_enabled_promotes_btn_raise(self):
         """T1-34 (gated): with apply_hu_equity_offset=True, BTN raises with
         moderate equity get a stronger EV label (offset adds +0.30)."""
-        ctx = _bounded_context(equity=0.40, num_opponents=1, position='button',
-                               cost_to_call=100, pot_total=200)
+        ctx = _bounded_context(
+            equity=0.40, num_opponents=1, position='button', cost_to_call=100, pot_total=200
+        )
         without = generate_bounded_options(ctx, apply_hu_equity_offset=False)
         with_offset = generate_bounded_options(ctx, apply_hu_equity_offset=True)
         # The first raise option should improve from -EV/neutral to neutral/+EV

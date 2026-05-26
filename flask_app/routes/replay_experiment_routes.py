@@ -6,11 +6,11 @@ with different variants (models, prompts, guidance) to test prompt effectiveness
 
 import logging
 import threading
-from typing import Dict, Any
+from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import replay_experiment_repo, capture_label_repo, prompt_capture_repo
+from ..extensions import capture_label_repo, prompt_capture_repo, replay_experiment_repo
 from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
@@ -44,16 +44,12 @@ def list_replay_experiments():
         offset = request.args.get('offset', 0, type=int)
 
         result = replay_experiment_repo.list_replay_experiments(
-            status=status,
-            limit=limit,
-            offset=offset
+            status=status, limit=limit, offset=offset
         )
 
-        return jsonify({
-            'success': True,
-            'experiments': result['experiments'],
-            'total': result['total']
-        })
+        return jsonify(
+            {'success': True, 'experiments': result['experiments'], 'total': result['total']}
+        )
     except Exception as e:
         logger.error(f"Error listing replay experiments: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -105,10 +101,9 @@ def create_replay_experiment():
         capture_ids = _resolve_capture_ids(capture_selection)
 
         if not capture_ids:
-            return jsonify({
-                'success': False,
-                'error': 'No captures match the selection criteria'
-            }), 400
+            return jsonify(
+                {'success': False, 'error': 'No captures match the selection criteria'}
+            ), 400
 
         # Create the experiment
         experiment_id = replay_experiment_repo.create_replay_experiment(
@@ -117,14 +112,12 @@ def create_replay_experiment():
             variants=variants,
             description=data.get('description'),
             hypothesis=data.get('hypothesis'),
-            tags=data.get('tags')
+            tags=data.get('tags'),
         )
 
-        return jsonify({
-            'success': True,
-            'experiment_id': experiment_id,
-            'capture_count': len(capture_ids)
-        })
+        return jsonify(
+            {'success': True, 'experiment_id': experiment_id, 'capture_count': len(capture_ids)}
+        )
 
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -159,14 +152,10 @@ def get_replay_experiment(experiment_id: int):
         progress = {
             'completed': completed,
             'total': total,
-            'percent': int(completed / total * 100) if total > 0 else 0
+            'percent': int(completed / total * 100) if total > 0 else 0,
         }
 
-        return jsonify({
-            'success': True,
-            'experiment': experiment,
-            'progress': progress
-        })
+        return jsonify({'success': True, 'experiment': experiment, 'progress': progress})
     except Exception as e:
         logger.error(f"Error getting replay experiment {experiment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -208,15 +197,12 @@ def launch_replay_experiment(experiment_id: int):
             experiment_id=experiment_id,
             persistence=replay_experiment_repo,
             parallel=parallel,
-            max_workers=max_workers
+            max_workers=max_workers,
         )
 
         _active_replay_threads[experiment_id] = thread
 
-        return jsonify({
-            'success': True,
-            'message': 'Experiment launched'
-        })
+        return jsonify({'success': True, 'message': 'Experiment launched'})
     except Exception as e:
         logger.error(f"Error launching replay experiment {experiment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -250,14 +236,10 @@ def get_replay_results(experiment_id: int):
             variant=variant,
             quality_change=quality_change,
             limit=limit,
-            offset=offset
+            offset=offset,
         )
 
-        return jsonify({
-            'success': True,
-            'results': result['results'],
-            'total': result['total']
-        })
+        return jsonify({'success': True, 'results': result['results'], 'total': result['total']})
     except Exception as e:
         logger.error(f"Error getting replay results for {experiment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -279,10 +261,7 @@ def get_replay_summary(experiment_id: int):
     try:
         summary = replay_experiment_repo.get_replay_results_summary(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'summary': summary
-        })
+        return jsonify({'success': True, 'summary': summary})
     except Exception as e:
         logger.error(f"Error getting replay summary for {experiment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -301,16 +280,15 @@ def get_replay_captures(experiment_id: int):
     try:
         captures = replay_experiment_repo.get_replay_experiment_captures(experiment_id)
 
-        return jsonify({
-            'success': True,
-            'captures': captures
-        })
+        return jsonify({'success': True, 'captures': captures})
     except Exception as e:
         logger.error(f"Error getting replay captures for {experiment_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@replay_experiment_bp.route('/api/replay-experiments/<int:experiment_id>/captures/<int:capture_id>', methods=['GET'])
+@replay_experiment_bp.route(
+    '/api/replay-experiments/<int:experiment_id>/captures/<int:capture_id>', methods=['GET']
+)
 def get_capture_replay_comparison(experiment_id: int, capture_id: int):
     """Get side-by-side comparison of original vs variant results for a capture.
 
@@ -335,19 +313,13 @@ def get_capture_replay_comparison(experiment_id: int, capture_id: int):
 
         # Get variant results for this capture
         results = replay_experiment_repo.get_replay_results(
-            experiment_id=experiment_id,
-            limit=100,
-            offset=0
+            experiment_id=experiment_id, limit=100, offset=0
         )
 
         # Filter to this capture
         capture_results = [r for r in results['results'] if r['capture_id'] == capture_id]
 
-        return jsonify({
-            'success': True,
-            'original': original,
-            'variants': capture_results
-        })
+        return jsonify({'success': True, 'original': original, 'variants': capture_results})
     except Exception as e:
         logger.error(f"Error getting capture comparison for {experiment_id}/{capture_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -383,7 +355,7 @@ def _resolve_capture_ids(capture_selection: Dict[str, Any]) -> list:
             action=filters.get('action'),
             min_pot_odds=filters.get('min_pot_odds'),
             max_pot_odds=filters.get('max_pot_odds'),
-            limit=1000  # Cap at 1000 captures per experiment
+            limit=1000,  # Cap at 1000 captures per experiment
         )
         return [c['id'] for c in result.get('captures', [])]
 
@@ -396,7 +368,7 @@ def _resolve_capture_ids(capture_selection: Dict[str, Any]) -> list:
             action=filters.get('action'),
             min_pot_odds=filters.get('min_pot_odds'),
             max_pot_odds=filters.get('max_pot_odds'),
-            limit=1000
+            limit=1000,
         )
         return [c['id'] for c in result.get('captures', [])]
 

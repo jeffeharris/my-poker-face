@@ -10,7 +10,6 @@ Spec: `docs/plans/CASH_MODE_AI_ASPIRATION_ASK.md` Commit 2.
 
 from __future__ import annotations
 
-
 # --- Tunable constants -------------------------------------------------------
 
 DEFAULT_BASE_RATE: float = 0.002

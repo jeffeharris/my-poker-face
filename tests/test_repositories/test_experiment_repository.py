@@ -1,5 +1,7 @@
 """Tests for ExperimentRepository (lifecycle, chat sessions)."""
+
 import pytest
+
 from poker.repositories.experiment_repository import ExperimentRepository
 from poker.repositories.game_repository import GameRepository
 
@@ -14,6 +16,7 @@ def repo(db_path):
 
 
 # ==================== Experiment Lifecycle ====================
+
 
 class TestExperimentLifecycle:
     def test_create_and_get_experiment(self, repo):
@@ -65,8 +68,11 @@ class TestExperimentLifecycle:
     def test_link_game_to_experiment(self, repo):
         exp_id = repo.create_experiment({'name': 'link-test'})
         link_id = repo.link_game_to_experiment(
-            exp_id, 'game-1', variant='control',
-            variant_config={'model': 'gpt-4'}, tournament_number=1
+            exp_id,
+            'game-1',
+            variant='control',
+            variant_config={'model': 'gpt-4'},
+            tournament_number=1,
         )
         assert link_id > 0
 
@@ -146,6 +152,7 @@ class TestExperimentLifecycle:
 
 # ==================== Chat Sessions ====================
 
+
 class TestChatSessions:
     def test_save_and_get_chat_session(self, repo):
         messages = [{'role': 'user', 'content': 'Hello'}]
@@ -163,7 +170,9 @@ class TestChatSessions:
 
     def test_save_chat_session_upsert(self, repo):
         repo.save_chat_session('session-1', 'owner-1', [{'role': 'user', 'content': 'v1'}], {})
-        repo.save_chat_session('session-1', 'owner-1', [{'role': 'user', 'content': 'v2'}], {'updated': True})
+        repo.save_chat_session(
+            'session-1', 'owner-1', [{'role': 'user', 'content': 'v2'}], {'updated': True}
+        )
 
         session = repo.get_chat_session('session-1')
         assert session['messages'][0]['content'] == 'v2'

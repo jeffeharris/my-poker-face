@@ -177,9 +177,7 @@ export function CashControls({
     <div className="cash-controls glass">
       <div className="cash-controls__row">
         <span className="cash-controls__label">Bankroll</span>
-        <span className="cash-controls__value">
-          ${cashMode.bankroll.toLocaleString()}
-        </span>
+        <span className="cash-controls__value">${cashMode.bankroll.toLocaleString()}</span>
       </div>
       <div className="cash-controls__row">
         <span className="cash-controls__label">Stake</span>
@@ -199,16 +197,11 @@ export function CashControls({
                 : `Top up $${topUpAmount.toLocaleString()}`
           }
         >
-          {busy && !confirmLeave
-            ? 'Topping up…'
-            : `Top up +$${topUpAmount.toLocaleString()}`}
+          {busy && !confirmLeave ? 'Topping up…' : `Top up +$${topUpAmount.toLocaleString()}`}
         </button>
       )}
       {confirmLeave && cashMode.active_loan && (
-        <LeaveBreakdownPanel
-          stack={playerStack}
-          loan={cashMode.active_loan}
-        />
+        <LeaveBreakdownPanel stack={playerStack} loan={cashMode.active_loan} />
       )}
       <button
         type="button"
