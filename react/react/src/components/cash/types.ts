@@ -255,6 +255,10 @@ export interface ActiveVice {
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
+  /** The table the player is currently seated at (live session), or
+   *  null when they have no active game. Drives the "you're seated here"
+   *  pin + Resume action on the matching TableCard. */
+  seated_table_id?: string | null;
   events: LobbyEvent[];
   /** v110 — count of AI-borrower carries asking the player to forgive.
    *  Drives the wallet badge in the Lobby header. The full request

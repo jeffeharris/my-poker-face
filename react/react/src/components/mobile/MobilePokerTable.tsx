@@ -373,9 +373,10 @@ export function MobilePokerTable({
         smallBlind={smallBlind}
         bigBlind={bigBlind}
         handNumber={handNumber}
+        tableName={cashMode?.table_name}
       />
     ),
-    [phase, smallBlind, bigBlind, handNumber]
+    [phase, smallBlind, bigBlind, handNumber, cashMode?.table_name]
   );
 
   const handleCoachToggle = useCallback(() => {

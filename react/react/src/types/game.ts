@@ -48,6 +48,12 @@ export interface CashModeInfo {
   /** Present when the player has an outstanding sponsor loan; drives the
    *  leave-table settlement preview. Null when no loan is active. */
   active_loan?: CashActiveLoan | null;
+  /** The specific table the player is seated at. `table_name` is the
+   *  friendly room label ("The Lodge") shown in the in-game header chip
+   *  + arrival toast. Both omitted for legacy sessions where the name
+   *  wasn't resolved — the chip then simply doesn't render. */
+  table_id?: string | null;
+  table_name?: string | null;
 }
 
 export interface GameState {

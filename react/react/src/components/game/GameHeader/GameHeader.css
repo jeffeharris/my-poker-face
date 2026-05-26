@@ -49,6 +49,18 @@
   letter-spacing: var(--letter-spacing-wide);
 }
 
+/* Cash-mode room name — the leading identity item. Brighter + heavier
+   than the secondary info so "where you are" reads as the anchor. */
+.game-header__location {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .game-header__separator {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);

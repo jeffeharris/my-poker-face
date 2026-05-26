@@ -711,6 +711,12 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
         'min_buy_in': big_blind * 40,
         'max_buy_in': big_blind * 100,
         'active_loan': active_loan,
+        # Table identity for the in-game location chip + arrival toast.
+        # Stamped on game_data alongside cash_table_id at seat-in /
+        # cold-load; both nullable, so the frontend degrades to "no chip"
+        # for legacy sessions where the name wasn't resolved.
+        'table_id': current_game_data.get('cash_table_id'),
+        'table_name': current_game_data.get('cash_table_name'),
     }
 
 

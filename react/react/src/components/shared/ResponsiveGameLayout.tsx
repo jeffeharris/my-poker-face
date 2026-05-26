@@ -1,4 +1,5 @@
 import { useViewport } from '../../hooks/useViewport';
+import { ArrivalWelcome } from '../cash/ArrivalWelcome';
 import { PokerTable } from '../game/PokerTable';
 import { MobilePokerTable } from '../mobile';
 
@@ -23,19 +24,15 @@ export function ResponsiveGameLayout({
 }: ResponsiveGameLayoutProps) {
   const { isMobile } = useViewport();
 
-  if (isMobile) {
-    return (
-      <MobilePokerTable
-        gameId={gameId}
-        playerName={playerName}
-        onGameCreated={onGameCreated}
-        onBack={onBack}
-        onGameLoadFailed={onGameLoadFailed}
-      />
-    );
-  }
-
-  return (
+  const table = isMobile ? (
+    <MobilePokerTable
+      gameId={gameId}
+      playerName={playerName}
+      onGameCreated={onGameCreated}
+      onBack={onBack}
+      onGameLoadFailed={onGameLoadFailed}
+    />
+  ) : (
     <PokerTable
       gameId={gameId}
       playerName={playerName}
@@ -43,5 +40,15 @@ export function ResponsiveGameLayout({
       onBack={onBack}
       onGameLoadFailed={onGameLoadFailed}
     />
+  );
+
+  return (
+    <>
+      {/* Cash-mode "you walked into a room" card on sit-down. Portaled
+          overlay; reads the seated table from the store; no-op for
+          tournaments. Rendered alongside whichever layout shows. */}
+      <ArrivalWelcome />
+      {table}
+    </>
   );
 }

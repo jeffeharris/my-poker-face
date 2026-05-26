@@ -909,6 +909,30 @@ def api_game_state(game_id):
                                         )
                                         current_game_data['cash_table_id'] = cs.cash_table_id
                                         current_game_data['cash_seat_index'] = cs.cash_seat_index
+                                        # Resolve the friendly room name for the
+                                        # header chip / arrival toast. One-time
+                                        # lookup on cold-load (not the hot
+                                        # game-state path). Best-effort: any
+                                        # miss leaves the chip off.
+                                        try:
+                                            from flask_app.extensions import (
+                                                cash_table_repo,
+                                            )
+
+                                            if (
+                                                cash_table_repo is not None
+                                                and cs.cash_table_id is not None
+                                            ):
+                                                _ct = cash_table_repo.load_table(
+                                                    cs.cash_table_id,
+                                                    sandbox_id=cold_load_sandbox_id,
+                                                )
+                                                if _ct is not None:
+                                                    current_game_data[
+                                                        'cash_table_name'
+                                                    ] = _ct.name
+                                        except Exception:
+                                            pass
                             except Exception as e:
                                 logger.warning(
                                     "[LOAD] cash_sessions cold-load restore failed for %r: %s",

@@ -1322,6 +1322,10 @@ def sit_at_table():
     if game_data is not None:
         game_data["cash_table_id"] = table_id
         game_data["cash_seat_index"] = seat_index
+        # Friendly room name for the in-game header chip + arrival toast.
+        # Rides along with table_id so build_cash_mode_payload stays a
+        # pure reader (no per-frame DB lookup on the hot game-state path).
+        game_data["cash_table_name"] = claimed_table.name
         game_state_service.set_game(game_id, game_data)
 
     _record_cash_session_start(
@@ -1917,6 +1921,12 @@ def sponsor_and_sit():
         if game_data is not None:
             game_data["cash_table_id"] = table_id
             game_data["cash_seat_index"] = seat_index
+            # Friendly room name for the header chip / arrival toast.
+            # claimed_table may be None on this sponsor path; degrade to
+            # None so the frontend simply omits the chip.
+            game_data["cash_table_name"] = (
+                claimed_table.name if claimed_table is not None else None
+            )
             game_state_service.set_game(game_id, game_data)
 
     # Persist the stake row that leave_table will settle. `stake_id`
@@ -4395,10 +4405,15 @@ def get_lobby():
     # chain. Full Path C will source emotions from background-sim
     # state for unseated tables too.
     active_emotions: Dict[str, str] = {}
+    # Which table is the player currently seated at? Drives the lobby
+    # "you're seated here" pin (TableCard Resume state). None when the
+    # player has no live session.
+    seated_table_id: Optional[str] = None
     active_game_id = _find_active_cash_game_id(owner_id)
     if active_game_id:
         active_game = game_state_service.get_game(active_game_id)
         if active_game:
+            seated_table_id = active_game.get("cash_table_id")
             for name, controller in (active_game.get("ai_controllers") or {}).items():
                 emotional_state = getattr(controller, "emotional_state", None)
                 if emotional_state:
@@ -4832,6 +4847,7 @@ def get_lobby():
             "tier": current_tier,
             "tier_stake_label": current_tier_stake,
             "tables": response_tables,
+            "seated_table_id": seated_table_id,
             "events": events_payload,
             "pending_forgiveness_count": pending_forgiveness_count,
             "active_vices": active_vices_payload,
