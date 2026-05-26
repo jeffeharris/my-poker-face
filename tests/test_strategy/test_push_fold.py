@@ -48,23 +48,23 @@ class TestLookupBasic:
     def test_range_widens_as_depth_shrinks(self):
         """A borderline hand that folds at 15 BB should jam at 5 BB.
 
-        76s is a documented sweet-spot example: in the 5 BB jam range
-        (suited, connected, can flop a one-card straight or flush draw
-        cheaply when you have to commit anyway), out of the 15 BB range
-        (suited connector equity vs random isn't strong enough to risk
-        a 15 BB jam when you can fold and wait)."""
+        Under the chip-EV Nash equilibrium the SB jam range widens as
+        stacks shorten. Q2o is a boundary hand: jammed at 5 BB, folded by
+        15 BB. (76s, by contrast, Nash-jams at every depth including 15 BB
+        — it is NOT a boundary example; the old placeholder wrongly folded
+        it at 15 BB.)"""
         result_15 = push_fold.lookup_push_fold_action(
-            hand='76s',
+            hand='Q2o',
             position='SB',
             effective_stack_bb=15,
         )
         result_5 = push_fold.lookup_push_fold_action(
-            hand='76s',
+            hand='Q2o',
             position='SB',
             effective_stack_bb=5,
         )
-        assert result_15 == 'fold', f"76s should fold at 15 BB, got {result_15}"
-        assert result_5 == 'jam', f"76s should jam at 5 BB, got {result_5}"
+        assert result_15 == 'fold', f"Q2o should fold at 15 BB, got {result_15}"
+        assert result_5 == 'jam', f"Q2o should jam at 5 BB, got {result_5}"
 
     def test_returns_none_for_multi_way(self):
         result = push_fold.lookup_push_fold_action(
@@ -181,11 +181,15 @@ class TestDepthSnapping:
         assert result == 'jam'
 
 
-class TestAggregateBands:
-    """Assert that the v1 chart's aggregate frequencies fall within the
-    bands documented in push_fold_hu_README.md. These tests catch
-    regressions where the generator's range thresholds drift out of
-    spec."""
+class TestAggregateStructure:
+    """Structural sanity on the chip-EV Nash chart's aggregate frequencies.
+
+    The chart is now solver-computed (no hand-authored frequency bands),
+    so instead of pinning narrow bands we assert the equilibrium shape:
+    push/call ranges widen monotonically as stacks shorten, and stay
+    within loose Nash-plausible bounds. Precise per-depth frequencies are
+    pinned in test_push_fold_nash.py against the regenerated JSON.
+    """
 
     CHART_PATH = (
         Path(__file__).resolve().parent.parent.parent
@@ -195,43 +199,36 @@ class TestAggregateBands:
         / "push_fold_hu.json"
     )
 
+    DEPTHS = [5, 7, 10, 12, 15]
+
     @pytest.fixture(scope="class")
     def chart(self):
         with self.CHART_PATH.open() as f:
             return json.load(f)
 
-    @pytest.mark.parametrize(
-        "depth,min_pct,max_pct",
-        [
-            (5, 70, 90),
-            (7, 50, 65),
-            (10, 40, 50),
-            (12, 30, 40),
-            (15, 22, 32),
-        ],
-    )
-    def test_sb_push_rate_in_band(self, chart, depth, min_pct, max_pct):
-        scenario = chart[f"{depth}bb"]["sb_open"]
-        push_count = sum(1 for h, actions in scenario.items() if actions.get("jam", 0.0) > 0.5)
-        pct = push_count / 169 * 100
-        assert (
-            min_pct <= pct <= max_pct
-        ), f"{depth} BB SB push rate {pct:.1f}% outside band [{min_pct}, {max_pct}]"
+    @staticmethod
+    def _combo_count(hand: str) -> int:
+        if len(hand) == 2:
+            return 6
+        return 4 if hand[2] == "s" else 12
 
-    @pytest.mark.parametrize(
-        "depth,min_pct,max_pct",
-        [
-            (5, 40, 55),
-            (7, 25, 35),
-            (10, 18, 25),
-            (12, 14, 20),
-            (15, 10, 16),
-        ],
-    )
-    def test_bb_call_rate_in_band(self, chart, depth, min_pct, max_pct):
-        scenario = chart[f"{depth}bb"]["bb_vs_jam"]
-        call_count = sum(1 for h, actions in scenario.items() if actions.get("call", 0.0) > 0.5)
-        pct = call_count / 169 * 100
-        assert (
-            min_pct <= pct <= max_pct
-        ), f"{depth} BB BB call rate {pct:.1f}% outside band [{min_pct}, {max_pct}]"
+    def _pct(self, scenario: dict, action: str) -> float:
+        total = sum(self._combo_count(h) for h in scenario)
+        hit = sum(self._combo_count(h) for h, a in scenario.items() if action in a)
+        return hit / total * 100
+
+    def test_sb_push_monotone_and_bounded(self, chart):
+        pcts = [self._pct(chart[f"{d}bb"]["sb_open"], "jam") for d in self.DEPTHS]
+        for shallow, deep in zip(pcts, pcts[1:]):
+            assert shallow >= deep, f"SB push % not monotone over depth: {pcts}"
+        # 5bb pure jam/fold ~74% (any-two is a ~2-3bb regime); 15bb tighter ~46%.
+        assert pcts[0] >= 65.0, f"5bb SB push too tight: {pcts[0]:.1f}%"
+        assert pcts[-1] <= 60.0, f"15bb SB push implausibly wide: {pcts[-1]:.1f}%"
+        assert pcts[0] > pcts[-1]
+
+    def test_bb_call_monotone_and_bounded(self, chart):
+        pcts = [self._pct(chart[f"{d}bb"]["bb_vs_jam"], "call") for d in self.DEPTHS]
+        for shallow, deep in zip(pcts, pcts[1:]):
+            assert shallow >= deep, f"BB call % not monotone over depth: {pcts}"
+        assert pcts[0] > pcts[-1]
+        assert 0.0 < pcts[-1] < pcts[0] <= 100.0

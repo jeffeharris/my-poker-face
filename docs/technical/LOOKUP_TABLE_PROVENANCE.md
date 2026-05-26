@@ -5,6 +5,8 @@ created: 2026-05-26
 last_updated: 2026-05-26
 ---
 
+<!-- 2026-05-26: push_fold_hu.json reclassified from hand-authored placeholder to computed chip-EV HU Nash (no ante), validated vs HUNE anchors. -->
+
 # Lookup-table provenance index
 
 The tiered bot (`poker/tiered_bot_controller.py`) plays from hand/rule-authored
@@ -13,10 +15,13 @@ where each shipped table came from. The authoritative *detail* for each chart
 lives in its sibling `*_README.md` (taxonomy, per-hand rules, calibration logs,
 known gaps); this page summarizes and cross-links them.
 
-> **No chart is solver-derived.** Every table below is hand-authored (often with
-> AI assistance) and validated by simulation, not produced by a CFR/Nash solver.
-> Treat the frequencies as calibrated heuristics, not equilibrium output. The
-> long-term solver program is scoped separately in
+> **Only `push_fold_hu.json` is equilibrium-computed.** It is the exact chip-EV
+> heads-up push/fold Nash equilibrium (no ante), solved by fixed-point iteration
+> with eval7 all-in equities and validated against HoldemResources HUNE anchors.
+> Every *other* table below is hand-authored (often with AI assistance) and
+> validated by simulation, not produced by a CFR/postflop solver — treat those
+> frequencies as calibrated heuristics, not equilibrium output. The long-term
+> postflop solver program is scoped separately in
 > `docs/plans/SOLVER_CHART_SCOPE.md`.
 
 ## Shipped tables
@@ -28,7 +33,7 @@ known gaps); this page summarizes and cross-links them.
 | `preflop_50bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_25bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_100bb_hu.json` | 676 | `46ca598e` (2026-05-13) | Hand-authored per-hand rules + border-flip log + v2 mixed-freq calibration | `hu_preflop_chart_README.md` |
-| `push_fold_hu.json` | 5 depth buckets (5/7/10/12/15bb) | `0575952a` (2026-05-17) | Hand-authored round-number Nash *approximation* (v1 binary; never Nash-verified) | `push_fold_hu_README.md` |
+| `push_fold_hu.json` | 5 depth buckets (5/7/10/12/15bb) | `0575952a` (2026-05-17); recomputed 2026-05-26 | **Computed** chip-EV HU pure jam/fold Nash (no ante) by `generate_push_fold_nash.py` (fictitious play, eval7 all-in equities). SB-pusher validated vs HoldemResources HUNE anchors (the placeholder's A6o/KQo-fold-at-15bb bug is fixed); BB-caller independently verified as the exact pot-odds best-response to the SB jam range via fresh eval7 (wider than some circulating "caller charts," which are inconsistent with the wide jam range — see README). | `push_fold_hu_README.md` |
 
 All entry counts are live (`load_strategy_table().size` etc., 2026-05-26).
 
