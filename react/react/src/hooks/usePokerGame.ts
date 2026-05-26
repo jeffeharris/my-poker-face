@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
-import type { CashBustEvent } from '../components/cash/types';
+import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
@@ -94,6 +94,7 @@ export function usePokerGame({
   const applyGameState = useGameStore((state) => state.applyGameState);
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
+  const pushWorldEvent = useGameStore((state) => state.pushWorldEvent);
   const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
@@ -565,6 +566,16 @@ export function usePokerGame({
         setCashBustEvent({ ...data, kind: 'bust' });
       });
 
+      // Cash/career mode: the realtime world ticker broadcasts `world_event`
+      // to the per-user lobby room, which this game socket is already joined
+      // to (the connect handler joins it for the game page too). Buffer them
+      // so the interhand shuffle screen can show a "meanwhile, elsewhere"
+      // digest. Buffering is harmless in tournament games; display is gated
+      // on cashMode in the table component.
+      socket.on('world_event', (event: LobbyEvent) => {
+        pushWorldEvent(event);
+      });
+
       // Listen for avatar updates (when background generation completes)
       // Always cache the URL so it's available when needed later.
       // Only update the displayed avatar if:
@@ -611,6 +622,7 @@ export function usePokerGame({
       clearAiThinkingTimeout,
       updateStorePlayers,
       updateStorePlayerOptions,
+      pushWorldEvent,
       resetBuffer,
       processStateUpdate,
     ]

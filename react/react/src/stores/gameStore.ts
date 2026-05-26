@@ -1,10 +1,23 @@
 import { create } from 'zustand';
 import type { Player } from '../types/player';
 import type { GameState, BettingContext, CashModeInfo } from '../types/game';
+import type { LobbyEvent } from '../components/cash/types';
 
 // Stable references to avoid creating new objects on every selectGameState call
 const EMPTY_MESSAGES: never[] = [];
 const ZERO_POT = { total: 0 };
+
+/** A world-ticker event tagged with the hand it arrived during, so the
+ *  interhand screen can scope to "what happened in the world since this
+ *  hand started" (events whose `hand` matches the hand that just ended). */
+export interface BufferedWorldEvent {
+  event: LobbyEvent;
+  hand: number;
+}
+
+// Only the current (and immediately prior) hand's events are ever read, so
+// the buffer stays tiny; this cap is a hard backstop against unbounded growth.
+const WORLD_EVENT_BUFFER_CAP = 60;
 
 interface GameStore {
   // Game state slices
@@ -28,11 +41,16 @@ interface GameStore {
   runItOut: boolean | undefined;
   cashMode: CashModeInfo | null;
   fastForward: boolean;
+  // Cash/career mode: realtime world-ticker events buffered while at the
+  // table, each tagged with the hand it arrived during. Feeds the interhand
+  // "meanwhile, elsewhere" ticker. Empty in tournament mode.
+  worldEvents: BufferedWorldEvent[];
 
   // Actions
   applyGameState: (state: GameState) => void;
   updatePlayers: (updater: (prev: Player[] | null) => Player[] | null) => void;
   updatePlayerOptions: (options: string[]) => void;
+  pushWorldEvent: (event: LobbyEvent) => void;
   reset: () => void;
 }
 
@@ -57,6 +75,7 @@ const initialState = {
   runItOut: undefined as boolean | undefined,
   cashMode: null as CashModeInfo | null,
   fastForward: false,
+  worldEvents: [] as BufferedWorldEvent[],
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -167,6 +186,19 @@ export const useGameStore = create<GameStore>((set) => ({
 
   updatePlayerOptions: (options) => {
     set({ playerOptions: options });
+  },
+
+  pushWorldEvent: (event: LobbyEvent) => {
+    set((state) => {
+      // Tag with the hand in progress so the interhand digest can scope to
+      // "since this hand started". Drop anything older than the prior hand
+      // and cap length so the buffer can never grow without bound.
+      const minHand = state.handNumber - 1;
+      const next = [...state.worldEvents, { event, hand: state.handNumber }]
+        .filter((w) => w.hand >= minHand)
+        .slice(-WORLD_EVENT_BUFFER_CAP);
+      return { worldEvents: next };
+    });
   },
 
   reset: () => {

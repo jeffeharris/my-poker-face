@@ -4581,12 +4581,26 @@ def get_lobby():
     # Which table is the player currently seated at? Drives the lobby
     # "you're seated here" pin (TableCard Resume state). None when the
     # player has no live session.
+    #
+    # `has_active_session` is the DB-aware truth (any cash-* game row for
+    # this owner); `seated_table_id` is a display nicety. They can
+    # legitimately diverge: a session abandoned mid-hand survives as a
+    # DB-only `games` row that isn't in memory, so `get_game` returns
+    # None. We must STILL surface the Resume bar in that case — otherwise
+    # `_find_active_cash_game_id` keeps 409-ing every new sit while the
+    # lobby shows no way back in or out (the wedge that stranded a cold
+    # sponsored session). Fall back to the durable cash_sessions row for
+    # the table id / stake label so the pin + label work for cold resumes
+    # too.
     seated_table_id: Optional[str] = None
+    seated_stake_label: Optional[str] = None
     active_game_id = _find_active_cash_game_id(owner_id)
+    has_active_session = active_game_id is not None
     if active_game_id:
         active_game = game_state_service.get_game(active_game_id)
         if active_game:
             seated_table_id = active_game.get("cash_table_id")
+            seated_stake_label = active_game.get("cash_stake_label")
             for name, controller in (active_game.get("ai_controllers") or {}).items():
                 emotional_state = getattr(controller, "emotional_state", None)
                 if emotional_state:
@@ -4596,6 +4610,25 @@ def get_lobby():
                         active_emotions[name] = "confident"
                 else:
                     active_emotions[name] = "confident"
+        else:
+            # DB-only (cold) session — the game row exists but isn't
+            # loaded into memory. Pull the table id / stake label from
+            # the durable cash_sessions row so the Resume bar can route
+            # the player back through the cold-load (which rehydrates it).
+            try:
+                from flask_app.extensions import cash_session_repo as _cs_repo
+
+                if _cs_repo is not None:
+                    _cs = _cs_repo.load(active_game_id)
+                    if _cs is not None:
+                        seated_table_id = _cs.cash_table_id
+                        seated_stake_label = _cs.stake_label
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] cold-session lookup failed for %s: %s",
+                    active_game_id,
+                    exc,
+                )
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -5021,6 +5054,8 @@ def get_lobby():
             "tier_stake_label": current_tier_stake,
             "tables": response_tables,
             "seated_table_id": seated_table_id,
+            "seated_stake_label": seated_stake_label,
+            "has_active_session": has_active_session,
             "events": events_payload,
             "pending_forgiveness_count": pending_forgiveness_count,
             "active_vices": active_vices_payload,

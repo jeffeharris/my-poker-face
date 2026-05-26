@@ -257,8 +257,19 @@ export interface LobbyResponse {
   tables: LobbyTable[];
   /** The table the player is currently seated at (live session), or
    *  null when they have no active game. Drives the "you're seated here"
-   *  pin + Resume action on the matching TableCard. */
+   *  pin + Resume action on the matching TableCard. Can be null even when
+   *  a session is active — see `has_active_session`. */
   seated_table_id?: string | null;
+  /** Stake label of the active session's table, for the Resume bar text.
+   *  Populated from the durable cash_sessions row so it survives a cold
+   *  (DB-only) session whose table isn't in the rendered lobby list. */
+  seated_stake_label?: string | null;
+  /** DB-aware truth: the player has a cash-* game row (live OR cold). This
+   *  drives the Resume bar so an abandoned mid-hand session that isn't in
+   *  memory (null `seated_table_id`) still has a one-tap path back in/out.
+   *  Without it the player is wedged — the backend 409s every new sit but
+   *  the lobby shows no active session. */
+  has_active_session?: boolean;
   events: LobbyEvent[];
   /** v110 — count of AI-borrower carries asking the player to forgive.
    *  Drives the wallet badge in the Lobby header. The full request

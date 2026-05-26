@@ -30,7 +30,8 @@ import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
-import { ActivityTicker, feedEventKey } from './ActivityTicker';
+import { ActivityTicker } from './ActivityTicker';
+import { feedEventKey } from './tickerEvents';
 import { CareerHero } from './CareerHero';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { WhereaboutsDrawer } from './WhereaboutsDrawer';
@@ -166,6 +167,14 @@ export function Lobby() {
    *  the "you're here" pin + Resume on the matching TableCard. Only ever
    *  set when the lobby is reachable while seated (see the mount redirect). */
   const [seatedTableId, setSeatedTableId] = useState<string | null>(null);
+  /** DB-aware: the player has an active cash session (live OR a cold,
+   *  DB-only one not in memory). Drives the Resume bar independently of
+   *  `seatedTableId`, which is null for a cold session and would otherwise
+   *  hide the only path back into / out of a wedged game. */
+  const [hasActiveSession, setHasActiveSession] = useState(false);
+  /** Stake label for the Resume bar when the seated table isn't in the
+   *  rendered lobby list (cold / cross-sandbox session). */
+  const [seatedStakeLabelFromServer, setSeatedStakeLabelFromServer] = useState<string | null>(null);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -278,6 +287,8 @@ export function Lobby() {
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
+        setHasActiveSession(lobby.has_active_session ?? false);
+        setSeatedStakeLabelFromServer(lobby.seated_stake_label ?? null);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
         // prior self last-stand line first so the poll snapshot stays
@@ -446,11 +457,12 @@ export function Lobby() {
   );
 
   // Stake label of the table the player is seated at (for the Resume bar
-  // text). Derived from the live lobby snapshot so it stays in sync as the
-  // session ends — when `seatedTableId` clears, the bar disappears.
-  const seatedStakeLabel = seatedTableId
-    ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
-    : null;
+  // text). Prefer the live lobby snapshot (stays in sync as the session
+  // ends); fall back to the server-provided label for a cold session whose
+  // table isn't in the rendered list.
+  const seatedStakeLabel =
+    (seatedTableId ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null) : null) ??
+    seatedStakeLabelFromServer;
 
   return (
     <>
@@ -473,7 +485,7 @@ export function Lobby() {
             />
           )}
 
-          {seatedTableId && (
+          {(hasActiveSession || seatedTableId) && (
             <button type="button" className="cash-entry__resume" onClick={handleResume}>
               <Play size={18} aria-hidden="true" />
               <span className="cash-entry__resume-text">
