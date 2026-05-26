@@ -127,10 +127,19 @@ class StrategyTable:
         self,
         preflop_data: Dict[str, StrategyProfile],
         postflop_data: Optional[Dict[str, StrategyProfile]] = None,
+        spr_fallback: bool = True,
     ):
-        """Initialize from parsed data keyed by node.key strings."""
+        """Initialize from parsed data keyed by node.key strings.
+
+        `spr_fallback=False` disables the degrade-toward-(SRP, high) ladder in
+        postflop lookup, reproducing the pre-fix behavior (a low/medium-SPR or
+        3BP miss falls straight to the passive conservative default). Used by
+        the champion-vs-challenger core-fix A/B to isolate the fold-the-nuts
+        fallback's value vs the bot itself.
+        """
         self._preflop: Dict[str, StrategyProfile] = dict(preflop_data)
         self._postflop: Dict[str, StrategyProfile] = dict(postflop_data or {})
+        self.spr_fallback: bool = spr_fallback
 
     def lookup_preflop(self, node: PreflopNode) -> Optional[StrategyProfile]:
         """Look up base strategy for a preflop node. Returns None if not found."""
@@ -164,6 +173,7 @@ class StrategyTable:
         self,
         node: PostflopNode,
         legal_actions: List[str],
+        allow_shallow: bool = True,
     ) -> StrategyProfile:
         """Look up postflop strategy, degrading toward the populated base.
 
@@ -179,18 +189,27 @@ class StrategyTable:
         2. Texture-neighbor lookup at the fully-degraded (SRP, high) base.
         3. Context-aware conservative default.
 
-        Commitment for genuinely-short SPR is layered on downstream
-        (postflop_commit); here we just recover real strategy.
+        `allow_shallow=False` (heads-up) ignores the authored low-SPR / 3BP
+        slices entirely and looks up the 6-max base (SRP, high): those slices
+        are 6-max-derived and CI-clear regress in HU (wider HU 3-bet ranges run
+        through narrow 6-max charts). `spr_fallback=False` (table-level)
+        disables the degrade ladder for the core-fix A/B. Commitment for
+        genuinely-short SPR is layered on downstream (postflop_commit).
         """
+        if not allow_shallow:
+            # HU: skip the 6-max-derived shallow/3BP slices; use the base.
+            node = replace(node, pot_type='SRP', spr_bucket='high')
+
         # Degradation candidates, most-specific first. SPR degrades before
         # pot_type: shallow sizing/commit matters more than the SRP↔3BP nuance.
         candidates = [node]
-        if node.spr_bucket != 'high':
-            candidates.append(replace(node, spr_bucket='high'))
-        if node.pot_type != 'SRP':
-            candidates.append(replace(node, pot_type='SRP'))
+        if self.spr_fallback:
             if node.spr_bucket != 'high':
-                candidates.append(replace(node, pot_type='SRP', spr_bucket='high'))
+                candidates.append(replace(node, spr_bucket='high'))
+            if node.pot_type != 'SRP':
+                candidates.append(replace(node, pot_type='SRP'))
+                if node.spr_bucket != 'high':
+                    candidates.append(replace(node, pot_type='SRP', spr_bucket='high'))
 
         for cand in candidates:
             profile = self._postflop.get(cand.key)
@@ -201,8 +220,13 @@ class StrategyTable:
                         logger.debug(f"Postflop fallback: {node.key} → {cand.key}")
                     return masked
 
-        # Texture neighbor at the fully-degraded base (SRP, high).
-        base = replace(node, pot_type='SRP', spr_bucket='high')
+        # Texture neighbor. With the fallback on, swap texture at the degraded
+        # (SRP, high) base; with it off, keep the node's own spr/pot_type
+        # (reproduces the pre-fallback exact-or-default behavior).
+        base = (
+            replace(node, pot_type='SRP', spr_bucket='high')
+            if self.spr_fallback else node
+        )
         neighbor_texture = _TEXTURE_NEIGHBOR.get(base.board_texture)
         if neighbor_texture:
             neighbor_node = replace(base, board_texture=neighbor_texture)
@@ -295,6 +319,7 @@ def load_strategy_table(
     postflop_path: str = None,
     include_low_spr: bool = True,
     include_3bp: bool = True,
+    spr_fallback: bool = True,
 ) -> StrategyTable:
     """Load strategy table from JSON files.
 
@@ -308,6 +333,12 @@ def load_strategy_table(
     back through the pot_type degrade (3BP → SRP). Each is the *champion* table
     for an EVAL_HARNESS_PLAN chart-flavor A/B re-judging whether the authored
     slice beats the bare fallback.
+
+    ``spr_fallback=False`` disables the degrade-toward-(SRP, high) ladder
+    entirely — a low/medium-SPR or 3BP miss then hits the passive conservative
+    default, reproducing the pre-fix postflop behavior. The champion table for
+    the core-fix A/B (does the fold-the-nuts SPR fallback beat the old default
+    vs the bot itself?).
     """
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
 
@@ -345,7 +376,7 @@ def load_strategy_table(
         with open(three_bet_path) as f:
             postflop_data.update(_parse_postflop_json(json.load(f)))
 
-    return StrategyTable(preflop_data, postflop_data)
+    return StrategyTable(preflop_data, postflop_data, spr_fallback=spr_fallback)
 
 
 def load_hu_strategy_table(json_path: str = None) -> Optional[StrategyTable]:

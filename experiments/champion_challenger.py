@@ -138,6 +138,23 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_table=lambda: load_strategy_table(include_3bp=False),
         challenger_table=lambda: load_strategy_table(include_3bp=True),
     ),
+    # ── The core postflop fix vs the PRE-fix passive default. Champion =
+    # pre-760d89e5 behavior (no SPR degrade ladder, postflop_commit off, no
+    # authored slices) → low/med-SPR & 3BP misses hit the hand-blind default
+    # (fold-the-nuts ~70%). Challenger = the core fix alone (SPR fallback +
+    # postflop_commit, still no precision slices). Isolates whether the big
+    # +32/+48-vs-Jeff fold-the-nuts fix is real vs the bot itself, separate from
+    # the (known neutral/negative) low_spr / three_bp precision slices. ──
+    'core_fix': ChangeSpec(
+        description='core postflop fix (SPR fallback + postflop_commit, no '
+        'precision slices) vs the pre-fix passive default (re-judges 760d89e5)',
+        champion_table=lambda: load_strategy_table(
+            spr_fallback=False, include_low_spr=False, include_3bp=False),
+        challenger_table=lambda: load_strategy_table(
+            spr_fallback=True, include_low_spr=False, include_3bp=False),
+        champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
+        challenger_flags={'disable_rules': frozenset()},
+    ),
 }
 
 

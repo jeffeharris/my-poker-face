@@ -797,8 +797,13 @@ class TieredBotController(AIPlayerController):
         # re-deriving the node. Cheap; the snapshot already exists for replay.
         self._last_pipeline_snapshot['node_key'] = node.key
 
-        # 3. Lookup base strategy (with texture fallback)
-        base_strategy = self.strategy_table.lookup_postflop_with_fallback(node, valid_actions)
+        # 3. Lookup base strategy (with texture fallback). Gate the authored
+        # low-SPR / 3BP slices to 6-max (num_seated > 2): they're 6-max-derived
+        # and CI-clear regress heads-up (wider HU 3-bet/shallow ranges run
+        # through narrow 6-max charts), so HU uses the 6-max base instead.
+        base_strategy = self.strategy_table.lookup_postflop_with_fallback(
+            node, valid_actions, allow_shallow=len(game_state.players) > 2,
+        )
 
         if self.debug_logging:
             logger.info(
