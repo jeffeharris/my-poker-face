@@ -65,6 +65,8 @@ from experiments.simulate_bb100 import (
     make_controller,
     make_game_state,
 )
+from poker.memory.cbet_detector import CbetDetector
+from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_game import advance_to_next_active_player, play_turn
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.strategy.strategy_table import StrategyTable, load_strategy_table
@@ -157,6 +159,29 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_table=load_strategy_table,
         challenger_table=load_strategy_table,
         champion_flags={'depth_strategy_tables': {}},
+    ),
+    # ── Opponent-modeling exploitation layer (strategy/exploitation.py). The
+    # one layer no prior eval ever measured: champion_challenger rebuilds
+    # controllers every hand (reads never accumulate) and BOTH cc/sng nulled
+    # opponent_model_manager, so _apply_exploitation always early-out no-op'd.
+    # Here both arms build the IDENTICAL opponent model from play (--opponent-
+    # model feeds it); only the applied offset differs — challenger at full
+    # strength, champion at 0 (multiplier = effective_bias × ramp × strength,
+    # so strength 0 zeros every offset while keeping the model identical). Only
+    # meaningful (a) in the SNG runner, where controllers persist so reads
+    # accumulate across the tournament, and (b) with EXPLOITABLE opponents at
+    # the table (--backdrop CallStation,FoldyBot,...) for the layer to detect
+    # and exploit. Requires a non-Baseline archetype (Baseline has anchors=None
+    # → adaptation_bias unavailable → layer no-ops); use --archetype TAG. ──
+    'exploitation': ChangeSpec(
+        description='opponent-modeling exploitation offsets ON (strength 1.0) vs '
+        'OFF (strength 0.0) — identical opponent model both arms, only the '
+        'applied offset differs. SNG-runner only; needs --opponent-model, a '
+        'non-Baseline --archetype, and exploitable --backdrop opponents.',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'exploitation_strength': 0.0},
+        challenger_flags={'exploitation_strength': 1.0},
     ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is
@@ -254,7 +279,31 @@ def _challenger_seat_indices(n_seats: int, n_challenger: int) -> List[int]:
 # ── Hand driver ─────────────────────────────────────────────────────────────
 
 
-def run_cc_hand(sm: PokerStateMachine, controllers: List, big_blind: int) -> Dict[str, int]:
+@dataclass
+class OpponentFeed:
+    """Per-table opponent-model feed so the exploitation layer can fire.
+
+    One observer-keyed `OpponentModelManager` holds a separate read for each
+    tiered hero in `hero_names`, and one table-global `CbetDetector` supplies
+    fold-to-cbet events. Persisted across an SNG's hands by the driver (the
+    whole point — reads must accumulate over the tournament), reset per hand
+    inside `run_cc_hand`. Generalizes simulate_bb100.run_hand's single-hero
+    feeding to N heroes; the feeding is observer-independent (`was_facing_bet`
+    is an objective table fact), so one pass per action feeds every hero.
+    """
+
+    manager: OpponentModelManager
+    cbet_detector: CbetDetector
+    hero_names: Tuple[str, ...]
+
+
+def run_cc_hand(
+    sm: PokerStateMachine,
+    controllers: List,
+    big_blind: int,
+    feed: Optional[OpponentFeed] = None,
+    hand_number: int = 0,
+) -> Dict[str, int]:
     """Drive one hand to completion; return {player_name: final_stack}.
 
     Mirrors simulate_bb100.run_hand's action driving, but maintains the
@@ -262,6 +311,12 @@ def run_cc_hand(sm: PokerStateMachine, controllers: List, big_blind: int) -> Dic
     `_sim_opp_bet_by_street` / `_sim_last_preflop_aggressor`) for *every* seat —
     run_hand only drives one hero, but here any seat may run the multistreet
     layer, and each derives its own line (self == hero, others == opp).
+
+    When `feed` is provided, each hero in `feed.hero_names` has its opponent
+    model populated from this hand's actions (same `was_facing_bet` +
+    CbetDetector recipe as run_hand), so the opponent-modeling exploitation
+    layer actually fires. `feed=None` (the default) leaves the existing
+    field/cc gates byte-identical and adds zero overhead.
     """
     controller_map = {c.player_name: c for c in controllers}
 
@@ -272,6 +327,20 @@ def run_cc_hand(sm: PokerStateMachine, controllers: List, big_blind: int) -> Dic
         c._sim_opp_bet_by_street = {}
     sim_current_street: Optional[str] = None
     action_count = 0
+
+    if feed is not None:
+        # Per-hand denominator + c-bet state reset (mirrors
+        # MemoryManager.on_hand_start). record_hand_dealt is the VPIP/PFR
+        # denominator: opponents that fold before acting never hit
+        # observe_action, so without it their rates inflate.
+        feed.cbet_detector.reset_for_new_hand()
+        seated = [p.name for p in sm.game_state.players]
+        for hero in feed.hero_names:
+            feed.manager.record_hand_dealt(
+                observer=hero,
+                opponents=[n for n in seated if n != hero],
+                hand_number=hand_number,
+            )
 
     while sm.phase not in TERMINAL_PHASES:
         sm.run_until(list(TERMINAL_PHASES))
@@ -298,6 +367,38 @@ def run_cc_hand(sm: PokerStateMachine, controllers: List, big_blind: int) -> Dic
         raise_to = decision.get('raise_to', 0) or 0
         phase_name = sm.phase.name
 
+        # ── Feed each hero's opponent model BEFORE play_turn (mirrors
+        # run_hand: was_facing_bet reads the pre-action aggressor state,
+        # active_players is the pre-fold view CbetDetector needs). ──
+        if feed is not None:
+            active_snapshot = [p.name for p in gs.players if not getattr(p, 'is_folded', False)]
+            if phase_name in _POSTFLOP_STREETS:
+                # _sim_recent_aggressor is set identically on every seat, so
+                # the current actor's copy is the table's live aggressor; the
+                # street guard rejects a stale aggressor from a prior street.
+                recent = controller._sim_recent_aggressor
+                was_facing_bet = (
+                    recent is not None
+                    and recent != current_player.name
+                    and sim_current_street == phase_name
+                )
+            elif phase_name == 'PRE_FLOP':
+                prior = feed.cbet_detector.preflop_aggressor
+                was_facing_bet = prior is not None and prior != current_player.name
+            else:
+                was_facing_bet = None
+            for hero in feed.hero_names:
+                if hero != current_player.name:
+                    feed.manager.observe_action(
+                        observer=hero,
+                        opponent=current_player.name,
+                        action=action,
+                        phase=phase_name,
+                        is_voluntary=True,
+                        hand_number=hand_number,
+                        was_facing_bet=was_facing_bet,
+                    )
+
         new_gs = play_turn(gs, action, raise_to)
 
         # ── Drive multi-street sim-shadow state for ALL seats ──
@@ -315,6 +416,20 @@ def run_cc_hand(sm: PokerStateMachine, controllers: List, big_blind: int) -> Dic
                     c._sim_hero_bet_by_street[phase_name] = True
                 else:
                     c._sim_opp_bet_by_street[phase_name] = True
+
+        # ── c-bet responses → each hero's fold_to_cbet tendency ──
+        if feed is not None:
+            for opp_name, folded in feed.cbet_detector.record_action(
+                player_name=current_player.name,
+                action=action,
+                phase=phase_name,
+                active_players=active_snapshot,
+            ):
+                for hero in feed.hero_names:
+                    if hero != opp_name:
+                        feed.manager.get_model(hero, opp_name).tendencies.update_fold_to_cbet(
+                            folded
+                        )
 
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs

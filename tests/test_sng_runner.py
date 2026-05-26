@@ -89,6 +89,22 @@ class TestSeatSpecs:
         assert comp_idx == {1, 3, 5}
         assert not (base_idx & comp_idx)
 
+    def test_cc_specs_with_backdrop(self):
+        # A backdrop fills the non-A/B seats with fixed opponents: n_ab = seats −
+        # len(backdrop) A/B seats first (CHAL_/CHMP_), then the backdrop seats
+        # (Arch#k, never CHAL_/CHMP_, so the winner's name reveals which won).
+        full = load_strategy_table()
+        specs, challenger_names = _cc_seat_specs(
+            'exploitation', n_seats=6, challenger_idx={0}, champion_table=full,
+            challenger_table=full, archetype='TAG',
+            backdrop=('CallStation', 'FoldyBot', 'CallStation', 'FoldyBot'),
+        )
+        names = [s[0] for s in specs]
+        assert names[:2] == ['CHAL_0', 'CHMP_1']  # 2 A/B seats, challenger at 0
+        assert challenger_names == {'CHAL_0'}
+        assert names[2:] == ['CallStation#1', 'FoldyBot#1', 'CallStation#2', 'FoldyBot#2']
+        assert all(not n.startswith(('CHAL_', 'CHMP_')) for n in names[2:])
+
 
 class TestWilson:
     def test_brackets_point_estimate(self):
@@ -215,3 +231,75 @@ class TestBootstrapCI:
         point, lo, hi = _bootstrap_ci_blocks(blocks, iters=1000)
         assert point == 1.0
         assert lo > 0.9
+
+
+class TestOpponentModelFeed:
+    """The opt-in opponent-model feed is what makes the exploitation layer's
+    inputs real — without a populated manager `_apply_exploitation` no-ops, so
+    these guard that the feed both populates reads and preserves game flow."""
+
+    def _tag_vs_stations(self):
+        from experiments.simulate_bb100 import ARCHETYPES, make_controller, make_game_state
+        from poker.poker_state_machine import PokerStateMachine
+
+        table = load_strategy_table()
+        names = ['TAG_hero', 'CallStation#1', 'CallStation#2']
+        cfgs = [ARCHETYPES['TAG'], ARCHETYPES['CallStation'], ARCHETYPES['CallStation']]
+        sm0 = PokerStateMachine(make_game_state(names, _BIG_BLIND, 10000, 0, seed=1))
+        ctrls = [
+            make_controller(nm, cfg, table, sm0, rng_seed=1000 * i)
+            for i, (nm, cfg) in enumerate(zip(names, cfgs))
+        ]
+        return names, ctrls, table
+
+    def test_feed_accumulates_station_read(self):
+        import random
+
+        from experiments.champion_challenger import OpponentFeed, run_cc_hand
+        from experiments.simulate_bb100 import make_game_state
+        from poker.memory.cbet_detector import CbetDetector
+        from poker.memory.opponent_model import OpponentModelManager
+        from poker.poker_state_machine import PokerStateMachine
+
+        names, ctrls, _ = self._tag_vs_stations()
+        mgr = OpponentModelManager()
+        feed = OpponentFeed(mgr, CbetDetector(), hero_names=('TAG_hero',))
+        for c in ctrls:
+            c.opponent_model_manager = mgr  # so the layer could read it in-game
+        for h in range(20):
+            random.seed(50 * h + 3)
+            gs = make_game_state(names, _BIG_BLIND, 10000, h % 3, seed=50 * h + 3)
+            sm = PokerStateMachine(gs)
+            sm.current_hand_seed = 50 * h + 3
+            for c in ctrls:
+                c.state_machine = sm
+            run_cc_hand(sm, ctrls, _BIG_BLIND, feed=feed, hand_number=h)
+        model = mgr.get_model_if_exists('TAG_hero', 'CallStation#1')
+        assert model is not None
+        assert model.tendencies.hands_observed >= 1
+        # CallStation calls everything → a high-VPIP, low-aggression station read,
+        # which is exactly what the exploitation detectors key on.
+        assert model.tendencies.vpip > 0.5
+        assert model.tendencies.aggression_factor <= 1.0
+
+    def test_feed_is_observation_only(self):
+        # The feed runs per-action but only observes — with offsets zeroed
+        # (exploitation_strength=0 on every tiered seat) a populated model must
+        # change NO decision, so the SNG plays out byte-identically with the
+        # feed on vs off. (This isolates "the feed is side-effect-free" from the
+        # layer's intended effect, which only appears when strength > 0.)
+        from experiments.simulate_bb100 import ARCHETYPES
+
+        table = load_strategy_table()
+        specs = [
+            ('CHAL_0', ARCHETYPES['TAG'], table, {'exploitation_strength': 0.0}),
+            ('CHMP_1', ARCHETYPES['TAG'], table, {'exploitation_strength': 0.0}),
+            ('CallStation#1', ARCHETYPES['CallStation'], table, {}),
+            ('CallStation#2', ARCHETYPES['CallStation'], table, {}),
+        ]
+        off = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7)
+        on = play_sng(
+            specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7, opponent_model=True
+        )
+        assert on.winner is not None
+        assert on == off  # populated model + zero strength ⇒ no perturbation
