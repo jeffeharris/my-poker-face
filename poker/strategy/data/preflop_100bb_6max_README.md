@@ -2,7 +2,7 @@
 purpose: Provenance and design spec for the 6-max preflop strategy chart (preflop_100bb_6max.json)
 type: spec
 created: 2026-05-17
-last_updated: 2026-05-24
+last_updated: 2026-05-26
 ---
 
 > **Retrospective README** — this file documents the existing
@@ -216,6 +216,35 @@ the replacement workflow is:
    doesn't degrade
 
 ## Calibration log
+
+### 2026-05-26 — Tested widening late-position RFI toward GTO → NO benefit, kept tight
+
+**Motivation:** A GTO diff flagged this chart as opening far tighter than GTO,
+especially late: freq-weighted RFI was UTG 11.5% / HJ 14.0% / CO 17.4% /
+**BTN 25.1%** / **SB 20.2%** vs GTO ~16 / ~21 / ~27 / **~48** / **~40**. The
+BTN/SB gap (≈half of GTO) looked like a steal-equity leak.
+
+**Test:** Built challenger charts widening the late/steal positions to GTO
+frequencies (CO/BTN/SB, leaving UTG/HJ — early-position tightness is defensible
+for a weaker-postflop bot) and A/B'd them through the hardened SNG
+champion-challenger gate (`experiments/sng_runner.py`). Two hand-shapes tried:
+a GTO-shaped widening (CO≈28 / BTN≈48 / SB≈39) and a cruder TAG-shaped
+BTN-only widening (BTN≈48).
+
+**Result — no benefit, kept the tight chart:**
+- GTO-shaped: **49.9% win-rate [47.8, 52.0] @ 2000 SNGs — dead neutral.**
+- TAG-shaped BTN-only: 49.5% [47.6, 51.5] (lean negative) + −6.8 bb/100 across
+  3 seeds on the sensitive screen.
+
+**Why (the takeaway):** GTO RFI presumes you then play **GTO postflop**. This
+bot's postflop is the weaker part, so wider opens just create more postflop
+spots it can't realize value in — the marginal opens don't pay off. **The tight
+opens are not a leak; they're an appropriate match to the bot's postflop
+ability.** The binding constraint on the bot is **postflop skill, not preflop
+range width** — widening preflop only helps if postflop improves first.
+(Methodology: an external-truth/GTO divergence is a hypothesis *generator*, not
+a verdict; this one was measured and refuted, like the "−18/−22 shallow leak"
+that turned out to be a station artifact.)
 
 ### 2026-05-24 — Tighten OOP `vs_open` flat-calls (`fold_more`)
 
