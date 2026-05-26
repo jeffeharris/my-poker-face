@@ -2186,6 +2186,176 @@ def rebuy():
     )
 
 
+@cash_bp.route("/api/cash/reseat", methods=["POST"])
+def reseat():
+    """POST /api/cash/reseat  body: {personality_ids?: [str]}
+
+    "Stay and play" from the everyone-left prompt: the table emptied of
+    opponents (all left or busted without a refill) while the human still
+    has chips, so the game paused in HAND_OVER. This seats up to two
+    fresh AIs — preferring the ones the prompt named in
+    `personality_ids` — debits their bankrolls for a buy-in, drops them
+    into the running game, and kicks `progress_game` so the next hand
+    deals.
+
+    Distinct from /api/cash/rebuy (which refills the *human's* stack):
+    reseat never touches the human's chips or any active stake, so there
+    is no settlement-math interaction.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    game_id = _find_active_cash_game_id(owner_id)
+    if game_id is None:
+        return jsonify({"error": "No active cash session"}), 404
+
+    from datetime import datetime
+
+    from cash_mode.tables import CashTableState, ai_slot
+    from core.economy import ledger as chip_ledger
+    from flask_app.extensions import bankroll_repo, cash_table_repo, chip_ledger_repo
+    from flask_app.handlers.game_handler import (
+        _project_candidate_buy_in,
+        _sandbox_id_for,
+        _seat_freshly_filled_ais,
+        progress_game,
+        select_rejoin_candidates,
+        update_and_emit_game_state,
+    )
+    from flask_app.services import game_state_service
+    from poker.poker_state_machine import PokerPhase
+
+    game_data = game_state_service.get_game(game_id)
+    if game_data is None:
+        return jsonify({"error": "No active cash session"}), 404
+    state_machine = game_data["state_machine"]
+
+    # Only meaningful from the paused solo state the prompt is shown for.
+    if not game_data.get("cash_solo_paused"):
+        return jsonify({"error": "Table is not waiting for players"}), 400
+    if state_machine.current_phase not in (
+        PokerPhase.INITIALIZING_GAME,
+        PokerPhase.INITIALIZING_HAND,
+        PokerPhase.HAND_OVER,
+    ):
+        return jsonify({"error": "Reseat is only allowed between hands"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    prefer_pids = payload.get("personality_ids") or None
+    if prefer_pids is not None and not isinstance(prefer_pids, list):
+        return jsonify({"error": "personality_ids must be a list"}), 400
+
+    candidates = select_rejoin_candidates(
+        game_data, state_machine.game_state, limit=2, prefer_pids=prefer_pids
+    )
+    if not candidates:
+        return jsonify({"error": "No players available to join right now"}), 409
+
+    # Prune busted (stack 0) AI ghosts a pool-exhausted refill may have
+    # left in the player tuple, so the resumed table is a clean
+    # human + fresh AIs.
+    gs = state_machine.game_state
+    pruned = tuple(p for p in gs.players if p.is_human or p.stack > 0)
+    if len(pruned) != len(gs.players):
+        gs = gs.update(players=pruned)
+        state_machine.game_state = gs
+
+    big_blind = gs.current_ante
+    min_buy_in = big_blind * 40
+    max_buy_in = big_blind * 100
+    sandbox_id = _sandbox_id_for(game_data)
+    now = datetime.utcnow()
+
+    table_id = game_data.get("cash_table_id")
+    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id) if table_id else None
+    if table is None:
+        # Legacy / table-less session: synthesize an in-memory table just
+        # to carry the seated slots into _seat_freshly_filled_ais. Not
+        # persisted (no table_id to save under).
+        table = CashTableState(
+            table_id=table_id or f"_session_{game_id}",
+            stake_label=game_data.get("cash_stake_label") or "",
+        )
+
+    # Fillable seats: genuinely `open` slots (voluntary departures) AND
+    # `ai` slots left at 0 chips (an AI busted and `_refill_cash_seats`
+    # found no replacement — `_refresh_lobby_table_for_session` persists
+    # those as `ai_slot(pid, 0)`, not `open`). Both are dead seats we can
+    # reuse. The human seat (and any live AI) is never touched.
+    fillable_indices = [
+        i
+        for i, s in enumerate(table.seats)
+        if s.get("kind") == "open"
+        or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
+    ]
+    seated_pids = []
+    for cand in candidates:
+        if not fillable_indices:
+            break
+        pid = cand["personality_id"]
+        proj = _project_candidate_buy_in(
+            pid, min_buy_in, max_buy_in, sandbox_id, now, bankroll_repo
+        )
+        if proj is None:
+            continue
+        buy_in, new_state, pre_regen_chips = proj
+        table = table.with_seat(fillable_indices.pop(0), ai_slot(pid, buy_in))
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        try:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=pid,
+                stored_chips=pre_regen_chips,
+                projected_chips=new_state.chips + buy_in,
+                context={"game_id": game_id, "site": "cash_reseat", "sandbox_id": sandbox_id},
+                sandbox_id=sandbox_id,
+            )
+        except Exception as e:
+            logger.warning("[CASH] reseat ledger record failed for %r: %s", pid, e)
+        seated_pids.append(pid)
+
+    if not seated_pids:
+        return jsonify({"error": "No players available to join right now"}), 409
+
+    if table_id:
+        # save_table enforces the seated⇒not-idle invariant in the same
+        # transaction (clears any cash_idle_pool row for the seated pids),
+        # so this is the single guard against the seated_and_idle
+        # split-brain for the real path.
+        cash_table_repo.save_table(table, sandbox_id=sandbox_id)
+    else:
+        # Legacy table-less session: there's no row to save through, so
+        # clear the idle rows directly to preserve the same invariant.
+        for pid in seated_pids:
+            try:
+                cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
+            except Exception as e:
+                logger.warning("[CASH] reseat idle-clear failed for %r: %s", pid, e)
+
+    # Drop the new AIs into the running game, then resume play.
+    _seat_freshly_filled_ais(game_id, game_data, state_machine, table, seated_pids)
+
+    game_data.pop("cash_solo_paused", None)
+    game_data.pop("cash_rejoin_candidates", None)
+    game_data["state_machine"] = state_machine
+    game_state_service.set_game(game_id, game_data)
+
+    update_and_emit_game_state(game_id)
+    # Kick the paused state machine so the next hand actually deals now
+    # that quorum is restored (mirrors the /rebuy resume path).
+    progress_game(game_id)
+
+    logger.info(
+        "[CASH] Reseated game_id=%r with %d AI(s): %s",
+        game_id,
+        len(seated_pids),
+        seated_pids,
+    )
+    return jsonify({"seated": seated_pids})
+
+
 @cash_bp.route("/api/cash/stakes/<stake_id>/default", methods=["POST"])
 def default_stake(stake_id: str):
     """POST /api/cash/stakes/<stake_id>/default

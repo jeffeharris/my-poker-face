@@ -22,6 +22,7 @@ import { CoachBubble } from './CoachBubble';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
+import { SoloTableModal } from '../cash/SoloTableModal';
 import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
@@ -500,6 +501,11 @@ export function MobilePokerTable({
            *  cash_rebuy_needed. Sits above MobileCashSheet so the player
            *  can't dismiss it by tapping outside. */}
           <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+
+          {/* Cash mode "everyone left" prompt — fires when the table
+           *  empties of opponents but the human still has chips (paused
+           *  server-side). Stay & play reseats; Return to lobby cashes out. */}
+          <SoloTableModal cashMode={cashMode} />
 
           {/* Character dossier — opens when tapping an opponent avatar
            *  (when LLM debug isn't enabled). Uses the live Player blob

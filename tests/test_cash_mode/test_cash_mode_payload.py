@@ -43,3 +43,29 @@ def test_payload_table_identity_defaults_to_none():
 def test_payload_none_for_tournament():
     payload = build_cash_mode_payload({}, _GameStateStub())
     assert payload is None
+
+
+def test_payload_human_alone_defaults_false():
+    # A live cash session that isn't solo-paused: the "everyone left"
+    # prompt must stay dormant (no flag set on game_data).
+    game_data = {"cash_mode": True, "cash_stake_label": "$2"}
+    payload = build_cash_mode_payload(game_data, _GameStateStub())
+    assert payload["human_alone"] is False
+    assert payload["rejoin_candidates"] == []
+
+
+def test_payload_human_alone_surfaces_flag_and_candidates():
+    # The hand-boundary pause stamps these when all opponents leave.
+    candidates = [
+        {"personality_id": "p_batman", "name": "Batman"},
+        {"personality_id": "p_gandalf", "name": "Gandalf"},
+    ]
+    game_data = {
+        "cash_mode": True,
+        "cash_stake_label": "$2",
+        "cash_solo_paused": True,
+        "cash_rejoin_candidates": candidates,
+    }
+    payload = build_cash_mode_payload(game_data, _GameStateStub())
+    assert payload["human_alone"] is True
+    assert payload["rejoin_candidates"] == candidates
