@@ -150,10 +150,11 @@ Each catches a different failure class before compute is spent:
 
 Planning/scoping only — **no solver build has started.**
 
-> **UPDATE (2026-05-26): the honest eval has weakened the case for a solve.**
-> The de-risking ladder this doc prescribes (diagnose → cheap hand-authored fix
-> → honest WTA-SNG eval → solve *only if the cheap fix stalls*) is now complete
-> through the eval, and the verdicts point away from a build:
+> **UPDATE (2026-05-26): solver program PARKED — the leak that motivated it was
+> a station artifact.** The de-risking ladder this doc prescribes (diagnose →
+> cheap hand-authored fix → honest eval → solve *only if the cheap fix stalls*)
+> is complete, and every verdict points away from a build (details + the
+> decisive honest-reg measurement at the end of this section):
 >
 > - **Cheap rungs shipped:** depth-correct preflop charts (`707ff03b`) and the
 >   SPR-gap postflop fix (`760d89e5`, the `core_fix`) — see the SHIPPED sections
@@ -207,10 +208,33 @@ Planning/scoping only — **no solver build has started.**
 >   **not yet measured**. That measurement, not another SNG run, is the next
 >   concrete step before any solver commitment.
 >
-> **Net:** still **no justification to build a solver**, but for a sharper reason
-> than "self-play is neutral" — self-play win-rate simply *can't* adjudicate
-> edges this size. Decide the solver on honest-reg bb/100 at shallow depth, or
-> accept self-play parity as "competent enough" and park it.
+> **The honest-reg shallow measurement (the missing number) — DONE, and it
+> settles it.** Ran the post-cut bot (Baseline, full charts: depth + SPR
+> fallback + commit, no slices) vs the `punisher` reg across depths
+> (`measure_passivity --opponents punisher --stack-bb {100,50,25} --hands 3000
+> --seeds 42,142,242`):
+>
+> | Depth | vs Jeff **station** (old, inflated) | vs **punisher** reg (honest) | AggFactor (punisher) |
+> |---|---|---|---|
+> | 100bb | −4.2 | **+6.7** | 0.357 |
+> | 50bb | −18.8 | **+4.5** | 0.372 |
+> | 25bb | −21.8 | **+9.3** | 0.420 |
+>
+> The catastrophic −4→−18→−22 shallow collapse **vanishes** vs an honest
+> opponent — the bot is **positive at every depth**, and it plays *more*
+> aggressively as stacks shorten (AF 0.357→0.420), the exact opposite of the
+> 0.27→0.06 collapse it showed vs the station. **The "100bb tables at 25bb"
+> shallow leak that motivated this entire program was a Jeff-station artifact.**
+> An honest reg does not punish the bot's shallow play; the bot is fine shallow.
+>
+> **DECISION: park the solver program.** Per this doc's own gate — *solve only
+> if the cheap pass stalls / a real leak survives* — neither holds: the cheap
+> depth/SPR pass shipped, and the leak it was chasing does not survive an honest
+> opponent. No solver build is justified. Revisit only if a real deployed
+> human population (not a clone) exposes a shallow leak self-play + the punisher
+> reg both miss. (Caveat: the bot is *positive* vs punisher partly because that
+> reg over-barrels air; the load-bearing result is the **flat-to-improving depth
+> gradient**, not the absolute sign.)
 
 Original gate (pre-eval): the solver-viability question in
 `NEXT_PHASE_VISION.md` Bucket 6 (a Cepheus/Kuhn match pilot) before committing
