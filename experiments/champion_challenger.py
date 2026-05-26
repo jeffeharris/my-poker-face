@@ -162,17 +162,83 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),
+    # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
+    # preflop table at every effective-stack depth — the original
+    # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
+    # make_controller loads by default. Toggled via the controller's
+    # `depth_strategy_tables` attribute (see _select_preflop_table). The SNG's
+    # escalating blinds walk effective stacks down through 50→25bb, so the
+    # charts are genuinely exercised — verifies the 50/25bb depth charts that
+    # measured +13.8/+4.8 vs the Jeff station but were never self-play tested. ──
+    'depth_charts': ChangeSpec(
+        description='shallow 6-max depth charts (50/25bb preflop) vs the flat '
+        '100bb table at every depth (flag flavor; verifies the depth charts)',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'depth_strategy_tables': {}},
+    ),
+    # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
+    # changes — they validate the *gate itself*. `null` proves the harness is
+    # unbiased (A == A → win-rate covers the null); the cripple pair proves it
+    # has the sign + sensitivity to catch an engineered disaster, symmetrically.
+    'null': ChangeSpec(
+        description='A-A null calibration: champion == challenger (same table, '
+        'no flag delta). Challenger-group win-rate must COVER the null (§P3).',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+    ),
+    'cripple_challenger': ChangeSpec(
+        description='known-extreme: challenger folds to any bet / never bets '
+        '(deliberately broken) — must lose CI-clear BELOW null (§P4 sign check)',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        challenger_flags={'_cripple': 'fold'},
+    ),
+    'cripple_champion': ChangeSpec(
+        description='known-extreme mirror: champion is the broken folder — '
+        'challenger must win CI-clear ABOVE null (§P4 sign check)',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'_cripple': 'fold'},
+    ),
 }
 
 
 # ── Controller construction ─────────────────────────────────────────────────
 
 
+def _install_cripple(controller, mode: str):
+    """Replace a controller's decide_action with a deliberately broken strategy
+    (EVAL_HARNESS_PLAN §P4 known-extreme calibration).
+
+    ``mode='fold'``: fold to any bet, check when checking is free, never put
+    money in voluntarily — a strictly-dominated player that bleeds blinds and
+    busts fast. Used to confirm the gate has the *sign* and *sensitivity* right:
+    a crippled side must lose CI-clear. The wrapper reads the live legal-option
+    set at decision time so it never emits an illegal action (e.g. the BB with
+    no raise to fold to checks instead). This is harness-only — it shadows the
+    instance's bound method, the production controller is untouched."""
+    if mode != 'fold':
+        raise ValueError(f"unknown cripple mode: {mode!r}")
+
+    def _broken_decide(*_args, **_kwargs):
+        options = controller.state_machine.game_state.current_player_options
+        return {'action': 'fold' if 'fold' in options else 'check'}
+
+    controller.decide_action = _broken_decide
+
+
 def _apply_flags(controller, flags: Dict[str, object]):
     """Set A/B flags on a controller (make_controller bypasses __init__, so the
     controller reads every flag via getattr(..., default) — setattr is the
-    supported override path, mirroring measure_passivity._apply_mode)."""
+    supported override path, mirroring measure_passivity._apply_mode).
+
+    The ``_cripple`` sentinel is not a controller attribute — it installs a
+    broken decide_action for known-extreme calibration (see _install_cripple)."""
     for attr, value in flags.items():
+        if attr == '_cripple':
+            _install_cripple(controller, value)
+            continue
         setattr(controller, attr, value)
 
 

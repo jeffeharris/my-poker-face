@@ -96,7 +96,7 @@ To disable telemetry (saves compute on large experiments):
 | `run_from_config.py` | Run experiments from JSON config files |
 | `run_minimal_prompt_test.py` | Quick baseline prompt test script |
 | `champion_challenger.py` | Champion-vs-challenger A/B harness — runs the bot's current vs changed strategy head-to-head at one table (the EVAL_HARNESS_PLAN §P0 gate; immune to station-inflation) |
-| `sng_runner.py` | Single-table winner-take-all SNG eval (EVAL_HARNESS_PLAN §P1) — escalating blinds, elimination, play-to-one-winner, win-rate. `--mode field` (which archetype wins) or `--mode champion_challenger` (challenger win-rate, WTA version of the gate) |
+| `sng_runner.py` | Single-table winner-take-all SNG eval (EVAL_HARNESS_PLAN §P1) — escalating blinds, elimination, play-to-one-winner, win-rate. `--mode field` (which archetype wins) or `--mode champion_challenger` (the **cut-grade gate**, hardened per docs/plans/SNG_RUNNER_HARDENING.md §P0-P4: **antithetic role-swap** per seed-block, bootstrap CI over blocks, outcome accounting that refuses a verdict on silent dropouts). Calibrated via `--change null` (A-A → exactly 50%) + `cripple_challenger`/`cripple_champion` (known-extreme sign check). `--sngs` counts seed-blocks (×2 role-swapped SNGs each); use ≥500 blocks for slice-sized effects |
 | `measure_passivity.py` | Tier-A passivity eval; `--opponents jeff` (station) / `punisher` (aggressive reg) for the EVAL_HARNESS_PLAN §P0.5 absolute checks |
 | `clone_profiles/` | Frozen human-clone profiles (`jeff.json` station, `punisher.json` reg) usable DB-free via `--clone-profile` |
 | `variant_config.py` | Variant configuration utilities |

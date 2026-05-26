@@ -11,6 +11,10 @@ engine's stack carry-over / elimination) is leaking chips.
 import pytest
 
 from experiments.sng_runner import (
+    TERMINAL_SINGLE,
+    Accounting,
+    CCBlock,
+    _bootstrap_ci_blocks,
     _cc_seat_specs,
     _field_seat_specs,
     _split,
@@ -58,13 +62,32 @@ class TestSeatSpecs:
     def test_cc_specs_split_is_correct(self):
         full = load_strategy_table()
         specs, challenger_names = _cc_seat_specs(
-            'multistreet', n_seats=6, n_challenger=3, champion_table=full,
+            'multistreet', n_seats=6, challenger_idx={0, 2, 4}, champion_table=full,
             challenger_table=full, archetype='Baseline',
         )
         assert len(specs) == 6
         assert len(challenger_names) == 3
         champion_names = {s[0] for s in specs} - challenger_names
         assert len(champion_names) == 3
+
+    def test_cc_specs_role_swap_complement(self):
+        # The role-swapped run (challenger in the complement seats) must seat the
+        # challenger group in exactly the seats the base run left to champion.
+        full = load_strategy_table()
+        _, base_names = _cc_seat_specs(
+            'multistreet', n_seats=6, challenger_idx={0, 2, 4}, champion_table=full,
+            challenger_table=full, archetype='Baseline',
+        )
+        _, comp_names = _cc_seat_specs(
+            'multistreet', n_seats=6, challenger_idx={1, 3, 5}, champion_table=full,
+            challenger_table=full, archetype='Baseline',
+        )
+        # Seat indices are disjoint and cover the table.
+        base_idx = {int(n.rsplit('_', 1)[1]) for n in base_names}
+        comp_idx = {int(n.rsplit('_', 1)[1]) for n in comp_names}
+        assert base_idx == {0, 2, 4}
+        assert comp_idx == {1, 3, 5}
+        assert not (base_idx & comp_idx)
 
 
 class TestWilson:
@@ -84,21 +107,30 @@ class TestPlaySng:
     def test_ends_with_winner_holding_every_chip(self):
         specs = self._small_field_specs()
         total = len(specs) * _START_STACK
-        winner, hands, final_stacks = play_sng(
+        res = play_sng(
             specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7, max_hands=500
         )
-        assert winner is not None
+        assert res.winner is not None
+        assert res.terminal_reason == TERMINAL_SINGLE
         # WTA, no rake: chips are conserved across the whole tournament, so the
         # survivors hold exactly what was dealt — and at a clean finish that's
         # one player with all of it.
-        assert sum(final_stacks.values()) == total
-        assert final_stacks.get(winner) == total
-        assert len(final_stacks) == 1
+        assert sum(res.final_stacks.values()) == total
+        assert res.final_stacks.get(res.winner) == total
+        assert len(res.final_stacks) == 1
 
     def test_terminates_well_under_max_hands(self):
         specs = self._small_field_specs()
-        _, hands, _ = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7)
-        assert 0 < hands < 200  # escalating blinds force a finish
+        res = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7)
+        assert 0 < res.hands_played < 200  # escalating blinds force a finish
+
+    def test_escalating_blinds_lift_the_end_ante(self):
+        # P1/P6: a finished SNG must have ramped past the opening blind level —
+        # proof the depth progression actually fired (else the "exercises the
+        # depth ramp" claim is hollow).
+        specs = self._small_field_specs()
+        res = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7)
+        assert res.final_ante > _BIG_BLIND
 
     def test_deterministic_for_a_seed(self):
         specs = self._small_field_specs()
@@ -107,12 +139,79 @@ class TestPlaySng:
         r2 = play_sng(specs2, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=99)
         assert r1 == r2
 
+    def test_deck_sequence_is_a_deterministic_function_of_seed(self):
+        # P0: the whole-tournament deck progression must reproduce from sng_seed
+        # alone (later hands' decks come from the SM's chained hand-seed, not a
+        # fixed per-hand seed — so "independent SNG" only holds if this is
+        # deterministic), and the decks must actually advance hand-to-hand.
+        def capture():
+            decks = []
+            specs = self._small_field_specs()
+            play_sng(
+                specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=99,
+                on_hand_start=lambda i, gs: decks.append(tuple(gs.deck)),
+            )
+            return decks
+
+        decks_a = capture()
+        decks_b = capture()
+        assert decks_a == decks_b  # reproduces exactly from the seed
+        assert len(decks_a) >= 2  # multi-hand tournament
+        # The deck advances each hand — not the same shuffle reused. (Card is
+        # unhashable, so compare against the first deck rather than set-dedup.)
+        assert any(d != decks_a[0] for d in decks_a[1:])
+
     def test_different_seeds_can_differ(self):
         # Not strictly guaranteed, but across several seeds the winner should
         # vary at least once — confirms the seed actually drives the SNG.
         specs_fn = self._small_field_specs
         winners = {
-            play_sng(specs_fn(), _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=s)[0]
+            play_sng(specs_fn(), _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=s).winner
             for s in range(20, 32)
         }
         assert len(winners) >= 2
+
+
+class TestAccounting:
+    def test_clean_finish_counts_as_decisive(self):
+        acct = Accounting()
+        table = load_strategy_table()
+        specs = _field_seat_specs(['Baseline', 'TAG', 'GTO-Lite'], table, rotation=0)
+        res = play_sng(specs, _FAST_BLINDS, _START_STACK, _BIG_BLIND, sng_seed=7)
+        clean = acct.record(res)
+        assert clean is True
+        assert acct.attempted == 1
+        assert acct.decisive == 1
+        assert acct.none == 0 and acct.cap == 0
+
+    def test_merge_sums_buckets(self):
+        a = Accounting(attempted=3, decisive=2, none=1)
+        b = Accounting(attempted=2, decisive=2)
+        a.merge(b)
+        assert a.attempted == 5 and a.decisive == 4 and a.none == 1
+
+
+class TestBootstrapCI:
+    def test_null_blocks_bracket_half(self):
+        # A null with realistic block-to-block variance: half the blocks go 2-0
+        # to the challenger, half 0-2. Mean is exactly 0.5 and — because the
+        # blocks vary — the bootstrap CI is a real interval bracketing it.
+        blocks = [
+            CCBlock(seed=s, chal_wins=2 if s % 2 else 0, decisive=2) for s in range(200)
+        ]
+        point, lo, hi = _bootstrap_ci_blocks(blocks, iters=1000)
+        assert point == 0.5
+        assert lo < 0.5 < hi
+
+    def test_identical_blocks_give_degenerate_point_ci(self):
+        # Zero between-block variance (every block a perfect 1-of-2 split) →
+        # the bootstrap correctly collapses to a point at the null.
+        blocks = [CCBlock(seed=s, chal_wins=1, decisive=2) for s in range(50)]
+        point, lo, hi = _bootstrap_ci_blocks(blocks, iters=500)
+        assert point == lo == hi == 0.5
+
+    def test_all_challenger_wins_pins_high(self):
+        blocks = [CCBlock(seed=s, chal_wins=2, decisive=2) for s in range(100)]
+        point, lo, hi = _bootstrap_ci_blocks(blocks, iters=1000)
+        assert point == 1.0
+        assert lo > 0.9
