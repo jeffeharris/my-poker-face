@@ -294,6 +294,7 @@ def load_strategy_table(
     json_path: str = None,
     postflop_path: str = None,
     include_low_spr: bool = True,
+    include_3bp: bool = True,
 ) -> StrategyTable:
     """Load strategy table from JSON files.
 
@@ -302,9 +303,11 @@ def load_strategy_table(
     - Postflop: poker/strategy/data/postflop_strategies.json
 
     ``include_low_spr=False`` skips merging the generated low-SPR slice, so the
-    table falls back to the always-on SPR degrade (low → high entry). This is
-    the *champion* table for the EVAL_HARNESS_PLAN chart-flavor A/B that
-    re-judges whether the authored low-SPR chart beats the bare fallback.
+    table falls back to the always-on SPR degrade (low → high entry).
+    ``include_3bp=False`` likewise skips the 3-bet-pot slice, so 3BP spots fall
+    back through the pot_type degrade (3BP → SRP). Each is the *champion* table
+    for an EVAL_HARNESS_PLAN chart-flavor A/B re-judging whether the authored
+    slice beats the bare fallback.
     """
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
 
@@ -338,7 +341,7 @@ def load_strategy_table(
     # the classifier hardcoded SRP). See generate_postflop_3bp.py. Absent file
     # → the pot_type fallback degrades 3BP lookups to SRP.
     three_bet_path = os.path.join(data_dir, 'postflop_strategies_3bp.json')
-    if os.path.exists(three_bet_path):
+    if include_3bp and os.path.exists(three_bet_path):
         with open(three_bet_path) as f:
             postflop_data.update(_parse_postflop_json(json.load(f)))
 

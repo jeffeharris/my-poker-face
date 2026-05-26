@@ -37,6 +37,7 @@ class TestChangeRegistry:
         # The two flavors the plan names must exist.
         assert 'multistreet' in CHANGES  # flag flavor
         assert 'low_spr' in CHANGES  # chart flavor
+        assert 'three_bp' in CHANGES  # chart flavor (3BP, post lookup-tables merge)
 
     def test_every_change_is_well_formed(self):
         for name, spec in CHANGES.items():
@@ -45,10 +46,12 @@ class TestChangeRegistry:
             assert callable(spec.champion_table)
             assert callable(spec.challenger_table)
 
-    def test_low_spr_tables_actually_differ(self):
-        # The chart flavor must load genuinely different postflop tables, else
-        # the A/B is a silent no-op.
-        spec = CHANGES['low_spr']
+    @pytest.mark.parametrize("change", ['low_spr', 'three_bp'])
+    def test_chart_flavor_tables_actually_differ(self, change):
+        # A chart flavor must load genuinely different postflop tables (the
+        # challenger has the extra authored slice), else the A/B is a silent
+        # no-op.
+        spec = CHANGES[change]
         champ = spec.champion_table()
         chal = spec.challenger_table()
         assert len(chal._postflop) > len(champ._postflop)
@@ -65,10 +68,8 @@ class TestMatchupConservation:
     zero. This is the load-bearing correctness check for the bb/100 it reports.
     """
 
-    @pytest.mark.parametrize("change", ['multistreet', 'low_spr'])
+    @pytest.mark.parametrize("change", ['multistreet', 'low_spr', 'three_bp'])
     def test_per_hand_deltas_sum_to_zero(self, change):
-        table_full = load_strategy_table(include_low_spr=True)
-        table_base = load_strategy_table(include_low_spr=False)
         spec = CHANGES[change]
         result = run_cc_matchup(
             change_name=change,
@@ -76,8 +77,8 @@ class TestMatchupConservation:
             n_seats=6,
             n_challenger=3,
             n_hands=25,
-            champion_table=table_base if change == 'low_spr' else table_full,
-            challenger_table=table_full,
+            champion_table=spec.champion_table(),
+            challenger_table=spec.challenger_table(),
             base_seed=42,
         )
         # Partition is correct: 3 challenger + 3 champion, disjoint.

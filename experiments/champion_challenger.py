@@ -132,6 +132,12 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_table=lambda: load_strategy_table(include_low_spr=False),
         challenger_table=lambda: load_strategy_table(include_low_spr=True),
     ),
+    'three_bp': ChangeSpec(
+        description='authored 3-bet-pot (3BP) postflop chart vs the bare '
+        'pot_type fallback (3BP→SRP) (chart flavor; re-judges 4be11e93)',
+        champion_table=lambda: load_strategy_table(include_3bp=False),
+        challenger_table=lambda: load_strategy_table(include_3bp=True),
+    ),
 }
 
 

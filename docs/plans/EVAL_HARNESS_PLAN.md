@@ -2,7 +2,7 @@
 purpose: Prioritized plan to build a discriminating eval for the tiered bot, so chart/strategy changes can be judged "correct" vs merely "station-beating" before more charts are authored
 type: design
 created: 2026-05-25
-last_updated: 2026-05-25
+last_updated: 2026-05-26
 ---
 
 # Eval Harness Plan — make the yardstick trustworthy
@@ -26,7 +26,8 @@ Built and tested; **P1 (SNG runner) deferred** per the plan's own ordering.
   pooled 95%-CI verdict, per-seed + per-seat sign-disagreement, and a
   chips-conserved check. Both flavors are `--change` presets: **flag flavor**
   (`multistreet`, `multistreet_h1`, `multistreet_h2`) and **chart flavor**
-  (`low_spr`, champion loads the table *without* the authored low-SPR slice).
+  (`low_spr` / `three_bp`, champion loads the table *without* the authored
+  slice via `load_strategy_table(include_low_spr=False)` / `include_3bp=False`).
   Defaults to 6-max 3v3; `--seats 2 --challenger-seats 1` gives HU.
 - `experiments/clone_profiles/punisher.json` + a `bluff_air_freq` lever on
   `CloneProfile` (`poker/human_clone.py`, default 0.0 → **Jeff byte-identical**)
@@ -63,11 +64,22 @@ Reading:
 - **`low_spr` chart flavor: +2.5 bb/100, CI [−5.3, +10.4] → INCONCLUSIVE**
   (24k hands, 6-max) — the authored low-SPR chart is *not* a clear win over the
   bare always-on SPR fallback; a wash at this sample.
+- **`three_bp` chart flavor: 6-max +3.4 (CI [−4.6, +11.3], INCONCLUSIVE);
+  HU −18.6 (CI [−32.8, −4.4], CI-clear NEGATIVE).** The authored 3BP chart is a
+  wash where 3-bet pots are rare (6-max) and a *regression* where they're
+  common (HU) — measured against the 3BP→SRP fallback. **Likely structural,
+  not proof the chart is wrong:** the 3BP chart is 6-max-derived, HU 3-bet
+  ranges are far wider, and there is no HU postflop chart — so HU applies the
+  6-max 3BP chart to HU-wide 3-bet pots and it transfers worse than the SRP
+  chart does. Reads as "don't route HU 3-bet pots through the 6-max 3BP chart"
+  more than "the 3BP chart is bad for its intended 6-max spots."
 
 **Recommendation:** gate/re-examine the multistreet layer before trusting any
-bb/100 that credited it; treat the low-SPR chart as unproven. This is the eval
-doing its job — every prior result measured only vs stations/value-bots needs
-re-grounding through the P0 gate before more charts are authored.
+bb/100 that credited it; treat the low-SPR and 3BP charts as unproven (the 3BP
+chart specifically should not be applied to HU until an HU 3BP slice exists).
+This is the eval doing its job — every prior result measured only vs
+stations/value-bots needs re-grounding through the P0 gate before more charts
+are authored.
 
 ## The problem
 
