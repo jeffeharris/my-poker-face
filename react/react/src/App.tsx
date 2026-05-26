@@ -295,6 +295,7 @@ function App() {
       blind_growth?: number;
       blinds_increase?: number;
       max_blind?: number;
+      ai_chat?: boolean;
     },
     gameMode?: string,
     botTypes?: Record<
@@ -321,6 +322,7 @@ function App() {
           blind_growth: llmConfig?.blind_growth,
           blinds_increase: llmConfig?.blinds_increase,
           max_blind: llmConfig?.max_blind,
+          ai_chat: llmConfig?.ai_chat ?? true,
           ...(botTypes && Object.keys(botTypes).length > 0 ? { bot_types: botTypes } : {}),
         }),
       });

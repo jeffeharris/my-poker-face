@@ -576,6 +576,7 @@ def api_game_state(game_id):
                             capture_label_repo=capture_label_repo,
                             decision_analysis_repo=decision_analysis_repo,
                             bot_types=llm_configs.get('bot_types'),
+                            ai_chat=llm_configs.get('ai_chat', True),
                         )
                         db_messages = game_repo.load_messages(game_id)
 
@@ -1289,9 +1290,13 @@ def api_new_game():
     blind_growth = data.get('blind_growth', 1.5)
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 1000)  # 0 = no limit
+    # AI table talk. When off, the tiered ("Solver") bot makes ZERO LLM calls
+    # (no narration) so play is instant — surfaced to the UI as
+    # game_state['ai_instant'] to hide the now-pointless fast-forward button.
+    ai_chat = bool(data.get('ai_chat', True))
 
     # Validate game mode (if provided)
-    game_mode = data.get('game_mode', 'standard').lower()
+    game_mode = data.get('game_mode', 'casual').lower()
     # 'competitive' is auto-mapped to 'pro' downstream (kept here for backward compat).
     VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
@@ -1312,7 +1317,8 @@ def api_new_game():
 
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
-    # Per-player controller selection (defaults to 'standard' for omitted entries).
+    # Per-player controller selection (defaults to 'sharp' = the tiered solver
+    # bot, the core engine; LLM-driven bots are opt-in via Custom Game).
     # Legacy values 'hybrid' / 'tiered' are accepted on input but auto-mapped to
     # 'standard' / 'sharp' before storage. They are NOT advertised in error
     # responses so new clients don't pick them up as legitimate choices.
@@ -1433,7 +1439,12 @@ def api_new_game():
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
             player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            bot_type = bot_types.get(player.name, 'standard')
+            if not ai_chat:
+                # Quiet the LLM-driven bots (Guided/Improv) when chat is off.
+                player_prompt_config = player_prompt_config.copy(
+                    chattiness=False, dramatic_sequence=False
+                )
+            bot_type = bot_types.get(player.name, 'sharp')
 
             if bot_type == 'sharp':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
@@ -1446,7 +1457,7 @@ def api_new_game():
                     owner_id=owner_id,
                     capture_label_repo=capture_label_repo,
                     decision_analysis_repo=decision_analysis_repo,
-                    expression_enabled=True,
+                    expression_enabled=ai_chat,
                 )
             elif bot_type == 'baseline_solver':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
@@ -1585,6 +1596,7 @@ def api_new_game():
         'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
         'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
         'default_game_mode': game_mode,  # Game-level mode setting
+        'ai_chat': ai_chat,  # Game-level AI table talk toggle (drives ai_instant)
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
         'guest_messages_this_action': 0,  # Chat rate limiting for guests
@@ -1605,13 +1617,13 @@ def api_new_game():
 
     # Stamp the resolved bot type for every AI player so the saved game is
     # self-describing on restore. The front-end omits bot_types from the
-    # request when all opponents are on the default ('standard'); without
+    # request when all opponents are on the default ('sharp'); without
     # this, the dict on disk is empty and restoration can't tell that the
-    # standard path was wanted.
+    # tiered path was wanted.
     saved_bot_types = dict(bot_types)
     for player in state_machine.game_state.players:
         if not player.is_human:
-            saved_bot_types.setdefault(player.name, 'standard')
+            saved_bot_types.setdefault(player.name, 'sharp')
 
     game_repo.save_game(
         game_id,
@@ -1622,6 +1634,7 @@ def api_new_game():
             'player_llm_configs': player_llm_configs,
             'default_llm_config': default_llm_config,
             'bot_types': saved_bot_types,
+            'ai_chat': ai_chat,
         },
     )
     game_repo.save_tournament_tracker(game_id, tournament_tracker)

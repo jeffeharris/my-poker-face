@@ -31,7 +31,6 @@ import { PageLayout, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import { useAuth } from '../../hooks/useAuth';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
-import { GAME_MODES } from '../../constants/gameModes';
 import './CustomGameConfig.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -69,6 +68,7 @@ interface LLMConfig {
   blind_growth?: number;
   blinds_increase?: number;
   max_blind?: number;
+  ai_chat?: boolean;
 }
 
 type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver';
@@ -215,7 +215,8 @@ export function CustomGameConfig({
   const [blindsIncrease, setBlindsIncrease] = useState(6);
   const [maxBlind, setMaxBlind] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [defaultGameMode, setDefaultGameMode] = useState('standard');
+  // AI table talk. Off → the Solver bot makes no LLM call (instant play).
+  const [aiChat, setAiChat] = useState(true);
 
   // Model config
   const {
@@ -387,12 +388,11 @@ export function CustomGameConfig({
   };
 
   const resetOpponentConfig = (name: string) => {
+    // "Use Game Defaults" only governs the LLM provider/model/reasoning.
+    // The Controller (bot type) is orthogonal — a deterministic bot uses no
+    // LLM at all — so it must NOT be cleared here, or toggling defaults back
+    // on would silently discard the controller the user just picked.
     setOpponentConfigs((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    setOpponentBotTypes((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -448,11 +448,12 @@ export function CustomGameConfig({
       return name;
     });
 
-    // Only forward non-default bot type selections
+    // Only forward non-default bot type selections ('sharp' = tiered = the
+    // core default, matching the backend; omitting it lets the server default.)
     const botTypes: Record<string, BotType> = {};
     for (const name of filled) {
       const bt = opponentBotTypes[name];
-      if (bt && bt !== 'standard') botTypes[name] = bt;
+      if (bt && bt !== 'sharp') botTypes[name] = bt;
     }
 
     onStartGame(
@@ -466,8 +467,11 @@ export function CustomGameConfig({
         blind_growth: blindGrowth,
         blinds_increase: blindsIncrease,
         max_blind: maxBlind,
+        ai_chat: aiChat,
       },
-      defaultGameMode,
+      // game_mode is no longer player-selectable; the tiered core engine
+      // ignores it and the LLM bots in Custom Game use 'casual'.
+      'casual',
       Object.keys(botTypes).length > 0 ? botTypes : undefined
     );
   };
@@ -789,21 +793,22 @@ export function CustomGameConfig({
         </div>
       </div>
 
-      {/* Game mode cards */}
+      {/* AI Chat toggle — off makes the Solver bot instant (no LLM calls) */}
       <div className="game-mode-section">
-        <p className="presets-section__label">Game Mode</p>
-        <div className="game-mode-grid">
-          {GAME_MODES.map((gm) => (
-            <button
-              key={gm.value}
-              className={`selectable-card game-mode-card ${defaultGameMode === gm.value ? 'selectable-card--selected' : ''}`}
-              onClick={() => setDefaultGameMode(gm.value)}
-            >
-              <div className="game-mode-card__name">{gm.label}</div>
-              <div className="game-mode-card__desc">{gm.description}</div>
-            </button>
-          ))}
-        </div>
+        <p className="presets-section__label">AI Chat</p>
+        <button
+          type="button"
+          className={`selectable-card game-mode-card ${aiChat ? 'selectable-card--selected' : ''}`}
+          onClick={() => setAiChat(!aiChat)}
+          aria-pressed={aiChat}
+        >
+          <div className="game-mode-card__name">{aiChat ? 'On' : 'Off'}</div>
+          <div className="game-mode-card__desc">
+            {aiChat
+              ? 'Opponents react and trash-talk'
+              : 'Silent — Solver plays instantly, no AI chat'}
+          </div>
+        </button>
       </div>
 
       {/* Advanced toggle */}
@@ -1031,13 +1036,6 @@ export function CustomGameConfig({
           </span>
           <span className="review-stat__divider" />
           <span className="review-stat">
-            <span className="review-stat__value" style={{ textTransform: 'capitalize' }}>
-              {defaultGameMode}
-            </span>
-            <span className="review-stat__label">Mode</span>
-          </span>
-          <span className="review-stat__divider" />
-          <span className="review-stat">
             <span className="review-stat__value">{defaultModel}</span>
             <span className="review-stat__label">AI</span>
           </span>
@@ -1193,48 +1191,31 @@ export function CustomGameConfig({
                     </div>
                   )}
                   <div className="config-sheet__field">
-                    <label className="config-sheet__label">Game Mode Override</label>
+                    <label className="config-sheet__label">Opponent AI</label>
                     <select
                       className="config-sheet__select"
-                      value={opponentConfigs[configName]?.game_mode || ''}
-                      onChange={(e) =>
-                        handleOpponentConfigChange(configName, 'game_mode', e.target.value)
-                      }
-                      disabled={useDefaults}
-                    >
-                      <option value="">Use game default ({defaultGameMode})</option>
-                      {GAME_MODES.map((gm) => (
-                        <option key={gm.value} value={gm.value}>
-                          {gm.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="config-sheet__field">
-                    <label className="config-sheet__label">Controller</label>
-                    <select
-                      className="config-sheet__select"
-                      value={opponentBotTypes[configName] ?? 'standard'}
+                      value={opponentBotTypes[configName] ?? 'sharp'}
                       onChange={(e) =>
                         setOpponentBotTypes((prev) => ({
                           ...prev,
                           [configName]: e.target.value as BotType,
                         }))
                       }
-                      disabled={useDefaults}
                     >
-                      <optgroup label="LLM-driven">
-                        <option value="standard">Standard (default)</option>
-                        <option value="chaos">Chaos — full LLM, full personality</option>
-                        <option value="lean">Lean — cheap LLM, options-bounded</option>
-                        <option value="sharp">Sharp — solver-based GTO</option>
-                      </optgroup>
-                      <optgroup label="Training bots (deterministic, no chat)">
-                        <option value="casebot">CaseBot — adaptive case-based rules</option>
-                        <option value="gto_lite">GTO-Lite — pot-odds math</option>
-                        <option value="baseline_solver">
-                          BaselineSolver — pure solver, no personality
+                      {/* Ordered by how much freedom the LLM has in the decision.
+                          Values are the internal bot_type codenames. */}
+                      <optgroup label="AI style">
+                        <option value="sharp">
+                          Solver — plays the math, personality on top (default)
                         </option>
+                        <option value="standard">Guided — LLM chooses from smart options</option>
+                        <option value="chaos">Improv — pure LLM, full freedom</option>
+                      </optgroup>
+                      <optgroup label="More">
+                        <option value="lean">Guided · Lean — cheaper bounded LLM</option>
+                        <option value="casebot">CaseBot — rule-based</option>
+                        <option value="gto_lite">GTO-Lite — pot-odds math</option>
+                        <option value="baseline_solver">Solver · no personality</option>
                       </optgroup>
                     </select>
                   </div>

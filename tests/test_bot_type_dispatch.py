@@ -6,8 +6,8 @@ route picks a controller class per player from `bot_types`. Legacy values
 `standard` / `sharp` before storage.
 
 These tests guard against regressions where a new bot_type silently falls
-through to the default (HybridAIController) — the kind of silent miss that
-showed up in the experiment runner during this refactor.
+through to the default (TieredBotController — the core engine) — the kind of
+silent miss that showed up in the experiment runner during this refactor.
 """
 
 import os
@@ -182,10 +182,48 @@ class TestBotTypeDispatch(unittest.TestCase):
         self.assertIn('standard', payload['valid_bot_types'])
         self.assertIn('lean', payload['valid_bot_types'])
 
-    def test_omitted_bot_type_defaults_to_standard(self):
-        """Players not listed in bot_types default to HybridAIController."""
+    def test_omitted_bot_type_defaults_to_tiered(self):
+        """Players not listed in bot_types default to the tiered solver bot.
+
+        Tiered ('sharp') is the core engine: instant table-lookup decisions,
+        LLM only for narration. The LLM-driven bots (standard/chaos/lean) are
+        opt-in via Custom Game.
+        """
         _, controllers = self._create_game({})  # No bot_types specified
-        self.assertIs(type(controllers['Batman']), HybridAIController)
+        self.assertIsInstance(controllers['Batman'], TieredBotController)
+        self.assertIsInstance(controllers['Yoda'], TieredBotController)
+
+    def test_ai_chat_on_solver_narrates_and_is_not_instant(self):
+        """Default (AI Chat on): Solver opponents get an expression generator
+        (one narration LLM call), so the game is NOT in instant mode."""
+        from flask_app.handlers.game_handler import _all_ai_no_llm
+
+        _, controllers = self._create_game({})  # ai_chat defaults on
+        for c in controllers.values():
+            self.assertIsInstance(c, TieredBotController)
+            self.assertIsNotNone(getattr(c, 'expression_generator', None))
+        self.assertFalse(_all_ai_no_llm(controllers))
+
+    def test_ai_chat_off_makes_solver_instant(self):
+        """AI Chat off: Solver opponents make ZERO LLM calls (no expression
+        generator), so the game reports instant mode (FF button hidden)."""
+        from flask_app.handlers.game_handler import _all_ai_no_llm
+        from flask_app.services import game_state_service
+
+        response = self.client.post(
+            '/api/new-game',
+            json={
+                'playerName': 'TestPlayer',
+                'personalities': ['Batman', 'Yoda'],
+                'ai_chat': False,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        controllers = game_state_service.get_game(response.get_json()['game_id'])['ai_controllers']
+        for c in controllers.values():
+            self.assertIsInstance(c, TieredBotController)
+            self.assertIsNone(getattr(c, 'expression_generator', None))
+        self.assertTrue(_all_ai_no_llm(controllers))
 
 
 if __name__ == '__main__':

@@ -28,6 +28,8 @@ interface GameStore {
   runItOut: boolean | undefined;
   cashMode: CashModeInfo | null;
   fastForward: boolean;
+  /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
+  aiInstant: boolean;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -57,6 +59,7 @@ const initialState = {
   runItOut: undefined as boolean | undefined,
   cashMode: null as CashModeInfo | null,
   fastForward: false,
+  aiInstant: false,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -155,6 +158,7 @@ export const useGameStore = create<GameStore>((set) => ({
         runItOut: state.run_it_out,
         cashMode: state.cash_mode ?? null,
         fastForward: state.fast_forward ?? false,
+        aiInstant: state.ai_instant ?? false,
       };
     });
   },

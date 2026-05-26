@@ -328,6 +328,7 @@ export function PokerTable({
               isBigBlind={isHumanBigBlind}
               bettingContext={gameState.betting_context}
               fastForward={gameState.fast_forward ?? false}
+              aiInstant={gameState.ai_instant ?? false}
               onFastForward={
                 gameId
                   ? (enabled: boolean) => {

@@ -3,6 +3,12 @@
 # These are synced to the prompt_presets table on every app startup,
 # overwriting any prior system preset values (YAML is source of truth).
 # User-created presets (is_system=FALSE) are never touched.
+#
+# NOT EXPOSED IN THE GAME UI: only "casual" is selectable in the game
+# (react/src/constants/gameModes.ts). "standard" and "pro" are retained here
+# for experiments, the API, and old saved games, but players can't pick them.
+# game_mode only shapes LLM-driven bot prompts; the tiered core engine ignores
+# it entirely. See docs/TRIAGE.md for the eventual full-removal plan.
 
 version: "2026-01"
 

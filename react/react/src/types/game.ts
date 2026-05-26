@@ -77,6 +77,10 @@ export interface GameState {
    *  Set by POST /api/game/<id>/fast-forward, auto-cleared when action
    *  returns to the human. */
   fast_forward?: boolean;
+  /** True when every AI seat resolves with zero LLM calls (all Solver with
+   *  AI Chat off, or rule bots) — nothing to fast-forward, so the UI hides
+   *  the FF button. */
+  ai_instant?: boolean;
 }
 
 /** Player's showdown hand information */
