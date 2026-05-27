@@ -38,6 +38,9 @@ const CustomGameConfig = lazy(() =>
 const CareerStats = lazy(() =>
   import('./components/stats/CareerStats').then((m) => ({ default: m.CareerStats }))
 );
+const ProfilePage = lazy(() =>
+  import('./components/profile/ProfilePage').then((m) => ({ default: m.ProfilePage }))
+);
 const InstallPrompt = lazy(() =>
   import('./components/pwa/InstallPrompt').then((m) => ({ default: m.InstallPrompt }))
 );
@@ -75,6 +78,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/personalities': 'Manage Personalities - My Poker Face',
   '/cash': 'Career - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
+  '/profile': 'Your Profile - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
   '/terms': 'Terms of Service - My Poker Face',
@@ -540,6 +544,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <CareerStats onBack={() => navigate('/menu/tournament')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfilePage onBack={() => navigate('/menu')} />
                 </ProtectedRoute>
               }
             />

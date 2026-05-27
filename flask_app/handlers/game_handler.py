@@ -545,10 +545,31 @@ def update_and_emit_game_state(game_id: str) -> None:
     from poker.rule_bot_controller import RuleBotController
     from poker.tiered_bot_controller import BaselineSolverBot
 
+    # Resolve the human owner's custom profile avatar once per emit (cheap
+    # indexed lookup; kept fresh rather than cached so a mid-game change in
+    # /profile shows up on the next state push). Applied to the human seat
+    # below so the player isn't a bare initial like the AIs aren't.
+    human_avatar_url = None
+    owner_id = current_game_data.get('owner_id')
+    if owner_id:
+        try:
+            from ..extensions import user_avatar_service
+
+            if user_avatar_service:
+                human_avatar_url = user_avatar_service.get_avatar_url(owner_id)
+        except Exception as e:
+            logger.debug(f"Could not resolve human avatar for {owner_id}: {e}")
+
     # Add avatar data and psychology to AI players
     ai_controllers = current_game_data.get('ai_controllers', {})
     for player_dict in game_state_dict.get('players', []):
         player_name = player_dict.get('name', '')
+        # Human seat: surface the owner's profile avatar (the human player is
+        # the game owner). Matches by owner_name when present so a stray second
+        # human in a shared room doesn't borrow the owner's face.
+        if player_dict.get('is_human', False) and human_avatar_url:
+            if not human_player_name or player_name == human_player_name:
+                player_dict['avatar_url'] = human_avatar_url
         if not player_dict.get('is_human', True) and player_name in ai_controllers:
             controller = ai_controllers[player_name]
             # Run-out reaction overrides take priority over baseline emotion
@@ -2375,6 +2396,8 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             ai_players_with_context,
             on_commentary_ready=emit_commentary_immediately,
             big_blind=big_blind,
+            human_bio=_resolve_human_bio(game_data),
+            human_name=game_data.get('owner_name'),
         )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
@@ -2970,7 +2993,26 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # the game in HAND_OVER and return; rebuy or leave will unstick
         # it.
         chip_holders = sum(1 for p in state_machine.game_state.players if p.stack > 0)
-        if chip_holders < 2:
+        human = next(
+            (p for p in state_machine.game_state.players if p.is_human), None
+        )
+        human_busted = human is not None and human.stack == 0
+        # Pause the table in HAND_OVER (don't deal the next hand) whenever
+        # the human can't be dealt back in this instant. Two shapes:
+        #   - human busted (stack 0): they're on the rebuy/sponsor modal.
+        #     Rebuy is only valid between hands, so dealing on among the
+        #     remaining AIs advances the phase out of HAND_OVER and the
+        #     rebuy POST gets rejected ("only allowed between hands"). This
+        #     holds EVEN WHEN 2+ AIs still have chips — without the pause
+        #     the table plays on without the human and there's no
+        #     between-hands window for the rebuy to land in.
+        #   - fewer than 2 chip-holders: the table can't deal anyway, and
+        #     the state machine would loop HAND_OVER → INIT_HAND →
+        #     SHOWDOWN → HAND_OVER, hit the 50-iteration cap, and pin
+        #     progress_game's lock — blocking /api/cash/leave for the user
+        #     staring at the bust modal.
+        # Either way, rebuy or leave unsticks it (rebuy calls progress_game).
+        if human_busted or chip_holders < 2:
             # Distinguish the two dead-table shapes so the frontend shows
             # the right prompt:
             #   - human busted (stack 0): the bust/rebuy modal, already
@@ -2982,7 +3024,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             # — so a normal heads-up win (last opponent at 0 chips for one
             # HAND_OVER frame, about to be refilled) never trips it.
             paused_players = state_machine.game_state.players
-            human = next((p for p in paused_players if p.is_human), None)
             others_have_chips = any(
                 p.stack > 0 and not p.is_human for p in paused_players
             )
@@ -3016,9 +3057,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
             game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
             logger.info(
-                "[CASH] Paused game_id=%r in HAND_OVER — only %d player(s) "
-                "with chips; waiting for rebuy or leave",
+                "[CASH] Paused game_id=%r in HAND_OVER — human_busted=%s, "
+                "%d player(s) with chips; waiting for rebuy or leave",
                 game_id,
+                human_busted,
                 chip_holders,
             )
             return state_machine.game_state, True
@@ -3475,6 +3517,32 @@ def _get_or_build_ff_controller(
     return controller
 
 
+def _resolve_human_bio(current_game_data: dict) -> str:
+    """Resolve the human owner's AI-visible bio, cached per game.
+
+    Read once per game (lazily). The bio is set-and-forget in /profile, so a
+    mid-game edit not reflecting until the game reloads is acceptable, and this
+    avoids a DB hit on every AI decision and commentary pass.
+    """
+    if 'human_bio' in current_game_data:
+        return current_game_data['human_bio']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['human_bio'] = ""
+        return ""
+    try:
+        from ..extensions import user_prefs_repo
+
+        bio = user_prefs_repo.get_bio(owner_id) if user_prefs_repo else ""
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't suppress the
+        # bio for the rest of the session; retry on the next decision.
+        logger.debug(f"Could not resolve human bio for {owner_id}: {e}")
+        return ""
+    current_game_data['human_bio'] = bio
+    return bio
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3508,6 +3576,10 @@ def handle_ai_action(game_id: str) -> None:
     # Set current hand number for tracking
     if 'memory_manager' in current_game_data:
         controller.current_hand_number = current_game_data['memory_manager'].hand_count
+
+    # Surface the human's self-description so the AI can needle them about it in
+    # its table talk (dramatic_sequence). Runtime context, not config.
+    controller.human_bio = _resolve_human_bio(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
     try:

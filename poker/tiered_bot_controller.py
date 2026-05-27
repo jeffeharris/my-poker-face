@@ -3228,6 +3228,24 @@ class TieredBotController(AIPlayerController):
                     )
                     relationship_context = ''
 
+            # The human's self-description (set per-decision by the game
+            # handler). Pre-format here — where the human's name is known —
+            # so tiered narration can needle them about it just like chaos and
+            # standard do in their decision prompts. Sanitize the section
+            # delimiter so a crafted bio can't forge a fake prompt block.
+            human_bio_block = ''
+            if getattr(self, 'human_bio', ''):
+                who = next(
+                    (p.name for p in game_state.players if getattr(p, 'is_human', False)),
+                    None,
+                ) or "The human player"
+                safe_bio = self.human_bio.replace('===', '==')
+                human_bio_block = (
+                    f"=== About {who} (in their own words) ===\n"
+                    f"{safe_bio}\n"
+                    "(Feel free to needle them about this at the table.)"
+                )
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -3262,6 +3280,7 @@ class TieredBotController(AIPlayerController):
                 narration_facts=narration_facts,
                 opponent_observations=opponent_observations,
                 relationship_context=relationship_context,
+                human_bio=human_bio_block,
             )
 
             capture_id_holder = [None]

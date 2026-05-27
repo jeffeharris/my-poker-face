@@ -18,6 +18,7 @@ from cash_mode.whereabouts import (
     STUCK_NO_BANKROLL,
     STUCK_OVERDUE_HUSTLE,
     STUCK_SEATED_AND_IDLE,
+    STUCK_SEATED_TOO_LONG,
     STUCK_STALE_IDLE,
     STUCK_UNKNOWN_PERSONALITY,
     build_whereabouts,
@@ -28,12 +29,14 @@ SANDBOX = "sb-1"
 OWNER = "owner-1"
 
 
-def _seat(kind, pid=None, chips=0):
+def _seat(kind, pid=None, chips=0, seated_at=None):
     slot = {"kind": kind}
     if pid:
         slot["personality_id"] = pid
     if chips:
         slot["chips"] = chips
+    if seated_at:
+        slot["seated_at"] = seated_at
     return slot
 
 
@@ -129,6 +132,7 @@ def _run(
     chips=None,
     names=None,
     stale_idle_seconds=30 * 60,
+    seated_too_long_seconds=3 * 60 * 60,
 ):
     return build_whereabouts(
         sandbox_id=SANDBOX,
@@ -141,6 +145,7 @@ def _run(
         bankroll_repo=_BankrollRepo(chips),
         personality_repo=_PersonalityRepo(names),
         stale_idle_seconds=stale_idle_seconds,
+        seated_too_long_seconds=seated_too_long_seconds,
     )
 
 
@@ -292,3 +297,51 @@ def test_stuck_sort_to_top():
     )
     # The stuck person sorts ahead of the healthy one.
     assert result["people"][0]["personality_id"] == "ghost"
+
+
+def _seated_at(*, hours_ago):
+    return (NOW - timedelta(hours=hours_ago)).isoformat()
+
+
+def test_seated_duration_reported():
+    tables = [
+        _Table(
+            "t1",
+            "$10",
+            [_seat("ai", "grinder", chips=1000, seated_at=_seated_at(hours_ago=1))],
+            name="The Lodge",
+        )
+    ]
+    result = _run(tables=tables, names={"grinder": "Grinder"}, chips={"grinder": 1000})
+    person = _by_pid(result)["grinder"]
+    assert person["status"] == STATUS_SEATED
+    # ~1h parked, comfortably under the default 3h watch threshold.
+    assert abs(person["seconds_in_state"] - 3600) <= 1
+    assert person["watch"] == []
+
+
+def test_seated_too_long_flags_watch():
+    tables = [
+        _Table(
+            "t1",
+            "$200",
+            [_seat("ai", "whale", chips=20000, seated_at=_seated_at(hours_ago=4))],
+            name="The Quiet Room",
+        )
+    ]
+    result = _run(tables=tables, names={"whale": "Whale"}, chips={"whale": 900000})
+    person = _by_pid(result)["whale"]
+    # Past the 3h default → soft watch flag, not a hard stuck flag.
+    assert STUCK_SEATED_TOO_LONG in person["watch"]
+    assert person["stuck"] == []
+    assert result["counts"]["watch"] == 1
+    assert abs(person["seconds_in_state"] - 4 * 3600) <= 1
+
+
+def test_seated_without_stamp_has_no_duration():
+    # Legacy seat saved before seated_at existed: no duration, no flag.
+    tables = [_Table("t1", "$10", [_seat("ai", "legacy", chips=1000)], name="The Lodge")]
+    result = _run(tables=tables, names={"legacy": "Legacy"}, chips={"legacy": 1000})
+    person = _by_pid(result)["legacy"]
+    assert person["seconds_in_state"] is None
+    assert person["watch"] == []

@@ -371,6 +371,51 @@ def test_relationship_context_block_absent_when_empty(context, prompt_manager):
     assert 'RECENT HISTORY' not in user
 
 
+def test_human_bio_block_appears_when_populated(context, prompt_manager):
+    """When `human_bio` is set, the block lands in the user prompt as a suffix
+    so sharp/tiered narration can needle the human about it — symmetric with
+    how chaos/standard see the bio in their decision prompts.
+    """
+    block = (
+        "=== About Jeff (in their own words) ===\n"
+        "I never fold. Ever.\n"
+        "(Feel free to needle them about this at the table.)"
+    )
+    ctx_with_bio = ExpressionContext(
+        action_taken='raise',
+        raise_to=600,
+        hand_cards=['As', 'Ah'],
+        community_cards=[],
+        phase='pre_flop',
+        pot_size=300,
+        opponent_count=2,
+        personality_name='Batman',
+        play_style='analytical',
+        default_attitude='thoughtful',
+        human_bio=block,
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(ctx_with_bio)
+
+    _, user = _capture_messages(mock_llm)
+    assert 'About Jeff' in user
+    assert 'I never fold. Ever.' in user
+
+
+def test_human_bio_block_absent_when_empty(context, prompt_manager):
+    """Default empty `human_bio` produces no block — baseline prompt unchanged."""
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = _stub_response()
+    gen = ExpressionGenerator(mock_llm, prompt_manager)
+    gen.generate(context)  # default ctx — no human_bio
+
+    _, user = _capture_messages(mock_llm)
+    assert 'in their own words' not in user
+
+
 def test_addressing_field_passes_through(context, prompt_manager):
     """LLM-declared addressing names are preserved through parse."""
     mock_llm = MagicMock()
