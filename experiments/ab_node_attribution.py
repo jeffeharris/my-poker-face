@@ -74,14 +74,54 @@ SLICE_POSTFLOP_PATHS = [
 ]
 
 
+HU_CBET_TARGET = 0.55  # HU c-bet/barrel floor for the non-value (bluff/merge) range
+
+
+def _hu_aggressive_transform(table):
+    """Mutate `table._postflop` toward HU-appropriate aggression: in unopened
+    spots (c-bet / barrel as the aggressor) with a non-value hand, raise the
+    aggressive-action mass to >= HU_CBET_TARGET by shifting check mass into a
+    bet action. Value classes (nuts/strong_made) and facing-bet spots are left
+    alone — the diagnostic showed value-betting is already fine; the leak is
+    under-c-betting/barreling the bluff range (air/weak ~18% vs HU ~55%).
+    A directional candidate to QUANTIFY the leak, not a solved chart.
+    """
+    from poker.strategy.multiway import VALUE_CLASSES
+    from poker.strategy.strategy_profile import StrategyProfile
+
+    for key, profile in list(table._postflop.items()):
+        parts = key.split('|')
+        if len(parts) < 7:
+            continue
+        hand_class, action_context = parts[4], parts[6]
+        if action_context != 'unopened' or hand_class in VALUE_CLASSES:
+            continue
+        probs = dict(profile.action_probabilities)
+        agg = [a for a in probs if a.startswith(('bet_', 'raise_')) or a == 'jam']
+        cur_agg = sum(probs[a] for a in agg)
+        if cur_agg >= HU_CBET_TARGET or probs.get('check', 0.0) <= 0:
+            continue
+        take = min(HU_CBET_TARGET - cur_agg, probs['check'])
+        probs['check'] -= take
+        target_bet = max(agg, key=lambda a: probs[a]) if agg else 'bet_67'
+        probs[target_bet] = probs.get(target_bet, 0.0) + take
+        table._postflop[key] = StrategyProfile(action_probabilities=probs)
+    return table
+
+
 def _build_table(arm):
     """Return a StrategyTable for a named arm.
 
     'slices' = production preflop + base postflop + the restored low-SPR/3BP
     precision-slice entries merged into _postflop (so exact-match lookups hit
-    them before the degrade ladder). Everything else = a preflop-chart variant
-    (CHARTS key or a raw json_path) with the default postflop.
+    them before the degrade ladder).
+    'hu_aggro' = production preflop + base postflop with the HU-aggressive
+    transform applied (the HU-postflop-leak quantification candidate).
+    Everything else = a preflop-chart variant (CHARTS key or a raw json_path)
+    with the default postflop.
     """
+    if arm == 'hu_aggro':
+        return _hu_aggressive_transform(load_strategy_table())
     if arm == 'slices':
         import json
         from poker.strategy.strategy_table import _parse_postflop_json
@@ -155,11 +195,13 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
     opponents = _resolve_roster(roster_name)
+    if heads_up:
+        opponents = opponents[:1]  # 2-handed → all postflop decisions are HU
     table_a = _build_table(arm_a)
     table_b = _build_table(arm_b)
     opp_table = load_strategy_table()  # opponents are rule/clone bots → table irrelevant
@@ -176,7 +218,7 @@ def _run_seed(args):
     buckets = defaultdict(lambda: [0, 0.0, 0.0])
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
-        dealer_idx = hand_num % 6
+        dealer_idx = hand_num % (1 + len(opponents))
         da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
         db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
         paired = db - da
@@ -213,11 +255,14 @@ def main():
     p.add_argument('--stack-bb', type=int, default=100,
                    help='effective starting stack in BB (default 100). Use 50/25 to put the '
                    'low-SPR slices in play (they barely fire at 100bb).')
+    p.add_argument('--heads-up', action='store_true',
+                   help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
+                   'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.')
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
 
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb) for s in seeds]
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -235,8 +280,9 @@ def main():
     se = math.sqrt(var / total_n) if total_n else 0.0
     tot_bb, ci_bb = _bb(mean), _bb(1.96 * se)
 
-    print(f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster} | "
-          f"stack={args.stack_bb}bb | {args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
+    print(f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster}"
+          f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
+          f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
     print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
     nd = merged.get(('-', 'NO_DIVERGENCE'), [0, 0.0, 0.0])
     print(f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)")
