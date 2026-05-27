@@ -188,9 +188,16 @@ class TestEnsureLobbySeeded:
         )
         # Still the same N tables as the first call.
         assert len(cash_table_repo.list_all_tables()) == EXPECTED_LOBBY_TABLE_COUNT
-        # Seats unchanged.
+
+        # Seat *assignments* unchanged. save_table stamps each AI seat with a
+        # volatile `seated_at` timestamp (added 62f57b7a), so compare seats with
+        # that field stripped — idempotency means the same personalities/chips
+        # in the same seats, not an identical timestamp.
+        def _assignments(seats):
+            return [{k: v for k, v in s.items() if k != "seated_at"} for s in seats]
+
         for t in second:
-            assert list(t.seats) == original_seats[t.table_id]
+            assert _assignments(t.seats) == _assignments(original_seats[t.table_id])
 
     def test_one_personality_per_active_seat(
         self,
