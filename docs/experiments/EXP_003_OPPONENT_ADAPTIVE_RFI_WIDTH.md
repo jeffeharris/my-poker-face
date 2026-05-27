@@ -1,13 +1,22 @@
 ---
 purpose: Test whether opponent-adaptive late-position RFI width (widen vs folders, tighten/hold vs stations) via adaptive preflop-table selection beats the static tight chart vs the opponent spectrum
 type: experiment
-status: planned
-hypothesis_summary: <ONE-LINE TESTABLE CLAIM — to be committed by the user before any run>
+status: closed-negative
+hypothesis_summary: Opponent-adaptive RFI width (tighten vs stations) would beat static-wide — REFUTED at the Phase-0 precondition (no opponent makes wide lose).
 created: 2026-05-27
 last_updated: 2026-05-27
 ---
 
 # Experiment 003 — Opponent-Adaptive Preflop RFI Width
+
+> **🔴 CLOSED-NEGATIVE 2026-05-27.** The Phase-0 precondition gate ("does wide
+> lose to ANY opponent?") came back **no** across the informative opponent set —
+> wide is neutral-to-massively-positive everywhere (station +147, nit +3.8, lag
+> +1.5; maniac was a no-op artifact). With no opponent vs whom wide loses, the
+> "tighten vs stations" half has no target and opponent-adaptive width is not
+> worth building. The static wide chart (shipped `4f5fb311`) is the answer. See
+> Results / Conclusion below. The mechanism + instrument findings are retained
+> for future reference.
 
 > **Why this exists:** **UPDATE 2026-05-27 — static late-position widening
 > SHIPPED.** A steal-aware A/B (`ab_preflop_width.py`, 24k hands) found wider
@@ -197,12 +206,52 @@ scratch log under `/tmp`.
 
 ## Results
 
-*To be filled after running.*
+**Phase-0 precondition gate (2026-05-27)** — "does wide lose to ANY opponent?"
+Run on a Hetzner `ccx53` (hil) via `docs/EVAL_RUNNER.md`; `ab_preflop_width.py`,
+paired WIDE−TIGHT, 8 non-overlapping seed-blocks × 3000h = 24k independent hands
+each:
+
+| Roster | Composition | WIDE − TIGHT bb/100 | 95% CI | Read |
+|---|---|---|---|---|
+| station | 5× CallStation | **+147.49** | [+124.96, +170.02] | wide crushes — stations pay off every extra open |
+| nit | 5× Nit | +3.76 | [−0.62, +8.13] | neutral-positive |
+| lag | 5× LAG | +1.53 | [−3.30, +6.37] | neutral |
+| maniac | 5× ManiacBot | +0.00 | [+0.00, +0.00] | **no-op artifact** (see below) |
+| jeff (prior) | 5× Jeff_clone | +15.97 | [+10.35, +21.59] | (the ship A/B) |
+| punisher (prior) | 5× Punisher_clone | +5.33 | [+1.45, +9.21] | (the ship A/B) |
+
+**The maniac no-op:** `+0.00` with a degenerate CI is the *never-first-in*
+artifact — 5× ManiacBot raise before the hero acts, so the hero never opens from
+late position and the RFI-width change cannot fire. Uninformative, not a "wide is
+safe vs aggression" signal. The honest aggression test is `lag` (folds enough to
+let the hero open), which was neutral.
 
 ## Conclusion
 
-*To be filled after analysis.*
+**The Phase-0 precondition is NOT met: there is no measured opponent vs whom the
+wide chart loses.** Wide is neutral-to-hugely-positive across folders (nit,
+punisher), stations (jeff, CallStation +147), and a loose-aggressive opener
+(lag). The intuition behind "tighten vs stations" — that wide opens bleed
+postflop vs callers — is *backwards*: stations are so exploitable postflop that
+opening more hands into them compounds the edge. So the "tighten vs stations"
+half of the adaptive hypothesis has no target, and the "widen vs folders" half is
+already shipped as the static baseline. **Opponent-adaptive open width is not
+worth building.**
+
+Honest residual: the opponent set has no genuinely *elite balanced* reg (the same
+gap the exploitation-layer work has). But (a) vs such an opponent the binding
+constraint is postflop skill, not preflop width, and (b) the burden of proof for
+building adaptive machinery is a *measured* loss, which does not exist. Retained
+findings: exploitation logit offsets cannot open a fold-1.0 hand (so any future
+adaptive width must be table-selection), and `measure_passivity`+Baseline can't
+measure the exploitation path (needs a TAG hero + opponent model).
 
 ## Decisions made / next steps
 
-*To be filled after conclusion.*
+- **CLOSE the opponent-adaptive open-width line.** Static wide (commit
+  `4f5fb311`) is the answer; do not build adaptive RFI tightening.
+- **Reopen only on a real signal:** if a future eval finds a balanced/elite
+  opponent vs whom static-wide is CI-clear negative, this gate has a target and
+  the build (table-selection keyed on players-left-to-act) becomes justified.
+- The next lever for the bot vs strong opponents is **postflop skill**, not
+  preflop width (consistent with the standing finding).

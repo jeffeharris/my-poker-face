@@ -29,8 +29,32 @@ from experiments.measure_passivity import (
 )
 from poker.strategy.strategy_table import load_strategy_table
 
-WIDER_PATH = 'poker/strategy/data/preflop_100bb_6max_wider_rfi.json'
+# Explicit chart paths. NOTE: wide is now PRODUCTION (shipped 2026-05-27), so
+# load_strategy_table() defaults to wide — we must name the tight chart
+# explicitly. Paired metric is (wide − tight), matching the pre-ship jeff/punisher
+# numbers (+15.97 / +5.33). A CI-clear NEGATIVE result vs some opponent is the
+# precondition that justifies building opponent-adaptive width (EXP_003 Phase 0).
+TIGHT_PATH = 'poker/strategy/data/preflop_100bb_6max_tight_rfi.json'
+WIDE_PATH = 'poker/strategy/data/preflop_100bb_6max.json'  # production (now wide)
 BIG_BLIND = 100
+
+# Sticky / punishing rule-bot rosters for the Phase-0 "does wide ever lose?"
+# gate, plus tight folders as a positive control. Rule bots ignore the strategy
+# table, so opponents are unaffected by which chart the hero holds. Merged over
+# measure_passivity's clone rosters (gto/mix/jeff/punisher).
+LOCAL_ROSTERS = {
+    'station': ['CallStation'] * 5,   # pure never-folder — wide should lose here if anywhere
+    'maniac': ['ManiacBot'] * 5,      # relentless raiser — punishes wide opens
+    'lag': ['LAG'] * 5,               # loose-aggressive 3-bettor
+    'nit': ['Nit'] * 5,               # tight folder — positive control (expect wide +EV)
+    'rock': ['Rock'] * 5,             # tight-aggressive — positive control
+}
+
+
+def _resolve_roster(name):
+    if name in LOCAL_ROSTERS:
+        return LOCAL_ROSTERS[name]
+    return ROSTERS[name]
 
 
 def _run_seed(args):
@@ -38,14 +62,15 @@ def _run_seed(args):
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
-    opp = ROSTERS[roster_name]
-    base = load_strategy_table()
-    wider = load_strategy_table(json_path=WIDER_PATH)
-    db, _ = run_passivity_matchup('Baseline', opp, n_hands, base, base_seed=seed, mode='off', hero_table=None)
-    dw, _ = run_passivity_matchup('Baseline', opp, n_hands, base, base_seed=seed, mode='off', hero_table=wider)
-    paired = [w - b for w, b in zip(dw, db)]
+    opp = _resolve_roster(roster_name)
+    opp_table = load_strategy_table()  # opponents are rule/clone bots → table irrelevant to them
+    tight = load_strategy_table(json_path=TIGHT_PATH)
+    wide = load_strategy_table(json_path=WIDE_PATH)
+    dt, _ = run_passivity_matchup('Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=tight)
+    dw, _ = run_passivity_matchup('Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=wide)
+    paired = [w - t for w, t in zip(dw, dt)]  # wide − tight
     n_diff = sum(1 for p in paired if p != 0)
-    return seed, paired, n_diff, sum(db), sum(dw)
+    return seed, paired, n_diff, sum(dt), sum(dw)
 
 
 def main():
@@ -62,15 +87,15 @@ def main():
     results.sort()
 
     all_paired = []
-    print(f"\n=== preflop-width A/B (wider - base) vs {roster_name} | {n_hands}h x {len(seeds)} seeds ===")
-    print(f"{'seed':>6} {'n_diff':>7} {'base_bb/100':>12} {'wider_bb/100':>13} {'paired_bb/100':>14}")
-    for seed, paired, n_diff, sb, sw in results:
+    print(f"\n=== preflop-width A/B (WIDE - TIGHT) vs {roster_name} | {n_hands}h x {len(seeds)} seeds ===")
+    print(f"{'seed':>6} {'n_diff':>7} {'tight_bb/100':>13} {'wide_bb/100':>12} {'paired_bb/100':>14}")
+    for seed, paired, n_diff, st, sw in results:
         all_paired.extend(paired)
         n = len(paired)
-        base_bb = 100.0 * (sb / BIG_BLIND) / n
-        wider_bb = 100.0 * (sw / BIG_BLIND) / n
+        tight_bb = 100.0 * (st / BIG_BLIND) / n
+        wide_bb = 100.0 * (sw / BIG_BLIND) / n
         paired_bb = 100.0 * (sum(paired) / BIG_BLIND) / n
-        print(f"{seed:>6} {n_diff:>7} {base_bb:>12.2f} {wider_bb:>13.2f} {paired_bb:>+14.2f}")
+        print(f"{seed:>6} {n_diff:>7} {tight_bb:>13.2f} {wide_bb:>12.2f} {paired_bb:>+14.2f}")
 
     N = len(all_paired)
     mean = sum(all_paired) / N
@@ -81,8 +106,8 @@ def main():
     n_diff_total = sum(1 for p in all_paired if p != 0)
     print(f"\n  N hands={N}  hands differing={n_diff_total} ({100.0*n_diff_total/N:.1f}%)")
     print(f"  PAIRED mean = {mean_bb:+.2f} bb/100   95% CI [{mean_bb-ci_bb:+.2f}, {mean_bb+ci_bb:+.2f}]")
-    verdict = "POSITIVE (wider wins)" if mean_bb - ci_bb > 0 else (
-        "NEGATIVE (wider loses)" if mean_bb + ci_bb < 0 else "NEUTRAL (CI spans 0)")
+    verdict = "POSITIVE (wide wins)" if mean_bb - ci_bb > 0 else (
+        "NEGATIVE (wide loses → adaptive-tighten target!)" if mean_bb + ci_bb < 0 else "NEUTRAL (CI spans 0)")
     print(f"  VERDICT: {verdict}")
 
 
