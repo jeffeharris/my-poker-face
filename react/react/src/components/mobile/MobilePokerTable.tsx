@@ -317,14 +317,18 @@ export function MobilePokerTable({
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
-  // Stable map of player name → avatar URL for FloatingChat
+  // Map of player name → avatar URL for FloatingChat. Accumulated across the
+  // whole session (never pruned): a player who busts/leaves drops out of
+  // `storePlayers`, but a chat message they sent right before going still
+  // needs their avatar, so we remember every avatar we've ever seen here.
+  const avatarCacheRef = useRef<Map<string, string>>(new Map());
   const playerAvatars = useMemo(() => {
-    if (!storePlayers) return new Map<string, string>();
-    const map = new Map<string, string>();
-    for (const p of storePlayers) {
-      if (p.avatar_url) map.set(p.name, `${config.API_URL}${p.avatar_url}`);
+    const cache = avatarCacheRef.current;
+    for (const p of storePlayers ?? []) {
+      if (p.avatar_url) cache.set(p.name, `${config.API_URL}${p.avatar_url}`);
     }
-    return map;
+    // Fresh snapshot so memoized consumers see a new identity when it grows.
+    return new Map(cache);
   }, [storePlayers]);
 
   // Heads-up mode: only 1 AI opponent remains
