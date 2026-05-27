@@ -532,8 +532,8 @@ def run_passivity_matchup(
     None, the hero uses `strategy_table` (current behavior), optionally
     transformed by `entry='isolate'`.
     """
-    if len(opponents) != 5:
-        raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
+    if len(opponents) < 1:
+        raise ValueError(f"need >=1 opponent, got {len(opponents)}")
 
     if hero_table is None:
         hero_table = strategy_table
@@ -553,7 +553,7 @@ def run_passivity_matchup(
 
     for hand_num in range(n_hands):
         hand_seed = base_seed + hand_num
-        dealer_idx = hand_num % 6
+        dealer_idx = hand_num % len(all_names)
         random.seed(hand_seed)  # per-hand global-random reset (rule bots)
 
         gs = make_game_state(
@@ -705,7 +705,7 @@ def print_report(
     leak_report: bool = False,
     stack_bb: int = 100,
 ):
-    opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
+    opp_desc = (f'{len(opponents)}x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
     print(
@@ -924,6 +924,13 @@ def main():
         "strategy table (opponents keep the default chart). Default None = "
         "current behavior. e.g. poker/strategy/data/preflop_100bb_6max_wider_rfi.json",
     )
+    p.add_argument(
+        '--heads-up',
+        action='store_true',
+        help="2-handed (hero + 1 opponent) so EVERY postflop decision is HU — "
+        "the HU-postflop-leak diagnostic. Collapses the roster to a single "
+        "opponent (e.g. --opponents jeff --heads-up = 1 Jeff_clone).",
+    )
     args = p.parse_args()
     if args.preflop_chart and not os.path.exists(args.preflop_chart):
         print(f"--preflop-chart not found: {args.preflop_chart}")
@@ -936,8 +943,16 @@ def main():
         opponents = ROSTERS[args.opponents]
     else:
         opponents = [o.strip() for o in args.opponents.split(',')]
-    if len(opponents) != 5:
-        print(f"opponents must resolve to 5 entries, got {opponents}")
+    # Heads-up: collapse to a single opponent → a 2-handed game. ALL postflop
+    # decisions are then HU, so the existing postflop diagnostics (c-bet/barrel/
+    # AggFactor, per-context split, leak surface) describe HU postflop directly.
+    # This is the HU-leak diagnostic: the bot has no HU postflop chart, so it
+    # plays HU postflop from the 6-max chart (multiway suppression no-ops at 2
+    # players) — does that leak, and where?
+    if args.heads_up:
+        opponents = opponents[:1]
+    elif len(opponents) != 5:
+        print(f"opponents must resolve to 5 entries (or use --heads-up for 1), got {opponents}")
         sys.exit(1)
 
     # Track 2: if the roster references a *_clone opponent, register the frozen
