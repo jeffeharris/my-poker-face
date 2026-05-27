@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from core.llm import CallType, LLMClient
 from core.llm.config import FAST_MODEL, FAST_PROVIDER
 from poker.prompt_manager import DRAMATIC_SEQUENCE_GUIDANCE
+from poker.response_validator import normalize_dramatic_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -250,22 +251,30 @@ def generate_join_comment(
     return _render_sequence(payload)
 
 
-def _render_sequence(payload: Any) -> Optional[str]:
-    """Pull dramatic_sequence list from LLM JSON and flatten to a string.
+def _render_sequence(payload: Any, *, max_beats: int = 4) -> Optional[str]:
+    """Pull dramatic_sequence from LLM JSON and render it the SAME way the
+    in-hand decision/comment path does: run the beats through
+    `normalize_dramatic_sequence` (splits mixed action+speech beats, strips
+    punctuation/asterisk artifacts) then join with newlines so each beat is
+    a distinct line the frontend can render (actions vs speech). Returns None
+    if there's nothing usable.
 
-    Each beat already carries its own asterisks for actions and plain
-    text for speech — joining with a space preserves the formatting
-    so the frontend can render them inline.
+    Previously this space-joined the raw beats with no normalization, so a
+    mixed beat like "*tosses chips* good game" came back as one run-on,
+    misformatted line — unlike every other dramatic_sequence in the app.
     """
     if not isinstance(payload, dict):
         return None
     seq = payload.get("dramatic_sequence")
+    if isinstance(seq, str):
+        # LLM occasionally returns a bare string instead of a list.
+        seq = [seq]
     if not isinstance(seq, list):
         return None
-    beats = [str(b).strip() for b in seq if str(b).strip()]
+    beats = normalize_dramatic_sequence([str(b) for b in seq])[:max_beats]
     if not beats:
         return None
-    return " ".join(beats[:4])
+    return "\n".join(beats)
 
 
 def generate_leave_comment(
