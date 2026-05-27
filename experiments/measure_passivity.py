@@ -73,6 +73,11 @@ from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
 from poker.strategy.preflop_isolate import build_isolation_table
 from poker.strategy.strategy_table import load_strategy_table
+# For per-node EV attribution (ab_node_attribution): build the same node key the
+# controller looks up, so an attribution bucket maps directly to a chart entry.
+from poker.card_utils import card_to_string
+from poker.controllers import _get_canonical_hand
+from poker.strategy.preflop_classifier import build_preflop_node
 
 # Frozen clone profiles (Track 2 eval). Resolved relative to this module so
 # they work regardless of cwd / worktree.
@@ -279,7 +284,7 @@ def _apply_mode(controller, mode: str):
     controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
-def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
+def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None):
     """Drive one hand; instrument the hero's postflop decisions.
 
     Mirrors simulate_bb100.run_hand's action driving (run_until, run_it_out,
@@ -288,6 +293,13 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
       - the new _sim_hero_bet_by_street / _sim_opp_bet_by_street fields the
         multi-street layer reads (driven here the same way the existing
         _sim_* aggressor fields are).
+
+    `hero_trace` (when a list is passed) records the hero's ordered decision
+    sequence as `(phase, node_key, action, raise_to)` tuples — the input to the
+    paired-CRN per-node attribution (ab_node_attribution.py). node_key is the
+    exact chart key (preflop built via build_preflop_node; postflop from the
+    pipeline snapshot), so the first point two arms' traces differ pinpoints the
+    chart node that caused the hand to diverge.
     """
     controller_map = {c.player_name: c for c in controllers}
     hero = controller_map.get(hero_name)
@@ -339,6 +351,25 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
         decision = controller.decide_action()
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
+
+        # ── Per-node attribution trace (hero only) ──────────────────────────
+        # Record (phase, node_key, action, raise_to). node_key is the exact
+        # chart key: postflop from the pipeline snapshot, preflop rebuilt here
+        # (the preflop snapshot doesn't carry it). Pre-divergence both A/B arms
+        # see identical state → identical entries; the first differing tuple is
+        # the node that caused the hand to split.
+        if is_hero and hero_trace is not None:
+            snap0 = getattr(controller, '_last_pipeline_snapshot', {}) or {}
+            node_id = snap0.get('node_key')
+            if not node_id and phase_name == 'PRE_FLOP':
+                hole = [card_to_string(c) for c in current_player.hand] if current_player.hand else []
+                canon = _get_canonical_hand(hole) if len(hole) == 2 else ''
+                if canon:
+                    try:
+                        node_id = build_preflop_node(gs, gs.current_player_idx, canon).key
+                    except Exception:
+                        node_id = None
+            hero_trace.append((phase_name, node_id or f'?{phase_name}', action, raise_to))
 
         # ── Instrument the hero's preflop decision ──────────────────────────
         # Bucket by scenario from raises_this_round (0=rfi, 1=vs_open,
