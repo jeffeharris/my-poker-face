@@ -117,6 +117,67 @@ def _hu_aggressive_transform(table):
     return table
 
 
+def _size_collapse_transform(table):
+    """Collapse every postflop node's *bet sizing* to a single canonical size:
+    all ``bet_*`` mass → ``bet_67``, all ``raise_*`` mass → ``raise_67``.
+    Preserves the total bet / raise / jam / check / call / fold mass — only the
+    SIZE choice within bets and within raises is flattened. The measure-first
+    gate for "does the chart's size-mixing earn anything, or is size selection
+    cosmetic?" (A=base mixed sizes vs B=size_collapse). ``jam`` (all-in) is left
+    separate — this isolates sized-bet/raise granularity, not bet-vs-jam.
+    """
+    from poker.strategy.strategy_profile import StrategyProfile
+
+    CANON_BET, CANON_RAISE = 'bet_67', 'raise_67'
+    for key, profile in list(table._postflop.items()):
+        probs = dict(profile.action_probabilities)
+        bet_mass = sum(p for a, p in probs.items() if a.startswith('bet_'))
+        raise_mass = sum(p for a, p in probs.items() if a.startswith('raise_'))
+        if bet_mass <= 0 and raise_mass <= 0:
+            continue
+        new = {a: p for a, p in probs.items() if not a.startswith(('bet_', 'raise_'))}
+        if bet_mass > 0:
+            new[CANON_BET] = new.get(CANON_BET, 0.0) + bet_mass
+        if raise_mass > 0:
+            new[CANON_RAISE] = new.get(CANON_RAISE, 0.0) + raise_mass
+        table._postflop[key] = StrategyProfile(action_probabilities=new)
+    return table
+
+
+def _overbet_transform(table, classes, streets=('TURN', 'RIVER'), contexts=('unopened',), overbet_size=150):
+    """Convert the betting mass in *polarized aggressor spots* to a 150% pot
+    OVERBET (bet_150 — the menu has no overbet today; the resolver handles it).
+
+    Directional probe (like `hu_aggro`): in `streets` × `contexts` nodes whose
+    hand_class is in `classes`, relabel ALL bet_* mass to `bet_150`. Theory:
+    overbets earn with a polarized range on later streets — value classes
+    extract more from callers, air classes get more fold equity from folders
+    (but spew vs stations). `classes={nuts,strong_made}` isolates the robust
+    value side; adding `air_no_draw` tests the opponent-dependent bluff side.
+    Tune the mix later only if the directional probe pays.
+    """
+    from poker.strategy.strategy_profile import StrategyProfile
+
+    streets = {s.upper() for s in streets}
+    classes = set(classes)
+    for key, profile in list(table._postflop.items()):
+        parts = key.split('|')
+        if len(parts) < 8:
+            continue
+        street, hand_class, action_context = parts[0].upper(), parts[4], parts[6]
+        if street not in streets or hand_class not in classes or action_context not in contexts:
+            continue
+        probs = dict(profile.action_probabilities)
+        bet_mass = sum(p for a, p in probs.items() if a.startswith('bet_'))
+        if bet_mass <= 0:
+            continue
+        new = {a: p for a, p in probs.items() if not a.startswith('bet_')}
+        ob = f'bet_{overbet_size}'
+        new[ob] = new.get(ob, 0.0) + bet_mass
+        table._postflop[key] = StrategyProfile(action_probabilities=new)
+    return table
+
+
 def _build_table(arm):
     """Return a StrategyTable for a named arm.
 
@@ -125,9 +186,22 @@ def _build_table(arm):
     them before the degrade ladder).
     'hu_aggro' = production preflop + base postflop with the HU-aggressive
     transform applied (the HU-postflop-leak quantification candidate).
+    'size_collapse' = base postflop with every node's bet/raise sizing flattened
+    to one canonical size (the "does size-mixing matter?" gate).
     Everything else = a preflop-chart variant (CHARTS key or a raw json_path)
     with the default postflop.
     """
+    if arm == 'size_collapse':
+        return _size_collapse_transform(load_strategy_table())
+    # overbet arms: 'overbet_value' / 'overbet_polar', optional '_<size>' suffix
+    # (default 150% pot). value = nuts/strong only; polar adds the air_no_draw
+    # bluff side. e.g. overbet_value_200 = 200% pot value overbets.
+    if arm.startswith('overbet_value') or arm.startswith('overbet_polar'):
+        polar = arm.startswith('overbet_polar')
+        classes = {'nuts', 'strong_made', 'air_no_draw'} if polar else {'nuts', 'strong_made'}
+        suffix = arm.split('_')[-1]
+        size = int(suffix) if suffix.isdigit() else 150
+        return _overbet_transform(load_strategy_table(), classes, overbet_size=size)
     if arm == 'hu_aggro':
         return _hu_aggressive_transform(load_strategy_table())
     if arm == 'slices':

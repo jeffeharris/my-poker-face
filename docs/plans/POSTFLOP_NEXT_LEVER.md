@@ -32,6 +32,16 @@ over-folder, +11.94 vs a station, neutral (−0.34) vs a reg, +0.65/+1.98 in 6-m
 H2 off). This is a *coherence* win (per-street logic), not a frequency table —
 exactly the lever predicted. See the captain's log entry of the same date.
 
+**UPDATE 2 (2026-05-27, BIGGER lever found — sizing/overbets):** the chart's bet
+menu caps at `bet_100` — **the bot is structurally incapable of overbetting.**
+Adding **value overbets** (nuts/strong, ~150% pot, turn+river) measured +EV or
+neutral vs *every* opponent type, never negative: punisher (reg) **+13**, jeff
+**+42** HU / **+73 6-max**, station +159, nit/lag +11-12. The biggest postflop
+lever of the session — and pure chart-data (the resolver already handles
+overbets). Bluff overbets add ~nothing (bot rarely bets air late); size is a
+plateau vs the reg (clone has no size-fear → don't over-tune). **Not yet shipped**
+(chart-authoring work pending). See "Sizing / overbets" below + captain's log.
+
 ## What shipped (production behavior change)
 
 - **Wider late-position RFI** (`4f5fb311`): CO 17.4→27.3 / BTN 25.1→47.5 /
@@ -111,6 +121,33 @@ The honest framing: this attacks the actual binding constraint. If barreling
 is structural (→ the parked solver program, expensive, and multiway is
 research-grade — see codex note below), and the cheap improvement frontier is
 genuinely exhausted.
+
+## Sizing / overbets — MEASURED 2026-05-27, ship pending (chart-data)
+
+The biggest postflop lever found this session. Full matrix on the attribution
+gate (HU, 12-24k paired-CRN hands; arms `size_collapse`, `overbet_value`,
+`overbet_polar[_<size>]` on `ab_node_attribution.py`):
+
+- **Within-menu size selection is cosmetic.** `size_collapse` (flatten all bet
+  sizes → `bet_67`) vs jeff = −1.13 [−6.77, +4.51], neutral. Tuning 33/67/100 is
+  not the lever.
+- **The bot can't overbet — menu gap.** Chart bets cap at `bet_100`; the resolver
+  already handles `bet_150+` (zero plumbing). **Value overbets (nuts/strong, 150%
+  pot, turn+river) are +EV or neutral vs EVERY opponent, never negative:** station
+  +159, jeff +42 HU / +73 6-max, **punisher (reg) +13 [+8.5,+17.5]**, nit +11.5,
+  lag +12.2. Localized to TURN ≫ RIVER, dry static boards.
+- **Bluff overbets add ~nothing** (`overbet_polar` ≈ value-only; bot rarely bets
+  air late). **Size**: flat vs the reg (150/200/300 = +13/+16/+14), monotonic vs
+  the sticky clones — but that's a **clone artifact** (no size-fear); don't
+  over-tune. 150-200% is the defensible production size.
+
+**Ship design (next):** add overbet weight to nuts/strong on dry turns (+ some
+river), value-only, ~150-200% pot, **with a multiway/active-count gate** (the
+6-max +73 fires multiway, where overbetting `strong_made` into a reg-heavy field
+is riskier). Pure chart-data — either a load-time transform or authored JSON
+columns. **Caveat:** the probe is a crude max-overbet (relabels all value bets);
+the clones can't model overbet psychology, so +13 vs the reg is the conservative
+floor, not a humans number.
 
 ## Tools available (all built/validated this session)
 
