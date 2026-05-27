@@ -139,3 +139,9 @@ class ExpressionContext:
     # callers; gating lives at the controller (prompt_config.relationship_context),
     # not here.
     relationship_context: str = ''
+
+    # Pre-formatted "about the human player" block (the human's own
+    # self-description). Built by the controller so the sharp/tiered path can
+    # needle the human about it the same way chaos/standard see it in their
+    # decision prompts. Empty default preserves the baseline prompt.
+    human_bio: str = ''

@@ -545,10 +545,31 @@ def update_and_emit_game_state(game_id: str) -> None:
     from poker.rule_bot_controller import RuleBotController
     from poker.tiered_bot_controller import BaselineSolverBot
 
+    # Resolve the human owner's custom profile avatar once per emit (cheap
+    # indexed lookup; kept fresh rather than cached so a mid-game change in
+    # /profile shows up on the next state push). Applied to the human seat
+    # below so the player isn't a bare initial like the AIs aren't.
+    human_avatar_url = None
+    owner_id = current_game_data.get('owner_id')
+    if owner_id:
+        try:
+            from ..extensions import user_avatar_service
+
+            if user_avatar_service:
+                human_avatar_url = user_avatar_service.get_avatar_url(owner_id)
+        except Exception as e:
+            logger.debug(f"Could not resolve human avatar for {owner_id}: {e}")
+
     # Add avatar data and psychology to AI players
     ai_controllers = current_game_data.get('ai_controllers', {})
     for player_dict in game_state_dict.get('players', []):
         player_name = player_dict.get('name', '')
+        # Human seat: surface the owner's profile avatar (the human player is
+        # the game owner). Matches by owner_name when present so a stray second
+        # human in a shared room doesn't borrow the owner's face.
+        if player_dict.get('is_human', False) and human_avatar_url:
+            if not human_player_name or player_name == human_player_name:
+                player_dict['avatar_url'] = human_avatar_url
         if not player_dict.get('is_human', True) and player_name in ai_controllers:
             controller = ai_controllers[player_name]
             # Run-out reaction overrides take priority over baseline emotion
@@ -2375,6 +2396,8 @@ def generate_ai_commentary(game_id: str, game_data: dict) -> None:
             ai_players_with_context,
             on_commentary_ready=emit_commentary_immediately,
             big_blind=big_blind,
+            human_bio=_resolve_human_bio(game_data),
+            human_name=game_data.get('owner_name'),
         )
         logger.info(f"[Commentary] Generated {len(commentaries)} commentaries")
 
@@ -3475,6 +3498,32 @@ def _get_or_build_ff_controller(
     return controller
 
 
+def _resolve_human_bio(current_game_data: dict) -> str:
+    """Resolve the human owner's AI-visible bio, cached per game.
+
+    Read once per game (lazily). The bio is set-and-forget in /profile, so a
+    mid-game edit not reflecting until the game reloads is acceptable, and this
+    avoids a DB hit on every AI decision and commentary pass.
+    """
+    if 'human_bio' in current_game_data:
+        return current_game_data['human_bio']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['human_bio'] = ""
+        return ""
+    try:
+        from ..extensions import user_prefs_repo
+
+        bio = user_prefs_repo.get_bio(owner_id) if user_prefs_repo else ""
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't suppress the
+        # bio for the rest of the session; retry on the next decision.
+        logger.debug(f"Could not resolve human bio for {owner_id}: {e}")
+        return ""
+    current_game_data['human_bio'] = bio
+    return bio
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3508,6 +3557,10 @@ def handle_ai_action(game_id: str) -> None:
     # Set current hand number for tracking
     if 'memory_manager' in current_game_data:
         controller.current_hand_number = current_game_data['memory_manager'].hand_count
+
+    # Surface the human's self-description so the AI can needle them about it in
+    # its table talk (dramatic_sequence). Runtime context, not config.
+    controller.human_bio = _resolve_human_bio(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
     try:
