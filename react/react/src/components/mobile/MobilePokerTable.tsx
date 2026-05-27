@@ -980,9 +980,11 @@ export function MobilePokerTable({
                     </button>
                   )}
                 <span className="waiting-text" data-testid="waiting-text">
-                  {aiThinking && currentPlayer
+                  {aiThinking && currentPlayer && !currentPlayer.is_human
                     ? `${currentPlayer.name} is thinking...`
-                    : 'Waiting...'}
+                    : aiThinking
+                      ? 'Submitting...'
+                      : 'Waiting...'}
                 </span>
                 {/* Fast-forward: any time someone else is acting — including
                 while the human is folded (waiting out the hand is exactly
