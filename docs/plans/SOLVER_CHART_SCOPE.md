@@ -2,7 +2,7 @@
 purpose: Scope and build-vs-buy analysis for generating solver-derived lookup charts (the "~32 sets of charts") across player counts, stack depths, action histories, and bet sizings
 type: design
 created: 2026-05-24
-last_updated: 2026-05-25
+last_updated: 2026-05-26
 ---
 
 # Solver Chart Scope — the full lookup-table program
@@ -148,9 +148,97 @@ Each catches a different failure class before compute is spent:
 
 ## Status
 
-Planning/scoping only — **no solver build has started.** Next decision gate
-is the solver-viability question in `NEXT_PHASE_VISION.md` Bucket 6 (a
-Cepheus/Kuhn match pilot) before committing to a build.
+Planning/scoping only — **no solver build has started.**
+
+> **UPDATE (2026-05-26): solver program PARKED — the leak that motivated it was
+> a station artifact.** The de-risking ladder this doc prescribes (diagnose →
+> cheap hand-authored fix → honest eval → solve *only if the cheap fix stalls*)
+> is complete, and every verdict points away from a build (details + the
+> decisive honest-reg measurement at the end of this section):
+>
+> - **Cheap rungs shipped:** depth-correct preflop charts (`707ff03b`) and the
+>   SPR-gap postflop fix (`760d89e5`, the `core_fix`) — see the SHIPPED sections
+>   below.
+> - **The doc's stated "next lever" — author the real shallow-SPR / 3BP entries
+>   — was DONE and then CUT.** The generated low-SPR + 3BP precision slices
+>   shipped (`c5aa0d07` / `4be11e93`), then the hardened SNG champion-challenger
+>   gate measured them **neutral** vs the bot itself and they were removed
+>   (`0164ce64`). See `docs/plans/SNG_RUNNER_HARDENING.md`.
+> - **The −18/−22 leak below is station-inflated.** It was measured vs the Jeff
+>   *station* (`measure_passivity` fixed-depth proxy) — the exact inflation the
+>   hardened gate strips out. In honest self-play SNG (which ramps through
+>   100→50→25→push-fold), the shallow-targeted changes read **neutral**:
+>   `depth_charts` (depth-correct vs flat-100bb-at-every-depth) = 49.9%
+>   [47.6, 52.1] @ 2,000 SNGs; `slices` = neutral. Only `core_fix` (don't fold
+>   the nuts) was a genuine structural win.
+> - **Meta-finding:** across the whole eval program, *structural* fixes move
+>   honest win-rate; *precision/depth refinements* don't. A solver is the
+>   ultimate precision refinement → the honest evidence is currently **bearish**
+>   on building it.
+>
+> **Shallow-start confirmation (2026-05-26) — it revealed a gate POWER limit,
+> not a clean "no leak."** Ran the SNG cc gate with shallow starting stacks so
+> the 50/25bb depth phases dominate, plus `core_fix` as a positive control:
+>
+> | Run | win-rate @ 3000 SNGs | verdict |
+> |---|---|---|
+> | `depth_charts` @ `--start-bb 50` | 50.0% [46.9, 53.2] (500 blk) | neutral |
+> | `depth_charts` @ `--start-bb 25` | 51.6% [49.9, 53.4] | inconclusive (lean decayed from 52.7% @ 500 blk) |
+> | `core_fix` @ `--start-bb 50` (**control**) | 50.8% [49.2, 52.5] | **inconclusive — control did NOT fire** |
+>
+> The decisive result is the **control**: `core_fix` (champion folds the nuts
+> ~70% at low SPR — *objectively, grossly −EV poker*) is **not CI-clear positive
+> in self-play SNG even at 3,000 tournaments** (point estimate decaying toward
+> 50; clearing ~50.8% needs ~24k SNGs). Conclusion: **WTA SNG win-rate among
+> coherent same-archetype bots is too coarse to detect sub-gross strategy
+> edges** — the only thing that ever clears its CI is the deliberate cripple
+> (0%/100%). The big bb/100 numbers (`core_fix` +32/+49, depth charts +13.8)
+> were real **chip-EV** edges vs *exploitable* opponents that don't translate
+> into self-play *tournament-win frequency*.
+>
+> **What this means for the solver decision:**
+> - The hardened SNG gate is the right tool to **cut bloat / catch regressions**
+>   (the slices cut stands), but the **wrong tool to justify BUILDING a solver**
+>   — it can't resolve the small positive edges a solver would add (it can't
+>   even resolve `core_fix`). "Not CI-clear in self-play" ≠ "no edge."
+> - The genuine input to the solver decision is a **sensitive + honest** shallow
+>   metric — **bb/100 vs the `punisher` reg (not the Jeff station) at
+>   `--stack-bb 25/50`** — which is where `core_fix`'s de-inflated magnitude
+>   shows. The −18/−22 below was station-inflated; the honest shallow leak is
+>   **not yet measured**. That measurement, not another SNG run, is the next
+>   concrete step before any solver commitment.
+>
+> **The honest-reg shallow measurement (the missing number) — DONE, and it
+> settles it.** Ran the post-cut bot (Baseline, full charts: depth + SPR
+> fallback + commit, no slices) vs the `punisher` reg across depths
+> (`measure_passivity --opponents punisher --stack-bb {100,50,25} --hands 3000
+> --seeds 42,142,242`):
+>
+> | Depth | vs Jeff **station** (old, inflated) | vs **punisher** reg (honest) | AggFactor (punisher) |
+> |---|---|---|---|
+> | 100bb | −4.2 | **+6.7** | 0.357 |
+> | 50bb | −18.8 | **+4.5** | 0.372 |
+> | 25bb | −21.8 | **+9.3** | 0.420 |
+>
+> The catastrophic −4→−18→−22 shallow collapse **vanishes** vs an honest
+> opponent — the bot is **positive at every depth**, and it plays *more*
+> aggressively as stacks shorten (AF 0.357→0.420), the exact opposite of the
+> 0.27→0.06 collapse it showed vs the station. **The "100bb tables at 25bb"
+> shallow leak that motivated this entire program was a Jeff-station artifact.**
+> An honest reg does not punish the bot's shallow play; the bot is fine shallow.
+>
+> **DECISION: park the solver program.** Per this doc's own gate — *solve only
+> if the cheap pass stalls / a real leak survives* — neither holds: the cheap
+> depth/SPR pass shipped, and the leak it was chasing does not survive an honest
+> opponent. No solver build is justified. Revisit only if a real deployed
+> human population (not a clone) exposes a shallow leak self-play + the punisher
+> reg both miss. (Caveat: the bot is *positive* vs punisher partly because that
+> reg over-barrels air; the load-bearing result is the **flat-to-improving depth
+> gradient**, not the absolute sign.)
+
+Original gate (pre-eval): the solver-viability question in
+`NEXT_PHASE_VISION.md` Bucket 6 (a Cepheus/Kuhn match pilot) before committing
+to a build.
 
 ## MEASURED: the short-stack leak is real and large (2026-05-25)
 

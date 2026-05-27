@@ -422,9 +422,11 @@ class TestComputeBluffCatchStrategy:
         assert result.action_probabilities['call'] == pytest.approx(0.4)
         assert result.action_probabilities['fold'] == pytest.approx(0.6)
 
-    def test_uses_all_in_as_call_equivalent_when_call_is_illegal(self):
-        """Short-stack call-offs expose all_in, not call. Bluff-catch must
-        put continuing mass on the legal call-equivalent action."""
+    def test_uses_jam_as_call_equivalent_when_call_is_illegal(self):
+        """Short-stack call-offs expose all_in, not call. Bluff-catch must put
+        continuing mass on the ABSTRACT 'jam' token (resolved to engine all_in
+        downstream) — never the raw engine 'all_in', which the action_mapper
+        can't size when the profile is re-sampled."""
         baseline = StrategyProfile(action_probabilities={'fold': 1.0})
         ctx = _ctx(street='flop', board_texture='dry_high', bet_size_pot_ratio=1.0)
         result, _trace = compute_bluff_catch_strategy(
@@ -436,7 +438,8 @@ class TestComputeBluffCatchStrategy:
         )
 
         assert 'call' not in result.action_probabilities
-        assert result.action_probabilities['all_in'] == pytest.approx(0.4)
+        assert 'all_in' not in result.action_probabilities  # engine token never in abstract space
+        assert result.action_probabilities['jam'] == pytest.approx(0.4)
         assert result.action_probabilities['fold'] == pytest.approx(0.6)
 
     def test_dangerous_river_pulls_call_low(self):

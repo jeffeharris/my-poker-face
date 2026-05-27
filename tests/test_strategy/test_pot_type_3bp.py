@@ -1,9 +1,12 @@
-"""Tests for 3-bet-pot (3BP) detection + chart.
+"""Tests for 3-bet-pot (3BP) detection + the pot_type fallback.
 
 - preflop_raise_count: incremented by preflop raises only, survives street
   resets, resets per hand, serializes.
 - _determine_pot_type maps the count to SRP/3BP.
-- The generated 3BP chart merges at load; misses degrade toward SRP/high.
+- A 3BP lookup degrades toward SRP via the fallback ladder (the authored 3BP
+  precision chart was cut — see docs/plans/SNG_RUNNER_HARDENING.md — so 3BP
+  spots always ride this fallback). The *classification* stays; only the chart
+  data was removed.
 """
 
 import pytest
@@ -13,7 +16,7 @@ from poker.repositories.serialization import restore_state_from_dict
 from poker.strategy.nodes import PostflopNode
 from poker.strategy.postflop_classifier import _determine_pot_type
 from poker.strategy.strategy_profile import StrategyProfile
-from poker.strategy.strategy_table import StrategyTable, load_strategy_table
+from poker.strategy.strategy_table import StrategyTable
 
 
 def _preflop_state():
@@ -89,50 +92,13 @@ class TestSerialization:
         assert restore_state_from_dict(d).preflop_raise_count == 0
 
 
-# ── 3BP chart merge + fallback ───────────────────────────────────────────
+# ── 3BP → SRP fallback (the authored 3BP chart was cut) ──────────────────
 
-
-class TestThreeBetChart:
-    @pytest.fixture(scope='class')
-    def table(self):
-        return load_strategy_table()
-
-    def test_3bp_entries_loaded(self, table):
-        # 2160 high SRP + 2160 low SRP + 4320 3BP = 8640.
-        assert table.postflop_size == 8640
-
-    def test_3bp_lookup_hits_exact(self, table):
-        n = PostflopNode(
-            street='flop',
-            position='IP',
-            pot_type='3BP',
-            board_texture='dry_high',
-            made_tier='nuts',
-            draw_modifier='no_draw',
-            facing_action='unopened',
-            spr_bucket='high',
-        )
-        assert table.lookup_postflop(n) is not None
-
-    def test_3bp_medium_falls_back_to_3bp_high(self, table):
-        # No 3BP medium authored → degrades to 3BP high (keeps pot_type).
-        n = PostflopNode(
-            street='flop',
-            position='IP',
-            pot_type='3BP',
-            board_texture='dry_high',
-            made_tier='nuts',
-            draw_modifier='no_draw',
-            facing_action='unopened',
-            spr_bucket='medium',
-        )
-        out = table.lookup_postflop_with_fallback(n, ['check', 'raise', 'all_in'])
-        # 3BP-high nuts unopened is bet-heavy (value).
-        assert sum(p for a, p in out.action_probabilities.items() if a.startswith('bet_')) > 0.5
-
+class TestThreeBetFallback:
     def test_3bp_missing_degrades_to_srp(self):
         # A table with only an SRP entry: a 3BP lookup degrades to it, not the
-        # passive default.
+        # passive default. This is the always-on path now that the authored 3BP
+        # precision chart is cut — 3BP spots ride the SRP fallback.
         srp = PostflopNode(
             street='river',
             position='OOP',

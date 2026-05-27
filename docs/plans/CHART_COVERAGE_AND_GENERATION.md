@@ -2,10 +2,22 @@
 purpose: Map the v0 lookup-chart coverage gaps and the plan to fill them with hand/LLM-authored (not solver) charts
 type: design
 created: 2026-05-25
-last_updated: 2026-05-25
+last_updated: 2026-05-26
 ---
 
 # v0 chart coverage & generation plan
+
+> **UPDATE (2026-05-26): the generated low-SPR (P1) and 3BP (P2) precision
+> slices were CUT.** The hardened SNG champion-challenger gate measured both
+> neutral vs the bot itself — no win-rate benefit (combined `slices` 49.2%
+> [47.9, 50.5] @ 2000 SNGs; see `docs/plans/SNG_RUNNER_HARDENING.md`). The data
+> files (`postflop_strategies_low_spr.json`, `postflop_strategies_3bp.json`),
+> their generators, and the `allow_shallow` HU gate were removed. **What stays:**
+> the authored `(SRP, high)` chart (2,160 entries) + the always-on degrade
+> ladder (low → high, 3BP → SRP) + `postflop_commit`. Shallow/3BP spots now ride
+> the fallback. The "grid complete / 8,640 entries" claims below are historical.
+> The 3BP *classification* (`preflop_raise_count` → `pot_type`) was kept — only
+> the chart *data* was cut.
 
 The tiered bot plays from hand-authored lookup charts. The "Phase 2 postflop
 foundation" (`e16a42aa`, 2026-02-17) scaffolded a rich postflop node space but

@@ -17,6 +17,20 @@ last_updated: 2026-05-26
 
 ## Status — P0 + P0.5 + P1 implemented (2026-05-25 / P1 2026-05-26)
 
+> **UPDATE (2026-05-26): P1 is now the binding gate; P0 bb/100 is demoted to
+> screening.** `experiments/sng_runner.py` `champion_challenger` mode was
+> hardened into the cut-grade gate (antithetic role-swap + bootstrap CI over
+> seed-blocks + outcome accounting + null/cripple calibration) — see
+> **`docs/plans/SNG_RUNNER_HARDENING.md`** for the authoritative current state.
+> Consequences for the text below: (1) the bb/100 `champion_challenger.py`
+> verdicts here (incl. the multistreet **−18.6** table) are **not trustworthy**
+> (seed overlap + wrong CI unit + no role-swap) — the hardened SNG gate
+> re-judged multistreet ~neutral, not −18; (2) the **`low_spr` / `three_bp` /
+> `slices` chart-flavor presets and the `include_low_spr=`/`include_3bp=` params
+> were REMOVED** (commit `0164ce64`) when the precision slices were cut as
+> gate-neutral bloat — those `--change` presets no longer exist. The flag-flavor
+> presets, `core_fix`, `depth_charts`, `null`, and the cripple pair remain.
+
 All three priorities built and tested.
 
 **What landed:**

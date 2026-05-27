@@ -362,33 +362,3 @@ class TestSPRFallbackToggle:
         # Degrades to the high entry — never folds the nuts.
         assert out.action_probabilities.get('raise_67', 0) > 0
         assert out.action_probabilities.get('fold', 0) == pytest.approx(0.0)
-
-
-class TestAllowShallowGating:
-    """allow_shallow=False (heads-up) ignores authored shallow/3BP slices and
-    looks up the 6-max base (SRP, high) instead."""
-
-    @pytest.fixture
-    def with_low_slice(self):
-        high, low = _pf_node('high'), _pf_node('low')
-        return StrategyTable(
-            preflop_data={},
-            postflop_data={
-                high.key: StrategyProfile({'bet_67': 0.7, 'check': 0.3}),
-                low.key: StrategyProfile({'jam': 1.0}),
-            },
-        )
-
-    def test_allow_shallow_uses_slice(self, with_low_slice):
-        out = with_low_slice.lookup_postflop_with_fallback(
-            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=True
-        )
-        assert out.action_probabilities.get('jam', 0) == pytest.approx(1.0)
-
-    def test_gated_ignores_slice_uses_base(self, with_low_slice):
-        out = with_low_slice.lookup_postflop_with_fallback(
-            _pf_node('low'), ['check', 'bet', 'all_in'], allow_shallow=False
-        )
-        # HU: routes to the 6-max base (high), not the authored low slice.
-        assert out.action_probabilities.get('bet_67', 0) == pytest.approx(0.7)
-        assert 'jam' not in out.action_probabilities

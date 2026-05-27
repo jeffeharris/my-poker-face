@@ -7,6 +7,16 @@ last_updated: 2026-05-26
 
 # SNG runner hardening — make it a cut-grade gate
 
+> **STATUS (2026-05-26): P0–P4 DONE — the gate is cut-grade, and the cut was
+> EXECUTED.** See "Implementation status & results" at the bottom for what
+> shipped, the calibration evidence, and the binding verdict on the precision
+> slices (decision: **cut** — no measurable win-rate benefit). The low-SPR / 3BP
+> slices, their generators, and the `allow_shallow` HU gate have now been
+> removed (data, loader, callers, tests, docs); the SPR/pot_type fallback ladder
+> + `postflop_commit` stay. The chart-flavor `low_spr`/`three_bp`/`slices` A/Bs
+> are gone from `CHANGES` (nothing left to A/B); `core_fix` still re-judges the
+> fallback. P5–P8 remain optional integrity/quality follow-ups.
+
 > **For a fresh context.** This is a self-contained execution plan. Read
 > `docs/plans/EVAL_HARNESS_PLAN.md` (the parent — P0/P0.5/P1 eval program) and
 > the `tieredbot-bb100-lookup-tables` + `eval-harness-landed` memory notes
@@ -172,3 +182,111 @@ too coarse for the decisions we actually face.
 2. **Re-judge multistreet** (was −20 HU on the flawed bb/100 harness) cleanly.
 3. **Verify the preflop depth charts** (50/25bb, +13.8/+4.8 vs Jeff, never
    self-play tested) — needs a preflop-table-flavor change in `CHANGES`.
+
+## Implementation status & results (2026-05-26)
+
+### What shipped (P0–P4, the cut-grade core)
+All in `experiments/sng_runner.py` + `experiments/champion_challenger.py`
+(shared cripple/registry), tests in `tests/test_sng_runner.py`.
+
+- **P0 — deck independence (verified):** `play_sng` gained an `on_hand_start`
+  observability hook; `test_deck_sequence_is_a_deterministic_function_of_seed`
+  proves the whole-tournament deck progression reproduces from `sng_seed` alone
+  and that decks actually advance hand-to-hand. The later-hand decks are
+  seed-deterministic (chained through the SM's hand-seed progression), so
+  "independent SNG" holds.
+- **P1 — outcome accounting:** `play_sng` returns a `SngResult` with a
+  `terminal_reason` (`single_survivor` / `max_hands_cap` / `no_survivors`) and
+  `final_ante`. An `Accounting` struct buckets every attempted SNG; reports
+  print attempted / clean / None / cap-fallback / end-blind ramp and **refuse a
+  verdict** on any `None` winner or **any** max-hands cap (tightened from the
+  plan's >0.5% on a codex review: the win-rate is computed over clean finishes
+  only, so accepting a run with caps would condition the verdict on clean
+  finishes — biased if caps correlate with strategy/seat; with escalating blinds
+  a cap is pathological anyway). Both field and cc workers thread it (no more
+  silent `None` drops).
+- **P2 — antithetic role-swap:** each seed runs **twice** — challenger group in
+  the base interleave `{0,2,4}`, then in the complement `{1,3,5}`. The verdict
+  unit is the paired **seed-block** (`CCBlock`); the win-rate is bootstrapped
+  over blocks (`_bootstrap_ci_blocks`), which respects within-pair correlation.
+  Requires a **symmetric split** (`2·challenger == seats`; default 6/3, HU 2/1).
+  Per-seat win-share is reported as a seat-bias diagnostic.
+- **P3 — A-A calibration (`--change null`):** champion ≡ challenger. Because the
+  bots are byte-identical, the winner is purely seat-determined and the
+  role-swap splits each seed's win **exactly** between the two role labels →
+  win-rate is **exactly 50.0%** by construction (degenerate `[50.0, 50.0]` CI).
+  This is a stronger result than "covers the null": it proves the
+  attribution/role-swap mechanics are perfectly symmetric. Per-seat skew
+  converges (5.0pp @ 60 blocks → 2.0pp @ 500). **PASS.**
+- **P4 — known-extreme (`--change cripple_challenger` / `cripple_champion`):** a
+  `_cripple='fold'` sentinel (honored in `_apply_flags` → `_install_cripple`)
+  shadows `decide_action` with a fold-to-any-bet / never-bet strategy.
+  `cripple_challenger` → **0.0% [0.0, 0.0]** (CI-clear BELOW); `cripple_champion`
+  → **100.0% [100.0, 100.0]** (CI-clear ABOVE). Symmetric, correct sign,
+  identical per-seat win distributions between the two (only the role label
+  flips). **PASS.**
+
+**Built-in no-op detector (emergent from P2):** a change that doesn't alter
+behavior produces the same exact-50.0% degenerate CI as `null`. Any real CI
+width ⇒ the change fired. Used below to confirm the slice A/Bs weren't no-ops.
+
+### The decision — cut the precision slices? **YES (no measurable benefit).**
+Hardened cc gate, `--archetype Baseline`, 6/3 split, default turbo ramp,
+`--seed 42`. The keep-condition is **CI-clear ABOVE null**; none qualifies.
+
+| change      | N blocks (SNGs) | win-rate | 95% CI        | verdict |
+|-------------|----------------:|---------:|---------------|---------|
+| `slices`    | 200 (400)       | 44.8%    | [41.8, 47.8]  | ❌ below — **small-sample artifact** |
+| `slices`    | 500 (1000)      | 48.4%    | [46.5, 50.3]  | ➖ inconclusive (slight-neg lean) |
+| `slices`    | **1000 (2000)** | **49.2%**| **[47.9, 50.5]** | ➖ **inconclusive — cleanly neutral (definitive)** |
+| `low_spr`   | 500 (1000)      | 49.5%    | [48.2, 50.8]  | ➖ inconclusive (neutral) |
+| `three_bp`  | 500 (1000)      | 50.1%    | [48.7, 51.5]  | ➖ inconclusive (neutral) |
+| `multistreet` | 300 (600)     | 51.3%    | [47.8, 54.8]  | ➖ inconclusive (slight-pos lean) |
+| `depth_charts` | 300 (600)    | 46.7%    | [42.8, 50.5]  | ➖ inconclusive (neg lean — small-sample) |
+| `depth_charts` | **1000 (2000)** | **49.9%** | **[47.6, 52.1]** | ➖ **inconclusive — cleanly neutral (definitive)** |
+
+**Key finding:** `slices` read **CI-clear NEGATIVE at 200 blocks, regressed to
+inconclusive-neg at 500, and settled cleanly neutral (49.2% [47.9, 50.5]) at
+1000** — a textbook small-sample false signal decaying as N grows. The
+individual slices showed the same illusory negative lean at 200 blocks that
+washed out by 500. This is *exactly* the failure mode the hardened gate guards
+against, and a caution that even the SNG gate needs adequate N (≥500–1000 blocks
+for slice-sized effects; see P8). All slice CIs are non-degenerate ⇒ the slices
+**did fire** (not no-ops). Per-seat skew tightened to 1.8pp @ 1000 blocks.
+`depth_charts` reproduced the identical artifact arc (46.7% @ 300 → 49.9% @
+1000) — a second confirmation that ~300-block leans are noise, not signal.
+
+**Verdict:** the low-SPR and 3BP precision slices deliver **no measurable
+win-rate benefit** — at 2000 SNGs the combined `slices` is dead neutral (49.2%),
+and each alone is neutral too. None is CI-clear positive. They are pure bloat.
+**→ Cut them.** Caveat: win-rate is coarse (P8); this is "no benefit detectable
+at this N," not "provably zero." But the only reason to *keep* is a positive
+signal, and there is none across N = 400 → 2000.
+
+**Multistreet** re-judged clean: 51.3% [47.8, 54.8] — inconclusive, mild
+positive lean, *not* the −20 the flawed bb/100 HU harness reported. The bb/100
+negative was harness artifact; multistreet is at-worst-neutral here.
+
+**Preflop depth charts (50/25bb)** verified: 49.9% [47.6, 52.1] @ 2000 SNGs —
+cleanly neutral vs the flat-100bb champion. Their prior +13.8/+4.8 vs the Jeff
+station was station-exploitation, not a real self-play edge (same story as
+everything else). *Interpretation differs from the slices, though:* the slices
+are **added precision on top of a fallback** (no benefit ⇒ cut the bloat),
+whereas the depth charts **are** the shallow-stack preflop strategy — neutral
+self-play means "no exploitable leak vs sound play," which is the expected, fine
+result for a foundational chart. **No action: keep, don't over-invest.**
+
+### Remaining (optional, not blocking the cut)
+- **P5** (no-op/fire counters): largely subsumed by the emergent no-op detector
+  for chart flavors, but explicit per-rule fire-counts would still strengthen
+  flag-flavor A/Bs.
+- **P6** blind-progression test: partially covered (`final_ante` +
+  `test_escalating_blinds_lift_the_end_ante` + the end-blind ramp in reports).
+- **P7** field-mode duplicate-archetype null, **P8** formal power note.
+- **bb/100 `champion_challenger.py`:** recommend **demote to screening** (it
+  produced the 200-block-style false signal as a *verdict*); the hardened SNG cc
+  mode is the binding cut-gate.
+- **Preflop depth charts:** ✅ verified via the new `depth_charts` `CHANGES`
+  entry (flag flavor — champion `depth_strategy_tables={}` = flat 100bb at every
+  depth vs challenger's loaded 50/25bb charts). Neutral @ 2000 SNGs — keep, no
+  further work. See the verdict above.

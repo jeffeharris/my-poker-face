@@ -203,7 +203,7 @@ class TestAdminSandboxList(unittest.TestCase):
         import time
 
         time.sleep(0.01)
-        self.sb2 = sandbox_repo.create('owner_bob', name='Beta')
+        self.sb2 = sandbox_repo.create('owner_bob', name='Beta')  # newer
 
         def mock_init_persistence():
             import flask_app.extensions as ext
@@ -240,12 +240,23 @@ class TestAdminSandboxList(unittest.TestCase):
         self.client = self.app.test_client()
         # See note in TestChipLedgerRoutesSandboxScoping.setUp on why
         # the route module's repo names need explicit per-test rebinding.
-        self._sandbox_patch = patch(
-            'flask_app.routes.chip_ledger_routes.sandbox_repo',
-            self.repos['sandbox_repo'],
-        )
-        self._sandbox_patch.start()
-        self.addCleanup(self._sandbox_patch.stop)
+        # `list_sandboxes` orders by freshest net-worth snapshot, so bind
+        # holdings_snapshots_repo to this test's (empty) repo too — otherwise
+        # the route's stale import-time binding could point at another test's
+        # populated DB and perturb the ordering.
+        self._route_patches = [
+            patch(
+                'flask_app.routes.chip_ledger_routes.sandbox_repo',
+                self.repos['sandbox_repo'],
+            ),
+            patch(
+                'flask_app.routes.chip_ledger_routes.holdings_snapshots_repo',
+                self.repos['holdings_snapshots_repo'],
+            ),
+        ]
+        for p in self._route_patches:
+            p.start()
+            self.addCleanup(p.stop)
 
     def tearDown(self):
         for repo in self.repos.values():
@@ -265,10 +276,13 @@ class TestAdminSandboxList(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
+        # The route orders by (freshest net-worth snapshot, created_at) DESC so
+        # the admin panel defaults to the liveliest sandbox. With no snapshots
+        # here, that collapses to newest-created-first: Beta (newer) then Alpha.
         ids = [s['sandbox_id'] for s in payload['sandboxes']]
-        self.assertEqual(ids, [self.sb1.sandbox_id, self.sb2.sandbox_id])
+        self.assertEqual(ids, [self.sb2.sandbox_id, self.sb1.sandbox_id])
         names = [s['name'] for s in payload['sandboxes']]
-        self.assertEqual(names, ['Alpha', 'Beta'])
+        self.assertEqual(names, ['Beta', 'Alpha'])
 
     def test_unauth_user_gets_401(self):
         with patch(

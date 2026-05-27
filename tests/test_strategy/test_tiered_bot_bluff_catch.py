@@ -213,8 +213,10 @@ class TestBluffCatchFires:
         assert manager._exploitation_counters['bluff_catch_fired'] >= 1
 
     def test_call_off_uses_all_in_when_call_is_not_legal(self):
-        """Exact/short call-off spots offer all_in instead of call. The
-        override must keep continuing mass on a legal action."""
+        """Exact/short call-off spots offer all_in instead of call. The override
+        must keep continuing mass on the ABSTRACT 'jam' token (which the
+        action_mapper resolves to engine all_in) — not the raw engine 'all_in',
+        which would crash the resolver when the profile is re-sampled."""
         manager = _make_manager(_make_extreme_maniac_stats())
         gs = _make_game_state(
             hero_stack=100,
@@ -237,7 +239,8 @@ class TestBluffCatchFires:
         )
 
         assert 'call' not in result.action_probabilities
-        assert result.action_probabilities['all_in'] > 0.0
+        assert 'all_in' not in result.action_probabilities  # engine token never in abstract space
+        assert result.action_probabilities['jam'] > 0.0
         assert manager._exploitation_counters['bluff_catch_fired'] >= 1
 
 
