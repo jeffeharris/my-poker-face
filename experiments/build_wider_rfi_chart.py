@@ -25,7 +25,9 @@ import os
 
 _DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'poker', 'strategy', 'data',
+    'poker',
+    'strategy',
+    'data',
 )
 _BASE = os.path.join(_DATA_DIR, 'preflop_100bb_6max.json')
 _OUT = os.path.join(_DATA_DIR, 'preflop_100bb_6max_wider_rfi.json')
@@ -39,7 +41,8 @@ _SUITED_A = ['AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s
 # Q7s, suited jacks to J8s, suited tens to T8s, suited connectors, offsuit
 # broadways + A9o.
 CO_OPEN = set(
-    _PAIRS + _SUITED_A
+    _PAIRS
+    + _SUITED_A
     + ['KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s']
     + ['QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s']
     + ['JTs', 'J9s', 'J8s']
@@ -53,7 +56,8 @@ CO_OPEN = set(
 
 # BTN ~47.5% — the standard TOP_55 tier (93 hands), proven combo-weighted 47.5%.
 BTN_OPEN = set(
-    _PAIRS + _SUITED_A
+    _PAIRS
+    + _SUITED_A
     + ['KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s']
     + ['QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s', 'Q2s']
     + ['JTs', 'J9s', 'J8s', 'J7s']
@@ -71,7 +75,8 @@ BTN_OPEN = set(
 # jacks to J7s, tens to T7s, full connectors+gappers, ALL offsuit aces, offsuit
 # broadways.
 SB_OPEN = set(
-    _PAIRS + _SUITED_A
+    _PAIRS
+    + _SUITED_A
     + ['KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s']
     + ['QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s']
     + ['JTs', 'J9s', 'J8s', 'J7s']
@@ -98,7 +103,9 @@ def _rfi_pct(pos_dict: dict) -> float:
     for hand, actions in pos_dict.items():
         c = _combos(hand)
         tot += c
-        opened += c * sum(p for a, p in actions.items() if a.startswith('raise') or a in ('all_in', 'jam'))
+        opened += c * sum(
+            p for a, p in actions.items() if a.startswith('raise') or a in ('all_in', 'jam')
+        )
     return 100.0 * opened / tot if tot else 0.0
 
 

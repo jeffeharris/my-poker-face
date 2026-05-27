@@ -57,8 +57,9 @@ def _norm(profile: Dict[str, float]) -> Dict[str, float]:
     return out
 
 
-def transform_low_spr(actions: Dict[str, float], made: str, draw: str,
-                      facing: str) -> Dict[str, float]:
+def transform_low_spr(
+    actions: Dict[str, float], made: str, draw: str, facing: str
+) -> Dict[str, float]:
     """Map a high-SPR action distribution to its low-SPR counterpart."""
     aggressive_mass = sum(p for a, p in actions.items() if _is_aggressive(a))
     passive = {a: p for a, p in actions.items() if not _is_aggressive(a)}

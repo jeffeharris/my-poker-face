@@ -23,6 +23,7 @@ concentrate in rfi|CO/BTN/SB preflop nodes):
     docker compose exec -T backend python -m experiments.ab_node_attribution \
         jeff 3000 42,4042,8042 --a tight --b wide
 """
+
 import argparse
 import math
 import os
@@ -37,9 +38,9 @@ import logging
 logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
 from experiments.measure_passivity import (
-    PassivityStats,
     ROSTER_CLONE_PROFILE,
     ROSTERS,
+    PassivityStats,
     _apply_mode,
     _ensure_clone_registered,
     run_passivity_hand,
@@ -124,7 +125,9 @@ def _build_table(arm):
         return _hu_aggressive_transform(load_strategy_table())
     if arm == 'slices':
         import json
+
         from poker.strategy.strategy_table import _parse_postflop_json
+
         t = load_strategy_table()  # production preflop + authored (SRP,high) postflop
         for path in SLICE_POSTFLOP_PATHS:
             if not os.path.exists(path):
@@ -137,6 +140,7 @@ def _build_table(arm):
             t._postflop.update(_parse_postflop_json(json.load(open(path))))
         return t
     return load_strategy_table(json_path=CHARTS.get(arm, arm))
+
 
 # Rule-bot / clone rosters (mirror ab_preflop_width). Rule bots ignore the
 # strategy table, so opponents are identical across both arms.
@@ -153,15 +157,28 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK):
+def _run_one_hand(
+    hero_name,
+    config_arch,
+    hero_table,
+    opponent_seats,
+    opp_configs,
+    opp_table,
+    hand_seed,
+    dealer_idx,
+    starting_stack=STARTING_STACK,
+):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table."""
     all_names = [hero_name] + opponent_seats
     random.seed(hand_seed)
     gs = make_game_state(
-        player_names=all_names, big_blind=BIG_BLIND, starting_stack=starting_stack,
-        dealer_idx=dealer_idx, seed=hand_seed,
+        player_names=all_names,
+        big_blind=BIG_BLIND,
+        starting_stack=starting_stack,
+        dealer_idx=dealer_idx,
+        seed=hand_seed,
     )
     sm = PokerStateMachine(gs)
     sm.current_hand_seed = hand_seed
@@ -174,7 +191,9 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
             make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
         )
     trace = []
-    final_stacks, _ = run_passivity_hand(sm, controllers, hero_name, PassivityStats(), hero_trace=trace)
+    final_stacks, _ = run_passivity_hand(
+        sm, controllers, hero_name, PassivityStats(), hero_trace=trace
+    )
     delta = final_stacks.get(hero_name, starting_stack) - starting_stack
     return delta, trace
 
@@ -219,8 +238,28 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
-        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
+        da, ta = _run_one_hand(
+            hero_name,
+            config_arch,
+            table_a,
+            opponent_seats,
+            opp_configs,
+            opp_table,
+            hand_seed,
+            dealer_idx,
+            starting_stack,
+        )
+        db, tb = _run_one_hand(
+            hero_name,
+            config_arch,
+            table_b,
+            opponent_seats,
+            opp_configs,
+            opp_table,
+            hand_seed,
+            dealer_idx,
+            starting_stack,
+        )
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -245,24 +284,38 @@ def _bb(chips):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('roster', help='roster preset (jeff/punisher/station/maniac/lag/nit/rock/gto/mix)')
+    p.add_argument(
+        'roster', help='roster preset (jeff/punisher/station/maniac/lag/nit/rock/gto/mix)'
+    )
     p.add_argument('hands', type=int, help='hands per seed')
-    p.add_argument('seeds', help='comma-separated base seeds (space them >= hands apart to stay independent)')
+    p.add_argument(
+        'seeds', help='comma-separated base seeds (space them >= hands apart to stay independent)'
+    )
     p.add_argument('--hero', default='Baseline', help='hero archetype (default Baseline)')
     p.add_argument('--a', default='tight', help='baseline arm chart (CHARTS key or path)')
     p.add_argument('--b', default='wide', help='candidate arm chart (CHARTS key or path)')
     p.add_argument('--top', type=int, default=25, help='top-N nodes by |contribution|')
-    p.add_argument('--stack-bb', type=int, default=100,
-                   help='effective starting stack in BB (default 100). Use 50/25 to put the '
-                   'low-SPR slices in play (they barely fire at 100bb).')
-    p.add_argument('--heads-up', action='store_true',
-                   help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
-                   'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.')
+    p.add_argument(
+        '--stack-bb',
+        type=int,
+        default=100,
+        help='effective starting stack in BB (default 100). Use 50/25 to put the '
+        'low-SPR slices in play (they barely fire at 100bb).',
+    )
+    p.add_argument(
+        '--heads-up',
+        action='store_true',
+        help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
+        'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.',
+    )
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
 
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up) for s in seeds]
+    work = [
+        (args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up)
+        for s in seeds
+    ]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -280,12 +333,18 @@ def main():
     se = math.sqrt(var / total_n) if total_n else 0.0
     tot_bb, ci_bb = _bb(mean), _bb(1.96 * se)
 
-    print(f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster}"
-          f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
-          f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
-    print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
+    print(
+        f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster}"
+        f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
+        f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ==="
+    )
+    print(
+        f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]"
+    )
     nd = merged.get(('-', 'NO_DIVERGENCE'), [0, 0.0, 0.0])
-    print(f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)")
+    print(
+        f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)"
+    )
 
     # Per-node rows: contribution = sum/total_N (sums to TOTAL); when-fires = sum/n.
     rows = []
@@ -297,9 +356,13 @@ def main():
         rows.append((node, phase, n, 100.0 * n / total_n, contrib_bb, whenfires_bb))
     rows.sort(key=lambda r: -abs(r[4]))
 
-    print(f"\n  {'node_key':<34} {'ph':<5} {'n':>5} {'freq%':>6} {'contrib bb/100':>15} {'when-fires':>11}")
-    for node, phase, n, freq, contrib, whenfires in rows[:args.top]:
-        print(f"  {node[:34]:<34} {phase[:5]:<5} {n:>5} {freq:>6.1f} {contrib:>+15.2f} {whenfires:>+11.1f}")
+    print(
+        f"\n  {'node_key':<34} {'ph':<5} {'n':>5} {'freq%':>6} {'contrib bb/100':>15} {'when-fires':>11}"
+    )
+    for node, phase, n, freq, contrib, whenfires in rows[: args.top]:
+        print(
+            f"  {node[:34]:<34} {phase[:5]:<5} {n:>5} {freq:>6.1f} {contrib:>+15.2f} {whenfires:>+11.1f}"
+        )
 
     # Rollup by phase and by preflop scenario|position.
     def rollup(keyfn, title):
@@ -315,8 +378,10 @@ def main():
             print(f"     {k:<22} n={n:>6}  {_bb(s/total_n):+.2f} bb/100")
 
     rollup(lambda phase, node: phase, "phase")
-    rollup(lambda phase, node: '|'.join(node.split('|')[:2]) if phase == 'PRE_FLOP' else phase,
-           "preflop scenario|position (postflop folded into phase)")
+    rollup(
+        lambda phase, node: '|'.join(node.split('|')[:2]) if phase == 'PRE_FLOP' else phase,
+        "preflop scenario|position (postflop folded into phase)",
+    )
 
 
 if __name__ == '__main__':

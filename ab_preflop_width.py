@@ -15,6 +15,7 @@ Usage:
   docker compose exec -T backend python ab_preflop_width.py <roster> <hands> <seeds-csv>
   e.g. ... ab_preflop_width.py jeff 3000 42,142,242
 """
+
 import math
 import os
 import sys
@@ -22,12 +23,16 @@ from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import logging
+
 logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
-from experiments.measure_passivity import (
-    ROSTERS, ROSTER_CLONE_PROFILE, _ensure_clone_registered, run_passivity_matchup,
+from experiments.measure_passivity import (  # noqa: E402  (imports follow sys.path shim)
+    ROSTER_CLONE_PROFILE,
+    ROSTERS,
+    _ensure_clone_registered,
+    run_passivity_matchup,
 )
-from poker.strategy.strategy_table import load_strategy_table
+from poker.strategy.strategy_table import load_strategy_table  # noqa: E402
 
 # Explicit chart paths. NOTE: wide is now PRODUCTION (shipped 2026-05-27), so
 # load_strategy_table() defaults to wide — we must name the tight chart
@@ -43,11 +48,11 @@ BIG_BLIND = 100
 # table, so opponents are unaffected by which chart the hero holds. Merged over
 # measure_passivity's clone rosters (gto/mix/jeff/punisher).
 LOCAL_ROSTERS = {
-    'station': ['CallStation'] * 5,   # pure never-folder — wide should lose here if anywhere
-    'maniac': ['ManiacBot'] * 5,      # relentless raiser — punishes wide opens
-    'lag': ['LAG'] * 5,               # loose-aggressive 3-bettor
-    'nit': ['Nit'] * 5,               # tight folder — positive control (expect wide +EV)
-    'rock': ['Rock'] * 5,             # tight-aggressive — positive control
+    'station': ['CallStation'] * 5,  # pure never-folder — wide should lose here if anywhere
+    'maniac': ['ManiacBot'] * 5,  # relentless raiser — punishes wide opens
+    'lag': ['LAG'] * 5,  # loose-aggressive 3-bettor
+    'nit': ['Nit'] * 5,  # tight folder — positive control (expect wide +EV)
+    'rock': ['Rock'] * 5,  # tight-aggressive — positive control
 }
 
 
@@ -66,9 +71,13 @@ def _run_seed(args):
     opp_table = load_strategy_table()  # opponents are rule/clone bots → table irrelevant to them
     tight = load_strategy_table(json_path=TIGHT_PATH)
     wide = load_strategy_table(json_path=WIDE_PATH)
-    dt, _ = run_passivity_matchup('Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=tight)
-    dw, _ = run_passivity_matchup('Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=wide)
-    paired = [w - t for w, t in zip(dw, dt)]  # wide − tight
+    dt, _ = run_passivity_matchup(
+        'Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=tight
+    )
+    dw, _ = run_passivity_matchup(
+        'Baseline', opp, n_hands, opp_table, base_seed=seed, mode='off', hero_table=wide
+    )
+    paired = [w - t for w, t in zip(dw, dt, strict=False)]  # wide − tight
     n_diff = sum(1 for p in paired if p != 0)
     return seed, paired, n_diff, sum(dt), sum(dw)
 
@@ -87,8 +96,12 @@ def main():
     results.sort()
 
     all_paired = []
-    print(f"\n=== preflop-width A/B (WIDE - TIGHT) vs {roster_name} | {n_hands}h x {len(seeds)} seeds ===")
-    print(f"{'seed':>6} {'n_diff':>7} {'tight_bb/100':>13} {'wide_bb/100':>12} {'paired_bb/100':>14}")
+    print(
+        f"\n=== preflop-width A/B (WIDE - TIGHT) vs {roster_name} | {n_hands}h x {len(seeds)} seeds ==="
+    )
+    print(
+        f"{'seed':>6} {'n_diff':>7} {'tight_bb/100':>13} {'wide_bb/100':>12} {'paired_bb/100':>14}"
+    )
     for seed, paired, n_diff, st, sw in results:
         all_paired.extend(paired)
         n = len(paired)
@@ -105,9 +118,18 @@ def main():
     ci_bb = 100.0 * (1.96 * se / BIG_BLIND)
     n_diff_total = sum(1 for p in all_paired if p != 0)
     print(f"\n  N hands={N}  hands differing={n_diff_total} ({100.0*n_diff_total/N:.1f}%)")
-    print(f"  PAIRED mean = {mean_bb:+.2f} bb/100   95% CI [{mean_bb-ci_bb:+.2f}, {mean_bb+ci_bb:+.2f}]")
-    verdict = "POSITIVE (wide wins)" if mean_bb - ci_bb > 0 else (
-        "NEGATIVE (wide loses → adaptive-tighten target!)" if mean_bb + ci_bb < 0 else "NEUTRAL (CI spans 0)")
+    print(
+        f"  PAIRED mean = {mean_bb:+.2f} bb/100   95% CI [{mean_bb-ci_bb:+.2f}, {mean_bb+ci_bb:+.2f}]"
+    )
+    verdict = (
+        "POSITIVE (wide wins)"
+        if mean_bb - ci_bb > 0
+        else (
+            "NEGATIVE (wide loses → adaptive-tighten target!)"
+            if mean_bb + ci_bb < 0
+            else "NEUTRAL (CI spans 0)"
+        )
+    )
     print(f"  VERDICT: {verdict}")
 
 
