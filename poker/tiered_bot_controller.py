@@ -298,16 +298,27 @@ class TieredBotController(AIPlayerController):
         # counterfactual per-decision evaluation.
         self.disable_rules: frozenset = frozenset()
 
-        # Multi-street context layer (docs/plans/STRUCTURAL_PASSIVITY_PLAN.md).
-        # OFF by default — byte-identical to pre-layer behavior. When enabled,
-        # the postflop pipeline reads hero's-own-line + sustained-aggression
-        # context (which the memoryless table lacks) and applies a narrowly-
-        # gated barrel-continuation (H1) / fold-to-double-barrel (H2) override.
-        # The two sub-toggles let the A/B isolate which hypothesis carries any
-        # effect (H1-only / H2-only / both).
-        self.enable_multistreet_context: bool = False
+        # Multi-street context layer (docs/plans/STRUCTURAL_PASSIVITY_PLAN.md +
+        # POSTFLOP_NEXT_LEVER.md). The postflop pipeline reads hero's-own-line +
+        # sustained-aggression context (which the memoryless table lacks) and
+        # applies a narrowly-gated barrel-continuation (H1) override.
+        #
+        # ON as of the per-node attribution A/B (2026-05-27): flop+turn H1
+        # barrel-continuation measured CI-clear +EV vs an over-folder
+        # (jeff +3.33 / +4.01 OOS bb/100 HU), strongly +vs a station (+11.94 —
+        # value extraction, NOT spew), neutral vs a balanced reg
+        # (punisher −0.34) and neutral-positive in 6-max (+0.65). Never bleeds.
+        #   - H1 RIVER barrel is DROPPED (multistreet_h1_streets): the attribution
+        #     gate localized it as the one −EV leg vs *both* opponents (by the
+        #     river a "strong draw" has resolved → bluffing busted equity into a
+        #     caller). Dropping it lifted H1 from null (+1.73, CI∋0) to CI-clear.
+        #   - H2 (fold to a double barrel) is OFF: inert vs the over-folder,
+        #     slightly −EV vs the air-barreler (folding marginal made = folding
+        #     to bluffs). It never read +EV on the sound gate.
+        self.enable_multistreet_context: bool = True
         self.multistreet_h1_barrel: bool = True
-        self.multistreet_h2_foldbarrel: bool = True
+        self.multistreet_h2_foldbarrel: bool = False
+        self.multistreet_h1_streets: frozenset = frozenset({'FLOP', 'TURN'})
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1031,6 +1042,8 @@ class TieredBotController(AIPlayerController):
                 h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
                 h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
                 h1_classes=getattr(self, 'multistreet_h1_classes', None),
+                h1_streets=getattr(self, 'multistreet_h1_streets', None),
+                street=node.street,
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )

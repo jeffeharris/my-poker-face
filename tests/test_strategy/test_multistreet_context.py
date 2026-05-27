@@ -193,6 +193,51 @@ class TestApplyH1:
         )
         assert not tr.fired
 
+    def test_h1_skips_river_when_streets_restricted(self):
+        # h1_streets={FLOP,TURN} drops the measured-toxic river barrel
+        # (resolved draw → bluffing busted equity into a caller).
+        sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
+        sp = self._unopened()
+        out, tr = apply_multistreet_context(
+            sp,
+            signals=sig,
+            hand_class='nuts',
+            action_context='unopened',
+            active_count=2,
+            h1_streets=frozenset({'FLOP', 'TURN'}),
+            street='river',
+        )
+        assert not tr.fired
+        assert out is sp  # unchanged
+
+    def test_h1_fires_flop_when_streets_restricted(self):
+        sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
+        out, tr = apply_multistreet_context(
+            self._unopened(),
+            signals=sig,
+            hand_class='strong_made',
+            action_context='unopened',
+            active_count=2,
+            h1_streets=frozenset({'FLOP', 'TURN'}),
+            street='flop',
+        )
+        assert tr.fired and tr.rule_id == 'barrel'
+        assert out.action_probabilities['bet_67'] == pytest.approx(H1_BARREL_TARGET['strong_made'])
+
+    def test_h1_all_streets_when_unrestricted(self):
+        # Default (h1_streets=None) preserves the original all-streets behavior.
+        sig = MultiStreetSignals(was_prev_street_aggressor=True, facing_double_barrel=False)
+        _, tr = apply_multistreet_context(
+            self._unopened(),
+            signals=sig,
+            hand_class='nuts',
+            action_context='unopened',
+            active_count=2,
+            h1_streets=None,
+            street='river',
+        )
+        assert tr.fired and tr.rule_id == 'barrel'
+
 
 class TestApplyH2:
     def _facing(self):
