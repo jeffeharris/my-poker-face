@@ -2993,7 +2993,26 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # the game in HAND_OVER and return; rebuy or leave will unstick
         # it.
         chip_holders = sum(1 for p in state_machine.game_state.players if p.stack > 0)
-        if chip_holders < 2:
+        human = next(
+            (p for p in state_machine.game_state.players if p.is_human), None
+        )
+        human_busted = human is not None and human.stack == 0
+        # Pause the table in HAND_OVER (don't deal the next hand) whenever
+        # the human can't be dealt back in this instant. Two shapes:
+        #   - human busted (stack 0): they're on the rebuy/sponsor modal.
+        #     Rebuy is only valid between hands, so dealing on among the
+        #     remaining AIs advances the phase out of HAND_OVER and the
+        #     rebuy POST gets rejected ("only allowed between hands"). This
+        #     holds EVEN WHEN 2+ AIs still have chips — without the pause
+        #     the table plays on without the human and there's no
+        #     between-hands window for the rebuy to land in.
+        #   - fewer than 2 chip-holders: the table can't deal anyway, and
+        #     the state machine would loop HAND_OVER → INIT_HAND →
+        #     SHOWDOWN → HAND_OVER, hit the 50-iteration cap, and pin
+        #     progress_game's lock — blocking /api/cash/leave for the user
+        #     staring at the bust modal.
+        # Either way, rebuy or leave unsticks it (rebuy calls progress_game).
+        if human_busted or chip_holders < 2:
             # Distinguish the two dead-table shapes so the frontend shows
             # the right prompt:
             #   - human busted (stack 0): the bust/rebuy modal, already
@@ -3005,7 +3024,6 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             # — so a normal heads-up win (last opponent at 0 chips for one
             # HAND_OVER frame, about to be refilled) never trips it.
             paused_players = state_machine.game_state.players
-            human = next((p for p in paused_players if p.is_human), None)
             others_have_chips = any(
                 p.stack > 0 and not p.is_human for p in paused_players
             )
@@ -3039,9 +3057,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
             game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
             logger.info(
-                "[CASH] Paused game_id=%r in HAND_OVER — only %d player(s) "
-                "with chips; waiting for rebuy or leave",
+                "[CASH] Paused game_id=%r in HAND_OVER — human_busted=%s, "
+                "%d player(s) with chips; waiting for rebuy or leave",
                 game_id,
+                human_busted,
                 chip_holders,
             )
             return state_machine.game_state, True

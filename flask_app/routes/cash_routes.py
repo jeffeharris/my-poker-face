@@ -2170,10 +2170,12 @@ def rebuy():
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
 
     update_and_emit_game_state(game_id)
-    # Resume play: if the table was paused in HAND_OVER because the
-    # human's bust dropped chip-holders below 2, refilling our stack
-    # restores quorum. Kick progress_game so the next hand actually
-    # deals instead of waiting for some other event.
+    # Resume play: the table pauses in HAND_OVER whenever the human is
+    # busted (whether or not 2+ AIs still hold chips — see
+    # handle_evaluating_hand_phase), so the rebuy has a between-hands
+    # window to land in. Refilling our stack clears the bust; kick
+    # progress_game so the next hand actually deals instead of waiting
+    # for some other event.
     progress_game(game_id)
 
     return jsonify(
