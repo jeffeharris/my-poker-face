@@ -18,10 +18,19 @@ last_updated: 2026-05-27
 The cheap **frequency-chart** frontier is tapped or refuted. Three separate
 "obvious improvement" hypotheses were each **measured and overturned** this
 session, all with the same root cause. The binding constraint is **multi-street
-postflop skill** — the c-bet→barrel follow-through, not any frequency table. The
-concrete next lever is the **`multistreet_context` barrel-continuation layer**,
-re-judged on the sound CRN/attribution gates (it read "inert" only on the old
-coarse evals). Build nothing else until that's measured.
+postflop skill** — the c-bet→barrel follow-through, not any frequency table.
+
+**UPDATE (2026-05-27, resolved):** the `multistreet_context` lever has now been
+judged on the per-node attribution gate, HU vs coherent opponents — the decisive
+test. The layer *as shipped* (H1 all-streets) is **null** (+1.73 vs jeff, CI∋0;
+−0.95 vs punisher), confirming the rule-bot CRN null was real. **But the
+attribution gate localized the null** into a +flop/−river decomposition (river
+barrel-continuation bleeds vs *both* opponents — a resolved draw bluffing into a
+caller), and **flop+turn-only H1 is CI-clear +EV: +3.33/+4.01-OOS vs an
+over-folder, +11.94 vs a station, neutral (−0.34) vs a reg, +0.65/+1.98 in 6-max.**
+**Shipped** (`enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}`,
+H2 off). This is a *coherence* win (per-street logic), not a frequency table —
+exactly the lever predicted. See the captain's log entry of the same date.
 
 ## What shipped (production behavior change)
 
@@ -30,6 +39,12 @@ coarse evals). Build nothing else until that's measured.
   +5.33 vs punisher, CI-clear. Tight chart preserved; 50/25bb depth charts left
   tight (wide-at-short-stack unmeasured). This is the one gameplay delta on the
   branch vs `development`.
+- **Flop+turn H1 barrel-continuation** (multistreet layer flipped ON, 2026-05-27):
+  `enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}` (river
+  leg dropped — measured −EV), `multistreet_h2_foldbarrel=False`. Per-node
+  attribution A/B, HU: +3.33 [+0.14,+6.52] / +4.01-OOS vs jeff, +11.94 vs station,
+  −0.34 (neutral) vs punisher, +0.65 in 6-max. CI-clear vs the exploitable
+  extremes, never bleeds. Sims bypass `__init__` so this touches real games only.
 
 ## The unifying diagnosis (why frequency charts are tapped)
 
@@ -49,7 +64,24 @@ hand-authored) sets the *flop* frequency, but the turn give-up is a **separate
 downstream decision** — so no pure-frequency change can fix it. The bot's
 passivity is largely *correct compensation* for weak barreling.
 
-## The next lever: multi-street barrel coherence
+## The next lever: multi-street barrel coherence — ✅ MEASURED + PARTIALLY SHIPPED (2026-05-27)
+
+> **Resolved.** The plan below was executed. Outcome: the layer *as shipped*
+> (H1 all-streets + H2) is null on the per-node gate HU vs jeff/punisher — the
+> self-play/rule-bot CRN null was *real*, not a coarse-gate artifact. But
+> attribution localized a robust −EV **river barrel** leg (resolved draw → bluff
+> into a caller) hiding a +EV flop/turn leg. **Flop+turn-only H1 shipped**
+> (CI-clear +3.33/+4.01-OOS vs over-folder, +11.94 vs station, neutral vs reg,
+> +0.65/+1.98 6-max). H2 stayed OFF (inert/−EV). Tooling added: `--a-mode/--b-mode`
+> + `--h1-streets` on `ab_node_attribution.py`; `h1_streets` knob on the layer.
+>
+> **Follow-ons (open):** (1) the `value`-only H1 variant (drop `air_strong_draw`)
+> vs a high-WtSD opponent — does it beat the all-classes flop+turn config?
+> (2) does barrel *sizing* (not just frequency) move it? (3) the turn leg is only
+> mildly +; is there a turn-specific refinement? (4) optionally pool/extend the
+> 6-max runs for a tighter production-magnitude CI (two independent runs, +0.65
+> and +1.98, both lean positive but neither is CI-clear — low-power because H1
+> fires in only ~2.2% of 6-max hands). None are blocking; the win is banked.
 
 The candidate mechanism already exists, flag-gated OFF:
 - `tiered_bot_controller.py`: `enable_multistreet_context` (default `False`),
@@ -84,7 +116,10 @@ genuinely exhausted.
 
 - `ab_node_attribution.py` — paired-CRN **first-divergence per-node attribution**
   (exact decomposition; conservation-checked). Arms: chart variants, `slices`,
-  `hu_aggro`; flags `--stack-bb`, `--heads-up`.
+  `hu_aggro`; flags `--stack-bb`, `--heads-up`, **`--a-mode/--b-mode`**
+  (off|h1|h2|on — A/B the multistreet *flag flavor* on the same chart) and
+  **`--h1-streets`** (e.g. `flop,turn` to drop the −EV river barrel). The
+  flag-flavor + street knobs are how the multistreet ship above was measured.
 - `measure_passivity.py` — Tier-A passivity diagnostics; `--heads-up` (HU mode),
   `--mode on/h1/h2` (multistreet arm), `--opponents jeff|punisher`,
   `--leak-report` (per-signature realized-vs-chart surface).

@@ -22,6 +22,13 @@ Usage (validate against the known tight→wide ship: the +16 bb/100 vs jeff MUST
 concentrate in rfi|CO/BTN/SB preflop nodes):
     docker compose exec -T backend python -m experiments.ab_node_attribution \
         jeff 3000 42,4042,8042 --a tight --b wide
+
+The arms can also differ by *multistreet flag flavor* (same chart) via
+--a-mode/--b-mode (off|h1|h2|on) — the small extension the POSTFLOP_NEXT_LEVER
+plan calls for, to attribute the barrel-coherence layer per node vs realistic
+folders (where the self-play CRN gate read it null):
+    docker compose exec -T backend python -m experiments.ab_node_attribution \
+        jeff 4000 42,4042,8042 --a base --b base --b-mode h1 --heads-up
 """
 import argparse
 import math
@@ -37,6 +44,7 @@ import logging
 logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
 from experiments.measure_passivity import (
+    MODES,
     PassivityStats,
     ROSTER_CLONE_PROFILE,
     ROSTERS,
@@ -153,10 +161,12 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
-    opponents and differ only in hero_table."""
+    opponents and differ only in hero_table AND the multistreet `mode`
+    (off|h1|h2|on) — letting an arm pair differ by flag flavor (same chart) as
+    well as by chart, so the gate can attribute the multistreet_context layer."""
     all_names = [hero_name] + opponent_seats
     random.seed(hand_seed)
     gs = make_game_state(
@@ -167,8 +177,9 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     sm.current_hand_seed = hand_seed
     controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
     controllers[0].opponent_model_manager = None
-    _apply_mode(controllers[0], 'off')
+    _apply_mode(controllers[0], mode)
     controllers[0].multistreet_h1_classes = None
+    controllers[0].multistreet_h1_streets = h1_streets
     for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
         controllers.append(
             make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
@@ -195,7 +206,7 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
@@ -219,8 +230,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
-        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
+        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets)
+        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -258,11 +269,25 @@ def main():
     p.add_argument('--heads-up', action='store_true',
                    help='2-handed (collapse roster to 1 opponent) → every postflop decision is '
                    'HU. Use with --b hu_aggro to quantify the HU-postflop-aggression leak.')
+    p.add_argument('--a-mode', default='off', choices=list(MODES),
+                   help='multistreet flag flavor for arm A (off|h1|h2|on). Default off. '
+                   'Set --a base --b base --b-mode h1 to A/B the multistreet barrel layer '
+                   '(same chart, flag flavor) and attribute it per node.')
+    p.add_argument('--b-mode', default='off', choices=list(MODES),
+                   help='multistreet flag flavor for arm B (off|h1|h2|on). Default off.')
+    p.add_argument('--h1-streets', default='all',
+                   help="streets H1 barrel-continuation fires on: 'all' (default) or a "
+                   "comma-separated subset (e.g. 'flop,turn' to drop the toxic river "
+                   "barrel found by per-node attribution). Applies to whichever arm runs H1.")
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
 
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up) for s in seeds]
+    h1_streets = (
+        None if args.h1_streets == 'all'
+        else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
+    )
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -280,7 +305,9 @@ def main():
     se = math.sqrt(var / total_n) if total_n else 0.0
     tot_bb, ci_bb = _bb(mean), _bb(1.96 * se)
 
-    print(f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster}"
+    a_label = f"{args.a}/{args.a_mode}" if args.a_mode != 'off' else args.a
+    b_label = f"{args.b}/{args.b_mode}" if args.b_mode != 'off' else args.b
+    print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={args.roster}"
           f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
           f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
     print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
