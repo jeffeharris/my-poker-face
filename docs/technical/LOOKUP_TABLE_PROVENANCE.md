@@ -2,7 +2,7 @@
 purpose: Single-page provenance index for every shipped tiered-bot lookup table — source, method, commit, calibration status
 type: reference
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-05-27
 ---
 
 <!-- 2026-05-26: push_fold_hu.json reclassified from hand-authored placeholder to computed chip-EV HU Nash (no ante), validated vs HUNE anchors. -->
@@ -28,14 +28,25 @@ known gaps); this page summarizes and cross-links them.
 
 | Table (`poker/strategy/data/…`) | Entries | First shipped | Method | README |
 |---|---:|---|---|---|
-| `preflop_100bb_6max.json` | 8,450 | `b8ff5c30` (2026-02-16) | Hand-authored + AI assist, validation-tuned | `preflop_100bb_6max_README.md` |
+| `preflop_100bb_6max.json` | 8,450 | `b8ff5c30` (2026-02-16); CO/BTN/SB RFI widened toward GTO 2026-05-27 (`build_wider_rfi_chart.py`) after a steal-aware A/B (+16 bb/100 vs jeff, +5.3 vs punisher, CI-clear) | Hand-authored + AI assist, validation-tuned; late-position RFI then widened toward GTO pure-opens | `preflop_100bb_6max_README.md` |
+| `preflop_100bb_6max_tight_rfi.json` | 8,450 | snapshot 2026-05-27 | The pre-widening tight chart, preserved as the "tighten-vs-station" table for opponent-adaptive width (`EXP_003`) | `preflop_100bb_6max_README.md` (log) |
 | `postflop_strategies.json` | 2,160 | `e16a42aa` (2026-02-17) | Hand-crafted node taxonomy (only `(pot_type=SRP, spr=high)` populated) | `postflop_strategies_README.md` |
 | `preflop_50bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_25bb_6max.json` | 8,450 | `707ff03b` (2026-05-25) | **Generated** from the 100bb chart by `generate_depth_charts.py` (depth rules) | `depth_charts_README.md` |
 | `preflop_100bb_hu.json` | 676 | `46ca598e` (2026-05-13) | Hand-authored per-hand rules + border-flip log + v2 mixed-freq calibration | `hu_preflop_chart_README.md` |
 | `push_fold_hu.json` | 5 depth buckets (5/7/10/12/15bb) | `0575952a` (2026-05-17); recomputed 2026-05-26 | **Computed** chip-EV HU pure jam/fold Nash (no ante) by `generate_push_fold_nash.py` (fictitious play, eval7 all-in equities). SB-pusher validated vs HoldemResources HUNE anchors (the placeholder's A6o/KQo-fold-at-15bb bug is fixed); BB-caller independently verified as the exact pot-odds best-response to the SB jam range via fresh eval7 (wider than some circulating "caller charts," which are inconsistent with the wide jam range — see README). | `push_fold_hu_README.md` |
 
-All entry counts are live (`load_strategy_table().size` etc., 2026-05-26).
+All entry counts are live (`load_strategy_table().size` etc., 2026-05-27).
+
+> **Depth-chart footgun (2026-05-27):** the 50/25bb charts were **NOT**
+> regenerated when the 100bb chart's RFI was widened. They were generated from
+> the *pre-widening tight* 100bb chart and **intentionally retain tight RFI** —
+> `generate_depth_charts.py`'s `t_rfi` is identity, so regenerating from the new
+> wide base would silently propagate wide opens to short stacks, which is
+> **unmeasured** (the A/B was 100bb-only) and theory-disfavored. If you
+> regenerate the depth charts, you must separately A/B wide-RFI at 50/25bb
+> first. The depth charts' `vs_*` flats are unaffected (byte-identical between
+> the tight and wide 100bb charts).
 
 ## How a table is selected at decision time
 

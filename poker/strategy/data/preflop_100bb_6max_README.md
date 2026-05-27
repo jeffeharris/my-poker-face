@@ -2,7 +2,7 @@
 purpose: Provenance and design spec for the 6-max preflop strategy chart (preflop_100bb_6max.json)
 type: spec
 created: 2026-05-17
-last_updated: 2026-05-26
+last_updated: 2026-05-27
 ---
 
 > **Retrospective README** — this file documents the existing
@@ -101,15 +101,22 @@ base chart), not the chart alone — the chart's own raw openness varies
 by position (UTG tightest, BTN widest, SB looser than UTG due to
 steal-equity but tighter than BTN due to OOP).
 
-Position-by-position raw RFI rates from the chart (approximate):
+Position-by-position combo-weighted RFI rates from the chart:
 
-| Position | RFI rate (chart base) | Wider than HU? |
+| Position | RFI rate (chart base) | Notes |
 |---|---|---|
-| UTG | ~13% | N/A — HU doesn't have UTG |
-| HJ | ~16% | N/A |
-| CO | ~22% | N/A |
-| BTN | ~40% | Tighter than HU SB (~65%) — narrower table = wider open |
-| SB | ~25% | Much tighter than HU SB — multiway risk vs single BB |
+| UTG | 11.5% | Tightest open seat (unchanged) |
+| HJ | 14.0% | (unchanged) |
+| CO | 27.3% | **Widened 2026-05-27** (was 17.4%) — toward GTO |
+| BTN | 47.5% | **Widened 2026-05-27** (was 25.1%) — TOP_55 tier, toward GTO |
+| SB | 40.3% | **Widened 2026-05-27** (was 20.2%) — toward GTO |
+
+CO/BTN/SB were widened to GTO-shaped pure-open ranges on 2026-05-27 after a
+steal-aware A/B confirmed the tight opens were leaving steal value on the table
+vs folding opponents (see the calibration log below). UTG/HJ left tight
+(early-position tightness is defensible for a weaker-postflop bot). The
+shallow 50/25bb depth charts intentionally retain the **old tight** RFI — the
+widening was measured at 100bb only (see the log entry's "Scope" note).
 
 ## Known gaps and calibration debts
 
@@ -153,8 +160,10 @@ Current bands (validated by the Phase 1 sim):
 |---|---|---|
 | AA / KK / QQ open from any position | ≥ 0.95 | Premium opens always |
 | 72o / 32o / 82o open from any position | ≤ 0.05 | Absolute trash folds |
-| BTN RFI rate | 35-45% | Widest open seat |
-| UTG RFI rate | 10-18% | Tightest open seat |
+| BTN RFI rate | 45-50% | Widest open seat (widened toward GTO 2026-05-27) |
+| CO RFI rate | 25-30% | Widened toward GTO 2026-05-27 |
+| SB RFI rate | 38-42% | Widened toward GTO 2026-05-27 |
+| UTG RFI rate | 10-18% | Tightest open seat (unchanged) |
 | Total fold rate facing UTG open from BB | 55-70% | Defense narrower vs early raisers |
 
 A future solver replacement should preserve these macro shapes even if
@@ -217,7 +226,54 @@ the replacement workflow is:
 
 ## Calibration log
 
-### 2026-05-26 — Tested widening late-position RFI toward GTO → NO benefit, kept tight
+### 2026-05-27 — SHIPPED wider late-position RFI (CO/BTN/SB → GTO) — overturns the 05-26 "keep tight"
+
+**What shipped:** `rfi.CO`, `rfi.BTN`, `rfi.SB` rewritten to GTO-shaped
+pure-open ranges (CO 17.4→27.3% / BTN 25.1→47.5% / SB 20.2→40.3%); UTG/HJ and
+ALL `vs_*` scenarios byte-identical. Built by
+`experiments/build_wider_rfi_chart.py`; the pre-ship tight chart is preserved
+at `preflop_100bb_6max_tight_rfi.json`.
+
+**Why this overturns 05-26:** the 05-26 "no benefit, keep tight" verdict came
+**entirely from the self-play SNG champion-challenger gate, which is symmetric
+and therefore BLIND to blind-steal value** — a change whose EV comes from an
+opponent folding to your open reads ~neutral when both seats run it. When
+re-measured with the **steal-aware** instrument (`measure_passivity`, hero opens
+vs a folding roster), widening is **CI-clear +EV vs both** opponent types:
+
+| Roster | Paired bb/100 (wider − base), 24k hands | 95% CI |
+|---|---|---|
+| `jeff` (station, over-folds to c-bets) | **+15.97** | [+10.35, +21.59] |
+| `punisher` (disciplined reg, barrels air) | **+5.33** | [+1.45, +9.21] |
+
+Paired (same decks, per-hand delta); 8 non-overlapping seed-blocks × 3000h;
+never CI-clear negative. Magnitude ordering is poker-coherent (bigger vs the
+over-folder). This is the case where a GTO divergence WAS a real leak —
+measured, confirmed, shipped (contrast the "−18/−22 shallow leak" that was a
+station artifact).
+
+**Instrument note (earned this session):** the prior "silent no-op" of the
+`measure_passivity --preflop-chart` swap was a **rule-mix roster artifact**, not
+a bug — never-folding rule bots open before the hero acts in late position, so
+the hero is never first-in from CO/BTN/SB and an RFI-width change is
+definitionally inert (`rfi|UTG` fires, `rfi|CO/BTN/SB` never do). Verified sound
+vs folding rosters (`hands differing > 0`; PFR 14→19% vs jeff). **Always measure
+opponent-folding-dependent changes vs a folding roster, not the rule mix or the
+symmetric gate.**
+
+**Scope (unmeasured, deliberately not shipped):** the A/B was at **100bb only**.
+The 50/25bb depth charts retain the old tight RFI — wide opens at short stacks
+are unmeasured and short-stack theory mildly disfavors them. A depth-specific
+A/B (and the opponent-adaptive width destination — widen vs folders, tighten vs
+stations) are tracked in `docs/experiments/EXP_003_OPPONENT_ADAPTIVE_RFI_WIDTH.md`.
+The pure-open de-mixing (e.g. BTN K9o 0.5→1.0) is part of what shipped; the
+measured +EV is the combined widen+de-mix effect.
+
+### 2026-05-26 — Tested widening late-position RFI toward GTO → NO benefit, kept tight (SUPERSEDED 05-27)
+
+> **SUPERSEDED 2026-05-27** — this verdict was an artifact of the steal-blind
+> SNG gate. The steal-aware re-measure (above) shows widening is +EV; it shipped.
+> Entry kept for the methodology lesson (the gate cannot see steal value).
 
 **Motivation:** A GTO diff flagged this chart as opening far tighter than GTO,
 especially late: freq-weighted RFI was UTG 11.5% / HJ 14.0% / CO 17.4% /
