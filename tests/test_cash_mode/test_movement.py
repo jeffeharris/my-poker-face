@@ -52,6 +52,7 @@ from cash_mode.movement import (
 )
 from cash_mode.tables import (
     CashTableState,
+    IdlePoolEntry,
     ai_slot,
     human_slot,
     open_slot,
