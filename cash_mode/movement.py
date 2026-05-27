@@ -29,7 +29,7 @@ import logging
 import random
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from cash_mode.staker_history import StakerHistoryStats, candidate_weight
@@ -125,7 +125,16 @@ GARNISHMENT_ABSOLUTE_CAP = 0.55
 # as-is. `rebuy` is new — the AI tops up at the same seat instead of
 # leaving.
 MovementDecision = (
-    str  # 'stay' | 'stake_up' | 'take_break' | 'forced_leave' | 'bored_move' | 'rebuy'
+    # 'stay' | 'stake_up' | 'take_break' | 'forced_leave' | 'bored_move' | 'rebuy'
+    # | 'go_vice'
+    #
+    # `go_vice` is a discretionary leave (take_break/bored_move) that a
+    # vice roll intercepted: the AI leaves the seat and goes straight
+    # off-grid to a vice instead of into the idle pool. Rolling at LEAVE
+    # time (not the post-loop idle-only scan) is what lets a winning
+    # table-hopper actually get caught — they re-seat before the scan, so
+    # the scan never saw them idle.
+    str
 )
 
 
@@ -486,6 +495,53 @@ def clear_cooldowns() -> None:
     """Wipe the cooldown registry. Test helper."""
     with _recent_leaves_lock:
         _recent_leaves.clear()
+    with _vice_cooldowns_lock:
+        _vice_cooldowns.clear()
+
+
+# --- Post-vice cooldown (process-local, no persistence) ---
+
+# How long after an AI returns from a vice before it can be sent off to
+# another one. The "go fucking celebrate" urge needs a refractory period
+# — without it a still-rich returnee re-rolls vice on its next leave and
+# bounces straight back out. Keyed by personality_id (not table): the
+# cooldown follows the AI wherever it sits. Process-local, mirroring the
+# leave cooldown above — a restart wipes it (worst case: one early vice).
+VICE_COOLDOWN_SECONDS = 30 * 60
+
+_vice_cooldowns_lock = threading.Lock()
+_vice_cooldowns: Dict[str, datetime] = {}  # personality_id -> cooldown_until
+
+
+def record_vice_cooldown(
+    personality_id: str,
+    now: datetime,
+    cooldown_seconds: int = VICE_COOLDOWN_SECONDS,
+) -> None:
+    """Start the post-vice refractory window for `personality_id`.
+
+    Call when a vice ENDS (idle- or leave-triggered alike), so the AI
+    comes back, plays through the window still rich, and only then can the
+    urge rebuild. Opportunistically sweeps elapsed entries.
+    """
+    until = now + timedelta(seconds=int(cooldown_seconds))
+    with _vice_cooldowns_lock:
+        _vice_cooldowns[personality_id] = until
+        stale = [pid for pid, exp in _vice_cooldowns.items() if exp <= now]
+        for pid in stale:
+            del _vice_cooldowns[pid]
+
+
+def is_in_vice_cooldown(personality_id: str, now: datetime) -> bool:
+    """True if `personality_id` is inside its post-vice refractory window."""
+    with _vice_cooldowns_lock:
+        until = _vice_cooldowns.get(personality_id)
+        if until is None:
+            return False
+        if now >= until:
+            del _vice_cooldowns[personality_id]
+            return False
+        return True
 
 
 # --- Roster refresh ---
@@ -612,6 +668,13 @@ class RosterRefreshResult:
     # `new_table` is already refilled to `principal`; the caller
     # persists the stake row + debits the staker's bankroll.
     stake_creations: List[StakeCreationChange] = field(default_factory=list)
+    # Vice-on-leave: pids whose discretionary leave was intercepted by a
+    # vice roll. Their seat is already vacated and their seat chips are in
+    # a `from_seat` BankrollChange (so the bankroll is whole before the
+    # vice debit); they are NOT in `idle_changes`. The caller commits the
+    # actual vice (amount, narration, pool debit) post-loop — kept out of
+    # this pure-ish helper because it needs repos + the LLM narrator.
+    vice_bound: List[str] = field(default_factory=list)
 
 
 def find_ai_staker_for(
@@ -831,6 +894,13 @@ def refresh_table_roster(
     # find_ai_staker_for. See cash_mode/staker_history.py.
     history_lookup: Optional[Callable[[str], Dict[str, StakerHistoryStats]]] = None,
     starting_bankroll_lookup: Optional[Callable[[str], Optional[int]]] = None,
+    # Vice-on-leave: per-AI vice probability (the lobby's wealth × psych
+    # roll, already cooldown-gated → returns 0 during the refractory
+    # window). When provided, a discretionary leave (take_break /
+    # bored_move) for a non-fish AI is rolled against this; on a hit the
+    # decision becomes `go_vice` and the AI goes straight off-grid instead
+    # of into the idle pool. Omit → no vice interception (prior behavior).
+    vice_prob_lookup: Optional[Callable[[str], float]] = None,
 ) -> RosterRefreshResult:
     """Apply movement decisions to a table's AI seats, then live-fill opens.
 
@@ -895,6 +965,7 @@ def refresh_table_roster(
     leave_signals: Dict[str, str] = {}
     freshly_vacated: Set[int] = set()
     stake_creations: List[StakeCreationChange] = []
+    vice_bound: List[str] = []
     # Snapshot the AIs currently at this table before any movement
     # applies, so a busting AI's `take_stake` candidates are the OTHER
     # AIs seated alongside them at the start of the tick (not their
@@ -950,6 +1021,24 @@ def refresh_table_roster(
             # staffs high-stakes casinos), until they tire and cycle out.
             # See `_coerce_predator_retention`.
             decision = _coerce_predator_retention(decision, table_has_fish, ctx.energy)
+        # Vice-on-leave: a discretionary leaver who is rich enough goes
+        # straight off-grid to a vice instead of the idle pool. Rolling
+        # the existing wealth×psych vice probability HERE (at the leave)
+        # is what catches a winning table-hopper — the post-loop idle scan
+        # never saw them because they re-seat before it runs. Non-fish
+        # only; the lookup returns 0 during the post-vice cooldown.
+        if (
+            not is_fish
+            and decision in ("take_break", "bored_move")
+            and vice_prob_lookup is not None
+        ):
+            try:
+                vice_prob = vice_prob_lookup(pid)
+            except Exception as exc:
+                logger.debug("vice_prob_lookup failed for %r: %s", pid, exc)
+                vice_prob = 0.0
+            if vice_prob > 0 and rng.random() < vice_prob:
+                decision = "go_vice"
         # Stamp the dominant pressure signal so the lobby's activity
         # emitter can build narrative hints for leave_narrative without
         # rerunning the pressure compute (or worse, re-querying psych).
@@ -1129,6 +1218,13 @@ def refresh_table_roster(
         new_seats[i] = open_slot()
         freshly_vacated.add(i)
         seated_globally.discard(pid)
+        if decision == "go_vice":
+            # Straight off-grid to a vice — deliberately NO idle-pool add
+            # (that's what stops an instant re-seat) and no per-table leave
+            # cooldown. Seat chips already returned via `from_seat` above,
+            # so the lobby commits the vice against the whole bankroll.
+            vice_bound.append(pid)
+            continue
         target_stake = None
         if decision == "stake_up" and stake_idx + 1 < len(STAKES_ORDER):
             target_stake = STAKES_ORDER[stake_idx + 1]
@@ -1313,4 +1409,5 @@ def refresh_table_roster(
         rebuy_changes=rebuy_changes,
         leave_signals=leave_signals,
         stake_creations=stake_creations,
+        vice_bound=vice_bound,
     )

@@ -29,6 +29,7 @@ from cash_mode.movement import (
     LEAVE_K,
     MIN_COOLDOWN_SECONDS,
     RESEAT_RECOVERY_FLOOR,
+    VICE_COOLDOWN_SECONDS,
     W_DETACHED,
     W_SHORT,
     W_STAKE_UP,
@@ -44,14 +45,17 @@ from cash_mode.movement import (
     decide_leave_or_rebuy,
     evaluate_ai_movement,
     is_in_cooldown,
+    is_in_vice_cooldown,
     pick_rebuy_amount,
     project_idle_energy,
     record_leave_cooldown,
+    record_vice_cooldown,
     refresh_table_roster,
     reseat_readiness,
 )
 from cash_mode.tables import (
     CashTableState,
+    IdlePoolEntry,
     ai_slot,
     human_slot,
     open_slot,
@@ -937,3 +941,148 @@ def test_idle_reseat_allowed_when_recovered():
     result = _idle_reseat_result(recovery=1.0)  # fully recharged → readiness 1.0
     assert result.freshly_seated_personality_ids == ["zeus"]
     assert result.new_table.seats[0]["personality_id"] == "zeus"
+
+
+# ============================================================
+# Vice cooldown (post-vice refractory window)
+# ============================================================
+
+
+class TestViceCooldown:
+    def test_record_and_check(self):
+        now = datetime(2026, 5, 27, 12, 0, 0)
+        record_vice_cooldown("deadpool", now, cooldown_seconds=300)
+        assert is_in_vice_cooldown("deadpool", now) is True
+        # Inside the window.
+        assert is_in_vice_cooldown("deadpool", now + timedelta(seconds=299)) is True
+        # Past it → cleared.
+        assert is_in_vice_cooldown("deadpool", now + timedelta(seconds=301)) is False
+
+    def test_default_window_is_30_min(self):
+        now = datetime(2026, 5, 27, 12, 0, 0)
+        record_vice_cooldown("ace_ventura", now)
+        assert is_in_vice_cooldown("ace_ventura", now + timedelta(minutes=29)) is True
+        assert is_in_vice_cooldown("ace_ventura", now + timedelta(minutes=31)) is False
+        assert VICE_COOLDOWN_SECONDS == 30 * 60
+
+    def test_cooldown_follows_the_ai_not_a_table(self):
+        # Unlike the per-table leave cooldown, this is keyed on the AI.
+        now = datetime(2026, 5, 27, 12, 0, 0)
+        record_vice_cooldown("tyler_durden", now)
+        assert is_in_vice_cooldown("tyler_durden", now) is True
+        assert is_in_vice_cooldown("someone_else", now) is False
+
+    def test_clear_cooldowns_wipes_vice(self):
+        now = datetime(2026, 5, 27, 12, 0, 0)
+        record_vice_cooldown("deadpool", now)
+        clear_cooldowns()
+        assert is_in_vice_cooldown("deadpool", now) is False
+
+
+# ============================================================
+# Vice-on-leave interception (go_vice)
+# ============================================================
+
+
+def _rng_seq(values, default=0.99):
+    """rng whose random() yields each value then `default` forever.
+
+    The default covers the live-fill rolls (one per open seat) that
+    follow the movement decisions, which we keep above live_fill_prob so
+    no incidental seating happens.
+    """
+    rng = random.Random()
+    it = iter(values)
+
+    def _r():
+        try:
+            return next(it)
+        except StopIteration:
+            return default
+
+    rng.random = _r
+    return rng
+
+
+def _tenure_leaver_table():
+    # One AI with a comfortable stack (not short, not stake-up-able) at a
+    # near-empty table; low energy gives it a small tenure leave-pressure
+    # so it rolls a discretionary bored_move.
+    seats = [ai_slot("whale", 500)] + [open_slot() for _ in range(5)]
+    return _make_table(seats)
+
+
+def _exhausted_psych(_pid: str):
+    # energy=0 → tenure pressure only → bored_move on a leave roll.
+    return {"energy": 0.0, "zone": "neutral", "hands_in_detached_zone": 0,
+            "emotional_intensity": 0.0}
+
+
+def _run_leave(vice_prob):
+    table = _tenure_leaver_table()
+    # First roll (0.02) clears the ~0.09 leave probability → leaves;
+    # second roll (0.0) is the vice roll. Remaining rolls default high.
+    rng = _rng_seq([0.02, 0.0])
+    return refresh_table_roster(
+        table,
+        idle_pool=[],
+        eligible_candidates=[],
+        seated_globally={"whale"},
+        bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+        buy_in_lookup=_buy_in_lookup_factory(400),
+        rng=rng,
+        now=datetime(2026, 5, 27, 12, 0, 0),
+        stake_idx=1,
+        table_min_buy_in=400,
+        table_max_buy_in=1000,
+        next_tier_min_buy_in=2000,
+        psych_lookup=_exhausted_psych,
+        vice_prob_lookup=(lambda pid: vice_prob),
+    )
+
+
+class TestViceOnLeave:
+    def test_leave_with_vice_hit_goes_to_vice_not_idle(self):
+        result = _run_leave(vice_prob=1.0)
+        assert result.decisions["whale"] == "go_vice"
+        # Off-grid to vice — NOT in the idle pool.
+        assert result.vice_bound == ["whale"]
+        assert all(ch.personality_id != "whale" for ch in result.idle_changes)
+        # Seat chips returned to bankroll so the lobby sizes vice on the
+        # whole bankroll.
+        from_seat = [
+            bc for bc in result.bankroll_changes
+            if bc.personality_id == "whale" and bc.direction == "from_seat"
+        ]
+        assert from_seat and from_seat[0].amount == 500
+        # Seat is now open.
+        assert result.new_table.seats[0]["kind"] == "open"
+
+    def test_leave_with_vice_miss_goes_to_idle(self):
+        result = _run_leave(vice_prob=0.0)
+        # No vice → ordinary discretionary leave into the idle pool.
+        assert result.decisions["whale"] == "bored_move"
+        assert result.vice_bound == []
+        assert any(ch.personality_id == "whale" for ch in result.idle_changes)
+
+    def test_no_lookup_means_no_interception(self):
+        # Pre-feature behavior: omit the lookup → never goes to vice.
+        table = _tenure_leaver_table()
+        rng = _rng_seq([0.02])
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"whale"},
+            bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 27, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            next_tier_min_buy_in=2000,
+            psych_lookup=_exhausted_psych,
+        )
+        assert result.vice_bound == []
+        assert result.decisions["whale"] == "bored_move"
