@@ -56,13 +56,47 @@ from poker.strategy.strategy_table import load_strategy_table
 BIG_BLIND = 100
 STARTING_STACK = 10000
 
-# Named chart arms. "wide" = current production (shipped 2026-05-27); "tight" =
-# the preserved pre-widening chart. Add candidates here (e.g. a regenerated
-# medium-SPR postflop chart) to attribute their edge per node.
+# Named chart arms. Preflop variants are loaded via json_path; the "slices" arm
+# merges the restored low-SPR + 3BP postflop precision slices into the base
+# postflop table (re-judging the cut slices per node — codex #1). "wide"/"base"
+# = current production (shipped 2026-05-27); "tight" = preserved pre-widening.
 CHARTS = {
     'tight': 'poker/strategy/data/preflop_100bb_6max_tight_rfi.json',
     'wide': 'poker/strategy/data/preflop_100bb_6max.json',  # production
+    'base': 'poker/strategy/data/preflop_100bb_6max.json',  # alias for production
 }
+
+# Restored precision-slice postflop tables (from commit 0164ce64^). Merged into
+# the base postflop dict for the "slices" arm.
+SLICE_POSTFLOP_PATHS = [
+    'poker/strategy/data/postflop_strategies_low_spr.json',
+    'poker/strategy/data/postflop_strategies_3bp.json',
+]
+
+
+def _build_table(arm):
+    """Return a StrategyTable for a named arm.
+
+    'slices' = production preflop + base postflop + the restored low-SPR/3BP
+    precision-slice entries merged into _postflop (so exact-match lookups hit
+    them before the degrade ladder). Everything else = a preflop-chart variant
+    (CHARTS key or a raw json_path) with the default postflop.
+    """
+    if arm == 'slices':
+        import json
+        from poker.strategy.strategy_table import _parse_postflop_json
+        t = load_strategy_table()  # production preflop + authored (SRP,high) postflop
+        for path in SLICE_POSTFLOP_PATHS:
+            if not os.path.exists(path):
+                raise FileNotFoundError(
+                    f"slice table missing: {path}\n"
+                    f"Restore the cut slices first:\n"
+                    f"  git checkout 0164ce64^ -- poker/strategy/data/postflop_strategies_low_spr.json "
+                    f"poker/strategy/data/postflop_strategies_3bp.json"
+                )
+            t._postflop.update(_parse_postflop_json(json.load(open(path))))
+        return t
+    return load_strategy_table(json_path=CHARTS.get(arm, arm))
 
 # Rule-bot / clone rosters (mirror ab_preflop_width). Rule bots ignore the
 # strategy table, so opponents are identical across both arms.
@@ -79,14 +113,14 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table."""
     all_names = [hero_name] + opponent_seats
     random.seed(hand_seed)
     gs = make_game_state(
-        player_names=all_names, big_blind=BIG_BLIND, starting_stack=STARTING_STACK,
+        player_names=all_names, big_blind=BIG_BLIND, starting_stack=starting_stack,
         dealer_idx=dealer_idx, seed=hand_seed,
     )
     sm = PokerStateMachine(gs)
@@ -101,7 +135,7 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
         )
     trace = []
     final_stacks, _ = run_passivity_hand(sm, controllers, hero_name, PassivityStats(), hero_trace=trace)
-    delta = final_stacks.get(hero_name, STARTING_STACK) - STARTING_STACK
+    delta = final_stacks.get(hero_name, starting_stack) - starting_stack
     return delta, trace
 
 
@@ -121,14 +155,15 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, table_a_path, table_b_path = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
     opponents = _resolve_roster(roster_name)
-    table_a = load_strategy_table(json_path=table_a_path)
-    table_b = load_strategy_table(json_path=table_b_path)
+    table_a = _build_table(arm_a)
+    table_b = _build_table(arm_b)
     opp_table = load_strategy_table()  # opponents are rule/clone bots → table irrelevant
+    starting_stack = stack_bb * BIG_BLIND
 
     hero_name = hero_arch if hero_arch not in opponents else f"{hero_arch}_hero"
     opponent_seats = _make_seat_names(opponents)
@@ -142,8 +177,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % 6
-        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx)
-        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx)
+        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
+        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -175,13 +210,14 @@ def main():
     p.add_argument('--a', default='tight', help='baseline arm chart (CHARTS key or path)')
     p.add_argument('--b', default='wide', help='candidate arm chart (CHARTS key or path)')
     p.add_argument('--top', type=int, default=25, help='top-N nodes by |contribution|')
+    p.add_argument('--stack-bb', type=int, default=100,
+                   help='effective starting stack in BB (default 100). Use 50/25 to put the '
+                   'low-SPR slices in play (they barely fire at 100bb).')
     args = p.parse_args()
 
-    table_a_path = CHARTS.get(args.a, args.a)
-    table_b_path = CHARTS.get(args.b, args.b)
     seeds = [int(s) for s in args.seeds.split(',')]
 
-    work = [(args.roster, args.hands, s, args.hero, table_a_path, table_b_path) for s in seeds]
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -200,7 +236,7 @@ def main():
     tot_bb, ci_bb = _bb(mean), _bb(1.96 * se)
 
     print(f"\n=== PER-NODE ATTRIBUTION: B={args.b} vs A={args.a} | roster={args.roster} | "
-          f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
+          f"stack={args.stack_bb}bb | {args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
     print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
     nd = merged.get(('-', 'NO_DIVERGENCE'), [0, 0.0, 0.0])
     print(f"NO_DIVERGENCE: {nd[0]} hands ({100.0*nd[0]/total_n:.1f}%), residual {_bb(nd[1]/total_n):+.3f} bb/100 (should be ~0)")
