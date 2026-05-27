@@ -122,3 +122,55 @@ ablation, the Hetzner matrix) — their captain's-log entry reports the +22.5
 exploitation bundle is carried by 2 rules (`value_vs_station`, `hyper_passive`)
 and is "inert in production." The multistreet lever overlaps their territory
 (`champion_challenger`, `multistreet_context`); coordinate before picking it up.
+
+---
+
+## Exploitation thread closeout + a multistreet CRN data point (exploitation session, 2026-05-27)
+
+Closing the parallel exploitation thread; two findings hand off to the plan above.
+
+### Multistreet HAS now been judged on a CRN gate — null vs rule-bots (but not the decisive test)
+
+The plan says multistreet "has never been judged on the CRN bb/100 gate." It now
+has, partially: `exploit_bb100.py --change multistreet --archetype TAG` (CRN
+paired-replay, 8k×3) vs the fish (CallStation+FoldyBot) **and** reg
+(GTO-Lite+ABCBot) backdrops returned **+0.0 / +1.0 bb/100, CI spans 0 — null.**
+
+The caveat that keeps this from *closing* the question: this gate is
+**hero-vs-fixed-rule-bot**, not the **HU / self-play coherent-opponent** scenario
+the plan rightly emphasizes. Rule-bots don't reproduce the call-flop-then-fold-turn
+dynamic where barrel-continuation should earn, so this null means *"multistreet
+doesn't pay vs rule-bot fields,"* **not** *"multistreet is dead."* It's a mild
+negative prior, nothing more. **The decisive test is still HU vs a coherent
+opponent** (`champion_challenger --change multistreet` + `measure_passivity
+--heads-up`). Note it's now *also* runnable on the CRN gate vs realistic opponents:
+`exploit_bb100.py --change multistreet --archetype TAG --backdrop Jeff_clone,Jeff_clone`
+— clone backdrops landed this session (`3386a656`). If the HU/coherent test *also*
+reads null, the structural-ceiling conclusion is earned.
+
+### Exploitation final status (corrects the "inert in production" line above)
+
+"Inert in production" was an overstatement (corrected after discussion):
+
+- **Decomposition** (CRN matrix, 8k×3): the +22.5 bundle is carried by **2 of 7
+  rules** — `value_vs_station` (+13.3/+11.1 fish/reg) and `hyper_passive`
+  (+9.1/+13.1). The other 5 are exact +0.0 vs these fields (never trip / never
+  flip an action): cut candidates.
+- **vs human clones: +0.0 exact — but largely CORRECT by design.** You should
+  only deviate from GTO vs a genuinely exploitable opponent; a roughly-balanced
+  player (Jeff_clone vpip 0.35) correctly gets no deviation. "Sharp vs extremes,
+  idle vs balanced" is the intended *"punish the bet-every-street maniac /
+  call-and-fold-river station"* behavior — and it does that (+22.5 vs those
+  caricature rule-bots).
+- **One real bug, not restraint:** Jeff_clone's modeled fold-to-cbet reads
+  **0.00** despite his profile folding ~45% to c-bets — a genuine, *realistic*
+  exploit (barrel him more) the detector can't see. A c-bet-detection gap worth
+  fixing regardless of keep/cut.
+- **Open question (NOT "dead weight"):** are the detector thresholds (station =
+  vpip ≥ 0.70 = literal always-call) catching the leaks real opponents actually
+  have, or sitting above them? Resolve by characterizing the real opponent
+  distribution (LLM personalities + game-DB / Range-Explorer vpip/af/ftc), then
+  decide threshold calibration. The layer **stays** (it does its founding job vs
+  extremes); the work is the ftc bug + calibration, not removal.
+
+Full narrative: captain's log, "the exploitation matrix on Hetzner."
