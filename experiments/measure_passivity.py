@@ -482,6 +482,7 @@ def run_passivity_matchup(
     mode: str = 'off',
     entry: str = 'default',
     h1_classes: Optional[frozenset] = None,
+    hero_table: Optional[object] = None,
 ) -> Tuple[List[float], PassivityStats]:
     """Run n_hands of 6-max (hero + 5 opponents); return (deltas, Tier-A stats).
 
@@ -492,11 +493,20 @@ def run_passivity_matchup(
     `entry='isolate'` gives the HERO a preflop chart where OOP vs_open
     flat-calls are shifted to 3-bets (Track 1). Opponents keep the default
     chart, so the A/B isolates the hero's entry change.
+
+    `hero_table` (when supplied) is the strategy table the HERO uses; opponents
+    always use `strategy_table`. This is how `--preflop-chart` swaps the hero's
+    preflop chart (e.g. the wider-RFI chart) without touching the live file or
+    the opponents — the ONLY variable becomes the hero's open frequencies. When
+    None, the hero uses `strategy_table` (current behavior), optionally
+    transformed by `entry='isolate'`.
     """
     if len(opponents) != 5:
         raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
 
-    hero_table = build_isolation_table(strategy_table) if entry == 'isolate' else strategy_table
+    if hero_table is None:
+        hero_table = strategy_table
+    hero_table = build_isolation_table(hero_table) if entry == 'isolate' else hero_table
 
     hero_name = hero_archetype if hero_archetype not in opponents else f"{hero_archetype}_hero"
     opponent_seats = _make_seat_names(opponents)
@@ -798,18 +808,23 @@ def print_report(
 
 
 def _run_seed_worker(
-    args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int],
+    args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int, Optional[str]],
 ):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
+
+    `preflop_chart` (when set) is loaded into a SEPARATE hero-only strategy
+    table; opponents keep the default chart. Built inside the worker (not the
+    parent) so the unpicklable StrategyTable never crosses the process boundary.
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb = args
+    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb, preflop_chart = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
+    hero_table = load_strategy_table(json_path=preflop_chart) if preflop_chart else None
     deltas, stats = run_passivity_matchup(
         hero,
         opponents,
@@ -820,6 +835,7 @@ def _run_seed_worker(
         entry=entry,
         h1_classes=h1_classes,
         starting_stack=stack_bb * 100,  # big_blind=100 → stack_bb effective
+        hero_table=hero_table,
     )
     return seed, deltas, stats
 
@@ -870,7 +886,17 @@ def main():
         help="print the per-signature leak surface (realized vs chart "
         "aggression by line-signature) — the leak finder",
     )
+    p.add_argument(
+        '--preflop-chart',
+        default=None,
+        help="path to an alternate preflop chart JSON loaded into a HERO-ONLY "
+        "strategy table (opponents keep the default chart). Default None = "
+        "current behavior. e.g. poker/strategy/data/preflop_100bb_6max_wider_rfi.json",
+    )
     args = p.parse_args()
+    if args.preflop_chart and not os.path.exists(args.preflop_chart):
+        print(f"--preflop-chart not found: {args.preflop_chart}")
+        sys.exit(1)
     h1_classes = (
         frozenset({'nuts', 'strong_made', 'medium_made'}) if args.h1_classes == 'value' else None
     )
@@ -925,6 +951,7 @@ def main():
             clone_profile,
             h1_classes,
             args.stack_bb,
+            args.preflop_chart,
         )
         for s in seeds
     ]
