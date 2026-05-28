@@ -85,12 +85,24 @@ takes a single `--hero` for both arms. Add `--a-hero` / `--b-hero` overrides
 identical), different deviation profile. Mirrors the `--a-mode/--b-mode` pattern.
 Control: `--a-hero Baseline --b-hero Baseline` MUST be 100% NO_DIVERGENCE / +0.00.
 
-**Opponents (price is opponent-dependent — measure ≥2):**
-- `jeff` (realistic sticky over-folder, HU) — the "vs the recreational field" price.
-- `punisher` (disciplined reg, HU) — the "vs competent play" price (the intrinsic cost).
-- Optionally 6-max (production regime) and a self-play/`Baseline` field.
-- Note: a personality can be **+EV vs some opponents** (a `maniac` may beat a `nit`,
-  lose to a `calling_station`). Report the per-opponent vector, not one number.
+**Reference — the price is a vector, anchored on SELF-PLAY (corrected 2026-05-28):**
+- **PRIMARY anchor = self-play vs `Baseline`** (`--roster baseline`, the bare max-EV
+  chart bot — no personality, no overbet/multistreet hero-layers). A one-sided
+  deviation vs the reference strategy = the personality's **intrinsic "distance from
+  optimal"**, unbiased by any specific opponent's leak, and the *ceiling* of its cost.
+  **This is the "is it broken / how far from optimal" number.**
+- **SECONDARY = the opponent vector** (`jeff` over-folder, `punisher` reg, optionally a
+  station / 6-max) — reported as **"EV vs opponent type"** (the *field-dependence
+  profile*), NOT as "the price." The product-relevant cost is vs the realistic *mix*,
+  which the vector approximates.
+- **Why NOT price on `jeff` alone (the trap we caught):** jeff is a specific
+  exploitable over-folder, so "vs jeff" rewards aggression / penalizes tightness —
+  that's *jeff's leak*, not the personality's cost. Empirically: Nit prices −5.79 vs
+  jeff but ~−50 vs Baseline (the fish masks the tightness cost); maniac reads +9.94 vs
+  jeff only because it's *beating up a fish*. A single fish opponent **systematically
+  understates** the intrinsic cost. Anchor on self-play; use fish/reg as the vector.
+- A personality can be **+EV vs some opponents** (a `maniac` beats a `nit`, loses to a
+  competent reg) — that's the vector's job to show.
 
 **Sample/CI convention (session standard):** 8 non-overlapping seed-blocks ×
 3000 hands = **24k paired hands**, seeds spaced ≥ hands apart
@@ -121,15 +133,22 @@ to the Results table below; narrate surprises in the captain's log.
 lag, maniac}` cost vs `Baseline`, and where does it bleed? Which are real variety
 (cheap), which are accidentally broken (huge/concentrated cost)?
 
-**Setup (run after the `--a-hero/--b-hero` extension lands + control passes):**
+**Setup.** Anchor on **self-play (`--roster baseline`)** first; then run the
+`jeff`/`punisher` vector. Repeat for ARCH in `{Nit, Rock, TAG, 'Calling Station',
+LAG, Maniac}` (exact ARCHETYPES keys — note the space in 'Calling Station'; verify
+via `python -c "from experiments.simulate_bb100 import ARCHETYPES; print(sorted(ARCHETYPES))"`).
 ```
-# template — repeat for ARCH in {Nit, Rock, TAG, CallStation(calling_station), LAG, Maniac}
+SEEDS=42,3042,6042,9042,12042,15042,18042,21042   # 24k; self-play is high-variance, use the full count
+# PRIMARY — intrinsic cost (self-play vs the bare max-EV chart bot):
 docker compose exec -T backend python -m experiments.ab_node_attribution \
-    jeff 3000 42,3042,6042,9042,12042,15042,18042,21042 \
-    --a base --b base --a-hero Baseline --b-hero <ARCH> --heads-up --top 12
-# then repeat vs `punisher`. (Use the exact ARCHETYPES key names — verify with a
-# quick `python -c "from experiments.simulate_bb100 import ARCHETYPES; print(sorted(ARCHETYPES))"`.)
+    baseline 3000 $SEEDS --a base --b base --a-hero Baseline --b-hero <ARCH> --heads-up --top 12
+# SECONDARY — field-dependence vector:
+... same, with `jeff` and `punisher` in place of `baseline`
 ```
+Note: the self-play reference opponent is the *bare* chart bot — the gate wires the
+overbet/multistreet layers onto the hero only, so the Baseline opponent plays the
+plain solver chart. That's the right neutral reference (the shipped layers are
+themselves exploit-leaning deviations).
 
 **Pre-committed validation / what we learn:**
 - Each profile gets a `{vs jeff, vs punisher}` price vector + per-node localization.
@@ -140,28 +159,26 @@ docker compose exec -T backend python -m experiments.ab_node_attribution \
 - Flag any profile that is **broken** (< −15 or one-node-concentrated) for a
   `max_kl` re-cap or a deviation-logic fix.
 
-### Results (vs jeff done 2026-05-28, 12k HU; vs punisher = next run)
+### Results (vs jeff = field slice done 2026-05-28, 12k HU; PRIMARY self-play anchor = next run)
 
-| Profile | vs jeff (HU) bb/100 | vs punisher (HU) | Where it bleeds/gains | Verdict |
+| Profile | **vs Baseline (self-play, INTRINSIC — primary)** | vs jeff (over-folder slice) | vs punisher (reg slice) | Verdict |
 |---|---|---|---|---|
-| nit | **−5.79** [−9.8, −1.8] | _TBD_ | RIVER/TURN/FLOP ~even (folds value) | priced flavor; cost spread, not broken |
-| rock | **−6.21** [−10.2, −2.3] | _TBD_ | spread (RIVER/FLOP/TURN) | priced flavor |
-| calling_station | **−4.95** [−8.7, −1.2] | _TBD_ | RIVER/TURN (sticky, pays late) | priced flavor |
-| tag | **+3.73** [−1.8, +9.2] | _TBD_ | TURN/FLOP + (near-GTO) | ~free / exploits over-folder |
-| lag | **+7.20** [+0.25, +14.2] | _TBD_ | FLOP +5.4 (aggression) | **+EV — exploits jeff's folding** |
-| maniac | **+9.94** [+0.73, +19.2] | _TBD_ | aggression vs folder | **+EV — exploits jeff's folding** |
+| nit | _TBD_ (400h smoke ~−50, very noisy) | −5.79 [−9.8, −1.8] | _TBD_ | likely the true cost ≫ the −5.79 vs jeff |
+| rock | _TBD_ | −6.21 [−10.2, −2.3] | _TBD_ | priced flavor (vs fish); intrinsic TBD |
+| calling_station | _TBD_ | −4.95 [−8.7, −1.2] | _TBD_ | |
+| tag | _TBD_ | +3.73 [−1.8, +9.2] | _TBD_ | near-GTO → expect smallest intrinsic cost |
+| lag | _TBD_ | +7.20 [+0.25, +14.2] | _TBD_ | +vs jeff is *exploitation*, not free |
+| maniac | _TBD_ | +9.94 [+0.73, +19.2] | _TBD_ | +vs jeff is *beating a fish*; expect −EV intrinsic |
 
-**Read (and the critical caveat):** all six are within ±10 bb/100, **none broken**
-(none < −15, none one-node-concentrated — costs are spread across streets → this is
-*character*, not bugs). The `max_kl` bounds are doing their job. BUT vs jeff (an
-over-folder) the number **conflates flavor-cost with over-folder-exploitation**:
-the aggressive profiles (tag/lag/maniac) read +EV because they're *punishing jeff's
-folding*, not because they're "free"; the tight/passive ones (nit/rock/station)
-cost −5 to −6 partly by *failing to exploit* jeff. **The intrinsic personality
-cost requires the punisher (reg) pass** (and ideally self-play) — the immediate
-next run, same command with `punisher`. Expect the aggressive profiles' edge to
-shrink/flip vs a reg and the tight ones to look cheaper. Only the *vector* across
-opponents is the true price; one opponent is a slice.
+**Read:** the vs-jeff column is a *field slice*, not the price. All six are within
+±10 bb/100 vs jeff and none are one-node-concentrated (the `max_kl` bounds hold), but
+vs an over-folder this **conflates flavor-cost with fish-exploitation** — the
+aggressive profiles read +EV by punishing jeff's folding; the tight ones look cheap
+only because the fish doesn't punish tightness (Nit's 400h self-play smoke was ~−50,
+~10× its −5.79 vs jeff). **The PRIMARY number is self-play vs `Baseline`** (intrinsic
+distance from optimal) — run that first at 24k (high variance, needs the full count),
+then the jeff/punisher vector as field-dependence. Only the cross-opponent vector,
+anchored on self-play, is the true price.
 
 ---
 

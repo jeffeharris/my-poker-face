@@ -228,6 +228,11 @@ LOCAL_ROSTERS = {
     'lag': ['LAG'] * 5,
     'nit': ['Nit'] * 5,
     'rock': ['Rock'] * 5,
+    # Self-play reference for personality pricing: the bare max-EV chart bot
+    # (BaselineSolverBot, no personality, no overbet/multistreet hero-layers).
+    # Pricing a personality vs THIS = its intrinsic "distance from optimal",
+    # unbiased by any specific opponent's leak. See PERSONALITY_PRICING_AND_VARIETY.md.
+    'baseline': ['Baseline'] * 5,
 }
 
 
