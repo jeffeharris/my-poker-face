@@ -336,6 +336,7 @@ def get_targeted_chat_suggestions(game_id):
             'bluff': 'quick_chat_bluff',
             'befriend': 'quick_chat_befriend',
             'props': 'quick_chat_props',
+            'flatter': 'quick_chat_flatter',
         }
 
         # Tone descriptions for table talk (no target)
@@ -347,6 +348,7 @@ def get_targeted_chat_suggestions(game_id):
             'bluff': 'Give false tells about your hand.',
             'befriend': 'Be warm to the table.',
             'props': 'Tip your cap to the table — genuine respect for the play.',
+            'flatter': 'Lay it on thick — over-the-top praise, sincere or not.',
         }
 
         context_parts = []
@@ -489,6 +491,7 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             'bluff': ["I should've folded...", "This hand is killing me."],
             'befriend': ["Good game so far.", "Respect the play."],
             'props': ["Respect. Nicely played.", "That was a sharp read."],
+            'flatter': ["You're a genius at this.", "Best player I've ever seen."],
         }
         tone = data.get('tone', 'goad') if data else 'goad'
         msgs = fallback_messages.get(tone, fallback_messages['goad'])
