@@ -17,6 +17,8 @@ from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, request
 
+from core.moderation import moderate_text
+
 from .. import config, extensions
 from ..extensions import limiter
 
@@ -51,6 +53,24 @@ def _too_large() -> bool:
     return bool(request.content_length and request.content_length > MAX_AVATAR_UPLOAD_BYTES)
 
 
+def _moderation_error(text: str):
+    """Return a (response, 400) tuple if `text` is flagged, else None (PRH-27).
+
+    The bio is AI-visible and shown to the table; the avatar prompt drives image
+    generation. Both are user free text, so screen them. Fail-open: a moderation
+    outage doesn't block the save (see core.moderation).
+    """
+    if moderate_text(text).flagged:
+        return jsonify(
+            {
+                'success': False,
+                'error': 'That text was flagged by our content filter. Please rephrase.',
+                'code': 'MODERATION_REJECTED',
+            }
+        ), 400
+    return None
+
+
 @profile_bp.route('/api/profile', methods=['GET'])
 @_auth_required
 def get_profile():
@@ -75,6 +95,10 @@ def set_bio():
     bio = data.get('bio', '')
     if not isinstance(bio, str):
         return jsonify({'success': False, 'error': 'bio must be a string'}), 400
+
+    flagged = _moderation_error(bio)
+    if flagged:
+        return flagged
 
     stored = extensions.user_prefs_repo.set_bio(g.profile_user['id'], bio)
     return jsonify({'success': True, 'bio': stored})
@@ -121,6 +145,9 @@ def generate_avatar():
 
     user_id = g.profile_user['id']
     prompt = (request.get_json(silent=True) or {}).get('prompt', '')
+    flagged = _moderation_error(prompt)
+    if flagged:
+        return flagged
     try:
         avatar_url = extensions.user_avatar_service.generate_from_prompt(user_id, prompt)
         return jsonify({'success': True, 'avatar_url': avatar_url})
@@ -146,6 +173,10 @@ def generate_avatar_from_photo():
     user_id = g.profile_user['id']
     photo_bytes = request.files['file'].read()
     prompt = request.form.get('prompt') or None
+    if prompt:
+        flagged = _moderation_error(prompt)
+        if flagged:
+            return flagged
     try:
         strength = float(request.form.get('strength', 0.6))
     except (TypeError, ValueError):
