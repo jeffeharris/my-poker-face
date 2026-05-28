@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test clean prod
+.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last clean prod
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -32,6 +32,35 @@ frontend-shell: ## Access frontend container shell
 
 test: ## Run tests in backend container
 	docker compose exec backend python -m pytest
+
+# --- Compartmentalized test targets (see docs/plans/TEST_WAIT_TIME_REDUCTION.md) ---
+# Run the bucket that covers the code you touched. The full `test` target / CI
+# remains the merge gate.
+
+test-quick: ## Fast loop: skip slow/integration/llm/simulation tests
+	docker compose exec backend python -m pytest -n auto \
+		-m "not slow and not integration and not llm and not simulation"
+
+test-strategy: ## Bot strategy, classification, exploitation
+	docker compose exec backend python -m pytest tests/test_strategy/
+
+test-repos: ## Repositories + schema/migration
+	docker compose exec backend python -m pytest tests/test_repositories/
+
+test-cash: ## Cash mode economy + lobby (name-matched across the tree)
+	docker compose exec backend python -m pytest -k cash
+
+test-memory: ## Psychology / relationships / memory
+	docker compose exec backend python -m pytest tests/test_memory/
+
+test-flask: ## Routes / auth / Socket.IO (marker-selected)
+	docker compose exec backend python -m pytest -m flask
+
+test-llm: ## LLM client/assistant (slow, opt-in)
+	docker compose exec backend python -m pytest -m llm
+
+test-last: ## Re-run last failures only
+	docker compose exec backend python -m pytest --lf
 
 clean: ## Clean up containers, volumes, and data
 	docker compose down -v

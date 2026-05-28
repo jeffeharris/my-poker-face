@@ -45,9 +45,9 @@ logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
 
 from experiments.measure_passivity import (
     MODES,
-    PassivityStats,
     ROSTER_CLONE_PROFILE,
     ROSTERS,
+    PassivityStats,
     _apply_mode,
     _ensure_clone_registered,
     run_passivity_hand,
@@ -206,6 +206,7 @@ def _build_table(arm):
         return _hu_aggressive_transform(load_strategy_table())
     if arm == 'slices':
         import json
+
         from poker.strategy.strategy_table import _parse_postflop_json
         t = load_strategy_table()  # production preflop + authored (SRP,high) postflop
         for path in SLICE_POSTFLOP_PATHS:

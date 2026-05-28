@@ -4264,6 +4264,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     relationship_repo,
                     stake_repo,
                 )
+                from flask_app.handlers.game_handler import live_cash_seated_pids
 
                 refresh_unseated_tables(
                     cash_table_repo=cash_table_repo,
@@ -4275,6 +4276,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     chip_ledger_repo=chip_ledger_repo,
                     relationship_repo=relationship_repo,
                     stake_repo=stake_repo,
+                    live_seated_pids=live_cash_seated_pids(sandbox_id),
                 )
             except Exception as e:
                 logger.warning(
@@ -4555,6 +4557,7 @@ def get_lobby():
                 stake_repo,
                 vice_state_repo,
             )
+            from flask_app.handlers.game_handler import live_cash_seated_pids
 
             refresh_unseated_tables(
                 cash_table_repo=cash_table_repo,
@@ -4567,6 +4570,7 @@ def get_lobby():
                 stake_repo=stake_repo,
                 vice_repo=vice_state_repo,
                 side_hustle_repo=side_hustle_state_repo,
+                live_seated_pids=live_cash_seated_pids(sandbox_id),
             )
         except Exception as e:
             logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)

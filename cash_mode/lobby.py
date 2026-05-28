@@ -547,6 +547,14 @@ def refresh_unseated_tables(
     # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
     # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
     vice_mode: Optional[str] = None,
+    # Personas the human is actively playing in a live in-memory hand
+    # (from `game_handler.live_cash_seated_pids`). The world sim's
+    # `seated_globally` is derived only from the persisted `cash_tables`
+    # snapshot, which can lag/omit the human's live table; treating these
+    # as occupied is what stops the ticker seating — or busting — a live
+    # opponent at another table mid-hand. None → no live games to honor
+    # (the default for sim/test callers, preserving their behavior).
+    live_seated_pids: Optional[Set[str]] = None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -578,6 +586,14 @@ def refresh_unseated_tables(
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
+
+    # A persona the human is playing live counts as occupied even when the
+    # persisted snapshot doesn't show it seated. Union into `seated_globally`
+    # so movement/live-fill won't reuse it elsewhere; the idle/eligible
+    # filter below drops it from the seating surfaces too.
+    live_seated = set(live_seated_pids or ())
+    if live_seated:
+        seated_globally |= live_seated
 
     # Vice expiry pass — runs BEFORE the table loop so AIs whose vice
     # ended this refresh become immediately eligible for seating /
@@ -662,9 +678,10 @@ def refresh_unseated_tables(
     # top covers all the seating / staking eligibility surfaces without
     # per-call-site changes.
     off_grid = on_vice | on_hustle
-    if off_grid:
-        idle_pool = [entry for entry in idle_pool if entry.personality_id not in off_grid]
-        eligible = [cand for cand in eligible if cand.get("personality_id") not in off_grid]
+    unavailable = off_grid | live_seated
+    if unavailable:
+        idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
+        eligible = [cand for cand in eligible if cand.get("personality_id") not in unavailable]
 
     # Closed-economy: fish are a casino-only player class. The lobby
     # never live-fills a fish; this set is the defense-in-depth filter
