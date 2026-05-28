@@ -110,20 +110,24 @@ ROSTER_CLONE_PROFILE = {
 }
 
 
-def _ensure_clone_registered(profile_path: str) -> str:
+def _ensure_clone_registered(profile_path: str, oracle_punish_overbets: bool = False) -> str:
     """Load + register a frozen CloneProfile as a rule-bot ARCHETYPE.
 
     Idempotent. Mirrors simulate_bb100's --clone-profile wiring. Must run in
     each worker process (the ProcessPool children re-register so the ARCHETYPE
     + strategy registry exist before the matchup looks them up).
     Returns the archetype key (e.g. 'Jeff_clone').
+
+    `oracle_punish_overbets` (eval-only) registers the perfect-overbet-punisher
+    variant under the SAME archetype key — so the existing roster (e.g. 'jeff')
+    transparently becomes the oracle opponent for measuring overbet exploitability.
     """
     from poker.human_clone import load_profile_from_file, register_clone_strategy
 
     profile = load_profile_from_file(profile_path)
     player_name = profile.source_player
     strategy_key = f"clone_{player_name.replace(' ', '_').lower()}"
-    register_clone_strategy(strategy_key, profile)
+    register_clone_strategy(strategy_key, profile, oracle_punish_overbets=oracle_punish_overbets)
     archetype_key = f"{player_name}_clone"
     ARCHETYPES[archetype_key] = {'kind': 'rule_bot', 'strategy': strategy_key}
     return archetype_key
