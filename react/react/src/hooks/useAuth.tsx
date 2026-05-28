@@ -18,6 +18,8 @@ interface User {
   permissions?: string[];
   email?: string; // Available for Google users
   picture?: string; // Google profile picture URL
+  avatar_url?: string; // Custom profile avatar (relative path; prefer over picture)
+  bio?: string; // AI-visible self-description set on /profile
 }
 
 /**

@@ -170,6 +170,16 @@ class TestDispatchFiresEvent:
         assert actor_state.respect == pytest.approx(0.5 + expected.respect * 0.25)
         assert actor_state.likability == pytest.approx(0.5 + expected.likability * 0.25)
 
+    def test_props_applies_respect_weighted_shift(self, game_data, repo):
+        # props → PROPS: the one chat tone that meaningfully raises respect.
+        dispatch_chat_relationship_event(game_data, "alice", ["bob"], tone="props", intensity=None)
+        actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
+        assert actor_state is not None
+        expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.PROPS]
+        assert expected.respect > 0
+        assert actor_state.respect == pytest.approx(0.5 + expected.respect)
+        assert actor_state.likability == pytest.approx(0.5 + expected.likability)
+
     def test_gloat_applies_taunt_post_win(self, game_data, repo):
         # Post-round tone; intensity is ignored.
         dispatch_chat_relationship_event(
@@ -238,3 +248,162 @@ class TestDispatchFiresEvent:
             intensity="spicy",
         )
         assert repo.load_raw_relationship_state("alice_pid", "alice_pid") is None
+
+
+class TestDispatchAppliesEmotionalReaction:
+    """The dispatch also moves the target AI's own psychology axes,
+    branched by disposition. These assert the right axis moved in the
+    right direction — psychology is repo-independent, held on the
+    controller in `game_data['ai_controllers']`.
+    """
+
+    def _ai_game_data(self, opp_manager, name, anchors):
+        from poker.player_psychology import PlayerPsychology
+
+        psych = PlayerPsychology.from_personality_config(name, {"anchors": anchors})
+        controller = SimpleNamespace(psychology=psych)
+        memory_manager = SimpleNamespace(
+            get_opponent_model_manager=lambda: opp_manager,
+            hand_count=3,
+        )
+        game_data = {
+            "memory_manager": memory_manager,
+            "ai_controllers": {name: controller},
+        }
+        return game_data, psych
+
+    # Napoleon-like: proud + reserved → 'stung' → composure drops.
+    STUNG = {"ego": 0.86, "poise": 0.65, "expressiveness": 0.32, "baseline_aggression": 0.8}
+    # Wilde-like: proud + expressive → 'energized' → energy rises.
+    ENERGIZED = {"ego": 0.8, "poise": 0.62, "expressiveness": 0.68, "baseline_aggression": 0.35}
+
+    def test_jab_stings_a_proud_character(self, opp_manager):
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.STUNG)
+        before = psych.composure
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        assert psych.composure < before
+
+    def test_jab_energizes_a_charmer(self, opp_manager):
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.ENERGIZED)
+        before = psych.energy
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        assert psych.energy > before
+
+    def test_chill_needle_moves_less_than_spicy_goad(self, opp_manager):
+        gd1, p1 = self._ai_game_data(opp_manager, "bob", self.STUNG)
+        c0 = p1.composure
+        dispatch_chat_relationship_event(gd1, "alice", ["bob"], tone="needle", intensity="chill")
+        chill_drop = c0 - p1.composure
+
+        gd2, p2 = self._ai_game_data(opp_manager, "bob", self.STUNG)
+        c0b = p2.composure
+        dispatch_chat_relationship_event(gd2, "alice", ["bob"], tone="goad", intensity="spicy")
+        spicy_drop = c0b - p2.composure
+
+        assert 0 < chill_drop < spicy_drop
+
+    def test_non_ai_target_is_a_noop(self, opp_manager):
+        # No controller registered → reaction silently skipped, no raise.
+        memory_manager = SimpleNamespace(
+            get_opponent_model_manager=lambda: opp_manager,
+            hand_count=1,
+        )
+        game_data = {"memory_manager": memory_manager, "ai_controllers": {}}
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+
+    def test_props_warms_the_target(self, opp_manager):
+        # props is a praise stimulus → a non-stoic target warms (confidence up).
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.STUNG)
+        before = psych.confidence
+        dispatch_chat_relationship_event(game_data, "alice", ["bob"], tone="props", intensity=None)
+        assert psych.confidence > before
+
+    def test_bluff_tone_moves_no_axes(self, opp_manager):
+        # bluff → no RelationshipEvent → no stimulus → axes untouched.
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.STUNG)
+        snapshot = (psych.confidence, psych.composure, psych.energy)
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="bluff", intensity="spicy"
+        )
+        assert (psych.confidence, psych.composure, psych.energy) == snapshot
+
+
+class TestBroadcastFanOut:
+    """A tone with no specific target (gloat after a win, or a 'to the
+    table' jab) fans the emotional reaction out to every seated AI at a
+    reduced scale, and leaves the relationship layer untouched.
+    """
+
+    STUNG = {"ego": 0.86, "poise": 0.65, "expressiveness": 0.32, "baseline_aggression": 0.8}
+
+    def _multi_ai_game_data(self, opp_manager, specs):
+        from poker.player_psychology import PlayerPsychology
+
+        controllers = {
+            name: SimpleNamespace(
+                psychology=PlayerPsychology.from_personality_config(name, {"anchors": anchors})
+            )
+            for name, anchors in specs.items()
+        }
+        # alice is the human sender (seated, but no controller).
+        players = [SimpleNamespace(name=n) for n in (["alice"] + list(specs.keys()))]
+        state_machine = SimpleNamespace(game_state=SimpleNamespace(players=players))
+        memory_manager = SimpleNamespace(
+            get_opponent_model_manager=lambda: opp_manager,
+            hand_count=5,
+        )
+        game_data = {
+            "memory_manager": memory_manager,
+            "ai_controllers": controllers,
+            "state_machine": state_machine,
+        }
+        return game_data, controllers
+
+    def test_gloat_with_no_target_fans_out_to_all_seated_ais(self, opp_manager):
+        game_data, controllers = self._multi_ai_game_data(
+            opp_manager, {"bob": self.STUNG, "carol": self.STUNG}
+        )
+        before = {n: c.psychology.composure for n, c in controllers.items()}
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="gloat", intensity=None)
+        for n, c in controllers.items():
+            assert c.psychology.composure < before[n], f"{n} should have been stung"
+
+    def test_broadcast_does_not_move_relationship_axes(self, opp_manager, repo):
+        game_data, _ = self._multi_ai_game_data(opp_manager, {"bob": self.STUNG})
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="gloat", intensity=None)
+        # No explicit pairwise target → relationship layer untouched.
+        assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
+
+    def test_broadcast_hits_softer_than_a_direct_jab(self, opp_manager):
+        gd_direct, c_direct = self._multi_ai_game_data(opp_manager, {"bob": self.STUNG})
+        b0 = c_direct["bob"].psychology.composure
+        dispatch_chat_relationship_event(
+            gd_direct, "alice", ["bob"], tone="goad", intensity="spicy"
+        )
+        direct_drop = b0 - c_direct["bob"].psychology.composure
+
+        gd_bcast, c_bcast = self._multi_ai_game_data(opp_manager, {"bob": self.STUNG})
+        b0b = c_bcast["bob"].psychology.composure
+        dispatch_chat_relationship_event(gd_bcast, "alice", None, tone="goad", intensity="spicy")
+        bcast_drop = b0b - c_bcast["bob"].psychology.composure
+
+        assert 0 < bcast_drop < direct_drop
+
+    def test_sender_excluded_from_broadcast(self, opp_manager):
+        # If the sender somehow has a controller, they shouldn't react to
+        # their own message. Seat 'alice' with a controller and confirm
+        # only 'bob' moves.
+        game_data, controllers = self._multi_ai_game_data(
+            opp_manager, {"alice": self.STUNG, "bob": self.STUNG}
+        )
+        alice_before = controllers["alice"].psychology.composure
+        bob_before = controllers["bob"].psychology.composure
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="goad", intensity="spicy")
+        assert controllers["alice"].psychology.composure == alice_before
+        assert controllers["bob"].psychology.composure < bob_before

@@ -49,8 +49,8 @@ class TestCoachRouteAuth(unittest.TestCase):
         self.client = self.app.test_client()
 
         self._route_patchers = [
-            patch('flask_app.routes.coach_routes.game_repo', self.repos['game_repo']),
-            patch('flask_app.routes.coach_routes.coach_repo', self.repos['coach_repo']),
+            patch('flask_app.extensions.game_repo', self.repos['game_repo']),
+            patch('flask_app.extensions.coach_repo', self.repos['coach_repo']),
         ]
         for patcher in self._route_patchers:
             patcher.start()
@@ -105,7 +105,7 @@ class TestCoachRouteAuth(unittest.TestCase):
                 lambda uid, perm: perm == 'can_access_coach'
             )
         return [
-            patch('flask_app.routes.coach_routes.auth_manager.get_current_user', return_value=user),
+            patch('flask_app.extensions.auth_manager.get_current_user', return_value=user),
         ]
 
     def _enter(self, patchers):

@@ -2,10 +2,23 @@
 purpose: Fresh-context handoff — fix the preflop-chart measurement bug, then settle (and maybe ship) wider preflop opening, en route to opponent-adaptive open width
 type: guide
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-05-27
 ---
 
 # Preflop-width handoff
+
+> **✅ RESOLVED 2026-05-27.** (1) The "measurement bug" was a **misdiagnosis** —
+> the `--preflop-chart` swap is sound; the no-op was a rule-mix roster artifact
+> (the hero is never first-in from CO/BTN/SB vs never-folding bots, so an RFI
+> change is definitionally inert). Verified via lookup-spy + PFR 14→19% + 10/200
+> hands differing vs jeff/punisher. (2) Decision SETTLED + SHIPPED: paired
+> steal-aware A/B (`ab_preflop_width.py`, 24k hands) → wider CO/BTN/SB is
+> CI-clear +EV (jeff +15.97, punisher +5.33); `preflop_100bb_6max.json` widened,
+> tight chart preserved, depth charts left tight (unmeasured at short stacks),
+> README/provenance updated, `test_strategy` green. (3) Destination scaffolded:
+> `docs/experiments/EXP_003_OPPONENT_ADAPTIVE_RFI_WIDTH.md` (adaptive width must
+> be table-selection — offsets can't open fold-1.0 hands). NOT yet committed.
+> Below is the original handoff, kept for the record.
 
 > **For a fresh context.** Self-contained. Branch `lookup-tables`. All Python
 > runs in Docker: `docker compose exec -T backend python ...`. Read the memory

@@ -820,6 +820,116 @@ def resolve_ai_vice_spending(
     return out
 
 
+def commit_leave_vice(
+    *,
+    personality_id: str,
+    cast_median: int,
+    vice_repo,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    rng: random.Random,
+    now: datetime,
+    narrate_fn: Optional[NarrateFn] = None,
+) -> Optional[ViceStartResult]:
+    """Commit a vice for an AI whose LEAVE was intercepted by a vice roll.
+
+    The counterpart to `resolve_ai_vice_spending` for the seated→leave
+    path (`refresh_table_roster`'s `go_vice`). The probability roll already
+    happened at the leave, and there is no `max_starts` cap here — this
+    only *sizes* the spend (same `compute_vice_amount` as the idle path),
+    narrates, and commits (debit bankroll → bank pool via
+    `_commit_vice_start`).
+
+    The caller must have already applied the seat's `from_seat` bankroll
+    credit, so `load_ai_bankroll_current` reflects the whole bankroll. As
+    a guard it re-derives `excess_ratio` against the live `cast_median`
+    and skips (returns None) if the AI isn't actually above the
+    concentration floor, or if the sized amount rounds out / persistence
+    fails.
+    """
+    if vice_repo is None or bankroll_repo is None:
+        return None
+    if narrate_fn is None:
+        narrate_fn = _templated_narrate_fn
+
+    try:
+        current = bankroll_repo.load_ai_bankroll_current(
+            personality_id,
+            sandbox_id=sandbox_id,
+            now=now,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[VICE] leave-vice load_ai_bankroll_current failed pid=%r: %s",
+            personality_id,
+            exc,
+        )
+        return None
+    if current is None or current <= 0:
+        return None
+
+    try:
+        knobs = bankroll_repo.load_personality_knobs(personality_id)
+    except Exception as exc:
+        logger.warning(
+            "[VICE] leave-vice load_personality_knobs failed pid=%r: %s",
+            personality_id,
+            exc,
+        )
+        return None
+
+    excess = compute_excess_ratio(current, cast_median)
+    if excess <= 0:
+        return None
+
+    psych = _load_psych_snapshot(
+        bankroll_repo=bankroll_repo,
+        personality_id=personality_id,
+        sandbox_id=sandbox_id,
+    )
+    if psych is None:
+        pressure = compute_pressure(0.7, 0.7, 0.7)
+    else:
+        pressure = compute_pressure(
+            psych['confidence'],
+            psych['composure'],
+            psych['energy'],
+        )
+
+    amount = compute_vice_amount(current, knobs.starting_bankroll, excess, rng)
+    if amount <= 0:
+        return None
+
+    try:
+        narration, duration_bucket = narrate_fn(personality_id, amount, psych)
+    except Exception as exc:
+        logger.warning(
+            "[VICE] leave-vice narrate_fn failed pid=%r: %s; using fallback",
+            personality_id,
+            exc,
+        )
+        narration, duration_bucket = _templated_narrate_fn(personality_id, amount, psych)
+    if duration_bucket not in DURATION_RANGES:
+        duration_bucket = DEFAULT_DURATION_BUCKET
+
+    ends_at = now + duration_for_bucket(duration_bucket, rng)
+    return _commit_vice_start(
+        bankroll_repo=bankroll_repo,
+        chip_ledger_repo=chip_ledger_repo,
+        vice_repo=vice_repo,
+        sandbox_id=sandbox_id,
+        personality_id=personality_id,
+        amount=amount,
+        duration_bucket=duration_bucket,
+        narration=narration,
+        started_at=now,
+        ends_at=ends_at,
+        excess_ratio=excess,
+        pressure=pressure,
+    )
+
+
 # --- Internals --------------------------------------------------------------
 
 

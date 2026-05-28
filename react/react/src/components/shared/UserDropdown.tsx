@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, LogOut, Settings, Home, GraduationCap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronDown, LogOut, Settings, Home, GraduationCap, UserCircle } from 'lucide-react';
+import { config } from '../../config';
 import './UserDropdown.css';
 
 export interface UserDropdownProps {
@@ -7,6 +9,7 @@ export interface UserDropdownProps {
     name: string;
     is_guest: boolean;
     picture?: string;
+    avatar_url?: string;
     can_access_admin_tools?: boolean;
   };
   onLogout: () => void;
@@ -42,9 +45,15 @@ export function UserDropdown({
 }: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // Get user's first initial for fallback avatar
   const initial = user.name.charAt(0).toUpperCase();
+
+  // Prefer the custom profile avatar (relative path) over the Google picture.
+  const avatarSrc = user.avatar_url
+    ? `${config.API_URL}${user.avatar_url}`
+    : (user.picture ?? null);
 
   // Close dropdown when clicking outside
   const handleClickOutside = useCallback((event: MouseEvent) => {
@@ -95,9 +104,9 @@ export function UserDropdown({
       >
         {/* Avatar */}
         <div className="user-dropdown__avatar">
-          {user.picture ? (
+          {avatarSrc ? (
             <img
-              src={user.picture}
+              src={avatarSrc}
               alt={user.name}
               className="user-dropdown__avatar-img"
               referrerPolicy="no-referrer"
@@ -141,6 +150,18 @@ export function UserDropdown({
               </div>
             </div>
           )}
+
+          <button
+            className="user-dropdown__menu-item"
+            onClick={() => {
+              setIsOpen(false);
+              navigate('/profile');
+            }}
+            role="menuitem"
+          >
+            <UserCircle size={16} />
+            <span>Profile</span>
+          </button>
 
           {onMainMenu && (
             <button

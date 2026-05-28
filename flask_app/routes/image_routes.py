@@ -21,9 +21,10 @@ from poker.character_images import (
     load_full_avatar_image,
     regenerate_avatar_emotion,
 )
+from poker.image_processing import detect_image_mimetype
 
-from .. import config
-from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
+from .. import config, extensions
+from ..extensions import limiter
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
@@ -37,17 +38,12 @@ _admin_only = require_permission('can_access_admin_tools')
 
 
 def _detect_image_mimetype(image_data: bytes) -> str:
-    """Detect image mimetype from binary data."""
-    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
-        return 'image/png'
-    elif image_data[:3] == b'\xff\xd8\xff':
-        return 'image/jpeg'
-    elif image_data[:6] in (b'GIF87a', b'GIF89a'):
-        return 'image/gif'
-    elif image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
-        return 'image/webp'
-    # Default to PNG if unknown
-    return 'image/png'
+    """Detect image mimetype from binary data, defaulting to PNG when unknown.
+
+    Serving-side helper: the PNG default is load-bearing (an unrecognized blob
+    is still served as an image rather than 404'd). Wraps the shared detector.
+    """
+    return detect_image_mimetype(image_data) or 'image/png'
 
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'
@@ -384,7 +380,7 @@ def regenerate_avatar(personality_name: str):
         # Admin user's id — attributes the paid spend so the per-owner budget
         # gate (PRH-2) can bind this call. `_admin_only` guarantees the user is
         # present, but use .get() to stay defensive against test mocks.
-        admin_user = auth_manager.get_current_user() if auth_manager else None
+        admin_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = admin_user.get('id') if admin_user else None
 
         logger.info(
@@ -400,9 +396,11 @@ def regenerate_avatar(personality_name: str):
             ), 400
 
         # Validate personality exists before expensive API calls
-        from ..extensions import personality_generator
 
-        if personality_generator and not personality_generator.get_personality(personality_name):
+        if (
+            extensions.personality_generator
+            and not extensions.personality_generator.get_personality(personality_name)
+        ):
             return jsonify(
                 {'success': False, 'error': f'Personality {personality_name} not found'}
             ), 404
@@ -454,11 +452,10 @@ def regenerate_avatar(personality_name: str):
                 error_count += 1
 
         # Get the current avatar_description (may have been auto-generated during regeneration)
-        from ..extensions import personality_generator
 
         avatar_description = (
-            personality_generator.get_avatar_description(personality_name)
-            if personality_generator
+            extensions.personality_generator.get_avatar_description(personality_name)
+            if extensions.personality_generator
             else None
         )
 
@@ -491,7 +488,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
     import sqlite3
 
     try:
-        with sqlite3.connect(persistence_db_path) as conn:
+        with sqlite3.connect(extensions.persistence_db_path) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
                 (reference_id,),
@@ -512,7 +509,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
 def get_avatar_stats():
     """Get statistics about avatar images in the database."""
     try:
-        stats = personality_repo.get_avatar_stats()
+        stats = extensions.personality_repo.get_avatar_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting avatar stats: {e}")
@@ -524,13 +521,17 @@ def get_avatar_stats():
 @_admin_only
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
+    user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+    if not user or not user.get('id'):
+        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+
     try:
         data = request.get_json() or {}
         emotions = data.get('emotions')
         api_key = data.get('api_key')
 
         # Admin user's id — see regenerate_avatar for rationale.
-        admin_user = auth_manager.get_current_user() if auth_manager else None
+        admin_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = admin_user.get('id') if admin_user else None
 
         if has_character_images(personality_name):

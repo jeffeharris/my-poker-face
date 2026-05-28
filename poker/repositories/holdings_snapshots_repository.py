@@ -103,6 +103,44 @@ class HoldingsSnapshotsRepository(BaseRepository):
             for r in rows
         ]
 
+    def series_for_entity(
+        self,
+        *,
+        sandbox_id: str,
+        entity_id: str,
+        since_iso: str,
+    ) -> List[Dict[str, Any]]:
+        """Return one entity's `(captured_at, chips, net_worth)` points, oldest → newest.
+
+        Focused read for the career-lobby bankroll/net-worth sparkline: a
+        single entity's holdings over time. Hits
+        `idx_holdings_snap_entity (sandbox_id, entity_id, captured_at)`,
+        so it stays cheap on the frequently-polled lobby route (unlike
+        `series_since`, which scans every entity in the sandbox). `chips`
+        is total controlled chips (off-table bankroll plus any in-play seat
+        stack at capture time); `net_worth = chips + receivable −
+        outstanding`. Lexical `captured_at >= since_iso` comparison (the
+        recorder writes explicit ISO-8601 UTC).
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT captured_at, chips, net_worth
+                FROM holdings_snapshots
+                WHERE sandbox_id = ? AND entity_id = ? AND captured_at >= ?
+                ORDER BY captured_at ASC
+                """,
+                (sandbox_id, entity_id, since_iso),
+            ).fetchall()
+        return [
+            {
+                'captured_at': r['captured_at'],
+                'chips': int(r['chips']),
+                'net_worth': int(r['net_worth']),
+            }
+            for r in rows
+        ]
+
     def latest_captured_at(self, sandbox_id: str) -> Optional[str]:
         """Return the most recent `captured_at` for a sandbox, or None.
 

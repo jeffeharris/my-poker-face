@@ -50,11 +50,11 @@ def _get_socketio_cors_origins():
 # SocketIO instance - initialized without app
 socketio = SocketIO(cors_allowed_origins=_get_socketio_cors_origins(), async_mode='threading')
 
-# Limiter instance - defined below, after its key_func/exempt helpers.
-# It is a real Limiter at import time (like `socketio`/`oauth` above) so
-# module-level `@limiter.limit(...)` decorators in the route modules resolve
-# regardless of blueprint import ordering. The storage backend is attached in
-# init_limiter() via the standard init_app() handshake.
+# Limiter instance is created below, AFTER get_rate_limit_key/_skip_options_requests
+# are defined. It is a real, app-less Limiter (not None) so that route modules'
+# `@limiter.limit(...)` / `@limiter.exempt` decorators work at import time
+# regardless of init ordering. It gets bound to the app + storage in init_limiter()
+# via limiter.init_app(app). See docs/plans/TEST_WAIT_TIME_REDUCTION.md (Phase 3).
 
 # Individual repository globals (replace former `persistence` facade)
 game_repo = None
@@ -82,8 +82,12 @@ sandbox_repo = None
 vice_state_repo = None
 side_hustle_state_repo = None
 user_prefs_repo = None
+user_avatar_repo = None
 holdings_snapshots_repo = None
 persistence_db_path = None  # for callers that need the raw path
+
+# Human-player avatar service (acquire/generate/process/persist user avatars)
+user_avatar_service = None
 
 # Pressure event repository (separate, not part of create_repos)
 event_repository = None
@@ -108,10 +112,11 @@ def _skip_options_requests() -> bool:
     return request.method == "OPTIONS"
 
 
-# Real Limiter instance, constructed at import time (no app yet). The storage
-# backend is left unset here so init_limiter() can pick Redis vs in-memory and
-# bind it via init_app(). Constructing it eagerly (rather than `= None`) is what
-# lets the route modules' module-level `@limiter.limit(...)` decorators work.
+# Real, app-less limiter (see the note above the former `limiter = None`).
+# Created once at import; bound to an app + storage in init_limiter(). Keeping a
+# single stable object means the view decorators registered at route-import time
+# stay attached across every create_app() (the old per-app reassignment orphaned
+# them) and import order can never leave `limiter` as None/a mock.
 limiter = Limiter(
     key_func=get_rate_limit_key,
     default_limits=config.RATE_LIMIT_DEFAULT,
@@ -147,24 +152,21 @@ def init_cors(app: Flask) -> None:
 
 
 def init_limiter(app: Flask) -> Limiter:
-    """Attach the module-level `limiter` to the app, preferring Redis.
+    """Bind the module-level limiter to ``app`` (optionally Redis-backed).
 
-    `limiter` is already a live Limiter (constructed at import). Here we
-    only pick the storage backend (Redis when reachable, else in-memory)
-    and bind it to the app via init_app(). flask-limiter resolves the
-    backend from `RATELIMIT_STORAGE_URI` in app.config during init_app.
+    Only chooses storage and calls ``limiter.init_app(app)`` on the SAME object
+    created at import — never reassigns the global, so the view decorators
+    already registered against it stay bound.
     """
-    redis_url = config.REDIS_URL
     storage_uri = "memory://"
-
-    if redis_url:
+    storage_label = "in-memory"
+    if config.REDIS_URL:
         try:
             import redis
 
-            r = redis.from_url(redis_url)
-            r.ping()
-            storage_uri = redis_url
-            logger.info("Rate limiter initialized with Redis")
+            redis.from_url(config.REDIS_URL).ping()
+            storage_uri = config.REDIS_URL
+            storage_label = "Redis"
         except Exception as e:
             # PRH-10: in production a configured-but-unreachable Redis must NOT
             # silently degrade to per-worker in-memory limits — every per-IP cap
@@ -178,11 +180,10 @@ def init_limiter(app: Flask) -> Limiter:
                     f"unset REDIS_URL to opt into in-memory explicitly. Error: {e}"
                 ) from e
             logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
-    else:
-        logger.info("Rate limiter initialized with in-memory storage")
 
     app.config["RATELIMIT_STORAGE_URI"] = storage_uri
     limiter.init_app(app)
+    logger.info(f"Rate limiter initialized with {storage_label} storage")
     return limiter
 
 
@@ -204,11 +205,12 @@ def init_persistence() -> None:
         vice_state_repo, \
         side_hustle_state_repo, \
         user_prefs_repo, \
+        user_avatar_repo, \
         holdings_snapshots_repo, \
         persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
-    global event_repository
+    global event_repository, user_avatar_service
 
     db_path = config.DB_PATH
     repos = create_repos(db_path)
@@ -238,10 +240,15 @@ def init_persistence() -> None:
     vice_state_repo = repos['vice_state_repo']
     side_hustle_state_repo = repos['side_hustle_state_repo']
     user_prefs_repo = repos['user_prefs_repo']
+    user_avatar_repo = repos['user_avatar_repo']
     holdings_snapshots_repo = repos['holdings_snapshots_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)
+
+    from poker.user_avatar_service import UserAvatarService
+
+    user_avatar_service = UserAvatarService(user_avatar_repo)
 
 
 def init_personality_generator() -> PersonalityGenerator:

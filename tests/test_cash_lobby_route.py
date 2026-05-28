@@ -266,9 +266,14 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         guard 409s every new session while the lobby shows no Resume bar and
         no way back in or out. Regression for the orphaned-cold-session
         wedge."""
+        from datetime import datetime as _dt
+
         fake_cs = MagicMock()
         fake_cs.cash_table_id = "cash-table-10-001"
         fake_cs.stake_label = "$10"
+        # Real datetime so the Tier 4.2 `seated_since` (started_at.isoformat())
+        # is JSON-serializable — a bare MagicMock attribute would not be.
+        fake_cs.started_at = _dt(2026, 5, 28, 12, 0, 0)
         cs_repo = MagicMock()
         cs_repo.load.return_value = fake_cs
 
@@ -292,4 +297,5 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         assert data["has_active_session"] is True
         assert data["seated_table_id"] == "cash-table-10-001"
         assert data["seated_stake_label"] == "$10"
+        assert data["seated_since"] == "2026-05-28T12:00:00"
         cs_repo.load.assert_called_once_with("cash-cold-abandoned")

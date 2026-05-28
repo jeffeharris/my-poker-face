@@ -6,7 +6,6 @@ Images are stored in the SQLite database as BLOBs.
 Supports on-demand generation for personalities without existing images.
 """
 
-import io
 import logging
 import threading
 import time
@@ -599,54 +598,14 @@ class CharacterImageService:
             Processed icon bytes (256x256 circular PNG)
         """
 
-        # Load image from bytes
-        img = Image.open(io.BytesIO(raw_image_bytes))
-        original_width, original_height = img.size
+        # Shared pipeline: center-crop + resize to a square full image and a
+        # circular icon. Identical to the human-avatar path (see
+        # poker/image_processing.py) so both stay pixel-consistent.
+        from .image_processing import process_avatar_image
 
-        # If image is not square (can happen with img2img), resize to target size
-        target_size = FULL_IMAGE_DIMENSIONS[0]  # 512
-        if original_width != original_height or original_width != target_size:
-            logger.info(
-                f"Resizing image from {original_width}x{original_height} to {target_size}x{target_size}"
-            )
-            # Center crop to square first if needed
-            if original_width != original_height:
-                crop_size = min(original_width, original_height)
-                left = (original_width - crop_size) // 2
-                top = (original_height - crop_size) // 2
-                img = img.crop((left, top, left + crop_size, top + crop_size))
-            # Resize to target
-            img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
-            # Update raw_image_bytes with resized image
-            buffer = io.BytesIO()
-            img.save(buffer, 'PNG')
-            raw_image_bytes = buffer.getvalue()
-
-        full_width, full_height = img.size
-
-        # Center crop to square for icon
-        size = min(img.size)
-        left = (img.width - size) // 2
-        top = (img.height - size) // 2
-        cropped = img.crop((left, top, left + size, top + size))
-
-        # Resize to icon size
-        resized = cropped.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
-
-        # Create circular mask
-        mask = Image.new('L', (ICON_SIZE, ICON_SIZE), 0)
-        draw = ImageDraw.Draw(mask)
-        draw.ellipse((0, 0, ICON_SIZE, ICON_SIZE), fill=255)
-
-        # Apply mask for circular crop with transparency
-        output = Image.new('RGBA', (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
-        resized = resized.convert('RGBA')
-        output.paste(resized, (0, 0), mask)
-
-        # Save icon to bytes buffer
-        buffer = io.BytesIO()
-        output.save(buffer, 'PNG')
-        icon_bytes = buffer.getvalue()
+        icon_bytes, raw_image_bytes, full_width, full_height = process_avatar_image(
+            raw_image_bytes, icon_size=ICON_SIZE, full_size=FULL_IMAGE_DIMENSIONS[0]
+        )
 
         # Save both to database - full image for CSS cropping, icon for backward compatibility
         self._persistence.save_avatar_image(

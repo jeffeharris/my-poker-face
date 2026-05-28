@@ -96,41 +96,26 @@ class TestCreatePersonalityRoute:
     def authed_client(self, monkeypatch):
         """Flask test client with a stubbed authenticated user.
 
-        The route imports `auth_manager` via `from ..extensions import
-        auth_manager` and uses it as a module-level binding inside the
-        route module. So the patch has to target the route module's
-        binding directly — patching `flask_app.extensions.auth_manager`
-        wouldn't propagate to the already-bound name inside the route
-        module."""
+        The route reads `auth_manager` / `personality_repo` live via
+        `extensions.X`, so the canonical bindings to pin/patch live on
+        `flask_app.extensions` (not the route module's namespace)."""
         from flask_app import extensions as ext
-        from flask_app.routes import personality_routes as route_mod
         from flask_app.ui_web import create_app
 
         app = create_app()
 
-        # Re-sync the route module's bound `personality_repo` from
-        # extensions. Other tests in the same xdist worker may use
-        # mock_init_persistence to point the route at a tempdb that's
-        # been unlinked by the time this fixture runs. create_app()
-        # above invokes init_persistence(), which refreshes
-        # extensions.personality_repo to the real prod-DB repo —
-        # rebinding the route's reference picks that up. (The route
-        # module captures `personality_repo` by name at module load,
-        # so a fresh init_persistence doesn't reach into already-bound
-        # names.)
-        route_mod.personality_repo = ext.personality_repo
-        # Same by-name-binding hazard for auth_manager: the route module
-        # captures it at import, which (now that the module imports cleanly
-        # even before create_app) can be None. create_app() above sets
-        # ext.auth_manager to a real AuthManager — rebind so the setattr
-        # below patches a live object rather than None.
-        route_mod.auth_manager = ext.auth_manager
+        # Other tests in the same xdist worker may use
+        # mock_init_persistence to point extensions at a tempdb that's
+        # been unlinked by the time this fixture runs. create_app() above
+        # invokes init_persistence(), which refreshes
+        # extensions.personality_repo to the real prod-DB repo; the route
+        # reads it live, so nothing further is needed here.
 
-        # Stub auth: route's auth_manager.get_current_user returns a
-        # fake user dict instead of consulting Flask session.
+        # Stub auth: auth_manager.get_current_user returns a fake user
+        # dict instead of consulting Flask session.
         fake_user = {"id": "test_user_42", "name": "Tester"}
         monkeypatch.setattr(
-            route_mod.auth_manager,
+            ext.auth_manager,
             "get_current_user",
             lambda: fake_user,
         )
@@ -140,10 +125,10 @@ class TestCreatePersonalityRoute:
 
     def test_route_returns_personality_id(self, authed_client):
         """POST /api/personality creates a row and returns its stable id."""
-        from flask_app.routes import personality_routes as route_mod
+        from flask_app import extensions as ext
 
         # Ensure no prior row collides (independent of test ordering).
-        route_mod.personality_repo.delete_personality("Route Test Hero")
+        ext.personality_repo.delete_personality("Route Test Hero")
 
         response = authed_client.post(
             "/api/personality",
@@ -155,14 +140,14 @@ class TestCreatePersonalityRoute:
         assert body["personality_id"] == "route_test_hero"
 
         # cleanup
-        route_mod.personality_repo.delete_personality("Route Test Hero")
+        ext.personality_repo.delete_personality("Route Test Hero")
 
     def test_route_collision_returns_409(self, authed_client):
         """Existing name returns a 409 conflict; no row inserted."""
-        from flask_app.routes import personality_routes as route_mod
+        from flask_app import extensions as ext
 
-        route_mod.personality_repo.delete_personality("Conflict Hero")
-        route_mod.personality_repo.save_personality("Conflict Hero", {"play_style": "existing"})
+        ext.personality_repo.delete_personality("Conflict Hero")
+        ext.personality_repo.save_personality("Conflict Hero", {"play_style": "existing"})
         try:
             response = authed_client.post(
                 "/api/personality",
@@ -172,4 +157,4 @@ class TestCreatePersonalityRoute:
             body = response.get_json()
             assert body["success"] is False
         finally:
-            route_mod.personality_repo.delete_personality("Conflict Hero")
+            ext.personality_repo.delete_personality("Conflict Hero")

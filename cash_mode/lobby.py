@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import random
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -40,7 +41,9 @@ from cash_mode.full_sim import (
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RosterRefreshResult,
+    is_in_vice_cooldown,
     project_idle_energy,
+    record_vice_cooldown,
     refresh_table_roster,
 )
 from cash_mode.staker_history import StakerHistoryStats
@@ -545,6 +548,14 @@ def refresh_unseated_tables(
     # `economy_flags.VICE_MODE`. The sim passes 'fake' (real vice needs an
     # LLM call per fire). See economy_flags.VICE_MODE / CASH_MODE_SIDE_HUSTLE.md.
     vice_mode: Optional[str] = None,
+    # Personas the human is actively playing in a live in-memory hand
+    # (from `game_handler.live_cash_seated_pids`). The world sim's
+    # `seated_globally` is derived only from the persisted `cash_tables`
+    # snapshot, which can lag/omit the human's live table; treating these
+    # as occupied is what stops the ticker seating — or busting — a live
+    # opponent at another table mid-hand. None → no live games to honor
+    # (the default for sim/test callers, preserving their behavior).
+    live_seated_pids: Optional[Set[str]] = None,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -577,6 +588,14 @@ def refresh_unseated_tables(
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)
 
+    # A persona the human is playing live counts as occupied even when the
+    # persisted snapshot doesn't show it seated. Union into `seated_globally`
+    # so movement/live-fill won't reuse it elsewhere; the idle/eligible
+    # filter below drops it from the seating surfaces too.
+    live_seated = set(live_seated_pids or ())
+    if live_seated:
+        seated_globally |= live_seated
+
     # Vice expiry pass — runs BEFORE the table loop so AIs whose vice
     # ended this refresh become immediately eligible for seating /
     # staking. Returns a list of ViceEndResults; Commit 2 will emit
@@ -607,6 +626,12 @@ def refresh_unseated_tables(
                 exc,
             )
             on_vice = set()
+        # Post-vice refractory window: an AI that just finished a vice
+        # can't be sent off to another for VICE_COOLDOWN_SECONDS, so it
+        # returns and plays a while still rich instead of bouncing right
+        # back out. Applies to idle- and leave-triggered vices alike.
+        for _end in vice_ends:
+            record_vice_cooldown(_end.personality_id, now)
 
     # Side-hustle expiry pass — the mirror of the vice expiry pass.
     # Runs BEFORE the table loop so an AI who finished hustling (and was
@@ -654,9 +679,10 @@ def refresh_unseated_tables(
     # top covers all the seating / staking eligibility surfaces without
     # per-call-site changes.
     off_grid = on_vice | on_hustle
-    if off_grid:
-        idle_pool = [entry for entry in idle_pool if entry.personality_id not in off_grid]
-        eligible = [cand for cand in eligible if cand.get("personality_id") not in off_grid]
+    unavailable = off_grid | live_seated
+    if unavailable:
+        idle_pool = [entry for entry in idle_pool if entry.personality_id not in unavailable]
+        eligible = [cand for cand in eligible if cand.get("personality_id") not in unavailable]
 
     # Closed-economy: fish are a casino-only player class. The lobby
     # never live-fills a fish; this set is the defense-in-depth filter
@@ -871,7 +897,71 @@ def refresh_unseated_tables(
     # seated AI at $0 reserve seen this refresh. Reconciled against the
     # prior refresh after the table loop so the ticker fires once per
     # episode rather than every tick.
-    last_stand_qualifying: Dict[str, Tuple[str, str]] = {}
+    last_stand_qualifying: Dict[str, Tuple[str, str, Optional[str]]] = {}
+
+    # Vice-on-leave plumbing. A discretionary leaver (take_break /
+    # bored_move) who is rich enough rolls the existing wealth×psych vice
+    # probability AT the leave and goes straight off-grid (see
+    # refresh_table_roster's `go_vice`) — the fix for the post-loop
+    # idle-only scan never catching a winner who re-seats before it runs.
+    # Built once per refresh: the cast median is a slow aggregate, fine to
+    # snapshot here and reuse for the leave commits below. None (no
+    # interception) unless real vice is on and the cast is rich enough.
+    _vice_cast_median = 0
+    _vice_prob_lookup = None
+    all_vice_bound: List[str] = []
+    if (
+        vice_mode == 'real'
+        and vice_repo is not None
+        and bankroll_repo is not None
+        and sandbox_id is not None
+    ):
+        from cash_mode.ai_vice_spending import (
+            MIN_CAST_MEDIAN_FOR_VICE,
+            _load_psych_snapshot,
+            compute_cast_median,
+            compute_excess_ratio,
+            compute_pressure,
+            compute_vice_probability,
+        )
+
+        try:
+            _vice_cast_median = compute_cast_median(
+                bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+            )
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+            _vice_cast_median = 0
+
+        if _vice_cast_median >= MIN_CAST_MEDIAN_FOR_VICE:
+
+            def _vice_prob_lookup(pid: str) -> float:
+                # Refractory window: no urge to celebrate right after one.
+                if is_in_vice_cooldown(pid, now):
+                    return 0.0
+                try:
+                    current = bankroll_repo.load_ai_bankroll_current(
+                        pid, sandbox_id=sandbox_id, now=now
+                    )
+                except Exception:
+                    return 0.0
+                if not current or current <= 0:
+                    return 0.0
+                excess = compute_excess_ratio(current, _vice_cast_median)
+                if excess <= 0:
+                    return 0.0
+                psych = _load_psych_snapshot(
+                    bankroll_repo=bankroll_repo,
+                    personality_id=pid,
+                    sandbox_id=sandbox_id,
+                )
+                if psych is None:
+                    pressure = compute_pressure(0.7, 0.7, 0.7)
+                else:
+                    pressure = compute_pressure(
+                        psych['confidence'], psych['composure'], psych['energy']
+                    )
+                return compute_vice_probability(excess, pressure)
 
     out: Dict[str, RosterRefreshResult] = {}
     for table in tables:
@@ -1012,6 +1102,7 @@ def refresh_unseated_tables(
         agg_rebuy_changes = []
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
+        agg_vice_bound: List[str] = []
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -1242,6 +1333,10 @@ def refresh_unseated_tables(
                 # legacy uniform-random pick.
                 history_lookup=(_history_for if _take_stake_enabled else None),
                 starting_bankroll_lookup=(_starting_bankroll_for if _take_stake_enabled else None),
+                # Vice-on-leave: roll vice for a discretionary leaver so a
+                # winner goes off-grid instead of into the idle pool. None
+                # when real vice is off / cast too poor (no interception).
+                vice_prob_lookup=_vice_prob_lookup,
             )
             # Carry the post-hand table forward to the next iteration.
             table = per_hand.new_table
@@ -1268,6 +1363,7 @@ def refresh_unseated_tables(
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
+            agg_vice_bound.extend(per_hand.vice_bound)
             # Update the burst-local set so subsequent hands within
             # this same burst can't double-stake the same borrower.
             for sc in per_hand.stake_creations:
@@ -1284,7 +1380,12 @@ def refresh_unseated_tables(
             rebuy_changes=agg_rebuy_changes,
             leave_signals=agg_leave_signals,
             stake_creations=agg_stake_creations,
+            vice_bound=agg_vice_bound,
         )
+        # Roll up this table's go_vice leavers for the refresh-level
+        # commit below (their from_seat credits are applied in-loop, so
+        # the bankroll is whole by the time we size the spend).
+        all_vice_bound.extend(result.vice_bound)
 
         # Aspiration-ask: AIs seated at this table after the burst may
         # decide they want to climb a tier without busting. Mutates
@@ -1742,6 +1843,7 @@ def refresh_unseated_tables(
             last_stand_qualifying[_pid] = (
                 result.new_table.table_id,
                 result.new_table.stake_label,
+                result.new_table.name,
             )
 
         # Refresh idle_pool snapshot so the next iteration sees the
@@ -1886,6 +1988,9 @@ def refresh_unseated_tables(
                 if e.personality_id not in on_vice
                 and e.personality_id not in _seated_pids
                 and e.personality_id not in _fish_ids
+                # Respect the post-vice refractory window here too, so the
+                # idle-path and the leave-path share one cooldown.
+                and not is_in_vice_cooldown(e.personality_id, now)
             }
 
             def _vice_narrate(pid, amount, snapshot):
@@ -1909,6 +2014,31 @@ def refresh_unseated_tables(
                 now=now,
                 narrate_fn=_vice_narrate,
             )
+
+            # Leave-vice commits: AIs whose discretionary leave a vice roll
+            # intercepted (go_vice) went off-grid this refresh. The roll
+            # already happened, so this only sizes + commits the spend
+            # (debit bankroll → bank pool), bypassing the idle-only scan
+            # and its per-refresh cap. from_seat credits were applied in
+            # the table loop, so the bankroll is whole. Reuses the same
+            # cast-median snapshot built before the loop.
+            if all_vice_bound and _vice_cast_median > 0:
+                from cash_mode.ai_vice_spending import commit_leave_vice
+
+                for _pid in all_vice_bound:
+                    committed = commit_leave_vice(
+                        personality_id=_pid,
+                        cast_median=_vice_cast_median,
+                        vice_repo=vice_repo,
+                        bankroll_repo=bankroll_repo,
+                        chip_ledger_repo=chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                        rng=rng,
+                        now=now,
+                        narrate_fn=_vice_narrate,
+                    )
+                    if committed is not None:
+                        vice_starts.append(committed)
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] AI vice spending failed: %s",
@@ -2188,6 +2318,7 @@ def _emit_activity_events(
         return personality.get("name") or pid
 
     stake = table.stake_label
+    table_name = table.name
     ts = now.isoformat()
 
     for pid, decision in decisions.items():
@@ -2205,7 +2336,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason=decision,
-                    message=format_leave_message(name, stake, decision),
+                    message=format_leave_message(name, stake, decision, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2227,7 +2358,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_join_message(name, stake),
+                    message=format_join_message(name, stake, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2238,15 +2369,15 @@ def _emit_activity_events(
 
 def _emit_last_stand_events(
     *,
-    candidates: Dict[str, Tuple[str, str]],
+    candidates: Dict[str, Tuple[str, str, Optional[str]]],
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
 ) -> None:
     """Push last-stand (predator-signal) events to the ring buffer.
 
-    `candidates` maps `personality_id -> (table_id, stake_label)` for the
-    AIs newly committed this refresh (already dedup'd by the caller).
+    `candidates` maps `personality_id -> (table_id, stake_label, table_name)`
+    for the AIs newly committed this refresh (already dedup'd by the caller).
     Best-effort, same defensive stance as the other emitters — the
     ticker is UX, never a correctness surface.
     """
@@ -2260,7 +2391,7 @@ def _emit_last_stand_events(
     )
 
     ts = now.isoformat()
-    for pid, (table_id, stake_label) in candidates.items():
+    for pid, (table_id, stake_label, table_name) in candidates.items():
         try:
             personality = personality_repo.load_personality_by_id(pid)
         except Exception:
@@ -2277,7 +2408,7 @@ def _emit_last_stand_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_last_stand_message(name, stake_label),
+                    message=format_last_stand_message(name, stake_label, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2315,6 +2446,8 @@ def _emit_sim_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Push paired big_win + big_loss events for a sim hand.
 
@@ -2367,9 +2500,11 @@ def _emit_sim_events(
                 personality_id=winner_pid,
                 name=winner_name,
                 reason=loser_pid,  # opponent id for frontend grouping
-                message=format_big_win_message(winner_name, loser_name, stake, delta),
+                message=format_big_win_message(winner_name, loser_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
         record_event(
@@ -2380,9 +2515,11 @@ def _emit_sim_events(
                 personality_id=loser_pid,
                 name=loser_name,
                 reason=winner_pid,
-                message=format_big_loss_message(loser_name, winner_name, stake, delta),
+                message=format_big_loss_message(loser_name, winner_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
     except Exception:
@@ -2413,6 +2550,46 @@ def _emit_burst_events(
     framing reads "X shoved" once, not "X shoved 4 times").
     """
     if not sim_results:
+        return
+
+    # Single live hand (the common case): collapse the hand's beats into
+    # ONE composed primary line so the feed reads as a coherent sentence
+    # ("X shoved all-in and won $Y, busting Z") instead of a mis-ordered
+    # win/all-in/bust cluster. The atomic events are still recorded
+    # (primary=False) for per-AI filtering. The multi-hand burst path below
+    # stays compressed — its events span different hands and can't honestly
+    # be joined into one sentence.
+    if len(sim_results) == 1:
+        r = sim_results[0]
+        hand_id = f"{table.table_id}:{now.isoformat()}"
+        if r.big_event:
+            _emit_sim_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        if r.hand_events:
+            _emit_hand_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        _emit_hand_summary(
+            table=table,
+            sim_result=r,
+            personality_repo=personality_repo,
+            now=now,
+            hand_id=hand_id,
+            sandbox_id=sandbox_id,
+        )
         return
 
     # Pick the biggest big_event hand for the headline win/loss
@@ -2525,6 +2702,7 @@ def _emit_burst_summary(
                     hands=len(sim_results),
                     top_name=top_name,
                     top_net_delta=top_delta,
+                    table_name=table.name,
                 ),
                 created_at=now.isoformat(),
                 sandbox_id=sandbox_id,
@@ -2541,6 +2719,8 @@ def _emit_hand_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Translate `HandSimResult.hand_events` into `LobbyEvent`s.
 
@@ -2594,9 +2774,11 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_all_in_message(name, stake, opponent_name),
+                        message=format_all_in_message(name, stake, opponent_name, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
@@ -2613,14 +2795,132 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_bust_message(name, stake),
+                        message=format_bust_message(name, stake, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
             except Exception:
                 pass
+
+
+def _emit_hand_summary(
+    *,
+    table,
+    sim_result,
+    personality_repo,
+    now: datetime,
+    hand_id: str,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Emit the ONE composed primary line summarizing a single sim hand.
+
+    Headline priority: a big-pot win (folding in the winner's shove and the
+    loser's bust) → a bust → a lone all-in shove. Reuses the atomic event
+    `type` (big_win / all_in / bust) so the ticker picks the right icon; the
+    `primary=False` atomic copies emitted alongside carry the structured
+    data for filtering. Emits nothing when the hand had no notable beat
+    (matching the prior behavior where no atomic event would have fired).
+    """
+    from cash_mode.activity import (
+        EVENT_ALL_IN,
+        EVENT_BIG_WIN,
+        EVENT_BUST,
+        LobbyEvent,
+        format_all_in_message,
+        format_hand_summary_message,
+        record_event,
+    )
+    from cash_mode.full_sim import HAND_EVENT_ALL_IN, HAND_EVENT_BUST
+
+    def _name_for(pid: Optional[str]) -> Optional[str]:
+        if not pid:
+            return None
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    stake = table.stake_label
+    winner_pid = sim_result.winner_pid
+    loser_pid = sim_result.loser_pid
+    busted_pids = [e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_BUST]
+    allin_pids = {e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_ALL_IN}
+
+    winner_name = _name_for(winner_pid)
+    loser_name = _name_for(loser_pid)
+    busted_names = [n for n in (_name_for(p) for p in busted_pids) if n]
+    delta = int(sim_result.delta)
+
+    etype: Optional[str] = None
+    subject_pid: Optional[str] = None
+    opponent_pid = ""
+    message = ""
+
+    if sim_result.big_event and winner_name and winner_pid:
+        winner_shoved = winner_pid in allin_pids
+        etype = EVENT_ALL_IN if winner_shoved else EVENT_BIG_WIN
+        subject_pid = winner_pid
+        opponent_pid = loser_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=loser_name,
+            amount=delta,
+            stake_label=stake,
+            winner_shoved=winner_shoved,
+            busted_names=busted_names,
+            table_name=table.name,
+        )
+    elif busted_names:
+        etype = EVENT_BUST
+        subject_pid = busted_pids[0]
+        opponent_pid = winner_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=None,
+            amount=0,
+            stake_label=stake,
+            winner_shoved=False,
+            busted_names=busted_names,
+            table_name=table.name,
+        )
+    elif allin_pids:
+        shover_pid = next(iter(allin_pids))
+        shover_name = _name_for(shover_pid)
+        if shover_name:
+            etype = EVENT_ALL_IN
+            subject_pid = shover_pid
+            opponent = loser_pid if shover_pid == winner_pid else winner_pid
+            opponent_pid = opponent or ""
+            message = format_all_in_message(shover_name, stake, _name_for(opponent), table.name)
+
+    if not (etype and subject_pid and message):
+        return
+
+    try:
+        record_event(
+            LobbyEvent(
+                type=etype,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=subject_pid,
+                name=_name_for(subject_pid) or subject_pid,
+                reason=opponent_pid,
+                message=message,
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=True,
+            )
+        )
+    except Exception:
+        pass
 
 
 def _emit_carry_resolution_events(
@@ -2936,6 +3236,210 @@ def _emit_side_hustle_events(
             )
 
 
+def _emit_session_event(cash_session_repo, session_id, event, **kwargs) -> None:
+    """Best-effort wrapper over `cash_session_repo.record_event` (Tier 3).
+
+    Tolerates a repo without `record_event` (older test fakes) and never
+    raises — lifecycle telemetry must not break a sweep.
+    """
+    record = getattr(cash_session_repo, "record_event", None)
+    if record is None:
+        return
+    try:
+        record(session_id, event, **kwargs)
+    except Exception:
+        logger.debug("[CASH][LOBBY] session event %r/%r emit failed", session_id, event)
+
+
+# Default "abandoned" threshold for the boot/watchdog sweep. 4h, not
+# 30m: a cash row is only reaped (settled at chips=0) once it's gone
+# untouched this long, so a player who steps away for lunch — or whose
+# session is frozen across a reboot ("resume on reboot is by design") —
+# doesn't get their table stack burned. Codex review #1.
+DEFAULT_STALE_TTL_SECONDS = 14400
+
+
+def _boot_sweep_stale_cash_rows(
+    *,
+    game_repo,
+    cash_session_repo,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    stale_ttl_seconds: int,
+    now: datetime,
+    skip_game_ids: Optional[Set[str]] = None,
+    source: str = "boot",
+    game_state_service=None,
+) -> int:
+    """Sweep abandoned `cash-*` rows whose `updated_at` is past the TTL.
+
+    `source` ("boot" | "watchdog") tags the close reason + lifecycle
+    event so ops can tell a reboot reconcile from a between-reboots
+    watchdog reap.
+
+    Resume-on-reboot is by design: a *fresh* cash row (touched within
+    `stale_ttl_seconds`) is left intact so the player reconnects to
+    their frozen table. But a row nobody has touched in a long time is
+    an abandoned orphan — leaving it makes `_find_active_cash_game_id`
+    surface it forever and the sit guard 409s every new sit. This is
+    the convergence backstop (T2.2): boot is where partial/abandoned
+    state gets resolved instead of lingering.
+
+    For each stale row we ghost-clean (the chips at the table are
+    notional at boot — last hand-boundary sync — and the bankroll
+    already reflects the buy-in debit):
+
+      1. Settle any *active* stake at chips=0 (full-bust path:
+         personality stakes carry the principal, house stakes forgive)
+         so the staker's debited principal doesn't dangle un-resolved.
+         Idempotent — `settle_stake_on_leave` no-ops on a non-active
+         stake. Skipped when `stake_repo` isn't provided.
+      2. Finalise the `cash_sessions` row as `closed_status='boot_swept'`
+         (the repo's `ended_at IS NULL` guard makes this idempotent).
+      3. Delete the `games` row so the sit guard stops 409-ing.
+
+    Returns the number of rows swept. Best-effort per row — one bad row
+    doesn't abort the rest of the sweep.
+    """
+    from cash_mode.cash_sessions import (
+        CLOSED_STATUS_BOOT_SWEPT,
+        CLOSED_STATUS_STALE_SWEPT,
+        SESSION_STATE_BROKEN,
+    )
+
+    closed_status = CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
+
+    swept = 0
+    try:
+        rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] boot sweep list_games failed: %s", e)
+        return 0
+
+    skip_game_ids = skip_game_ids or set()
+    for row in rows:
+        if not row.game_id.startswith("cash-"):
+            continue
+        if row.game_id in skip_game_ids:
+            # In-memory / actively-played game — never sweep it. Deleting
+            # the DB row out from under a live in-memory copy just gets
+            # re-saved on the next tick (the resurrection race), and the
+            # player may still be at the table. The watchdog passes the
+            # live cash-game ids here.
+            continue
+        try:
+            age = (now - row.updated_at).total_seconds()
+        except Exception:
+            # Unparseable timestamp — treat as stale (safer than
+            # leaving a row we can't reason about wedged forever).
+            age = stale_ttl_seconds + 1
+        if age <= stale_ttl_seconds:
+            continue  # fresh → resumable, leave it alone
+
+        # Close the resurrection race (Codex review #2): a stale row can be
+        # warm-loaded / resumed into memory between the skip-set snapshot
+        # (built by the watchdog) and this delete. Acquire the SAME
+        # per-game lock the leave + cold-load paths use, then re-check
+        # in-memory presence under it; if the game is now live, skip it —
+        # deleting its row out from under a live in-memory copy is the
+        # split-brain the whole hardening effort fights. On boot the map
+        # is empty so the re-check is a no-op (and game_state_service may
+        # be None for older callers → nullcontext, no lock).
+        lock_ctx = (
+            game_state_service.get_game_lock(row.game_id)
+            if game_state_service is not None
+            else nullcontext()
+        )
+        try:
+            with lock_ctx:
+                if (
+                    game_state_service is not None
+                    and game_state_service.get_game(row.game_id) is not None
+                ):
+                    continue  # resumed into memory since the snapshot — don't sweep
+                session = cash_session_repo.load(row.game_id) if cash_session_repo else None
+                # 1. Resolve any active stake so its principal doesn't dangle.
+                if stake_repo is not None:
+                    active_stake = stake_repo.load_active_for_session(row.game_id)
+                    if active_stake is not None:
+                        from cash_mode.stake_settlement import settle_stake_on_leave
+
+                        settle_stake_on_leave(
+                            active_stake.stake_id,
+                            0,  # notional: treat an abandoned table as a bust
+                            stake_repo=stake_repo,
+                            chip_ledger_repo=chip_ledger_repo,
+                            ledger_context={'game_id': row.game_id, 'site': 'boot_sweep'},
+                            sandbox_id=session.sandbox_id if session else None,
+                            now=now,
+                        )
+                # 2. Mark the session closed (idempotent via ended_at guard).
+                if session is not None and session.ended_at is None:
+                    cash_session_repo.finalise(
+                        session.session_id,
+                        ended_at=now,
+                        final_chips_at_table=0,
+                        sponsor_repaid=0,
+                        player_take_home=0,
+                        hands_played=session.hands_played or 0,
+                        hands_won=session.hands_won or 0,
+                        biggest_pot_won=session.biggest_pot_won or 0,
+                        duration_seconds=0,
+                        closed_status=closed_status,
+                    )
+                # 3. Drop the games row so the sit guard stops blocking sits.
+                game_repo.delete_game(row.game_id)
+                swept += 1
+            # Tier 3: lifecycle telemetry.
+            _emit_session_event(
+                cash_session_repo,
+                row.game_id,
+                "swept",
+                owner_id=row.owner_id,
+                sandbox_id=session.sandbox_id if session else None,
+                detail={"source": source, "age_seconds": int(age)},
+                now=now,
+            )
+            logger.info(
+                "[CASH][LOBBY] %s-swept stale orphan cash row %r "
+                "(age=%.0fs > ttl=%ds, owner=%r)",
+                source,
+                row.game_id,
+                age,
+                stale_ttl_seconds,
+                row.owner_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] %s sweep failed for %r: %s",
+                source,
+                row.game_id,
+                e,
+            )
+            # Convergence: a row we couldn't sweep is marked `broken` so
+            # the sit guard stops treating it as an active session (it
+            # won't wedge new sits) even though its games row lingers.
+            try:
+                cash_session_repo.set_session_state(row.game_id, SESSION_STATE_BROKEN)
+                _emit_session_event(
+                    cash_session_repo,
+                    row.game_id,
+                    "broken",
+                    owner_id=row.owner_id,
+                    detail={"source": source, "error": str(e)},
+                    now=now,
+                )
+            except Exception:
+                logger.exception(
+                    "[CASH][LOBBY] failed to mark %r broken after sweep failure",
+                    row.game_id,
+                )
+
+    if swept:
+        logger.info("[CASH][LOBBY] boot sweep removed %d stale orphan cash row(s)", swept)
+    return swept
+
+
 def kill_all_cash_sessions(
     *,
     game_state_service,
@@ -2943,6 +3447,11 @@ def kill_all_cash_sessions(
     cash_table_repo=None,
     bankroll_repo=None,
     sandbox_id: Optional[str] = None,
+    cash_session_repo=None,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    stale_ttl_seconds: int = DEFAULT_STALE_TTL_SECONDS,
+    now: Optional[datetime] = None,
 ) -> int:
     """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
 
@@ -2986,6 +3495,25 @@ def kill_all_cash_sessions(
         game_state_service.delete_game(gid)
         dropped += 1
         logger.info("[CASH][LOBBY] kill_all_cash_sessions: dropped in-memory %r", gid)
+
+    # Stale-orphan row sweep (T2.2). Runs before the seat reconcile so
+    # that owners whose row we just swept fall into the "no surviving
+    # cash-* row" bucket below and get their lobby seat freed too.
+    if cash_session_repo is not None:
+        if now is None:
+            now = datetime.utcnow()
+        _boot_sweep_stale_cash_rows(
+            game_repo=game_repo,
+            cash_session_repo=cash_session_repo,
+            stake_repo=stake_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            stale_ttl_seconds=stale_ttl_seconds,
+            now=now,
+            # Lock + re-check guard against the resurrection race (Codex #2).
+            # Harmless at boot (memory is empty) but correct if a request
+            # warm-loads a game mid-boot-reconcile.
+            game_state_service=game_state_service,
+        )
 
     # Reconcile orphan human seats. A seat is orphan when its owner
     # has no surviving `cash-*` row — the lobby would otherwise render

@@ -110,8 +110,8 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
       );
       render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      // Should show the last 80 messages (indices 20-99).
-      // The sheet portals to document.body, so query there, not the RTL container.
+      // Should show the last 80 messages (indices 20-99). The sheet portals to
+      // document.body, so query the document rather than the render container.
       const msgElements = document.querySelectorAll('.mcs-msg');
       expect(msgElements.length).toBe(80);
 
@@ -266,8 +266,8 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
       ];
       render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      // Table messages should not have sender element
-      // (portaled to document.body, so query there).
+      // Table messages should not have sender element. The sheet portals to
+      // document.body, so query the document rather than the render container.
       const msgEl = document.querySelector('.mcs-msg-table');
       expect(msgEl).toBeTruthy();
       expect(msgEl!.querySelector('.mcs-msg-sender')).toBeNull();

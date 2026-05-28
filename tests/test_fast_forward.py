@@ -328,7 +328,7 @@ class _FastForwardRouteBase(unittest.TestCase):
         user = {'id': 'u1', 'name': 'Tester', 'tracking_id': None}
         auth_stub = MagicMock(get_current_user=MagicMock(return_value=user))
         self._auth_patcher = patch(
-            'flask_app.routes.game_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_stub,
         )
         self._auth_patcher.start()
@@ -342,14 +342,12 @@ class _FastForwardRouteBase(unittest.TestCase):
             ),
         )
         self._authz_patcher.start()
-        # `game_repo` is likewise bound at game_routes import time. If an
-        # earlier test imported game_routes while `ext.game_repo` was None
-        # (or pointed at a since-deleted tempdb), the module name stays
-        # pinned to that stale value and `_authorize_game_access` raises
-        # instead of returning a clean 404. Pin it to this class's repo,
-        # mirroring the auth_manager patch above.
+        # game_routes reads `extensions.game_repo` live, so pin it on
+        # extensions (mirroring the auth_manager patch above) to this class's
+        # repo — otherwise a stale/None repo from an earlier test makes
+        # `_authorize_game_access` raise instead of returning a clean 404.
         self._game_repo_patcher = patch(
-            'flask_app.routes.game_routes.game_repo',
+            'flask_app.extensions.game_repo',
             self.repos['game_repo'],
         )
         self._game_repo_patcher.start()

@@ -21,7 +21,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Gauge } from 'lucide-react';
 import type { LobbyEvent, WorldPace } from './types';
-import { feedEventKey, dedupeChipPairs, renderEventIcon } from './tickerEvents';
+import { feedEventKey, dedupeFeed, renderEventIcon } from './tickerEvents';
 import './CashMode.css';
 
 interface ActivityTickerProps {
@@ -53,7 +53,7 @@ const ROW_DURATION_S = 0.28;
 const ROW_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 export function ActivityTicker({ events, worldPace = null, onPaceChange }: ActivityTickerProps) {
-  const visibleEvents = useMemo(() => dedupeChipPairs(events), [events]);
+  const visibleEvents = useMemo(() => dedupeFeed(events), [events]);
   const showPace = worldPace != null && typeof onPaceChange === 'function';
   const prefersReduced = useReducedMotion();
 

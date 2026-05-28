@@ -119,6 +119,15 @@ interface HoldingsHistoryResponse {
   requires_sandbox: boolean;
 }
 
+interface LifecycleResponse {
+  window_hours: number;
+  // event name → count over the window (started/left_clean/left_ghost/swept/broken/...)
+  events: Record<string, number>;
+  // session_state → current count (active/paused/closed/broken/...)
+  states: Record<string, number>;
+  outstanding_broken: number;
+}
+
 interface ChipLedgerPanelProps {
   embedded?: boolean;
 }
@@ -176,6 +185,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const [holdingsScoped, setHoldingsScoped] = useState<boolean>(false);
   const [history, setHistory] = useState<HoldingsHistoryResponse | null>(null);
   const [historyDays, setHistoryDays] = useState<number>(30);
+  const [lifecycle, setLifecycle] = useState<LifecycleResponse | null>(null);
   const [highlightedEntity, setHighlightedEntity] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
@@ -185,11 +195,12 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     // carry a query string (recent's `limit`, history's `days`).
     const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
-      const [auditResp, recentResp, holdingsResp, historyResp] = await Promise.all([
+      const [auditResp, recentResp, holdingsResp, historyResp, lifecycleResp] = await Promise.all([
         adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/lifecycle${scope}`),
       ]);
       if (!auditResp.ok) {
         throw new Error(`Audit returned ${auditResp.status}`);
@@ -208,6 +219,10 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
       if (historyResp.ok) {
         const historyData: HoldingsHistoryResponse = await historyResp.json();
         setHistory(historyData);
+      }
+      if (lifecycleResp.ok) {
+        const lifecycleData: LifecycleResponse = await lifecycleResp.json();
+        setLifecycle(lifecycleData);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -424,6 +439,66 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           <ReasonTable totals={byReason24h} />
         </section>
       </div>
+
+      {lifecycle && (
+        <section className="chip-ledger-card chip-ledger-lifecycle">
+          <h3>
+            Session lifecycle{' '}
+            <span className="chip-ledger-lifecycle__window">
+              (events: last {lifecycle.window_hours}h · states: now)
+            </span>
+          </h3>
+          <div className="chip-ledger-lifecycle__row">
+            {(
+              [
+                ['started', 'Started'],
+                ['left_clean', 'Left'],
+                ['left_ghost', 'Left (ghost)'],
+                ['swept', 'Swept'],
+                ['broken', 'Broke'],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="chip-ledger-lifecycle__stat">
+                <span className="chip-ledger-lifecycle__num">{lifecycle.events[key] ?? 0}</span>
+                <span className="chip-ledger-lifecycle__label">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="chip-ledger-lifecycle__row chip-ledger-lifecycle__states">
+            {(
+              [
+                ['active', 'Active'],
+                ['paused', 'Paused'],
+                ['closed', 'Closed'],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="chip-ledger-lifecycle__stat">
+                <span className="chip-ledger-lifecycle__num">{lifecycle.states[key] ?? 0}</span>
+                <span className="chip-ledger-lifecycle__label">{label}</span>
+              </div>
+            ))}
+            {/* Outstanding broken sessions = cleanup that couldn't converge.
+                Highlighted because a non-zero value is the wedge class this
+                whole lifecycle effort targets. */}
+            <div
+              className={
+                'chip-ledger-lifecycle__stat' +
+                (lifecycle.outstanding_broken > 0 ? ' chip-ledger-lifecycle__stat--alert' : '')
+              }
+            >
+              <span className="chip-ledger-lifecycle__num">{lifecycle.outstanding_broken}</span>
+              <span className="chip-ledger-lifecycle__label">Broken (outstanding)</span>
+            </div>
+          </div>
+          <p className="chip-ledger-holdings-caveat">
+            Lifecycle events from <code>cash_session_events</code>: <em>Started</em> at sit-down,{' '}
+            <em>Left</em> on a clean cash-out, <em>Left (ghost)</em> when the game was gone from
+            memory, <em>Swept</em> by the boot/watchdog reconciler, <em>Broke</em> when a teardown
+            couldn't converge. <em>Broken (outstanding)</em> counts sessions stuck in that state now
+            — it should normally be 0; a climbing value means orphans aren't self-healing.
+          </p>
+        </section>
+      )}
 
       <section className="chip-ledger-card chip-ledger-holdings">
         <div className="chip-ledger-holdings-header">

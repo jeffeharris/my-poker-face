@@ -102,7 +102,6 @@ NARRATION_ALLOWLIST: frozenset = frozenset(
         ('strong_hand_override', 'default'),
         ('bluff_catch_override', 'default'),
         ('value_vs_station', 'default'),
-        ('steal_pressure', 'default'),
     }
 )
 
@@ -215,7 +214,6 @@ LAYER_RULE_NARRATIVE_WEIGHT: Dict[Tuple[str, str], float] = {
     ('exploitation', 'high_fold_to_cbet'): 0.8,
     ('exploitation', 'multiway_cbet'): 0.6,
     ('value_vs_station', 'default'): 0.7,
-    ('steal_pressure', 'default'): 0.7,
 }
 
 
@@ -232,7 +230,6 @@ LAYER_RULE_ACTION_INTENT: Dict[Tuple[str, str], str] = {
     ('strong_hand_override', 'default'): 'value_bet',
     ('bluff_catch_override', 'default'): 'bluff_catch',
     ('value_vs_station', 'default'): 'value_bet',
-    ('steal_pressure', 'default'): 'steal',
 }
 
 
@@ -306,10 +303,6 @@ def _fallback_observation(layer: str, rule_id: str) -> Tuple[str, str]:
         ('value_vs_station', 'default'): (
             "Value spot vs a station",
             "They'll call worse",
-        ),
-        ('steal_pressure', 'default'): (
-            "Preflop steal spot",
-            "Position + tight opponent",
         ),
     }
     return fallbacks.get((layer, rule_id), ('', ''))

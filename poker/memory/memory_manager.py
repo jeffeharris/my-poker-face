@@ -776,6 +776,8 @@ class AIMemoryManager:
         ai_players: Dict[str, Any],
         on_commentary_ready: Optional[Callable] = None,
         big_blind: Optional[int] = None,
+        human_bio: Optional[str] = None,
+        human_name: Optional[str] = None,
     ) -> Dict[str, HandCommentary]:
         """Generate commentary for the last completed hand.
 
@@ -868,14 +870,27 @@ class AIMemoryManager:
 
             session_memory = self.session_memories[player_name]
 
+            # Opponent behavioral summary, plus the human's self-description so
+            # the AI's post-hand comment can riff on it ("nice hand, for someone
+            # who calls themselves a shark").
+            opponent_summaries = self.opponent_model_manager.get_table_summary(
+                player_name, [p for p in ai_players if p != player_name], 200
+            )
+            if human_bio:
+                who = human_name or "the human player"
+                # Neutralize the section delimiter (mild prompt-injection defense).
+                safe_bio = human_bio.replace('===', '==')
+                bio_block = f"What {who} says about themselves: {safe_bio}"
+                opponent_summaries = (
+                    f"{opponent_summaries}\n\n{bio_block}" if opponent_summaries else bio_block
+                )
+
             # Capture all data needed for commentary generation
             player_snapshots[player_name] = {
                 'outcome': recorded_hand.get_player_outcome(player_name),
                 'player_cards': list(recorded_hand.hole_cards.get(player_name, [])),
                 'session_context': session_memory.get_context_for_prompt(100),
-                'opponent_summaries': self.opponent_model_manager.get_table_summary(
-                    player_name, [p for p in ai_players if p != player_name], 200
-                ),
+                'opponent_summaries': opponent_summaries,
                 'confidence': getattr(ai_player, 'confidence', 'neutral'),
                 'attitude': getattr(ai_player, 'attitude', 'neutral'),
                 'chattiness': self._resolve_chattiness(controller, ai_player),

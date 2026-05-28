@@ -109,6 +109,7 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
                 'cash_table_repo',
                 'chip_ledger_repo',
                 'stake_repo',
+                'sandbox_repo',
             ):
                 if key in repos:
                     setattr(ext, key, repos[key])
@@ -119,9 +120,10 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
-        # Rebind module-level repo capture in game_routes (see commit 6
+        # game_routes reads these repos live via `extensions.X`, so pin the
+        # canonical extensions bindings to OUR tempdb repos (see commit 6
         # commit message for context on this flake).
-        import flask_app.routes.game_routes as _gr
+        import flask_app.extensions as _ext
 
         for key in (
             'prompt_preset_repo',
@@ -138,7 +140,16 @@ class _CashLobbyIntegrationBase(unittest.TestCase):
             'personality_repo',
         ):
             if key in repos:
-                setattr(_gr, key, repos[key])
+                setattr(_ext, key, repos[key])
+
+        # Pin the player's default sandbox to the seeded TEST_SANDBOX_ID
+        # ("test-sandbox-1") so the routes' `_resolve_sandbox_id` resolves
+        # to the sandbox this test seeds under (and clears the resolver's
+        # per-process cache). Without this the sponsor-offers route either
+        # 500s on a None sandbox_repo or resolves a fresh empty sandbox.
+        from tests._sandbox_test_helper import pin_sandbox_for
+
+        pin_sandbox_for(PLAYER_OWNER_ID, repos['sandbox_repo'])
 
     @classmethod
     def tearDownClass(cls):

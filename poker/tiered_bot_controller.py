@@ -36,9 +36,7 @@ from .strategy.exploitation import (
     classify_opponent_archetype,
     compute_exploitation_offsets_with_traces,
     compute_multiway_cbet_intensity,
-    compute_steal_pressure_intensity,
     compute_value_vs_station_intensity,
-    is_steal_pressure_enabled,
     is_value_vs_station_enabled,
     select_primary_aggressor,
 )
@@ -298,16 +296,55 @@ class TieredBotController(AIPlayerController):
         # counterfactual per-decision evaluation.
         self.disable_rules: frozenset = frozenset()
 
-        # Multi-street context layer (docs/plans/STRUCTURAL_PASSIVITY_PLAN.md).
-        # OFF by default — byte-identical to pre-layer behavior. When enabled,
-        # the postflop pipeline reads hero's-own-line + sustained-aggression
-        # context (which the memoryless table lacks) and applies a narrowly-
-        # gated barrel-continuation (H1) / fold-to-double-barrel (H2) override.
-        # The two sub-toggles let the A/B isolate which hypothesis carries any
-        # effect (H1-only / H2-only / both).
-        self.enable_multistreet_context: bool = False
+        # Multi-street context layer (docs/plans/STRUCTURAL_PASSIVITY_PLAN.md +
+        # POSTFLOP_NEXT_LEVER.md). The postflop pipeline reads hero's-own-line +
+        # sustained-aggression context (which the memoryless table lacks) and
+        # applies a narrowly-gated barrel-continuation (H1) override.
+        #
+        # ON as of the per-node attribution A/B (2026-05-27): flop+turn H1
+        # barrel-continuation measured CI-clear +EV vs an over-folder
+        # (jeff +3.33 / +4.01 OOS bb/100 HU), strongly +vs a station (+11.94 —
+        # value extraction, NOT spew), neutral vs a balanced reg
+        # (punisher −0.34) and neutral-positive in 6-max (+0.65). Never bleeds.
+        #   - H1 RIVER barrel is DROPPED (multistreet_h1_streets): the attribution
+        #     gate localized it as the one −EV leg vs *both* opponents (by the
+        #     river a "strong draw" has resolved → bluffing busted equity into a
+        #     caller). Dropping it lifted H1 from null (+1.73, CI∋0) to CI-clear.
+        #   - H2 (fold to a double barrel) is OFF: inert vs the over-folder,
+        #     slightly −EV vs the air-barreler (folding marginal made = folding
+        #     to bluffs). It never read +EV on the sound gate.
+        self.enable_multistreet_context: bool = True
         self.multistreet_h1_barrel: bool = True
-        self.multistreet_h2_foldbarrel: bool = True
+        self.multistreet_h2_foldbarrel: bool = False
+        self.multistreet_h1_streets: frozenset = frozenset({'FLOP', 'TURN'})
+
+        # Overbet sizing layer (docs/plans/POSTFLOP_NEXT_LEVER.md). The chart bet
+        # menu caps at bet_100 — the bot can't overbet without this. Per-node
+        # attribution measured value overbets (nuts/strong_made, ~150% pot,
+        # turn+river) +EV or neutral vs every opponent type, never negative:
+        # punisher (reg) +13 [+8.5, +17.5], jeff +42 HU / +73 6-max, station +159,
+        # nit +11.5, lag +12.2. Multistreet sets the bet frequency; this layer
+        # sets the bet size for value classes in polarized aggressor spots.
+        #
+        # ON as of 2026-05-28 (runtime layer validated against the load-time
+        # `_overbet_transform` measure: vs jeff +42.50 vs the probe's +42.47,
+        # matched to 0.03 bb/100; vs punisher +13.80 vs +13.02, matched within
+        # seed noise; top per-node contributions identical).
+        #
+        # The face-up balance concern (always-overbet pure value is exploitable
+        # vs a sizing-aware adapter) does not bite vs the current opponent set:
+        # no clone reads bet-sizing tells, and the tiered bot's own exploitation
+        # layer keys on opponent frequencies (vpip/ftc/AF), not sizing. Future:
+        # build sizing-aware opponent modeling, then tune `overbet_fraction`
+        # down + add an overbet-bluff frequency for adapters.
+        self.enable_overbet_context: bool = True
+        self.overbet_size: int = 150  # bet_150 = 150% pot (smallest validated)
+        self.overbet_fraction: float = 1.0  # share of bet mass → overbet (1.0 = the measured probe)
+        self.overbet_classes: Optional[frozenset] = None  # None = default {nuts, strong_made}
+        self.overbet_streets: Optional[frozenset] = None  # None = default {TURN, RIVER}
+        self.overbet_max_active: Optional[int] = (
+            None  # None = no multiway gate (matches measured 6-max +73)
+        )
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -428,7 +465,6 @@ class TieredBotController(AIPlayerController):
         exploitation_strength: float,
         multiway_cbet_intensity: float,
         vvs_intensity_used: float,
-        steal_intensity_used: float,
         clamp_value: float = 0.4,
         clamp_tier_label: str = 'extreme',
     ) -> None:
@@ -455,7 +491,6 @@ class TieredBotController(AIPlayerController):
         snap['exploitation_strength'] = float(exploitation_strength)
         snap['multiway_cbet_intensity'] = float(multiway_cbet_intensity)
         snap['value_vs_station_intensity_used'] = float(vvs_intensity_used)
-        snap['steal_pressure_intensity_used'] = float(steal_intensity_used)
         snap['clamp_value'] = float(clamp_value)
         snap['clamp_tier_label'] = str(clamp_tier_label)
 
@@ -669,10 +704,10 @@ class TieredBotController(AIPlayerController):
         )
         self._last_intervention_trace.append(value_override_trace)
 
-        # Playstyle-gated rule diagnostics. Preflop only sees the
-        # steal_pressure counters fire (value_vs_station is
-        # postflop-only). Same call site shape as postflop so the
-        # method is symmetric.
+        # Playstyle-gated rule diagnostics. Preflop sees no playstyle
+        # counters fire (value_vs_station is postflop-only); the call
+        # still runs to reset the per-decision stash. Same call site
+        # shape as postflop so the method is symmetric.
         self._tally_playstyle_rule_event()
 
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
@@ -1032,6 +1067,8 @@ class TieredBotController(AIPlayerController):
                 h1_enabled=getattr(self, 'multistreet_h1_barrel', True),
                 h2_enabled=getattr(self, 'multistreet_h2_foldbarrel', True),
                 h1_classes=getattr(self, 'multistreet_h1_classes', None),
+                h1_streets=getattr(self, 'multistreet_h1_streets', None),
+                street=node.street,
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
@@ -1040,6 +1077,49 @@ class TieredBotController(AIPlayerController):
                 self._last_intervention_trace,
             )
         self._last_intervention_trace.append(multistreet_trace)
+
+        # 6a.5b.3 Overbet sizing (docs/plans/POSTFLOP_NEXT_LEVER.md).
+        # The chart bet menu caps at bet_100 — the bot is structurally incapable
+        # of overbetting. Per-node attribution (HU + 6-max paired-CRN) measured
+        # value overbets (nuts/strong_made, 150% pot, turn+river) +EV or neutral
+        # vs every opponent, never negative: punisher (reg) +13 [+8.5, +17.5],
+        # jeff +42 HU / +73 6-max, station +159. Multistreet sets the bet
+        # *frequency*; this layer sets the *size* — so it runs immediately after.
+        # Behind enable_overbet_context; OFF arm is byte-identical.
+        overbet_trace = make_no_op_trace(
+            layer='overbet_context',
+            rule_id='default',
+            layer_order=layer_order_for('overbet_context'),
+            reason_code='flag_disabled',
+        )
+        if getattr(self, 'enable_overbet_context', False):
+            from .strategy.overbet_context import apply_overbet_context
+
+            overbet_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+                or multistreet_trace.fired
+            )
+            modified_strategy, overbet_trace = apply_overbet_context(
+                modified_strategy,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                street=node.street,
+                active_count=active_count,
+                overbet_size=getattr(self, 'overbet_size', 150),
+                overbet_fraction=getattr(self, 'overbet_fraction', 1.0),
+                overbet_classes=getattr(self, 'overbet_classes', None),
+                overbet_streets=getattr(self, 'overbet_streets', None),
+                overbet_max_active=getattr(self, 'overbet_max_active', None),
+                prior_layer_fired=overbet_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            overbet_trace = _fill_prior_action_source(
+                overbet_trace,
+                self._last_intervention_trace,
+            )
+        self._last_intervention_trace.append(overbet_trace)
 
         # NOTE: the value-bet floor override (§12) was retired (§14) once its
         # win was traced to multiway over-suppressing value hands and baked
@@ -1062,6 +1142,7 @@ class TieredBotController(AIPlayerController):
             or value_override_trace.fired
             or bluff_catch_trace.fired
             or multistreet_trace.fired
+            or overbet_trace.fired
         )
         defense_floor_facing_bet = outer_decision_context.bet_bucket is not None
         modified_strategy, defense_floor_trace = apply_defense_floor(
@@ -1265,11 +1346,6 @@ class TieredBotController(AIPlayerController):
             vvs_intensity_raw = compute_value_vs_station_intensity(spots)
         vvs_intensity_used = vvs_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
 
-        steal_intensity_raw = 0.0
-        if decision_context.is_preflop and call_amount == 0 and has_bet_legal:
-            steal_intensity_raw = compute_steal_pressure_intensity(spots)
-        steal_intensity_used = steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
-
         # Plan §5: bluff reduction vs stations. Mirrors value_vs_station
         # but with the inverse hand-strength gate — fires on air-class
         # hands when a station is in the field. Shares the same station
@@ -1305,7 +1381,6 @@ class TieredBotController(AIPlayerController):
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity_used,
-            steal_pressure_intensity=steal_intensity_used,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
             non_all_in_station_continuing=non_all_in_station_continuing,
             disable_rules=getattr(self, "disable_rules", frozenset()),
@@ -1324,8 +1399,6 @@ class TieredBotController(AIPlayerController):
 
         self._last_value_vs_station_intensity_raw = vvs_intensity_raw
         self._last_value_vs_station_intensity_used = vvs_intensity_used
-        self._last_steal_pressure_intensity_raw = steal_intensity_raw
-        self._last_steal_pressure_intensity_used = steal_intensity_used
         self._last_phase_8_will_emit = phase_8_will_emit
         self._last_exploitation_archetype = archetype
 
@@ -1389,7 +1462,6 @@ class TieredBotController(AIPlayerController):
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             vvs_intensity_used=vvs_intensity_used,
-            steal_intensity_used=steal_intensity_used,
             clamp_value=clamp_value,
             clamp_tier_label=clamp_tier_label,
         )
@@ -2050,8 +2122,7 @@ class TieredBotController(AIPlayerController):
         return override, trace
 
     def _tally_playstyle_rule_event(self):
-        """Diagnostic counters for the playstyle-gated rule families
-        (value_vs_station, steal_pressure).
+        """Diagnostic counters for the playstyle-gated value_vs_station rule.
 
         Reads stashed state set by `_apply_exploitation` and the
         `_last_value_override_fired` flag set by `_apply_value_override`.
@@ -2069,8 +2140,6 @@ class TieredBotController(AIPlayerController):
               enabled_eligible = fired
                                + superseded_by_override
                                + blocked_by_bias_floor
-          For steal_pressure (no override interaction):
-              enabled_eligible = fired + blocked_by_bias_floor
 
         `blocked_by_bias_floor` captures the case where the rule was
         enabled for the archetype AND would have driven non-zero
@@ -2099,8 +2168,6 @@ class TieredBotController(AIPlayerController):
 
         vvs_raw = getattr(self, '_last_value_vs_station_intensity_raw', 0.0)
         vvs_used = getattr(self, '_last_value_vs_station_intensity_used', 0.0)
-        steal_raw = getattr(self, '_last_steal_pressure_intensity_raw', 0.0)
-        steal_used = getattr(self, '_last_steal_pressure_intensity_used', 0.0)
         override_fired = getattr(self, '_last_value_override_fired', False)
         will_emit = getattr(self, '_last_phase_8_will_emit', False)
 
@@ -2118,26 +2185,11 @@ class TieredBotController(AIPlayerController):
             else:
                 c[f'value_vs_station_diagnostic_only_{archetype}'] += 1
 
-        # steal_pressure (no override interaction — preflop open spot
-        # and the override path requires facing aggression)
-        if steal_raw > 0.0:
-            c[f'steal_pressure_eligible_{archetype}'] += 1
-            if steal_used > 0.0:
-                c[f'steal_pressure_enabled_eligible_{archetype}'] += 1
-                if will_emit:
-                    c[f'steal_pressure_fired_{archetype}'] += 1
-                else:
-                    c[f'steal_pressure_blocked_by_bias_floor_{archetype}'] += 1
-            else:
-                c[f'steal_pressure_diagnostic_only_{archetype}'] += 1
-
         # Reset per-decision stash so the next decision starts clean.
         # Without this, an early-out _apply_exploitation could leave
         # stale intensities visible to the next tally call.
         self._last_value_vs_station_intensity_raw = 0.0
         self._last_value_vs_station_intensity_used = 0.0
-        self._last_steal_pressure_intensity_raw = 0.0
-        self._last_steal_pressure_intensity_used = 0.0
         self._last_phase_8_will_emit = False
         self._last_exploitation_archetype = None
         self._last_value_override_fired = False
@@ -3229,6 +3281,27 @@ class TieredBotController(AIPlayerController):
                     )
                     relationship_context = ''
 
+            # The human's self-description (set per-decision by the game
+            # handler). Pre-format here — where the human's name is known —
+            # so tiered narration can needle them about it just like chaos and
+            # standard do in their decision prompts. Sanitize the section
+            # delimiter so a crafted bio can't forge a fake prompt block.
+            human_bio_block = ''
+            if getattr(self, 'human_bio', ''):
+                who = (
+                    next(
+                        (p.name for p in game_state.players if getattr(p, 'is_human', False)),
+                        None,
+                    )
+                    or "The human player"
+                )
+                safe_bio = self.human_bio.replace('===', '==')
+                human_bio_block = (
+                    f"=== About {who} (in their own words) ===\n"
+                    f"{safe_bio}\n"
+                    "(Feel free to needle them about this at the table.)"
+                )
+
             context = ExpressionContext(
                 action_taken=decision['action'],
                 raise_to=decision.get('raise_to', 0) or 0,
@@ -3263,6 +3336,7 @@ class TieredBotController(AIPlayerController):
                 narration_facts=narration_facts,
                 opponent_observations=opponent_observations,
                 relationship_context=relationship_context,
+                human_bio=human_bio_block,
             )
 
             capture_id_holder = [None]

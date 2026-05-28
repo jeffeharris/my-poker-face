@@ -372,7 +372,7 @@ class TestChatEndpoints(unittest.TestCase):
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = admin_user
         self._auth_patcher = patch(
-            'flask_app.routes.experiment_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_mock,
         )
         self._auth_patcher.start()
@@ -385,7 +385,7 @@ class TestChatEndpoints(unittest.TestCase):
 
     def test_get_latest_chat_session_empty(self):
         """Test getting latest chat session when none exists."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.get('/api/experiments/chat/latest')
             data = response.get_json()
 
@@ -395,7 +395,7 @@ class TestChatEndpoints(unittest.TestCase):
 
     def test_archive_chat_session_endpoint(self):
         """Test archiving a chat session via API."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             # Owner must match the authenticated user (admin-user-1 in setUp)
             # — the route gates archive on owner match (T1-27).
             self.experiment_repo.save_chat_session(
@@ -432,7 +432,7 @@ class TestChatEndpoints(unittest.TestCase):
         mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/chat',
                 json={
@@ -458,7 +458,7 @@ class TestChatEndpoints(unittest.TestCase):
         mock_response.reasoning_content = None
         mock_llm_client.return_value.complete.return_value = mock_response
 
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             # Send a chat message
             response = self.client.post(
                 '/api/experiments/chat',
@@ -524,7 +524,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = admin_user
         self._auth_patcher = patch(
-            'flask_app.routes.experiment_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_mock,
         )
         self._auth_patcher.start()
@@ -545,7 +545,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
     def test_get_empty_chat_history(self):
         """Test getting chat history when none exists."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.get(f'/api/experiments/{self.exp_id}/chat/history')
             data = response.get_json()
 
@@ -560,7 +560,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         mock_response.content = 'Based on the experiment results...'
         mock_llm_client.return_value.complete.return_value = mock_response
 
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 f'/api/experiments/{self.exp_id}/chat', json={'message': 'What were the results?'}
             )
@@ -578,7 +578,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
         mock_response.content = 'Here is my analysis.'
         mock_llm_client.return_value.complete.return_value = mock_response
 
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             # Send a message
             self.client.post(
                 f'/api/experiments/{self.exp_id}/chat', json={'message': 'Analyze the results'}
@@ -600,7 +600,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
             ],
         )
 
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             # Clear history
             response = self.client.post(f'/api/experiments/{self.exp_id}/chat/clear')
             data = response.get_json()
@@ -615,7 +615,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
     def test_experiment_assistant_chat_requires_message(self):
         """Test that experiment assistant chat requires a message."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 f'/api/experiments/{self.exp_id}/chat', json={'message': ''}
             )
@@ -626,7 +626,7 @@ class TestExperimentAssistantChat(unittest.TestCase):
 
     def test_experiment_assistant_chat_nonexistent_experiment(self):
         """Test assistant chat with non-existent experiment."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post('/api/experiments/99999/chat', json={'message': 'Hello'})
             data = response.get_json()
 

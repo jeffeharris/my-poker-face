@@ -344,8 +344,24 @@ def _tier_for_frequency(freq: float) -> set:
 # ── Strategy factory ─────────────────────────────────────────────────────
 
 
-def build_clone_strategy(profile: CloneProfile):
+# ── Oracle overbet-punisher (eval-only; docs/plans/SIZING_AWARE_OPPONENT_MODELING.md, D1) ──
+# A deterministic "perfect punisher" of a face-up value overbet, used to measure
+# the exploitability CEILING of the shipped overbet_context layer. It is NOT a
+# learned read — it assumes the hero's overbet range is pure value and max-folds
+# accordingly. Detected purely by SIZE so the attribution A/B stays clean (the
+# overbet size is produced only by overbet_context, absent in the A-arm).
+OVERBET_DETECT_RATIO = 1.2  # bet / pot-before-the-bet >= this = an overbet (excludes <=pot bets)
+ORACLE_CONTINUE_EQUITY = 0.80  # facing an overbet, fold unless equity-vs-random >= this (near-nuts)
+
+
+def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = False):
     """Return a strategy function that mimics `profile` for use as a rule_bot.
+
+    `oracle_punish_overbets` (eval-only, default False): when True, the closure
+    max-folds its non-near-nut range whenever it faces a bet of >= OVERBET_DETECT_RATIO
+    x the pot-before-the-bet — the perfect-punisher of a face-up value overbettor.
+    Production never sets this; it exists so the measurement harness can quantify
+    how exploitable the (intentionally face-up) overbet_context layer is.
 
     The returned closure plugs into `BUILT_IN_STRATEGIES` and is called by
     `RuleBasedController` with the standard `(context: Dict) -> Dict`
@@ -472,6 +488,23 @@ def build_clone_strategy(profile: CloneProfile):
                 return _check()
             return _fold()
 
+        # Oracle overbet-punisher (eval-only). vs a face-up value overbettor,
+        # fold all but near-nuts. Detect the overbet by SIZE: bet/pot-before =
+        # cost_to_call / (pot - cost_to_call), where `pot` includes the hero's
+        # bet. Fires only at >= OVERBET_DETECT_RATIO (1.2), so it never triggers
+        # on <=pot bets — the 1.5x overbet size comes only from overbet_context
+        # (absent in the attribution A-arm), keeping the paired A/B clean.
+        # Deterministic (no rng) → CRN-safe for paired replay.
+        if oracle_punish_overbets and cost_to_call > 0:
+            pot_before_bet = pot - cost_to_call
+            if (
+                pot_before_bet > 0
+                and cost_to_call / pot_before_bet >= OVERBET_DETECT_RATIO
+                and equity < ORACLE_CONTINUE_EQUITY
+                and 'fold' in valid
+            ):
+                return _fold()
+
         # Facing a bet: compute required equity, apply sticky multiplier.
         # On turn/river, WtSD adjustment modulates fold tightness: sticky
         # callers (high WtSD) call wider; fit-or-fold types fold tighter.
@@ -492,15 +525,22 @@ def build_clone_strategy(profile: CloneProfile):
     return strategy
 
 
-def register_clone_strategy(name: str, profile: CloneProfile) -> str:
+def register_clone_strategy(
+    name: str, profile: CloneProfile, oracle_punish_overbets: bool = False
+) -> str:
     """Install a clone strategy into BUILT_IN_STRATEGIES under `name`.
 
     Returns the registered name. Lets the rule-bot controller and sim
     harness reference the clone by string the same way they reference
     `case_based`, `pot_odds_robot`, etc. Re-registering with the same
     name silently overwrites — convenient for iterative tuning runs.
+
+    `oracle_punish_overbets` (eval-only) builds the perfect-punisher variant
+    (see build_clone_strategy) under the same name.
     """
     from .rule_strategies import BUILT_IN_STRATEGIES
 
-    BUILT_IN_STRATEGIES[name] = build_clone_strategy(profile)
+    BUILT_IN_STRATEGIES[name] = build_clone_strategy(
+        profile, oracle_punish_overbets=oracle_punish_overbets
+    )
     return name

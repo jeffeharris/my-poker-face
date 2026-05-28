@@ -642,6 +642,10 @@ class AIPlayerController:
         self.llm_config = llm_config or {}
         self.game_id = game_id
         self.owner_id = owner_id
+        # The human player's free-text self-description ("about me"), if they
+        # wrote one. Runtime context (not config) set per-decision by the game
+        # handler so the AI can trash-talk / comment on it. Empty = no bio.
+        self.human_bio = ""
         self._capture_label_repo = capture_label_repo
         self._decision_analysis_repo = decision_analysis_repo
         self.ai_player = AIPokerPlayer(
@@ -2340,6 +2344,24 @@ class AIPlayerController:
             obs_block = format_opponent_observations(obs_pairs)
             if obs_block:
                 parts.append(f"=== Opponent Observations ===\n{obs_block}")
+
+        # The human player's self-description, if they wrote one. They authored
+        # this for the table to see — it's fair game for trash talk and table
+        # banter in your dramatic_sequence. Extra color, not a strategy directive.
+        if self.human_bio:
+            human_name = next(
+                (p.name for p in game_state.players if getattr(p, 'is_human', False)),
+                None,
+            )
+            who = human_name or "The human player"
+            # Neutralize the section delimiter so a crafted bio can't forge a
+            # fake "=== ... ===" prompt block (mild prompt-injection defense).
+            safe_bio = self.human_bio.replace('===', '==')
+            parts.append(
+                f"=== About {who} (in their own words) ===\n"
+                f"{safe_bio}\n"
+                "(Feel free to needle them about this at the table.)"
+            )
 
         return "\n\n".join(parts) if parts else ""
 

@@ -42,7 +42,10 @@ export function SoloTableModal({ cashMode }: SoloTableModalProps) {
   const [reviewing, setReviewing] = useState(false);
   const [leaveResult, setLeaveResult] = useState<LeaveResponse | null>(null);
 
-  const candidates = useMemo(() => cashMode?.rejoin_candidates ?? [], [cashMode?.rejoin_candidates]);
+  const candidates = useMemo(
+    () => cashMode?.rejoin_candidates ?? [],
+    [cashMode?.rejoin_candidates]
+  );
 
   const handleStay = useCallback(async () => {
     if (busy) return;
@@ -101,11 +104,7 @@ export function SoloTableModal({ cashMode }: SoloTableModalProps) {
   // Reviewing the final hand — step out of the way, leave a way back.
   if (reviewing) {
     return (
-      <button
-        type="button"
-        className="solo-modal__review-back"
-        onClick={() => setReviewing(false)}
-      >
+      <button type="button" className="solo-modal__review-back" onClick={() => setReviewing(false)}>
         <ArrowLeft size={16} />
         Back to options
       </button>

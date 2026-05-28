@@ -72,21 +72,22 @@ export function StakeOfferModal({ target, bankroll, onClose, onAccepted }: Stake
   const [accepted, setAccepted] = useState<StakeOfferAccepted | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Reset state when the modal opens for a new candidate.
+  // Reset state when the modal opens for a new candidate. Keyed on the
+  // specific identifying fields (not the whole `target` object) so a new
+  // object reference with unchanged contents doesn't wipe in-progress input.
+  const candidateId = target?.candidate.personality_id;
+  const candidateStakeLabel = target?.stakeLabel;
+  const candidateMinBuyIn = target?.minBuyIn;
   useEffect(() => {
-    if (!target) return;
+    if (candidateMinBuyIn === undefined) return;
     setFormat('pure');
-    setPrincipal(target.minBuyIn);
+    setPrincipal(candidateMinBuyIn);
     setCut(PURE_CUT_DEFAULT);
     setConfirming(false);
     setRefusal(null);
     setAccepted(null);
     setSubmitError(null);
-    // Reset only when the modal opens for a genuinely different candidate/stake,
-    // not on every new `target` object reference — depending on `target` itself
-    // would wipe in-progress input whenever the parent re-renders a fresh object.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.candidate.personality_id, target?.stakeLabel, target?.minBuyIn]);
+  }, [candidateId, candidateStakeLabel, candidateMinBuyIn]);
 
   // Match-share clamps differently — principal + match must fit
   // [min_buy_in, max_buy_in]. Use the 50/50 simplification: match

@@ -70,12 +70,12 @@ _LAYER_NAMES = frozenset(
         'strong_hand_override',
         'bluff_catch_override',
         'multistreet_context',  # STRUCTURAL_PASSIVITY_PLAN.md
+        'overbet_context',  # POSTFLOP_NEXT_LEVER.md: value overbet sizing on dry turns
         'defense_floor',  # Plan §2
         'short_stack',
         'postflop_commit',  # low-SPR value commitment (SOLVER_CHART_SCOPE)
         'math_floor',
         'value_vs_station',  # Phase 8
-        'steal_pressure',  # Phase 8
         'bluff_reduction',  # Plan §5
     }
 )
@@ -95,21 +95,21 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'strong_hand_override': frozenset({'default'}),
     'bluff_catch_override': frozenset({'default'}),
     'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel'}),
+    'overbet_context': frozenset({'default', 'overbet'}),
     'defense_floor': frozenset({'default'}),
     'short_stack': frozenset({'default'}),
     'postflop_commit': frozenset({'default'}),
     'math_floor': frozenset({'default'}),
     'value_vs_station': frozenset({'default'}),
-    'steal_pressure': frozenset({'default'}),
     'bluff_reduction': frozenset({'default'}),
 }
 
 
 # Pipeline order of the postflop tiered-bot decision. Used as the
 # canonical `layer_order` on every trace so attribution analysis can
-# sort/group consistently. Phase 8's value_vs_station and steal_pressure
-# nest inside the exploitation step (they compute intensities that feed
-# `compute_exploitation_offsets`) — they share layer_order=1 with a
+# sort/group consistently. Phase 8's value_vs_station nests inside the
+# exploitation step (it computes an intensity that feeds
+# `compute_exploitation_offsets`) — it shares layer_order=1 with a
 # stable rule_id distinction.
 #
 # Promoting this to a single source of truth (was previously hard-coded
@@ -118,12 +118,12 @@ _LAYER_ORDER: Dict[str, int] = {
     'personality': 0,
     'exploitation': 1,
     'value_vs_station': 1,  # Phase 8: feeds exploitation
-    'steal_pressure': 1,  # Phase 8: feeds exploitation
     'bluff_reduction': 1,  # Plan §5: air-vs-station mirror of value_vs_station
     'induce_override': 2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
     'strong_hand_override': 2,
     'bluff_catch_override': 3,
     'multistreet_context': 4,  # STRUCTURAL_PASSIVITY_PLAN.md: hero's-own-line barrel / fold-to-barrel (runs just before defense_floor)
+    'overbet_context': 4,  # POSTFLOP_NEXT_LEVER.md: value overbet sizing (multistreet sets freq, overbet sets size)
     'defense_floor': 4,  # Plan §2: price-sensitive call floor
     'short_stack': 5,
     'postflop_commit': 5,  # low-SPR value commitment (runs just before math_floor)

@@ -109,12 +109,9 @@ class _VisibilityRouteBase(unittest.TestCase):
         self.client = self.app.test_client()
 
         import flask_app.extensions as _ext_mod
-        import flask_app.routes.personality_routes as _routes_mod
 
         self._ext_mod = _ext_mod
-        self._routes_mod = _routes_mod
         self._orig_ext_repo = getattr(_ext_mod, 'personality_repo', None)
-        self._orig_route_repo = getattr(_routes_mod, 'personality_repo', None)
 
         self.user = {'id': 'owner-1', 'name': 'Owner'}
         self._authz_patcher = patch(
@@ -123,14 +120,13 @@ class _VisibilityRouteBase(unittest.TestCase):
         )
         self._authz_patcher.start()
 
+        # The routes read auth_manager / personality_repo live off `extensions`
+        # (the import-copy-free convention), so patch there, not the route module.
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = self.user
-        self._auth_patcher = patch(
-            'flask_app.routes.personality_routes.auth_manager', auth_mock
-        )
+        self._auth_patcher = patch('flask_app.extensions.auth_manager', auth_mock)
         self._auth_patcher.start()
-
-        self._routes_mod.personality_repo = self.personality_repo
+        _ext_mod.personality_repo = self.personality_repo
 
         # A personality owned by the test user, currently private.
         self.personality_repo.save_personality(
@@ -141,7 +137,6 @@ class _VisibilityRouteBase(unittest.TestCase):
         self._auth_patcher.stop()
         self._authz_patcher.stop()
         self._ext_mod.personality_repo = self._orig_ext_repo
-        self._routes_mod.personality_repo = self._orig_route_repo
         os.unlink(self.test_db.name)
 
     def _set_visibility(self, value):

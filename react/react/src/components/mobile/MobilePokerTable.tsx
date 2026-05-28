@@ -220,8 +220,8 @@ export function MobilePokerTable({
   const interhandQuote = useMemo(() => {
     const q = pickQuote('between_hands');
     return q ? { text: q.text, attribution: q.attribution } : undefined;
-    // handNumber is an intentional recompute trigger (not used in the body):
-    // re-pick the quote once per hand, stable across intra-hand re-renders.
+    // handNumber is an intentional recompute key (not read inside): it re-picks
+    // the random quote each new hand while staying stable on re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handNumber]);
 
@@ -318,14 +318,18 @@ export function MobilePokerTable({
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
-  // Stable map of player name → avatar URL for FloatingChat
+  // Map of player name → avatar URL for FloatingChat. Accumulated across the
+  // whole session (never pruned): a player who busts/leaves drops out of
+  // `storePlayers`, but a chat message they sent right before going still
+  // needs their avatar, so we remember every avatar we've ever seen here.
+  const avatarCacheRef = useRef<Map<string, string>>(new Map());
   const playerAvatars = useMemo(() => {
-    if (!storePlayers) return new Map<string, string>();
-    const map = new Map<string, string>();
-    for (const p of storePlayers) {
-      if (p.avatar_url) map.set(p.name, `${config.API_URL}${p.avatar_url}`);
+    const cache = avatarCacheRef.current;
+    for (const p of storePlayers ?? []) {
+      if (p.avatar_url) cache.set(p.name, `${config.API_URL}${p.avatar_url}`);
     }
-    return map;
+    // Fresh snapshot so memoized consumers see a new identity when it grows.
+    return new Map(cache);
   }, [storePlayers]);
 
   // Heads-up mode: only 1 AI opponent remains
@@ -362,9 +366,13 @@ export function MobilePokerTable({
     }
     const names =
       winnerInfo.winners.length > 1 ? winnerInfo.winners.join(' & ') : winnerInfo.winners[0];
-    const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
-    setInterhandMessage(`${names} ${verb}`);
-    setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+    const verb = winnerInfo.winners.length > 1 ? 'SPLIT' : 'WON';
+    // Name on its own line (the hero); the amount drops to the line below as
+    // "WON $X" — no animated dots, since the hand is finished, not loading.
+    setInterhandMessage(names);
+    setInterhandSubmessage(
+      netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
+    );
 
     clearWinnerInfo();
   }, [winnerInfo, clearWinnerInfo]);
@@ -977,9 +985,11 @@ export function MobilePokerTable({
                     </button>
                   )}
                 <span className="waiting-text" data-testid="waiting-text">
-                  {aiThinking && currentPlayer
+                  {aiThinking && currentPlayer && !currentPlayer.is_human
                     ? `${currentPlayer.name} is thinking...`
-                    : 'Waiting...'}
+                    : aiThinking
+                      ? 'Submitting...'
+                      : 'Waiting...'}
                 </span>
                 {/* Fast-forward: any time someone else is acting — including
                 while the human is folded (waiting out the hand is exactly
@@ -1059,6 +1069,7 @@ export function MobilePokerTable({
             ticker={interhandTicker}
             quote={interhandQuote}
             variant="interhand"
+            showDots={!interhandMessage}
           />
 
           {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}

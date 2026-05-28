@@ -8,7 +8,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from ..extensions import capture_label_repo, prompt_capture_repo
+from .. import extensions
 from ..route_utils import register_admin_guard
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def list_capture_labels():
     try:
         label_type = request.args.get('label_type')
 
-        labels = capture_label_repo.list_all_labels(label_type=label_type)
+        labels = extensions.capture_label_repo.list_all_labels(label_type=label_type)
 
         return jsonify({'success': True, 'labels': labels})
     except Exception as e:
@@ -52,7 +52,7 @@ def get_capture_labels(capture_id: int):
         }
     """
     try:
-        labels = capture_label_repo.get_capture_labels(capture_id)
+        labels = extensions.capture_label_repo.get_capture_labels(capture_id)
 
         return jsonify({'success': True, 'labels': labels})
     except Exception as e:
@@ -90,13 +90,15 @@ def update_capture_labels(capture_id: int):
         removed = 0
 
         if labels_to_add:
-            added = capture_label_repo.add_capture_labels(capture_id, labels_to_add)
+            added = extensions.capture_label_repo.add_capture_labels(capture_id, labels_to_add)
 
         if labels_to_remove:
-            removed = capture_label_repo.remove_capture_labels(capture_id, labels_to_remove)
+            removed = extensions.capture_label_repo.remove_capture_labels(
+                capture_id, labels_to_remove
+            )
 
         # Get current labels after changes
-        labels = capture_label_repo.get_capture_labels(capture_id)
+        labels = extensions.capture_label_repo.get_capture_labels(capture_id)
 
         return jsonify({'success': True, 'labels': labels, 'added': added, 'removed': removed})
     except Exception as e:
@@ -162,7 +164,7 @@ def search_captures():
             is_correction = False
 
         if labels:
-            result = capture_label_repo.search_captures_with_labels(
+            result = extensions.capture_label_repo.search_captures_with_labels(
                 labels=labels,
                 match_all=match_all,
                 game_id=game_id,
@@ -179,7 +181,7 @@ def search_captures():
             )
         else:
             # No labels, use regular listing
-            result = prompt_capture_repo.list_prompt_captures(
+            result = extensions.prompt_capture_repo.list_prompt_captures(
                 game_id=game_id,
                 player_name=player_name,
                 action=action,
@@ -233,10 +235,12 @@ def bulk_update_labels():
         removed_result = {'captures_affected': 0, 'labels_removed': 0}
 
         if labels_to_add:
-            added_result = capture_label_repo.bulk_add_capture_labels(capture_ids, labels_to_add)
+            added_result = extensions.capture_label_repo.bulk_add_capture_labels(
+                capture_ids, labels_to_add
+            )
 
         if labels_to_remove:
-            removed_result = capture_label_repo.bulk_remove_capture_labels(
+            removed_result = extensions.capture_label_repo.bulk_remove_capture_labels(
                 capture_ids, labels_to_remove
             )
 

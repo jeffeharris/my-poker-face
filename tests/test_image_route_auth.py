@@ -127,7 +127,7 @@ class TestImageRouteAuth(unittest.TestCase):
 
         with (
             self._auth_patch(admin, True),
-            patch('flask_app.routes.image_routes.auth_manager', fake_route_auth),
+            patch('flask_app.extensions.auth_manager', fake_route_auth),
             patch('flask_app.extensions.personality_generator', fake_generator),
             patch(
                 'flask_app.routes.image_routes.regenerate_avatar_emotion',
@@ -150,7 +150,7 @@ class TestImageRouteAuth(unittest.TestCase):
 
         with (
             self._auth_patch(admin, True),
-            patch('flask_app.routes.image_routes.auth_manager', fake_route_auth),
+            patch('flask_app.extensions.auth_manager', fake_route_auth),
             patch('flask_app.routes.image_routes.has_character_images', return_value=False),
             patch(
                 'flask_app.routes.image_routes.generate_character_images',

@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from poker.authorization import get_authorization_service
 
-from ..extensions import auth_manager, prompt_preset_repo
+from .. import extensions
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,10 @@ def list_prompt_presets():
         limit = request.args.get('limit', 100, type=int)
 
         # Get current user for owner filtering
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
-        presets = prompt_preset_repo.list_prompt_presets(owner_id=owner_id, limit=limit)
+        presets = extensions.prompt_preset_repo.list_prompt_presets(owner_id=owner_id, limit=limit)
 
         return jsonify({'success': True, 'presets': presets})
     except Exception as e:
@@ -88,7 +88,9 @@ def create_prompt_preset():
         }
     """
     try:
-        current_user = auth_manager.get_current_user() if auth_manager else None
+        current_user = (
+            extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+        )
         if not current_user or not current_user.get('id'):
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -103,7 +105,7 @@ def create_prompt_preset():
         # Get current user for ownership
         owner_id = current_user['id']
 
-        preset_id = prompt_preset_repo.create_prompt_preset(
+        preset_id = extensions.prompt_preset_repo.create_prompt_preset(
             name=name,
             description=data.get('description'),
             prompt_config=data.get('prompt_config'),
@@ -111,7 +113,7 @@ def create_prompt_preset():
             owner_id=owner_id,
         )
 
-        preset = prompt_preset_repo.get_prompt_preset(preset_id)
+        preset = extensions.prompt_preset_repo.get_prompt_preset(preset_id)
 
         return jsonify(
             {'success': True, 'preset': preset, 'message': f"Created prompt preset '{name}'"}
@@ -135,13 +137,13 @@ def get_prompt_preset(preset_id: int):
         }
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
             ), 401
 
-        preset = prompt_preset_repo.get_prompt_preset(preset_id)
+        preset = extensions.prompt_preset_repo.get_prompt_preset(preset_id)
 
         if not preset:
             return jsonify(
@@ -177,7 +179,9 @@ def update_prompt_preset(preset_id: int):
         }
     """
     try:
-        current_user = auth_manager.get_current_user() if auth_manager else None
+        current_user = (
+            extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+        )
         if not current_user or not current_user.get('id'):
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -188,7 +192,7 @@ def update_prompt_preset(preset_id: int):
         data = request.json or {}
 
         # Check if preset exists
-        existing = prompt_preset_repo.get_prompt_preset(preset_id)
+        existing = extensions.prompt_preset_repo.get_prompt_preset(preset_id)
         if not existing:
             return jsonify(
                 {'success': False, 'error': f'Preset with ID {preset_id} not found'}
@@ -225,16 +229,16 @@ def update_prompt_preset(preset_id: int):
             return jsonify({'success': False, 'error': 'No fields to update'}), 400
 
         if is_admin:
-            updated = prompt_preset_repo.update_prompt_preset(preset_id, **update_kwargs)
+            updated = extensions.prompt_preset_repo.update_prompt_preset(preset_id, **update_kwargs)
         else:
-            updated = prompt_preset_repo.update_prompt_preset_for_owner(
+            updated = extensions.prompt_preset_repo.update_prompt_preset_for_owner(
                 preset_id, user_id, **update_kwargs
             )
 
         if not updated:
             return jsonify({'success': False, 'error': 'Failed to update preset'}), 500
 
-        preset = prompt_preset_repo.get_prompt_preset(preset_id)
+        preset = extensions.prompt_preset_repo.get_prompt_preset(preset_id)
 
         return jsonify(
             {
@@ -262,7 +266,9 @@ def delete_prompt_preset(preset_id: int):
         }
     """
     try:
-        current_user = auth_manager.get_current_user() if auth_manager else None
+        current_user = (
+            extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+        )
         if not current_user or not current_user.get('id'):
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -271,7 +277,7 @@ def delete_prompt_preset(preset_id: int):
         is_admin = _is_admin(user_id)
 
         # Check if preset exists first
-        existing = prompt_preset_repo.get_prompt_preset(preset_id)
+        existing = extensions.prompt_preset_repo.get_prompt_preset(preset_id)
         if not existing:
             return jsonify(
                 {'success': False, 'error': f'Preset with ID {preset_id} not found'}
@@ -294,9 +300,11 @@ def delete_prompt_preset(preset_id: int):
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
         if is_admin:
-            deleted = prompt_preset_repo.delete_prompt_preset(preset_id)
+            deleted = extensions.prompt_preset_repo.delete_prompt_preset(preset_id)
         else:
-            deleted = prompt_preset_repo.delete_prompt_preset_for_owner(preset_id, user_id)
+            deleted = extensions.prompt_preset_repo.delete_prompt_preset_for_owner(
+                preset_id, user_id
+            )
 
         if not deleted:
             return jsonify({'success': False, 'error': 'Failed to delete preset'}), 500

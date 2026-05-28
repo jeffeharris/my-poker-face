@@ -234,6 +234,24 @@ class AuthManager:
                     user['permissions'] = list(permissions)
                 else:
                     user['permissions'] = []
+                # Enrich with the user's custom avatar + AI-visible bio (both
+                # work for guests too). The frontend prefers avatar_url over the
+                # Google `picture` when rendering the identity chip.
+                if user_id:
+                    try:
+                        from flask_app.extensions import (
+                            user_avatar_service,
+                            user_prefs_repo,
+                        )
+
+                        if user_avatar_service:
+                            avatar_url = user_avatar_service.get_avatar_url(user_id)
+                            if avatar_url:
+                                user['avatar_url'] = avatar_url
+                        if user_prefs_repo:
+                            user['bio'] = user_prefs_repo.get_bio(user_id)
+                    except Exception as e:
+                        logger.debug(f"Could not enrich user with profile data: {e}")
                 return jsonify({'user': user})
             return jsonify({'user': None})
 

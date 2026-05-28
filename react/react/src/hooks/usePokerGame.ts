@@ -652,12 +652,26 @@ export function usePokerGame({
         // Reset buffer on full refresh to prevent stale queued state
         resetBuffer();
 
-        const res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        // Fetch with a bounded retry on 404. A cash session that's
+        // only in the DB (server restarted mid-session) rehydrates on
+        // the first GET via the cold-load path — but a transient miss
+        // right at navigation time (session/auth not ready yet, a
+        // cold-load race) can 404 before the row is back. Retrying a
+        // couple times with short backoff removes the "two error toasts
+        // then it loaded" flap on resume, without masking a genuinely
+        // gone game (after the retries exhaust we still declare it gone).
+        const MAX_404_RETRIES = 2;
+        let res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        for (let attempt = 0; res.status === 404 && attempt < MAX_404_RETRIES; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          if (gameGoneRef.current) return false;
+          res = await fetchWithCredentials(`${config.API_URL}/api/game-state/${gId}`);
+        }
         if (res.status === 404) {
           // Game is gone from the backend (cash sessions don't survive
-          // a backend restart; tournament games could be evicted from
-          // memory). Stop trying.
-          logger.warn(`Game ${gId} not found — backend has no record`);
+          // a backend restart if the row can't be loaded; tournament
+          // games could be evicted from memory). Stop trying.
+          logger.warn(`Game ${gId} not found after retries — backend has no record`);
           handleGameGone();
           return false;
         }

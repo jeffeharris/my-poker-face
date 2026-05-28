@@ -103,6 +103,24 @@ class ChangeSpec:
     challenger_flags: Dict[str, object] = field(default_factory=dict)
 
 
+# The GTO-shaped wider-RFI chart (CO/BTN/SB widened toward GTO open
+# frequencies; UTG/HJ/vs_* byte-identical to the base). Loaded by the
+# `open_plus_multistreet` challenger. Absolute (not relative) because the
+# ProcessPool workers rebuild tables from the change *name*, then call the
+# spec's challenger_table builder locally — a relative path would resolve
+# against the worker's CWD.
+_WIDER_RFI_PREFLOP_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
+        'poker',
+        'strategy',
+        'data',
+        'preflop_100bb_6max_wider_rfi.json',
+    )
+)
+
+
 CHANGES: Dict[str, ChangeSpec] = {
     # ── Flag flavor: the only genuinely flag-gated shipped change ──
     'multistreet': ChangeSpec(
@@ -146,6 +164,27 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),
+    # ── Maniac-counter ablation: champion DISABLES value_override +
+    # bluff_catch_override (the strong-hand-push / marginal-call-down counters vs
+    # a detected aggressor); challenger keeps them ON. Paired edge = the bb/100
+    # those two steps add. NOTE: both are gated by classify==hyper_aggressive
+    # (global AF>3.5 / all-in>30%) — the same detection EXP_004/005 showed fires
+    # on ~nobody — so vs a non-extreme backdrop this reads ~0 (the counter is
+    # dormant, not firing). Run vs ManiacBot / Fish-Spew to confirm dormancy on
+    # the realistic field; a non-zero edge means the machinery is load-bearing
+    # and should NOT be cut. ──
+    'maniac_counter': ChangeSpec(
+        description='value_override + bluff_catch_override OFF (champion) vs ON '
+        '(challenger) — does the maniac-counter machinery add bb/100?',
+        champion_table=lambda: load_strategy_table(),
+        challenger_table=lambda: load_strategy_table(),
+        champion_flags={
+            'disable_rules': frozenset(
+                {('strong_hand_override', 'default'), ('bluff_catch_override', 'default')}
+            )
+        },
+        challenger_flags={'disable_rules': frozenset()},
+    ),
     # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
     # preflop table at every effective-stack depth — the original
     # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
@@ -184,6 +223,22 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'exploitation_strength': 0.0},
         challenger_flags={'exploitation_strength': 1.0},
     ),
+    # ── The "blocked-upstream" interaction bundle: wider GTO-shaped preflop
+    # (CO/BTN/SB opens widened toward GTO ~27.6/47.5/39.4%) AND the multistreet
+    # context layer (H1 barrel-continuation + H2 fold-to-double-barrel) ON.
+    # Champion = base chart + multistreet OFF (the shipped bot); challenger =
+    # wider-RFI chart + multistreet ON. Tests the hypothesis that the postflop
+    # layer tested neutral only because tight preflop starved it of postflop
+    # volume — i.e. that opening wider unlocks the layer's edge. ──
+    'open_plus_multistreet': ChangeSpec(
+        description='wider GTO-shaped preflop (CO/BTN/SB widened) + multistreet '
+        'context (H1+H2) ON vs the base chart + multistreet OFF — the '
+        '"layer was blocked by tight preflop" interaction bundle.',
+        champion_table=load_strategy_table,
+        challenger_table=lambda: load_strategy_table(json_path=_WIDER_RFI_PREFLOP_PATH),
+        champion_flags={'enable_multistreet_context': False},
+        challenger_flags=_multistreet_flags(h1=True, h2=True),
+    ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is
     # unbiased (A == A → win-rate covers the null); the cripple pair proves it
@@ -219,14 +274,12 @@ CHANGES: Dict[str, ChangeSpec] = {
 # exploitation fully off (strength 0) — so the win-rate is the rule's STANDALONE
 # contribution vs no exploitation. Same prerequisites as `exploitation`:
 # SNG-runner, --opponent-model, a non-Baseline --archetype, exploitable
-# --backdrop. `steal_pressure` is excluded — STEAL_PRESSURE_PLAYSTYLES is empty,
-# so it's dormant for every archetype and would read a degenerate null.
-# `value_vs_station` / `bluff_reduction` additionally need a value_vs_station
-# archetype (nit/rock/tag).
+# --backdrop. (`steal_pressure` was removed entirely — it shipped dormant for
+# every archetype and never earned its keep; see EXP_005 / the exploitation
+# consolidation.) `value_vs_station` / `bluff_reduction` additionally need a
+# value_vs_station archetype (nit/rock/tag).
 _ALL_EXPLOIT_RULE_KEYS = frozenset(_EXPLOIT_RULE_ORDER)
-_ABLATABLE_EXPLOIT_RULES = tuple(
-    key for key in _EXPLOIT_RULE_ORDER if key != ('steal_pressure', 'default')
-)
+_ABLATABLE_EXPLOIT_RULES = tuple(_EXPLOIT_RULE_ORDER)
 for _layer, _rule in _ABLATABLE_EXPLOIT_RULES:
     # The five 'exploitation'-layer rules have distinct rule_ids; the Phase-8
     # rules share rule_id='default' and are distinguished by their layer.

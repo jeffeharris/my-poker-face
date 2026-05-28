@@ -79,6 +79,61 @@ class TestHoldingsSnapshotsRepository(unittest.TestCase):
         self.repo.record([_row('ai:a', 2, 2)], captured_at='2026-05-25T12:00:00Z')
         self.assertEqual(self.repo.latest_captured_at(SB), '2026-05-25T12:00:00Z')
 
+    def test_series_for_entity_filters_entity_and_returns_chips_and_net_worth(self):
+        # Two entities, three captures; chips diverge from net_worth so we
+        # prove the focused read returns both columns for the right entity.
+        self.repo.record(
+            [_row('player:p1', 500, 700), _row('ai:a', 100, 100)],
+            captured_at='2026-05-25T10:00:00Z',
+        )
+        self.repo.record(
+            [_row('player:p1', 600, 650), _row('ai:a', 100, 100)],
+            captured_at='2026-05-25T11:00:00Z',
+        )
+        self.repo.record(
+            [_row('player:p1', 400, 900)],
+            captured_at='2026-05-25T12:00:00Z',
+        )
+
+        pts = self.repo.series_for_entity(
+            sandbox_id=SB,
+            entity_id='player:p1',
+            since_iso='2026-05-25T00:00:00Z',
+        )
+        # Only p1's points, oldest → newest, carrying chips + net_worth.
+        self.assertEqual([p['chips'] for p in pts], [700, 650, 900])
+        self.assertEqual([p['net_worth'] for p in pts], [500, 600, 400])
+        self.assertEqual(pts[0]['captured_at'], '2026-05-25T10:00:00Z')
+
+    def test_series_for_entity_window_and_sandbox_isolation(self):
+        self.repo.record(
+            [_row('player:p1', 1, 100, sandbox_id=SB)],
+            captured_at='2026-05-25T10:00:00Z',
+        )
+        self.repo.record(
+            [_row('player:p1', 2, 200, sandbox_id=SB)],
+            captured_at='2026-05-25T12:00:00Z',
+        )
+        # Same entity id in another sandbox must not bleed in.
+        self.repo.record(
+            [_row('player:p1', 9, 999, sandbox_id=OTHER)],
+            captured_at='2026-05-25T12:00:00Z',
+        )
+        pts = self.repo.series_for_entity(
+            sandbox_id=SB,
+            entity_id='player:p1',
+            since_iso='2026-05-25T11:00:00Z',
+        )
+        self.assertEqual([(p['chips'], p['net_worth']) for p in pts], [(200, 2)])
+
+    def test_series_for_entity_empty_when_no_points(self):
+        self.assertEqual(
+            self.repo.series_for_entity(
+                sandbox_id=SB, entity_id='player:nobody', since_iso='2026-01-01T00:00:00Z'
+            ),
+            [],
+        )
+
     def test_prune_deletes_old_rows(self):
         self.repo.record([_row('ai:a', 1, 1)], captured_at='2026-04-01T00:00:00Z')
         self.repo.record([_row('ai:a', 2, 2)], captured_at='2026-05-25T00:00:00Z')

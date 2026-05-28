@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 from core.llm import UsageTracker
 from poker.authorization import require_permission
 
+from .. import extensions
 from ..extensions import (
     auth_manager,
     game_repo,
@@ -72,7 +73,7 @@ def api_summary():
     date_modifier = _get_date_modifier(range_param)
 
     try:
-        summary = llm_repo.get_usage_summary(date_modifier)
+        summary = extensions.llm_repo.get_usage_summary(date_modifier)
         return jsonify({'success': True, 'summary': summary})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -152,7 +153,7 @@ def api_toggle_model(model_id):
         ), 400
 
     try:
-        result = llm_repo.toggle_model(model_id, field, enabled)
+        result = extensions.llm_repo.toggle_model(model_id, field, enabled)
         return jsonify({'success': True, **result})
     except ValueError as e:
         status = 404 if 'not found' in str(e).lower() else 400
@@ -166,7 +167,7 @@ def api_toggle_model(model_id):
 def api_list_models():
     """List all models with their enabled status."""
     try:
-        models = llm_repo.list_all_models_full()
+        models = extensions.llm_repo.list_all_models_full()
         return jsonify({'success': True, 'models': models})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -196,7 +197,7 @@ def api_playground_captures():
         date_to: Filter by end date (ISO format)
     """
     try:
-        result = prompt_capture_repo.list_playground_captures(
+        result = extensions.prompt_capture_repo.list_playground_captures(
             call_type=request.args.get('call_type'),
             provider=request.args.get('provider'),
             limit=int(request.args.get('limit', 50)),
@@ -205,7 +206,7 @@ def api_playground_captures():
             date_to=request.args.get('date_to'),
         )
 
-        stats = prompt_capture_repo.get_playground_capture_stats()
+        stats = extensions.prompt_capture_repo.get_playground_capture_stats()
 
         return jsonify(
             {
@@ -226,7 +227,7 @@ def api_playground_captures():
 def api_playground_capture(capture_id):
     """Get a single playground capture by ID."""
     try:
-        capture = prompt_capture_repo.get_prompt_capture(capture_id)
+        capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
 
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
@@ -260,7 +261,7 @@ def api_playground_replay(capture_id):
     from core.llm import CallType, LLMClient
 
     try:
-        capture = prompt_capture_repo.get_prompt_capture(capture_id)
+        capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -331,7 +332,7 @@ def api_playground_replay(capture_id):
 def api_playground_stats():
     """Get aggregate statistics for playground captures."""
     try:
-        stats = prompt_capture_repo.get_playground_capture_stats()
+        stats = extensions.prompt_capture_repo.get_playground_capture_stats()
         return jsonify({'success': True, 'stats': stats})
 
     except Exception as e:
@@ -362,7 +363,7 @@ def api_playground_cleanup():
                 }
             )
 
-        deleted = prompt_capture_repo.cleanup_old_captures(retention_days)
+        deleted = extensions.prompt_capture_repo.cleanup_old_captures(retention_days)
 
         return jsonify(
             {
@@ -425,22 +426,10 @@ def api_upload_reference_image():
         if not image_data:
             return jsonify({'success': False, 'error': 'No image provided'}), 400
 
-        # Validate image magic bytes
-        IMAGE_SIGNATURES = {
-            b'\x89PNG\r\n\x1a\n': 'image/png',
-            b'\xff\xd8\xff': 'image/jpeg',
-            b'GIF87a': 'image/gif',
-            b'GIF89a': 'image/gif',
-        }
-        detected_type = None
-        for signature, mime_type in IMAGE_SIGNATURES.items():
-            if image_data[: len(signature)] == signature:
-                detected_type = mime_type
-                break
-        # WebP uses RIFF container — verify both RIFF header and WEBP marker
-        if detected_type is None and len(image_data) >= 12:
-            if image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
-                detected_type = 'image/webp'
+        # Validate image magic bytes (shared detector — PNG/JPEG/GIF/WebP)
+        from poker.image_processing import detect_image_mimetype
+
+        detected_type = detect_image_mimetype(image_data)
         if detected_type is None:
             return jsonify(
                 {'success': False, 'error': 'Invalid image format. Supported: PNG, JPEG, GIF, WebP'}
@@ -465,7 +454,7 @@ def api_upload_reference_image():
         reference_id = str(uuid.uuid4())
 
         # Store in database
-        personality_repo.save_reference_image(
+        extensions.personality_repo.save_reference_image(
             reference_id, image_data, width, height, content_type, source, original_url
         )
 
@@ -493,7 +482,7 @@ def api_get_reference_image(reference_id: str):
     from flask import Response
 
     try:
-        result = personality_repo.get_reference_image(reference_id)
+        result = extensions.personality_repo.get_reference_image(reference_id)
         if not result:
             return jsonify({'success': False, 'error': 'Reference image not found'}), 404
         return Response(
@@ -534,7 +523,7 @@ def api_playground_replay_image(capture_id: int):
     from core.llm import CallType, LLMClient
 
     try:
-        capture = prompt_capture_repo.get_prompt_capture(capture_id)
+        capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -554,7 +543,7 @@ def api_playground_replay_image(capture_id: int):
         # Check if model supports img2img when reference image is provided
         seed_image_url = None
         if reference_image_id:
-            supports_img2img = llm_repo.check_model_supports_img2img(provider, model)
+            supports_img2img = extensions.llm_repo.check_model_supports_img2img(provider, model)
             if not supports_img2img:
                 return jsonify(
                     {
@@ -563,7 +552,7 @@ def api_playground_replay_image(capture_id: int):
                     }
                 ), 400
 
-            ref_result = personality_repo.get_reference_image(reference_image_id)
+            ref_result = extensions.personality_repo.get_reference_image(reference_image_id)
             if ref_result and ref_result['image_data']:
                 content_type = ref_result['content_type'] or 'image/png'
                 b64_data = base64.b64encode(ref_result['image_data']).decode('utf-8')
@@ -659,7 +648,7 @@ def api_assign_avatar_from_capture(capture_id: int):
     import base64
 
     try:
-        capture = prompt_capture_repo.get_prompt_capture(capture_id)
+        capture = extensions.prompt_capture_repo.get_prompt_capture(capture_id)
         if not capture:
             return jsonify({'success': False, 'error': 'Capture not found'}), 404
 
@@ -690,7 +679,7 @@ def api_assign_avatar_from_capture(capture_id: int):
             return jsonify({'success': False, 'error': 'No image data available'}), 400
 
         # Save to avatar_images table
-        personality_repo.assign_avatar(personality_name, emotion, image_data)
+        extensions.personality_repo.assign_avatar(personality_name, emotion, image_data)
 
         return jsonify(
             {
@@ -714,7 +703,7 @@ def api_get_image_providers():
     Returns providers that support image generation (supports_image_gen=1).
     """
     try:
-        image_models = llm_repo.get_enabled_image_models()
+        image_models = extensions.llm_repo.get_enabled_image_models()
 
         providers = {}
         for row in image_models:
@@ -1042,7 +1031,7 @@ def list_pricing():
     current_only = request.args.get('current_only', 'false').lower() == 'true'
 
     try:
-        rows = llm_repo.list_pricing(provider, model, current_only)
+        rows = extensions.llm_repo.list_pricing(provider, model, current_only)
         return jsonify({'success': True, 'count': len(rows), 'pricing': rows})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1078,7 +1067,7 @@ def add_pricing():
     notes = data.get('notes')
 
     try:
-        llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
+        extensions.llm_repo.add_pricing(provider, model, unit, cost, valid_from, notes)
         UsageTracker.get_default().invalidate_pricing_cache()
         return jsonify(
             {'success': True, 'message': f'Added pricing for {provider}/{model}/{unit}: ${cost}'}
@@ -1103,7 +1092,7 @@ def bulk_add_pricing():
         return jsonify({'success': False, 'error': 'No entries provided'}), 400
 
     try:
-        added, errors = llm_repo.bulk_add_pricing(entries, expire_existing)
+        added, errors = extensions.llm_repo.bulk_add_pricing(entries, expire_existing)
         if added > 0:
             UsageTracker.get_default().invalidate_pricing_cache()
         return jsonify({'success': True, 'added': added, 'errors': errors})
@@ -1115,7 +1104,7 @@ def bulk_add_pricing():
 def delete_pricing(pricing_id: int):
     """Delete a pricing entry by ID."""
     try:
-        deleted = llm_repo.delete_pricing(pricing_id)
+        deleted = extensions.llm_repo.delete_pricing(pricing_id)
         if not deleted:
             return jsonify({'success': False, 'error': 'Not found'}), 404
         UsageTracker.get_default().invalidate_pricing_cache()
@@ -1128,7 +1117,7 @@ def delete_pricing(pricing_id: int):
 def list_providers():
     """List all providers with model/SKU counts."""
     try:
-        providers = llm_repo.list_providers_with_counts()
+        providers = extensions.llm_repo.list_providers_with_counts()
         return jsonify({'success': True, 'providers': providers})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1142,7 +1131,7 @@ def list_models_for_provider(provider: str):
         return jsonify({'success': False, 'error': 'Invalid provider format'}), 400
 
     try:
-        models = llm_repo.list_models_for_provider(provider)
+        models = extensions.llm_repo.list_models_for_provider(provider)
         return jsonify({'success': True, 'provider': provider, 'models': models})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1217,23 +1206,25 @@ def api_get_settings():
         current_retention_days = get_retention_days()
 
         # Get DB values directly to show if overridden
-        db_settings = settings_repo.get_all_settings()
+        db_settings = extensions.settings_repo.get_all_settings()
 
         # System model settings - get from DB or fall back to env/defaults
-        default_provider = settings_repo.get_setting('DEFAULT_PROVIDER', '') or 'openai'
-        default_model = settings_repo.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
-        image_provider = settings_repo.get_setting('IMAGE_PROVIDER', '') or os.environ.get(
-            'IMAGE_PROVIDER', 'openai'
-        )
-        image_model = settings_repo.get_setting('IMAGE_MODEL', '') or os.environ.get(
+        default_provider = extensions.settings_repo.get_setting('DEFAULT_PROVIDER', '') or 'openai'
+        default_model = extensions.settings_repo.get_setting('DEFAULT_MODEL', '') or DEFAULT_MODEL
+        image_provider = extensions.settings_repo.get_setting(
+            'IMAGE_PROVIDER', ''
+        ) or os.environ.get('IMAGE_PROVIDER', 'openai')
+        image_model = extensions.settings_repo.get_setting('IMAGE_MODEL', '') or os.environ.get(
             'IMAGE_MODEL', ''
         )
-        fast_provider = settings_repo.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
-        fast_model = settings_repo.get_setting('FAST_MODEL', '') or FAST_MODEL
+        fast_provider = extensions.settings_repo.get_setting('FAST_PROVIDER', '') or FAST_PROVIDER
+        fast_model = extensions.settings_repo.get_setting('FAST_MODEL', '') or FAST_MODEL
         assistant_provider = (
-            settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
+            extensions.settings_repo.get_setting('ASSISTANT_PROVIDER', '') or ASSISTANT_PROVIDER
         )
-        assistant_model = settings_repo.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
+        assistant_model = (
+            extensions.settings_repo.get_setting('ASSISTANT_MODEL', '') or ASSISTANT_MODEL
+        )
 
         settings = {
             'LLM_PROMPT_CAPTURE': {
@@ -1394,7 +1385,7 @@ def api_update_setting():
             'ALERT_WEBHOOK_URL': 'Slack/Discord webhook for ERROR + ledger/budget alerts',
         }
 
-        success = settings_repo.set_setting(key, value, descriptions.get(key))
+        success = extensions.settings_repo.set_setting(key, value, descriptions.get(key))
 
         if success and key == 'ALERT_WEBHOOK_URL':
             # Take effect immediately rather than waiting out the resolver cache.
@@ -1452,7 +1443,7 @@ def api_reset_settings():
             # Reset all settings
             deleted_count = 0
             for k in VALID_SETTING_KEYS:
-                if settings_repo.delete_setting(k):
+                if extensions.settings_repo.delete_setting(k):
                     deleted_count += 1
             invalidate_webhook_url_cache()
 
@@ -1537,7 +1528,7 @@ def api_active_games():
 
         # Then, add recent saved games from database (not already in memory)
         try:
-            saved_games = game_repo.list_games(limit=saved_limit)
+            saved_games = extensions.game_repo.list_games(limit=saved_limit)
             for saved_game in saved_games:
                 if saved_game.game_id in seen_game_ids:
                     continue  # Already added from memory
@@ -1638,7 +1629,7 @@ def api_storage_stats():
             'assets': ['avatar_images'],
         }
 
-        storage = llm_repo.get_storage_stats(categories)
+        storage = extensions.llm_repo.get_storage_stats(categories)
         return jsonify({'success': True, 'storage': storage})
     except Exception as e:
         logger.error(f"Error getting storage stats: {e}")
@@ -1660,7 +1651,7 @@ def api_hand_list(game_id: str):
     from poker.memory.hand_history import RecordedHand
 
     try:
-        hands = hand_history_repo.load_hand_history(game_id)
+        hands = extensions.hand_history_repo.load_hand_history(game_id)
         if not hands:
             return jsonify({'success': True, 'hands': [], 'count': 0})
 
@@ -1699,7 +1690,7 @@ def api_hand_replay(game_id: str, hand_number: int):
     from poker.memory.hand_history import RecordedHand
 
     try:
-        hand_data = hand_history_repo.load_single_hand(game_id, hand_number)
+        hand_data = extensions.hand_history_repo.load_single_hand(game_id, hand_number)
         if not hand_data:
             return jsonify({'success': False, 'error': f'Hand #{hand_number} not found'}), 404
 

@@ -1,0 +1,24 @@
+name: quick_chat_props
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Tip your cap. Give genuine, specific respect for how {target_first_name} played — a sharp read, a gutsy call, a clean fold, a well-sized bet. Not flattery, not sarcasm: the real "well played, you earned that" of one competitor to another.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "Respect, {target_first_name}. Saw right through me."
+    - "Filthy call. Well played."
+    - "That fold was disciplined. Tip of the cap."
+    - "You've got my number tonight, {target_first_name}."
+
+    Be SINCERE and SPECIFIC. Acknowledge their skill, not just the outcome. No backhanded compliments — this is real respect.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "props"}}, {{"text": "...", "tone": "props"}}], "targetPlayer": "{target_player}"}}

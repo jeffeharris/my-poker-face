@@ -31,7 +31,7 @@ import logging
 import os
 import threading
 import time
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,22 @@ SNAPSHOT_INTERVAL_SECONDS = 600.0
 # sandbox_id -> monotonic time of its last recorded snapshot.
 _last_snapshot_at: Dict[str, float] = {}
 
+# Stale-session watchdog (T2.3). A cash session whose `games` row hasn't
+# been touched within STALE_SESSION_TTL_SECONDS — and which isn't in
+# memory (so nobody's actively playing it) — is an abandoned orphan: it
+# wedges the sit guard until cleaned. The watchdog runs the same sweep
+# the boot hook does, on a slow wall-clock cadence, so orphans created
+# between reboots self-clear instead of lingering. Far slower than the
+# base tick because abandonment is measured in minutes.
+# 4h, not 30m (Codex review #1): a session is only reaped — settled at
+# chips=0 — once it's gone genuinely cold, so a player who steps away
+# doesn't get their table stack burned. Mirrors cash_mode.lobby's
+# DEFAULT_STALE_TTL_SECONDS.
+STALE_SESSION_TTL_SECONDS = 14400.0
+WATCHDOG_INTERVAL_SECONDS = 300.0
+# monotonic time of the last watchdog pass (None until the first run).
+_last_watchdog_at: Optional[float] = None
+
 
 def start_world_ticker(socketio) -> None:
     """Start the shared ticker once. Idempotent across create_app() calls."""
@@ -135,6 +151,64 @@ def _run(socketio) -> None:
         except Exception:
             # One bad cycle must never kill the loop.
             logger.exception("[TICKER] cycle failed")
+        try:
+            _maybe_run_stale_session_watchdog()
+        except Exception:
+            # The watchdog is a janitor; a failure must never kill the loop.
+            logger.exception("[TICKER] stale-session watchdog failed")
+
+
+def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> int:
+    """Sweep abandoned cash sessions, rate-limited (T2.3).
+
+    Runs at most once per `WATCHDOG_INTERVAL_SECONDS`. Reuses the boot
+    sweep (`_boot_sweep_stale_cash_rows`) but passes the set of cash
+    games currently in memory as `skip_game_ids`: a live in-memory copy
+    would just re-save a deleted row (the resurrection race), and the
+    player may still be at the table. So only truly-cold, past-TTL rows
+    get reaped. Runs regardless of whether any sandbox is active —
+    orphans persist even when nobody's online.
+
+    Returns the number of rows swept (0 when rate-limited or disabled).
+    Best-effort: any failure is logged and swallowed by the caller.
+    """
+    global _last_watchdog_at
+    now = now_monotonic if now_monotonic is not None else time.monotonic()
+    if _last_watchdog_at is not None and (now - _last_watchdog_at) < WATCHDOG_INTERVAL_SECONDS:
+        return 0
+    # Stamp BEFORE the work so a persistently-failing sweep backs off to
+    # the normal cadence instead of retrying every tick.
+    _last_watchdog_at = now
+
+    from datetime import datetime
+
+    from cash_mode.lobby import _boot_sweep_stale_cash_rows
+    from flask_app import extensions
+    from flask_app.services import game_state_service
+
+    cash_session_repo = getattr(extensions, "cash_session_repo", None)
+    game_repo = getattr(extensions, "game_repo", None)
+    if cash_session_repo is None or game_repo is None:
+        return 0
+
+    in_memory_cash_ids = {
+        gid for gid, gdata in list(game_state_service.games.items()) if gdata.get("cash_mode")
+    }
+
+    return _boot_sweep_stale_cash_rows(
+        game_repo=game_repo,
+        cash_session_repo=cash_session_repo,
+        stake_repo=getattr(extensions, "stake_repo", None),
+        chip_ledger_repo=getattr(extensions, "chip_ledger_repo", None),
+        stale_ttl_seconds=int(STALE_SESSION_TTL_SECONDS),
+        now=datetime.utcnow(),
+        skip_game_ids=in_memory_cash_ids,
+        source="watchdog",
+        # The skip-set is a cheap first pass; the authoritative guard
+        # against the resurrection race (Codex #2) is the per-game lock +
+        # in-memory re-check the sweep does when given game_state_service.
+        game_state_service=game_state_service,
+    )
 
 
 def _run_cycle(socketio) -> None:
@@ -199,7 +273,8 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     from cash_mode.activity import recent_events, serialize_event
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
-    from flask_app.services import game_state_service, presence
+    from flask_app.handlers.game_handler import live_cash_seated_pids
+    from flask_app.services import presence
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
     if run_every > 1 and (_cycle % run_every) != 0:
@@ -211,24 +286,20 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         existing = recent_events(limit=1, sandbox_id=sandbox_id)
         _last_marker[owner_id] = existing[0].created_at if existing else ""
 
-    # Serialize the live-fill against human seat claims (sit / sponsor-sit /
-    # stake-offer) via the per-sandbox seat lock — both read-modify-write the
-    # same cash_tables seats blob, and last-write-wins would otherwise strand
-    # a just-placed AI or human.
-    with game_state_service.get_sandbox_lock(sandbox_id):
-        refresh_unseated_tables(
-            cash_table_repo=extensions.cash_table_repo,
-            personality_repo=extensions.personality_repo,
-            bankroll_repo=extensions.bankroll_repo,
-            user_id=owner_id,
-            sandbox_id=sandbox_id,
-            hand_sim_prob=hand_sim_prob,
-            chip_ledger_repo=extensions.chip_ledger_repo,
-            relationship_repo=extensions.relationship_repo,
-            stake_repo=extensions.stake_repo,
-            vice_repo=extensions.vice_state_repo,
-            side_hustle_repo=extensions.side_hustle_state_repo,
-        )
+    refresh_unseated_tables(
+        cash_table_repo=extensions.cash_table_repo,
+        personality_repo=extensions.personality_repo,
+        bankroll_repo=extensions.bankroll_repo,
+        user_id=owner_id,
+        sandbox_id=sandbox_id,
+        hand_sim_prob=hand_sim_prob,
+        chip_ledger_repo=extensions.chip_ledger_repo,
+        relationship_repo=extensions.relationship_repo,
+        stake_repo=extensions.stake_repo,
+        vice_repo=extensions.vice_state_repo,
+        side_hustle_repo=extensions.side_hustle_state_repo,
+        live_seated_pids=live_cash_seated_pids(sandbox_id),
+    )
 
     _maybe_record_holdings_snapshot(sandbox_id)
 

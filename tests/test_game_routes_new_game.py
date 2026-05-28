@@ -59,20 +59,20 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         # game_routes imports these by value at module import time, so without this
         # tests can hit stale/closed repo objects from other test modules.
         self._route_patchers = [
-            patch('flask_app.routes.game_routes.game_repo', repos['game_repo']),
-            patch('flask_app.routes.game_routes.user_repo', repos['user_repo']),
-            patch('flask_app.routes.game_routes.prompt_preset_repo', repos['prompt_preset_repo']),
-            patch('flask_app.routes.game_routes.guest_tracking_repo', repos['guest_tracking_repo']),
-            patch('flask_app.routes.game_routes.hand_history_repo', repos['hand_history_repo']),
-            patch('flask_app.routes.game_routes.tournament_repo', repos['tournament_repo']),
-            patch('flask_app.routes.game_routes.llm_repo', repos['llm_repo']),
+            patch('flask_app.extensions.game_repo', repos['game_repo']),
+            patch('flask_app.extensions.user_repo', repos['user_repo']),
+            patch('flask_app.extensions.prompt_preset_repo', repos['prompt_preset_repo']),
+            patch('flask_app.extensions.guest_tracking_repo', repos['guest_tracking_repo']),
+            patch('flask_app.extensions.hand_history_repo', repos['hand_history_repo']),
+            patch('flask_app.extensions.tournament_repo', repos['tournament_repo']),
+            patch('flask_app.extensions.llm_repo', repos['llm_repo']),
             patch(
-                'flask_app.routes.game_routes.decision_analysis_repo',
+                'flask_app.extensions.decision_analysis_repo',
                 repos['decision_analysis_repo'],
             ),
-            patch('flask_app.routes.game_routes.capture_label_repo', repos['capture_label_repo']),
-            patch('flask_app.routes.game_routes.coach_repo', repos['coach_repo']),
-            patch('flask_app.routes.game_routes.persistence_db_path', repos['db_path']),
+            patch('flask_app.extensions.capture_label_repo', repos['capture_label_repo']),
+            patch('flask_app.extensions.coach_repo', repos['coach_repo']),
+            patch('flask_app.extensions.persistence_db_path', repos['db_path']),
         ]
         for patcher in self._route_patchers:
             patcher.start()
@@ -87,7 +87,7 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         """Return a patch that provides a fake authenticated user."""
         mock_auth = unittest.mock.MagicMock()
         mock_auth.get_current_user.return_value = {'id': 'test-user-1', 'name': 'TestUser'}
-        return patch('flask_app.routes.game_routes.auth_manager', mock_auth)
+        return patch('flask_app.extensions.auth_manager', mock_auth)
 
     def test_duplicate_player_name_returns_400(self):
         """POST /api/new-game with player name matching an AI personality returns 400."""

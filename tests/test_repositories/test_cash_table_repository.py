@@ -31,6 +31,23 @@ from poker.repositories.schema_manager import SchemaManager
 SANDBOX_ID = "test-sandbox-1"
 
 
+def assert_seats_match(loaded_seats, expected_seats):
+    """Compare seats, tolerating the `seated_at` stamp save_table adds.
+
+    Every AI seat gains a `seated_at` ISO timestamp on save (so the
+    whereabouts view can show how long an AI has been parked at a table);
+    the rest of the slot must round-trip unchanged. Non-AI seats match
+    exactly.
+    """
+    assert len(loaded_seats) == len(expected_seats)
+    for got, orig in zip(loaded_seats, expected_seats, strict=False):
+        if orig.get("kind") == "ai":
+            assert got.get("seated_at"), f"AI seat not stamped: {got!r}"
+            assert {k: v for k, v in got.items() if k != "seated_at"} == orig
+        else:
+            assert got == orig
+
+
 @pytest.fixture
 def db_path(tmp_path):
     path = str(tmp_path / "cash_tables.db")
@@ -96,7 +113,7 @@ class TestRoundtrip:
         )
         repo.save_table(state, sandbox_id=SANDBOX_ID)
         loaded = repo.load_table("cash-table-50-001", sandbox_id=SANDBOX_ID)
-        assert loaded.seats == seats
+        assert_seats_match(loaded.seats, seats)
 
     def test_load_missing_returns_none(self, repo):
         assert repo.load_table("does-not-exist", sandbox_id=SANDBOX_ID) is None
@@ -145,6 +162,76 @@ class TestUpsert:
         assert (second.last_activity_at - first.last_activity_at).total_seconds() >= 60
 
 
+class TestSeatedAtStamp:
+    """save_table stamps AI seats with when they sat at THIS table.
+
+    The stamp powers the whereabouts "seated for X" read. It must be
+    preserved across re-saves of the same AI (chip updates / rebuys) and
+    reset when a different AI takes the seat (a fresh sit-down).
+    """
+
+    def test_ai_seat_is_stamped_on_save(self, repo):
+        t = datetime(2026, 5, 27, 12, 0, 0)
+        state = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            0, ai_slot("napoleon", 1000)
+        )
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t)
+        loaded = repo.load_table("t1", sandbox_id=SANDBOX_ID)
+        assert loaded.seats[0]["seated_at"] == t.isoformat()
+
+    def test_stamp_preserved_across_chip_update(self, repo):
+        t0 = datetime(2026, 5, 27, 12, 0, 0)
+        state = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            0, ai_slot("napoleon", 1000)
+        )
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t0)
+
+        # Same AI, new chip count (a rebuy / won pot), later save.
+        later = t0 + timedelta(hours=2)
+        bumped = state.with_seat(0, ai_slot("napoleon", 1750))
+        repo.save_table(bumped, sandbox_id=SANDBOX_ID, now=later)
+
+        loaded = repo.load_table("t1", sandbox_id=SANDBOX_ID)
+        assert loaded.seats[0]["chips"] == 1750
+        # Clock survives — still the original sit-down time, not `later`.
+        assert loaded.seats[0]["seated_at"] == t0.isoformat()
+
+    def test_stamp_resets_when_a_new_ai_takes_the_seat(self, repo):
+        t0 = datetime(2026, 5, 27, 12, 0, 0)
+        state = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            0, ai_slot("napoleon", 1000)
+        )
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t0)
+
+        # A different AI takes seat 0 — a genuine new sit-down.
+        later = t0 + timedelta(hours=2)
+        swapped = state.with_seat(0, ai_slot("zeus", 1000))
+        repo.save_table(swapped, sandbox_id=SANDBOX_ID, now=later)
+
+        loaded = repo.load_table("t1", sandbox_id=SANDBOX_ID)
+        assert loaded.seats[0]["personality_id"] == "zeus"
+        assert loaded.seats[0]["seated_at"] == later.isoformat()
+
+    def test_stamp_follows_ai_to_a_new_seat_index(self, repo):
+        # "Time at this table" keys on pid, not seat index — moving seats
+        # within the same table keeps the clock running.
+        t0 = datetime(2026, 5, 27, 12, 0, 0)
+        state = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            0, ai_slot("napoleon", 1000)
+        )
+        repo.save_table(state, sandbox_id=SANDBOX_ID, now=t0)
+
+        later = t0 + timedelta(hours=1)
+        moved = CashTableState(table_id="t1", stake_label="$10").with_seat(
+            2, ai_slot("napoleon", 1000)
+        )
+        repo.save_table(moved, sandbox_id=SANDBOX_ID, now=later)
+
+        loaded = repo.load_table("t1", sandbox_id=SANDBOX_ID)
+        assert loaded.seats[2]["personality_id"] == "napoleon"
+        assert loaded.seats[2]["seated_at"] == t0.isoformat()
+
+
 class TestListAllTables:
     def test_empty_lobby_returns_empty(self, repo):
         assert repo.list_all_tables(sandbox_id=SANDBOX_ID) == []
@@ -174,7 +261,7 @@ class TestListAllTables:
         )
         all_tables = repo.list_all_tables(sandbox_id=SANDBOX_ID)
         assert len(all_tables) == 1
-        assert all_tables[0].seats == seats
+        assert_seats_match(all_tables[0].seats, seats)
 
 
 # --- Idle pool ---

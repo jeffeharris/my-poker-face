@@ -5,8 +5,10 @@ Handles table creation and schema migrations.
 
 import json
 import logging
+import os
 import random
 import sqlite3
+import tempfile
 from typing import Dict
 
 from poker.personality_id import (
@@ -15,6 +17,16 @@ from poker.personality_id import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Test-only schema-template cache. Building a fresh DB runs the full migration
+# chain (~5.2s). When POKER_TEST_SCHEMA_TEMPLATE=1 (set by tests/conftest.py),
+# the first empty-DB build per process is snapshotted here and every subsequent
+# empty build is seeded from it via the sqlite backup API (~10ms). The resulting
+# schema is identical to a real build. The flag is never set in production, so
+# this path is inert there. See _maybe_seed_from_template / _maybe_save_as_template.
+_TEST_SCHEMA_TEMPLATE_ENV = "POKER_TEST_SCHEMA_TEMPLATE"
+_TEST_SCHEMA_TEMPLATE_SUFFIX = "_schema_template.db"
+_test_schema_template_path = None
 
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
 # v43: Add experiments and experiment_games tables for experiment tracking
@@ -182,12 +194,16 @@ logger = logging.getLogger(__name__)
 #       instead of the ledger-derived bank-flow curve. net_worth = chips +
 #       receivable - outstanding; components stored alongside. See
 #       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
-# v118: Create `coach_session_evaluations` — per-game persistence of the
+# v118: (development) user_avatars table + user_preferences.bio.
+# v119: (development) cash_sessions.session_state + last_load_error.
+# v120: (development) cash_session_events lifecycle telemetry.
+# v121: Create `coach_session_evaluations` — per-game persistence of the
 #       coach's per-hand skill evaluations (PRH-15). Previously these lived
 #       only in `game_data['coach_session_memory']` and were lost on
 #       restart/TTL-eviction, so a returning player's hand-review history
 #       vanished. One row per game_id with a JSON blob of {hand: [evals]}.
-SCHEMA_VERSION = 118
+#       Renumbered from v118 on the prep-for-main→development merge (collision).
+SCHEMA_VERSION = 121
 
 
 class SchemaManager:
@@ -223,9 +239,89 @@ class SchemaManager:
 
     def ensure_schema(self):
         """Create tables and run migrations. Idempotent."""
+        # Test-only fast path: seed a fresh DB from a cached, fully-migrated
+        # template instead of re-running the whole migration chain. Only fires
+        # for empty databases, so schema-migration tests (which build an OLD
+        # schema then assert forward migration) are untouched. Inert in prod.
+        seeded = self._maybe_seed_from_template()
+        started_empty = (not seeded) and self._db_is_empty()
         self._enable_wal_mode()
-        self._init_db()
-        self._run_migrations()
+        self._init_db()  # CREATE TABLE IF NOT EXISTS: no-ops on a seeded DB
+        self._run_migrations()  # early-returns when already at SCHEMA_VERSION
+        if started_empty:
+            self._maybe_save_as_template()
+
+    def _fast_test_mode(self) -> bool:
+        return os.environ.get(_TEST_SCHEMA_TEMPLATE_ENV) == "1"
+
+    def _is_template_path(self) -> bool:
+        return str(self.db_path).endswith(_TEST_SCHEMA_TEMPLATE_SUFFIX)
+
+    def _db_is_empty(self) -> bool:
+        """True if the DB has no user schema objects (a brand-new database file).
+
+        Counts ANY user object (tables, views, triggers, indexes), not just
+        tables, so a schema-migration test that prepares a DB with only a
+        view/trigger/index is never silently overwritten by the template seed.
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                (n,) = conn.execute(
+                    "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+                ).fetchone()
+            return n == 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _copy_db(src_path: str, dst_path: str) -> None:
+        """Copy a sqlite DB via the backup API (correct even with WAL sidecars)."""
+        src = sqlite3.connect(src_path)
+        dst = sqlite3.connect(dst_path)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            src.close()
+            dst.close()
+
+    def _maybe_seed_from_template(self) -> bool:
+        """Seed an empty test DB from the cached template. Returns True if seeded."""
+        if not self._fast_test_mode() or self._is_template_path():
+            return False
+        tpl = _test_schema_template_path
+        if not tpl or not os.path.exists(tpl):
+            return False
+        if os.path.abspath(self.db_path) == os.path.abspath(tpl):
+            return False
+        if not self._db_is_empty():
+            return False
+        try:
+            self._copy_db(tpl, self.db_path)
+            return True
+        except Exception as e:  # fall back to a normal build on any copy failure
+            logger.warning(f"schema template seed skipped ({e}); building normally")
+            return False
+
+    def _maybe_save_as_template(self) -> None:
+        """Snapshot the first clean, full build as the process-wide template."""
+        global _test_schema_template_path
+        if not self._fast_test_mode() or self._is_template_path():
+            return
+        if _test_schema_template_path and os.path.exists(_test_schema_template_path):
+            return
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            if version != SCHEMA_VERSION:  # only snapshot a complete schema
+                return
+            fd, tpl = tempfile.mkstemp(suffix=_TEST_SCHEMA_TEMPLATE_SUFFIX)
+            os.close(fd)
+            os.remove(tpl)  # backup() creates it fresh
+            self._copy_db(self.db_path, tpl)
+            _test_schema_template_path = tpl
+        except Exception as e:
+            logger.warning(f"schema template save skipped: {e}")
 
     def _init_db(self):
         """Initialize the database schema.
@@ -1883,7 +1979,19 @@ class SchemaManager:
                 "Add nullable recent_events_json column to ai_bankroll_state — a small per-AI ring buffer of recent notable hand events (bust/suckout) so the world carries recent memories without the pressure_events firehose",
             ),
             118: (
-                self._migrate_v118_create_coach_session_evaluations,
+                self._migrate_v118_add_user_profile,
+                "Create user_avatars table (human player avatar blobs keyed by user_id, opaque public_id serve key) and add user_preferences.bio (the human's AI-visible self-description)",
+            ),
+            119: (
+                self._migrate_v119_add_session_state,
+                "Add session_state + last_load_error to cash_sessions — the explicit lifecycle state machine (active/paused/abandoning/closed/broken) the sit guard reads instead of inferring 'active' from a lingering cash-* games row, plus a stash for the last cold-load failure",
+            ),
+            120: (
+                self._migrate_v120_create_cash_session_events,
+                "Create cash_session_events table — persisted lifecycle telemetry (started/resumed/left_clean/left_ghost/swept/broken) for ops queries and the admin orphan-counter, separate from the cosmetic in-memory activity ring buffer",
+            ),
+            121: (
+                self._migrate_v121_create_coach_session_evaluations,
                 "Create coach_session_evaluations table — per-game persistence of the coach's per-hand skill evaluations so hand-review history survives restart/TTL-eviction (PRH-15)",
             ),
         }
@@ -6074,8 +6182,131 @@ class SchemaManager:
             conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN recent_events_json TEXT")
         logger.info("Migration v117 complete: ai_bankroll_state.recent_events_json added")
 
-    def _migrate_v118_create_coach_session_evaluations(self, conn: sqlite3.Connection) -> None:
-        """Migration v118: create `coach_session_evaluations` (PRH-15).
+    def _migrate_v118_add_user_profile(self, conn: sqlite3.Connection) -> None:
+        """Migration v118: human-player profile — avatar + AI-visible bio.
+
+        Two additive changes:
+
+        1. `user_avatars` — one row per user (keyed by `user_id`; no FK so the
+           cookie-only guest users work just like their guest-owned games). Holds
+           the processed circular icon + square full PNG blobs and a stable
+           opaque `public_id` UUID, which is the only id exposed in the public
+           serve URL `/api/user-avatar/<public_id>` (the raw user_id is never
+           leaked to other players in a multiplayer room).
+
+        2. `user_preferences.bio` — a short free-text self-description the human
+           writes for the AIs to read and riff on (trash talk / commentary).
+           Reuses the existing per-user prefs row; NULL until the user sets it.
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS + PRAGMA-guarded
+        ADD COLUMN).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_avatars (
+                user_id TEXT PRIMARY KEY,
+                public_id TEXT NOT NULL UNIQUE,
+                icon_data BLOB NOT NULL,
+                full_data BLOB NOT NULL,
+                content_type TEXT NOT NULL DEFAULT 'image/png',
+                source TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_avatars_public_id ON user_avatars(public_id)"
+        )
+
+        cursor = conn.execute("PRAGMA table_info(user_preferences)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'bio' not in cols:
+            conn.execute("ALTER TABLE user_preferences ADD COLUMN bio TEXT")
+        logger.info("Migration v118 complete: user_avatars table + user_preferences.bio added")
+
+    def _migrate_v119_add_session_state(self, conn: sqlite3.Connection) -> None:
+        """Migration v119: explicit lifecycle state on `cash_sessions`.
+
+        Two additive columns (see
+        `docs/plans/CASH_MODE_SESSION_LIFECYCLE_HARDENING.md` Tier 3):
+
+        1. `session_state` — the coarse machine-state the sit guard reads:
+           `active` (live or resumable), `paused` (resumable, de-memoized),
+           `abandoning` (teardown in flight), `closed` (settled), `broken`
+           (cleanup couldn't converge). Replaces inferring "is there an
+           active session?" from *"a cash-* games row exists"* — a stale
+           or broken row no longer wedges every new sit. Backfilled from
+           `ended_at`: a finalised row becomes `closed`, everything else
+           stays `active`.
+
+        2. `last_load_error` — stash for the last cold-load failure (error
+           class + timestamp) so production debugging of a wedged session
+           skips log archaeology.
+
+        Non-destructive. Idempotent (PRAGMA-guarded ADD COLUMN). The
+        `NOT NULL DEFAULT 'active'` on session_state is applied via the
+        column default so existing rows get a value, then the backfill
+        corrects the closed ones.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_sessions)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'session_state' not in cols:
+            conn.execute(
+                "ALTER TABLE cash_sessions ADD COLUMN session_state "
+                "TEXT NOT NULL DEFAULT 'active'"
+            )
+            # Backfill: an already-finalised session is closed, not active.
+            conn.execute(
+                "UPDATE cash_sessions SET session_state = 'closed' " "WHERE ended_at IS NOT NULL"
+            )
+        if 'last_load_error' not in cols:
+            conn.execute("ALTER TABLE cash_sessions ADD COLUMN last_load_error TEXT")
+        # Partial index for the hot "does this owner have a blocking
+        # session?" lookup — only active/paused rows can block a new sit.
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_blocking
+                ON cash_sessions(owner_id)
+                WHERE session_state IN ('active', 'paused', 'abandoning')
+            """
+        )
+        logger.info("Migration v119 complete: cash_sessions.session_state + last_load_error added")
+
+    def _migrate_v120_create_cash_session_events(self, conn: sqlite3.Connection) -> None:
+        """Migration v120: persisted cash-session lifecycle telemetry.
+
+        One row per lifecycle transition (`started`, `resumed`,
+        `left_clean`, `left_ghost`, `swept`, `broken`, ...). Distinct from
+        `cash_mode/activity.py`'s in-memory ring buffer, which is the
+        cosmetic player-facing world ticker and isn't persisted. This
+        table backs ops queries ("orphans swept per day?") and the planned
+        admin orphan-counter widget (Tier 4.3).
+
+        `detail_json` carries event-specific context (closed_status,
+        sweep source, chips, etc.). Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_session_events (
+                event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id  TEXT NOT NULL,
+                owner_id    TEXT,
+                sandbox_id  TEXT,
+                event       TEXT NOT NULL,
+                detail_json TEXT,
+                created_at  TIMESTAMP NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_session_events_session
+                ON cash_session_events(session_id, created_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_session_events_scope
+                ON cash_session_events(sandbox_id, event, created_at)
+        """)
+        logger.info("Migration v120 complete: cash_session_events table created")
+
+    def _migrate_v121_create_coach_session_evaluations(self, conn: sqlite3.Connection) -> None:
+        """Migration v121: create `coach_session_evaluations` (PRH-15).
 
         Per-game persistence of the coach's per-hand skill evaluations. These
         previously lived only in `game_data['coach_session_memory']` (a
@@ -6084,7 +6315,8 @@ class SchemaManager:
         of `{hand_number: [evaluation, ...]}`; the read path rebuilds a
         `SessionMemory` from it on a memory miss.
 
-        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS).
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS). Renumbered
+        from v118 on the prep-for-main→development merge (version collision).
         """
         conn.execute("""
             CREATE TABLE IF NOT EXISTS coach_session_evaluations (
@@ -6094,4 +6326,4 @@ class SchemaManager:
                 updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        logger.info("Migration v118 complete: coach_session_evaluations table created")
+        logger.info("Migration v121 complete: coach_session_evaluations table created")

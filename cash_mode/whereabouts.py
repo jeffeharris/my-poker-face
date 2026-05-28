@@ -68,6 +68,7 @@ STUCK_NO_BANKROLL = "no_bankroll"  # off-grid but no bankroll row (orphan)
 STUCK_OVERDUE_HUSTLE = "overdue_hustle"  # hustle ends_at passed, not yet processed
 STUCK_OVERDUE_VICE = "overdue_vice"  # vice ends_at passed, not yet processed
 STUCK_STALE_IDLE = "stale_idle"  # idle far longer than expected
+STUCK_SEATED_TOO_LONG = "seated_too_long"  # parked at one table far longer than expected
 
 # NOTE: idle + side-hustle/vice is the NORMAL forced-leave representation —
 # a broke AI stays in the idle pool (reason='forced_leave') while off
@@ -88,6 +89,7 @@ SOFT_FLAGS = frozenset(
         STUCK_OVERDUE_HUSTLE,
         STUCK_OVERDUE_VICE,
         STUCK_STALE_IDLE,
+        STUCK_SEATED_TOO_LONG,
     }
 )
 
@@ -95,6 +97,13 @@ SOFT_FLAGS = frozenset(
 # idle past this is a sign the re-seat path stalled (cooldown stuck, full
 # tables, or a movement bug). Generous default — tune via the param.
 DEFAULT_STALE_IDLE_SECONDS = 30 * 60
+
+# A healthy table churns its seats — winners book and move up, losers
+# rotate out. An AI parked at one table past this is a soft "watch": often
+# a hoarding winner the rotation/economy isn't recycling (its off-table
+# wealth never re-enters the idle pool where vice can reach it). Generous
+# default so normal grinding sessions don't trip it; tune via the param.
+DEFAULT_SEATED_TOO_LONG_SECONDS = 3 * 60 * 60
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -105,6 +114,16 @@ def _seconds_between(later: datetime, earlier: Optional[datetime]) -> Optional[i
     if earlier is None:
         return None
     return int((later - earlier).total_seconds())
+
+
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    """Best-effort ISO-8601 → datetime; None on absent/malformed input."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _idle_recharge_fraction(
@@ -170,6 +189,9 @@ def _seat_location(table: Any, seat_index: int, slot: Dict[str, Any]) -> Dict[st
         "table_type": getattr(table, "table_type", "lobby"),
         "seat_index": seat_index,
         "chips_on_table": int(slot.get("chips", 0)),
+        # When this AI sat at THIS table (ISO; stamped by save_table).
+        # Absent on legacy rows saved before the feature shipped.
+        "seated_at": slot.get("seated_at"),
     }
 
 
@@ -185,6 +207,7 @@ def build_whereabouts(
     bankroll_repo: Any,
     personality_repo: Any,
     stale_idle_seconds: int = DEFAULT_STALE_IDLE_SECONDS,
+    seated_too_long_seconds: int = DEFAULT_SEATED_TOO_LONG_SECONDS,
 ) -> Dict[str, Any]:
     """Assemble the per-personality whereabouts list for one sandbox.
 
@@ -356,6 +379,14 @@ def build_whereabouts(
             record["stake_label"] = loc["stake_label"]
             record["seat_index"] = loc["seat_index"]
             record["chips_on_table"] = loc["chips_on_table"]
+            # How long this AI has been parked at the current table. None
+            # on legacy seats saved before seated_at existed. Past the
+            # threshold it's a soft "watch" — usually a hoarding winner the
+            # rotation isn't recycling.
+            record["seconds_in_state"] = _seconds_between(now, _parse_iso(loc.get("seated_at")))
+            age = record["seconds_in_state"]
+            if age is not None and age > seated_too_long_seconds:
+                flags.append(STUCK_SEATED_TOO_LONG)
 
         if status == STATUS_IDLE:
             entry = idle[pid]

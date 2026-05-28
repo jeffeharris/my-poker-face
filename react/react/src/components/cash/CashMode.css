@@ -257,6 +257,48 @@
   opacity: 0.7;
 }
 
+.cash-entry__resume-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.cash-entry__resume-age {
+  opacity: 0.7;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+
+.cash-entry__resume-row .cash-entry__resume {
+  flex: 1;
+}
+
+.cash-entry__end-session {
+  flex: 0 0 auto;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  color: #fca5a5;
+  border: 1px solid rgba(252, 165, 165, 0.4);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.cash-entry__end-session:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(252, 165, 165, 0.7);
+}
+
+.cash-entry__end-session:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cash-entry__sit-button {
   padding: 0.875rem 1.5rem;
   background: #4ade80;
@@ -842,49 +884,91 @@
   filter: drop-shadow(0 0 4px rgba(252, 211, 77, 0.4));
 }
 
-/* Colour-code event types. The chip events (big_win/big_loss) get
-   the brightest colors since they're the most narratively
-   interesting — "Napoleon won $1200 off Bezos" should pop. Joins
-   are a calm cool, leaves a warm amber, losses a red, wins a
-   bright gold. */
-.lobby-ticker__item--leave .lobby-ticker__dot {
-  background: #ffd87d;
+/* Colour-code event types. Default icon colour is gold (#fcd34d) with a
+   gold glow (see .lobby-ticker__icon) — wins and payoffs ride that as the
+   "chips moved in your favour / good economic act" hue. Everything else
+   overrides below (and clears the gold glow) so the feed isn't a wall of
+   gold. Low-signal room movement (join/leave) stays a recessive dot. */
+
+/* Chip drama — the headline beats. */
+.lobby-ticker__item--big_loss .lobby-ticker__icon {
+  color: #f87171;
+  filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.4));
 }
-.lobby-ticker__item--join .lobby-ticker__dot {
-  background: #4ade80;
+.lobby-ticker__item--all_in .lobby-ticker__icon {
+  color: #fbbf24;
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
 }
-.lobby-ticker__item--big_win .lobby-ticker__dot {
-  background: #fcd34d;
-  box-shadow: 0 0 6px rgba(252, 211, 77, 0.5);
-}
-.lobby-ticker__item--big_loss .lobby-ticker__dot {
-  background: #f87171;
-}
-.lobby-ticker__item--ai_stake .lobby-ticker__icon {
-  color: #b9e0f5;
-}
-.lobby-ticker__item--ai_default .lobby-ticker__dot {
-  background: #d66e6e;
-}
-.lobby-ticker__item--ai_default .lobby-ticker__icon {
-  color: #d66e6e;
-}
-/* Phase 4.5 — AI-initiated carry resolution. Payoffs ride the same
-   gold as wins (positive economic act); forgiveness is a softer
-   green; explicit defaults use the red ai_default tint above
-   already. */
-.lobby-ticker__item--ai_payoff .lobby-ticker__icon {
-  color: #fcd34d;
-}
-.lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
-  color: #86efac;
+.lobby-ticker__item--bust .lobby-ticker__icon {
+  color: #b45a5a;
+  filter: none;
 }
 /* Last stand — a seat with its whole bankroll on the line. Burning
-   orange so the "go target them" signal pops against the calmer
-   join/leave/stake tints. */
+   orange so the "go target them" signal pops. */
 .lobby-ticker__item--last_stand .lobby-ticker__icon {
   color: #fb923c;
   filter: drop-shadow(0 0 4px rgba(251, 146, 60, 0.5));
+}
+
+/* AI economy (backing system). Stake = a loan extended (cool blue);
+   payoff rides the default gold; default = tab burned (red); forgiven =
+   debt written off (green); a request directed at the human gets a warm
+   amber so it reads as "needs your attention". */
+.lobby-ticker__item--ai_stake .lobby-ticker__icon {
+  color: #b9e0f5;
+  filter: none;
+}
+.lobby-ticker__item--ai_default .lobby-ticker__icon {
+  color: #d66e6e;
+  filter: none;
+}
+.lobby-ticker__item--ai_forgiven .lobby-ticker__icon {
+  color: #86efac;
+  filter: none;
+}
+.lobby-ticker__item--ai_requests_forgiveness .lobby-ticker__icon {
+  color: #ffd87d;
+  filter: none;
+}
+
+/* Off-grid — vice (violet indulgence) and hustle (teal grind) each get
+   their own hue; the shared "back" door is a calm dim grey. */
+.lobby-ticker__item--vice_start .lobby-ticker__icon {
+  color: #c4b5fd;
+  filter: none;
+}
+.lobby-ticker__item--hustle_start .lobby-ticker__icon {
+  color: #5eead4;
+  filter: none;
+}
+.lobby-ticker__item--vice_end .lobby-ticker__icon,
+.lobby-ticker__item--hustle_end .lobby-ticker__icon {
+  color: #9ca3af;
+  filter: none;
+}
+
+/* Whales — arrival is the pull signal (bright cyan gem); departure is the
+   quiet provisioning recall, so just a dim cyan dot. */
+.lobby-ticker__item--whale_arrival .lobby-ticker__icon {
+  color: #67e8f9;
+  filter: drop-shadow(0 0 4px rgba(103, 232, 249, 0.5));
+}
+.lobby-ticker__item--whale_departure .lobby-ticker__dot {
+  background: rgba(103, 232, 249, 0.4);
+}
+
+/* Meta / room movement — low-signal, recessive. burst_summary is an
+   aggregate, join/leave are noise (may be follow-filtered later), so they
+   stay muted. */
+.lobby-ticker__item--burst_summary .lobby-ticker__icon {
+  color: #9ca3af;
+  filter: none;
+}
+.lobby-ticker__item--join .lobby-ticker__dot {
+  background: rgba(74, 222, 128, 0.45);
+}
+.lobby-ticker__item--leave .lobby-ticker__dot {
+  background: rgba(255, 216, 125, 0.4);
 }
 
 .lobby-ticker__message {

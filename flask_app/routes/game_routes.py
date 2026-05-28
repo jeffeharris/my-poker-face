@@ -43,25 +43,8 @@ from poker.prompt_config import PromptConfig
 from poker.tournament_tracker import TournamentTracker
 from poker.utils import get_celebrities
 
-from .. import config
-from ..extensions import (
-    auth_manager,
-    capture_label_repo,
-    coach_repo,
-    decision_analysis_repo,
-    game_repo,
-    guest_tracking_repo,
-    hand_history_repo,
-    limiter,
-    llm_repo,
-    persistence_db_path,
-    personality_repo,
-    prompt_preset_repo,
-    relationship_repo,
-    socketio,
-    tournament_repo,
-    user_repo,
-)
+from .. import config, extensions
+from ..extensions import limiter, socketio
 from ..game_adapter import StateMachineAdapter
 from ..handlers.avatar_handler import start_background_avatar_generation
 from ..handlers.chat_relationship import dispatch_chat_relationship_event
@@ -113,7 +96,7 @@ def _sync_cached_owner_from_db(game_id: str, current_game_data: dict, owner_info
 
 def _authorize_game_access(game_id: str, current_game_data: dict = None):
     """Authorize access to a game using owner-or-admin checks."""
-    current_user = auth_manager.get_current_user() if auth_manager else None
+    current_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     if not current_user or not current_user.get('id'):
         return (
             None,
@@ -133,7 +116,7 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
     owner_info = None
 
     if owner_id is None:
-        owner_info = game_repo.get_game_owner_info(game_id)
+        owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             game_exists = True
             owner_id = owner_info.get('owner_id')
@@ -146,7 +129,7 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
         # Cached owner data can be stale after guest->user ownership transfer.
         # Re-check persistence before denying access.
         if owner_info is None:
-            owner_info = game_repo.get_game_owner_info(game_id)
+            owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             owner_id = owner_info.get('owner_id')
             _sync_cached_owner_from_db(game_id, current_game_data, owner_info)
@@ -167,10 +150,10 @@ def _emit_reload_if_persisted(game_id: str) -> None:
     any failure just degrades to the prior silent no-op.
     """
     try:
-        owner_info = game_repo.get_game_owner_info(game_id)
+        owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is None:
             return  # truly gone — nothing to reload
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         user_id = user.get('id') if user else None
         if user_id and (user_id == owner_info.get('owner_id') or _is_admin(user_id)):
             emit('reload_required', {'game_id': game_id, 'code': 'RELOAD_REQUIRED'})
@@ -199,7 +182,7 @@ def load_game_mode_preset(game_mode: str) -> PromptConfig:
         logger.warning("Game mode 'competitive' is deprecated; mapping to 'pro'.")
         game_mode = 'pro'
 
-    preset = prompt_preset_repo.get_prompt_preset_by_name(game_mode)
+    preset = extensions.prompt_preset_repo.get_prompt_preset_by_name(game_mode)
     if preset:
         prompt_config = preset.get('prompt_config')
         if prompt_config:
@@ -339,7 +322,7 @@ def analyze_player_decision(
                     player_name=player_name,
                 )
 
-        decision_analysis_repo.save_decision_analysis(analysis)
+        extensions.decision_analysis_repo.save_decision_analysis(analysis)
         equity_str = f"{analysis.equity:.2f}" if analysis.equity is not None else "N/A"
         logger.debug(
             f"[DECISION_ANALYSIS] {player_name}: {analysis.decision_quality} "
@@ -394,7 +377,7 @@ def _evaluate_coach_progression(
             ratio = amount / pot_total if pot_total > 0 else 0
             coaching_data = {**coaching_data, 'bet_to_pot_ratio': ratio}
 
-        service = CoachProgressionService(coach_repo)
+        service = CoachProgressionService(extensions.coach_repo)
         player_state = service.get_or_initialize_player(user_id)
 
         # Get range targets from player profile
@@ -421,7 +404,7 @@ def _evaluate_coach_progression(
                 # PRH-15: restore persisted history on a memory miss (cold-load /
                 # restart) instead of starting blank — otherwise the first
                 # post-restart eval would overwrite the saved blob with one row.
-                session_memory = restore_session_memory(game_id, game_data, coach_repo)
+                session_memory = restore_session_memory(game_id, game_data, extensions.coach_repo)
 
                 memory_manager = game_data.get('memory_manager')
                 if memory_manager and hasattr(memory_manager, 'hand_recorder'):
@@ -439,7 +422,7 @@ def _evaluate_coach_progression(
                 # history survives a restart / TTL-eviction. Best-effort —
                 # a persistence hiccup must never break the action path.
                 try:
-                    coach_repo.save_session_evaluations(
+                    extensions.coach_repo.save_session_evaluations(
                         game_id, user_id, session_memory.to_evaluations_json()
                     )
                 except Exception as persist_err:
@@ -463,16 +446,16 @@ def generate_game_id() -> str:
 @game_bp.route('/api/usage-stats')
 def get_usage_stats():
     """Get guest usage stats (hands played, limits)."""
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
     guest = is_guest(current_user) if current_user else True
 
     hands_played = 0
     if guest:
         # PRH-26: resolve via the signed-cookie / IP-derived path (same as the
         # quota writer) so a forged cookie can't report a fresh 0-hand bucket.
-        tracking_id = auth_manager.resolve_guest_tracking_id() if auth_manager else None
+        tracking_id = extensions.auth_manager.resolve_guest_tracking_id() if extensions.auth_manager else None
         if tracking_id:
-            hands_played = guest_tracking_repo.get_hands_played(tracking_id)
+            hands_played = extensions.guest_tracking_repo.get_hands_played(tracking_id)
 
     hands_limit_reached = guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
     # PRH-27: whether free-text chat is sign-in-gated for this user. Lets the
@@ -496,7 +479,7 @@ def get_usage_stats():
 @game_bp.route('/api/games')
 def list_games():
     """List games for the current user."""
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
 
     try:
         limit = int(request.args.get('limit', 20))
@@ -507,7 +490,7 @@ def list_games():
     offset = max(0, offset)
 
     if current_user:
-        saved_games = game_repo.list_games(
+        saved_games = extensions.game_repo.list_games(
             owner_id=current_user.get('id'), limit=limit, offset=offset
         )
     else:
@@ -606,28 +589,28 @@ def api_game_state(game_id):
             current_game_data = game_state_service.get_game(game_id)
             if current_game_data is None:
                 try:
-                    owner_info = game_repo.get_game_owner_info(game_id) or {}
+                    owner_info = extensions.game_repo.get_game_owner_info(game_id) or {}
                     owner_id = owner_info.get('owner_id')
                     owner_name = owner_info.get('owner_name')
 
-                    base_state_machine = game_repo.load_game(game_id)
+                    base_state_machine = extensions.game_repo.load_game(game_id)
                     if base_state_machine:
                         state_machine = StateMachineAdapter(base_state_machine)
                         # Load per-player LLM configs for proper provider restoration
-                        llm_configs = game_repo.load_llm_configs(game_id) or {}
+                        llm_configs = extensions.game_repo.load_llm_configs(game_id) or {}
                         ai_controllers = restore_ai_controllers(
                             game_id,
                             state_machine,
-                            game_repo,
+                            extensions.game_repo,
                             owner_id=owner_id,
                             player_llm_configs=llm_configs.get('player_llm_configs'),
                             default_llm_config=llm_configs.get('default_llm_config'),
-                            capture_label_repo=capture_label_repo,
-                            decision_analysis_repo=decision_analysis_repo,
+                            capture_label_repo=extensions.capture_label_repo,
+                            decision_analysis_repo=extensions.decision_analysis_repo,
                             bot_types=llm_configs.get('bot_types'),
                             ai_chat=llm_configs.get('ai_chat', True),
                         )
-                        db_messages = game_repo.load_messages(game_id)
+                        db_messages = extensions.game_repo.load_messages(game_id)
 
                         # Wire pressure_stats to the DB so past events are loaded and
                         # new events persist — matches the new-game route. Without
@@ -677,14 +660,14 @@ def api_game_state(game_id):
                                 )
 
                         memory_manager = AIMemoryManager(
-                            game_id, persistence_db_path, owner_id=owner_id
+                            game_id, extensions.persistence_db_path, owner_id=owner_id
                         )
                         memory_manager.set_hand_history_repo(
-                            hand_history_repo
+                            extensions.hand_history_repo
                         )  # Enable hand history saving
 
                         # Restore hand count from database
-                        restored_hand_count = hand_history_repo.get_hand_count(game_id)
+                        restored_hand_count = extensions.hand_history_repo.get_hand_count(game_id)
                         if restored_hand_count > 0:
                             memory_manager.hand_count = restored_hand_count
                             logger.info(
@@ -697,7 +680,7 @@ def api_game_state(game_id):
                         # old OPM (relationship_repo, etc.) must be
                         # reapplied AFTER this — see set_relationship_repo
                         # below.
-                        saved_opponent_models = game_repo.load_opponent_models(game_id)
+                        saved_opponent_models = extensions.game_repo.load_opponent_models(game_id)
                         if saved_opponent_models:
                             memory_manager.opponent_model_manager = OpponentModelManager.from_dict(
                                 saved_opponent_models
@@ -796,7 +779,7 @@ def api_game_state(game_id):
                                     )
                         if not suppress_for_casino:
                             memory_manager.set_relationship_repo(
-                                relationship_repo,
+                                extensions.relationship_repo,
                                 cash_mode=is_cash_game,
                                 sandbox_id=cold_load_sandbox_id,
                             )
@@ -808,7 +791,9 @@ def api_game_state(game_id):
                             # personalities in the DB get a real id; humans
                             # and ad-hoc names get None.
                             try:
-                                pid = personality_repo.resolve_name_to_personality_id(player.name)
+                                pid = extensions.personality_repo.resolve_name_to_personality_id(
+                                    player.name
+                                )
                             except Exception:
                                 pid = None
                             if not player.is_human and player.name in ai_controllers:
@@ -842,17 +827,17 @@ def api_game_state(game_id):
                             deck_seed=state_machine.current_hand_seed,
                         )
 
-                        # Tournament tracker: tournament games ONLY. Cash games
-                        # have no tracker — the warm cash builder
-                        # (cash_routes.py) omits the key, and `handle_eliminations`
-                        # / `check_tournament_complete` rely on its absence to
-                        # no-op. A cold-loaded cash game given a tracker would
-                        # misroute the next human bust to a tournament "Nth place"
-                        # GAME_OVER instead of the rebuy modal — and persist the
-                        # bad tracker (PRH-4). Build it only for tournaments.
+                        # Tournament tracker drives the elimination / placement
+                        # flow. Cash games must NOT have one (PRH-4):
+                        # handle_eliminations() keys off its mere presence, so a
+                        # stray tracker reroutes a cash bust into the tournament
+                        # "Nth place" screen instead of the rebuy/sponsor modal.
+                        # New cash games (/api/cash/start) omit it; the cold-load
+                        # path used to rebuild it for everyone, which is the bug.
                         tournament_tracker = None
                         if not is_cash_game:
-                            tracker_data = game_repo.load_tournament_tracker(game_id)
+                            # Try to load tournament tracker from database, or create new one
+                            tracker_data = extensions.game_repo.load_tournament_tracker(game_id)
                             if tracker_data:
                                 tournament_tracker = TournamentTracker.from_dict(tracker_data)
                                 logger.info(
@@ -928,8 +913,10 @@ def api_game_state(game_id):
                                 if player.is_human:
                                     continue
                                 try:
-                                    pid = personality_repo.resolve_name_to_personality_id(
-                                        player.name
+                                    pid = (
+                                        extensions.personality_repo.resolve_name_to_personality_id(
+                                            player.name
+                                        )
                                     )
                                 except Exception:
                                     pid = None
@@ -1007,7 +994,7 @@ def api_game_state(game_id):
                         # — usually the showdown completes and a new hand
                         # begins. Re-saves so the recovered state is durable.
                         if recover_stuck_runout(state_machine):
-                            game_repo.save_game(
+                            extensions.game_repo.save_game(
                                 game_id, state_machine._state_machine, owner_id, owner_name
                             )
 
@@ -1035,6 +1022,24 @@ def api_game_state(game_id):
                         return jsonify({'error': 'Game not found'}), 404
                 except Exception as e:
                     logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
+                    # Tier 3 (3.4): stamp the failure on the cash session so a
+                    # wedged session is debuggable without log archaeology.
+                    # Best-effort; never let telemetry mask the original 500.
+                    if game_id.startswith("cash-"):
+                        try:
+                            from datetime import datetime as _dt
+
+                            from flask_app.extensions import (
+                                cash_session_repo as _csr,
+                            )
+
+                            if _csr is not None:
+                                _csr.set_last_load_error(
+                                    game_id,
+                                    f"{type(e).__name__}: {e} @ {_dt.utcnow().isoformat()}",
+                                )
+                        except Exception:
+                            logger.debug("[LOAD] last_load_error stamp failed for %s", game_id)
                     return jsonify(
                         {
                             'error': 'Failed to load game from database',
@@ -1148,7 +1153,7 @@ def get_model_cost_tiers() -> Dict[str, Dict[str, str]]:
     Returns:
         Dict mapping provider -> model -> tier string
     """
-    return llm_repo.get_model_cost_tiers()
+    return extensions.llm_repo.get_model_cost_tiers()
 
 
 @game_bp.route('/api/user-models', methods=['GET'])
@@ -1304,7 +1309,7 @@ def _get_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    return llm_repo.get_enabled_models_map()
+    return extensions.llm_repo.get_enabled_models_map()
 
 
 def _get_system_enabled_models_map():
@@ -1318,7 +1323,7 @@ def _get_system_enabled_models_map():
 
     Returns empty dict if enabled_models table doesn't exist yet.
     """
-    return llm_repo.get_system_enabled_models_map()
+    return extensions.llm_repo.get_system_enabled_models_map()
 
 
 def _get_model_capabilities_map():
@@ -1330,7 +1335,7 @@ def _get_model_capabilities_map():
     Returns:
         Dict mapping (provider, model) to dict of capability flags
     """
-    return llm_repo.get_model_capabilities_map()
+    return extensions.llm_repo.get_model_capabilities_map()
 
 
 def _guest_safe_bot_types(bot_types: dict, enforce_guest: bool) -> dict:
@@ -1352,7 +1357,7 @@ def api_new_game():
     """Create a new game and return the game ID."""
     data = request.json or {}
 
-    current_user = auth_manager.get_current_user() if auth_manager else None
+    current_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     if not current_user or not current_user.get('id'):
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
@@ -1360,7 +1365,7 @@ def api_new_game():
     owner_id = current_user.get('id')
     owner_name = current_user.get('name')
 
-    game_count = user_repo.count_user_games(owner_id)
+    game_count = extensions.user_repo.count_user_games(owner_id)
 
     # Use guest-specific limits if applicable
     if is_guest(current_user):
@@ -1375,7 +1380,7 @@ def api_new_game():
             ), 400
 
     # Prevent duplicate game creation from rapid clicks
-    last_created = user_repo.get_last_game_creation_time(owner_id)
+    last_created = extensions.user_repo.get_last_game_creation_time(owner_id)
     if last_created is not None and (time.time() - last_created) < 3:
         return jsonify({'error': 'Please wait a moment before creating another game.'}), 429
 
@@ -1567,8 +1572,8 @@ def api_new_game():
                     llm_config=player_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                     expression_enabled=ai_chat,
                 )
             elif bot_type == 'baseline_solver':
@@ -1580,8 +1585,8 @@ def api_new_game():
                     llm_config=player_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                     baseline=True,
                 )
             elif bot_type in ('casebot', 'gto_lite'):
@@ -1599,8 +1604,8 @@ def api_new_game():
                     llm_config=player_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                 )
             elif bot_type == 'chaos':
                 # Full LLM, full personality — no bounded options
@@ -1613,8 +1618,8 @@ def api_new_game():
                     prompt_config=player_prompt_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                 )
             elif bot_type == 'lean':
                 # Minimal LLM prompt, options-bounded — cheap path
@@ -1627,8 +1632,8 @@ def api_new_game():
                     prompt_config=player_prompt_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                 )
             else:
                 # Standard: HybridAIController (full prompt pipeline + bounded options)
@@ -1639,8 +1644,8 @@ def api_new_game():
                     prompt_config=player_prompt_config,
                     game_id=game_id,
                     owner_id=owner_id,
-                    capture_label_repo=capture_label_repo,
-                    decision_analysis_repo=decision_analysis_repo,
+                    capture_label_repo=extensions.capture_label_repo,
+                    decision_analysis_repo=extensions.decision_analysis_repo,
                 )
             ai_controllers[player.name] = new_controller
 
@@ -1650,19 +1655,19 @@ def api_new_game():
     pressure_detector = PressureEventDetector()
     pressure_stats = PressureStatsTracker(game_id, event_repository)
 
-    memory_manager = AIMemoryManager(game_id, persistence_db_path, owner_id=owner_id)
-    memory_manager.set_hand_history_repo(hand_history_repo)  # Enable hand history saving
+    memory_manager = AIMemoryManager(game_id, extensions.persistence_db_path, owner_id=owner_id)
+    memory_manager.set_hand_history_repo(extensions.hand_history_repo)  # Enable hand history saving
     # Phase 3: relationship state populates from hand outcomes.
     # Tournament mode (the only mode today) → cash_mode=False;
     # cash_pair_stats stays empty.
     memory_manager.set_relationship_repo(
-        relationship_repo,
+        extensions.relationship_repo,
         cash_mode=False,
     )
     for player in state_machine.game_state.players:
         # Resolve each player's stable personality_id (None for humans)
         try:
-            pid = personality_repo.resolve_name_to_personality_id(player.name)
+            pid = extensions.personality_repo.resolve_name_to_personality_id(player.name)
         except Exception:
             pid = None
         if not player.is_human:
@@ -1737,7 +1742,7 @@ def api_new_game():
         if not player.is_human:
             saved_bot_types.setdefault(player.name, 'sharp')
 
-    game_repo.save_game(
+    extensions.game_repo.save_game(
         game_id,
         state_machine._state_machine,
         owner_id,
@@ -1749,14 +1754,14 @@ def api_new_game():
             'ai_chat': ai_chat,
         },
     )
-    game_repo.save_tournament_tracker(game_id, tournament_tracker)
-    game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    extensions.game_repo.save_tournament_tracker(game_id, tournament_tracker)
+    extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
     if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names, owner_id=owner_id)
 
     # Record game creation timestamp to prevent rapid duplicate creation
     if owner_id:
-        user_repo.update_last_game_creation_time(owner_id, time.time())
+        extensions.user_repo.update_last_game_creation_time(owner_id, time.time())
 
     return jsonify({'game_id': game_id})
 
@@ -1800,7 +1805,7 @@ def api_player_action(game_id):
     if current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED:
         tracking_id = current_game_data.get('guest_tracking_id')
         if tracking_id:
-            hands_played = guest_tracking_repo.get_hands_played(tracking_id)
+            hands_played = extensions.guest_tracking_repo.get_hands_played(tracking_id)
             allowed, error_msg = check_guest_hands_limit(current_user, hands_played)
             if not allowed:
                 return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_HANDS'}), 403
@@ -1859,9 +1864,9 @@ def api_player_action(game_id):
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            game_repo.save_opponent_models(
+            extensions.game_repo.save_opponent_models(
                 game_id, current_game_data['memory_manager'].get_opponent_model_manager()
             )
 
@@ -2062,7 +2067,7 @@ def delete_game(game_id):
 
     try:
         game_state_service.delete_game(game_id)
-        game_repo.delete_game(game_id)
+        extensions.game_repo.delete_game(game_id)
 
         return jsonify({'message': 'Game deleted successfully'}), 200
     except Exception as e:
@@ -2081,7 +2086,7 @@ def end_game(game_id):
     game_state_service.delete_game(game_id)
 
     try:
-        game_repo.delete_game(game_id)
+        extensions.game_repo.delete_game(game_id)
     except Exception as e:
         logger.warning(f"[DELETE] Error deleting game {game_id} from database: {e}")
 
@@ -2124,7 +2129,7 @@ def api_game_llm_configs(game_id):
     if not current_game_data:
         # Try to load from database
         try:
-            llm_configs = game_repo.load_llm_configs(game_id)
+            llm_configs = extensions.game_repo.load_llm_configs(game_id)
             if llm_configs:
                 return jsonify(llm_configs)
             return jsonify({'error': 'Game not found'}), 404
@@ -2181,7 +2186,7 @@ def register_socket_events(sio):
             from flask_app.services import presence
             from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 
-            user = auth_manager.get_current_user() if auth_manager else None
+            user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
             owner_id = user.get('id') if user else None
             if not owner_id:
                 return  # unauthenticated socket — nothing to track
@@ -2214,7 +2219,7 @@ def register_socket_events(sio):
 
         # Verify the current user is the game owner (or an admin —
         # matches the bypass already in send_message and progress_game).
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
         if not user_id or (user_id != owner_id and not _is_admin(user_id)):
@@ -2250,7 +2255,7 @@ def register_socket_events(sio):
             return
 
         # Verify the current user is the game owner
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = current_game_data.get('owner_id')
         if not user or user.get('id') != owner_id:
             logger.debug(
@@ -2262,7 +2267,7 @@ def register_socket_events(sio):
         if user and is_guest(user) and GUEST_LIMITS_ENABLED:
             tracking_id = current_game_data.get('guest_tracking_id')
             if tracking_id:
-                hands_played = guest_tracking_repo.get_hands_played(tracking_id)
+                hands_played = extensions.guest_tracking_repo.get_hands_played(tracking_id)
                 allowed, _ = check_guest_hands_limit(user, hands_played)
                 if not allowed:
                     socketio.emit(
@@ -2335,9 +2340,9 @@ def register_socket_events(sio):
         game_state_service.set_game(game_id, current_game_data)
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
-        game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+        extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
-            game_repo.save_opponent_models(
+            extensions.game_repo.save_opponent_models(
                 game_id, current_game_data['memory_manager'].get_opponent_model_manager()
             )
 
@@ -2368,7 +2373,7 @@ def register_socket_events(sio):
             return
 
         # Verify the current user is the game owner or an admin
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
         if not user_id or (user_id != owner_id and not _is_admin(user_id)):
@@ -2397,7 +2402,7 @@ def register_socket_events(sio):
             return
 
         # Verify the current user is the game owner or an admin
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
         if not user_id or (user_id != owner_id and not _is_admin(user_id)):

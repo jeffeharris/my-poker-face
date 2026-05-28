@@ -6,7 +6,7 @@ from flask import Blueprint, jsonify, request
 
 from poker.authorization import require_permission
 
-from ..extensions import auth_manager, user_repo
+from .. import extensions
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +25,11 @@ def list_users():
         - stats: { total_cost, hands_played, games_completed, last_active }
     """
     try:
-        users = user_repo.get_all_users()
+        users = extensions.user_repo.get_all_users()
 
         # Enrich with stats
         for user in users:
-            user['stats'] = user_repo.get_user_stats(user['id'])
+            user['stats'] = extensions.user_repo.get_user_stats(user['id'])
 
         return jsonify({'success': True, 'users': users})
     except Exception as e:
@@ -56,10 +56,10 @@ def assign_user_group(user_id: str):
             return jsonify({'success': False, 'error': 'Group name is required'}), 400
 
         # Get the current admin user for audit trail
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         assigned_by = current_user.get('id') if current_user else None
 
-        success = user_repo.assign_user_to_group(user_id, group_name, assigned_by)
+        success = extensions.user_repo.assign_user_to_group(user_id, group_name, assigned_by)
 
         if success:
             logger.info(f"User {user_id} assigned to group '{group_name}' by {assigned_by}")
@@ -86,7 +86,7 @@ def remove_user_group(user_id: str, group_name: str):
     """
     try:
         # Get the current admin user for logging
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         current_user_id = current_user.get('id') if current_user else None
 
         # Prevent admin from removing themselves from admin group
@@ -97,13 +97,13 @@ def remove_user_group(user_id: str, group_name: str):
 
         # Prevent removing the last admin from the system
         if group_name == 'admin':
-            admin_count = user_repo.count_users_in_group('admin')
+            admin_count = extensions.user_repo.count_users_in_group('admin')
             if admin_count <= 1:
                 return jsonify(
                     {'success': False, 'error': 'Cannot remove the last admin from the system'}
                 ), 400
 
-        success = user_repo.remove_user_from_group(user_id, group_name)
+        success = extensions.user_repo.remove_user_from_group(user_id, group_name)
 
         if success:
             logger.info(f"User {user_id} removed from group '{group_name}' by {current_user_id}")
@@ -126,7 +126,7 @@ def list_groups():
         - id, name, description, is_system, created_at
     """
     try:
-        groups = user_repo.get_all_groups()
+        groups = extensions.user_repo.get_all_groups()
         return jsonify({'success': True, 'groups': groups})
     except Exception as e:
         logger.error(f"Error listing groups: {e}")

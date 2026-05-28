@@ -41,6 +41,10 @@ interface ShuffleLoadingProps {
   variant?: 'overlay' | 'interhand';
   /** 'fade' (default): opacity fade-out. 'slide': slide off screen to the left. */
   exitStyle?: 'fade' | 'slide';
+  /** Animated trailing dots after the status text. On for loading states
+   *  ("Shuffling…"); off when the message is a finished result like a hand
+   *  winner, which shouldn't read as still-in-progress. Default on. */
+  showDots?: boolean;
 }
 
 /**
@@ -59,6 +63,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   variant = 'overlay',
   exitStyle = 'fade',
   quote,
+  showDots = true,
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
   // Keep component mounted during fade-out
@@ -99,71 +104,90 @@ export const ShuffleLoading = memo(function ShuffleLoading({
       : ' shuffle-loading-fade-out'
     : '';
 
+  // Three always-rendered bands so each component owns reserved space and
+  // content changes (quote length, ticker rows streaming in) can't shift the
+  // others. The 40/20/40 fixed-height grid only kicks in for the `interhand`
+  // variant; the `overlay` variant keeps its content-sized centered column
+  // because the band wrappers fall back to `display: contents` there.
   const content = (
-    <div className={`shuffle-loading-content ${showContent ? 'visible' : ''}`}>
-      {quote && (
-        <div className="shuffle-loading-quote">
-          <p className="shuffle-loading-quote-text">{quote.text}</p>
-          <p className="shuffle-loading-quote-attribution">{quote.attribution}</p>
-        </div>
-      )}
+    <div
+      className={`shuffle-loading-content ${showContent ? 'visible' : ''}${
+        variant === 'interhand' ? ' shuffle-loading-content--bands' : ''
+      }`}
+    >
+      {/* Band 1 — quote (top 40%, centered) */}
+      <div className="shuffle-loading-band shuffle-loading-band--quote">
+        {quote && (
+          <div className="shuffle-loading-quote">
+            <p className="shuffle-loading-quote-text">{quote.text}</p>
+            <p className="shuffle-loading-quote-attribution">{quote.attribution}</p>
+          </div>
+        )}
+      </div>
 
-      <div className="shuffle-loading-deck">
-        {SHUFFLE_CARDS.map((card) => (
-          <div
-            key={card.id}
-            className="shuffle-loading-card"
-            style={
-              {
-                '--card-delay': `${card.delay}s`,
-                '--card-offset-x': `${card.offsetX}px`,
-                '--card-rotation': `${card.rotation}deg`,
-              } as React.CSSProperties
-            }
-          >
-            <div className="shuffle-loading-card-back">
-              <div className="shuffle-loading-diamond" />
-              <div className="shuffle-loading-diamond secondary" />
+      {/* Band 2 — shuffle deck + status (middle 20%) */}
+      <div className="shuffle-loading-band shuffle-loading-band--deck">
+        <div className="shuffle-loading-deck">
+          {SHUFFLE_CARDS.map((card) => (
+            <div
+              key={card.id}
+              className="shuffle-loading-card"
+              style={
+                {
+                  '--card-delay': `${card.delay}s`,
+                  '--card-offset-x': `${card.offsetX}px`,
+                  '--card-rotation': `${card.rotation}deg`,
+                } as React.CSSProperties
+              }
+            >
+              <div className="shuffle-loading-card-back">
+                <div className="shuffle-loading-diamond" />
+                <div className="shuffle-loading-diamond secondary" />
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        <div className="shuffle-loading-status">
+          <span className="shuffle-loading-text">{message}</span>
+          {showDots && (
+            <div className="shuffle-loading-dots">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+            </div>
+          )}
+        </div>
+
+        {submessage && <p className="shuffle-loading-submessage">{submessage}</p>}
       </div>
 
-      <div className="shuffle-loading-status">
-        <span className="shuffle-loading-text">{message}</span>
-        <div className="shuffle-loading-dots">
-          <span className="dot" />
-          <span className="dot" />
-          <span className="dot" />
-        </div>
-      </div>
-
-      {submessage && <p className="shuffle-loading-submessage">{submessage}</p>}
-
-      {/* Cash/career mode: a "meanwhile, elsewhere" world ticker replaces the
-          hand-number badge. Falls through to the hand badge when no ticker is
-          supplied (tournament mode). */}
-      {ticker && ticker.length > 0 ? (
-        <div className="shuffle-loading-ticker" aria-label="Meanwhile, around the room">
-          <span className="shuffle-loading-ticker-label">Meanwhile…</span>
-          <ul className="shuffle-loading-ticker-list">
-            {ticker.map((line) => (
-              <li key={line.key} className="shuffle-loading-ticker-item">
-                {line.icon}
-                <span className="shuffle-loading-ticker-message">{line.message}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        handNumber != null &&
-        handNumber > 0 && (
-          <div className="shuffle-loading-badge">
-            <span className="shuffle-loading-badge-label">Next Hand</span>
-            <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
+      {/* Band 3 — recent activity (bottom 40%). Cash/career mode: a "meanwhile,
+          elsewhere" world ticker. Tournament mode falls through to the
+          hand-number badge. */}
+      <div className="shuffle-loading-band shuffle-loading-band--activity">
+        {ticker && ticker.length > 0 ? (
+          <div className="shuffle-loading-ticker" aria-label="Meanwhile, around the room">
+            <span className="shuffle-loading-ticker-label">Meanwhile…</span>
+            <ul className="shuffle-loading-ticker-list">
+              {ticker.map((line) => (
+                <li key={line.key} className="shuffle-loading-ticker-item">
+                  {line.icon}
+                  <span className="shuffle-loading-ticker-message">{line.message}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        )
-      )}
+        ) : (
+          handNumber != null &&
+          handNumber > 0 && (
+            <div className="shuffle-loading-badge">
+              <span className="shuffle-loading-badge-label">Next Hand</span>
+              <span className="shuffle-loading-badge-number">#{handNumber + 1}</span>
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 

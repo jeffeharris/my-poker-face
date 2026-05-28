@@ -16,7 +16,11 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from cash_mode.cash_sessions import CashSession
+from cash_mode.cash_sessions import (
+    SESSION_STATE_ACTIVE,
+    SESSION_STATE_CLOSED,
+    CashSession,
+)
 from poker.repositories.base_repository import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -43,6 +47,17 @@ def _parse_timestamp(value) -> Optional[datetime]:
 
 def _row_to_session(row) -> CashSession:
     """Hydrate a DB row into a CashSession dataclass."""
+    # `session_state` / `last_load_error` are Tier 3 additions (v119).
+    # Guard the column access so a row read against a pre-v119 schema
+    # (shouldn't happen post-migration, but cheap insurance) degrades to
+    # the dataclass defaults instead of raising.
+    keys = set(row.keys())
+    session_state = (
+        row["session_state"]
+        if "session_state" in keys and row["session_state"] is not None
+        else SESSION_STATE_ACTIVE
+    )
+    last_load_error = row["last_load_error"] if "last_load_error" in keys else None
     return CashSession(
         session_id=row["session_id"],
         owner_id=row["owner_id"],
@@ -75,6 +90,8 @@ def _row_to_session(row) -> CashSession:
             int(row["duration_seconds"]) if row["duration_seconds"] is not None else None
         ),
         closed_status=row["closed_status"],
+        session_state=session_state,
+        last_load_error=last_load_error,
     )
 
 
@@ -100,8 +117,9 @@ class CashSessionRepository(BaseRepository):
                      started_at, ended_at,
                      final_chips_at_table, sponsor_repaid, player_take_home,
                      hands_played, hands_won, biggest_pot_won,
-                     duration_seconds, closed_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     duration_seconds, closed_status,
+                     session_state, last_load_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.session_id,
@@ -125,6 +143,8 @@ class CashSessionRepository(BaseRepository):
                     session.biggest_pot_won,
                     session.duration_seconds,
                     session.closed_status,
+                    session.session_state or SESSION_STATE_ACTIVE,
+                    session.last_load_error,
                 ),
             )
 
@@ -159,6 +179,27 @@ class CashSessionRepository(BaseRepository):
             if not row:
                 return None
             return _row_to_session(row)
+
+    def find_blocking_session_id_for_owner(self, owner_id: str) -> Optional[str]:
+        """The session_id of the owner's blocking (active/paused/abandoning)
+        session, or None. Authoritative source for the sit guard (Codex
+        review #4): a direct, unbounded, state-filtered lookup — unlike a
+        capped `games` scan it can't miss a real session past row N. A
+        `closed`/`broken` row is terminal and never returned. Most-recent
+        wins if two somehow match (the one-session invariant should hold).
+        """
+        from cash_mode.cash_sessions import SESSION_STATES_BLOCKING
+
+        states = sorted(SESSION_STATES_BLOCKING)
+        placeholders = ",".join("?" for _ in states)
+        with self._get_connection() as conn:
+            row = conn.execute(
+                f"SELECT session_id FROM cash_sessions "
+                f"WHERE owner_id = ? AND session_state IN ({placeholders}) "
+                f"ORDER BY started_at DESC LIMIT 1",
+                (owner_id, *states),
+            ).fetchone()
+            return row["session_id"] if row else None
 
     def list_for_owner(
         self,
@@ -217,9 +258,11 @@ class CashSessionRepository(BaseRepository):
         """Stamp end-of-session fields and mark the row closed.
 
         Single UPDATE so the row goes from active → closed atomically.
-        Returns True if a row was updated. Idempotent against a
-        re-leave: the `ended_at IS NULL` guard skips already-finalised
-        rows so a retry doesn't overwrite the first leave's numbers.
+        Also flips `session_state` to `closed` (Tier 3) so the sit guard
+        stops treating it as a blocking session. Returns True if a row
+        was updated. Idempotent against a re-leave: the `ended_at IS NULL`
+        guard skips already-finalised rows so a retry doesn't overwrite
+        the first leave's numbers.
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
@@ -233,7 +276,8 @@ class CashSessionRepository(BaseRepository):
                     hands_won = ?,
                     biggest_pot_won = ?,
                     duration_seconds = ?,
-                    closed_status = ?
+                    closed_status = ?,
+                    session_state = ?
                 WHERE session_id = ? AND ended_at IS NULL
                 """,
                 (
@@ -246,10 +290,177 @@ class CashSessionRepository(BaseRepository):
                     int(biggest_pot_won),
                     int(duration_seconds),
                     closed_status,
+                    SESSION_STATE_CLOSED,
                     session_id,
                 ),
             )
             return cursor.rowcount > 0
+
+    def set_session_state(self, session_id: str, state: str) -> bool:
+        """Set the explicit lifecycle `session_state` (Tier 3).
+
+        Used to mark a session `broken` (cleanup couldn't converge) or
+        `abandoning` (teardown in flight) without going through the full
+        `finalise` (which also stamps end-of-session numbers). Unlike
+        `finalise`, this is NOT gated on `ended_at IS NULL` — marking a
+        row broken must work even after a partial finalise. Returns True
+        if a row was updated.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE cash_sessions SET session_state = ? WHERE session_id = ?",
+                (state, session_id),
+            )
+            return cursor.rowcount > 0
+
+    def set_last_load_error(self, session_id: str, error: Optional[str]) -> bool:
+        """Stash (or clear) the last cold-load failure for a session.
+
+        `error` is a short string (error class + timestamp); pass None to
+        clear it after a successful load. Best-effort debugging aid —
+        callers swallow failures. Returns True if a row was updated.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE cash_sessions SET last_load_error = ? WHERE session_id = ?",
+                (error, session_id),
+            )
+            return cursor.rowcount > 0
+
+    # --- Lifecycle events (Tier 3, v120) -------------------------------
+
+    def record_event(
+        self,
+        session_id: str,
+        event: str,
+        *,
+        owner_id: Optional[str] = None,
+        sandbox_id: Optional[str] = None,
+        detail: Optional[dict] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """Append one lifecycle event to `cash_session_events`.
+
+        Persisted telemetry (started / resumed / left_clean / left_ghost
+        / swept / broken). Distinct from `cash_mode/activity.py`'s
+        in-memory cosmetic ticker. Best-effort: a write failure is logged,
+        never raised — emitting an event must not break a leave or a sweep.
+        """
+        import json as _json
+
+        if now is None:
+            now = datetime.utcnow()
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO cash_session_events
+                        (session_id, owner_id, sandbox_id, event, detail_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        owner_id,
+                        sandbox_id,
+                        event,
+                        _json.dumps(detail) if detail is not None else None,
+                        now.isoformat(),
+                    ),
+                )
+        except Exception as e:
+            logger.warning(
+                "[CASH] cash_session_events write failed for %r/%r: %s",
+                session_id,
+                event,
+                e,
+            )
+
+    def list_events(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        sandbox_id: Optional[str] = None,
+        event: Optional[str] = None,
+        since: Optional[datetime] = None,
+        limit: int = 200,
+    ) -> List[dict]:
+        """Read lifecycle events, newest first, for ops / the admin widget.
+
+        All filters are optional and AND-combined. Returns plain dicts
+        (not a dataclass) since this is a read-only telemetry surface.
+        """
+        clauses = []
+        params: list = []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if sandbox_id is not None:
+            clauses.append("sandbox_id = ?")
+            params.append(sandbox_id)
+        if event is not None:
+            clauses.append("event = ?")
+            params.append(event)
+        if since is not None:
+            clauses.append("created_at >= ?")
+            params.append(since.isoformat())
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(int(limit))
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT session_id, owner_id, sandbox_id, event, detail_json, created_at "
+                f"FROM cash_session_events{where} ORDER BY created_at DESC, event_id DESC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def event_counts(
+        self,
+        *,
+        since: Optional[datetime] = None,
+        sandbox_id: Optional[str] = None,
+    ) -> dict:
+        """Count lifecycle events by type (optionally within a window /
+        sandbox). Backs the admin Session Lifecycle card (Tier 4.3).
+
+        Returns `{event: count}`. SQL GROUP BY so it's accurate over the
+        whole window, not limited like `list_events`.
+        """
+        clauses = []
+        params: list = []
+        if since is not None:
+            clauses.append("created_at >= ?")
+            params.append(since.isoformat())
+        if sandbox_id is not None:
+            clauses.append("sandbox_id = ?")
+            params.append(sandbox_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT event, COUNT(*) AS n FROM cash_session_events{where} GROUP BY event",
+                tuple(params),
+            ).fetchall()
+            return {r["event"]: int(r["n"]) for r in rows}
+
+    def state_counts(self, *, sandbox_id: Optional[str] = None) -> dict:
+        """Count sessions by current `session_state` (optionally scoped).
+
+        Surfaces outstanding `broken` sessions (cleanup that couldn't
+        converge) and live `active`/`paused` ones for the admin card.
+        Returns `{session_state: count}`.
+        """
+        clauses = []
+        params: list = []
+        if sandbox_id is not None:
+            clauses.append("sandbox_id = ?")
+            params.append(sandbox_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT session_state, COUNT(*) AS n FROM cash_sessions{where} "
+                f"GROUP BY session_state",
+                tuple(params),
+            ).fetchall()
+            return {r["session_state"]: int(r["n"]) for r in rows}
 
     def delete(self, session_id: str) -> bool:
         """Remove a row by session_id.

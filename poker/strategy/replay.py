@@ -25,8 +25,7 @@ optional except `base_strategy_probs` and `legal_actions`):
   - deviation_profile_name: str (one of DEVIATION_PROFILES keys)
   - decision_context: dict matching DecisionContext fields
   - aggregated_stats: dict matching AggregatedOpponentStats fields
-  - multiway_cbet_intensity, value_vs_station_intensity_used,
-    steal_pressure_intensity_used: floats
+  - multiway_cbet_intensity, value_vs_station_intensity_used: floats
   - hand_strength: str (HandStrengthClass value, postflop only)
   - effective_stack_bb: float
   - clamp_value: float (L1 cap for exploitation)
@@ -117,7 +116,6 @@ def replay_strategy_pipeline(
     exploitation_strength = float(snapshot.get('exploitation_strength', 1.0))
     multiway_cbet_intensity = float(snapshot.get('multiway_cbet_intensity', 0.0))
     vvs_intensity = float(snapshot.get('value_vs_station_intensity_used', 0.0))
-    steal_intensity = float(snapshot.get('steal_pressure_intensity_used', 0.0))
 
     if stats is not None and dctx is not None:
         offsets = compute_exploitation_offsets(
@@ -129,7 +127,6 @@ def replay_strategy_pipeline(
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity,
-            steal_pressure_intensity=steal_intensity,
             disable_rules=disable_rules,
         )
         if offsets:
