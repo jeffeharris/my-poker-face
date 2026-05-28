@@ -72,6 +72,10 @@ flask_session/
 # Application database
 poker_games.db
 *.db
+# SQLite WAL/SHM/journal sidecars (runtime artifacts)
+*.db-shm
+*.db-wal
+*.db-journal
 
 # Scrapy stuff:
 .scrapy
