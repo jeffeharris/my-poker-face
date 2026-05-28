@@ -905,7 +905,14 @@ def _commit_vice_start(
             sandbox_id=sandbox_id,
         )
 
-    new_chips = max(0, projected - amount)
+    # The floor-protection guard above guarantees projected - amount >=
+    # floor_protection >= 0, so this never goes negative. PRH-16: the old
+    # `max(0, projected - amount)` clamp was mint-shaped — if that guard ever
+    # drifted it would zero the bankroll while the ledger still recorded the
+    # full `amount` destroyed, leaving (amount - projected) chips untracked.
+    # Subtract directly so any future regression surfaces as a negative
+    # bankroll the audit flags, not a silent mint.
+    new_chips = projected - amount
     try:
         bankroll_repo.save_ai_bankroll(
             AIBankrollState(

@@ -27,6 +27,15 @@ class TestGameStateTTLEviction:
         assert "game1" in game_state_service.game_last_access
         assert isinstance(game_state_service.game_last_access["game1"], datetime)
 
+    def test_set_game_stamps_game_id(self):
+        """PRH-9: set_game stamps the game's own id into its data so
+        consumers (e.g. build_cash_mode_payload's active_loan lookup) don't
+        depend on every builder remembering to set it."""
+        data = {"data": "test"}
+        game_state_service.set_game("cash-xyz", data)
+        assert data["game_id"] == "cash-xyz"
+        assert game_state_service.get_game("cash-xyz")["game_id"] == "cash-xyz"
+
     def test_get_game_updates_access_time(self):
         game_state_service.set_game("game1", {"data": "test"})
         old_time = game_state_service.game_last_access["game1"]

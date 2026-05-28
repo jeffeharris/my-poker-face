@@ -103,6 +103,12 @@ def set_game(game_id: str, game_data: dict) -> None:
         game_id: The game identifier
         game_data: The game data dictionary
     """
+    # Stamp the game's own id into its data (PRH-9). Several consumers need
+    # it from the dict alone — e.g. build_cash_mode_payload's active_loan
+    # lookup keys on game_data['game_id'], which no builder set, so staked
+    # players never saw their leave-breakdown panel. Doing it here is the
+    # single point every warm/cold/tournament builder funnels through.
+    game_data['game_id'] = game_id
     games[game_id] = game_data
     game_last_access[game_id] = datetime.now()
 

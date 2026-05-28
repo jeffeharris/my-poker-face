@@ -473,6 +473,150 @@ class TestComputeAudit:
         # Only the cash- game's 5000 counts.
         assert data['actual_totals']['live_session_ai_stacks'] == 5000
 
+    # --- PRH-6: seated human's own seat chips must net to zero ---
+
+    def _human_session(self, owner_id, human_stack, ai_stacks=()):
+        class FakePlayer:
+            def __init__(self, stack, is_human=False):
+                self.stack = stack
+                self.is_human = is_human
+
+        class FakeGameState:
+            players = [FakePlayer(human_stack, is_human=True)] + [
+                FakePlayer(s) for s in ai_stacks
+            ]
+
+        class FakeStateMachine:
+            game_state = FakeGameState()
+
+        return {'cash-h1': {'state_machine': FakeStateMachine(), 'owner_id': owner_id}}
+
+    def test_self_funded_human_seat_counted(self, repos, stake_repo, db_path):
+        """A self-funded seated human (no stake) — full seat counted, so the
+        buy-in debit from player_bankrolls nets to zero (PRH-6)."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        # Human bought in for 800: bankroll 200 left, 800 on the seat.
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(player_id='bob', chips=200, starting_bankroll=1000)
+        )
+        games = self._human_session('bob', human_stack=800)
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            list_game_ids_fn=lambda: list(games),
+            get_game_fn=lambda gid: games.get(gid),
+            now=datetime(2026, 5, 18, 12, 0, 0),
+        )
+        assert data['actual_totals']['live_session_human_stacks'] == 800
+        # bankroll(200) + seat(800) = 1000; nothing else. No false drift.
+        assert data['actual_totals']['actual_outstanding'] == 1000
+        assert data['drift_reliable'] is True
+
+    def test_staked_human_seat_not_double_counted(self, repos, stake_repo, db_path):
+        """A staked human's borrowed chips are counted once (via
+        active_loans_principal); the live-human term subtracts the borrowed
+        portion so they don't double-count (PRH-6)."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        anchor = datetime(2026, 5, 18, 12, 0, 0)
+        stake_repo.create_stake(
+            Stake(
+                stake_id='stake-bob-1',
+                session_id='cash-h1',
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                borrower_id='bob',
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_HOUSE,
+                principal=500,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.0,
+                status=STAKE_STATUS_ACTIVE,
+                carry_amount=0,
+                stake_tier='$2',
+                created_at=anchor,
+            )
+        )
+        # Human sits on exactly the borrowed 500 (no winnings yet).
+        games = self._human_session('bob', human_stack=500)
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            list_game_ids_fn=lambda: list(games),
+            get_game_fn=lambda gid: games.get(gid),
+            now=anchor,
+        )
+        # Borrowed 500 lives in active_loans_principal; the live-human term
+        # nets to 0 (seat 500 − borrowed 500) → counted exactly once.
+        assert data['actual_totals']['active_loans_principal'] == 500
+        assert data['actual_totals']['live_session_human_stacks'] == 0
+
+    def test_staked_human_winnings_counted_above_principal(self, repos, stake_repo, db_path):
+        """Winnings beyond the borrowed principal land in the live-human term
+        (not active_loans_principal), so the full seat is counted once."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+        anchor = datetime(2026, 5, 18, 12, 0, 0)
+        stake_repo.create_stake(
+            Stake(
+                stake_id='stake-bob-2',
+                session_id='cash-h1',
+                staker_id=None,
+                staker_kind=STAKER_KIND_HOUSE,
+                borrower_id='bob',
+                borrower_kind=BORROWER_KIND_HUMAN,
+                format=STAKE_FORMAT_HOUSE,
+                principal=500,
+                match_amount=0,
+                origination_fee=0,
+                cut=0.0,
+                status=STAKE_STATUS_ACTIVE,
+                carry_amount=0,
+                stake_tier='$2',
+                created_at=anchor,
+            )
+        )
+        # Human won 200 on top of the borrowed 500 → seat 700.
+        games = self._human_session('bob', human_stack=700)
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            list_game_ids_fn=lambda: list(games),
+            get_game_fn=lambda gid: games.get(gid),
+            now=anchor,
+        )
+        assert data['actual_totals']['active_loans_principal'] == 500
+        assert data['actual_totals']['live_session_human_stacks'] == 200  # 700 − 500
+
+    def test_drift_unreliable_when_live_read_errors(self, repos, stake_repo, db_path):
+        """A live-session read failure flags drift as unreliable so non-zero
+        drift isn't treated as actionable on degraded inputs (PRH-6 gating)."""
+        bankroll_repo, cash_table_repo, ledger_repo = repos
+
+        def boom():
+            raise RuntimeError("exploded")
+
+        data = compute_audit(
+            ledger_repo=ledger_repo,
+            bankroll_repo=bankroll_repo,
+            cash_table_repo=cash_table_repo,
+            stake_repo=stake_repo,
+            db_path=db_path,
+            list_game_ids_fn=boom,
+            get_game_fn=lambda gid: None,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+        )
+        assert data['drift_reliable'] is False
+        assert 'live_session_human_stacks' in data['errors']
+
 
 class TestPerSandboxAudit:
     """Phase 2.5 v103: `compute_audit(sandbox_id=...)` scopes the

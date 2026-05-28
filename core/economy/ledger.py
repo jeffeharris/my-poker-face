@@ -234,10 +234,19 @@ def record(
             sandbox_id=sandbox_id,
         )
     except Exception as e:
-        logger.warning(
-            "chip ledger: record() failed (reason=%s amount=%d): %s",
+        # ERROR, not warning (PRH-11): validation has already passed, so this
+        # is a real DB-write failure on a row a chip-moving caller expected to
+        # land. Callers write the bankroll first, then this best-effort ledger
+        # row — so a failure here means the chip move likely committed without
+        # a ledger entry = conservation drift. Surface it loudly for alerting;
+        # the audit's `drift` is the reconciliation backstop.
+        logger.error(
+            "[LEDGER] DRIFT RISK: record() DB write failed "
+            "(reason=%s amount=%d source=%s sink=%s): %s",
             reason,
             amount_int,
+            source,
+            sink,
             e,
         )
         return None
