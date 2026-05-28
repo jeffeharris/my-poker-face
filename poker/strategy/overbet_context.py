@@ -46,7 +46,6 @@ Check / call / raise / jam / fold are untouched — this is purely about *which
 bet size* the bot uses when it bets value, not whether to bet.
 """
 
-from dataclasses import dataclass
 from typing import Dict, FrozenSet, Optional, Tuple
 
 from .intervention_trace import (
