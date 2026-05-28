@@ -249,12 +249,16 @@ class SchemaManager:
         return str(self.db_path).endswith(_TEST_SCHEMA_TEMPLATE_SUFFIX)
 
     def _db_is_empty(self) -> bool:
-        """True if the DB has no user tables (a brand-new database file)."""
+        """True if the DB has no user schema objects (a brand-new database file).
+
+        Counts ANY user object (tables, views, triggers, indexes), not just
+        tables, so a schema-migration test that prepares a DB with only a
+        view/trigger/index is never silently overwritten by the template seed.
+        """
         try:
             with sqlite3.connect(self.db_path, timeout=5.0) as conn:
                 (n,) = conn.execute(
-                    "SELECT count(*) FROM sqlite_master "
-                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
                 ).fetchone()
             return n == 0
         except Exception:
@@ -299,9 +303,7 @@ class SchemaManager:
             return
         try:
             with sqlite3.connect(self.db_path, timeout=5.0) as conn:
-                (version,) = conn.execute(
-                    "SELECT MAX(version) FROM schema_version"
-                ).fetchone()
+                (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
             if version != SCHEMA_VERSION:  # only snapshot a complete schema
                 return
             fd, tpl = tempfile.mkstemp(suffix=_TEST_SCHEMA_TEMPLATE_SUFFIX)

@@ -96,6 +96,17 @@ AI-resilience retries, and Flask route tests building `create_app()` per test. T
 are what the `simulation` / `integration` / `flask` markers now gate out of the quick
 loop.
 
+Review follow-ups applied (Codex second-opinion, 2026-05-28):
+- `_db_is_empty()` now counts ANY user schema object (not just tables), so a migration
+  test preparing only a view/trigger/index can't be silently seeded over.
+- `tests/test_schema_template_fastpath.py` pins two invariants: a seeded DB is
+  schema-identical to a real migration build, and a non-empty DB is never seeded.
+- `make test-repos` now also runs the root `tests/test_schema_migration_v*.py` tests
+  (the bucket map always claimed them; the target had omitted them).
+- Caveat: a test that asserts on the migration *process* (not just end-state) should set
+  `POKER_TEST_SCHEMA_TEMPLATE=0` so it exercises a real first build. End-state schema
+  tests need no change (seeded == built).
+
 What shipped:
 - `poker/repositories/schema_manager.py` — env-gated schema-template fast path.
 - `tests/conftest.py` — sets `POKER_TEST_SCHEMA_TEMPLATE=1`; `pytest_collection_modifyitems`

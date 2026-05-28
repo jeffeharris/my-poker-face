@@ -44,8 +44,8 @@ test-quick: ## Fast loop: skip slow/integration/llm/simulation tests
 test-strategy: ## Bot strategy, classification, exploitation
 	docker compose exec backend python -m pytest tests/test_strategy/
 
-test-repos: ## Repositories + schema/migration
-	docker compose exec backend python -m pytest tests/test_repositories/
+test-repos: ## Repositories + schema/migration (incl. root schema-migration tests)
+	docker compose exec backend python -m pytest tests/test_repositories/ tests/test_schema_migration_v*.py
 
 test-cash: ## Cash mode economy + lobby (name-matched across the tree)
 	docker compose exec backend python -m pytest -k cash
