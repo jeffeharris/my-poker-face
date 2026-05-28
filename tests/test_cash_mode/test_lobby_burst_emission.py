@@ -38,13 +38,16 @@ from cash_mode.full_sim import (
 from cash_mode.lobby import _emit_burst_events
 
 
-def _make_table(table_id: str = "cash-table-10-001", stake: str = "$10"):
+def _make_table(table_id: str = "cash-table-10-001", stake: str = "$10", name=None):
     """A minimal stand-in for CashTableState with just the fields the
     emission code reads. Avoids dragging the full table dataclass +
-    seat validation into these aggregation tests."""
+    seat validation into these aggregation tests. `name` is set explicitly
+    (not left to MagicMock auto-attr, which would be a truthy mock and leak
+    into the feed location label)."""
     t = MagicMock()
     t.table_id = table_id
     t.stake_label = stake
+    t.name = name
     return t
 
 
@@ -327,6 +330,26 @@ class TestSingleHandSummary(unittest.TestCase):
         primary = [e for e in evs if e.primary]
         assert len(primary) == 1
         assert "R2-D2 and C-3PO" in primary[0].message
+
+    def test_named_table_shows_familiar_name_with_bracketed_stake(self):
+        # A named table surfaces its familiar lobby name with the stake in
+        # brackets so players know where to find it.
+        self.table = _make_table(stake="$50", name="The Lodge")
+        evs = self._emit(
+            _hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True)
+        )
+        msg = next(e for e in evs if e.primary).message
+        assert "The Lodge [$50]" in msg
+        # The bare stake stays on the structured field for filtering/grouping.
+        assert all(e.stake_label == "$50" for e in evs)
+
+    def test_unnamed_table_falls_back_to_stake_phrase(self):
+        self.table = _make_table(stake="$50", name=None)
+        evs = self._emit(
+            _hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True)
+        )
+        msg = next(e for e in evs if e.primary).message
+        assert "the $50 table" in msg
 
     def test_bust_only_hand_headlines_the_bust(self):
         # Small pot (no big_event) where someone still busts.

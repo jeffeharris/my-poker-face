@@ -267,6 +267,24 @@ def clear_events() -> None:
 
 # --- Message formatters -----------------------------------------------------
 
+
+def format_table_location(table_name: Optional[str], stake_label: str) -> str:
+    """Where-label for table-specific feed events: the familiar table name
+    with its stake in brackets ("The Lodge [$50]") so players recognize the
+    spot from the lobby and know where to find the action. Falls back to
+    "the $50 table" for unnamed (private/legacy) rows. Reads naturally after
+    "at"/"on"/"from", so formatters drop it straight in where they used to
+    interpolate the bare stake.
+
+    Only table-specific events use this. Tier-scoped events (AI-to-AI
+    stakes / carries) keep the bare stake label, since they reference the
+    stake tier rather than one particular table.
+    """
+    if table_name:
+        return f"{table_name} [{stake_label}]"
+    return f"the {stake_label} table"
+
+
 # Reason → user-facing phrasing for leave events. Frozen here so the
 # lobby route stays a thin serializer.
 _LEAVE_PHRASES = {
@@ -277,15 +295,17 @@ _LEAVE_PHRASES = {
 }
 
 
-def format_leave_message(name: str, stake_label: str, reason: str) -> str:
+def format_leave_message(
+    name: str, stake_label: str, reason: str, table_name: Optional[str] = None
+) -> str:
     """Human-readable phrasing for a leave event."""
     verb = _LEAVE_PHRASES.get(reason, "left")
-    return f"{name} {verb} the {stake_label} table"
+    return f"{name} {verb} {format_table_location(table_name, stake_label)}"
 
 
-def format_join_message(name: str, stake_label: str) -> str:
+def format_join_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
     """Human-readable phrasing for a join event."""
-    return f"{name} sat down at the {stake_label} table"
+    return f"{name} sat down at {format_table_location(table_name, stake_label)}"
 
 
 def format_big_win_message(
@@ -293,9 +313,11 @@ def format_big_win_message(
     loser: str,
     stake_label: str,
     amount: int,
+    table_name: Optional[str] = None,
 ) -> str:
     """Phrasing for a fake-sim big-win event."""
-    return f"{winner} won ${amount:,} off {loser} at {stake_label}"
+    where = format_table_location(table_name, stake_label)
+    return f"{winner} won ${amount:,} off {loser} at {where}"
 
 
 def format_big_loss_message(
@@ -303,6 +325,7 @@ def format_big_loss_message(
     winner: str,
     stake_label: str,
     amount: int,
+    table_name: Optional[str] = None,
 ) -> str:
     """Phrasing for a fake-sim big-loss event (the loser's POV).
 
@@ -311,27 +334,30 @@ def format_big_loss_message(
     only one of the pair (win is the more dramatic verb), but both
     are recorded so future filtering / per-personality feeds can
     pick either side."""
-    return f"{loser} dropped ${amount:,} to {winner} at {stake_label}"
+    where = format_table_location(table_name, stake_label)
+    return f"{loser} dropped ${amount:,} to {winner} at {where}"
 
 
 def format_all_in_message(
     name: str,
     stake_label: str,
     opponent: Optional[str] = None,
+    table_name: Optional[str] = None,
 ) -> str:
     """Phrasing for an all-in event at an unseated table.
 
     `opponent` is shown when the all-in was heads-up vs an obvious
     counterparty; omitted in multiway pots where naming one
     opponent would be misleading."""
+    where = format_table_location(table_name, stake_label)
     if opponent:
-        return f"{name} shoved all-in against {opponent} at {stake_label}"
-    return f"{name} shoved all-in at {stake_label}"
+        return f"{name} shoved all-in against {opponent} at {where}"
+    return f"{name} shoved all-in at {where}"
 
 
-def format_bust_message(name: str, stake_label: str) -> str:
+def format_bust_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
     """Phrasing for a bust event — AI's stack hit 0 during a hand."""
-    return f"{name} busted out at {stake_label}"
+    return f"{name} busted out at {format_table_location(table_name, stake_label)}"
 
 
 def _join_names(names: List[str]) -> str:
@@ -352,6 +378,7 @@ def format_hand_summary_message(
     stake_label: str,
     winner_shoved: bool,
     busted_names: List[str],
+    table_name: Optional[str] = None,
 ) -> str:
     """Compose ONE sentence for a single sim hand.
 
@@ -366,13 +393,14 @@ def format_hand_summary_message(
     near-heads-up in practice (opponents are named ~96% of the time), so
     this stays accurate for the common case and readable for the rare one.
     """
+    where = format_table_location(table_name, stake_label)
     # Bust-only hand: no headline win above threshold.
     if not winner or amount <= 0:
         who = _join_names(busted_names)
         if not who:
             return ""
         tail = f" to {winner}" if winner and len(busted_names) == 1 else ""
-        return f"{who} busted out{tail} at {stake_label}"
+        return f"{who} busted out{tail} at {where}"
 
     lead = (
         f"{winner} shoved all-in and won ${amount:,}"
@@ -380,25 +408,27 @@ def format_hand_summary_message(
         else f"{winner} won ${amount:,}"
     )
     if busted_names:
-        return f"{lead}, busting {_join_names(busted_names)} at {stake_label}"
+        return f"{lead}, busting {_join_names(busted_names)} at {where}"
     if loser:
-        return f"{lead} off {loser} at {stake_label}"
-    return f"{lead} at {stake_label}"
+        return f"{lead} off {loser} at {where}"
+    return f"{lead} at {where}"
 
 
-def format_last_stand_message(name: str, stake_label: str) -> str:
+def format_last_stand_message(
+    name: str, stake_label: str, table_name: Optional[str] = None
+) -> str:
     """Phrasing for an AI's last-stand event — their whole bankroll is
     now on the table. Framed so the player reads it as an opening: a
     seat worth targeting because the occupant has nothing left to fall
     back on."""
-    return f"{name} has their whole bankroll on the {stake_label} table"
+    return f"{name} has their whole bankroll on {format_table_location(table_name, stake_label)}"
 
 
-def format_player_last_stand_message(stake_label: str) -> str:
+def format_player_last_stand_message(stake_label: str, table_name: Optional[str] = None) -> str:
     """Phrasing for the player's own last-stand line — a self-warning
     that they're playing without a reserve. Second-person so it reads
     as a heads-up, not a spectator beat."""
-    return f"Your whole bankroll is on the {stake_label} table"
+    return f"Your whole bankroll is on {format_table_location(table_name, stake_label)}"
 
 
 def format_ai_stake_message(
@@ -556,13 +586,14 @@ def format_burst_summary_message(
     hands: int,
     top_name: Optional[str] = None,
     top_net_delta: int = 0,
+    table_name: Optional[str] = None,
 ) -> str:
     """Phrasing for the catch-up burst summary event (Commit 5).
 
-    Reads like "...and 24 more hands at $50 — Napoleon +$1,200 net"
-    when a leader is identifiable, falls back to a chip-neutral
+    Reads like "...and 24 more hands at The Lodge [$50] — Napoleon +$1,200
+    net" when a leader is identifiable, falls back to a chip-neutral
     framing when net deltas are small."""
-    base = f"...and {hands} more hands at {stake_label}"
+    base = f"...and {hands} more hands at {format_table_location(table_name, stake_label)}"
     if top_name and abs(top_net_delta) >= 100:
         sign = "+" if top_net_delta >= 0 else "-"
         return f"{base} — {top_name} {sign}${abs(top_net_delta):,} net"

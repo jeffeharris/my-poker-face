@@ -896,7 +896,7 @@ def refresh_unseated_tables(
     # seated AI at $0 reserve seen this refresh. Reconciled against the
     # prior refresh after the table loop so the ticker fires once per
     # episode rather than every tick.
-    last_stand_qualifying: Dict[str, Tuple[str, str]] = {}
+    last_stand_qualifying: Dict[str, Tuple[str, str, Optional[str]]] = {}
 
     # Vice-on-leave plumbing. A discretionary leaver (take_break /
     # bored_move) who is rich enough rolls the existing wealth×psych vice
@@ -1842,6 +1842,7 @@ def refresh_unseated_tables(
             last_stand_qualifying[_pid] = (
                 result.new_table.table_id,
                 result.new_table.stake_label,
+                result.new_table.name,
             )
 
         # Refresh idle_pool snapshot so the next iteration sees the
@@ -2316,6 +2317,7 @@ def _emit_activity_events(
         return personality.get("name") or pid
 
     stake = table.stake_label
+    table_name = table.name
     ts = now.isoformat()
 
     for pid, decision in decisions.items():
@@ -2333,7 +2335,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason=decision,
-                    message=format_leave_message(name, stake, decision),
+                    message=format_leave_message(name, stake, decision, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2355,7 +2357,7 @@ def _emit_activity_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_join_message(name, stake),
+                    message=format_join_message(name, stake, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2366,15 +2368,15 @@ def _emit_activity_events(
 
 def _emit_last_stand_events(
     *,
-    candidates: Dict[str, Tuple[str, str]],
+    candidates: Dict[str, Tuple[str, str, Optional[str]]],
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
 ) -> None:
     """Push last-stand (predator-signal) events to the ring buffer.
 
-    `candidates` maps `personality_id -> (table_id, stake_label)` for the
-    AIs newly committed this refresh (already dedup'd by the caller).
+    `candidates` maps `personality_id -> (table_id, stake_label, table_name)`
+    for the AIs newly committed this refresh (already dedup'd by the caller).
     Best-effort, same defensive stance as the other emitters — the
     ticker is UX, never a correctness surface.
     """
@@ -2388,7 +2390,7 @@ def _emit_last_stand_events(
     )
 
     ts = now.isoformat()
-    for pid, (table_id, stake_label) in candidates.items():
+    for pid, (table_id, stake_label, table_name) in candidates.items():
         try:
             personality = personality_repo.load_personality_by_id(pid)
         except Exception:
@@ -2405,7 +2407,7 @@ def _emit_last_stand_events(
                     personality_id=pid,
                     name=name,
                     reason="",
-                    message=format_last_stand_message(name, stake_label),
+                    message=format_last_stand_message(name, stake_label, table_name),
                     created_at=ts,
                     sandbox_id=sandbox_id,
                 )
@@ -2497,7 +2499,7 @@ def _emit_sim_events(
                 personality_id=winner_pid,
                 name=winner_name,
                 reason=loser_pid,  # opponent id for frontend grouping
-                message=format_big_win_message(winner_name, loser_name, stake, delta),
+                message=format_big_win_message(winner_name, loser_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
                 hand_id=hand_id,
@@ -2512,7 +2514,7 @@ def _emit_sim_events(
                 personality_id=loser_pid,
                 name=loser_name,
                 reason=winner_pid,
-                message=format_big_loss_message(loser_name, winner_name, stake, delta),
+                message=format_big_loss_message(loser_name, winner_name, stake, delta, table.name),
                 created_at=ts,
                 sandbox_id=sandbox_id,
                 hand_id=hand_id,
@@ -2699,6 +2701,7 @@ def _emit_burst_summary(
                     hands=len(sim_results),
                     top_name=top_name,
                     top_net_delta=top_delta,
+                    table_name=table.name,
                 ),
                 created_at=now.isoformat(),
                 sandbox_id=sandbox_id,
@@ -2770,7 +2773,7 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_all_in_message(name, stake, opponent_name),
+                        message=format_all_in_message(name, stake, opponent_name, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
                         hand_id=hand_id,
@@ -2791,7 +2794,7 @@ def _emit_hand_events(
                         personality_id=evt.personality_id,
                         name=name,
                         reason=evt.opponent_pid or "",
-                        message=format_bust_message(name, stake),
+                        message=format_bust_message(name, stake, table.name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
                         hand_id=hand_id,
@@ -2875,6 +2878,7 @@ def _emit_hand_summary(
             stake_label=stake,
             winner_shoved=winner_shoved,
             busted_names=busted_names,
+            table_name=table.name,
         )
     elif busted_names:
         etype = EVENT_BUST
@@ -2887,6 +2891,7 @@ def _emit_hand_summary(
             stake_label=stake,
             winner_shoved=False,
             busted_names=busted_names,
+            table_name=table.name,
         )
     elif allin_pids:
         shover_pid = next(iter(allin_pids))
@@ -2896,7 +2901,7 @@ def _emit_hand_summary(
             subject_pid = shover_pid
             opponent = loser_pid if shover_pid == winner_pid else winner_pid
             opponent_pid = opponent or ""
-            message = format_all_in_message(shover_name, stake, _name_for(opponent))
+            message = format_all_in_message(shover_name, stake, _name_for(opponent), table.name)
 
     if not (etype and subject_pid and message):
         return

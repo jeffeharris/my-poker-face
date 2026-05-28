@@ -5006,7 +5006,9 @@ def get_lobby():
                         "personality_id": owner_id,
                         "name": "You",
                         "reason": "self",
-                        "message": format_player_last_stand_message(stake_label),
+                        "message": format_player_last_stand_message(
+                            stake_label, active_game.get("cash_table_name")
+                        ),
                         "created_at": datetime.utcnow().isoformat(),
                     },
                 )
