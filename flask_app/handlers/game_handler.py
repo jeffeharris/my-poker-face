@@ -110,6 +110,38 @@ def _sandbox_id_for(game_data: dict) -> Optional[str]:
         return None
 
 
+def _off_grid_pids(sandbox_id: Optional[str], now: datetime) -> set:
+    """Personality ids currently off-grid (on a vice OR a side hustle).
+
+    The mirror of the filter `cash_mode/lobby.py:refresh_unseated_tables`
+    applies before seating from the idle pool / eligible list (the
+    `off_grid = on_vice | on_hustle` block). The autonomous lobby refresh
+    excludes these AIs from every seating surface; the player-facing
+    seat-fill paths in this module (`_refill_cash_seats`,
+    `select_rejoin_candidates`, `_refresh_lobby_table_for_session`) must
+    apply the same exclusion or they'll pull an off-grid AI into the
+    human's table — the `seated_and_offgrid` split-brain (a broke AI shows
+    up at the table mid-hustle, then the ticker narrates it "stepping out"
+    while it's visibly seated).
+
+    Best-effort and fail-soft: any repo error returns the empty set so a
+    flaky read never blocks the table from refilling.
+    """
+    if not sandbox_id:
+        return set()
+    from flask_app.extensions import side_hustle_state_repo, vice_state_repo
+
+    pids: set = set()
+    for repo in (vice_state_repo, side_hustle_state_repo):
+        if repo is None:
+            continue
+        try:
+            pids |= repo.active_pids(sandbox_id=sandbox_id, now=now)
+        except Exception as e:
+            logger.warning("[CASH] off-grid pid lookup failed: %s", e)
+    return pids
+
+
 def _track_guest_hand(game_id: str, game_data: dict) -> bool:
     """Track hand completion for guest users and emit limit event if needed.
 
@@ -865,18 +897,24 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
 
     owner_id = game_data.get('owner_id')
     sandbox_id = _sandbox_id_for(game_data)
+    now = datetime.utcnow()
+    # Exclude AIs currently off-grid (on a vice / side hustle) — same
+    # exclusion the autonomous lobby refresh applies. Without it a broke,
+    # hustling AI gets pulled into the human's table mid-hustle (the
+    # `seated_and_offgrid` split-brain). See `_off_grid_pids`.
+    off_grid = _off_grid_pids(sandbox_id, now)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     eligible_pool = [
         e
         for e in eligible
         if e['name'] not in occupied_names
+        and e['personality_id'] not in off_grid
         # Don't reseat a personality whose name matches a busted seat
         # we're about to remove (rare but possible if the eligible
         # query returns it twice).
         and e['name'] not in {game_state.players[i].name for i in busted_indices}
     ]
 
-    now = datetime.utcnow()
     refilled_count = 0
 
     for seat_idx in busted_indices:
@@ -1061,13 +1099,20 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     # option even though those personalities are re-seatable.
     occupied = {p.name for p in game_state.players if p.is_human or p.stack > 0}
 
+    now = datetime.utcnow()
+    # Don't offer an off-grid AI (on a vice / side hustle) as a rejoin
+    # candidate — seating one would re-create the `seated_and_offgrid`
+    # split-brain. Mirrors the autonomous lobby refresh's exclusion.
+    off_grid = _off_grid_pids(sandbox_id, now)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
-    pool = [e for e in eligible if e['name'] not in occupied]
+    pool = [
+        e
+        for e in eligible
+        if e['name'] not in occupied and e['personality_id'] not in off_grid
+    ]
     if prefer_pids:
         order = {pid: i for i, pid in enumerate(prefer_pids)}
         pool.sort(key=lambda e: order.get(e['personality_id'], len(order)))
-
-    now = datetime.utcnow()
     picks = []
     for cand in pool:
         if len(picks) >= limit:
@@ -1243,7 +1288,17 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     seated_globally = _global_seated_set([t for t in all_tables if t.table_id != table_id])
     seated_globally.update(s["personality_id"] for s in synced_seats if s["kind"] == "ai")
 
-    eligible = personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
+    # Exclude off-grid AIs (on a vice / side hustle) from BOTH seating
+    # surfaces (`eligible` and the `idle_pool` below), exactly as the
+    # autonomous lobby refresh does. Live-filling a hustling AI here is
+    # what produces the `seated_and_offgrid` split-brain at the human's
+    # table. See `_off_grid_pids`.
+    off_grid = _off_grid_pids(sandbox_id, now)
+    eligible = [
+        cand
+        for cand in personality_repo.list_eligible_for_cash_mode(user_id=human_owner_id)
+        if cand.get("personality_id") not in off_grid
+    ]
 
     # Build a pid → controller map (live controllers carry psych state).
     # ai_controllers is keyed by display name, so resolve via cash_pids.
@@ -1311,7 +1366,11 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
             _buy_in_cache[pid] = min(threshold, table_max_buy_in)
         return _buy_in_cache[pid]
 
-    idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
+    idle_pool = [
+        entry
+        for entry in cash_table_repo.list_idle(sandbox_id=sandbox_id)
+        if entry.personality_id not in off_grid
+    ]
     rng = random.Random()
     result = refresh_table_roster(
         synced_table,
