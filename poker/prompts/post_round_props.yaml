@@ -1,0 +1,29 @@
+name: post_round_props
+version: 1.0.0
+sections:
+  instruction: |-
+    Generate 2 SHORT chat suggestions for {player_name} to send after this hand.
+
+    HAND INFO:
+    {hand_context}
+
+    Read the HAND INFO carefully:
+      - OUTCOME — whether you won or lost. Props works either way: respecting the player who beat you, or saluting a worthy opponent you just edged out.
+      - YOUR BEST 5 CARDS / HOLE CARDS USED — what actually happened. Don't invent hands or draws.
+      - WINNER / OPPONENTS AT SHOWDOWN — who was involved and what they made. Direct your respect at a real opponent from this list.
+
+    GOAL: PROPS. Give genuine, specific respect for an opponent's play — a sharp read, a gutsy call, a disciplined fold, a perfectly sized bet. This is the tip-of-the-cap one competitor gives another: sincere, not sarcastic, not sour. If you lost, acknowledge they earned it; if you won, salute the fight.
+
+    Style examples — match the spirit, don't copy verbatim:
+
+    ✓ "Read me cold, Macbeth. Respect."
+    ✓ "That river call took guts. Well played."
+    ✓ "Filthy fold. You earned that one."
+
+    ✗ "Nice hand I guess." (no backhanded or hollow respect)
+    ✗ "You got lucky." (that's salty, not props)
+    ✗ Naming opponents not in OPPONENTS AT SHOWDOWN.
+
+    Keep it SHORT (10-15 words max). First person. Sincere.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "props"}}, {{"text": "...", "tone": "props"}}]}}

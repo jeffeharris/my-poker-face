@@ -156,6 +156,61 @@
   font-size: 0.9rem;
 }
 
+/* Session lifecycle card (Tier 4.3) */
+.chip-ledger-lifecycle__window {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+  font-weight: 400;
+}
+
+.chip-ledger-lifecycle__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.chip-ledger-lifecycle__states {
+  margin-top: 0.25rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border, #333);
+}
+
+.chip-ledger-lifecycle__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 4.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-1, #161616);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+}
+
+.chip-ledger-lifecycle__stat--alert {
+  border-color: #b91c1c;
+  background: rgba(185, 28, 28, 0.12);
+}
+
+.chip-ledger-lifecycle__num {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text, #eee);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-ledger-lifecycle__stat--alert .chip-ledger-lifecycle__num {
+  color: #fca5a5;
+}
+
+.chip-ledger-lifecycle__label {
+  font-size: 0.7rem;
+  color: var(--text-secondary, #999);
+  text-align: center;
+}
+
 .chip-ledger-card th {
   text-align: left;
   color: var(--text-secondary, #999);

@@ -108,10 +108,11 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
       const messages: ChatMessage[] = Array.from({ length: 100 }, (_, i) =>
         makeMessage({ id: `msg-${i}`, sender: 'Batman', message: `Message ${i}`, type: 'ai' })
       );
-      const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
+      render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      // Should show the last 80 messages (indices 20-99)
-      const msgElements = container.querySelectorAll('.mcs-msg');
+      // Should show the last 80 messages (indices 20-99). The sheet portals to
+      // document.body, so query the document rather than the render container.
+      const msgElements = document.querySelectorAll('.mcs-msg');
       expect(msgElements.length).toBe(80);
 
       // First 20 messages should be excluded
@@ -263,10 +264,11 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
           type: 'table',
         }),
       ];
-      const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
+      render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      // Table messages should not have sender element
-      const msgEl = container.querySelector('.mcs-msg-table');
+      // Table messages should not have sender element. The sheet portals to
+      // document.body, so query the document rather than the render container.
+      const msgEl = document.querySelector('.mcs-msg-table');
       expect(msgEl).toBeTruthy();
       expect(msgEl!.querySelector('.mcs-msg-sender')).toBeNull();
       expect(screen.getByText('Batman raised to $100')).toBeTruthy();
@@ -276,9 +278,9 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
       const messages: ChatMessage[] = [
         makeMessage({ id: 'msg-1', sender: 'Table', message: '--- GAME START ---', type: 'table' }),
       ];
-      const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
+      render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      const separator = container.querySelector('.mcs-hand-separator');
+      const separator = document.querySelector('.mcs-hand-separator');
       expect(separator).toBeTruthy();
       expect(screen.getByText('Game Start')).toBeTruthy();
     });
@@ -292,9 +294,9 @@ describe('VT-03: MobileChatSheet — tabs, messages, guest restrictions', () => 
           type: 'table',
         }),
       ];
-      const { container } = render(<MobileChatSheet {...makeProps({ messages })} />);
+      render(<MobileChatSheet {...makeProps({ messages })} />);
 
-      const separator = container.querySelector('.mcs-hand-separator');
+      const separator = document.querySelector('.mcs-hand-separator');
       expect(separator).toBeTruthy();
       expect(screen.getByText('New Hand')).toBeTruthy();
     });

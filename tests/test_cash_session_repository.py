@@ -234,3 +234,151 @@ def test_delete_removes_row(repo):
     repo.create(session)
     assert repo.delete(session.session_id) is True
     assert repo.load(session.session_id) is None
+
+
+# --- Tier 3: session_state, last_load_error, lifecycle events ----------
+
+
+def test_create_defaults_session_state_active(repo):
+    repo.create(_self_funded())
+    loaded = repo.load("cash-sess-1")
+    assert loaded.session_state == "active"
+    assert loaded.last_load_error is None
+
+
+def test_finalise_sets_session_state_closed(repo):
+    repo.create(_self_funded())
+    repo.finalise(
+        "cash-sess-1",
+        ended_at=ANCHOR + timedelta(hours=1),
+        final_chips_at_table=900,
+        sponsor_repaid=0,
+        player_take_home=900,
+        hands_played=10,
+        hands_won=3,
+        biggest_pot_won=200,
+        duration_seconds=3600,
+        closed_status=CLOSED_STATUS_LEFT,
+    )
+    assert repo.load("cash-sess-1").session_state == "closed"
+
+
+def test_set_session_state_marks_broken(repo):
+    repo.create(_self_funded())
+    assert repo.set_session_state("cash-sess-1", "broken") is True
+    assert repo.load("cash-sess-1").session_state == "broken"
+
+
+def test_set_last_load_error_roundtrip_and_clear(repo):
+    repo.create(_self_funded())
+    assert repo.set_last_load_error("cash-sess-1", "ValueError: boom @ t") is True
+    assert repo.load("cash-sess-1").last_load_error == "ValueError: boom @ t"
+    # Passing None clears it (after a successful re-load).
+    assert repo.set_last_load_error("cash-sess-1", None) is True
+    assert repo.load("cash-sess-1").last_load_error is None
+
+
+def test_record_and_list_events(repo):
+    repo.record_event(
+        "cash-sess-1",
+        "started",
+        owner_id="alice",
+        sandbox_id="sbx-1",
+        detail={"stake_label": "$10"},
+        now=ANCHOR,
+    )
+    repo.record_event(
+        "cash-sess-1",
+        "left_clean",
+        owner_id="alice",
+        sandbox_id="sbx-1",
+        now=ANCHOR + timedelta(minutes=5),
+    )
+    # Different session, should be filterable out.
+    repo.record_event("cash-sess-2", "started", owner_id="bob", now=ANCHOR)
+
+    all_for_1 = repo.list_events(session_id="cash-sess-1")
+    assert [e["event"] for e in all_for_1] == ["left_clean", "started"]  # newest first
+    assert all_for_1[1]["detail_json"] is not None  # started carried detail
+
+    only_started = repo.list_events(event="started")
+    assert {e["session_id"] for e in only_started} == {"cash-sess-1", "cash-sess-2"}
+
+    scoped = repo.list_events(sandbox_id="sbx-1")
+    assert all(e["sandbox_id"] == "sbx-1" for e in scoped)
+
+
+def test_event_counts_aggregates_by_type_and_window(repo):
+    # Two started + one swept inside the window; one started well before.
+    repo.record_event("s1", "started", sandbox_id="sbx-1", now=ANCHOR)
+    repo.record_event("s2", "started", sandbox_id="sbx-1", now=ANCHOR)
+    repo.record_event("s1", "swept", sandbox_id="sbx-1", now=ANCHOR + timedelta(minutes=10))
+    repo.record_event("old", "started", sandbox_id="sbx-1", now=ANCHOR - timedelta(days=3))
+
+    # Window starting at ANCHOR excludes the 3-days-old started.
+    counts = repo.event_counts(since=ANCHOR)
+    assert counts == {"started": 2, "swept": 1}
+
+    # No window → everything.
+    assert repo.event_counts() == {"started": 3, "swept": 1}
+
+    # Sandbox filter that matches nothing → empty.
+    assert repo.event_counts(sandbox_id="nope") == {}
+
+
+def test_find_blocking_session_id_for_owner(repo):
+    # active + paused block; closed + broken don't. Most-recent blocking wins.
+    repo.create(_self_funded(session_id="cash-active", owner_id="u", started_at=ANCHOR))
+    repo.create(
+        _self_funded(session_id="cash-paused", owner_id="u", started_at=ANCHOR - timedelta(hours=1))
+    )
+    repo.set_session_state("cash-paused", "paused")
+    repo.create(
+        _self_funded(session_id="cash-broken", owner_id="u", started_at=ANCHOR + timedelta(hours=2))
+    )
+    repo.set_session_state("cash-broken", "broken")
+    repo.create(
+        _self_funded(session_id="cash-closed", owner_id="u", started_at=ANCHOR + timedelta(hours=3))
+    )
+    repo.finalise(
+        "cash-closed",
+        ended_at=ANCHOR + timedelta(hours=4),
+        final_chips_at_table=0,
+        sponsor_repaid=0,
+        player_take_home=0,
+        hands_played=0,
+        hands_won=0,
+        biggest_pot_won=0,
+        duration_seconds=0,
+        closed_status=CLOSED_STATUS_LEFT,
+    )
+    # Newest BLOCKING session is cash-active (ANCHOR) vs cash-paused (earlier);
+    # broken/closed are excluded despite being newer.
+    assert repo.find_blocking_session_id_for_owner("u") == "cash-active"
+    # A different owner with only a closed session → None.
+    repo.create(_self_funded(session_id="cash-other", owner_id="v", started_at=ANCHOR))
+    repo.set_session_state("cash-other", "closed")
+    assert repo.find_blocking_session_id_for_owner("v") is None
+    # Unknown owner → None.
+    assert repo.find_blocking_session_id_for_owner("nobody") is None
+
+
+def test_state_counts_groups_by_session_state(repo):
+    repo.create(_self_funded(session_id="cash-a", owner_id="u"))
+    repo.create(_self_funded(session_id="cash-b", owner_id="u"))
+    repo.create(_self_funded(session_id="cash-c", owner_id="u"))
+    repo.set_session_state("cash-b", "broken")
+    repo.finalise(
+        "cash-c",
+        ended_at=ANCHOR,
+        final_chips_at_table=0,
+        sponsor_repaid=0,
+        player_take_home=0,
+        hands_played=0,
+        hands_won=0,
+        biggest_pot_won=0,
+        duration_seconds=0,
+        closed_status=CLOSED_STATUS_GHOST_CLEANUP,
+    )
+    counts = repo.state_counts()
+    assert counts == {"active": 1, "broken": 1, "closed": 1}

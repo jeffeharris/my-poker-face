@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -343,6 +343,16 @@ class _FakeGameStateService:
             del self.games[game_id]
             self.deleted.append(game_id)
 
+    def get_game(self, game_id: str):
+        return self.games.get(game_id)
+
+    def get_game_lock(self, game_id: str):
+        # The sweep only uses this as a context manager; a no-op one is
+        # enough for the single-threaded test.
+        from contextlib import nullcontext
+
+        return nullcontext()
+
 
 class _FakeGameRepo:
     """Minimal stand-in matching game_repo's list/delete interface."""
@@ -539,3 +549,166 @@ class TestKillAllCashSessionsHumanSeatReset:
 
         reloaded = cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         assert reloaded.seats[0]["kind"] == "human"
+
+
+# ============================================================
+# Boot-time stale-orphan sweep (T2.2)
+# ============================================================
+
+
+class _FakeCashSessionRepo:
+    """Minimal cash_session_repo for the boot-sweep tests."""
+
+    def __init__(self, sessions: dict):
+        # game_id -> SimpleNamespace(session_id, ended_at, sandbox_id, ...)
+        self._sessions = sessions
+        self.finalised: list = []
+
+    def load(self, session_id: str):
+        return self._sessions.get(session_id)
+
+    def finalise(self, session_id, *, ended_at, closed_status, **_ignored):
+        self.finalised.append((session_id, closed_status))
+        s = self._sessions.get(session_id)
+        if s is not None:
+            s.ended_at = ended_at
+        return True
+
+
+def _session(session_id, ended_at=None):
+    return SimpleNamespace(
+        session_id=session_id,
+        ended_at=ended_at,
+        sandbox_id="sb",
+        hands_played=0,
+        hands_won=0,
+        biggest_pot_won=0,
+    )
+
+
+def _row_aged(game_id, age_seconds, *, now, owner_id="u1"):
+    return SimpleNamespace(
+        game_id=game_id,
+        owner_id=owner_id,
+        updated_at=now - timedelta(seconds=age_seconds),
+    )
+
+
+class TestKillAllCashSessionsBootSweep:
+    """T2.2: abandoned cash-* rows (untouched past the TTL) are swept;
+    fresh rows are preserved so resume-on-reboot keeps working."""
+
+    def test_sweeps_stale_orphan_row(self):
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-stale-1", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo({"cash-stale-1": _session("cash-stale-1")})
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert "cash-stale-1" in repo.deleted, "stale orphan games row not deleted"
+        assert ("cash-stale-1", "boot_swept") in sessions.finalised
+
+    def test_preserves_fresh_orphan_row(self):
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-fresh-1", 60, now=now)])  # 1 min old
+        sessions = _FakeCashSessionRepo({"cash-fresh-1": _session("cash-fresh-1")})
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert repo.deleted == [], "fresh resumable row was swept — resume-on-reboot broken"
+        assert sessions.finalised == []
+
+    def test_does_not_touch_tournament_rows(self):
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("tournament-old", 99999, now=now)])
+        sessions = _FakeCashSessionRepo({})
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+        )
+
+        assert repo.deleted == []
+
+    def test_sweep_skips_row_resumed_into_memory_after_snapshot(self):
+        """Resurrection-race guard (Codex #2): a stale row that is NOT in
+        the skip-set but IS in memory at the lock-recheck must be left
+        alone — deleting its DB row out from under a live in-memory game
+        is the split-brain the lock guards against.
+
+        Calls the sweep helper directly with an empty skip-set (so the
+        cheap first-pass filter does NOT catch it) and a game_state_service
+        whose get_game() reports the game live.
+        """
+        from cash_mode.lobby import _boot_sweep_stale_cash_rows
+
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-resumed", 7200, now=now)])  # 2h old
+        sessions = _FakeCashSessionRepo({"cash-resumed": _session("cash-resumed")})
+        # In memory NOW (entered after the watchdog's skip-set snapshot).
+        gss = _FakeGameStateService({"cash-resumed": {"cash_mode": True, "owner_id": "u1"}})
+
+        swept = _boot_sweep_stale_cash_rows(
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+            skip_game_ids=set(),  # deliberately empty → first-pass filter misses it
+            game_state_service=gss,
+            source="watchdog",
+        )
+
+        assert swept == 0
+        assert repo.deleted == [], "swept a row that was live in memory — resurrection race"
+        assert sessions.finalised == []
+
+    def test_sweep_proceeds_when_not_in_memory_at_recheck(self):
+        """Counterpart: with a game_state_service that reports the game
+        absent, the lock-recheck passes and the stale row is swept."""
+        from cash_mode.lobby import _boot_sweep_stale_cash_rows
+
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-cold", 7200, now=now)])
+        sessions = _FakeCashSessionRepo({"cash-cold": _session("cash-cold")})
+        gss = _FakeGameStateService({})  # not in memory
+
+        swept = _boot_sweep_stale_cash_rows(
+            game_repo=repo,
+            cash_session_repo=sessions,
+            stale_ttl_seconds=1800,
+            now=now,
+            skip_game_ids=set(),
+            game_state_service=gss,
+            source="watchdog",
+        )
+
+        assert swept == 1
+        assert "cash-cold" in repo.deleted
+
+    def test_sweep_skipped_without_cash_session_repo(self):
+        """Back-compat: callers that don't pass cash_session_repo get
+        the legacy behavior (no row sweep)."""
+        now = datetime(2026, 5, 28, 12, 0, 0)
+        repo = _FakeGameRepo([_row_aged("cash-stale-2", 7200, now=now)])
+
+        kill_all_cash_sessions(
+            game_state_service=_FakeGameStateService(),
+            game_repo=repo,
+        )
+
+        assert repo.deleted == [], "row swept without an explicit cash_session_repo"

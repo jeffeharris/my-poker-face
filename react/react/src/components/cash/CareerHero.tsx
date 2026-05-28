@@ -18,14 +18,15 @@
 
 import { Wallet } from 'lucide-react';
 import { Sparkline } from './Sparkline';
+import type { BankrollPoint } from './types';
 import './CareerHero.css';
 
 export interface CareerHeroProps {
   bankroll: number;
   /** Net result of the most recent finished session; null = no history. */
   lastSessionDelta?: number | null;
-  /** Bankroll trajectory, oldest → newest. <2 points hides the chart. */
-  bankrollHistory?: number[];
+  /** Net-worth trajectory, oldest → newest. <2 points hides the chart. */
+  bankrollHistory?: BankrollPoint[];
   pendingForgivenessCount?: number;
   onOpenNetWorth: () => void;
 }
@@ -106,7 +107,7 @@ export function CareerHero({
       </div>
 
       {bankrollHistory.length >= 2 && (
-        <Sparkline className="career-hero__spark" values={bankrollHistory} tone={tone} />
+        <Sparkline className="career-hero__spark" points={bankrollHistory} tone={tone} />
       )}
     </section>
   );

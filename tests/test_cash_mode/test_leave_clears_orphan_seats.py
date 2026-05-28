@@ -197,6 +197,216 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             "would still render the user as seated",
         )
 
+    def test_leave_cold_session_settles_instead_of_ghosting(self):
+        """A DB-only session (not in memory) must be cold-loaded and
+        SETTLED on leave — the player's real table chips return to
+        bankroll — not zeroed by the ghost-cleanup path.
+
+        Pre-hardening, the memory-miss branch always took ghost cleanup
+        (chips_at_table=0), so a player whose game fell out of memory on
+        a server restart lost every chip at the table on leave. The
+        warm-load (`_warm_cash_game_for_leave`) rehydrates just enough
+        to run the normal settlement. We patch the helper to inject a
+        stub state machine (a real PokerStateMachine isn't needed to
+        prove the route now settles vs zeroes).
+        """
+        from flask_app.services import game_state_service
+
+        # Game is NOT in memory — this is the cold path.
+        game_state_service.games.pop(GAME_ID, None)
+
+        start_chips = self.repos['bankroll_repo'].load_player_bankroll(OWNER_ID).chips
+
+        def _fake_warm(game_id, *, owner_id, persisted_cash_session=None):
+            data = {
+                'state_machine': _StubStateMachine(
+                    [_StubPlayer("You", is_human=True, stack=1000)]
+                ),
+                'cash_mode': True,
+                'owner_id': owner_id,
+                'cash_personality_ids': {},
+                'cash_table_id': None,
+                'cash_seat_index': None,
+                'sandbox_id': self.sandbox_id,
+                'messages': [],
+                'ai_controllers': {},
+            }
+            game_state_service.set_game(game_id, data)
+            return data
+
+        with patch(
+            'flask_app.routes.cash_routes._find_active_cash_game_id',
+            return_value=GAME_ID,
+        ), patch(
+            'flask_app.routes.cash_routes._warm_cash_game_for_leave',
+            side_effect=_fake_warm,
+        ):
+            resp = self.client.post('/api/cash/leave')
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertEqual(
+            body['chips_at_table'],
+            1000,
+            "cold session was ghost-cleaned (chips zeroed) instead of "
+            "settled with the real stack",
+        )
+        self.assertEqual(body['returned_chips'], 1000)
+        end_chips = self.repos['bankroll_repo'].load_player_bankroll(OWNER_ID).chips
+        self.assertEqual(
+            end_chips,
+            start_chips + 1000,
+            "table chips were not returned to bankroll on cold leave",
+        )
+
+    def test_leave_on_finalized_session_does_not_resettle(self):
+        """Idempotency guard (T2.1): a leave on an already-finalized
+        cash_sessions row must NOT re-credit any bankroll.
+
+        This is the 2026-05-28 phantom-chip incident in miniature: a
+        session was settled once (ended_at set), then the game got
+        resurrected into memory and a second leave ran — the stake was
+        already non-active, so settlement fell into the no-stake branch
+        and refunded the full table stack a SECOND time. With the guard,
+        the second leave is cleanup-only: bankroll is untouched and
+        chips_at_table comes back 0.
+        """
+        from datetime import datetime
+
+        from cash_mode.cash_sessions import CashSession
+        from flask_app.services import game_state_service
+
+        # A finalized session row for this owner.
+        self.repos['cash_session_repo'].create(
+            CashSession(
+                session_id=GAME_ID,
+                owner_id=OWNER_ID,
+                sandbox_id=self.sandbox_id,
+                stake_label="$200",
+                is_staked=False,
+                stake_id=None,
+                initial_buy_in=8000,
+                total_buy_in=8000,
+                sponsor_principal=0,
+                cash_table_id=None,
+                cash_seat_index=None,
+                started_at=datetime.utcnow(),
+                ended_at=datetime.utcnow(),  # ALREADY finalized
+                final_chips_at_table=12000,
+                sponsor_repaid=0,
+                player_take_home=12000,
+                closed_status="left",
+            )
+        )
+
+        # Simulate a resurrected in-memory game with a fat stack — if the
+        # guard fails, the no-stake branch would credit this to bankroll.
+        game_state_service.set_game(
+            GAME_ID,
+            {
+                'state_machine': _StubStateMachine(
+                    [_StubPlayer("You", is_human=True, stack=12000)]
+                ),
+                'cash_mode': True,
+                'owner_id': OWNER_ID,
+                'cash_personality_ids': {},
+                'cash_table_id': None,
+                'cash_seat_index': None,
+                'sandbox_id': self.sandbox_id,
+                'messages': [],
+                'ai_controllers': {},
+            },
+        )
+
+        start_chips = self.repos['bankroll_repo'].load_player_bankroll(OWNER_ID).chips
+
+        with patch(
+            'flask_app.routes.cash_routes._find_active_cash_game_id',
+            return_value=GAME_ID,
+        ):
+            resp = self.client.post('/api/cash/leave')
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertEqual(
+            body['chips_at_table'],
+            0,
+            "finalized session re-settled — the double-settle guard "
+            "didn't fire",
+        )
+        end_chips = self.repos['bankroll_repo'].load_player_bankroll(OWNER_ID).chips
+        self.assertEqual(
+            end_chips,
+            start_chips,
+            f"bankroll changed ({start_chips} -> {end_chips}) on a leave "
+            "of an already-finalized session — phantom chips injected",
+        )
+
+    def test_leave_falls_back_to_ghost_when_warm_load_fails(self):
+        """When the DB row can't be loaded (corrupt / already gone), the
+        leave path must still fall back to ghost cleanup and return a
+        coherent ended-session response rather than 500.
+        """
+        from flask_app.services import game_state_service
+
+        game_state_service.games.pop(GAME_ID, None)
+
+        with patch(
+            'flask_app.routes.cash_routes._find_active_cash_game_id',
+            return_value=GAME_ID,
+        ), patch(
+            'flask_app.routes.cash_routes._warm_cash_game_for_leave',
+            return_value=None,
+        ):
+            resp = self.client.post('/api/cash/leave')
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertTrue(body['session_ended'])
+        self.assertEqual(body['chips_at_table'], 0)
+
+    def test_leave_frees_ghost_seat_when_cash_table_id_none(self):
+        """A session with cash_table_id=None (the sponsor-flow gap)
+        must still free the player's lobby seat on leave.
+
+        Regression for the nested-if bug: the cross-table ghost-seat
+        sweep used to live inside `if cash_table_id is not None:`, so a
+        sponsor session — which wrote cash_sessions.cash_table_id=NULL
+        — skipped the sweep entirely and stranded the human seat on the
+        lobby table. With game_data['cash_table_id'] = None AND no
+        persisted cash_sessions row to fall back on, the seat-specific
+        free can't run; the now-unconditional sweep is the only thing
+        that frees the seat.
+        """
+        table_id = "cash-table-200-001"
+        seats = [open_slot()] * 6
+        seats[3] = human_slot(OWNER_ID, 900)
+        self.repos['cash_table_repo'].save_table(
+            CashTableState(
+                table_id=table_id,
+                stake_label="$200",
+                seats=seats,
+            ),
+            sandbox_id=self.sandbox_id,
+        )
+
+        game_data = self._stub_game_data(table_id, seat_index=3)
+        # Simulate the sponsor-session gap: the game knows nothing about
+        # which lobby table/seat it occupies.
+        game_data['cash_table_id'] = None
+        game_data['cash_seat_index'] = None
+        self.game_state_service.set_game(GAME_ID, game_data)
+
+        resp = self.client.post('/api/cash/leave')
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertEqual(
+            self._seated_indices(table_id),
+            [],
+            "ghost human seat survived a leave whose session had "
+            "cash_table_id=None — the unconditional sweep didn't run",
+        )
+
     def test_leave_frees_orphan_seat_at_different_table(self):
         """Active seat at table A + orphan seat at table B (same
         sandbox) → leave A must free both.

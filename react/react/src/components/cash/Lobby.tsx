@@ -27,7 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
-import { getLobby, getState, sitAtTable, setWorldPace } from './api';
+import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -38,6 +38,7 @@ import { WhereaboutsDrawer } from './WhereaboutsDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
+  BankrollPoint,
   LobbyEvent,
   LobbyTable,
   StakableAiCandidate,
@@ -157,10 +158,24 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
     .slice(0, MAX_FEED_EVENTS);
 }
 
+/** Coarse "paused Xm/Xh/Xd ago" for the Resume bar. Returns null for a
+ *  missing/just-now/unparseable timestamp so the caller can omit the hint. */
+function formatPausedAgo(iso: string | null): string | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return null;
+  if (mins < 60) return `paused ${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `paused ${hrs}h ago`;
+  return `paused ${Math.floor(hrs / 24)}d ago`;
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
-  const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
+  const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
   /** The table the player currently has a live session at, or null. Drives
@@ -175,9 +190,12 @@ export function Lobby() {
   /** Stake label for the Resume bar when the seated table isn't in the
    *  rendered lobby list (cold / cross-sandbox session). */
   const [seatedStakeLabelFromServer, setSeatedStakeLabelFromServer] = useState<string | null>(null);
+  /** ISO start time of the active session, for the Resume bar's age hint. */
+  const [seatedSince, setSeatedSince] = useState<string | null>(null);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [sitError, setSitError] = useState<string | null>(null);
   const [sponsorState, setSponsorState] = useState<{
     stakeLabel: StakeLabel;
@@ -289,6 +307,7 @@ export function Lobby() {
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
         setSeatedStakeLabelFromServer(lobby.seated_stake_label ?? null);
+        setSeatedSince(lobby.seated_since ?? null);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
         // prior self last-stand line first so the poll snapshot stays
@@ -432,6 +451,34 @@ export function Lobby() {
     }
   }, [navigate]);
 
+  /** End the in-progress session from the lobby without sitting back
+   *  down. Hits /api/cash/leave, which (post-hardening) cold-loads a
+   *  DB-only session and settles it properly before tearing it down —
+   *  the escape valve for a session that got wedged after a restart.
+   *  On success we clear the Resume bar locally and reload the lobby so
+   *  the seat/Resume state reconciles. */
+  const handleEndSession = useCallback(async () => {
+    if (endingSession) return;
+    if (!window.confirm('End your current session? Your table chips will be cashed out and any active stake settled.')) {
+      return;
+    }
+    setEndingSession(true);
+    setSitError(null);
+    try {
+      await leaveTable();
+      setHasActiveSession(false);
+      setSeatedTableId(null);
+      setSeatedStakeLabelFromServer(null);
+      await reloadLobbyRef.current();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('End session failed:', msg);
+      setSitError(msg);
+    } finally {
+      setEndingSession(false);
+    }
+  }, [endingSession]);
+
   /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
    *  the target tier's [min, max] window from the lobby's tables so
    *  the modal doesn't need its own fetch. */
@@ -486,13 +533,29 @@ export function Lobby() {
           )}
 
           {(hasActiveSession || seatedTableId) && (
-            <button type="button" className="cash-entry__resume" onClick={handleResume}>
-              <Play size={18} aria-hidden="true" />
-              <span className="cash-entry__resume-text">
-                Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
-              </span>
-              <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
-            </button>
+            <div className="cash-entry__resume-row">
+              <button type="button" className="cash-entry__resume" onClick={handleResume}>
+                <Play size={18} aria-hidden="true" />
+                <span className="cash-entry__resume-text">
+                  Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
+                  {(() => {
+                    const ago = formatPausedAgo(seatedSince);
+                    return ago ? <span className="cash-entry__resume-age"> · {ago}</span> : null;
+                  })()}
+                </span>
+                <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
+              </button>
+              {/* Escape valve: a session that wedged after a restart can
+                  be ended here without first having to resume into it. */}
+              <button
+                type="button"
+                className="cash-entry__end-session"
+                onClick={handleEndSession}
+                disabled={endingSession}
+              >
+                {endingSession ? 'Ending…' : 'End session'}
+              </button>
+            </div>
           )}
 
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
