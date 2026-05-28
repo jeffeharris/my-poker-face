@@ -326,6 +326,34 @@ class UsageTracker:
         with self._spend_cache_lock:
             self._spend_cache.clear()
 
+    def find_recent_null_cost_combos(
+        self, window_hours: int = SPEND_WINDOW_HOURS
+    ) -> List[Tuple[str, str, int]]:
+        """Find (provider, model) pairs with recent api_usage rows missing a cost.
+
+        Rows where ``estimated_cost IS NULL`` slip the budget cap silently
+        (``COALESCE(SUM, 0)`` treats them as $0) — almost always because the
+        ``model_pricing`` row is missing for that SKU. Surfaces them as a list
+        of ``(provider, model, count)`` so a startup check can warn loudly.
+
+        Fails open to an empty list on any DB error — this is observability,
+        not enforcement.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT provider, model, COUNT(*) FROM api_usage "
+                    "WHERE estimated_cost IS NULL AND created_at >= ? "
+                    "GROUP BY provider, model "
+                    "ORDER BY COUNT(*) DESC",
+                    (cutoff,),
+                ).fetchall()
+            return [(row[0], row[1], int(row[2])) for row in rows]
+        except Exception as e:
+            logger.debug(f"Could not query NULL-cost api_usage rows: {e}")
+            return []
+
     def _bump_spend_cache(self, owner_id: Optional[str], cost: Optional[float]) -> None:
         """Add ``cost`` to any warm cached spend totals this call counts toward.
 

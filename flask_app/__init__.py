@@ -87,10 +87,13 @@ def create_app():
         LLM_GLOBAL_DAILY_BUDGET_USD,
         LLM_PER_OWNER_DAILY_BUDGET_USD,
         log_llm_budget_status,
+        warn_missing_pricing_rows,
     )
 
     configure_spend_limits(LLM_GLOBAL_DAILY_BUDGET_USD, LLM_PER_OWNER_DAILY_BUDGET_USD)
     log_llm_budget_status()
+    # Surface any recent api_usage rows missing pricing — those slip the cap.
+    warn_missing_pricing_rows()
 
     # Mark any experiments that were running when server stopped as interrupted
     recover_interrupted_experiments()

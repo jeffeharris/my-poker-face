@@ -23,7 +23,7 @@ from poker.character_images import (
 )
 
 from .. import config
-from ..extensions import limiter, persistence_db_path, personality_repo
+from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
@@ -381,6 +381,12 @@ def regenerate_avatar(personality_name: str):
         # Clamp to valid range
         strength = max(0.0, min(1.0, float(strength)))
 
+        # Admin user's id — attributes the paid spend so the per-owner budget
+        # gate (PRH-2) can bind this call. `_admin_only` guarantees the user is
+        # present, but use .get() to stay defensive against test mocks.
+        admin_user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = admin_user.get('id') if admin_user else None
+
         logger.info(
             f"Regenerate avatar request for {personality_name}: emotions={emotions}, reference_image_id={reference_image_id}, strength={strength}"
         )
@@ -433,6 +439,7 @@ def regenerate_avatar(personality_name: str):
                 seed_image_url=seed_image_url,
                 strength=strength,
                 reference_image_id=reference_image_id,
+                owner_id=owner_id,
             )
             results.append(
                 {
@@ -522,6 +529,10 @@ def generate_character_images_endpoint(personality_name):
         emotions = data.get('emotions')
         api_key = data.get('api_key')
 
+        # Admin user's id — see regenerate_avatar for rationale.
+        admin_user = auth_manager.get_current_user() if auth_manager else None
+        owner_id = admin_user.get('id') if admin_user else None
+
         if has_character_images(personality_name):
             return jsonify(
                 {
@@ -532,7 +543,9 @@ def generate_character_images_endpoint(personality_name):
             )
 
         logger.info(f"Starting on-demand image generation for {personality_name}")
-        result = generate_character_images(personality_name, emotions=emotions, api_key=api_key)
+        result = generate_character_images(
+            personality_name, emotions=emotions, api_key=api_key, owner_id=owner_id
+        )
 
         if result.get('success'):
             return jsonify(

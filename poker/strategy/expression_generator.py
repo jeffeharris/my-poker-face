@@ -104,6 +104,7 @@ class ExpressionGenerator:
         context: ExpressionContext,
         call_type=None,
         game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
         capture_id_holder: Optional[list] = None,
     ) -> Dict[str, Any]:
         """Generate narration for the decided action.
@@ -148,6 +149,7 @@ class ExpressionGenerator:
                 json_format=True,
                 call_type=call_type,
                 game_id=game_id,
+                owner_id=owner_id,
                 player_name=context.personality_name,
                 prompt_template='decision_expression',
                 capture_enricher=capture_enricher,
@@ -175,6 +177,7 @@ class ExpressionGenerator:
                     seq,
                     self._get_cleanup_client(),
                     game_id=game_id,
+                    owner_id=owner_id,
                     player_name=context.personality_name,
                 )
         return parsed

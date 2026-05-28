@@ -3269,6 +3269,7 @@ class TieredBotController(AIPlayerController):
                 context,
                 call_type=getattr(self, '_expression_call_type', None),
                 game_id=getattr(self, 'game_id', None),
+                owner_id=getattr(self, 'owner_id', None),
                 capture_id_holder=capture_id_holder,
             )
             for key in ('dramatic_sequence', 'addressing', 'inner_monologue', 'bluff_likelihood'):

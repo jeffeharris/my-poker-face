@@ -266,6 +266,7 @@ class CharacterImageService:
         seed_image_url: Optional[str] = None,
         strength: float = 0.75,
         reference_image_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Regenerate a single emotion image for a personality.
 
@@ -277,6 +278,7 @@ class CharacterImageService:
             strength: How much to transform the seed image (0.0-1.0).
                       Lower = more like original, higher = more creative.
             reference_image_id: Optional reference image ID for tracking/capture
+            owner_id: Optional user ID for tracking (and per-owner budget gate)
 
         Returns:
             Dict with 'success', 'message', and optionally 'error'
@@ -302,6 +304,7 @@ class CharacterImageService:
                 seed_image_url=seed_image_url,
                 strength=strength,
                 reference_image_id=reference_image_id,
+                owner_id=owner_id,
             )
             self._process_to_icon_and_save(personality_name, emotion, raw_image_bytes)
             return {
@@ -318,6 +321,7 @@ class CharacterImageService:
         emotions: Optional[List[str]] = None,
         api_key: Optional[str] = None,
         game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate images for a personality and save to database.
@@ -327,6 +331,7 @@ class CharacterImageService:
             emotions: List of emotions to generate (default: all missing)
             api_key: OpenAI API key (uses env var if not provided)
             game_id: Game ID for tracking (owner derived via JOIN)
+            owner_id: Optional user ID for tracking (and per-owner budget gate)
 
         Returns:
             Dict with 'success', 'generated', 'failed', 'skipped' counts
@@ -382,7 +387,7 @@ class CharacterImageService:
             try:
                 # Generate the image and get raw bytes
                 raw_image_bytes = self._generate_single_image(
-                    llm_client, personality_name, emotion, game_id=game_id
+                    llm_client, personality_name, emotion, game_id=game_id, owner_id=owner_id
                 )
 
                 # Process to circular icon and save to database
@@ -414,6 +419,7 @@ class CharacterImageService:
         seed_image_url: Optional[str] = None,
         strength: float = 0.75,
         reference_image_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> bytes:
         """Generate a single image and return raw bytes.
 
@@ -430,6 +436,7 @@ class CharacterImageService:
             strength: How much to transform the seed image (0.0-1.0).
                       Lower = more like original, higher = more creative.
             reference_image_id: Optional reference image ID for tracking/capture
+            owner_id: Optional user ID for tracking (and per-owner budget gate)
 
         Returns:
             Raw image bytes (512x512 PNG by default, configurable via FULL_IMAGE_SIZE)
@@ -458,6 +465,7 @@ class CharacterImageService:
                 size=FULL_IMAGE_SIZE,
                 call_type=CallType.IMAGE_GENERATION,
                 game_id=game_id,
+                owner_id=owner_id,
                 player_name=personality_name,
                 prompt_template='avatar_generation',
                 target_emotion=emotion,
@@ -477,7 +485,7 @@ class CharacterImageService:
                         f"Content policy blocked {personality_name}, generating archetype identity..."
                     )
                     archetype = self._generate_archetype_identity(
-                        llm_client, personality_name, game_id=game_id
+                        llm_client, personality_name, game_id=game_id, owner_id=owner_id
                     )
                     personality['visual_identity'] = archetype
                     self._personality_generator.personality_repo.save_personality(
@@ -497,6 +505,7 @@ class CharacterImageService:
                         size=FULL_IMAGE_SIZE,
                         call_type=CallType.IMAGE_GENERATION,
                         game_id=game_id,
+                        owner_id=owner_id,
                         player_name=personality_name,
                         prompt_template='avatar_generation_fallback',
                         target_emotion=emotion,
@@ -529,7 +538,11 @@ class CharacterImageService:
         return image_bytes
 
     def _generate_archetype_identity(
-        self, llm_client: LLMClient, name: str, game_id: Optional[str] = None
+        self,
+        llm_client: LLMClient,
+        name: str,
+        game_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> Dict[str, str]:
         """Generate archetype-based visual identity for content policy workaround.
 
@@ -553,6 +566,7 @@ class CharacterImageService:
             json_format=True,
             call_type=CallType.IMAGE_DESCRIPTION,
             game_id=game_id,
+            owner_id=owner_id,
             player_name=name,
             prompt_template='archetype_generation',
         )
@@ -771,10 +785,11 @@ def generate_character_images(
     emotions: Optional[List[str]] = None,
     api_key: Optional[str] = None,
     game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Generate images for a personality and save to database."""
     return get_character_image_service().generate_images(
-        personality_name, emotions, api_key, game_id=game_id
+        personality_name, emotions, api_key, game_id=game_id, owner_id=owner_id
     )
 
 
@@ -800,6 +815,7 @@ def regenerate_avatar_emotion(
     seed_image_url: Optional[str] = None,
     strength: float = 0.75,
     reference_image_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Regenerate a single emotion image for a personality."""
     return get_character_image_service().regenerate_emotion(
@@ -809,6 +825,7 @@ def regenerate_avatar_emotion(
         seed_image_url=seed_image_url,
         strength=strength,
         reference_image_id=reference_image_id,
+        owner_id=owner_id,
     )
 
 

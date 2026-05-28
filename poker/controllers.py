@@ -1125,6 +1125,7 @@ class AIPlayerController:
                     self._get_cleanup_client(),
                     game_id=self.game_id,
                     player_name=self.player_name,
+                    owner_id=self.owner_id,
                 )
 
         # Record this turn's speech beats for next turn's anti-repetition

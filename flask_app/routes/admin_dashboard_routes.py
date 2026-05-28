@@ -11,6 +11,7 @@ from core.llm import UsageTracker
 from poker.authorization import require_permission
 
 from ..extensions import (
+    auth_manager,
     game_repo,
     hand_history_repo,
     llm_repo,
@@ -576,11 +577,18 @@ def api_playground_replay_image(capture_id: int):
         # Create LLM client for the provider
         client = LLMClient(provider=provider, model=model)
 
+        # Admin user's id — attributes the paid spend so the PRH-2 per-owner
+        # budget gate can bind this debug-replay image call. The blueprint is
+        # admin-gated, so a current user is always present here.
+        admin_user = auth_manager.get_current_user() if auth_manager else None
+        admin_owner_id = admin_user.get('id') if admin_user else None
+
         # Generate the new image
         response = client.generate_image(
             prompt=prompt,
             size=size,
             call_type=CallType.DEBUG_REPLAY,
+            owner_id=admin_owner_id,
             seed_image_url=seed_image_url,
             reference_image_id=reference_image_id,
         )

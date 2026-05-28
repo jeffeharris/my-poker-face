@@ -245,18 +245,44 @@ ARMED/DISABLED. Caveat from the original plan still holds: `estimated_cost` is
 NULL when a model's pricing row is missing → those rows count as $0 and slip the
 cap, so ensure pricing rows exist for prod models.
 
-### Known limitations
-- **Per-owner cap depends on `owner_id` propagation.** The gate only consults
-  the per-owner ceiling when the caller passes an `owner_id`. Several
-  generation paths — notably the paid image-generation routes (now admin-gated
-  by PRH-1) and a handful of background commentary/narration paths — call
-  `LLMClient` without threading an `owner_id` through. **For those calls the
-  per-owner layer does not bind, but the global cap still does** (its SUM
-  counts rows with NULL `owner_id`). Implication: always arm
-  `LLM_GLOBAL_DAILY_BUDGET_USD` — `LLM_PER_OWNER_DAILY_BUDGET_USD` alone
-  cannot bound the owner-less paths. Threading `owner_id` through
-  `poker/character_images.py` and the narration paths would tighten this, at
-  the cost of multi-file changes deferred from this MVP.
+### Operator note — Decision B is intentionally aggressive
+The full-tiered gate (Decision B) blocks **`PLAYER_DECISION` along with the
+cosmetic call types** when over budget, relying on the audited deterministic
+fallback in `chaos`/`standard`/`lean` (and on the default `sharp` bot being
+LLM-free for decisions). The practical effect: **hitting the global cap
+degrades AI flavor — narration, chatter, commentary — globally, for every
+owner, until the 24h rolling spend drops back under the cap.** That is the
+intended hard-backstop behavior; the gate is not a fairness mechanism. The
+**per-owner cap is the fairness layer to layer on top**: arm it to bound a
+single owner's spend before the global ceiling is reached, so one runaway
+account can't degrade everyone else's flavor.
+
+### `owner_id` propagation (per-owner gate coverage)
+The per-owner ceiling can only bind a call when the caller passes an
+`owner_id` to `LLMClient`. Audit of the call sites:
+
+| Path | Status | Where `owner_id` comes from |
+|------|--------|-----------------------------|
+| `PLAYER_DECISION` (chaos/standard/lean) | ✓ threaded | `AIPokerPlayer.owner_id` (`poker/poker_player.py`) inherited by `TieredBotController` via `super().__init__(**kwargs)` |
+| `COMMENTARY` (tiered Layer-3 narration) | ✓ threaded | `self.owner_id` passed at `tiered_bot_controller.py:_run_expression_layer` → `ExpressionGenerator.generate(owner_id=...)` |
+| `NARRATION_CLEANUP` (`llm_normalize_beats`) | ✓ threaded | Forwarded from both call sites (`controllers.py` chaos path, `expression_generator.py` tiered path) |
+| `VICE_NARRATION` / `SIDE_HUSTLE_NARRATION` | ✓ threaded | Already plumbed pre-PRH-2 (`cash_mode/vice_narration.py`, `cash_mode/side_hustle_narration.py`) |
+| `IMAGE_GENERATION` / `IMAGE_DESCRIPTION` (admin POST routes) | ✓ threaded | `auth_manager.get_current_user()['id']` at `regenerate_avatar` and `generate_character_images_endpoint`; also `admin_dashboard_routes.py` debug-replay |
+| `IMAGE_GENERATION` (game-creation background batch) | ✓ threaded | Game owner via `start_background_avatar_generation(..., owner_id=owner_id)` from `game_routes.py:api_new_game` |
+| `IMAGE_GENERATION` (on-demand serve fallback) | ⚠ no owner | `start_single_emotion_generation` fires from the unauthenticated avatar-serving GET — left as `owner_id=None` on purpose. Bounded by the **global** cap. |
+| `CHAT_SUGGESTION`, `COACHING`, `EXPERIMENT_*`, `DEBUG_*` | not audited here | These already gate on auth and have route-level rate limits; verify owner_id at the route if you want them to count against a specific owner. |
+
+So one explicit gap remains by design: the on-demand avatar-serving fallback
+(which fires from an unauthenticated GET so there's no honest owner to bill).
+The **global** cap still covers it.
+
+### Other known caveats
+- **NULL-cost slip**: `estimated_cost` is NULL when a model's pricing row is
+  missing, and `COALESCE(SUM, 0)` treats NULL as $0 — those rows count toward
+  no cap. A startup check (see `flask_app.config.warn_missing_pricing_rows`,
+  called from `create_app`) scans recent `api_usage` rows and logs one warning
+  per `(provider, model)` combo with NULL costs, so a pricing drift surfaces
+  in boot logs rather than silently weakening the cap.
 - **Spend cache is eager-bumped between TTL recomputes.** `UsageTracker.record`
   folds each call's `estimated_cost` into the cached totals immediately (see
   `_bump_spend_cache`), so the gate sees new spend without waiting for the

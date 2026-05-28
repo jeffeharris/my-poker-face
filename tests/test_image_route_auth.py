@@ -121,8 +121,13 @@ class TestImageRouteAuth(unittest.TestCase):
         fake_generator.get_personality.return_value = {'name': 'TestPersona'}
         fake_generator.get_avatar_description.return_value = 'a test persona'
 
+        admin = {'id': 'admin-1', 'name': 'Admin'}
+        fake_route_auth = MagicMock()
+        fake_route_auth.get_current_user.return_value = admin
+
         with (
-            self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True),
+            self._auth_patch(admin, True),
+            patch('flask_app.routes.image_routes.auth_manager', fake_route_auth),
             patch('flask_app.extensions.personality_generator', fake_generator),
             patch(
                 'flask_app.routes.image_routes.regenerate_avatar_emotion',
@@ -134,10 +139,18 @@ class TestImageRouteAuth(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json().get('success'))
         mock_regen.assert_called_once()
+        # Admin's user id must be forwarded as owner_id so the PRH-2 per-owner
+        # budget gate can bind this paid call (Codex review follow-up).
+        self.assertEqual(mock_regen.call_args.kwargs.get('owner_id'), 'admin-1')
 
     def test_admin_can_generate_character_images(self):
+        admin = {'id': 'admin-1', 'name': 'Admin'}
+        fake_route_auth = MagicMock()
+        fake_route_auth.get_current_user.return_value = admin
+
         with (
-            self._auth_patch({'id': 'admin-1', 'name': 'Admin'}, True),
+            self._auth_patch(admin, True),
+            patch('flask_app.routes.image_routes.auth_manager', fake_route_auth),
             patch('flask_app.routes.image_routes.has_character_images', return_value=False),
             patch(
                 'flask_app.routes.image_routes.generate_character_images',
@@ -149,6 +162,7 @@ class TestImageRouteAuth(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json().get('status'), 'generated')
         mock_gen.assert_called_once()
+        self.assertEqual(mock_gen.call_args.kwargs.get('owner_id'), 'admin-1')
 
     # ------------------------------------------------------------------
     # GET serve routes stay open to unauthenticated callers

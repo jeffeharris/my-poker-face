@@ -125,6 +125,38 @@ def log_llm_budget_status() -> None:
     logger.info("[LLM BUDGET] spend kill-switch ARMED — %s", ", ".join(parts))
 
 
+def warn_missing_pricing_rows() -> None:
+    """At startup, scan recent api_usage for rows with NULL ``estimated_cost``.
+
+    Such rows almost always mean the matching ``model_pricing`` row is missing
+    — and because the spend gate sums via ``COALESCE(SUM, 0)``, they count as
+    $0 and silently slip the cap. Surfacing the offending ``(provider, model)``
+    combos in the boot log lets the operator add pricing rows before drift
+    accumulates. Idempotent; fails open (no log on DB error).
+    """
+    from core.llm.tracking import UsageTracker
+
+    try:
+        tracker = UsageTracker.get_default()
+        combos = tracker.find_recent_null_cost_combos()
+    except Exception as e:
+        logger.debug("[LLM BUDGET] missing-pricing scan skipped: %s", e)
+        return
+
+    if not combos:
+        return
+
+    for provider, model, count in combos:
+        logger.warning(
+            "[LLM BUDGET] %s/%s has %d recent api_usage row(s) with NULL "
+            "estimated_cost — those silently slip the cap; add a model_pricing "
+            "row for this SKU to make them billable.",
+            provider,
+            model,
+            count,
+        )
+
+
 # Pagination
 GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))
 
