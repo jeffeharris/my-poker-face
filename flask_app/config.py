@@ -55,6 +55,11 @@ else:
     RATE_LIMIT_DEFAULT = ['10000 per day', '1000 per hour', '100 per minute']
 RATE_LIMIT_NEW_GAME = os.environ.get('RATE_LIMIT_NEW_GAME', '10 per hour')
 RATE_LIMIT_GAME_ACTION = os.environ.get('RATE_LIMIT_GAME_ACTION', '60 per minute')
+# PRH-26: per-IP cap on FRESH guest minting (only applies when there's no valid
+# existing guest cookie — returning guests and password logins are exempt, so
+# legit users behind shared/CGNAT IPs aren't penalized). Bounds scripted guest
+# creation; the global LLM budget (PRH-25) is the financial backstop.
+RATE_LIMIT_GUEST_LOGIN = os.environ.get('RATE_LIMIT_GUEST_LOGIN', '60 per hour')
 # High-frequency read-only state polling (cash/game state, lobby). A single
 # generous per-minute window — these are cheap GETs driven by client polling,
 # and a day/hour cap would punish long play sessions. The minute cap still

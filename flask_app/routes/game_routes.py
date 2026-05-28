@@ -31,9 +31,9 @@ from poker.guest_limits import (
     is_guest,
     validate_guest_opponent_count,
 )
-from poker.memory.chat_intent import map_tone
 from poker.hybrid_ai_controller import HybridAIController
 from poker.memory import AIMemoryManager
+from poker.memory.chat_intent import map_tone
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_game import advance_to_next_active_player, initialize_game_state, play_turn
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
@@ -468,7 +468,9 @@ def get_usage_stats():
 
     hands_played = 0
     if guest:
-        tracking_id = request.cookies.get('guest_tracking_id')
+        # PRH-26: resolve via the signed-cookie / IP-derived path (same as the
+        # quota writer) so a forged cookie can't report a fresh 0-hand bucket.
+        tracking_id = auth_manager.resolve_guest_tracking_id() if auth_manager else None
         if tracking_id:
             hands_played = guest_tracking_repo.get_hands_played(tracking_id)
 
@@ -1331,6 +1333,19 @@ def _get_model_capabilities_map():
     return llm_repo.get_model_capabilities_map()
 
 
+def _guest_safe_bot_types(bot_types: dict, enforce_guest: bool) -> dict:
+    """PRH-26: gate the paid LLM bots behind real auth.
+
+    `chaos`/`standard`/`lean` run an LLM call per decision; a guest must not be
+    able to opt into them. When `enforce_guest` is true (a guest with limits
+    enabled), every opponent is forced to the LLM-free `sharp` tiered bot
+    regardless of what was requested. Signed-in users keep full selection.
+    """
+    if enforce_guest:
+        return {name: 'sharp' for name in bot_types}
+    return bot_types
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -1441,6 +1456,12 @@ def api_new_game():
     # Normalize legacy aliases (hybrid → standard, tiered → sharp).
     # Done after validation so callers can still send legacy values during the transition.
     bot_types = {n: _BOT_TYPE_ALIASES.get(bt, bt) for n, bt in bot_types.items()}
+
+    # PRH-26: guests can't opt into the paid LLM bots — force them to 'sharp'.
+    # (Dev mode leaves selection open for testing via GUEST_LIMITS_ENABLED.)
+    bot_types = _guest_safe_bot_types(
+        bot_types, bool(current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED)
+    )
 
     # Parse personalities - supports both string names and objects with llm_config/game_mode
     # Format: ["Batman", {"name": "Sherlock", "llm_config": {"provider": "groq"}, "game_mode": "pro"}]
