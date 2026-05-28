@@ -97,6 +97,7 @@ class _CashSponsorRouteBase(unittest.TestCase):
                 'relationship_repo',
                 'bankroll_repo',
                 'cash_table_repo',
+                'cash_session_repo',
                 'chip_ledger_repo',
                 'stake_repo',
                 'vice_state_repo',
@@ -593,6 +594,77 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         )
         self.assertEqual(after.seats[1]['kind'], 'human')
         self.assertEqual(after.seats[1]['personality_id'], PLAYER_OWNER_ID)
+
+    def test_table_aware_path_persists_cash_table_id(self):
+        """Regression: the seat-tapped sponsor flow must persist
+        cash_table_id + cash_seat_index onto the cash_sessions row.
+
+        Pre-fix, `sponsor_and_sit` called `_record_cash_session_start`
+        without these two fields even though both were in scope, so
+        every sponsor session wrote cash_sessions.cash_table_id=NULL.
+        That NULL then defeated the leave-time ghost-seat sweep (see
+        test_leave_clears_orphan_seats) and broke per-table analytics.
+        """
+        from flask_app import extensions
+
+        cash_table_repo = extensions.cash_table_repo
+        cash_session_repo = extensions.cash_session_repo
+
+        seats = [
+            ai_slot(self.napoleon_id, 400),
+            open_slot(),
+            ai_slot(self.buddha_id, 400),
+            open_slot(),
+            open_slot(),
+            open_slot(),
+        ]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
+
+        # Spy out the heavy game build; the route still calls
+        # _record_cash_session_start afterward with our spy game_id.
+        def _spy(**kwargs):
+            return 'cash-test-cti-id', None
+
+        with patch(
+            'flask_app.routes.cash_routes._build_cash_game',
+            side_effect=_spy,
+        ):
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'table_id': 'cash-table-10-001',
+                    'seat_index': 1,
+                    'opponents': 2,
+                },
+            )
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.get_data(as_text=True),
+        )
+
+        session = cash_session_repo.load('cash-test-cti-id')
+        self.assertIsNotNone(
+            session,
+            'no cash_sessions row was written for the sponsor session',
+        )
+        self.assertEqual(
+            session.cash_table_id,
+            'cash-table-10-001',
+            'sponsor session did not persist cash_table_id — the '
+            'leave-time ghost-seat sweep would be unable to locate '
+            'the seat',
+        )
+        self.assertEqual(session.cash_seat_index, 1)
 
     def test_table_aware_rejects_taken_seat(self):
         """Sponsor flow with table_id pointing at a non-open seat

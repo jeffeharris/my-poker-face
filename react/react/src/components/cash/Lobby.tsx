@@ -27,7 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
-import { getLobby, getState, sitAtTable, setWorldPace } from './api';
+import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -179,6 +179,7 @@ export function Lobby() {
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [sitError, setSitError] = useState<string | null>(null);
   const [sponsorState, setSponsorState] = useState<{
     stakeLabel: StakeLabel;
@@ -433,6 +434,34 @@ export function Lobby() {
     }
   }, [navigate]);
 
+  /** End the in-progress session from the lobby without sitting back
+   *  down. Hits /api/cash/leave, which (post-hardening) cold-loads a
+   *  DB-only session and settles it properly before tearing it down —
+   *  the escape valve for a session that got wedged after a restart.
+   *  On success we clear the Resume bar locally and reload the lobby so
+   *  the seat/Resume state reconciles. */
+  const handleEndSession = useCallback(async () => {
+    if (endingSession) return;
+    if (!window.confirm('End your current session? Your table chips will be cashed out and any active stake settled.')) {
+      return;
+    }
+    setEndingSession(true);
+    setSitError(null);
+    try {
+      await leaveTable();
+      setHasActiveSession(false);
+      setSeatedTableId(null);
+      setSeatedStakeLabelFromServer(null);
+      await reloadLobbyRef.current();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('End session failed:', msg);
+      setSitError(msg);
+    } finally {
+      setEndingSession(false);
+    }
+  }, [endingSession]);
+
   /** Open the StakeOfferModal pre-targeted to a candidate. Looks up
    *  the target tier's [min, max] window from the lobby's tables so
    *  the modal doesn't need its own fetch. */
@@ -487,13 +516,25 @@ export function Lobby() {
           )}
 
           {(hasActiveSession || seatedTableId) && (
-            <button type="button" className="cash-entry__resume" onClick={handleResume}>
-              <Play size={18} aria-hidden="true" />
-              <span className="cash-entry__resume-text">
-                Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
-              </span>
-              <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
-            </button>
+            <div className="cash-entry__resume-row">
+              <button type="button" className="cash-entry__resume" onClick={handleResume}>
+                <Play size={18} aria-hidden="true" />
+                <span className="cash-entry__resume-text">
+                  Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
+                </span>
+                <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
+              </button>
+              {/* Escape valve: a session that wedged after a restart can
+                  be ended here without first having to resume into it. */}
+              <button
+                type="button"
+                className="cash-entry__end-session"
+                onClick={handleEndSession}
+                disabled={endingSession}
+              >
+                {endingSession ? 'Ending…' : 'End session'}
+              </button>
+            </div>
           )}
 
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />

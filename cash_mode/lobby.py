@@ -3047,6 +3047,123 @@ def _emit_side_hustle_events(
             )
 
 
+def _boot_sweep_stale_cash_rows(
+    *,
+    game_repo,
+    cash_session_repo,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    stale_ttl_seconds: int,
+    now: datetime,
+    skip_game_ids: Optional[Set[str]] = None,
+) -> int:
+    """Sweep abandoned `cash-*` rows whose `updated_at` is past the TTL.
+
+    Resume-on-reboot is by design: a *fresh* cash row (touched within
+    `stale_ttl_seconds`) is left intact so the player reconnects to
+    their frozen table. But a row nobody has touched in a long time is
+    an abandoned orphan — leaving it makes `_find_active_cash_game_id`
+    surface it forever and the sit guard 409s every new sit. This is
+    the convergence backstop (T2.2): boot is where partial/abandoned
+    state gets resolved instead of lingering.
+
+    For each stale row we ghost-clean (the chips at the table are
+    notional at boot — last hand-boundary sync — and the bankroll
+    already reflects the buy-in debit):
+
+      1. Settle any *active* stake at chips=0 (full-bust path:
+         personality stakes carry the principal, house stakes forgive)
+         so the staker's debited principal doesn't dangle un-resolved.
+         Idempotent — `settle_stake_on_leave` no-ops on a non-active
+         stake. Skipped when `stake_repo` isn't provided.
+      2. Finalise the `cash_sessions` row as `closed_status='boot_swept'`
+         (the repo's `ended_at IS NULL` guard makes this idempotent).
+      3. Delete the `games` row so the sit guard stops 409-ing.
+
+    Returns the number of rows swept. Best-effort per row — one bad row
+    doesn't abort the rest of the sweep.
+    """
+    swept = 0
+    try:
+        rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
+    except Exception as e:
+        logger.warning("[CASH][LOBBY] boot sweep list_games failed: %s", e)
+        return 0
+
+    skip_game_ids = skip_game_ids or set()
+    for row in rows:
+        if not row.game_id.startswith("cash-"):
+            continue
+        if row.game_id in skip_game_ids:
+            # In-memory / actively-played game — never sweep it. Deleting
+            # the DB row out from under a live in-memory copy just gets
+            # re-saved on the next tick (the resurrection race), and the
+            # player may still be at the table. The watchdog passes the
+            # live cash-game ids here.
+            continue
+        try:
+            age = (now - row.updated_at).total_seconds()
+        except Exception:
+            # Unparseable timestamp — treat as stale (safer than
+            # leaving a row we can't reason about wedged forever).
+            age = stale_ttl_seconds + 1
+        if age <= stale_ttl_seconds:
+            continue  # fresh → resumable, leave it alone
+
+        try:
+            session = cash_session_repo.load(row.game_id) if cash_session_repo else None
+            # 1. Resolve any active stake so its principal doesn't dangle.
+            if stake_repo is not None:
+                active_stake = stake_repo.load_active_for_session(row.game_id)
+                if active_stake is not None:
+                    from cash_mode.stake_settlement import settle_stake_on_leave
+
+                    settle_stake_on_leave(
+                        active_stake.stake_id,
+                        0,  # notional: treat an abandoned table as a bust
+                        stake_repo=stake_repo,
+                        chip_ledger_repo=chip_ledger_repo,
+                        ledger_context={'game_id': row.game_id, 'site': 'boot_sweep'},
+                        sandbox_id=session.sandbox_id if session else None,
+                        now=now,
+                    )
+            # 2. Mark the session closed (idempotent via ended_at guard).
+            if session is not None and session.ended_at is None:
+                cash_session_repo.finalise(
+                    session.session_id,
+                    ended_at=now,
+                    final_chips_at_table=0,
+                    sponsor_repaid=0,
+                    player_take_home=0,
+                    hands_played=session.hands_played or 0,
+                    hands_won=session.hands_won or 0,
+                    biggest_pot_won=session.biggest_pot_won or 0,
+                    duration_seconds=0,
+                    closed_status="boot_swept",
+                )
+            # 3. Drop the games row so the sit guard stops blocking sits.
+            game_repo.delete_game(row.game_id)
+            swept += 1
+            logger.info(
+                "[CASH][LOBBY] boot-swept stale orphan cash row %r "
+                "(age=%.0fs > ttl=%ds, owner=%r)",
+                row.game_id,
+                age,
+                stale_ttl_seconds,
+                row.owner_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "[CASH][LOBBY] boot sweep failed for %r: %s",
+                row.game_id,
+                e,
+            )
+
+    if swept:
+        logger.info("[CASH][LOBBY] boot sweep removed %d stale orphan cash row(s)", swept)
+    return swept
+
+
 def kill_all_cash_sessions(
     *,
     game_state_service,
@@ -3054,6 +3171,11 @@ def kill_all_cash_sessions(
     cash_table_repo=None,
     bankroll_repo=None,
     sandbox_id: Optional[str] = None,
+    cash_session_repo=None,
+    stake_repo=None,
+    chip_ledger_repo=None,
+    stale_ttl_seconds: int = 1800,
+    now: Optional[datetime] = None,
 ) -> int:
     """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
 
@@ -3097,6 +3219,21 @@ def kill_all_cash_sessions(
         game_state_service.delete_game(gid)
         dropped += 1
         logger.info("[CASH][LOBBY] kill_all_cash_sessions: dropped in-memory %r", gid)
+
+    # Stale-orphan row sweep (T2.2). Runs before the seat reconcile so
+    # that owners whose row we just swept fall into the "no surviving
+    # cash-* row" bucket below and get their lobby seat freed too.
+    if cash_session_repo is not None:
+        if now is None:
+            now = datetime.utcnow()
+        _boot_sweep_stale_cash_rows(
+            game_repo=game_repo,
+            cash_session_repo=cash_session_repo,
+            stake_repo=stake_repo,
+            chip_ledger_repo=chip_ledger_repo,
+            stale_ttl_seconds=stale_ttl_seconds,
+            now=now,
+        )
 
     # Reconcile orphan human seats. A seat is orphan when its owner
     # has no surviving `cash-*` row — the lobby would otherwise render

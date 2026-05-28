@@ -120,6 +120,12 @@ def create_app():
         kill_all_cash_sessions(
             game_state_service=game_state_service,
             game_repo=extensions.game_repo,
+            # T2.2: sweep abandoned cash-* rows (untouched past the TTL)
+            # so a session orphaned by a crash/restart doesn't wedge the
+            # sit guard forever. Fresh rows are preserved for resume.
+            cash_session_repo=extensions.cash_session_repo,
+            stake_repo=extensions.stake_repo,
+            chip_ledger_repo=extensions.chip_ledger_repo,
         )
     except Exception as e:
         logger.error(f"[CASH] lobby boot hook failed: {e}", exc_info=True)

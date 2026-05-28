@@ -257,6 +257,40 @@
   opacity: 0.7;
 }
 
+.cash-entry__resume-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.cash-entry__resume-row .cash-entry__resume {
+  flex: 1;
+}
+
+.cash-entry__end-session {
+  flex: 0 0 auto;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  color: #fca5a5;
+  border: 1px solid rgba(252, 165, 165, 0.4);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cash-entry__end-session:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(252, 165, 165, 0.7);
+}
+
+.cash-entry__end-session:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cash-entry__sit-button {
   padding: 0.875rem 1.5rem;
   background: #4ade80;

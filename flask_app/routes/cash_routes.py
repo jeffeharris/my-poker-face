@@ -1982,6 +1982,15 @@ def sponsor_and_sit():
         sponsor_principal=offer_amount,
         is_staked=True,
         stake_id=stake_id,
+        # Pin the session to the seat the player sat at (when the
+        # sponsor flow originated from a seat tap). Without this,
+        # sponsor sessions wrote cash_table_id=NULL, which left the
+        # leave-time ghost-seat sweep unable to locate the seat and
+        # stranded it on the lobby table. Both fields are NULL on the
+        # auto-sit fallback (no table_id in the payload), which the
+        # cross-table sweep in _leave_table_locked now handles.
+        cash_table_id=table_id,
+        cash_seat_index=seat_index,
     )
 
     # House-archetype loans create chips out of central_bank. Personality
@@ -3883,6 +3892,93 @@ def _finalise_cash_session(**kwargs) -> None:
     finalise_cash_session(cash_session_repo=cash_session_repo, **kwargs)
 
 
+def _warm_cash_game_for_leave(
+    game_id: str,
+    *,
+    owner_id: str,
+    persisted_cash_session=None,
+) -> Optional[dict]:
+    """Rehydrate just enough of a DB-only cash game to settle it.
+
+    Used by the leave path when the in-memory copy is gone (server
+    restart left the game as a `cash-*` row only). A full cold-load
+    (`/api/game-state`'s path — controllers, opponent models, pressure
+    stats, tournament tracker) is overkill for a leave: settlement only
+    reads the human's final stack, each AI's stack, and the name→pid
+    map for AI cash-out. We rebuild that minimal slice and register it
+    so `_leave_table_locked` can fall through to its normal settlement
+    branch instead of the chips-zeroing ghost-cleanup branch.
+
+    Safe against the resurrection race that bit the out-of-process
+    cleanup script: the caller holds the per-game lock for the whole
+    teardown, and `/api/game-state`'s cold-load acquires the SAME lock,
+    so a concurrent poll waits until we've deleted the row and only
+    then sees the 404. (An out-of-process `create_app()` had a
+    different lock object and lost that race.)
+
+    Returns the registered game_data dict, or None when the row can't
+    be loaded (the caller then ghost-cleans).
+    """
+    from flask_app.extensions import game_repo, personality_repo
+    from flask_app.game_adapter import StateMachineAdapter
+    from flask_app.services import game_state_service
+
+    try:
+        base_state_machine = game_repo.load_game(game_id)
+    except Exception as e:
+        logger.warning("[CASH] leave warm-load failed for %r: %s", game_id, e)
+        return None
+    if not base_state_machine:
+        return None
+
+    state_machine = StateMachineAdapter(base_state_machine)
+
+    big_blind = state_machine.game_state.current_ante or 100
+    stake_label = next(
+        (label for label, cfg in STAKES_LADDER.items() if cfg["big_blind"] == big_blind),
+        None,
+    )
+
+    cash_personality_ids: Dict[str, str] = {}
+    for player in state_machine.game_state.players:
+        if player.is_human:
+            continue
+        try:
+            pid = personality_repo.resolve_name_to_personality_id(player.name)
+        except Exception:
+            pid = None
+        if pid:
+            cash_personality_ids[player.name] = pid
+        else:
+            logger.warning(
+                "[CASH] leave warm-load: no personality_id for AI %r — "
+                "its table stack won't be credited back on cash-out",
+                player.name,
+            )
+
+    game_data = {
+        "state_machine": state_machine,
+        "owner_id": owner_id,
+        "cash_mode": True,
+        "cash_stake_label": stake_label,
+        "cash_personality_ids": cash_personality_ids,
+        "cash_table_id": persisted_cash_session.cash_table_id if persisted_cash_session else None,
+        "cash_seat_index": persisted_cash_session.cash_seat_index if persisted_cash_session else None,
+        "sandbox_id": persisted_cash_session.sandbox_id if persisted_cash_session else None,
+        "messages": [],
+        "ai_controllers": {},
+    }
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH] leave warm-load OK for %r — settling DB-only session "
+        "(players=%d, stake=%s)",
+        game_id,
+        len(state_machine.game_state.players),
+        stake_label,
+    )
+    return game_data
+
+
 def _leave_table_locked(owner_id: str, game_id: str):
     """Body of `leave_table`, run under the per-game lock.
 
@@ -3928,13 +4024,78 @@ def _leave_table_locked(owner_id: str, game_id: str):
 
     now = datetime.utcnow()
 
+    # Idempotency guard (T2.1). If the durable cash_sessions row is
+    # already finalized (`ended_at` set), this is a *re-entry* on a
+    # session that was settled once — a retry after a crash, or a leave
+    # on a game that got resurrected into memory by a stray
+    # `/api/game-state` poll. Re-running settlement here is the
+    # double-settle bug: the stake is already non-active, so the
+    # settlement falls into the "no stake" branch and refunds the full
+    # table stack a SECOND time, injecting phantom chips. So when the
+    # session is already closed we do CLEANUP ONLY — tear down the
+    # residual game row + seats, never touch a bankroll — and return a
+    # coherent already-ended response. This is the guard that would
+    # have prevented the 2026-05-28 phantom-chip incident.
+    if persisted_cash_session is not None and persisted_cash_session.ended_at is not None:
+        logger.info(
+            "[CASH] leave on already-finalized session %r (closed_status=%r) "
+            "— cleanup only, no re-settlement",
+            game_id,
+            persisted_cash_session.closed_status,
+        )
+        # Drop any in-memory copy (a resurrection from a stray poll) so
+        # the ticker can't keep re-saving the row after we delete it.
+        game_state_service.delete_game(game_id)
+        try:
+            game_repo.delete_game(game_id)
+        except Exception as e:
+            logger.warning("[CASH] delete_game failed for %r: %s", game_id, e)
+        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+        _purge_other_cash_rows(owner_id, except_game_id=None)
+        bankroll_now = _load_or_seed_player_bankroll(owner_id).chips
+        already_summary = _build_session_summary(
+            game_id=game_id,
+            human_name="",
+            cash_out=persisted_cash_session.final_chips_at_table or 0,
+            cash_session=persisted_cash_session,
+            sponsor_repaid=persisted_cash_session.sponsor_repaid or 0,
+            player_take_home=persisted_cash_session.player_take_home or 0,
+            now=now,
+        )
+        return jsonify(
+            {
+                "session_ended": True,
+                "chips_at_table": 0,
+                "had_active_loan": False,
+                "sponsor_repaid": persisted_cash_session.sponsor_repaid or 0,
+                "returned_chips": 0,
+                "bankroll": bankroll_now,
+                "session_summary": already_summary,
+            }
+        )
+
     if game_data is None:
-        # Memory-only miss is fine when the game is still in the DB
-        # (e.g. server restarted mid-session). Best-effort cleanup of
-        # any persisted row(s) for this owner so we don't strand them
-        # in the no-active-session state with a stale `/api/cash/state`
-        # redirect target. No chips to settle when there's no state
-        # machine to read a stack from.
+        # Server restart left this session as a DB-only `cash-*` row.
+        # Try to rehydrate just enough to settle it properly (real
+        # stack → stake cut applied, AIs cashed out) before falling
+        # back to the chips-zeroing ghost path below. This is the
+        # lobby "End session" path too: the user is on the lobby (not
+        # polling the game page), so there's no client to race, and we
+        # hold the per-game lock regardless. Recommendation (a) in
+        # docs/plans/CASH_MODE_SESSION_LIFECYCLE_HARDENING.md.
+        game_data = _warm_cash_game_for_leave(
+            game_id,
+            owner_id=owner_id,
+            persisted_cash_session=persisted_cash_session,
+        )
+
+    if game_data is None:
+        # Memory-only miss AND the row couldn't be loaded (corrupt /
+        # already-deleted). Best-effort cleanup of any persisted row(s)
+        # for this owner so we don't strand them in the no-active-
+        # session state with a stale `/api/cash/state` redirect target.
+        # No chips to settle when there's no state machine to read a
+        # stack from.
         try:
             game_repo.delete_game(game_id)
         except Exception as e:
@@ -4247,14 +4408,6 @@ def _leave_table_locked(owner_id: str, game_id: str):
                 cash_seat_index,
             )
 
-            # Cross-table sweep: catch human seats owned by this user
-            # that survived on OTHER tables (e.g. an earlier session
-            # ended without a clean leave — back-arrow, browser close,
-            # crashed Flask). Without this the lobby keeps rendering the
-            # player as seated at a ghost table even after a clean leave.
-            # Same helper the memory-miss path already uses.
-            _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
-
             # Final refresh pass: lets AI movement act on the post-leave
             # state (e.g., an AI who won big can now stake_up).
             try:
@@ -4281,6 +4434,17 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     "[CASH][LOBBY] leave-time final refresh failed: %s",
                     e,
                 )
+
+    # Cross-table sweep: catch human seats owned by this user that
+    # survived on ANY table (an earlier session ended without a clean
+    # leave — back-arrow, browser close, crashed Flask — or this very
+    # session had cash_table_id=NULL so the seat-specific free above
+    # never ran). Runs unconditionally: previously this was nested
+    # inside `if cash_table_id is not None:`, so sponsor sessions
+    # (which wrote NULL cash_table_id) leaked their lobby seat on
+    # leave. The helper walks every table, so it's safe and correct
+    # to call regardless of whether we knew this session's table.
+    _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
 
     game_state_service.delete_game(game_id)
     # Best-effort: drop the persisted row too so the cash game doesn't
