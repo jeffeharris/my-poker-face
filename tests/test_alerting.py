@@ -1,15 +1,22 @@
 """Tests for the webhook alert handler (PRH-28).
 
-Covers the alertable-record gating, the throttle (per-signature cooldown +
-global per-minute cap), and the opt-in/no-op init — without any network I/O
-(``_dispatch`` is stubbed to record texts).
+Covers alertable-record gating, the throttle (per-signature cooldown + global
+per-minute cap), the no-op-when-unconfigured behavior, the DB-over-env URL
+resolution (admin-configurable), and masking — without any network I/O
+(``_dispatch`` is stubbed to record texts; the URL is injected via a provider).
 """
 
 import logging
 
 import pytest
 
-from flask_app.services.alerting import WebhookAlertHandler, init_alerting
+from flask_app.services.alerting import (
+    WebhookAlertHandler,
+    get_webhook_url,
+    init_alerting,
+    invalidate_webhook_url_cache,
+    mask_url,
+)
 
 
 def _record(level, msg, name="some.logger", exc_info=None):
@@ -20,9 +27,14 @@ def _record(level, msg, name="some.logger", exc_info=None):
 
 @pytest.fixture
 def handler():
-    h = WebhookAlertHandler("http://example.invalid/hook", cooldown_seconds=60.0, max_per_minute=30)
+    """Handler with a fixed URL provider and a no-network dispatch sink."""
+    h = WebhookAlertHandler(
+        url_provider=lambda: "http://example.invalid/hook",
+        cooldown_seconds=60.0,
+        max_per_minute=30,
+    )
     h.sent = []
-    h._dispatch = lambda text: h.sent.append(text)  # no network
+    h._dispatch = lambda url, text: h.sent.append(text)  # no network
     return h
 
 
@@ -55,6 +67,15 @@ def test_emit_dispatches_alertable_and_skips_rest(handler):
     assert "kaboom" in handler.sent[0]
 
 
+def test_no_url_is_noop():
+    """An alertable record with no configured URL dispatches nothing."""
+    h = WebhookAlertHandler(url_provider=lambda: "")
+    h.sent = []
+    h._dispatch = lambda url, text: h.sent.append(text)
+    h.emit(_record(logging.ERROR, "would-be alert"))
+    assert h.sent == []
+
+
 # --- throttle ---------------------------------------------------------------
 
 def test_same_signature_is_throttled(handler):
@@ -76,25 +97,63 @@ def test_global_per_minute_cap(handler):
     assert len(handler.sent) == 3  # capped within the window
 
 
+# --- URL resolution (DB setting over env) -----------------------------------
+
+class _FakeSettingsRepo:
+    def __init__(self, value):
+        self._value = value
+
+    def get_setting(self, key, default=None):
+        return self._value if self._value is not None else default
+
+
+def test_env_url_used_when_no_db_setting(monkeypatch):
+    from flask_app import extensions
+
+    monkeypatch.setattr(extensions, "settings_repo", None, raising=False)
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://env.example/hook")
+    invalidate_webhook_url_cache()
+    assert get_webhook_url() == "http://env.example/hook"
+
+
+def test_db_setting_overrides_env(monkeypatch):
+    from flask_app import extensions
+
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://env.example/hook")
+    monkeypatch.setattr(extensions, "settings_repo", _FakeSettingsRepo("http://db.example/hook"))
+    invalidate_webhook_url_cache()
+    assert get_webhook_url() == "http://db.example/hook"
+
+
+def test_invalidate_forces_refresh(monkeypatch):
+    from flask_app import extensions
+
+    monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
+    monkeypatch.setattr(extensions, "settings_repo", _FakeSettingsRepo("http://one.example"))
+    invalidate_webhook_url_cache()
+    assert get_webhook_url() == "http://one.example"
+    monkeypatch.setattr(extensions, "settings_repo", _FakeSettingsRepo("http://two.example"))
+    invalidate_webhook_url_cache()
+    assert get_webhook_url() == "http://two.example"
+
+
+def test_mask_url():
+    assert mask_url("") == ""
+    assert mask_url(None) == ""
+    masked = mask_url("https://hooks.slack.com/services/T0/B0/secrettoken123")
+    assert "secrettoken" not in masked and "…" in masked
+    assert mask_url("short") == "•••••"  # short values fully masked
+
+
 # --- init -------------------------------------------------------------------
 
-def test_init_is_noop_without_url(monkeypatch):
+def test_init_always_attaches_and_is_idempotent(monkeypatch):
     monkeypatch.delenv("ALERT_WEBHOOK_URL", raising=False)
     root = logging.getLogger()
-    before = [h for h in root.handlers if isinstance(h, WebhookAlertHandler)]
-    assert init_alerting() is None
-    after = [h for h in root.handlers if isinstance(h, WebhookAlertHandler)]
-    assert len(after) == len(before)
-
-
-def test_init_attaches_and_is_idempotent(monkeypatch):
-    monkeypatch.setenv("ALERT_WEBHOOK_URL", "http://example.invalid/hook")
-    root = logging.getLogger()
     try:
-        h1 = init_alerting()
+        h1 = init_alerting()  # attaches even with no URL (no-op until configured)
         assert isinstance(h1, WebhookAlertHandler)
-        # Second call replaces rather than stacks.
-        init_alerting()
+        init_alerting()  # second call replaces rather than stacks
         attached = [h for h in root.handlers if isinstance(h, WebhookAlertHandler)]
         assert len(attached) == 1
     finally:

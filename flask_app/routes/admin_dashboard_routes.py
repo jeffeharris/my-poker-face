@@ -1174,6 +1174,7 @@ VALID_SETTING_KEYS = {
     'IMAGE_MODEL',
     'ASSISTANT_PROVIDER',
     'ASSISTANT_MODEL',
+    'ALERT_WEBHOOK_URL',
 }
 # =============================================================================
 
@@ -1205,6 +1206,7 @@ def api_get_settings():
         FAST_MODEL,
         FAST_PROVIDER,
     )
+    from flask_app.services.alerting import get_webhook_url, mask_url
 
     try:
         # Get env defaults for display
@@ -1297,6 +1299,20 @@ def api_get_settings():
                 'env_default': ASSISTANT_MODEL,
                 'is_db_override': 'ASSISTANT_MODEL' in db_settings,
             },
+            # PRH-28: alert webhook. Secret (a bearer capability URL), so the
+            # value is MASKED in the response — `configured` tells the UI it's
+            # set; saving a new value overwrites, empty clears.
+            'ALERT_WEBHOOK_URL': {
+                'value': mask_url(get_webhook_url()),
+                'configured': bool(get_webhook_url()),
+                'sensitive': True,
+                'description': (
+                    'Slack/Discord webhook for ERROR + [LEDGER]/[LLM BUDGET] alerts '
+                    '(Discord: append /slack to the webhook URL)'
+                ),
+                'env_default': mask_url(os.environ.get('ALERT_WEBHOOK_URL', '')),
+                'is_db_override': 'ALERT_WEBHOOK_URL' in db_settings,
+            },
         }
 
         return jsonify(
@@ -1354,6 +1370,15 @@ def api_update_setting():
             except ValueError:
                 return jsonify({'success': False, 'error': 'Retention days must be a number'}), 400
 
+        elif key == 'ALERT_WEBHOOK_URL':
+            # Empty clears it; otherwise require https:// (Slack/Discord webhooks
+            # are https, and it blocks obvious typos / non-web SSRF targets).
+            value = value.strip()
+            if value and not value.startswith('https://'):
+                return jsonify(
+                    {'success': False, 'error': 'Webhook URL must start with https://'}
+                ), 400
+
         # Save the setting
         descriptions = {
             'LLM_PROMPT_CAPTURE': 'Controls which LLM calls are captured for debugging',
@@ -1366,15 +1391,24 @@ def api_update_setting():
             'IMAGE_MODEL': 'Model for generating AI player avatars',
             'ASSISTANT_PROVIDER': 'Provider for experiment design, analysis, theme generation',
             'ASSISTANT_MODEL': 'Model for experiment design, analysis, theme generation',
+            'ALERT_WEBHOOK_URL': 'Slack/Discord webhook for ERROR + ledger/budget alerts',
         }
 
         success = settings_repo.set_setting(key, value, descriptions.get(key))
 
+        if success and key == 'ALERT_WEBHOOK_URL':
+            # Take effect immediately rather than waiting out the resolver cache.
+            from flask_app.services.alerting import invalidate_webhook_url_cache
+
+            invalidate_webhook_url_cache()
+
         if success:
+            # Never echo the raw secret back (it's masked in GET); confirm by key.
+            shown = '(updated)' if key == 'ALERT_WEBHOOK_URL' else value
             return jsonify(
                 {
                     'success': True,
-                    'message': f'Setting {key} updated to {value}',
+                    'message': f'Setting {key} updated to {shown}',
                 }
             )
         else:
@@ -1394,6 +1428,8 @@ def api_reset_settings():
         key: Specific setting to reset (if not provided, resets all)
     """
     try:
+        from flask_app.services.alerting import invalidate_webhook_url_cache
+
         data = request.get_json() or {}
         key = data.get('key')
 
@@ -1403,6 +1439,8 @@ def api_reset_settings():
                 return jsonify({'success': False, 'error': f'Unknown setting: {key}'}), 400
 
             success = settings_repo.delete_setting(key)
+            if key == 'ALERT_WEBHOOK_URL':
+                invalidate_webhook_url_cache()
             return jsonify(
                 {
                     'success': True,
@@ -1416,6 +1454,7 @@ def api_reset_settings():
             for k in VALID_SETTING_KEYS:
                 if settings_repo.delete_setting(k):
                     deleted_count += 1
+            invalidate_webhook_url_cache()
 
             return jsonify(
                 {
