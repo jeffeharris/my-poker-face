@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   MessageCircle,
   Flame,
-  Crosshair,
+  Award,
   CircleDot,
   Zap,
   Sparkles,
@@ -58,9 +58,12 @@ interface ToneOption {
   label: string;
 }
 
+// NOTE: 'bait' is intentionally parked (not shown) — swapped out for
+// 'props'. Its type, tone→event mapping, and quick_chat_bait.yaml are all
+// kept so it can be restored by re-adding the entry below.
 const TONE_OPTIONS: ToneOption[] = [
   { id: 'tilt', icon: Flame, label: 'Tilt' },
-  { id: 'bait', icon: Crosshair, label: 'Bait' },
+  { id: 'props', icon: Award, label: 'Props' },
   { id: 'needle', icon: CircleDot, label: 'Needle' },
   { id: 'goad', icon: Zap, label: 'Goad' },
   { id: 'bluff', icon: Sparkles, label: 'Bluff' },

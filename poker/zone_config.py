@@ -189,6 +189,14 @@ EVENT_SEVERITY = {
     'suckout': 'major',
     'nemesis_win': 'major',
     'nemesis_loss': 'major',
+    # Social stimuli (quick-chat -> target AI). The jab that lands on a
+    # sensitive character is normal-stakes; the absorbed/energized variants
+    # are minor (mostly unscaled energy or a token composure nudge).
+    'social_jab_stung': 'normal',
+    'social_jab_energized': 'minor',
+    'social_jab_stoic': 'minor',
+    'social_praise_warmed': 'minor',
+    'social_praise_stoic': 'minor',
 }
 
 

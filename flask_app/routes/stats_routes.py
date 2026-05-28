@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 from openai import OpenAI
 
 from core.llm import CallType, LLMClient
+from flask_app.handlers.chat_reads import target_social_read
 from flask_app.utils.hand_context import (
     build_hand_context_from_recorded_hand,
     format_hand_context_for_prompt,
@@ -341,6 +342,7 @@ def get_targeted_chat_suggestions(game_id):
             'goad': 'quick_chat_goad',
             'bluff': 'quick_chat_bluff',
             'befriend': 'quick_chat_befriend',
+            'props': 'quick_chat_props',
         }
 
         # Tone descriptions for table talk (no target)
@@ -351,6 +353,7 @@ def get_targeted_chat_suggestions(game_id):
             'goad': 'Dare the table to act.',
             'bluff': 'Give false tells about your hand.',
             'befriend': 'Be warm to the table.',
+            'props': 'Tip your cap to the table — genuine respect for the play.',
         }
 
         context_parts = []
@@ -398,6 +401,13 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             except Exception as e:
                 logger.warning(f"Could not load personality for {target_player}: {e}")
                 target_context = f"\nTarget player: {target_player}"
+
+        # Disposition-aware read: tilt the suggestions toward what would
+        # actually land on this specific character. Folded into context_str
+        # because that's the var the targeted templates render.
+        social_read = target_social_read(game_data, target_player)
+        if social_read:
+            context_str = f"{context_str}\nOpponent read: {social_read}"
 
         if target_player:
             target_first_name = target_player.split()[0] if target_player else "them"
@@ -485,6 +495,7 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             'goad': ["Prove it.", "You wouldn't dare."],
             'bluff': ["I should've folded...", "This hand is killing me."],
             'befriend': ["Good game so far.", "Respect the play."],
+            'props': ["Respect. Nicely played.", "That was a sharp read."],
         }
         tone = data.get('tone', 'goad') if data else 'goad'
         msgs = fallback_messages.get(tone, fallback_messages['goad'])
@@ -533,7 +544,7 @@ def get_post_round_chat_suggestions(game_id):
         tone = data.get('tone', 'gracious')  # gloat, humble, salty, gracious
 
         # Validate tone
-        allowed_tones = {'gloat', 'humble', 'salty', 'gracious'}
+        allowed_tones = {'gloat', 'humble', 'salty', 'gracious', 'props'}
         if tone not in allowed_tones:
             logger.warning("Invalid tone value received for post-round chat: %r", tone)
             return jsonify(

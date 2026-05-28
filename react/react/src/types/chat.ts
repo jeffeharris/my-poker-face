@@ -40,7 +40,7 @@ export interface BackendChatMessage {
 /**
  * Psychological manipulation goals for targeted chat suggestions.
  */
-export type ChatTone = 'tilt' | 'bait' | 'needle' | 'goad' | 'bluff' | 'befriend';
+export type ChatTone = 'tilt' | 'bait' | 'needle' | 'goad' | 'bluff' | 'befriend' | 'props';
 
 /**
  * Length modifier for chat suggestions.
@@ -74,8 +74,9 @@ export interface TargetedSuggestionsResponse {
  * Post-round chat tones based on win/loss outcome.
  * Winners: gloat, humble
  * Losers: salty, gracious
+ * Both: props (tip-of-the-cap respect — available win or lose)
  */
-export type PostRoundTone = 'gloat' | 'humble' | 'salty' | 'gracious';
+export type PostRoundTone = 'gloat' | 'humble' | 'salty' | 'gracious' | 'props';
 
 /**
  * A post-round chat suggestion.

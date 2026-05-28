@@ -7,8 +7,8 @@ the tone string is the categorization, and a direct mapping suffices.
 
 Two vocabularies feed this module:
 
-  - Mid-hand `ChatTone`: tilt, bait, needle, goad, bluff, befriend
-  - Post-round `PostRoundTone`: gloat, humble, salty, gracious
+  - Mid-hand `ChatTone`: tilt, bait, needle, goad, bluff, befriend, props
+  - Post-round `PostRoundTone`: gloat, humble, salty, gracious, props
 
 Plus a global `ChatIntensity` modifier (`chill` / `spicy`) applied
 only to mid-hand tones — post-round tones use the implicit intensity
@@ -59,6 +59,7 @@ _MID_HAND_TONE_MAP: dict[str, ChatEventMapping] = {
     "needle": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
     "bait": ChatEventMapping(RelationshipEvent.TRASH_TALK, 0.5),
     "befriend": ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
+    "props": ChatEventMapping(RelationshipEvent.PROPS, 1.0),
 }
 
 
@@ -69,6 +70,7 @@ _POST_ROUND_TONE_MAP: dict[str, ChatEventMapping] = {
     "humble": ChatEventMapping(RelationshipEvent.FRIENDLY_BANTER, 1.0),
     "salty": ChatEventMapping(RelationshipEvent.TRASH_TALK, 1.0),
     "gracious": ChatEventMapping(RelationshipEvent.COMPLIMENT, 1.0),
+    "props": ChatEventMapping(RelationshipEvent.PROPS, 1.0),
 }
 
 

@@ -294,7 +294,12 @@ class PlayerPsychology:
 
     # === UNIFIED EVENT HANDLING ===
 
-    def apply_pressure_event(self, event_name: str, opponent: Optional[str] = None) -> None:
+    def apply_pressure_event(
+        self,
+        event_name: str,
+        opponent: Optional[str] = None,
+        multiplier: float = 1.0,
+    ) -> None:
         """
         Single entry point for pressure events.
 
@@ -307,6 +312,10 @@ class PlayerPsychology:
         - Minor events: floor=0.20 (routine gameplay)
         - Normal events: floor=0.30 (standard stakes)
         - Major events: floor=0.40 (high-impact moments)
+
+        `multiplier` scales every axis delta uniformly (after sensitivity).
+        It lets a caller dial intensity without inventing new events — the
+        quick-chat chill/spicy lever rides this for social stimuli.
         """
         pressure_impacts = self._get_pressure_impacts(event_name)
         floor = _get_severity_floor(event_name)
@@ -317,16 +326,16 @@ class PlayerPsychology:
 
         if 'confidence' in pressure_impacts:
             sensitivity = _calculate_sensitivity(self.anchors.ego, floor)
-            delta = pressure_impacts['confidence'] * sensitivity
+            delta = pressure_impacts['confidence'] * sensitivity * multiplier
             new_conf = self.axes.confidence + delta
 
         if 'composure' in pressure_impacts:
             sensitivity = _calculate_sensitivity(1.0 - self.anchors.poise, floor)
-            delta = pressure_impacts['composure'] * sensitivity
+            delta = pressure_impacts['composure'] * sensitivity * multiplier
             new_comp = self.axes.composure + delta
 
         if 'energy' in pressure_impacts:
-            delta = pressure_impacts['energy']
+            delta = pressure_impacts['energy'] * multiplier
             new_energy = self.axes.energy + delta
 
         self.axes = self.axes.update(
@@ -343,6 +352,74 @@ class PlayerPsychology:
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}, "
             f"Energy={self.energy:.2f}, Quadrant={self.quadrant.value}"
         )
+
+    # === SOCIAL STIMULUS REACTION ===
+
+    # Disposition thresholds over existing anchors (ego/poise/expressiveness/
+    # baseline_aggression) — no new schema. Validated against all 62 seed
+    # personalities: proud tyrants -> stung, wits & charmers -> energized,
+    # sages & bots -> stoic.
+    _SOCIAL_STUNG_POISE_CEILING = 0.40
+    _SOCIAL_PROUD_EGO_FLOOR = 0.60
+    _SOCIAL_EXPRESSIVE_FLOOR = 0.55
+    _SOCIAL_COMPOSED_POISE_FLOOR = 0.60
+    _SOCIAL_AGGRESSIVE_FLOOR = 0.60
+
+    def _classify_social_disposition(self) -> str:
+        """Map this character's anchors to how it takes a verbal jab.
+
+        Returns 'stung' | 'energized' | 'stoic'. Pure function of the static
+        anchors, so a character always reacts in-character.
+
+        - Low poise -> can't hold composure, so any needle rattles them.
+        - Proud (high ego): verbal/playful pride (high expressiveness) volleys
+          back and enjoys it; martial/reserved pride takes the wound instead.
+        - Otherwise composed + outgoing -> relishes the spar; composed +
+          reserved -> shrugs it off.
+        """
+        a = self.anchors
+        if a.poise <= self._SOCIAL_STUNG_POISE_CEILING:
+            return 'stung'
+        if a.ego >= self._SOCIAL_PROUD_EGO_FLOOR:
+            return 'energized' if a.expressiveness >= self._SOCIAL_EXPRESSIVE_FLOOR else 'stung'
+        if a.poise >= self._SOCIAL_COMPOSED_POISE_FLOOR and (
+            a.expressiveness >= self._SOCIAL_EXPRESSIVE_FLOOR
+            or a.baseline_aggression >= self._SOCIAL_AGGRESSIVE_FLOOR
+        ):
+            return 'energized'
+        return 'stoic'
+
+    def react_to_social_stimulus(
+        self,
+        stimulus: str,
+        opponent: Optional[str] = None,
+        multiplier: float = 1.0,
+    ) -> None:
+        """Move the emotional axes in response to a verbal stimulus.
+
+        `stimulus` is a coarse category, deliberately decoupled from the
+        relationship layer's event vocabulary so this module stays free of
+        memory-layer imports:
+          - 'jab'    : hostile needle / trash talk / taunt
+          - 'praise' : compliment / friendly banter
+
+        The character's disposition (from its anchors) selects which pressure
+        event fires, producing the valence split: the same jab stings a proud
+        hothead, fires up a charmer, and barely grazes a sage. Unknown stimuli
+        are a no-op.
+        """
+        disposition = self._classify_social_disposition()
+        if stimulus == 'jab':
+            event_name = f'social_jab_{disposition}'
+        elif stimulus == 'praise':
+            # Anyone who'd react to a jab also warms to praise; the truly
+            # detached ('stoic') just notes it.
+            event_name = (
+                'social_praise_stoic' if disposition == 'stoic' else 'social_praise_warmed'
+            )
+        else:
+            return
+        self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)
 
     # === EVENT RESOLUTION CONSTANTS ===
 
@@ -403,6 +480,17 @@ class PlayerPsychology:
             'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
             'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
             'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
+            # Social stimuli (human quick-chat -> target AI). Disposition is
+            # chosen in react_to_social_stimulus; these are the per-disposition
+            # outcomes. Composure/confidence still ride the ego/poise filter in
+            # apply_pressure_event, which reinforces the disposition (a low-poise
+            # "stung" char takes the hit hard; a high-poise "energized" char's
+            # composure nudge shrinks to noise while the energy bump lands full).
+            'social_jab_stung': {'composure': -0.10, 'confidence': -0.04},
+            'social_jab_energized': {'composure': 0.02, 'energy': 0.06},
+            'social_jab_stoic': {'composure': -0.02},
+            'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
+            'social_praise_stoic': {'energy': 0.02},
         }
 
         return pressure_events.get(event_name, {})
