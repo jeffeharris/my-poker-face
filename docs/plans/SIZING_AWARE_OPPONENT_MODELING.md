@@ -94,6 +94,15 @@ seat. For D2, the hero hand-strength must be captured **at the big-bet action**
 Optional thin wrapper `experiments/measure_overbet_exploit.py`. (`simulate_bb100`
 only needed if a non-attribution runner is also wired.)
 
+**D1 RESULT (2026-05-28): the oracle guts it — overbet −24.48 bb/100
+[−29.85, −19.12] vs oracle jeff, vs +42.47 vs sticky jeff (HU 24k).** A ~67 bb/100
+swing; every dry-turn value node flips −EV (the oracle folds, so the overbet
+extracts less than the base `bet_67` that gets called). So the face-up overbet is
+**materially exploitable in principle** — keep it for the current (non-sizing-
+reading) field, but it is not robust; the realistic exploited level is a
+population question (→ A/D2). Built: `oracle_punish_overbets` clone mode +
+`--adaptive-opp` on the attribution gate.
+
 **The decision branch D produces:**
 - **Overbet dented hard** (+42 → low/negative) → face-up overbet IS exploitable
   → balancing (overbet-bluffs) becomes worth it AND B is validated as a real

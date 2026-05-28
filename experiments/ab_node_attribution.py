@@ -284,10 +284,15 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
-        _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
+        # `adaptive_opp` registers the perfect-overbet-punisher clone variant under
+        # the same archetype key (D1 measurement instrument) — both arms then face
+        # the oracle, but only the overbet-ON arm produces the bet_150 that trips it.
+        _ensure_clone_registered(
+            ROSTER_CLONE_PROFILE[roster_name], oracle_punish_overbets=adaptive_opp
+        )
     opponents = _resolve_roster(roster_name)
     if heads_up:
         opponents = opponents[:1]  # 2-handed → all postflop decisions are HU
@@ -364,6 +369,11 @@ def main():
     p.add_argument('--overbet-b', action='store_true',
                    help="enable the overbet_context runtime layer on arm B (default off). Set "
                    "--a base --b base --overbet-b to A/B the layer flag-flavor cleanly.")
+    p.add_argument('--adaptive-opp', action='store_true',
+                   help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
+                   "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
+                   ">=1.2x-pot bet. Pair with --overbet-b to measure the overbet's exploitability "
+                   "CEILING; attribution stays clean (only the overbet-ON arm makes that size).")
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
@@ -372,7 +382,7 @@ def main():
         None if args.h1_streets == 'all'
         else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
     )
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b) for s in seeds]
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -396,7 +406,8 @@ def main():
         a_label += "+overbet"
     if args.overbet_b:
         b_label += "+overbet"
-    print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={args.roster}"
+    roster_label = f"{args.roster}{'+oracle' if args.adaptive_opp else ''}"
+    print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
           f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
           f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")
     print(f"TOTAL paired (B-A) = {tot_bb:+.2f} bb/100  95% CI [{tot_bb-ci_bb:+.2f}, {tot_bb+ci_bb:+.2f}]")
