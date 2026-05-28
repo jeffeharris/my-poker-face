@@ -65,12 +65,18 @@ from experiments.simulate_bb100 import (
     make_controller,
     make_game_state,
 )
+
+# For per-node EV attribution (ab_node_attribution): build the same node key the
+# controller looks up, so an attribution bucket maps directly to a chart entry.
+from poker.card_utils import card_to_string
+from poker.controllers import _get_canonical_hand
 from poker.poker_game import (
     advance_to_next_active_player,
     play_turn,
 )
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
+from poker.strategy.preflop_classifier import build_preflop_node
 from poker.strategy.preflop_isolate import build_isolation_table
 from poker.strategy.strategy_table import load_strategy_table
 
@@ -279,7 +285,7 @@ def _apply_mode(controller, mode: str):
     controller.multistreet_h2_foldbarrel = mode in ('h2', 'on')
 
 
-def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
+def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, hero_trace=None):
     """Drive one hand; instrument the hero's postflop decisions.
 
     Mirrors simulate_bb100.run_hand's action driving (run_until, run_it_out,
@@ -288,6 +294,13 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
       - the new _sim_hero_bet_by_street / _sim_opp_bet_by_street fields the
         multi-street layer reads (driven here the same way the existing
         _sim_* aggressor fields are).
+
+    `hero_trace` (when a list is passed) records the hero's ordered decision
+    sequence as `(phase, node_key, action, raise_to)` tuples — the input to the
+    paired-CRN per-node attribution (ab_node_attribution.py). node_key is the
+    exact chart key (preflop built via build_preflop_node; postflop from the
+    pipeline snapshot), so the first point two arms' traces differ pinpoints the
+    chart node that caused the hand to diverge.
     """
     controller_map = {c.player_name: c for c in controllers}
     hero = controller_map.get(hero_name)
@@ -339,6 +352,27 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats):
         decision = controller.decide_action()
         action = decision['action']
         raise_to = decision.get('raise_to', 0) or 0
+
+        # ── Per-node attribution trace (hero only) ──────────────────────────
+        # Record (phase, node_key, action, raise_to). node_key is the exact
+        # chart key: postflop from the pipeline snapshot, preflop rebuilt here
+        # (the preflop snapshot doesn't carry it). Pre-divergence both A/B arms
+        # see identical state → identical entries; the first differing tuple is
+        # the node that caused the hand to split.
+        if is_hero and hero_trace is not None:
+            snap0 = getattr(controller, '_last_pipeline_snapshot', {}) or {}
+            node_id = snap0.get('node_key')
+            if not node_id and phase_name == 'PRE_FLOP':
+                hole = (
+                    [card_to_string(c) for c in current_player.hand] if current_player.hand else []
+                )
+                canon = _get_canonical_hand(hole) if len(hole) == 2 else ''
+                if canon:
+                    try:
+                        node_id = build_preflop_node(gs, gs.current_player_idx, canon).key
+                    except Exception:
+                        node_id = None
+            hero_trace.append((phase_name, node_id or f'?{phase_name}', action, raise_to))
 
         # ── Instrument the hero's preflop decision ──────────────────────────
         # Bucket by scenario from raises_this_round (0=rfi, 1=vs_open,
@@ -482,6 +516,7 @@ def run_passivity_matchup(
     mode: str = 'off',
     entry: str = 'default',
     h1_classes: Optional[frozenset] = None,
+    hero_table: Optional[object] = None,
 ) -> Tuple[List[float], PassivityStats]:
     """Run n_hands of 6-max (hero + 5 opponents); return (deltas, Tier-A stats).
 
@@ -492,11 +527,20 @@ def run_passivity_matchup(
     `entry='isolate'` gives the HERO a preflop chart where OOP vs_open
     flat-calls are shifted to 3-bets (Track 1). Opponents keep the default
     chart, so the A/B isolates the hero's entry change.
-    """
-    if len(opponents) != 5:
-        raise ValueError(f"opponents must have 5 entries, got {len(opponents)}")
 
-    hero_table = build_isolation_table(strategy_table) if entry == 'isolate' else strategy_table
+    `hero_table` (when supplied) is the strategy table the HERO uses; opponents
+    always use `strategy_table`. This is how `--preflop-chart` swaps the hero's
+    preflop chart (e.g. the wider-RFI chart) without touching the live file or
+    the opponents — the ONLY variable becomes the hero's open frequencies. When
+    None, the hero uses `strategy_table` (current behavior), optionally
+    transformed by `entry='isolate'`.
+    """
+    if len(opponents) < 1:
+        raise ValueError(f"need >=1 opponent, got {len(opponents)}")
+
+    if hero_table is None:
+        hero_table = strategy_table
+    hero_table = build_isolation_table(hero_table) if entry == 'isolate' else hero_table
 
     hero_name = hero_archetype if hero_archetype not in opponents else f"{hero_archetype}_hero"
     opponent_seats = _make_seat_names(opponents)
@@ -512,7 +556,7 @@ def run_passivity_matchup(
 
     for hand_num in range(n_hands):
         hand_seed = base_seed + hand_num
-        dealer_idx = hand_num % 6
+        dealer_idx = hand_num % len(all_names)
         random.seed(hand_seed)  # per-hand global-random reset (rule bots)
 
         gs = make_game_state(
@@ -664,7 +708,9 @@ def print_report(
     leak_report: bool = False,
     stack_bb: int = 100,
 ):
-    opp_desc = ('5x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
+    opp_desc = (
+        (f'{len(opponents)}x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
+    )
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
     print(
@@ -798,18 +844,36 @@ def print_report(
 
 
 def _run_seed_worker(
-    args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int],
+    args: Tuple[
+        str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int, Optional[str]
+    ],
 ):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
     Returns (seed, deltas, stats). Module-level + picklable so it can run in
     a child process (mirrors the plan's 'ProcessPoolExecutor across cells').
+
+    `preflop_chart` (when set) is loaded into a SEPARATE hero-only strategy
+    table; opponents keep the default chart. Built inside the worker (not the
+    parent) so the unpicklable StrategyTable never crosses the process boundary.
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb = args
+    (
+        hero,
+        opponents,
+        n_hands,
+        seed,
+        mode,
+        entry,
+        clone_profile,
+        h1_classes,
+        stack_bb,
+        preflop_chart,
+    ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)
     strategy_table = load_strategy_table()
+    hero_table = load_strategy_table(json_path=preflop_chart) if preflop_chart else None
     deltas, stats = run_passivity_matchup(
         hero,
         opponents,
@@ -820,6 +884,7 @@ def _run_seed_worker(
         entry=entry,
         h1_classes=h1_classes,
         starting_stack=stack_bb * 100,  # big_blind=100 → stack_bb effective
+        hero_table=hero_table,
     )
     return seed, deltas, stats
 
@@ -870,7 +935,24 @@ def main():
         help="print the per-signature leak surface (realized vs chart "
         "aggression by line-signature) — the leak finder",
     )
+    p.add_argument(
+        '--preflop-chart',
+        default=None,
+        help="path to an alternate preflop chart JSON loaded into a HERO-ONLY "
+        "strategy table (opponents keep the default chart). Default None = "
+        "current behavior. e.g. poker/strategy/data/preflop_100bb_6max_wider_rfi.json",
+    )
+    p.add_argument(
+        '--heads-up',
+        action='store_true',
+        help="2-handed (hero + 1 opponent) so EVERY postflop decision is HU — "
+        "the HU-postflop-leak diagnostic. Collapses the roster to a single "
+        "opponent (e.g. --opponents jeff --heads-up = 1 Jeff_clone).",
+    )
     args = p.parse_args()
+    if args.preflop_chart and not os.path.exists(args.preflop_chart):
+        print(f"--preflop-chart not found: {args.preflop_chart}")
+        sys.exit(1)
     h1_classes = (
         frozenset({'nuts', 'strong_made', 'medium_made'}) if args.h1_classes == 'value' else None
     )
@@ -879,8 +961,16 @@ def main():
         opponents = ROSTERS[args.opponents]
     else:
         opponents = [o.strip() for o in args.opponents.split(',')]
-    if len(opponents) != 5:
-        print(f"opponents must resolve to 5 entries, got {opponents}")
+    # Heads-up: collapse to a single opponent → a 2-handed game. ALL postflop
+    # decisions are then HU, so the existing postflop diagnostics (c-bet/barrel/
+    # AggFactor, per-context split, leak surface) describe HU postflop directly.
+    # This is the HU-leak diagnostic: the bot has no HU postflop chart, so it
+    # plays HU postflop from the 6-max chart (multiway suppression no-ops at 2
+    # players) — does that leak, and where?
+    if args.heads_up:
+        opponents = opponents[:1]
+    elif len(opponents) != 5:
+        print(f"opponents must resolve to 5 entries (or use --heads-up for 1), got {opponents}")
         sys.exit(1)
 
     # Track 2: if the roster references a *_clone opponent, register the frozen
@@ -925,6 +1015,7 @@ def main():
             clone_profile,
             h1_classes,
             args.stack_bb,
+            args.preflop_chart,
         )
         for s in seeds
     ]

@@ -103,6 +103,24 @@ class ChangeSpec:
     challenger_flags: Dict[str, object] = field(default_factory=dict)
 
 
+# The GTO-shaped wider-RFI chart (CO/BTN/SB widened toward GTO open
+# frequencies; UTG/HJ/vs_* byte-identical to the base). Loaded by the
+# `open_plus_multistreet` challenger. Absolute (not relative) because the
+# ProcessPool workers rebuild tables from the change *name*, then call the
+# spec's challenger_table builder locally — a relative path would resolve
+# against the worker's CWD.
+_WIDER_RFI_PREFLOP_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
+        'poker',
+        'strategy',
+        'data',
+        'preflop_100bb_6max_wider_rfi.json',
+    )
+)
+
+
 CHANGES: Dict[str, ChangeSpec] = {
     # ── Flag flavor: the only genuinely flag-gated shipped change ──
     'multistreet': ChangeSpec(
@@ -183,6 +201,22 @@ CHANGES: Dict[str, ChangeSpec] = {
         challenger_table=load_strategy_table,
         champion_flags={'exploitation_strength': 0.0},
         challenger_flags={'exploitation_strength': 1.0},
+    ),
+    # ── The "blocked-upstream" interaction bundle: wider GTO-shaped preflop
+    # (CO/BTN/SB opens widened toward GTO ~27.6/47.5/39.4%) AND the multistreet
+    # context layer (H1 barrel-continuation + H2 fold-to-double-barrel) ON.
+    # Champion = base chart + multistreet OFF (the shipped bot); challenger =
+    # wider-RFI chart + multistreet ON. Tests the hypothesis that the postflop
+    # layer tested neutral only because tight preflop starved it of postflop
+    # volume — i.e. that opening wider unlocks the layer's edge. ──
+    'open_plus_multistreet': ChangeSpec(
+        description='wider GTO-shaped preflop (CO/BTN/SB widened) + multistreet '
+        'context (H1+H2) ON vs the base chart + multistreet OFF — the '
+        '"layer was blocked by tight preflop" interaction bundle.',
+        champion_table=load_strategy_table,
+        challenger_table=lambda: load_strategy_table(json_path=_WIDER_RFI_PREFLOP_PATH),
+        champion_flags={'enable_multistreet_context': False},
+        challenger_flags=_multistreet_flags(h1=True, h2=True),
     ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is

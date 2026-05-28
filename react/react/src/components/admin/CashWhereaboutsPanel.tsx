@@ -54,6 +54,7 @@ const FLAG_LABEL: Record<string, string> = {
   overdue_hustle: 'overdue hustle',
   overdue_vice: 'overdue vice',
   stale_idle: 'stale idle',
+  seated_too_long: 'parked too long',
 };
 
 function fmtDuration(seconds: number | null): string {
@@ -103,6 +104,16 @@ function timeCell(p: WhereaboutsPerson): { text: string; overdue: boolean } {
   }
   if (p.status === 'idle') {
     return { text: `idle ${fmtDuration(p.seconds_in_state)}`, overdue: false };
+  }
+  if (p.status === 'seated') {
+    // seconds_in_state = time parked at the current table; null on legacy
+    // seats saved before seated_at existed. Flag the overdue style when
+    // the "parked too long" watch flag fired so it stands out.
+    if (p.seconds_in_state == null) return { text: '—', overdue: false };
+    return {
+      text: `seated ${fmtDuration(p.seconds_in_state)}`,
+      overdue: (p.watch ?? []).includes('seated_too_long'),
+    };
   }
   return { text: '—', overdue: false };
 }

@@ -32,6 +32,7 @@ from .side_hustle_state_repository import SideHustleState, SideHustleStateReposi
 from .sqlite_repositories import PressureEventRepository
 from .stake_repository import StakeRepository
 from .tournament_repository import TournamentRepository
+from .user_avatar_repository import UserAvatarRepository
 from .user_preferences_repository import UserPreferencesRepository
 from .user_repository import UserRepository
 from .vice_state_repository import ViceState, ViceStateRepository
@@ -76,6 +77,7 @@ def create_repos(db_path: str) -> dict:
         'vice_state_repo': ViceStateRepository(db_path),
         'side_hustle_state_repo': SideHustleStateRepository(db_path),
         'user_prefs_repo': UserPreferencesRepository(db_path),
+        'user_avatar_repo': UserAvatarRepository(db_path),
         'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'db_path': db_path,
     }
@@ -111,6 +113,7 @@ __all__ = [
     'SideHustleStateRepository',
     'StakeRepository',
     'TournamentRepository',
+    'UserAvatarRepository',
     'UserPreferencesRepository',
     'UserRepository',
     'ViceState',

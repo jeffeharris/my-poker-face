@@ -20,6 +20,7 @@ from poker.character_images import (
     load_full_avatar_image,
     regenerate_avatar_emotion,
 )
+from poker.image_processing import detect_image_mimetype
 
 from .. import config
 from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
@@ -31,17 +32,12 @@ image_bp = Blueprint('image', __name__)
 
 
 def _detect_image_mimetype(image_data: bytes) -> str:
-    """Detect image mimetype from binary data."""
-    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
-        return 'image/png'
-    elif image_data[:3] == b'\xff\xd8\xff':
-        return 'image/jpeg'
-    elif image_data[:6] in (b'GIF87a', b'GIF89a'):
-        return 'image/gif'
-    elif image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
-        return 'image/webp'
-    # Default to PNG if unknown
-    return 'image/png'
+    """Detect image mimetype from binary data, defaulting to PNG when unknown.
+
+    Serving-side helper: the PNG default is load-bearing (an unrecognized blob
+    is still served as an image rather than 404'd). Wraps the shared detector.
+    """
+    return detect_image_mimetype(image_data) or 'image/png'
 
 
 GENERATED_IMAGES_DIR = Path(__file__).parent.parent.parent / 'generated_images'

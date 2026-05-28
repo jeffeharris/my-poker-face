@@ -11,6 +11,7 @@ from .experiment_routes import experiment_bp
 from .game_routes import game_bp, register_socket_events
 from .image_routes import image_bp
 from .personality_routes import personality_bp
+from .profile_routes import profile_bp
 from .prompt_debug_routes import prompt_debug_bp
 from .prompt_preset_routes import prompt_preset_bp
 from .range_explorer_routes import range_explorer_bp
@@ -24,6 +25,7 @@ __all__ = [
     'personality_bp',
     'image_bp',
     'stats_bp',
+    'profile_bp',
     'admin_dashboard_bp',
     'prompt_debug_bp',
     'experiment_bp',
