@@ -59,6 +59,46 @@ import pytest
 from poker.poker_game import initialize_game_state
 from poker.repositories import create_repos
 
+# Activate the SchemaManager schema-template fast-path for the whole suite.
+# create_repos()/SchemaManager.ensure_schema() builds a fresh DB by running the
+# full migration chain (~5.2s/call) -- the dominant per-test cost. With this flag
+# set, the first empty-DB build per process is snapshotted and every subsequent
+# fresh build is seeded from that snapshot (~10ms). Identical resulting schema;
+# only set in tests, so production behavior is unchanged. See
+# poker/repositories/schema_manager.py:_maybe_seed_from_template.
+# Default on; allow an explicit override (e.g. POKER_TEST_SCHEMA_TEMPLATE=0) for A/B.
+os.environ['POKER_TEST_SCHEMA_TEMPLATE'] = os.environ.get('POKER_TEST_SCHEMA_TEMPLATE') or '1'
+
+
+# ---------------------------------------------------------------------------
+# Marker backfill for legacy (mostly unittest) modules
+# ---------------------------------------------------------------------------
+# Several slow/simulation modules predate the marker scheme and are
+# unittest.TestCase based (no `import pytest` to hang a module `pytestmark` on).
+# Tag them by filename here so `-m "not slow and not simulation"` (the quick
+# loop) deselects them, without per-file import churn. Explicit in-file
+# @pytest.mark.* still applies on top of this. Keep these lists short and exact;
+# prefer in-file markers for new modules.
+_SLOW_BY_FILENAME = {
+    "test_ai_memory.py",
+    "test_message_history_impact.py",
+    "test_personality_responses.py",
+    "test_reflection_system.py",
+}
+_SIMULATION_BY_FILENAME = {
+    "test_sng_runner.py",
+}
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        name = os.path.basename(str(item.fspath))
+        if name in _SLOW_BY_FILENAME:
+            item.add_marker(pytest.mark.slow)
+        if name in _SIMULATION_BY_FILENAME:
+            item.add_marker(pytest.mark.simulation)
+
+
 # ---------------------------------------------------------------------------
 # Personality loading from JSON (bypasses DB and LLM)
 # ---------------------------------------------------------------------------
