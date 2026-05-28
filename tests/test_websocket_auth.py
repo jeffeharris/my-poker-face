@@ -84,7 +84,7 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_non_owner_cannot_join(
         self,
         mock_auth,
@@ -113,7 +113,7 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager', None)
+    @patch('flask_app.extensions.auth_manager', None)
     def test_unauthenticated_user_cannot_join(
         self, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
     ):
@@ -134,7 +134,7 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_auth_returns_none_user_cannot_join(
         self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress, mock_emit
     ):
@@ -155,7 +155,7 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_owner_can_join_and_start(
         self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress
     ):
@@ -174,7 +174,7 @@ class TestOnJoinAuth:
     @patch('flask_app.routes.game_routes.socketio')
     @patch('flask_app.routes.game_routes.join_room')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_nonexistent_game_rejected(
         self, mock_auth, mock_gss, mock_join_room, mock_socketio, mock_progress
     ):
@@ -194,7 +194,7 @@ class TestHandlePlayerActionAuth:
     @patch('flask_app.routes.game_routes.emit')
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_non_owner_cannot_act(self, mock_auth, mock_gss, mock_play_turn, mock_emit):
         """Non-owner user's action is rejected with auth_error — play_turn never called."""
         mock_auth.get_current_user.return_value = {'id': 'attacker'}
@@ -217,7 +217,7 @@ class TestHandlePlayerActionAuth:
     @patch('flask_app.routes.game_routes.emit')
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_unauthenticated_user_cannot_act(self, mock_auth, mock_gss, mock_play_turn, mock_emit):
         """Unauthenticated user's action is rejected with auth_error."""
         mock_auth.get_current_user.return_value = None
@@ -239,7 +239,7 @@ class TestHandlePlayerActionAuth:
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.update_and_emit_game_state')
-    @patch('flask_app.routes.game_routes.game_repo')
+    @patch('flask_app.extensions.game_repo')
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.format_action_message')
     @patch('flask_app.routes.game_routes.analyze_player_decision')
@@ -248,7 +248,7 @@ class TestHandlePlayerActionAuth:
     @patch('flask_app.routes.game_routes.validate_player_action', return_value=(True, ''))
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_owner_can_act_on_human_turn(
         self,
         mock_auth,
@@ -285,7 +285,7 @@ class TestHandlePlayerActionAuth:
 
     @patch('flask_app.routes.game_routes.play_turn')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_owner_cannot_act_on_ai_turn(self, mock_auth, mock_gss, mock_play_turn):
         """Owner is rejected when it's an AI player's turn."""
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
@@ -310,7 +310,7 @@ class TestHandleSendMessageAuth:
     @patch('flask_app.routes.game_routes.get_authorization_service', return_value=None)
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_non_owner_cannot_send_message(
         self, mock_auth, mock_gss, mock_send_message, _mock_authz, mock_emit
     ):
@@ -334,7 +334,7 @@ class TestHandleSendMessageAuth:
 
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_owner_can_send_message(self, mock_auth, mock_gss, mock_send_message):
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
@@ -355,7 +355,7 @@ class TestHandleSendMessageAuth:
 
     @patch('flask_app.routes.game_routes.send_message')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_admin_override_can_send_message(self, mock_auth, mock_gss, mock_send_message):
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
@@ -386,7 +386,7 @@ class TestProgressGameSocketAuth:
     @patch('flask_app.routes.game_routes.get_authorization_service', return_value=None)
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_non_owner_cannot_progress_game(
         self, mock_auth, mock_gss, mock_progress, _mock_authz, mock_emit
     ):
@@ -403,7 +403,7 @@ class TestProgressGameSocketAuth:
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_owner_can_progress_game(self, mock_auth, mock_gss, mock_progress):
         mock_auth.get_current_user.return_value = {'id': 'owner-123'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
@@ -415,7 +415,7 @@ class TestProgressGameSocketAuth:
 
     @patch('flask_app.routes.game_routes.progress_game')
     @patch('flask_app.routes.game_routes.game_state_service')
-    @patch('flask_app.routes.game_routes.auth_manager')
+    @patch('flask_app.extensions.auth_manager')
     def test_admin_override_can_progress_game(self, mock_auth, mock_gss, mock_progress):
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')

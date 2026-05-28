@@ -88,13 +88,12 @@ class TestChipLedgerRoutesSandboxScoping(unittest.TestCase):
             self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
-        # The route module's `from ..extensions import X` names were
-        # bound at first import — they don't follow setUp's mutations
-        # to `flask_app.extensions`. Re-stamp them per test so each
-        # tempdb's repos drive the handlers (mirrors the pattern in
-        # test_admin_experiment_route_auth.py).
+        # The route module now reads these globals live via `extensions.X`,
+        # so patch the canonical `flask_app.extensions` names. Re-stamp them
+        # per test so each tempdb's repos drive the handlers (mirrors the
+        # pattern in test_admin_experiment_route_auth.py).
         self._route_patches = [
-            patch(f'flask_app.routes.chip_ledger_routes.{name}', self.repos[key])
+            patch(f'flask_app.extensions.{name}', self.repos[key])
             for name, key in (
                 ('chip_ledger_repo', 'chip_ledger_repo'),
                 ('bankroll_repo', 'bankroll_repo'),
@@ -105,7 +104,7 @@ class TestChipLedgerRoutesSandboxScoping(unittest.TestCase):
         ]
         self._route_patches.append(
             patch(
-                'flask_app.routes.chip_ledger_routes.persistence_db_path',
+                'flask_app.extensions.persistence_db_path',
                 self.repos['db_path'],
             )
         )
@@ -246,11 +245,11 @@ class TestAdminSandboxList(unittest.TestCase):
         # populated DB and perturb the ordering.
         self._route_patches = [
             patch(
-                'flask_app.routes.chip_ledger_routes.sandbox_repo',
+                'flask_app.extensions.sandbox_repo',
                 self.repos['sandbox_repo'],
             ),
             patch(
-                'flask_app.routes.chip_ledger_routes.holdings_snapshots_repo',
+                'flask_app.extensions.holdings_snapshots_repo',
                 self.repos['holdings_snapshots_repo'],
             ),
         ]

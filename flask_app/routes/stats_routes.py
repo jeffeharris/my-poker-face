@@ -20,15 +20,8 @@ from poker.config import is_development_mode
 from poker.memory.hand_history import RecordedHand
 from poker.prompt_manager import PromptManager
 
-from .. import config
-from ..extensions import (
-    auth_manager,
-    game_repo,
-    hand_history_repo,
-    limiter,
-    personality_generator,
-    tournament_repo,
-)
+from .. import config, extensions
+from ..extensions import limiter
 from ..services import game_state_service
 
 # Module-level prompt manager instance (with hot-reload in dev mode)
@@ -53,14 +46,14 @@ def _require_game_owner(game_id: str, game_data: dict):
     rejected with 403 unless the caller is an admin. Returns a Flask
     response tuple on rejection, or ``None`` to continue.
     """
-    user = auth_manager.get_current_user() if auth_manager else None
+    user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     user_id = user.get('id') if user else ''
     if not user_id:
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 
     owner_id = (game_data or {}).get('owner_id')
     if owner_id is None:
-        owner_info = game_repo.get_game_owner_info(game_id)
+        owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             owner_id = owner_info.get('owner_id')
             if game_data is not None and owner_id is not None:
@@ -127,7 +120,7 @@ def format_message_history(messages: list, max_messages: int = 10, text_limit: i
 @stats_bp.route('/api/career-stats', methods=['GET'])
 def get_career_stats():
     """Get career stats for the authenticated user."""
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
     if not current_user:
         return jsonify({'error': 'Not authenticated'}), 401
 
@@ -135,9 +128,9 @@ def get_career_stats():
     if not owner_id:
         return jsonify({'error': 'No user ID found'}), 400
 
-    stats = tournament_repo.get_career_stats(owner_id)
-    history = tournament_repo.get_tournament_history(owner_id, limit=10)
-    eliminated = tournament_repo.get_eliminated_personalities(owner_id)
+    stats = extensions.tournament_repo.get_career_stats(owner_id)
+    history = extensions.tournament_repo.get_tournament_history(owner_id, limit=10)
+    eliminated = extensions.tournament_repo.get_eliminated_personalities(owner_id)
 
     return jsonify(
         {'stats': stats, 'recent_tournaments': history, 'eliminated_personalities': eliminated}
@@ -198,7 +191,7 @@ def get_chat_suggestions(game_id):
         return forbidden
 
     # Get owner_id for tracking
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
     owner_id = current_user.get('id') if current_user else None
 
     try:
@@ -314,7 +307,7 @@ def get_targeted_chat_suggestions(game_id):
         return forbidden
 
     # Get owner_id for tracking
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
     owner_id = current_user.get('id') if current_user else None
 
     data = None
@@ -385,7 +378,7 @@ def get_targeted_chat_suggestions(game_id):
         if target_player:
             try:
                 # Get personality from database via personality_generator
-                personality = personality_generator.get_personality(target_player)
+                personality = extensions.personality_generator.get_personality(target_player)
                 if personality:
                     play_style = personality.get('play_style', 'unknown')
                     verbal_tics = personality.get('verbal_tics', [])[:3]
@@ -528,7 +521,7 @@ def get_post_round_chat_suggestions(game_id):
         return forbidden
 
     # Get owner_id for tracking
-    current_user = auth_manager.get_current_user()
+    current_user = extensions.auth_manager.get_current_user()
     owner_id = current_user.get('id') if current_user else None
 
     data = None
@@ -573,7 +566,7 @@ def get_post_round_chat_suggestions(game_id):
                     # load_single_hand returns Optional[Dict] for exactly this hand;
                     # wrap with RecordedHand.from_dict so downstream code (which
                     # accesses .community_cards etc.) gets the right object.
-                    loaded_dict = hand_history_repo.load_single_hand(game_id, hand_count)
+                    loaded_dict = extensions.hand_history_repo.load_single_hand(game_id, hand_count)
                     if loaded_dict:
                         recorded_hand = RecordedHand.from_dict(loaded_dict)
                         logger.info(f"[PostRound] Loaded hand #{hand_count} from database")

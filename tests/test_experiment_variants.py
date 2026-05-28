@@ -478,7 +478,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_with_valid_control_variants(self):
         """Test validation passes with valid control/variants structure."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -508,7 +508,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_control_missing_label(self):
         """Test validation fails when control is missing label."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -529,7 +529,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_variant_missing_label(self):
         """Test validation fails when variant is missing label."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -550,7 +550,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_duplicate_variant_labels(self):
         """Test validation fails with duplicate variant labels."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -572,7 +572,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_variant_label_matches_control(self):
         """Test validation fails when variant label matches control label."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -593,7 +593,7 @@ class TestExperimentRoutesVariantValidation(unittest.TestCase):
 
     def test_validate_config_warns_total_tournaments_exceeds_20(self):
         """Test validation warns when total tournaments exceeds 20."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={

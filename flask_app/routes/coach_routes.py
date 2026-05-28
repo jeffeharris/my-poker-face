@@ -13,7 +13,8 @@ from flask_app.utils.hand_context import (
 )
 from poker.authorization import get_authorization_service, require_permission
 
-from ..extensions import auth_manager, coach_repo, game_repo, limiter
+from .. import extensions
+from ..extensions import limiter
 from ..services import game_state_service
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_engine import compute_coaching_data_with_progression
@@ -39,9 +40,9 @@ def _get_human_player_name(game_data: dict) -> Optional[str]:
 
 def _get_current_user_id() -> str:
     """Get the current authenticated user's ID, or empty string."""
-    if not auth_manager:
+    if not extensions.auth_manager:
         return ''
-    user = auth_manager.get_current_user()
+    user = extensions.auth_manager.get_current_user()
     if not user:
         return ''
     if isinstance(user, dict):
@@ -69,7 +70,7 @@ def _require_game_owner(game_id: str, game_data: dict):
 
     owner_id = (game_data or {}).get('owner_id')
     if owner_id is None:
-        owner_info = game_repo.get_game_owner_info(game_id)
+        owner_info = extensions.game_repo.get_game_owner_info(game_id)
         if owner_info is not None:
             owner_id = owner_info.get('owner_id')
             if game_data is not None and owner_id is not None:
@@ -104,7 +105,7 @@ def coach_stats(game_id: str):
         player_name,
         user_id=user_id,
         game_data=game_data,
-        coach_repo=coach_repo,
+        coach_repo=extensions.coach_repo,
     )
     if data is None:
         return jsonify({'error': 'Could not compute stats'}), 500
@@ -144,7 +145,7 @@ def coach_ask(game_id: str):
         player_name,
         user_id=user_id,
         game_data=game_data,
-        coach_repo=coach_repo,
+        coach_repo=extensions.coach_repo,
     )
 
     # Use mode-aware coach if progression data is available
@@ -214,7 +215,7 @@ def coach_config_get(game_id: str):
         if mode:
             return jsonify({'mode': mode})
 
-    mode = game_repo.load_coach_mode(game_id)
+    mode = extensions.game_repo.load_coach_mode(game_id)
     return jsonify({'mode': mode})
 
 
@@ -237,7 +238,7 @@ def coach_config(game_id: str):
         return jsonify({'error': 'Invalid mode'}), 400
 
     game_data['coach_config'] = {'mode': mode}
-    game_repo.save_coach_mode(game_id, mode)
+    extensions.game_repo.save_coach_mode(game_id, mode)
     return jsonify({'status': 'ok', 'mode': mode})
 
 
@@ -343,7 +344,7 @@ def coach_progression(game_id: str):
     user_id = _get_current_user_id()
 
     try:
-        service = CoachProgressionService(coach_repo)
+        service = CoachProgressionService(extensions.coach_repo)
         state = service.get_or_initialize_player(user_id)
 
         return jsonify(
@@ -405,7 +406,7 @@ def coach_onboarding(game_id: str):
         return jsonify({'error': 'Invalid level'}), 400
 
     try:
-        service = CoachProgressionService(coach_repo)
+        service = CoachProgressionService(extensions.coach_repo)
 
         # Check if player already has a profile with accumulated stats
         existing_state = service.get_player_state(user_id)
@@ -440,7 +441,7 @@ _admin_required = require_permission('can_access_admin_tools')
 def coach_metrics_overview():
     """Aggregate overview of coach progression usage."""
     try:
-        stats = coach_repo.get_profile_stats()
+        stats = extensions.coach_repo.get_profile_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics overview failed: {e}", exc_info=True)
@@ -453,7 +454,7 @@ def coach_metrics_overview():
 def coach_metrics_skills():
     """Per-skill distribution and advancement stats."""
     try:
-        stats = coach_repo.get_skill_distribution()
+        stats = extensions.coach_repo.get_skill_distribution()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics skills failed: {e}", exc_info=True)
@@ -466,7 +467,7 @@ def coach_metrics_skills():
 def coach_metrics_advancement():
     """Skill advancement timing and difficulty analysis."""
     try:
-        stats = coach_repo.get_skill_advancement_stats()
+        stats = extensions.coach_repo.get_skill_advancement_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Coach metrics advancement failed: {e}", exc_info=True)

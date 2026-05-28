@@ -328,7 +328,7 @@ class _FastForwardRouteBase(unittest.TestCase):
         user = {'id': 'u1', 'name': 'Tester', 'tracking_id': None}
         auth_stub = MagicMock(get_current_user=MagicMock(return_value=user))
         self._auth_patcher = patch(
-            'flask_app.routes.game_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_stub,
         )
         self._auth_patcher.start()

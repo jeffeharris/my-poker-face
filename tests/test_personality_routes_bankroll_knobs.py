@@ -88,12 +88,9 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
         # the snapshot lets us undo that for subsequent tests in the
         # same xdist worker.
         import flask_app.extensions as _ext_mod
-        import flask_app.routes.personality_routes as _routes_mod
 
         self._ext_mod = _ext_mod
-        self._routes_mod = _routes_mod
         self._original_ext_personality_repo = getattr(_ext_mod, 'personality_repo', None)
-        self._original_route_personality_repo = getattr(_routes_mod, 'personality_repo', None)
 
         user = {'id': 'test-user', 'name': 'Tester'}
         self._authz_patcher = patch(
@@ -108,17 +105,16 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = user
         self._auth_patcher = patch(
-            'flask_app.routes.personality_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_mock,
         )
         self._auth_patcher.start()
 
-        # `personality_routes.py` imports `personality_repo` at module
-        # load time, so mock_init_persistence (which only touches
-        # `extensions.personality_repo`) doesn't reach the route's own
-        # bound reference. Pin it directly. The pre-test snapshot above
-        # plus the tearDown restore makes this safe under xdist.
-        self._routes_mod.personality_repo = self.personality_repo
+        # `personality_routes.py` now reads `personality_repo` live via
+        # `extensions.personality_repo`. Pin the canonical extensions
+        # binding to our tempdb repo. The pre-test snapshot above plus the
+        # tearDown restore makes this safe under xdist.
+        self._ext_mod.personality_repo = self.personality_repo
 
         # Also patch the personality_routes' bound bankroll_repo lookup so
         # the route's late-binding `from ..extensions import bankroll_repo`
@@ -154,7 +150,6 @@ class _BankrollKnobsRouteBase(unittest.TestCase):
         # clobbered. Without this, the next test in the same worker
         # sees our (now-unlinked) tempdb as the bound personality_repo.
         self._ext_mod.personality_repo = self._original_ext_personality_repo
-        self._routes_mod.personality_repo = self._original_route_personality_repo
         os.unlink(self.test_db.name)
 
 

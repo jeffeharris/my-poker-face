@@ -74,29 +74,29 @@ class TestGameRouteAuth(unittest.TestCase):
         # game_routes imports these by value at module import time, so without this
         # tests can hit stale/closed repo objects from other test modules.
         self._route_patchers = [
-            patch('flask_app.routes.game_routes.game_repo', self.repos['game_repo']),
-            patch('flask_app.routes.game_routes.user_repo', self.repos['user_repo']),
+            patch('flask_app.extensions.game_repo', self.repos['game_repo']),
+            patch('flask_app.extensions.user_repo', self.repos['user_repo']),
             patch(
-                'flask_app.routes.game_routes.prompt_preset_repo', self.repos['prompt_preset_repo']
+                'flask_app.extensions.prompt_preset_repo', self.repos['prompt_preset_repo']
             ),
             patch(
-                'flask_app.routes.game_routes.guest_tracking_repo',
+                'flask_app.extensions.guest_tracking_repo',
                 self.repos['guest_tracking_repo'],
             ),
             patch(
-                'flask_app.routes.game_routes.hand_history_repo', self.repos['hand_history_repo']
+                'flask_app.extensions.hand_history_repo', self.repos['hand_history_repo']
             ),
-            patch('flask_app.routes.game_routes.tournament_repo', self.repos['tournament_repo']),
-            patch('flask_app.routes.game_routes.llm_repo', self.repos['llm_repo']),
+            patch('flask_app.extensions.tournament_repo', self.repos['tournament_repo']),
+            patch('flask_app.extensions.llm_repo', self.repos['llm_repo']),
             patch(
-                'flask_app.routes.game_routes.decision_analysis_repo',
+                'flask_app.extensions.decision_analysis_repo',
                 self.repos['decision_analysis_repo'],
             ),
             patch(
-                'flask_app.routes.game_routes.capture_label_repo', self.repos['capture_label_repo']
+                'flask_app.extensions.capture_label_repo', self.repos['capture_label_repo']
             ),
-            patch('flask_app.routes.game_routes.coach_repo', self.repos['coach_repo']),
-            patch('flask_app.routes.game_routes.persistence_db_path', self.repos['db_path']),
+            patch('flask_app.extensions.coach_repo', self.repos['coach_repo']),
+            patch('flask_app.extensions.persistence_db_path', self.repos['db_path']),
         ]
         for patcher in self._route_patchers:
             patcher.start()
@@ -153,7 +153,7 @@ class TestGameRouteAuth(unittest.TestCase):
     def test_game_state_requires_authentication(self):
         game_id = self._seed_game()
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(None)):
+        with patch('flask_app.extensions.auth_manager', self._auth_manager(None)):
             response = self.client.get(f'/api/game-state/{game_id}')
 
         data = response.get_json()
@@ -165,7 +165,7 @@ class TestGameRouteAuth(unittest.TestCase):
         user = {'id': 'intruder-1', 'name': 'Intruder'}
 
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.game_routes.get_authorization_service',
                 return_value=self._admin_authz(False),
@@ -205,7 +205,7 @@ class TestGameRouteAuth(unittest.TestCase):
 
         user = {'id': new_owner, 'name': 'New Owner'}
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.game_routes.get_authorization_service',
                 return_value=self._admin_authz(False),
@@ -221,7 +221,7 @@ class TestGameRouteAuth(unittest.TestCase):
         user = {'id': 'intruder-1', 'name': 'Intruder'}
 
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.game_routes.get_authorization_service',
                 return_value=self._admin_authz(False),
@@ -237,7 +237,7 @@ class TestGameRouteAuth(unittest.TestCase):
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(admin_user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(admin_user)),
             patch(
                 'flask_app.routes.game_routes.get_authorization_service',
                 return_value=self._admin_authz(True),
@@ -261,7 +261,7 @@ class TestGameRouteAuth(unittest.TestCase):
         ]
 
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.game_routes.get_authorization_service',
                 return_value=self._admin_authz(False),
@@ -285,7 +285,7 @@ class TestGameRouteAuth(unittest.TestCase):
 
     def test_new_game_requires_authentication(self):
         games_before = self._count_games()
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(None)):
+        with patch('flask_app.extensions.auth_manager', self._auth_manager(None)):
             response = self._post_new_game({'playerName': 'Anon'}, remote_addr='10.0.0.11')
 
         data = response.get_json()
@@ -296,7 +296,7 @@ class TestGameRouteAuth(unittest.TestCase):
     def test_new_game_allows_guest_session_and_sets_owner(self):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(guest_user)),
             patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
             patch(
                 'flask_app.routes.game_routes.AIMemoryManager',
@@ -321,7 +321,7 @@ class TestGameRouteAuth(unittest.TestCase):
     def test_guest_can_access_game_after_creation(self):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
         with (
-            patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(guest_user)),
             patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
             patch(
                 'flask_app.routes.game_routes.AIMemoryManager',
@@ -339,7 +339,7 @@ class TestGameRouteAuth(unittest.TestCase):
         self.assertEqual(create_response.status_code, 200)
         game_id = create_data['game_id']
 
-        with patch('flask_app.routes.game_routes.auth_manager', self._auth_manager(guest_user)):
+        with patch('flask_app.extensions.auth_manager', self._auth_manager(guest_user)):
             state_response = self.client.get(f'/api/game-state/{game_id}')
 
         self.assertEqual(state_response.status_code, 200)
