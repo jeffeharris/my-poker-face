@@ -67,7 +67,7 @@ per-tick fallback. The score-driven decision uses its own
 `base_rate` parameter (1.0 for event-gated triggers,
 `PAYOFF_TICK_BASE_RATE` for the long-tail catch-all)."""
 
-PAYOFF_TICK_BASE_RATE = 0.005
+PAYOFF_TICK_BASE_RATE = 0.025
 """Per-tick fallback rate for the long-tail catch-all when no event
 trigger has fired. ~10× slower than the old PAYOFF_BASE_PROB so
 ancient debts eventually clear without per-tick rolling dominating
@@ -78,9 +78,9 @@ PAYOFF_EVENT_BASE_RATE = 1.0
 profit). At 1.0 the score IS the probability — high-score AIs act
 decisively at meaningful moments rather than waiting on luck."""
 
-PAYOFF_AGE_RAMP_DAYS = 14.0
+PAYOFF_AGE_RAMP_DAYS = 5.0
 """Carry age (in days) at which `_carry_age_factor` saturates to 1.0.
-Linear ramp from 0 days → 0 to 14 days → 1. Captures "old debt
+Linear ramp from 0 days → 0 to 5 days → 1. Captures "old debt
 nags more than yesterday's"."""
 
 PAYOFF_WEALTH_GAP_RAMP = 4.0
