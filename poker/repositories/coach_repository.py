@@ -274,6 +274,40 @@ class CoachRepository(BaseRepository):
                 logger.warning(f"Invalid range_targets JSON for user {user_id}")
                 return None
 
+    # --- Session evaluations (PRH-15: per-game hand-review persistence) ---
+
+    def save_session_evaluations(
+        self, game_id: str, user_id: Optional[str], evaluations_json: str
+    ) -> None:
+        """Persist a game's coach per-hand skill evaluations (PRH-15).
+
+        One row per game_id; upserts the latest full snapshot of
+        `{hand_number: [evaluation, ...]}` so the hand-review history survives a
+        restart / TTL-eviction (the in-memory `SessionMemory` is otherwise lost).
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO coach_session_evaluations
+                    (game_id, user_id, evaluations_json, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(game_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    evaluations_json = excluded.evaluations_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (game_id, user_id, evaluations_json),
+            )
+
+    def load_session_evaluations(self, game_id: str) -> Optional[str]:
+        """Load a game's persisted coach evaluations JSON blob, or None (PRH-15)."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT evaluations_json FROM coach_session_evaluations WHERE game_id = ?",
+                (game_id,),
+            ).fetchone()
+            return row[0] if row else None
+
     # --- Metrics queries (admin) ---
 
     def get_profile_stats(self) -> Dict:

@@ -166,6 +166,17 @@ def init_limiter(app: Flask) -> Limiter:
             storage_uri = redis_url
             logger.info("Rate limiter initialized with Redis")
         except Exception as e:
+            # PRH-10: in production a configured-but-unreachable Redis must NOT
+            # silently degrade to per-worker in-memory limits — every per-IP cap
+            # becomes N× under `-w N`, and presence/world-ticker assume a shared
+            # store. Fail startup loudly so the deploy is fixed, not masked.
+            # (Dev/test still fall back to in-memory for convenience.)
+            if not config.is_development:
+                raise RuntimeError(
+                    f"REDIS_URL is set but unreachable in production; refusing to "
+                    f"start with per-worker in-memory rate limiting. Fix Redis, or "
+                    f"unset REDIS_URL to opt into in-memory explicitly. Error: {e}"
+                ) from e
             logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
     else:
         logger.info("Rate limiter initialized with in-memory storage")

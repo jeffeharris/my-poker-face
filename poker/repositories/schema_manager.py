@@ -182,7 +182,12 @@ logger = logging.getLogger(__name__)
 #       instead of the ledger-derived bank-flow curve. net_worth = chips +
 #       receivable - outstanding; components stored alongside. See
 #       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
-SCHEMA_VERSION = 117
+# v118: Create `coach_session_evaluations` — per-game persistence of the
+#       coach's per-hand skill evaluations (PRH-15). Previously these lived
+#       only in `game_data['coach_session_memory']` and were lost on
+#       restart/TTL-eviction, so a returning player's hand-review history
+#       vanished. One row per game_id with a JSON blob of {hand: [evals]}.
+SCHEMA_VERSION = 118
 
 
 class SchemaManager:
@@ -1876,6 +1881,10 @@ class SchemaManager:
             117: (
                 self._migrate_v117_add_recent_events,
                 "Add nullable recent_events_json column to ai_bankroll_state — a small per-AI ring buffer of recent notable hand events (bust/suckout) so the world carries recent memories without the pressure_events firehose",
+            ),
+            118: (
+                self._migrate_v118_create_coach_session_evaluations,
+                "Create coach_session_evaluations table — per-game persistence of the coach's per-hand skill evaluations so hand-review history survives restart/TTL-eviction (PRH-15)",
             ),
         }
 
@@ -6064,3 +6073,25 @@ class SchemaManager:
         if 'recent_events_json' not in cols:
             conn.execute("ALTER TABLE ai_bankroll_state ADD COLUMN recent_events_json TEXT")
         logger.info("Migration v117 complete: ai_bankroll_state.recent_events_json added")
+
+    def _migrate_v118_create_coach_session_evaluations(self, conn: sqlite3.Connection) -> None:
+        """Migration v118: create `coach_session_evaluations` (PRH-15).
+
+        Per-game persistence of the coach's per-hand skill evaluations. These
+        previously lived only in `game_data['coach_session_memory']` (a
+        `SessionMemory`), so a restart or TTL-eviction wiped a player's
+        hand-review history mid-session. One row per game_id holds a JSON blob
+        of `{hand_number: [evaluation, ...]}`; the read path rebuilds a
+        `SessionMemory` from it on a memory miss.
+
+        Non-destructive. Idempotent (CREATE TABLE IF NOT EXISTS).
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS coach_session_evaluations (
+                game_id          TEXT PRIMARY KEY,
+                user_id          TEXT,
+                evaluations_json TEXT NOT NULL,
+                updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("Migration v118 complete: coach_session_evaluations table created")

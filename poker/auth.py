@@ -4,6 +4,8 @@ Authentication module for My Poker Face.
 Provides session-based authentication with optional Google OAuth support.
 """
 
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -103,10 +105,15 @@ class AuthManager:
                 guest_id = existing_guest_id if self._is_valid_guest_id(existing_guest_id) else None
                 user_data = self.create_guest_user(guest_name, guest_id=guest_id)
 
-                # Check for existing tracking cookie, generate if needed
+                # Check for existing tracking cookie, generate if needed.
+                # PRH-7: when the cookie is absent, fall back to an IP-derived
+                # stable id instead of a fresh random uuid — otherwise clearing
+                # cookies mints a brand-new guest quota for free. The cookie
+                # takes precedence when present, so distinct browsers behind one
+                # IP stay distinct once they've been issued a cookie.
                 tracking_id = request.cookies.get('guest_tracking_id')
                 if not tracking_id:
-                    tracking_id = str(uuid.uuid4())
+                    tracking_id = self._ip_derived_tracking_id() or str(uuid.uuid4())
                 user_data['tracking_id'] = tracking_id
 
                 response = jsonify(
@@ -380,6 +387,34 @@ class AuthManager:
             # Fall back to JWT_SECRET_KEY if SECRET_KEY isn't set.
             secret_key = JWT_SECRET_KEY
         return URLSafeTimedSerializer(secret_key, salt=_GUEST_ID_SIGNER_SALT)
+
+    def _ip_derived_tracking_id(self) -> Optional[str]:
+        """Derive a stable guest tracking id from the client IP (PRH-7).
+
+        Used only when the `guest_tracking_id` cookie is absent. Keying the
+        fallback on IP (HMAC'd with the app secret so it isn't guessable or
+        cross-correlatable) means clearing cookies no longer mints a fresh
+        quota bucket — a cookie-cleared guest maps back to the same id. The
+        cookie takes precedence when present, so distinct browsers behind one
+        IP stay distinct once issued a cookie.
+
+        Returns None when no client IP is available (caller falls back to a
+        random id — no worse than the prior behavior). `request.remote_addr`
+        is the real client IP in production (ProxyFix trusts X-Forwarded-For).
+        """
+        try:
+            ip = request.remote_addr
+        except Exception:
+            ip = None
+        if not ip:
+            return None
+        secret_key = self.app.config.get('SECRET_KEY') if self.app else None
+        if not secret_key:
+            secret_key = JWT_SECRET_KEY
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode('utf-8')
+        digest = hmac.new(secret_key, ip.encode('utf-8'), hashlib.sha256).hexdigest()
+        return f"ipguest_{digest[:32]}"
 
     def _sign_guest_id(self, guest_id: str) -> str:
         """Produce a signed cookie value for a guest_id.

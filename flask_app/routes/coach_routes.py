@@ -17,7 +17,7 @@ from ..extensions import auth_manager, coach_repo, game_repo, limiter
 from ..services import game_state_service
 from ..services.coach_assistant import get_or_create_coach_with_mode
 from ..services.coach_engine import compute_coaching_data_with_progression
-from ..services.coach_progression import CoachProgressionService
+from ..services.coach_progression import CoachProgressionService, restore_session_memory
 from ..services.skill_definitions import ALL_GATES, ALL_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -292,8 +292,10 @@ def coach_hand_review(game_id: str):
         big_blind=big_blind,
     )
 
-    # Append skill evaluations from SessionMemory (if available)
-    session_memory = game_data.get('coach_session_memory')
+    # Append skill evaluations from SessionMemory (if available).
+    # PRH-15: restore persisted history on a memory miss (cold-load / restart)
+    # so a returning player's hand review still carries its skill evaluations.
+    session_memory = restore_session_memory(game_id, game_data, coach_repo)
     hand_number = getattr(hand, 'hand_number', None)
     if session_memory and hand_number is not None:
         evaluations = session_memory.get_hand_evaluations(hand_number)

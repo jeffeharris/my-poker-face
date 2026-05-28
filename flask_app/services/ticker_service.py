@@ -42,6 +42,13 @@ BASE_TICK_SECONDS = 2.0
 CYCLE_BUDGET_MS = 250.0
 # Max new ticker events scanned/pushed per sandbox per tick (cosmetic).
 WORLD_EVENT_LIMIT = 20
+# PRH-14: hard cap on how many distinct sandboxes one cycle advances. The
+# CYCLE_BUDGET already bounds wall-clock per cycle, but background work +
+# narration spend scale with the number of active sandboxes; this caps that
+# fan-out explicitly so presence (keep-the-lobby-polled) can't drive unbounded
+# concurrent ticking. Applied AFTER the round-robin rotation, so the capped
+# window slides across cycles and no sandbox is permanently starved.
+MAX_ACTIVE_SANDBOXES_PER_CYCLE = int(os.environ.get('WORLD_TICKER_MAX_SANDBOXES', '50'))
 
 # pace -> (hand_sim_prob, run_every_n_cycles). `run_every` lets the
 # quietest pace tick less often without a separate timer. With a 2s base
@@ -147,6 +154,13 @@ def _run_cycle(socketio) -> None:
     if sessions:
         _rr_offset = (_rr_offset + 1) % len(sessions)
         sessions = sessions[_rr_offset:] + sessions[:_rr_offset]
+
+    # PRH-14: cap how many sandboxes one cycle advances. The rotation above
+    # already slid the window, so this slice is fair across cycles — it just
+    # bounds the per-cycle fan-out (work + narration spend) when an unusual
+    # number of sandboxes are active at once.
+    if MAX_ACTIVE_SANDBOXES_PER_CYCLE > 0 and len(sessions) > MAX_ACTIVE_SANDBOXES_PER_CYCLE:
+        sessions = sessions[:MAX_ACTIVE_SANDBOXES_PER_CYCLE]
 
     active_owners = {s.owner_id for s in sessions}
     for stale in [o for o in _last_marker if o not in active_owners]:

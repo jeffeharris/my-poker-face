@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, redirect, request
 from cash_mode.bankroll import BANKROLL_KNOB_DEFAULTS, BankrollKnobs
 from core.llm import CallType, LLMClient
 from poker.authorization import get_authorization_service, require_permission
+from poker.guest_limits import is_guest
 from poker.utils import get_celebrities
 
 from .. import config
@@ -475,6 +476,17 @@ def _validate_theme_personalities(personalities_list: list, personality_sample: 
 def generate_theme():
     """Generate a themed game with appropriate personalities and game settings."""
     try:
+        # PRH-7: theme generation uses the expensive ASSISTANT tier and
+        # previously required no real account (a guest qualified). Require a
+        # signed-in, non-guest user.
+        gen_user = auth_manager.get_current_user()
+        if not gen_user or not gen_user.get('id'):
+            return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
+        if is_guest(gen_user):
+            return jsonify(
+                {'error': 'Sign in to generate themed games', 'code': 'GUEST_FORBIDDEN'}
+            ), 403
+
         data = request.json
         theme = data.get('theme')
         theme_name = data.get('themeName')
@@ -654,6 +666,17 @@ def generate_personality():
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
             ), 401
+        # PRH-7: personality generation uses the expensive ASSISTANT tier.
+        # Guests qualified before (a fresh cookie minted a fresh quota), so
+        # require a real signed-in account.
+        if is_guest(current_user):
+            return jsonify(
+                {
+                    'success': False,
+                    'error': 'Sign in to generate personalities',
+                    'code': 'GUEST_FORBIDDEN',
+                }
+            ), 403
 
         data = request.json
         name = data.get('name', '').strip()

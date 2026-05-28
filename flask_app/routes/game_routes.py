@@ -153,6 +153,28 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
     return current_user, is_admin, owner_id, None
 
 
+def _emit_reload_if_persisted(game_id: str) -> None:
+    """PRH-12: a socket handler missed the game in memory. If it's actually
+    persisted (evicted by TTL/restart, not deleted) and the caller is its
+    owner/admin, emit `reload_required` so the client re-fetches state — GET
+    /api/game-state cold-loads it — and retries, instead of silently dropping.
+
+    Mirrors `_authorize_game_access`'s DB owner lookup so we never tell a
+    non-owner to reload, and never fire for a genuinely gone game. Best-effort:
+    any failure just degrades to the prior silent no-op.
+    """
+    try:
+        owner_info = game_repo.get_game_owner_info(game_id)
+        if owner_info is None:
+            return  # truly gone — nothing to reload
+        user = auth_manager.get_current_user() if auth_manager else None
+        user_id = user.get('id') if user else None
+        if user_id and (user_id == owner_info.get('owner_id') or _is_admin(user_id)):
+            emit('reload_required', {'game_id': game_id, 'code': 'RELOAD_REQUIRED'})
+    except Exception as e:
+        logger.debug("[SOCKET] reload signal skipped for %s: %s", game_id, e)
+
+
 def load_game_mode_preset(game_mode: str) -> PromptConfig:
     """Load a game mode as a preset from the database.
 
@@ -336,7 +358,10 @@ def _evaluate_coach_progression(
     """
     try:
         from flask_app.services.coach_engine import compute_coaching_data
-        from flask_app.services.coach_progression import CoachProgressionService, SessionMemory
+        from flask_app.services.coach_progression import (
+            CoachProgressionService,
+            restore_session_memory,
+        )
         from flask_app.services.situation_classifier import SituationClassifier
 
         user_id = game_data.get('owner_id', '')
@@ -389,11 +414,11 @@ def _evaluate_coach_progression(
                     f"primary={classification.primary_skill}"
                 )
 
-                # Record evaluations in session memory for hand review
-                session_memory = game_data.get('coach_session_memory')
-                if session_memory is None:
-                    session_memory = SessionMemory()
-                    game_data['coach_session_memory'] = session_memory
+                # Record evaluations in session memory for hand review.
+                # PRH-15: restore persisted history on a memory miss (cold-load /
+                # restart) instead of starting blank — otherwise the first
+                # post-restart eval would overwrite the saved blob with one row.
+                session_memory = restore_session_memory(game_id, game_data, coach_repo)
 
                 memory_manager = game_data.get('memory_manager')
                 if memory_manager and hasattr(memory_manager, 'hand_recorder'):
@@ -406,6 +431,20 @@ def _evaluate_coach_progression(
 
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
+
+                # PRH-15: persist the per-hand evaluations so the review
+                # history survives a restart / TTL-eviction. Best-effort —
+                # a persistence hiccup must never break the action path.
+                try:
+                    coach_repo.save_session_evaluations(
+                        game_id, user_id, session_memory.to_evaluations_json()
+                    )
+                except Exception as persist_err:
+                    logger.debug(
+                        "[COACH_PROGRESSION] persist session evals failed for %s: %s",
+                        game_id,
+                        persist_err,
+                    )
     except Exception as e:
         logger.error(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
@@ -1711,7 +1750,17 @@ def api_player_action(game_id):
         return auth_error
 
     if not current_game_data:
-        return jsonify({'error': 'Game not found'}), 404
+        # PRH-12: auth passed via the DB owner lookup, so the game is
+        # persisted but evicted from memory (TTL/restart) — not deleted.
+        # Signal the client to re-fetch state (GET /api/game-state cold-loads
+        # it) and retry, instead of a bare 404 that looks like deletion. This
+        # makes the action path self-healing rather than GET-order-dependent.
+        return jsonify(
+            {
+                'error': 'Game state not loaded; re-fetch state and retry',
+                'code': 'RELOAD_REQUIRED',
+            }
+        ), 409
 
     state_machine = current_game_data['state_machine']
 
@@ -2118,6 +2167,9 @@ def register_socket_events(sio):
         game_id_str = str(game_id)
         game_data = game_state_service.get_game(game_id_str)
         if not game_data:
+            # PRH-12: persisted-but-evicted? Tell the owner client to re-fetch
+            # state (which cold-loads it) instead of silently no-op'ing.
+            _emit_reload_if_persisted(game_id_str)
             return
 
         # Verify the current user is the game owner (or an admin —
@@ -2152,6 +2204,9 @@ def register_socket_events(sio):
         current_game_data = game_state_service.get_game(game_id)
         if not current_game_data:
             logger.debug(f"[SOCKET] player_action game not found: {game_id}")
+            # PRH-12: persisted-but-evicted → tell the owner to re-fetch state
+            # (cold-loads it) and retry, rather than silently dropping.
+            _emit_reload_if_persisted(game_id)
             return
 
         # Verify the current user is the game owner

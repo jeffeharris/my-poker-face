@@ -30,8 +30,11 @@ logger = logging.getLogger(__name__)
 class SessionMemory:
     """In-memory tracking of coaching activity within a game session.
 
-    Stored in game_data['coach_session_memory']. Resets on game end
-    or server restart. Not persisted to database.
+    Stored in game_data['coach_session_memory']. The transient coaching
+    fields (coached_skills_this_hand, concept_count) reset on game end /
+    server restart, but the per-hand skill evaluations are persisted per
+    game (PRH-15) via `to_evaluations_json` / `from_evaluations_json` so the
+    hand-review history survives a restart or TTL-eviction.
     """
 
     def __init__(self):
@@ -69,6 +72,72 @@ class SessionMemory:
         evals = self.hand_evaluations.get(hand_number, [])
         priority = {'incorrect': 0, 'marginal': 1, 'correct': 2}
         return sorted(evals, key=lambda e: priority.get(e.evaluation, 3))
+
+    def to_evaluations_json(self) -> str:
+        """Serialize hand_evaluations to JSON for per-game persistence (PRH-15)."""
+        import json
+        from dataclasses import asdict
+
+        return json.dumps(
+            {
+                str(hand_number): [asdict(ev) for ev in evals]
+                for hand_number, evals in self.hand_evaluations.items()
+            }
+        )
+
+    @classmethod
+    def from_evaluations_json(cls, raw: Optional[str]) -> "SessionMemory":
+        """Rebuild a SessionMemory (hand_evaluations only) from a persisted
+        blob. Transient coaching fields start empty — only the review history
+        is restored. Tolerant of malformed/partial data (skips bad rows)."""
+        import json
+
+        sm = cls()
+        if not raw:
+            return sm
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return sm
+        if not isinstance(data, dict):
+            return sm
+        for hand_str, evals in data.items():
+            try:
+                hand_number = int(hand_str)
+            except (TypeError, ValueError):
+                continue
+            for d in evals or []:
+                try:
+                    sm.hand_evaluations[hand_number].append(SkillEvaluation(**d))
+                except (TypeError, ValueError):
+                    continue
+        return sm
+
+
+def restore_session_memory(game_id, game_data, coach_repo) -> "SessionMemory":
+    """Return the game's in-memory SessionMemory, restoring it from persistence
+    on a memory miss (PRH-15).
+
+    On a cold-load / restart / TTL-eviction `game_data['coach_session_memory']`
+    is gone; rather than start blank (which would also clobber the persisted
+    blob on the next save), rebuild the hand-review history from
+    `coach_session_evaluations`. Falls back to a fresh SessionMemory when
+    nothing is persisted or the load fails. Re-attaches the result to game_data
+    so subsequent reads in the same process hit memory.
+    """
+    sm = game_data.get('coach_session_memory')
+    if sm is not None:
+        return sm
+    raw = None
+    if coach_repo is not None:
+        try:
+            raw = coach_repo.load_session_evaluations(game_id)
+        except Exception as e:
+            logger.debug("[COACH_PROGRESSION] restore session evals failed for %s: %s", game_id, e)
+            raw = None
+    sm = SessionMemory.from_evaluations_json(raw)
+    game_data['coach_session_memory'] = sm
+    return sm
 
 
 class CoachProgressionService:
