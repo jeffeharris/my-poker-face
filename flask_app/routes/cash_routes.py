@@ -22,7 +22,7 @@ Spec: docs/plans/CASH_MODE_AND_RELATIONSHIPS.md Part 2.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
@@ -5007,41 +5007,53 @@ def get_lobby():
                     },
                 )
 
-    # Bankroll trajectory + last-session delta for the career hero.
-    # Reconstructed from finalised cash_sessions: each session moved the
-    # bankroll by (player_take_home - total_buy_in). We anchor the curve
-    # to the *current* bankroll and walk backwards, so the rightmost
-    # point is always exact and earlier points are the implied balance
-    # before each session. This ignores non-session bankroll moves
-    # (seeds, vice, side-hustle, staking), so it's a TREND sketch for the
-    # sparkline — not an audited ledger. Best-effort: any failure just
-    # drops the two fields and the hero renders without the chart/delta.
-    bankroll_history: list[int] = []
+    # Net-worth trajectory + last-session delta for the career hero.
+    #
+    # The trajectory is the player's REAL net worth over time (chips +
+    # stakes receivable − stakes outstanding), read from the
+    # `holdings_snapshots` the world ticker records (~10 min per active
+    # sandbox). Net worth (not liquid chips) so debt events read as dips
+    # and a leveraged buy-in doesn't masquerade as a windfall. Returned as
+    # `{t, value}` *change-points*: consecutive-equal idle samples (the
+    # ticker writes one every ~10 min even when nothing moves) are
+    # collapsed so the curve reads as the sequence of changes, and each
+    # vertex carries the timestamp it was first reached so the sparkline
+    # can show "net worth was $X at <time>" on hover. `last_session_delta`
+    # stays a session figure — it labels the "last session" chip and tones
+    # the curve. Best-effort: any failure drops both fields and the hero
+    # renders without the chart/delta.
+    bankroll_history: List[Dict[str, Any]] = []
     last_session_delta: Optional[int] = None
     try:
-        from flask_app.extensions import cash_session_repo
+        from flask_app.extensions import cash_session_repo, holdings_snapshots_repo
 
+        # Most recent finalised session's net result → the delta chip + tone.
         if cash_session_repo is not None:
-            sessions = cash_session_repo.list_for_owner(owner_id, limit=40)
-            # list_for_owner is newest-first; keep only finalised rows and
-            # flip to oldest-first so the curve reads left → right in time.
-            finalised = [
-                s
-                for s in reversed(sessions)
-                if s.ended_at is not None and s.player_take_home is not None
-            ]
-            nets = [int(s.player_take_home) - int(s.total_buy_in) for s in finalised]
-            if nets:
-                last_session_delta = nets[-1]
-                # Walk back from the current balance (newest → oldest),
-                # then reverse to oldest → newest. N sessions → N+1 points.
-                points_rev = []
-                running = int(bankroll.chips)
-                for net in reversed(nets):
-                    points_rev.append(running)
-                    running -= net
-                points_rev.append(running)
-                bankroll_history = list(reversed(points_rev))[-24:]
+            for s in cash_session_repo.list_for_owner(owner_id, limit=5):  # newest-first
+                if s.ended_at is not None and s.player_take_home is not None:
+                    last_session_delta = int(s.player_take_home) - int(s.total_buy_in)
+                    break
+
+        if holdings_snapshots_repo is not None:
+            since_iso = (datetime.utcnow() - timedelta(days=30)).isoformat() + "Z"
+            points = holdings_snapshots_repo.series_for_entity(
+                sandbox_id=sandbox_id,
+                entity_id=f"player:{owner_id}",
+                since_iso=since_iso,
+            )
+            series: List[Dict[str, Any]] = []
+            for p in points:
+                v = int(p["net_worth"])
+                if not series or series[-1]["value"] != v:
+                    series.append({"t": p["captured_at"], "value": v})
+            # Safety cap (preserve endpoints + shape) for a very busy career.
+            cap = 60
+            n = len(series)
+            if n > cap:
+                stride = (n - 1) / (cap - 1)
+                idx = sorted({0, n - 1} | {round(i * stride) for i in range(1, cap - 1)})
+                series = [series[i] for i in idx]
+            bankroll_history = series
     except Exception as exc:
         logger.warning("[CASH][LOBBY] bankroll_history build failed: %s", exc)
         bankroll_history = []

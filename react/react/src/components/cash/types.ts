@@ -252,6 +252,13 @@ export interface ActiveVice {
   amount: number;
 }
 
+/** One vertex of the career-hero net-worth sparkline. `value` is net
+ *  worth in chips; `t` is the ISO-8601 UTC timestamp it was reached. */
+export interface BankrollPoint {
+  t: string;
+  value: number;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
@@ -285,12 +292,14 @@ export interface LobbyResponse {
   /** How fast the realtime background ticker advances this user's world.
    *  Set via PUT /api/cash/world-pace; drives the lobby pace selector. */
   world_pace?: WorldPace;
-  /** Reconstructed bankroll trajectory (oldest → newest) for the career
-   *  hero's sparkline. Anchored to the current bankroll and walked back
-   *  through finalised cash sessions, so the last point is exact and
-   *  earlier points are a TREND sketch — not an audited balance. Empty
-   *  until the player has at least one finished session. */
-  bankroll_history?: number[];
+  /** Net-worth trajectory (oldest → newest) for the career hero's
+   *  sparkline: `{t, value}` change-points read from `holdings_snapshots`,
+   *  where `value` is net worth (chips + receivable − outstanding) and `t`
+   *  is the ISO timestamp it was first reached. Consecutive-equal idle
+   *  samples are collapsed, so the curve reads as the sequence of changes
+   *  and each vertex has a real time to show on hover. Empty until the
+   *  world ticker has recorded ≥1 point. */
+  bankroll_history?: BankrollPoint[];
   /** Net result of the player's most recent finished session
    *  (`player_take_home − total_buy_in`). Signed; null until the first
    *  session is finalised. Drives the hero's up/down delta chip. */

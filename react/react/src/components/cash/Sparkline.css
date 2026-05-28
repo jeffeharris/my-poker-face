@@ -1,0 +1,99 @@
+/**
+ * Sparkline — interactive trend line (line/area in SVG, hover affordances
+ * as positioned overlays so they don't fight the `preserveAspectRatio`
+ * distortion of the SVG coordinate space).
+ *
+ * The wrapper inherits its size from the className the host passes
+ * (`.career-hero__spark` → width 100%, height 44px); these rules only add
+ * positioning context + the scrub cursor / marker / tooltip.
+ */
+
+.sparkline-wrap {
+  position: relative;
+  /* Comfortable scrub target + lets the tooltip escape upward. */
+  touch-action: pan-y;
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Vertical guide at the hovered vertex. */
+.sparkline__cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.3) 40%,
+    rgba(255, 255, 255, 0.3) 60%,
+    rgba(255, 255, 255, 0.05)
+  );
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+/* Dot riding the curve at the hovered vertex. */
+.sparkline__marker {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.55),
+    0 0 10px rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+
+/* Floating value + time pill above the line. */
+.sparkline__tip {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(12, 10, 8, 0.92);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  font-variant-numeric: tabular-nums;
+}
+
+.sparkline__tip--center {
+  transform: translateX(-50%);
+}
+.sparkline__tip--left {
+  transform: translateX(0);
+}
+.sparkline__tip--right {
+  transform: translateX(-100%);
+}
+
+.sparkline__tip-amount {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-gold-light);
+}
+
+.sparkline__tip-time {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkline__dot {
+    animation: none;
+  }
+}

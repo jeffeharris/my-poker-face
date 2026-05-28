@@ -38,6 +38,7 @@ import { WhereaboutsDrawer } from './WhereaboutsDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
+  BankrollPoint,
   LobbyEvent,
   LobbyTable,
   StakableAiCandidate,
@@ -160,7 +161,7 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
-  const [bankrollHistory, setBankrollHistory] = useState<number[]>([]);
+  const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
   /** The table the player currently has a live session at, or null. Drives
