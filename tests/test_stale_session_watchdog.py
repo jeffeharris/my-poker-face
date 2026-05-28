@@ -98,9 +98,14 @@ def _run_watchdog(*, rows, sessions, in_memory, mono):
     return swept, game_repo, cash_session_repo
 
 
+# Comfortably past the watchdog's (4h) TTL, tracked off the constant so a
+# future TTL change doesn't silently turn "stale" into "fresh" here.
+_STALE_AGE = int(ticker_service.STALE_SESSION_TTL_SECONDS) + 3600
+
+
 def test_sweeps_stale_cold_orphan():
     swept, game_repo, sessions = _run_watchdog(
-        rows=[_row("cash-cold", 7200)],
+        rows=[_row("cash-cold", _STALE_AGE)],
         sessions={"cash-cold": _session("cash-cold")},
         in_memory={},
         mono=1000.0,
@@ -114,7 +119,7 @@ def test_sweeps_stale_cold_orphan():
 
 def test_skips_in_memory_game_even_if_row_is_stale():
     swept, game_repo, _ = _run_watchdog(
-        rows=[_row("cash-live", 7200)],
+        rows=[_row("cash-live", _STALE_AGE)],
         sessions={"cash-live": _session("cash-live")},
         # Same id is in memory → must be skipped (resurrection guard).
         in_memory={"cash-live": {"cash_mode": True, "owner_id": "u1"}},

@@ -180,6 +180,27 @@ class CashSessionRepository(BaseRepository):
                 return None
             return _row_to_session(row)
 
+    def find_blocking_session_id_for_owner(self, owner_id: str) -> Optional[str]:
+        """The session_id of the owner's blocking (active/paused/abandoning)
+        session, or None. Authoritative source for the sit guard (Codex
+        review #4): a direct, unbounded, state-filtered lookup — unlike a
+        capped `games` scan it can't miss a real session past row N. A
+        `closed`/`broken` row is terminal and never returned. Most-recent
+        wins if two somehow match (the one-session invariant should hold).
+        """
+        from cash_mode.cash_sessions import SESSION_STATES_BLOCKING
+
+        states = sorted(SESSION_STATES_BLOCKING)
+        placeholders = ",".join("?" for _ in states)
+        with self._get_connection() as conn:
+            row = conn.execute(
+                f"SELECT session_id FROM cash_sessions "
+                f"WHERE owner_id = ? AND session_state IN ({placeholders}) "
+                f"ORDER BY started_at DESC LIMIT 1",
+                (owner_id, *states),
+            ).fetchone()
+            return row["session_id"] if row else None
+
     def list_for_owner(
         self,
         owner_id: str,

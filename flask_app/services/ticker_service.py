@@ -94,7 +94,11 @@ _last_snapshot_at: Dict[str, float] = {}
 # the boot hook does, on a slow wall-clock cadence, so orphans created
 # between reboots self-clear instead of lingering. Far slower than the
 # base tick because abandonment is measured in minutes.
-STALE_SESSION_TTL_SECONDS = 1800.0
+# 4h, not 30m (Codex review #1): a session is only reaped — settled at
+# chips=0 — once it's gone genuinely cold, so a player who steps away
+# doesn't get their table stack burned. Mirrors cash_mode.lobby's
+# DEFAULT_STALE_TTL_SECONDS.
+STALE_SESSION_TTL_SECONDS = 14400.0
 WATCHDOG_INTERVAL_SECONDS = 300.0
 # monotonic time of the last watchdog pass (None until the first run).
 _last_watchdog_at: Optional[float] = None
@@ -193,6 +197,10 @@ def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> 
         now=datetime.utcnow(),
         skip_game_ids=in_memory_cash_ids,
         source="watchdog",
+        # The skip-set is a cheap first pass; the authoritative guard
+        # against the resurrection race (Codex #2) is the per-game lock +
+        # in-memory re-check the sweep does when given game_state_service.
+        game_state_service=game_state_service,
     )
 
 

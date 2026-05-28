@@ -167,10 +167,28 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
             if _cash_session_blocks(gid):
                 return gid
 
-    from flask_app.extensions import game_repo
+    # Authoritative DB lookup (Codex review #4): query cash_sessions
+    # directly for a blocking session. Unbounded + state-filtered in SQL,
+    # so — unlike the old `list_games(limit=50)` + filter — it can't miss
+    # a real session that happens to sort past the cap.
+    from flask_app.extensions import cash_session_repo, game_repo
 
+    if cash_session_repo is not None:
+        try:
+            sid = cash_session_repo.find_blocking_session_id_for_owner(owner_id)
+            if sid is not None:
+                return sid
+        except Exception:
+            # Fall through to the legacy net rather than fail-open here.
+            pass
+
+    # Legacy fail-safe net: a `cash-*` games row with NO cash_sessions
+    # record (a sit that errored before the session row landed) still
+    # blocks, via `_cash_session_blocks`'s missing-row fail-safe. The
+    # direct query above can't see such a row. Bounded scan, limit bumped
+    # past the old 50 so a busy owner's orphan isn't missed (Codex #4).
     try:
-        rows = game_repo.list_games(owner_id=owner_id, limit=50, offset=0)
+        rows = game_repo.list_games(owner_id=owner_id, limit=200, offset=0)
     except Exception:
         return None
     for row in rows:
@@ -4377,6 +4395,11 @@ def _leave_table_locked(owner_id: str, game_id: str):
         player_take_home=returned_chips,
         now=now,
     )
+    # INVARIANT (Codex review #6): finalise runs AFTER settlement above —
+    # it stamps `ended_at`, which the idempotency guard keys on to skip
+    # re-settlement. Keep this ordering: setting ended_at before the
+    # stake/bankroll moves would let the guard skip a never-settled
+    # session, stranding chips. (The boot sweep settles-then-finalises too.)
     _finalise_cash_session(
         game_id=game_id,
         now=now,

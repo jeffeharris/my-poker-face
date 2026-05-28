@@ -53,14 +53,20 @@ from flask_app.routes import cash_routes  # noqa: E402
 
 
 class _FakeCashSessionRepo:
-    def __init__(self, sessions):
+    def __init__(self, sessions, blocking_id=None):
         # game_id -> session_state string (or KeyError → None/missing row)
         self._states = sessions
+        # What find_blocking_session_id_for_owner returns (the authoritative
+        # DB lookup). None → no blocking session, fall through to the net.
+        self._blocking_id = blocking_id
 
     def load(self, session_id):
         if session_id not in self._states:
             return None
         return SimpleNamespace(session_state=self._states[session_id])
+
+    def find_blocking_session_id_for_owner(self, owner_id):
+        return self._blocking_id
 
 
 class _FakeGameRepo:
@@ -128,6 +134,32 @@ def test_find_active_returns_active_in_memory_game():
         create=True,
     ), patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True):
         assert cash_routes._find_active_cash_game_id("u1") == "cash-live"
+
+
+def test_find_active_uses_direct_query_not_capped_scan():
+    """Codex #4: a blocking session is found via the unbounded direct
+    cash_sessions query even when the (capped) games scan would miss it
+    (here game_repo returns nothing)."""
+    repo = _FakeCashSessionRepo({}, blocking_id="cash-db-active")
+    with patch.dict(gss_module.games, {}, clear=True), patch(
+        "flask_app.extensions.cash_session_repo", repo, create=True
+    ), patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True):
+        assert cash_routes._find_active_cash_game_id("u1") == "cash-db-active"
+
+
+def test_find_active_legacy_net_catches_rowless_orphan():
+    """When the direct query finds nothing (None), a cash-* games row with
+    NO cash_sessions record still blocks via the fail-safe net — a real
+    frozen session is never lost to a missing-row read."""
+    repo = _FakeCashSessionRepo({}, blocking_id=None)  # direct query → None
+    with patch.dict(gss_module.games, {}, clear=True), patch(
+        "flask_app.extensions.cash_session_repo", repo, create=True
+    ), patch(
+        "flask_app.extensions.game_repo",
+        _FakeGameRepo([_row("cash-rowless-orphan")]),
+        create=True,
+    ):
+        assert cash_routes._find_active_cash_game_id("u1") == "cash-rowless-orphan"
 
 
 def test_find_active_skips_broken_db_row():

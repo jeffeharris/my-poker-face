@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import random
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -3062,6 +3063,14 @@ def _emit_session_event(cash_session_repo, session_id, event, **kwargs) -> None:
         logger.debug("[CASH][LOBBY] session event %r/%r emit failed", session_id, event)
 
 
+# Default "abandoned" threshold for the boot/watchdog sweep. 4h, not
+# 30m: a cash row is only reaped (settled at chips=0) once it's gone
+# untouched this long, so a player who steps away for lunch — or whose
+# session is frozen across a reboot ("resume on reboot is by design") —
+# doesn't get their table stack burned. Codex review #1.
+DEFAULT_STALE_TTL_SECONDS = 14400
+
+
 def _boot_sweep_stale_cash_rows(
     *,
     game_repo,
@@ -3072,6 +3081,7 @@ def _boot_sweep_stale_cash_rows(
     now: datetime,
     skip_game_ids: Optional[Set[str]] = None,
     source: str = "boot",
+    game_state_service=None,
 ) -> int:
     """Sweep abandoned `cash-*` rows whose `updated_at` is past the TTL.
 
@@ -3140,40 +3150,60 @@ def _boot_sweep_stale_cash_rows(
         if age <= stale_ttl_seconds:
             continue  # fresh → resumable, leave it alone
 
+        # Close the resurrection race (Codex review #2): a stale row can be
+        # warm-loaded / resumed into memory between the skip-set snapshot
+        # (built by the watchdog) and this delete. Acquire the SAME
+        # per-game lock the leave + cold-load paths use, then re-check
+        # in-memory presence under it; if the game is now live, skip it —
+        # deleting its row out from under a live in-memory copy is the
+        # split-brain the whole hardening effort fights. On boot the map
+        # is empty so the re-check is a no-op (and game_state_service may
+        # be None for older callers → nullcontext, no lock).
+        lock_ctx = (
+            game_state_service.get_game_lock(row.game_id)
+            if game_state_service is not None
+            else nullcontext()
+        )
         try:
-            session = cash_session_repo.load(row.game_id) if cash_session_repo else None
-            # 1. Resolve any active stake so its principal doesn't dangle.
-            if stake_repo is not None:
-                active_stake = stake_repo.load_active_for_session(row.game_id)
-                if active_stake is not None:
-                    from cash_mode.stake_settlement import settle_stake_on_leave
+            with lock_ctx:
+                if (
+                    game_state_service is not None
+                    and game_state_service.get_game(row.game_id) is not None
+                ):
+                    continue  # resumed into memory since the snapshot — don't sweep
+                session = cash_session_repo.load(row.game_id) if cash_session_repo else None
+                # 1. Resolve any active stake so its principal doesn't dangle.
+                if stake_repo is not None:
+                    active_stake = stake_repo.load_active_for_session(row.game_id)
+                    if active_stake is not None:
+                        from cash_mode.stake_settlement import settle_stake_on_leave
 
-                    settle_stake_on_leave(
-                        active_stake.stake_id,
-                        0,  # notional: treat an abandoned table as a bust
-                        stake_repo=stake_repo,
-                        chip_ledger_repo=chip_ledger_repo,
-                        ledger_context={'game_id': row.game_id, 'site': 'boot_sweep'},
-                        sandbox_id=session.sandbox_id if session else None,
-                        now=now,
+                        settle_stake_on_leave(
+                            active_stake.stake_id,
+                            0,  # notional: treat an abandoned table as a bust
+                            stake_repo=stake_repo,
+                            chip_ledger_repo=chip_ledger_repo,
+                            ledger_context={'game_id': row.game_id, 'site': 'boot_sweep'},
+                            sandbox_id=session.sandbox_id if session else None,
+                            now=now,
+                        )
+                # 2. Mark the session closed (idempotent via ended_at guard).
+                if session is not None and session.ended_at is None:
+                    cash_session_repo.finalise(
+                        session.session_id,
+                        ended_at=now,
+                        final_chips_at_table=0,
+                        sponsor_repaid=0,
+                        player_take_home=0,
+                        hands_played=session.hands_played or 0,
+                        hands_won=session.hands_won or 0,
+                        biggest_pot_won=session.biggest_pot_won or 0,
+                        duration_seconds=0,
+                        closed_status=closed_status,
                     )
-            # 2. Mark the session closed (idempotent via ended_at guard).
-            if session is not None and session.ended_at is None:
-                cash_session_repo.finalise(
-                    session.session_id,
-                    ended_at=now,
-                    final_chips_at_table=0,
-                    sponsor_repaid=0,
-                    player_take_home=0,
-                    hands_played=session.hands_played or 0,
-                    hands_won=session.hands_won or 0,
-                    biggest_pot_won=session.biggest_pot_won or 0,
-                    duration_seconds=0,
-                    closed_status=closed_status,
-                )
-            # 3. Drop the games row so the sit guard stops blocking sits.
-            game_repo.delete_game(row.game_id)
-            swept += 1
+                # 3. Drop the games row so the sit guard stops blocking sits.
+                game_repo.delete_game(row.game_id)
+                swept += 1
             # Tier 3: lifecycle telemetry.
             _emit_session_event(
                 cash_session_repo,
@@ -3234,7 +3264,7 @@ def kill_all_cash_sessions(
     cash_session_repo=None,
     stake_repo=None,
     chip_ledger_repo=None,
-    stale_ttl_seconds: int = 1800,
+    stale_ttl_seconds: int = DEFAULT_STALE_TTL_SECONDS,
     now: Optional[datetime] = None,
 ) -> int:
     """Boot reconcile: drop stale in-memory cash games; reset orphan seats.
@@ -3293,6 +3323,10 @@ def kill_all_cash_sessions(
             chip_ledger_repo=chip_ledger_repo,
             stale_ttl_seconds=stale_ttl_seconds,
             now=now,
+            # Lock + re-check guard against the resurrection race (Codex #2).
+            # Harmless at boot (memory is empty) but correct if a request
+            # warm-loads a game mid-boot-reconcile.
+            game_state_service=game_state_service,
         )
 
     # Reconcile orphan human seats. A seat is orphan when its owner

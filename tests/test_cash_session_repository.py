@@ -326,6 +326,43 @@ def test_event_counts_aggregates_by_type_and_window(repo):
     assert repo.event_counts(sandbox_id="nope") == {}
 
 
+def test_find_blocking_session_id_for_owner(repo):
+    # active + paused block; closed + broken don't. Most-recent blocking wins.
+    repo.create(_self_funded(session_id="cash-active", owner_id="u", started_at=ANCHOR))
+    repo.create(
+        _self_funded(session_id="cash-paused", owner_id="u", started_at=ANCHOR - timedelta(hours=1))
+    )
+    repo.set_session_state("cash-paused", "paused")
+    repo.create(
+        _self_funded(session_id="cash-broken", owner_id="u", started_at=ANCHOR + timedelta(hours=2))
+    )
+    repo.set_session_state("cash-broken", "broken")
+    repo.create(
+        _self_funded(session_id="cash-closed", owner_id="u", started_at=ANCHOR + timedelta(hours=3))
+    )
+    repo.finalise(
+        "cash-closed",
+        ended_at=ANCHOR + timedelta(hours=4),
+        final_chips_at_table=0,
+        sponsor_repaid=0,
+        player_take_home=0,
+        hands_played=0,
+        hands_won=0,
+        biggest_pot_won=0,
+        duration_seconds=0,
+        closed_status=CLOSED_STATUS_LEFT,
+    )
+    # Newest BLOCKING session is cash-active (ANCHOR) vs cash-paused (earlier);
+    # broken/closed are excluded despite being newer.
+    assert repo.find_blocking_session_id_for_owner("u") == "cash-active"
+    # A different owner with only a closed session → None.
+    repo.create(_self_funded(session_id="cash-other", owner_id="v", started_at=ANCHOR))
+    repo.set_session_state("cash-other", "closed")
+    assert repo.find_blocking_session_id_for_owner("v") is None
+    # Unknown owner → None.
+    assert repo.find_blocking_session_id_for_owner("nobody") is None
+
+
 def test_state_counts_groups_by_session_state(repo):
     repo.create(_self_funded(session_id="cash-a", owner_id="u"))
     repo.create(_self_funded(session_id="cash-b", owner_id="u"))

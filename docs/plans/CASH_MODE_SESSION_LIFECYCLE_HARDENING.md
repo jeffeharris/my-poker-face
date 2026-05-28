@@ -103,6 +103,26 @@ last_updated: 2026-05-28
 > `test_cash_lobby_route` cold-session test extended for `seated_since`.
 > 116-test cash sweep green; tsc + eslint clean.
 >
+> **Post-review hardening (Codex, 2026-05-28):** a second-opinion review
+> surfaced three real issues, now fixed:
+> - **#2 watchdog resurrection race** — the sweep deleted DB rows without
+>   the per-game lock, so a session warm-loaded between the skip-set
+>   snapshot and the delete could be torn out from under a live in-memory
+>   copy. The sweep now acquires `get_game_lock` + re-checks in-memory
+>   presence before settle+delete (mirrors the leave route).
+> - **#1 reap-at-0 too aggressive** — the sweep TTL was 30 min; a
+>   self-funded buy-in is debited at sit-down, so reaping at chips=0 burnt
+>   a stepped-away player's stack. Raised to 4h (`DEFAULT_STALE_TTL_SECONDS`).
+> - **#4/#5 sit-guard scan** — `_find_active_cash_game_id` used a capped
+>   `list_games(limit=50)` (could miss a real session) + fail-open. Now
+>   queries `cash_sessions` directly (unbounded, state-filtered) as the
+>   authoritative lookup, with the bounded games scan kept only as the
+>   legacy fail-safe net for rows that predate their session record.
+> - **#6 (verified not a bug)** — finalise always runs after settlement,
+>   so the idempotency guard can't skip a never-settled session; pinned
+>   with an invariant comment.
+> 123-test cash sweep green.
+>
 > Companion to [[CASH_MODE_BACKING_SYSTEM_HANDOFF]] (stake settlement
 > math, source-of-truth) and [[../technical/CASH_MODE_FISH_AS_PERSONAS]]
 > (persona-funded bankrolls, which the AI cash-out loop credits).
