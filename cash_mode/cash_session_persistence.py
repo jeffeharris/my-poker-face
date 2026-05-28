@@ -75,6 +75,23 @@ def record_cash_session_start(
             game_id,
             e,
         )
+        return
+    # Tier 3: emit the `started` lifecycle event. Best-effort — the repo
+    # method swallows its own failures, so this never breaks a sit-down.
+    record_event = getattr(cash_session_repo, "record_event", None)
+    if record_event is not None:
+        record_event(
+            game_id,
+            "started",
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            detail={
+                "stake_label": stake_label,
+                "is_staked": bool(is_staked),
+                "cash_table_id": cash_table_id,
+            },
+            now=now,
+        )
 
 
 def increment_cash_session_buy_in(

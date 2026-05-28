@@ -192,6 +192,7 @@ def _maybe_run_stale_session_watchdog(now_monotonic: Optional[float] = None) -> 
         stale_ttl_seconds=int(STALE_SESSION_TTL_SECONDS),
         now=datetime.utcnow(),
         skip_game_ids=in_memory_cash_ids,
+        source="watchdog",
     )
 
 

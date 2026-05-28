@@ -107,7 +107,9 @@ def test_sweeps_stale_cold_orphan():
     )
     assert swept == 1
     assert "cash-cold" in game_repo.deleted
-    assert ("cash-cold", "boot_swept") in sessions.finalised
+    # The watchdog tags its sweeps `stale_swept` (vs the boot hook's
+    # `boot_swept`) so ops can tell the two reconcilers apart.
+    assert ("cash-cold", "stale_swept") in sessions.finalised
 
 
 def test_skips_in_memory_game_even_if_row_is_stale():

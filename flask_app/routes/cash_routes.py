@@ -149,12 +149,23 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
     existing cash-* row for the owner before creating a new one, and
     `/api/cash/leave` deletes the row. So after a clean leave, the DB
     has zero cash rows for this owner — nothing to resume.
+
+    Tier 3: a candidate row only counts as "active" if its
+    `cash_sessions.session_state` is blocking (active/paused/abandoning).
+    A `closed`/`broken` session whose `cash-*` games row lingers (failed
+    delete, between sweeps, or a stray in-memory resurrection of a
+    closed session) no longer wedges every new sit — the explicit state
+    is the source of truth, not the mere existence of a row. Rows with
+    no `cash_sessions` record at all (legacy / a create that failed
+    before the session row landed) stay blocking as a fail-safe, so we
+    never lose a real session to a missing-row read.
     """
     from flask_app.services import game_state_service
 
     for gid, gdata in list(game_state_service.games.items()):
         if gdata.get("cash_mode") and gdata.get("owner_id") == owner_id:
-            return gid
+            if _cash_session_blocks(gid):
+                return gid
 
     from flask_app.extensions import game_repo
 
@@ -163,9 +174,33 @@ def _find_active_cash_game_id(owner_id: str) -> Optional[str]:
     except Exception:
         return None
     for row in rows:
-        if row.game_id.startswith("cash-"):
+        if row.game_id.startswith("cash-") and _cash_session_blocks(row.game_id):
             return row.game_id
     return None
+
+
+def _cash_session_blocks(game_id: str) -> bool:
+    """Whether a cash session should block a new sit / count as active.
+
+    Reads the explicit `session_state` (Tier 3). A row in a terminal,
+    non-blocking state (`closed`/`broken`) does not block. A missing
+    `cash_sessions` record (legacy, or a sit that errored before the
+    row landed) is treated as blocking — fail-safe, so a real frozen
+    session is never lost to a read miss. Any lookup error also blocks
+    (same fail-safe direction).
+    """
+    from cash_mode.cash_sessions import SESSION_STATES_BLOCKING
+    from flask_app.extensions import cash_session_repo
+
+    if cash_session_repo is None:
+        return True
+    try:
+        session = cash_session_repo.load(game_id)
+    except Exception:
+        return True
+    if session is None:
+        return True
+    return session.session_state in SESSION_STATES_BLOCKING
 
 
 def _resolve_emotion_from_blob(blob: str, personality_id: str) -> str:
@@ -3794,7 +3829,26 @@ def leave_table():
     # sponsor cut (free-money exploit on loan leaves).
     lock = game_state_service.get_game_lock(game_id)
     with lock:
-        return _leave_table_locked(owner_id, game_id)
+        try:
+            return _leave_table_locked(owner_id, game_id)
+        except Exception:
+            # Convergence (Tier 3): a teardown that raised left the
+            # session in a partial state. Mark it `broken` so the sit
+            # guard stops treating it as active — the player can sit
+            # elsewhere immediately, and the boot sweep / watchdog reap
+            # the residual rows. Best-effort; re-raise the original error.
+            try:
+                from cash_mode.cash_sessions import SESSION_STATE_BROKEN
+                from flask_app.extensions import cash_session_repo
+
+                if cash_session_repo is not None:
+                    cash_session_repo.set_session_state(game_id, SESSION_STATE_BROKEN)
+                _emit_cash_session_event(game_id, "broken", owner_id=owner_id)
+            except Exception:
+                logger.exception(
+                    "[CASH] failed to mark %r broken after leave failure", game_id
+                )
+            raise
 
 
 def _build_session_summary(
@@ -3890,6 +3944,34 @@ def _finalise_cash_session(**kwargs) -> None:
     from flask_app.extensions import cash_session_repo
 
     finalise_cash_session(cash_session_repo=cash_session_repo, **kwargs)
+
+
+def _emit_cash_session_event(game_id: str, event: str, **detail) -> None:
+    """Best-effort lifecycle telemetry (Tier 3) — see `cash_session_events`.
+
+    Pulls the repo off extensions and records one event. Swallows
+    everything: emitting telemetry must never break a leave. `owner_id`
+    / `sandbox_id` are passed via kwargs when the caller has them.
+    """
+    from flask_app.extensions import cash_session_repo
+
+    if cash_session_repo is None:
+        return
+    record = getattr(cash_session_repo, "record_event", None)
+    if record is None:
+        return
+    owner_id = detail.pop("owner_id", None)
+    sandbox_id = detail.pop("sandbox_id", None)
+    try:
+        record(
+            game_id,
+            event,
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
+            detail=detail or None,
+        )
+    except Exception:
+        logger.debug("[CASH] lifecycle event %r/%r emit failed", game_id, event)
 
 
 def _warm_cash_game_for_leave(
@@ -4140,6 +4222,12 @@ def _leave_table_locked(owner_id: str, game_id: str):
             game_id,
             owner_id,
             "from-db" if ghost_summary else "null",
+        )
+        _emit_cash_session_event(
+            game_id,
+            "left_ghost",
+            owner_id=owner_id,
+            sandbox_id=sandbox_id,
         )
         return jsonify(
             {
@@ -4489,6 +4577,16 @@ def _leave_table_locked(owner_id: str, game_id: str):
         sponsor_repaid,
         returned_chips,
         new_bankroll_chips,
+    )
+
+    _emit_cash_session_event(
+        game_id,
+        "left_clean",
+        owner_id=owner_id,
+        sandbox_id=sandbox_id,
+        had_loan=had_loan,
+        returned_chips=returned_chips,
+        sponsor_repaid=sponsor_repaid,
     )
 
     return jsonify(

@@ -3047,6 +3047,21 @@ def _emit_side_hustle_events(
             )
 
 
+def _emit_session_event(cash_session_repo, session_id, event, **kwargs) -> None:
+    """Best-effort wrapper over `cash_session_repo.record_event` (Tier 3).
+
+    Tolerates a repo without `record_event` (older test fakes) and never
+    raises — lifecycle telemetry must not break a sweep.
+    """
+    record = getattr(cash_session_repo, "record_event", None)
+    if record is None:
+        return
+    try:
+        record(session_id, event, **kwargs)
+    except Exception:
+        logger.debug("[CASH][LOBBY] session event %r/%r emit failed", session_id, event)
+
+
 def _boot_sweep_stale_cash_rows(
     *,
     game_repo,
@@ -3056,8 +3071,13 @@ def _boot_sweep_stale_cash_rows(
     stale_ttl_seconds: int,
     now: datetime,
     skip_game_ids: Optional[Set[str]] = None,
+    source: str = "boot",
 ) -> int:
     """Sweep abandoned `cash-*` rows whose `updated_at` is past the TTL.
+
+    `source` ("boot" | "watchdog") tags the close reason + lifecycle
+    event so ops can tell a reboot reconcile from a between-reboots
+    watchdog reap.
 
     Resume-on-reboot is by design: a *fresh* cash row (touched within
     `stale_ttl_seconds`) is left intact so the player reconnects to
@@ -3083,6 +3103,16 @@ def _boot_sweep_stale_cash_rows(
     Returns the number of rows swept. Best-effort per row — one bad row
     doesn't abort the rest of the sweep.
     """
+    from cash_mode.cash_sessions import (
+        CLOSED_STATUS_BOOT_SWEPT,
+        CLOSED_STATUS_STALE_SWEPT,
+        SESSION_STATE_BROKEN,
+    )
+
+    closed_status = (
+        CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
+    )
+
     swept = 0
     try:
         rows = game_repo.list_games(owner_id=None, limit=10000, offset=0)
@@ -3139,14 +3169,25 @@ def _boot_sweep_stale_cash_rows(
                     hands_won=session.hands_won or 0,
                     biggest_pot_won=session.biggest_pot_won or 0,
                     duration_seconds=0,
-                    closed_status="boot_swept",
+                    closed_status=closed_status,
                 )
             # 3. Drop the games row so the sit guard stops blocking sits.
             game_repo.delete_game(row.game_id)
             swept += 1
+            # Tier 3: lifecycle telemetry.
+            _emit_session_event(
+                cash_session_repo,
+                row.game_id,
+                "swept",
+                owner_id=row.owner_id,
+                sandbox_id=session.sandbox_id if session else None,
+                detail={"source": source, "age_seconds": int(age)},
+                now=now,
+            )
             logger.info(
-                "[CASH][LOBBY] boot-swept stale orphan cash row %r "
+                "[CASH][LOBBY] %s-swept stale orphan cash row %r "
                 "(age=%.0fs > ttl=%ds, owner=%r)",
+                source,
                 row.game_id,
                 age,
                 stale_ttl_seconds,
@@ -3154,10 +3195,29 @@ def _boot_sweep_stale_cash_rows(
             )
         except Exception as e:
             logger.warning(
-                "[CASH][LOBBY] boot sweep failed for %r: %s",
+                "[CASH][LOBBY] %s sweep failed for %r: %s",
+                source,
                 row.game_id,
                 e,
             )
+            # Convergence: a row we couldn't sweep is marked `broken` so
+            # the sit guard stops treating it as an active session (it
+            # won't wedge new sits) even though its games row lingers.
+            try:
+                cash_session_repo.set_session_state(row.game_id, SESSION_STATE_BROKEN)
+                _emit_session_event(
+                    cash_session_repo,
+                    row.game_id,
+                    "broken",
+                    owner_id=row.owner_id,
+                    detail={"source": source, "error": str(e)},
+                    now=now,
+                )
+            except Exception:
+                logger.exception(
+                    "[CASH][LOBBY] failed to mark %r broken after sweep failure",
+                    row.game_id,
+                )
 
     if swept:
         logger.info("[CASH][LOBBY] boot sweep removed %d stale orphan cash row(s)", swept)

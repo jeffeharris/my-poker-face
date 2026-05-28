@@ -7,8 +7,9 @@ last_updated: 2026-05-28
 
 # Cash Mode: Session Lifecycle Hardening
 
-> **Status (2026-05-28): Tier 1 + Tier 2 SHIPPED on this branch.** Tiers
-> 3–4 remain planned. Triggered by a wedge where `guest_jeff` had an
+> **Status (2026-05-28): Tier 1 + Tier 2 + Tier 3 (minus 3.2) SHIPPED on
+> this branch.** Only the outbox-pattern teardown (3.2) and Tier 4 remain
+> planned. Triggered by a wedge where `guest_jeff` had an
 > orphan `cash--7j9cUI...` row that blocked every new sit with "A cash
 > session is already active. Leave first." while Resume itself
 > two-toasted-then-worked. Cleanup was applied via
@@ -51,7 +52,33 @@ last_updated: 2026-05-28
 > connection-sharing refactor across all repos. The idempotency guard +
 > boot sweep + watchdog together deliver the *convergence* guarantee
 > (no double-settle, orphans self-heal) the literal transaction was
-> meant to provide. The full outbox/transaction work moves to Tier 3.
+> meant to provide. The full outbox/transaction work moves to Tier 3.2.
+>
+> **What landed for Tier 3 (2026-05-28, schema v119 + v120):**
+> - **3.1** explicit `session_state` on `cash_sessions`
+>   (`active`/`paused`/`abandoning`/`closed`/`broken`, backfilled from
+>   `ended_at`). The sit guard (`_find_active_cash_game_id` →
+>   `_cash_session_blocks`) now respects it: a `closed`/`broken` session
+>   whose `cash-*` games row lingers no longer wedges new sits;
+>   legacy/no-row sessions stay blocking (fail-safe). `finalise` flips
+>   state→`closed`; teardown failures (leave route + sweep) flip
+>   →`broken` so a partial teardown converges instead of wedging.
+> - **3.3** persisted `cash_session_events` table + repo
+>   `record_event`/`list_events`; emitted on `started`
+>   (record_cash_session_start), `left_clean`/`left_ghost` (leave),
+>   `swept` (boot + watchdog, tagged by source), `broken`. Feeds the
+>   planned admin orphan-counter (4.3). Distinct from the cosmetic
+>   in-memory `cash_mode/activity.py` ring buffer.
+> - **3.4** `last_load_error` column, stamped on the `/api/game-state`
+>   cold-load 500 path. `set_last_load_error` clears it on success.
+>
+> Tests: `test_cash_session_repository.py` (+state default / finalise→closed
+> / set_session_state / last_load_error / events), new
+> `test_cash_session_state_guard.py` (guard ignores closed/broken, blocks
+> active/legacy), watchdog test updated for the `stale_swept` tag. 107-test
+> cash sweep green. **3.2 (outbox saga) deliberately deferred** — the
+> idempotency guard already gives convergence; the saga is a large rewrite
+> with its own regression surface.
 >
 > Companion to [[CASH_MODE_BACKING_SYSTEM_HANDOFF]] (stake settlement
 > math, source-of-truth) and [[../technical/CASH_MODE_FISH_AS_PERSONAS]]

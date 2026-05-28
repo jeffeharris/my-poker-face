@@ -985,6 +985,26 @@ def api_game_state(game_id):
                         return jsonify({'error': 'Game not found'}), 404
                 except Exception as e:
                     logger.error(f"[LOAD] Error loading game {game_id}: {str(e)}", exc_info=True)
+                    # Tier 3 (3.4): stamp the failure on the cash session so a
+                    # wedged session is debuggable without log archaeology.
+                    # Best-effort; never let telemetry mask the original 500.
+                    if game_id.startswith("cash-"):
+                        try:
+                            from datetime import datetime as _dt
+
+                            from flask_app.extensions import (
+                                cash_session_repo as _csr,
+                            )
+
+                            if _csr is not None:
+                                _csr.set_last_load_error(
+                                    game_id,
+                                    f"{type(e).__name__}: {e} @ {_dt.utcnow().isoformat()}",
+                                )
+                        except Exception:
+                            logger.debug(
+                                "[LOAD] last_load_error stamp failed for %s", game_id
+                            )
                     return jsonify(
                         {
                             'error': 'Failed to load game from database',

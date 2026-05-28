@@ -234,3 +234,75 @@ def test_delete_removes_row(repo):
     repo.create(session)
     assert repo.delete(session.session_id) is True
     assert repo.load(session.session_id) is None
+
+
+# --- Tier 3: session_state, last_load_error, lifecycle events ----------
+
+
+def test_create_defaults_session_state_active(repo):
+    repo.create(_self_funded())
+    loaded = repo.load("cash-sess-1")
+    assert loaded.session_state == "active"
+    assert loaded.last_load_error is None
+
+
+def test_finalise_sets_session_state_closed(repo):
+    repo.create(_self_funded())
+    repo.finalise(
+        "cash-sess-1",
+        ended_at=ANCHOR + timedelta(hours=1),
+        final_chips_at_table=900,
+        sponsor_repaid=0,
+        player_take_home=900,
+        hands_played=10,
+        hands_won=3,
+        biggest_pot_won=200,
+        duration_seconds=3600,
+        closed_status=CLOSED_STATUS_LEFT,
+    )
+    assert repo.load("cash-sess-1").session_state == "closed"
+
+
+def test_set_session_state_marks_broken(repo):
+    repo.create(_self_funded())
+    assert repo.set_session_state("cash-sess-1", "broken") is True
+    assert repo.load("cash-sess-1").session_state == "broken"
+
+
+def test_set_last_load_error_roundtrip_and_clear(repo):
+    repo.create(_self_funded())
+    assert repo.set_last_load_error("cash-sess-1", "ValueError: boom @ t") is True
+    assert repo.load("cash-sess-1").last_load_error == "ValueError: boom @ t"
+    # Passing None clears it (after a successful re-load).
+    assert repo.set_last_load_error("cash-sess-1", None) is True
+    assert repo.load("cash-sess-1").last_load_error is None
+
+
+def test_record_and_list_events(repo):
+    repo.record_event(
+        "cash-sess-1",
+        "started",
+        owner_id="alice",
+        sandbox_id="sbx-1",
+        detail={"stake_label": "$10"},
+        now=ANCHOR,
+    )
+    repo.record_event(
+        "cash-sess-1",
+        "left_clean",
+        owner_id="alice",
+        sandbox_id="sbx-1",
+        now=ANCHOR + timedelta(minutes=5),
+    )
+    # Different session, should be filterable out.
+    repo.record_event("cash-sess-2", "started", owner_id="bob", now=ANCHOR)
+
+    all_for_1 = repo.list_events(session_id="cash-sess-1")
+    assert [e["event"] for e in all_for_1] == ["left_clean", "started"]  # newest first
+    assert all_for_1[1]["detail_json"] is not None  # started carried detail
+
+    only_started = repo.list_events(event="started")
+    assert {e["session_id"] for e in only_started} == {"cash-sess-1", "cash-sess-2"}
+
+    scoped = repo.list_events(sandbox_id="sbx-1")
+    assert all(e["sandbox_id"] == "sbx-1" for e in scoped)

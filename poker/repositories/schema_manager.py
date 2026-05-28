@@ -182,7 +182,7 @@ logger = logging.getLogger(__name__)
 #       instead of the ledger-derived bank-flow curve. net_worth = chips +
 #       receivable - outstanding; components stored alongside. See
 #       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
-SCHEMA_VERSION = 118
+SCHEMA_VERSION = 120
 
 
 class SchemaManager:
@@ -1880,6 +1880,14 @@ class SchemaManager:
             118: (
                 self._migrate_v118_add_user_profile,
                 "Create user_avatars table (human player avatar blobs keyed by user_id, opaque public_id serve key) and add user_preferences.bio (the human's AI-visible self-description)",
+            ),
+            119: (
+                self._migrate_v119_add_session_state,
+                "Add session_state + last_load_error to cash_sessions — the explicit lifecycle state machine (active/paused/abandoning/closed/broken) the sit guard reads instead of inferring 'active' from a lingering cash-* games row, plus a stash for the last cold-load failure",
+            ),
+            120: (
+                self._migrate_v120_create_cash_session_events,
+                "Create cash_session_events table — persisted lifecycle telemetry (started/resumed/left_clean/left_ghost/swept/broken) for ops queries and the admin orphan-counter, separate from the cosmetic in-memory activity ring buffer",
             ),
         }
 
@@ -6105,3 +6113,88 @@ class SchemaManager:
         if 'bio' not in cols:
             conn.execute("ALTER TABLE user_preferences ADD COLUMN bio TEXT")
         logger.info("Migration v118 complete: user_avatars table + user_preferences.bio added")
+
+    def _migrate_v119_add_session_state(self, conn: sqlite3.Connection) -> None:
+        """Migration v119: explicit lifecycle state on `cash_sessions`.
+
+        Two additive columns (see
+        `docs/plans/CASH_MODE_SESSION_LIFECYCLE_HARDENING.md` Tier 3):
+
+        1. `session_state` — the coarse machine-state the sit guard reads:
+           `active` (live or resumable), `paused` (resumable, de-memoized),
+           `abandoning` (teardown in flight), `closed` (settled), `broken`
+           (cleanup couldn't converge). Replaces inferring "is there an
+           active session?" from *"a cash-* games row exists"* — a stale
+           or broken row no longer wedges every new sit. Backfilled from
+           `ended_at`: a finalised row becomes `closed`, everything else
+           stays `active`.
+
+        2. `last_load_error` — stash for the last cold-load failure (error
+           class + timestamp) so production debugging of a wedged session
+           skips log archaeology.
+
+        Non-destructive. Idempotent (PRAGMA-guarded ADD COLUMN). The
+        `NOT NULL DEFAULT 'active'` on session_state is applied via the
+        column default so existing rows get a value, then the backfill
+        corrects the closed ones.
+        """
+        cursor = conn.execute("PRAGMA table_info(cash_sessions)")
+        cols = {row[1] for row in cursor.fetchall()}
+        if 'session_state' not in cols:
+            conn.execute(
+                "ALTER TABLE cash_sessions ADD COLUMN session_state "
+                "TEXT NOT NULL DEFAULT 'active'"
+            )
+            # Backfill: an already-finalised session is closed, not active.
+            conn.execute(
+                "UPDATE cash_sessions SET session_state = 'closed' "
+                "WHERE ended_at IS NOT NULL"
+            )
+        if 'last_load_error' not in cols:
+            conn.execute("ALTER TABLE cash_sessions ADD COLUMN last_load_error TEXT")
+        # Partial index for the hot "does this owner have a blocking
+        # session?" lookup — only active/paused rows can block a new sit.
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_cash_sessions_blocking
+                ON cash_sessions(owner_id)
+                WHERE session_state IN ('active', 'paused', 'abandoning')
+            """
+        )
+        logger.info(
+            "Migration v119 complete: cash_sessions.session_state + last_load_error added"
+        )
+
+    def _migrate_v120_create_cash_session_events(self, conn: sqlite3.Connection) -> None:
+        """Migration v120: persisted cash-session lifecycle telemetry.
+
+        One row per lifecycle transition (`started`, `resumed`,
+        `left_clean`, `left_ghost`, `swept`, `broken`, ...). Distinct from
+        `cash_mode/activity.py`'s in-memory ring buffer, which is the
+        cosmetic player-facing world ticker and isn't persisted. This
+        table backs ops queries ("orphans swept per day?") and the planned
+        admin orphan-counter widget (Tier 4.3).
+
+        `detail_json` carries event-specific context (closed_status,
+        sweep source, chips, etc.). Non-destructive, idempotent.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cash_session_events (
+                event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id  TEXT NOT NULL,
+                owner_id    TEXT,
+                sandbox_id  TEXT,
+                event       TEXT NOT NULL,
+                detail_json TEXT,
+                created_at  TIMESTAMP NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_session_events_session
+                ON cash_session_events(session_id, created_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cash_session_events_scope
+                ON cash_session_events(sandbox_id, event, created_at)
+        """)
+        logger.info("Migration v120 complete: cash_session_events table created")
