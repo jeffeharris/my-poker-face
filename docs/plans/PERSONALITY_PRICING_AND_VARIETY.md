@@ -159,26 +159,31 @@ themselves exploit-leaning deviations).
 - Flag any profile that is **broken** (< −15 or one-node-concentrated) for a
   `max_kl` re-cap or a deviation-logic fix.
 
-### Results (vs jeff = field slice done 2026-05-28, 12k HU; PRIMARY self-play anchor = next run)
+### Results (done 2026-05-28, 12k HU each — self-play PRIMARY + jeff field slice; punisher TBD)
 
-| Profile | **vs Baseline (self-play, INTRINSIC — primary)** | vs jeff (over-folder slice) | vs punisher (reg slice) | Verdict |
+| Profile | **vs Baseline (self-play, INTRINSIC — primary)** | vs jeff (over-folder slice) | vs punisher | Verdict (budget) |
 |---|---|---|---|---|
-| nit | _TBD_ (400h smoke ~−50, very noisy) | −5.79 [−9.8, −1.8] | _TBD_ | likely the true cost ≫ the −5.79 vs jeff |
-| rock | _TBD_ | −6.21 [−10.2, −2.3] | _TBD_ | priced flavor (vs fish); intrinsic TBD |
-| calling_station | _TBD_ | −4.95 [−8.7, −1.2] | _TBD_ | |
-| tag | _TBD_ | +3.73 [−1.8, +9.2] | _TBD_ | near-GTO → expect smallest intrinsic cost |
-| lag | _TBD_ | +7.20 [+0.25, +14.2] | _TBD_ | +vs jeff is *exploitation*, not free |
-| maniac | _TBD_ | +9.94 [+0.73, +19.2] | _TBD_ | +vs jeff is *beating a fish*; expect −EV intrinsic |
+| nit | **+6.45** [−4.2, +17.1] | −5.79 [−9.8, −1.8] | _TBD_ | **free** — tight is safe vs competent; CI∋0 |
+| rock | **+4.25** [−6.1, +14.6] | −6.21 [−10.2, −2.3] | _TBD_ | **free** — CI∋0 |
+| tag | **+0.26** [−10.5, +11.0] | +3.73 [−1.8, +9.2] | _TBD_ | **free** — near-GTO, ~0 as expected |
+| lag | **−7.05** [−22.9, +8.8] | +7.20 [+0.25, +14.2] | _TBD_ | **priced** — modest spew vs competent; CI∋0 |
+| calling_station | **−10.26** [−19.7, −0.8] | −4.95 [−8.7, −1.2] | _TBD_ | **priced** — CI-clear; pays off value (FLOP −5.2) |
+| maniac | **−24.14** [−45.9, −2.4] | +9.94 [+0.73, +19.2] | _TBD_ | **expensive / borderline-broken** — CI-clear, FLOP-concentrated (−16.4) → re-cap `max_kl` |
 
-**Read:** the vs-jeff column is a *field slice*, not the price. All six are within
-±10 bb/100 vs jeff and none are one-node-concentrated (the `max_kl` bounds hold), but
-vs an over-folder this **conflates flavor-cost with fish-exploitation** — the
-aggressive profiles read +EV by punishing jeff's folding; the tight ones look cheap
-only because the fish doesn't punish tightness (Nit's 400h self-play smoke was ~−50,
-~10× its −5.79 vs jeff). **The PRIMARY number is self-play vs `Baseline`** (intrinsic
-distance from optimal) — run that first at 24k (high variance, needs the full count),
-then the jeff/punisher vector as field-dependence. Only the cross-opponent vector,
-anchored on self-play, is the true price.
+**Read — the self-play anchor inverted the jeff ranking (the whole reason to anchor on it):**
+- **Intrinsic ranking (cheap→expensive):** Nit/Rock/TAG ≈ **free** (CI∋0, ~0 to +6) →
+  LAG −7 / Calling Station −10 → **Maniac −24** (the costliest, CI-clear).
+- **vs jeff was nearly the *opposite*:** Maniac read **best** (+9.94) but is the **worst**
+  intrinsically (−24); Nit read **costly** (−5.79) but is **free** intrinsically (+6.45).
+  jeff's number was *fish-exploitation*, not personality cost — pricing on jeff alone
+  would have inverted the verdict. (Also: a 400h Nit self-play smoke read −50; the 12k
+  run is +6.45 — the smoke was pure noise. Never read a 400h number.)
+- **Budget verdicts:** Nit/Rock/TAG ship freely (cheap variety); LAG & Calling Station
+  are priced flavor (acceptable, recognizable characters); **Maniac (−24, FLOP-concentrated)
+  is over the budget → re-cap its `max_kl` to rein in flop over-aggression**, then re-price.
+- **Caveat:** still the realistic-field price needs the **punisher (reg) vector** + a mix;
+  self-play is the intrinsic ceiling-of-cost anchor, the field price sits between it and
+  the (fish-flattering) jeff slice. 24k would tighten the wide CIs (LAG/Maniac span widely).
 
 ---
 
