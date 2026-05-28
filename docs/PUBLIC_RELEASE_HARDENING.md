@@ -38,8 +38,10 @@ central-bank-on-one-side rule, per-sandbox conservation audit). But:
 **All Critical / High / Medium items are resolved on `prep-for-main`.** The
 detail below is the original as-of-2026-05-27 audit; this table is the
 authoritative scorecard. Per-item rationale lives in the cited commit messages
-(and `docs/PRH_1_2_IMPLEMENTATION.md` for PRH-1/2). Only the second-wave audits
-(see bottom) remain — they are investigations, not known fixes.
+(and `docs/PRH_1_2_IMPLEMENTATION.md` for PRH-1/2). The second-wave audits are
+now complete (see "Second-wave audit results" at the bottom): **no deadlock**,
+but a **stalled-provider hang** class (`PRH-18…24`) — findings with recommended
+fixes, not yet landed.
 
 | ID | Status | Landed in |
 |----|--------|-----------|
@@ -128,7 +130,67 @@ instead of erroring.
 5. **PRH-10** — require Redis in prod.
 6. Remaining Mediums as fast-follow. Consider the theme-1 path consolidation as the durable fix.
 
-## Not yet audited (proposed second wave)
+## Second-wave audit results (2026-05-28)
 
-- **Silent-failure / LLM-error resilience** — M3-3 from the merge list is unaddressed (`LLMClient` collapses failures to `content="" + status="error"`, safe only if every caller checks `status`); plus provider timeout/down behavior (does a hand hang?).
-- **Concurrency/deadlock under real load** — the per-game + new per-sandbox locks (both non-reentrant) under concurrent users; lock-ordering and ticker-vs-request starvation.
+The two "proposed second wave" investigations below were run read-only against
+source. **Headline: there is no deadlock** (verified lock inventory + ordering),
+but **there is a real "stalled provider hangs things" class** — the in-game and
+ticker LLM calls inherit a **600-second** read timeout with up to **3 retries**,
+all synchronous and held under locks. These are *findings with recommended
+fixes*, not landed fixes. New IDs `PRH-18…22`.
+
+### Audit A — LLM-down / timeout: does a hand hang? **Yes — up to ~30–60 min.**
+
+Runtime model (verified): prod is `gunicorn -k geventwebsocket…GeventWebSocketWorker
+-w 1 --timeout 120` (`docker-compose.prod.yml:40`); dev is Werkzeug `flask run`
++ `async_mode='threading'` (`extensions.py:51`). Every provider shares one httpx
+client with `connect=10s, read=LLM_HTTP_TIMEOUT` where **`LLM_HTTP_TIMEOUT`
+defaults to `600.0`** (`core/llm/providers/http_client.py:13,23`). `complete()`
+takes **no per-call timeout override** (`core/llm/client.py:89`) and retries
+transient errors **`max_retries=2` → 3 attempts** (`client.py:175,182-200`);
+provider timeouts/connection errors are classified retryable
+(`providers/openai.py:124`, `anthropic.py:168`). So per failure mode:
+
+- **Silent stall** (TCP open, no bytes — overloaded provider, black-holed proxy,
+  partition): each attempt blocks the full **600s read**, ×3 = **30 min** for one
+  `complete()`. This is the dangerous one.
+- **Hard down** (connection refused): connect fails in ~10s ×3 ≈ 30s. Tolerable.
+- **Rate-limited (429)**: ~30s sleeps between attempts ≈ 60–90s.
+
+| ID | Finding | Location | Recommended fix |
+|----|---------|----------|-----------------|
+| **PRH-18** | **A silent provider stall hangs a single hand for ~30 min (≈60 min for full-LLM bots).** The AI decision is synchronous inside `progress_game` under the per-game lock; on a stall it eats the 600s×3 budget. For full-LLM bots (`chaos`/`standard`/`lean`) it then runs a **second** full LLM call (recovery, see PRH-19) → another 30 min. The default `sharp` bot's *decision* is LLM-free, but its Layer-3 narration (`expression_generator.complete()`, `expression_generator.py:144`) carries the same 600s exposure (catch-all → `_empty()`, but only *after* the timeout). The existing `FallbackActionSelector` fallback is real but only fires once the budget is exhausted, so it bounds-but-does-not-prevent the hang. | `core/llm/providers/http_client.py:13,23`; `core/llm/client.py:175`; decision call `poker/controllers.py:1285`; lock `flask_app/handlers/game_handler.py:3269` | Add a **short, env-configurable per-call timeout for in-game calls** (decision + narration, e.g. 15–30s) distinct from the 600s default appropriate for batch/experiment work; thread it through `LLMClient.complete(timeout=…)` → the provider call. Optionally cap total decision wall-clock. |
+| **PRH-19** | **`status=="error"` is not distinguished from malformed JSON, so a transport failure triggers a *second* full LLM call.** On timeout `complete()` returns `content="" status="error"` (`client.py:299-314`); the decision caller never inspects `status`/`error_code` — empty content raises `AIResponseError`, which routes into the recovery branch that makes **another** `chat_full` call against the same down provider (`controllers.py:1296-1311` → `:1358`). Doubles the hang and wastes a paid call. (This is the unaddressed M3-3 "every caller must check `status`" item, made concrete.) | `poker/controllers.py:1296-1311,1358`; `core/llm/client.py:299-314` | Check `llm_response.status`/`error_code` first; on a transport error go **straight to fallback** (skip the recovery LLM call). Reserve recovery for genuine malformed-JSON-from-a-live-provider. |
+| **PRH-20**(obs) | **Neither the gunicorn `--timeout 120` nor the client-facing proxy bounds the hang.** For the gevent worker the timeout tracks the worker *heartbeat*, which a cooperatively-yielding stalled socket read does **not** trip → the request runs to the 600s httpx read. (If it *did* trip, the single `-w 1` worker would be killed → full outage + in-memory game eviction — also bad.) The frontend nginx (`react/react/nginx.conf`) sets no `proxy_read_timeout` (→ 60s default), so the browser 504s at ~60s while the backend keeps running; the user sees a "frozen" game that silently un-sticks up to ~30 min later. | `docker-compose.prod.yml:40`; `react/react/nginx.conf:13-25` | The per-call LLM timeout (PRH-18) is the real backstop — don't rely on worker/proxy timeouts. |
+
+### Audit B — Concurrency / deadlock under load: **no deadlock; real lock-held-across-LLM starvation.**
+
+Verified lock inventory and **every** acquire site. Two non-reentrant
+`threading.Lock` families: **per-game** (`game_state_service.py:16`, via
+`get_game_lock`) and **per-sandbox** (`:25`, via `get_sandbox_lock`, added for
+seat-blob serialization). Ordering across all call sites:
+
+- **Game-lock holders never take the sandbox lock**: `progress_game`
+  (`game_handler.py:3270`, `blocking=False`), and the blocking `with lock:`
+  endpoints top-up (`cash_routes.py:2135`), leave (`:3853`), rebuy (`:4444`).
+- **Sandbox-lock holders never take the game lock** — *except* the leave path,
+  which nests **game→sandbox** consistently (`leave` holds the game lock at
+  `:3853` → `_leave_table_locked` → `get_sandbox_lock` at `:4337`).
+- No path takes **sandbox→game**, so there is **no opposing order → no cycle**.
+  No path re-acquires a lock it already holds → **no self-deadlock** on the
+  non-reentrant locks. **Deadlock risk: none found.**
+
+The real risk is **a slow/stalled LLM call held *under* a lock** (the Audit-A
+600s exposure intersecting these locks):
+
+| ID | Finding | Location | Recommended fix |
+|----|---------|----------|-----------------|
+| **PRH-21** | **One stalled vice/hustle narration freezes the *entire* world ticker for *all* users (~30 min).** The ticker is a single shared background loop; `_tick_sandbox` holds the per-sandbox lock across `refresh_unseated_tables`, which fires **synchronous** `narrate_vice`/`narrate_side_hustle` LLM calls ("Each fire is a sync narration call", `cash_mode/lobby.py:1845`). A stall blocks that one greenlet → no other sandbox advances, and that sandbox's human seat ops block the whole time. `CYCLE_BUDGET_MS=250` is checked only *between* sandboxes (`ticker_service.py:171`) so it cannot interrupt a blocking I/O call. Low probability per tick (narration is probability/duration gated, ≤2/refresh, FAST-tier) but **unbounded blast radius** when it hits. | `ticker_service.py:218`; `cash_mode/lobby.py:1845,1872,1951`; `cash_mode/vice_narration.py:119` | Don't make LLM calls while holding the sandbox lock — the lock only needs to guard the seat read-modify-write. Generate narration **outside** the lock, or off-thread via the existing `ThreadPoolExecutor` (`cash_mode/leave_narrative.py:327` already does this for leave narration). PRH-18's per-call timeout caps the worst case regardless. |
+| **PRH-22** | **A stalled AI turn blocks the human's *leave/top-up/rebuy*, not just the hand.** `progress_game` holds the per-game lock across the AI decision/narration; top-up (`:2135`), **leave** (`:3853`), and rebuy (`:4444`) acquire that same lock with a **blocking** `with lock:`. So when the table looks frozen and the user hits Leave — the natural escape — that request also hangs for the full timeout window. Worse, leave then itself runs `refresh_unseated_tables` (more sync narration) under both locks. The existing `leave_requested` cooperative-cancel only checks *between* AI orbits (`game_handler.py:3290`), not mid-LLM-call. | `flask_app/handlers/game_handler.py:3269-3270,3290`; `cash_routes.py:2135,3853,4444` | PRH-18 (per-call timeout) is the primary mitigation. Optionally let leave abort an in-flight decision (cancellation token checked around the LLM call), so "get me out" is always fast. |
+| **PRH-23**(low) | **TTL cleanup mutates the global game dicts without `_game_locks_lock` and can pop a lock an in-flight request holds.** `_cleanup_stale_games` pops `games`/`game_locks`/`game_last_access` (`game_state_service.py:38-47`) unguarded; `get_game_lock` creates under `_game_locks_lock` (`:150-153`). If a game were evicted while a request held its lock, the next request would mint a **new** lock for the same id → two concurrent progressions. Very low likelihood (2h-idle games aren't being progressed; stale list is built before popping, so no iterate-while-mutate), but a latent correctness gap. | `flask_app/services/game_state_service.py:38-47,150-153` | Take `_game_locks_lock` in cleanup; skip eviction when `lock.locked()`. |
+| **PRH-24**(obs) | **async-mode mismatch.** `async_mode='threading'` (`extensions.py:51`) under a gevent-websocket worker works only because the worker monkey-patches threading into greenlets; it is not the flask-socketio-recommended `gevent` pairing, and the dev path (Werkzeug) is a third model. Not a deadlock, but it governs how all of the above behave under load and is worth standardizing alongside the PRH-10 `-w 1` constraint. | `flask_app/extensions.py:51`; `docker-compose.prod.yml:40` | Standardize on one async model for prod (likely `async_mode='gevent'`) and document it next to the Redis/`-w 1` requirement. |
+
+**The single highest-leverage fix for both audits is PRH-18** — a short per-call
+LLM timeout for in-game/ticker calls. It bounds the hand hang (A), the ticker
+freeze (PRH-21), and the leave/top-up/rebuy block (PRH-22) in one stroke;
+PRH-19/21/22 are then refinements rather than the safety net.
