@@ -2349,8 +2349,7 @@ def reseat():
     fillable_indices = [
         i
         for i, s in enumerate(table.seats)
-        if s.get("kind") == "open"
-        or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
+        if s.get("kind") == "open" or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
     ]
     seated_pids = []
     for cand in candidates:
@@ -3863,9 +3862,7 @@ def leave_table():
                     cash_session_repo.set_session_state(game_id, SESSION_STATE_BROKEN)
                 _emit_cash_session_event(game_id, "broken", owner_id=owner_id)
             except Exception:
-                logger.exception(
-                    "[CASH] failed to mark %r broken after leave failure", game_id
-                )
+                logger.exception("[CASH] failed to mark %r broken after leave failure", game_id)
             raise
 
 
@@ -4063,15 +4060,16 @@ def _warm_cash_game_for_leave(
         "cash_stake_label": stake_label,
         "cash_personality_ids": cash_personality_ids,
         "cash_table_id": persisted_cash_session.cash_table_id if persisted_cash_session else None,
-        "cash_seat_index": persisted_cash_session.cash_seat_index if persisted_cash_session else None,
+        "cash_seat_index": persisted_cash_session.cash_seat_index
+        if persisted_cash_session
+        else None,
         "sandbox_id": persisted_cash_session.sandbox_id if persisted_cash_session else None,
         "messages": [],
         "ai_controllers": {},
     }
     game_state_service.set_game(game_id, game_data)
     logger.info(
-        "[CASH] leave warm-load OK for %r — settling DB-only session "
-        "(players=%d, stake=%s)",
+        "[CASH] leave warm-load OK for %r — settling DB-only session " "(players=%d, stake=%s)",
         game_id,
         len(state_machine.game_state.players),
         stake_label,

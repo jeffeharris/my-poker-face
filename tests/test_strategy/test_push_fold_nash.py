@@ -46,7 +46,7 @@ def _bb(chart, depth, hand):
 
 
 def _sb_combo_pct(chart, depth):
-    from poker.strategy.data.generate_push_fold_nash import COMBO_COUNT, CANONICAL_HANDS
+    from poker.strategy.data.generate_push_fold_nash import CANONICAL_HANDS, COMBO_COUNT
 
     scen = chart[f"{depth}bb"]["sb_open"]
     total = sum(COMBO_COUNT.values())
@@ -55,7 +55,7 @@ def _sb_combo_pct(chart, depth):
 
 
 def _bb_combo_pct(chart, depth):
-    from poker.strategy.data.generate_push_fold_nash import COMBO_COUNT, CANONICAL_HANDS
+    from poker.strategy.data.generate_push_fold_nash import CANONICAL_HANDS, COMBO_COUNT
 
     scen = chart[f"{depth}bb"]["bb_vs_jam"]
     total = sum(COMBO_COUNT.values())
@@ -131,13 +131,13 @@ class TestMonotonicWidening:
         pcts = [_sb_combo_pct(chart, d) for d in DEPTHS]  # depths ascending
         # Shorter stack (lower depth) => wider (higher %). Strictly non-increasing
         # as depth increases.
-        for shallow, deep in zip(pcts, pcts[1:]):
+        for shallow, deep in zip(pcts, pcts[1:], strict=False):
             assert shallow >= deep, f"SB push % not monotone: {pcts}"
         assert pcts[0] > pcts[-1], "5bb push range must be strictly wider than 15bb"
 
     def test_bb_call_pct_widens_as_stacks_shorten(self, chart):
         pcts = [_bb_combo_pct(chart, d) for d in DEPTHS]
-        for shallow, deep in zip(pcts, pcts[1:]):
+        for shallow, deep in zip(pcts, pcts[1:], strict=False):
             assert shallow >= deep, f"BB call % not monotone: {pcts}"
         assert pcts[0] > pcts[-1], "5bb call range must be strictly wider than 15bb"
 

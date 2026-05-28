@@ -172,9 +172,7 @@ class TestDispatchFiresEvent:
 
     def test_props_applies_respect_weighted_shift(self, game_data, repo):
         # props → PROPS: the one chat tone that meaningfully raises respect.
-        dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="props", intensity=None
-        )
+        dispatch_chat_relationship_event(game_data, "alice", ["bob"], tone="props", intensity=None)
         actor_state = repo.load_raw_relationship_state("alice_pid", "bob_pid")
         assert actor_state is not None
         expected = ACTOR_AXIS_SHIFTS[RelationshipEvent.PROPS]
@@ -298,16 +296,12 @@ class TestDispatchAppliesEmotionalReaction:
     def test_chill_needle_moves_less_than_spicy_goad(self, opp_manager):
         gd1, p1 = self._ai_game_data(opp_manager, "bob", self.STUNG)
         c0 = p1.composure
-        dispatch_chat_relationship_event(
-            gd1, "alice", ["bob"], tone="needle", intensity="chill"
-        )
+        dispatch_chat_relationship_event(gd1, "alice", ["bob"], tone="needle", intensity="chill")
         chill_drop = c0 - p1.composure
 
         gd2, p2 = self._ai_game_data(opp_manager, "bob", self.STUNG)
         c0b = p2.composure
-        dispatch_chat_relationship_event(
-            gd2, "alice", ["bob"], tone="goad", intensity="spicy"
-        )
+        dispatch_chat_relationship_event(gd2, "alice", ["bob"], tone="goad", intensity="spicy")
         spicy_drop = c0b - p2.composure
 
         assert 0 < chill_drop < spicy_drop
@@ -327,9 +321,7 @@ class TestDispatchAppliesEmotionalReaction:
         # props is a praise stimulus → a non-stoic target warms (confidence up).
         game_data, psych = self._ai_game_data(opp_manager, "bob", self.STUNG)
         before = psych.confidence
-        dispatch_chat_relationship_event(
-            game_data, "alice", ["bob"], tone="props", intensity=None
-        )
+        dispatch_chat_relationship_event(game_data, "alice", ["bob"], tone="props", intensity=None)
         assert psych.confidence > before
 
     def test_bluff_tone_moves_no_axes(self, opp_manager):
@@ -378,17 +370,13 @@ class TestBroadcastFanOut:
             opp_manager, {"bob": self.STUNG, "carol": self.STUNG}
         )
         before = {n: c.psychology.composure for n, c in controllers.items()}
-        dispatch_chat_relationship_event(
-            game_data, "alice", None, tone="gloat", intensity=None
-        )
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="gloat", intensity=None)
         for n, c in controllers.items():
             assert c.psychology.composure < before[n], f"{n} should have been stung"
 
     def test_broadcast_does_not_move_relationship_axes(self, opp_manager, repo):
         game_data, _ = self._multi_ai_game_data(opp_manager, {"bob": self.STUNG})
-        dispatch_chat_relationship_event(
-            game_data, "alice", None, tone="gloat", intensity=None
-        )
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="gloat", intensity=None)
         # No explicit pairwise target → relationship layer untouched.
         assert repo.load_raw_relationship_state("alice_pid", "bob_pid") is None
 
@@ -402,9 +390,7 @@ class TestBroadcastFanOut:
 
         gd_bcast, c_bcast = self._multi_ai_game_data(opp_manager, {"bob": self.STUNG})
         b0b = c_bcast["bob"].psychology.composure
-        dispatch_chat_relationship_event(
-            gd_bcast, "alice", None, tone="goad", intensity="spicy"
-        )
+        dispatch_chat_relationship_event(gd_bcast, "alice", None, tone="goad", intensity="spicy")
         bcast_drop = b0b - c_bcast["bob"].psychology.composure
 
         assert 0 < bcast_drop < direct_drop
@@ -418,8 +404,6 @@ class TestBroadcastFanOut:
         )
         alice_before = controllers["alice"].psychology.composure
         bob_before = controllers["bob"].psychology.composure
-        dispatch_chat_relationship_event(
-            game_data, "alice", None, tone="goad", intensity="spicy"
-        )
+        dispatch_chat_relationship_event(game_data, "alice", None, tone="goad", intensity="spicy")
         assert controllers["alice"].psychology.composure == alice_before
         assert controllers["bob"].psychology.composure < bob_before

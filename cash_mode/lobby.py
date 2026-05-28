@@ -2850,12 +2850,8 @@ def _emit_hand_summary(
     stake = table.stake_label
     winner_pid = sim_result.winner_pid
     loser_pid = sim_result.loser_pid
-    busted_pids = [
-        e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_BUST
-    ]
-    allin_pids = {
-        e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_ALL_IN
-    }
+    busted_pids = [e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_BUST]
+    allin_pids = {e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_ALL_IN}
 
     winner_name = _name_for(winner_pid)
     loser_name = _name_for(loser_pid)
@@ -3311,9 +3307,7 @@ def _boot_sweep_stale_cash_rows(
         SESSION_STATE_BROKEN,
     )
 
-    closed_status = (
-        CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
-    )
+    closed_status = CLOSED_STATUS_STALE_SWEPT if source == "watchdog" else CLOSED_STATUS_BOOT_SWEPT
 
     swept = 0
     try:

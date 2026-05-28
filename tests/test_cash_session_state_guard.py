@@ -118,21 +118,29 @@ def test_find_active_skips_closed_in_memory_game():
     """A resurrected closed session sitting in memory must NOT count as
     active — the guard returns None so the player can sit elsewhere."""
     games = {"cash-closed": {"cash_mode": True, "owner_id": "u1"}}
-    with patch.dict(gss_module.games, games, clear=True), patch(
-        "flask_app.extensions.cash_session_repo",
-        _FakeCashSessionRepo({"cash-closed": "closed"}),
-        create=True,
-    ), patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True):
+    with (
+        patch.dict(gss_module.games, games, clear=True),
+        patch(
+            "flask_app.extensions.cash_session_repo",
+            _FakeCashSessionRepo({"cash-closed": "closed"}),
+            create=True,
+        ),
+        patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True),
+    ):
         assert cash_routes._find_active_cash_game_id("u1") is None
 
 
 def test_find_active_returns_active_in_memory_game():
     games = {"cash-live": {"cash_mode": True, "owner_id": "u1"}}
-    with patch.dict(gss_module.games, games, clear=True), patch(
-        "flask_app.extensions.cash_session_repo",
-        _FakeCashSessionRepo({"cash-live": "active"}),
-        create=True,
-    ), patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True):
+    with (
+        patch.dict(gss_module.games, games, clear=True),
+        patch(
+            "flask_app.extensions.cash_session_repo",
+            _FakeCashSessionRepo({"cash-live": "active"}),
+            create=True,
+        ),
+        patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True),
+    ):
         assert cash_routes._find_active_cash_game_id("u1") == "cash-live"
 
 
@@ -141,9 +149,11 @@ def test_find_active_uses_direct_query_not_capped_scan():
     cash_sessions query even when the (capped) games scan would miss it
     (here game_repo returns nothing)."""
     repo = _FakeCashSessionRepo({}, blocking_id="cash-db-active")
-    with patch.dict(gss_module.games, {}, clear=True), patch(
-        "flask_app.extensions.cash_session_repo", repo, create=True
-    ), patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True):
+    with (
+        patch.dict(gss_module.games, {}, clear=True),
+        patch("flask_app.extensions.cash_session_repo", repo, create=True),
+        patch("flask_app.extensions.game_repo", _FakeGameRepo([]), create=True),
+    ):
         assert cash_routes._find_active_cash_game_id("u1") == "cash-db-active"
 
 
@@ -152,38 +162,48 @@ def test_find_active_legacy_net_catches_rowless_orphan():
     NO cash_sessions record still blocks via the fail-safe net — a real
     frozen session is never lost to a missing-row read."""
     repo = _FakeCashSessionRepo({}, blocking_id=None)  # direct query → None
-    with patch.dict(gss_module.games, {}, clear=True), patch(
-        "flask_app.extensions.cash_session_repo", repo, create=True
-    ), patch(
-        "flask_app.extensions.game_repo",
-        _FakeGameRepo([_row("cash-rowless-orphan")]),
-        create=True,
+    with (
+        patch.dict(gss_module.games, {}, clear=True),
+        patch("flask_app.extensions.cash_session_repo", repo, create=True),
+        patch(
+            "flask_app.extensions.game_repo",
+            _FakeGameRepo([_row("cash-rowless-orphan")]),
+            create=True,
+        ),
     ):
         assert cash_routes._find_active_cash_game_id("u1") == "cash-rowless-orphan"
 
 
 def test_find_active_skips_broken_db_row():
     """A broken session lingering only in the DB must not block sits."""
-    with patch.dict(gss_module.games, {}, clear=True), patch(
-        "flask_app.extensions.cash_session_repo",
-        _FakeCashSessionRepo({"cash-broken": "broken"}),
-        create=True,
-    ), patch(
-        "flask_app.extensions.game_repo",
-        _FakeGameRepo([_row("cash-broken")]),
-        create=True,
+    with (
+        patch.dict(gss_module.games, {}, clear=True),
+        patch(
+            "flask_app.extensions.cash_session_repo",
+            _FakeCashSessionRepo({"cash-broken": "broken"}),
+            create=True,
+        ),
+        patch(
+            "flask_app.extensions.game_repo",
+            _FakeGameRepo([_row("cash-broken")]),
+            create=True,
+        ),
     ):
         assert cash_routes._find_active_cash_game_id("u1") is None
 
 
 def test_find_active_returns_active_db_row():
-    with patch.dict(gss_module.games, {}, clear=True), patch(
-        "flask_app.extensions.cash_session_repo",
-        _FakeCashSessionRepo({"cash-paused": "paused"}),
-        create=True,
-    ), patch(
-        "flask_app.extensions.game_repo",
-        _FakeGameRepo([_row("cash-paused")]),
-        create=True,
+    with (
+        patch.dict(gss_module.games, {}, clear=True),
+        patch(
+            "flask_app.extensions.cash_session_repo",
+            _FakeCashSessionRepo({"cash-paused": "paused"}),
+            create=True,
+        ),
+        patch(
+            "flask_app.extensions.game_repo",
+            _FakeGameRepo([_row("cash-paused")]),
+            create=True,
+        ),
     ):
         assert cash_routes._find_active_cash_game_id("u1") == "cash-paused"

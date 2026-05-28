@@ -459,7 +459,11 @@ export function Lobby() {
    *  the seat/Resume state reconciles. */
   const handleEndSession = useCallback(async () => {
     if (endingSession) return;
-    if (!window.confirm('End your current session? Your table chips will be cashed out and any active stake settled.')) {
+    if (
+      !window.confirm(
+        'End your current session? Your table chips will be cashed out and any active stake settled.'
+      )
+    ) {
       return;
     }
     setEndingSession(true);
@@ -508,8 +512,9 @@ export function Lobby() {
   // ends); fall back to the server-provided label for a cold session whose
   // table isn't in the rendered list.
   const seatedStakeLabel =
-    (seatedTableId ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null) : null) ??
-    seatedStakeLabelFromServer;
+    (seatedTableId
+      ? (tables.find((t) => t.table_id === seatedTableId)?.stake_label ?? null)
+      : null) ?? seatedStakeLabelFromServer;
 
   return (
     <>

@@ -501,7 +501,9 @@
   letter-spacing: var(--letter-spacing-wider);
   text-transform: uppercase;
   color: var(--color-text-tertiary);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 10px rgba(0, 0, 0, 0.75);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.75);
 }
 
 .shuffle-loading-ticker-list {
@@ -529,7 +531,9 @@
   text-align: left;
   /* No panel behind the rows now — a soft shadow keeps the text legible
      against the shuffle background. */
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 10px rgba(0, 0, 0, 0.75);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.75);
 }
 
 .shuffle-loading-ticker-message {

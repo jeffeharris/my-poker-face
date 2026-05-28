@@ -83,16 +83,13 @@ def _run_watchdog(*, rows, sessions, in_memory, mono):
     game_repo = _FakeGameRepo(rows)
     cash_session_repo = _FakeCashSessionRepo(sessions)
 
-    with patch.object(ticker_service, "_last_watchdog_at", None), patch.dict(
-        gss_module.games, in_memory, clear=True
-    ), patch(
-        "flask_app.extensions.cash_session_repo", cash_session_repo, create=True
-    ), patch(
-        "flask_app.extensions.game_repo", game_repo, create=True
-    ), patch(
-        "flask_app.extensions.stake_repo", None, create=True
-    ), patch(
-        "flask_app.extensions.chip_ledger_repo", None, create=True
+    with (
+        patch.object(ticker_service, "_last_watchdog_at", None),
+        patch.dict(gss_module.games, in_memory, clear=True),
+        patch("flask_app.extensions.cash_session_repo", cash_session_repo, create=True),
+        patch("flask_app.extensions.game_repo", game_repo, create=True),
+        patch("flask_app.extensions.stake_repo", None, create=True),
+        patch("flask_app.extensions.chip_ledger_repo", None, create=True),
     ):
         swept = ticker_service._maybe_run_stale_session_watchdog(now_monotonic=mono)
     return swept, game_repo, cash_session_repo
@@ -144,14 +141,13 @@ def test_rate_limited_within_interval():
     """A second call inside WATCHDOG_INTERVAL_SECONDS is a no-op."""
     game_repo = _FakeGameRepo([])
     cash_session_repo = _FakeCashSessionRepo({})
-    with patch.dict(gss_module.games, {}, clear=True), patch(
-        "flask_app.extensions.cash_session_repo", cash_session_repo, create=True
-    ), patch("flask_app.extensions.game_repo", game_repo, create=True), patch(
-        "flask_app.extensions.stake_repo", None, create=True
-    ), patch(
-        "flask_app.extensions.chip_ledger_repo", None, create=True
-    ), patch.object(
-        ticker_service, "_last_watchdog_at", None
+    with (
+        patch.dict(gss_module.games, {}, clear=True),
+        patch("flask_app.extensions.cash_session_repo", cash_session_repo, create=True),
+        patch("flask_app.extensions.game_repo", game_repo, create=True),
+        patch("flask_app.extensions.stake_repo", None, create=True),
+        patch("flask_app.extensions.chip_ledger_repo", None, create=True),
+        patch.object(ticker_service, "_last_watchdog_at", None),
     ):
         # First call at t=1000 runs (stamps _last_watchdog_at).
         ticker_service._maybe_run_stale_session_watchdog(now_monotonic=1000.0)

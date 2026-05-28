@@ -133,7 +133,7 @@ export function CashControls({
     } finally {
       setBusy(false);
     }
-  }, [canTopUp, topUpAmount]);
+  }, [canTopUp, topUpAmount, navigate]);
 
   const handleLeave = useCallback(async () => {
     // Two-tap confirm: first click flips the button to a red

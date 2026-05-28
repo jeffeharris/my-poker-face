@@ -51,7 +51,9 @@ export function UserDropdown({
   const initial = user.name.charAt(0).toUpperCase();
 
   // Prefer the custom profile avatar (relative path) over the Google picture.
-  const avatarSrc = user.avatar_url ? `${config.API_URL}${user.avatar_url}` : (user.picture ?? null);
+  const avatarSrc = user.avatar_url
+    ? `${config.API_URL}${user.avatar_url}`
+    : (user.picture ?? null);
 
   // Close dropdown when clicking outside
   const handleClickOutside = useCallback((event: MouseEvent) => {

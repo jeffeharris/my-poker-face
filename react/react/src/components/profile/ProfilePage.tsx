@@ -197,7 +197,10 @@ export function ProfilePage({ onBack }: ProfilePageProps) {
     <>
       <MenuBar onBack={onBack} title="Profile" showUserInfo onMainMenu={onBack} />
       <PageLayout variant="top" glowColor="sapphire" hasMenuBar>
-        <PageHeader title="Your Profile" subtitle="Set an avatar and tell the table about yourself" />
+        <PageHeader
+          title="Your Profile"
+          subtitle="Set an avatar and tell the table about yourself"
+        />
 
         <div className="profile-page">
           {/* Current avatar */}
@@ -247,7 +250,8 @@ export function ProfilePage({ onBack }: ProfilePageProps) {
           <section className="profile-section">
             <h3>Generate from a description</h3>
             <p className="profile-hint">
-              Describe how you want to look at the table (e.g. "a grizzled cowboy in a leather hat").
+              Describe how you want to look at the table (e.g. "a grizzled cowboy in a leather
+              hat").
             </p>
             <textarea
               className="profile-textarea"

@@ -6239,8 +6239,7 @@ class SchemaManager:
             )
             # Backfill: an already-finalised session is closed, not active.
             conn.execute(
-                "UPDATE cash_sessions SET session_state = 'closed' "
-                "WHERE ended_at IS NOT NULL"
+                "UPDATE cash_sessions SET session_state = 'closed' " "WHERE ended_at IS NOT NULL"
             )
         if 'last_load_error' not in cols:
             conn.execute("ALTER TABLE cash_sessions ADD COLUMN last_load_error TEXT")
@@ -6253,9 +6252,7 @@ class SchemaManager:
                 WHERE session_state IN ('active', 'paused', 'abandoning')
             """
         )
-        logger.info(
-            "Migration v119 complete: cash_sessions.session_state + last_load_error added"
-        )
+        logger.info("Migration v119 complete: cash_sessions.session_state + last_load_error added")
 
     def _migrate_v120_create_cash_session_events(self, conn: sqlite3.Connection) -> None:
         """Migration v120: persisted cash-session lifecycle telemetry.

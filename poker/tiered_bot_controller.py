@@ -344,7 +344,9 @@ class TieredBotController(AIPlayerController):
         self.overbet_fraction: float = 1.0  # share of bet mass → overbet (1.0 = the measured probe)
         self.overbet_classes: Optional[frozenset] = None  # None = default {nuts, strong_made}
         self.overbet_streets: Optional[frozenset] = None  # None = default {TURN, RIVER}
-        self.overbet_max_active: Optional[int] = None  # None = no multiway gate (matches measured 6-max +73)
+        self.overbet_max_active: Optional[int] = (
+            None  # None = no multiway gate (matches measured 6-max +73)
+        )
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -839,7 +841,8 @@ class TieredBotController(AIPlayerController):
         # 3BP → SRP). The authored precision slices were cut after the hardened
         # SNG gate measured them neutral (docs/plans/SNG_RUNNER_HARDENING.md).
         base_strategy = self.strategy_table.lookup_postflop_with_fallback(
-            node, valid_actions,
+            node,
+            valid_actions,
         )
 
         if self.debug_logging:
@@ -3318,10 +3321,13 @@ class TieredBotController(AIPlayerController):
             # delimiter so a crafted bio can't forge a fake prompt block.
             human_bio_block = ''
             if getattr(self, 'human_bio', ''):
-                who = next(
-                    (p.name for p in game_state.players if getattr(p, 'is_human', False)),
-                    None,
-                ) or "The human player"
+                who = (
+                    next(
+                        (p.name for p in game_state.players if getattr(p, 'is_human', False)),
+                        None,
+                    )
+                    or "The human player"
+                )
                 safe_bio = self.human_bio.replace('===', '==')
                 human_bio_block = (
                     f"=== About {who} (in their own words) ===\n"

@@ -1014,8 +1014,12 @@ def _tenure_leaver_table():
 
 def _exhausted_psych(_pid: str):
     # energy=0 → tenure pressure only → bored_move on a leave roll.
-    return {"energy": 0.0, "zone": "neutral", "hands_in_detached_zone": 0,
-            "emotional_intensity": 0.0}
+    return {
+        "energy": 0.0,
+        "zone": "neutral",
+        "hands_in_detached_zone": 0,
+        "emotional_intensity": 0.0,
+    }
 
 
 def _run_leave(vice_prob):
@@ -1051,7 +1055,8 @@ class TestViceOnLeave:
         # Seat chips returned to bankroll so the lobby sizes vice on the
         # whole bankroll.
         from_seat = [
-            bc for bc in result.bankroll_changes
+            bc
+            for bc in result.bankroll_changes
             if bc.personality_id == "whale" and bc.direction == "from_seat"
         ]
         assert from_seat and from_seat[0].amount == 500

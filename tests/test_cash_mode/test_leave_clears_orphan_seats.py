@@ -219,9 +219,7 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         def _fake_warm(game_id, *, owner_id, persisted_cash_session=None):
             data = {
-                'state_machine': _StubStateMachine(
-                    [_StubPlayer("You", is_human=True, stack=1000)]
-                ),
+                'state_machine': _StubStateMachine([_StubPlayer("You", is_human=True, stack=1000)]),
                 'cash_mode': True,
                 'owner_id': owner_id,
                 'cash_personality_ids': {},
@@ -234,12 +232,15 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
             game_state_service.set_game(game_id, data)
             return data
 
-        with patch(
-            'flask_app.routes.cash_routes._find_active_cash_game_id',
-            return_value=GAME_ID,
-        ), patch(
-            'flask_app.routes.cash_routes._warm_cash_game_for_leave',
-            side_effect=_fake_warm,
+        with (
+            patch(
+                'flask_app.routes.cash_routes._find_active_cash_game_id',
+                return_value=GAME_ID,
+            ),
+            patch(
+                'flask_app.routes.cash_routes._warm_cash_game_for_leave',
+                side_effect=_fake_warm,
+            ),
         ):
             resp = self.client.post('/api/cash/leave')
 
@@ -331,8 +332,7 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
         self.assertEqual(
             body['chips_at_table'],
             0,
-            "finalized session re-settled — the double-settle guard "
-            "didn't fire",
+            "finalized session re-settled — the double-settle guard " "didn't fire",
         )
         end_chips = self.repos['bankroll_repo'].load_player_bankroll(OWNER_ID).chips
         self.assertEqual(
@@ -351,12 +351,15 @@ class TestLeaveClearsOrphanSeats(unittest.TestCase):
 
         game_state_service.games.pop(GAME_ID, None)
 
-        with patch(
-            'flask_app.routes.cash_routes._find_active_cash_game_id',
-            return_value=GAME_ID,
-        ), patch(
-            'flask_app.routes.cash_routes._warm_cash_game_for_leave',
-            return_value=None,
+        with (
+            patch(
+                'flask_app.routes.cash_routes._find_active_cash_game_id',
+                return_value=GAME_ID,
+            ),
+            patch(
+                'flask_app.routes.cash_routes._warm_cash_game_for_leave',
+                return_value=None,
+            ),
         ):
             resp = self.client.post('/api/cash/leave')
 

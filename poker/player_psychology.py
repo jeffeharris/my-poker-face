@@ -414,9 +414,7 @@ class PlayerPsychology:
         elif stimulus == 'praise':
             # Anyone who'd react to a jab also warms to praise; the truly
             # detached ('stoic') just notes it.
-            event_name = (
-                'social_praise_stoic' if disposition == 'stoic' else 'social_praise_warmed'
-            )
+            event_name = 'social_praise_stoic' if disposition == 'stoic' else 'social_praise_warmed'
         else:
             return
         self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)

@@ -145,7 +145,10 @@ def apply_overbet_context(
 
     if prior_layer_fired:
         return strategy, make_no_op_trace(
-            LAYER, 'default', order, reason_code='prior_override_active',
+            LAYER,
+            'default',
+            order,
+            reason_code='prior_override_active',
         )
 
     classes = overbet_classes if overbet_classes is not None else DEFAULT_CLASSES
@@ -159,7 +162,10 @@ def apply_overbet_context(
     )
     if not applies:
         return strategy, make_no_op_trace(
-            LAYER, 'default', order, reason_code='gates_not_met',
+            LAYER,
+            'default',
+            order,
+            reason_code='gates_not_met',
         )
 
     if is_rule_disabled(disable_rules, LAYER, 'overbet'):
@@ -169,7 +175,10 @@ def apply_overbet_context(
     new = _shift_bet_mass(strategy, overbet_key=overbet_key, fraction=overbet_fraction)
     if new is strategy:
         return strategy, make_no_op_trace(
-            LAYER, 'overbet', order, reason_code='no_bet_action',
+            LAYER,
+            'overbet',
+            order,
+            reason_code='no_bet_action',
         )
 
     return new, InterventionTrace(
@@ -180,7 +189,8 @@ def apply_overbet_context(
         operation=InterventionOperation.OVERRIDE.value,
         effect='shift_bet_mass_to_overbet',
         effect_size=l1_distance(
-            strategy.action_probabilities, new.action_probabilities,
+            strategy.action_probabilities,
+            new.action_probabilities,
         ),
         action_changed=(
             primary_action(strategy.action_probabilities)

@@ -792,9 +792,7 @@ def _strategy_fish(context: Dict) -> Dict:
     # Wears the hand on its sleeve facing a bet too: raises any top pair
     # or better, sized by strength. Otherwise falls through to the
     # calling-station ladder below.
-    if leak == FishLeak.BETS_STRONG_TRANSPARENTLY and context.get(
-        'has_top_pair_or_better', False
-    ):
+    if leak == FishLeak.BETS_STRONG_TRANSPARENTLY and context.get('has_top_pair_or_better', False):
         pop = _fish_bet(context, _fish_pop_fraction(made_tier))
         if pop is not None:
             return pop

@@ -195,16 +195,13 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     // carry a query string (recent's `limit`, history's `days`).
     const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
-      const [auditResp, recentResp, holdingsResp, historyResp, lifecycleResp] =
-        await Promise.all([
-          adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
-          adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
-          adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
-          adminAPI.fetch(
-            `/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`
-          ),
-          adminAPI.fetch(`/api/admin/chip-ledger/lifecycle${scope}`),
-        ]);
+      const [auditResp, recentResp, holdingsResp, historyResp, lifecycleResp] = await Promise.all([
+        adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/holdings/history?days=${historyDays}${scopeParam}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/lifecycle${scope}`),
+      ]);
       if (!auditResp.ok) {
         throw new Error(`Audit returned ${auditResp.status}`);
       }
@@ -497,8 +494,8 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
             Lifecycle events from <code>cash_session_events</code>: <em>Started</em> at sit-down,{' '}
             <em>Left</em> on a clean cash-out, <em>Left (ghost)</em> when the game was gone from
             memory, <em>Swept</em> by the boot/watchdog reconciler, <em>Broke</em> when a teardown
-            couldn't converge. <em>Broken (outstanding)</em> counts sessions stuck in that state
-            now — it should normally be 0; a climbing value means orphans aren't self-healing.
+            couldn't converge. <em>Broken (outstanding)</em> counts sessions stuck in that state now
+            — it should normally be 0; a climbing value means orphans aren't self-healing.
           </p>
         </section>
       )}

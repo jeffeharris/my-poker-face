@@ -286,9 +286,7 @@ class TestSingleHandSummary(unittest.TestCase):
         return recent_events(limit=10)
 
     def test_exactly_one_primary_row_per_hand(self):
-        evs = self._emit(
-            _hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True)
-        )
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
         primary = [e for e in evs if e.primary]
         assert len(primary) == 1
         # Atomic pair still recorded for filtering, just hidden.
@@ -335,9 +333,7 @@ class TestSingleHandSummary(unittest.TestCase):
         # A named table surfaces its familiar lobby name with the stake in
         # brackets so players know where to find it.
         self.table = _make_table(stake="$50", name="The Lodge")
-        evs = self._emit(
-            _hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True)
-        )
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
         msg = next(e for e in evs if e.primary).message
         assert "The Lodge [$50]" in msg
         # The bare stake stays on the structured field for filtering/grouping.
@@ -345,9 +341,7 @@ class TestSingleHandSummary(unittest.TestCase):
 
     def test_unnamed_table_falls_back_to_stake_phrase(self):
         self.table = _make_table(stake="$50", name=None)
-        evs = self._emit(
-            _hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True)
-        )
+        evs = self._emit(_hand_result(winner="p-scrooge", loser="p-r2", delta=1200, big_event=True))
         msg = next(e for e in evs if e.primary).message
         assert "the $50 table" in msg
 

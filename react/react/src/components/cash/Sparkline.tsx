@@ -149,7 +149,11 @@ export function Sparkline({
 
       {hovered && (
         <>
-          <span className="sparkline__cursor" style={{ left: `${hoverXPct}%` }} aria-hidden="true" />
+          <span
+            className="sparkline__cursor"
+            style={{ left: `${hoverXPct}%` }}
+            aria-hidden="true"
+          />
           <span
             className="sparkline__marker"
             style={{ left: `${hoverXPct}%`, top: `${hoverYPct}%`, background: stroke }}

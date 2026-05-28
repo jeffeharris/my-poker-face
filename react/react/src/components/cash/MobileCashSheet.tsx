@@ -182,7 +182,7 @@ export function MobileCashSheet({
     } finally {
       setBusy(false);
     }
-  }, [canTopUp, topUpAmount, handleClose]);
+  }, [canTopUp, topUpAmount, handleClose, navigate]);
 
   const handleLeave = useCallback(async () => {
     // First click: show the confirmation. Second click: actually leave.

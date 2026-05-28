@@ -1146,9 +1146,7 @@ def select_rejoin_candidates(game_data, game_state, limit=2, prefer_pids=None):
     off_grid = _off_grid_pids(sandbox_id, now)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=owner_id)
     pool = [
-        e
-        for e in eligible
-        if e['name'] not in occupied and e['personality_id'] not in off_grid
+        e for e in eligible if e['name'] not in occupied and e['personality_id'] not in off_grid
     ]
     if prefer_pids:
         order = {pid: i for i, pid in enumerate(prefer_pids)}
@@ -3092,9 +3090,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         # the game in HAND_OVER and return; rebuy or leave will unstick
         # it.
         chip_holders = sum(1 for p in state_machine.game_state.players if p.stack > 0)
-        human = next(
-            (p for p in state_machine.game_state.players if p.is_human), None
-        )
+        human = next((p for p in state_machine.game_state.players if p.is_human), None)
         human_busted = human is not None and human.stack == 0
         # Pause the table in HAND_OVER (don't deal the next hand) whenever
         # the human can't be dealt back in this instant. Two shapes:
@@ -3123,9 +3119,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             # — so a normal heads-up win (last opponent at 0 chips for one
             # HAND_OVER frame, about to be refilled) never trips it.
             paused_players = state_machine.game_state.players
-            others_have_chips = any(
-                p.stack > 0 and not p.is_human for p in paused_players
-            )
+            others_have_chips = any(p.stack > 0 and not p.is_human for p in paused_players)
             if human is not None and human.stack > 0 and not others_have_chips:
                 candidates = []
                 try:

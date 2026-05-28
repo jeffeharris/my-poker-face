@@ -165,7 +165,9 @@ function PersonRow({ person, showSandbox }: { person: WhereaboutsPerson; showSan
           <span className="cwp-muted">—</span>
         )}
       </td>
-      {showSandbox && <td className="cwp-sandbox">{person.sandbox_owner_id || person.sandbox_id}</td>}
+      {showSandbox && (
+        <td className="cwp-sandbox">{person.sandbox_owner_id || person.sandbox_id}</td>
+      )}
     </tr>
   );
 }

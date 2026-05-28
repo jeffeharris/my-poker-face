@@ -280,12 +280,15 @@ class TestLobbyRouteAll(_CashLobbyRouteBase):
         # The game id resolves (DB fallback) but is NOT in memory, so
         # game_state_service.get_game returns None and the route takes the
         # cold-session branch.
-        with patch(
-            "flask_app.routes.cash_routes._find_active_cash_game_id",
-            return_value="cash-cold-abandoned",
-        ), patch(
-            "flask_app.extensions.cash_session_repo",
-            cs_repo,
+        with (
+            patch(
+                "flask_app.routes.cash_routes._find_active_cash_game_id",
+                return_value="cash-cold-abandoned",
+            ),
+            patch(
+                "flask_app.extensions.cash_session_repo",
+                cs_repo,
+            ),
         ):
             resp = self.client.get("/api/cash/lobby")
 

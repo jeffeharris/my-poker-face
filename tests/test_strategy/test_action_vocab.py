@@ -52,7 +52,17 @@ class TestAbstractCallToken:
 
 class TestVocabulary:
     def test_fixed_and_sized_are_resolvable(self):
-        for a in ('fold', 'check', 'call', 'jam', 'bet_33', 'bet_100', 'raise_67', 'raise_150', 'raise_2.5bb'):
+        for a in (
+            'fold',
+            'check',
+            'call',
+            'jam',
+            'bet_33',
+            'bet_100',
+            'raise_67',
+            'raise_150',
+            'raise_2.5bb',
+        ):
             assert is_resolvable(a), a
 
     def test_engine_only_tokens_not_resolvable(self):
@@ -82,7 +92,12 @@ class TestResolverBoundary:
         # Closed loop: each fixed abstract token a producer may emit must be
         # sizable — no token can be emitted-but-unresolvable.
         gs = _gs(stack=5000, bet=0, highest_bet=200, pot_total=400)
-        for a in (AbstractAction.FOLD, AbstractAction.CHECK, AbstractAction.CALL, AbstractAction.JAM):
+        for a in (
+            AbstractAction.FOLD,
+            AbstractAction.CHECK,
+            AbstractAction.CALL,
+            AbstractAction.JAM,
+        ):
             resolve_postflop_sizing(a.value, gs, 0)  # must not raise
 
 

@@ -414,9 +414,7 @@ def format_hand_summary_message(
     return f"{lead} at {where}"
 
 
-def format_last_stand_message(
-    name: str, stake_label: str, table_name: Optional[str] = None
-) -> str:
+def format_last_stand_message(name: str, stake_label: str, table_name: Optional[str] = None) -> str:
     """Phrasing for an AI's last-stand event — their whole bankroll is
     now on the table. Framed so the player reads it as an opening: a
     seat worth targeting because the occupant has nothing left to fall

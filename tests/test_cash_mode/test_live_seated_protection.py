@@ -64,9 +64,7 @@ def fake_registry(monkeypatch):
 
 class TestLiveCashSeatedPids:
     def test_collects_opponents_for_matching_sandbox(self, fake_registry):
-        fake_registry["cash-abc"] = _cash_game(
-            "sb-1", {"Blackbeard": "blackbeard", "Zeus": "zeus"}
-        )
+        fake_registry["cash-abc"] = _cash_game("sb-1", {"Blackbeard": "blackbeard", "Zeus": "zeus"})
         assert game_handler.live_cash_seated_pids("sb-1") == {"blackbeard", "zeus"}
 
     def test_filters_by_sandbox(self, fake_registry):
