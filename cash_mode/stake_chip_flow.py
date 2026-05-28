@@ -24,11 +24,13 @@ Three flow categories:
     `forgive_balance` annotation is already fired by
     `settle_stake_on_leave` (passing `chip_ledger_repo` there).
 
-  - **Application** — `apply_chip_flows(flows, repos)`. Walks the
-    list and dispatches each entry to the right repo / ledger call.
-    Production callers (cash_routes.py post-Phase-2 cutover) will use
-    this; test code can either drive `apply_chip_flows` end-to-end or
-    inspect the flow list directly.
+  - **Application** — there is no central `apply_chip_flows`
+    dispatcher (an earlier plan called for one post-Phase-2; it was
+    never built). Production callers (the sit / leave paths in
+    `cash_routes.py`) walk the emitted flow list and dispatch each
+    entry to the right repo / ledger call inline; test code inspects
+    the flow list directly. If a single dispatcher is ever wanted,
+    centralize that inline walk here.
 
 Spec: `docs/plans/CASH_MODE_BACKING_SYSTEM_HANDOFF.md` Phase 1 Commit 5.
 """

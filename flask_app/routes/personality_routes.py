@@ -108,19 +108,20 @@ def get_personality(name):
         if db_personality:
             return jsonify({'success': True, 'personality': db_personality, 'name': name})
 
+        personalities_file = Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
         try:
-            personalities_file = (
-                Path(__file__).parent.parent.parent / 'poker' / 'personalities.json'
-            )
             with open(personalities_file) as f:
                 data = json.load(f)
+            catalog = data['personalities']
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            # A missing/corrupt catalog is a server fault — surface it as a
+            # 500 so it's diagnosable, instead of swallowing it and reporting
+            # every built-in character as "not found".
+            logger.error("Failed to load personalities catalog %s: %s", personalities_file, e)
+            return jsonify({'success': False, 'error': 'Personality catalog unavailable'}), 500
 
-            if name in data['personalities']:
-                return jsonify(
-                    {'success': True, 'personality': data['personalities'][name], 'name': name}
-                )
-        except Exception:
-            pass
+        if name in catalog:
+            return jsonify({'success': True, 'personality': catalog[name], 'name': name})
 
         return jsonify({'success': False, 'error': 'Personality not found'})
     except Exception as e:

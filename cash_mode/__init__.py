@@ -9,9 +9,13 @@ lives in:
     `project_bankroll` (passive regen).
   - `table`: CashTable dataclass (mostly vestigial post-refactor;
     seating accounting works directly on the hand engine's
-    PokerGameState now).
-  - `seating`: pure transitions for sit/leave/topup + bust accounting
-    helpers. Used by the cash routes.
+    PokerGameState now). Retained only for `PLAYER_SEAT_ID`.
+
+The old pure sit/leave/topup transition layer (`seating.py`) was
+removed — the live routes operate directly on the hand engine's
+PokerGameState + the `cash_tables` seats blob (under the per-sandbox
+seat lock), so that layer was dead code whose function names implied
+atomicity guarantees nothing actually used.
 
 The orchestration (CashSession, seat_filler) that lived here briefly
 in v0.5 has been replaced by direct use of the tournament flow —
@@ -28,19 +32,6 @@ from cash_mode.bankroll import (
     PlayerBankrollState,
     credit_ai_cash_out,
     project_bankroll,
-)
-from cash_mode.seating import (
-    HandInProgressError,
-    SeatingError,
-    apply_settlement,
-    bust_at_table,
-    cash_out_ai_seat,
-    disconnect_timeout,
-    leave_table,
-    mid_hand_quit,
-    sit_down,
-    sit_down_ai,
-    top_up,
 )
 from cash_mode.table import (
     PLAYER_SEAT_ID,
@@ -68,29 +59,18 @@ __all__ = [
     "BankrollKnobs",
     "CashTable",
     "CashTableState",
-    "HandInProgressError",
     "IDLE_REASONS",
     "IdlePoolEntry",
     "OPEN_SEATS",
     "PLAYER_SEAT_ID",
     "PlayerBankrollState",
-    "SeatingError",
     "TABLE_SEAT_COUNT",
     "ai_slot",
-    "apply_settlement",
-    "bust_at_table",
-    "cash_out_ai_seat",
     "credit_ai_cash_out",
-    "disconnect_timeout",
     "human_slot",
-    "leave_table",
-    "mid_hand_quit",
     "new_table",
     "open_slot",
     "project_bankroll",
     "seats_from_json",
     "seats_to_json",
-    "sit_down",
-    "sit_down_ai",
-    "top_up",
 ]

@@ -557,7 +557,11 @@ function App() {
               path="/cash"
               element={
                 <ProtectedRoute>
-                  <Lobby />
+                  <ErrorBoundary
+                    fallbackAction={{ label: 'Return to Menu', onClick: () => navigate('/menu') }}
+                  >
+                    <Lobby />
+                  </ErrorBoundary>
                 </ProtectedRoute>
               }
             />

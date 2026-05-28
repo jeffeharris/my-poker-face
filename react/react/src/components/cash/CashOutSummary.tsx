@@ -140,9 +140,9 @@ export function CashOutSummary({
           <div className="cashout-style__label">Your Play Style</div>
           <div className="cashout-style__value">{summary.play_style}</div>
           <div className="cashout-style__metrics">
-            <span>VPIP {summary.vpip_pct.toFixed(1)}%</span>
-            <span>PFR {summary.pfr_pct.toFixed(1)}%</span>
-            <span>Aggression {summary.aggression_pct.toFixed(1)}%</span>
+            <span>VPIP {(summary.vpip_pct ?? 0).toFixed(1)}%</span>
+            <span>PFR {(summary.pfr_pct ?? 0).toFixed(1)}%</span>
+            <span>Aggression {(summary.aggression_pct ?? 0).toFixed(1)}%</span>
           </div>
         </div>
 

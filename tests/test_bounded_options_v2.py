@@ -619,8 +619,14 @@ class TestEmotionalWindowShiftExtremeTilt:
         """Extreme tilt should remove FOLD or CHECK from options."""
         ctx = _free_context(equity=0.75)
         baseline = generate_bounded_options(ctx)
+        # Seed the impairment roll so the shift deterministically fires. The
+        # roll is lucid ~5% of the time (extreme = 95% impair), which made
+        # this the one flaky test in the suite — it asserts a strict
+        # reduction, so a lucid roll (no shift) spuriously failed CI. The
+        # probabilistic behaviour itself is covered by
+        # TestEmotionalProbabilisticRoll.
         extreme = generate_bounded_options(
-            ctx, emotional_state='tilted', emotional_severity='extreme'
+            ctx, emotional_state='tilted', emotional_severity='extreme', rng=random.Random(0)
         )
         # Extreme tilt removes passive end — CHECK should be gone (or FOLD for facing bet)
         baseline_passive = [o for o in baseline if o.action in ('check', 'fold')]

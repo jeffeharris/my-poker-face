@@ -1,9 +1,59 @@
+---
+purpose: Security review findings (auth gaps, unauthenticated endpoints) to triage before public launch
+type: reference
+created: 2026-05-27
+last_updated: 2026-05-27
+---
+
 # Security Best Practices Report
 
 ## Executive Summary
 This review found multiple high-impact authorization gaps in backend routes and Socket.IO handlers. The biggest risk is that several admin/debug/experiment endpoints are callable without authentication or permission checks, enabling data exposure and costly background job execution.
 
 For a hobby app that you plan to share publicly, I recommend fixing the Critical and High findings before launch. Medium findings can follow in a second pass.
+
+> **Re-verification (2026-05-27, prep-for-main pass): ALL TEN findings
+> (SBP-001..010) are FALSE POSITIVES / already remediated in current
+> `development`/`main` code.** The report was generated against a stale
+> (pre-merge) checkout — its line numbers no longer match, and every cited
+> gap has since been closed. Per-finding verification:
+>
+> - **SBP-001/002/003 (Critical — admin/debug/experiment/replay unauth):**
+>   `admin_dashboard_bp`, `prompt_debug_bp`, `experiment_bp`,
+>   `replay_experiment_bp` all call `register_admin_guard(bp)`
+>   (`flask_app/route_utils.py`) — a blueprint-level `before_request`
+>   requiring `can_access_admin_tools`. Verified: unauth `GET/POST
+>   /admin/pricing`, `/api/prompt-debug/captures`, `/api/experiments`,
+>   `/api/replay-experiments` → **401**.
+> - **SBP-004 (game-mutation ownership):** every `game_routes` mutation
+>   endpoint (action/message/retry/DELETE/end_game/fast-forward) calls
+>   `_authorize_game_access(game_id, …)` and returns its `auth_error`
+>   (404/403) before mutating.
+> - **SBP-005 (socket owner checks + CORS):** `handle_player_action`,
+>   `handle_send_message`, and `on_progress_game` all verify
+>   owner-or-admin and emit `auth_error` otherwise. Socket.IO origins come
+>   from `_get_socketio_cors_origins()`, which **refuses to boot** in
+>   production with `CORS_ORIGINS='*'` (no wildcard origin).
+> - **SBP-006 (guest impersonation):** production guest IDs are
+>   `guest_<uuid4 hex>` (random, not name-derived) and the `guest_id`
+>   cookie is signed with `SECRET_KEY` (`_sign_guest_id`/`_unsign_guest_id`,
+>   the T1-26 fix) — unforgeable.
+> - **SBP-007 (experiment-chat `'anonymous'`):** replaced by
+>   `_get_chat_owner_id()`, which raises `PermissionError` when
+>   unauthenticated (no `'anonymous'` fallback, the T1-27 fix); lookups
+>   pass `expected_owner_id`; the whole blueprint is admin-guarded.
+> - **SBP-008 (personality authz):** GET/PUT/avatar/DELETE
+>   `/api/personality/<name>` each enforce owner-or-admin (403).
+> - **SBP-009 (preset IDOR):** GET/PUT/DELETE by `preset_id` enforce
+>   `_can_access_preset(...)` / explicit owner check (403).
+> - **SBP-010 (cookie hardening):** `poker/auth.py` sets
+>   `SESSION_COOKIE_HTTPONLY=True`, `SESSION_COOKIE_SAMESITE='Lax'`, and
+>   `SESSION_COOKIE_SECURE=(FLASK_ENV=='production')`.
+>
+> **No code changes required.** This document is retained as the audit
+> trail; re-run a fresh scan against current `main` if a future review is
+> needed (the static tool missed blueprint-level `before_request` guards
+> and helper-based authz, which is why it over-reported).
 
 ---
 

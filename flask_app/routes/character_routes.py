@@ -215,8 +215,10 @@ def _find_game_data_with_player(player_name: str) -> Optional[dict]:
                 continue
             if any(p.name == player_name for p in roster):
                 return gdata
-    except Exception:
-        pass
+    except Exception as e:
+        # Display-only dossier scan; never fail the request over it, but log
+        # so a persistent failure (e.g. corrupt game_state) isn't invisible.
+        logger.warning("dossier game_data scan failed for %r: %s", player_name, e)
     return None
 
 

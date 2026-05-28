@@ -50,8 +50,11 @@ def _get_socketio_cors_origins():
 # SocketIO instance - initialized without app
 socketio = SocketIO(cors_allowed_origins=_get_socketio_cors_origins(), async_mode='threading')
 
-# Limiter instance - will be initialized with app
-limiter = None
+# Limiter instance - defined below, after its key_func/exempt helpers.
+# It is a real Limiter at import time (like `socketio`/`oauth` above) so
+# module-level `@limiter.limit(...)` decorators in the route modules resolve
+# regardless of blueprint import ordering. The storage backend is attached in
+# init_limiter() via the standard init_app() handshake.
 
 # Individual repository globals (replace former `persistence` facade)
 game_repo = None
@@ -105,6 +108,17 @@ def _skip_options_requests() -> bool:
     return request.method == "OPTIONS"
 
 
+# Real Limiter instance, constructed at import time (no app yet). The storage
+# backend is left unset here so init_limiter() can pick Redis vs in-memory and
+# bind it via init_app(). Constructing it eagerly (rather than `= None`) is what
+# lets the route modules' module-level `@limiter.limit(...)` decorators work.
+limiter = Limiter(
+    key_func=get_rate_limit_key,
+    default_limits=config.RATE_LIMIT_DEFAULT,
+    default_limits_exempt_when=_skip_options_requests,
+)
+
+
 def init_cors(app: Flask) -> None:
     """Initialize CORS configuration."""
     cors_origins_env = config.CORS_ORIGINS_ENV
@@ -133,11 +147,15 @@ def init_cors(app: Flask) -> None:
 
 
 def init_limiter(app: Flask) -> Limiter:
-    """Initialize rate limiter with optional Redis backend."""
-    global limiter
+    """Attach the module-level `limiter` to the app, preferring Redis.
 
+    `limiter` is already a live Limiter (constructed at import). Here we
+    only pick the storage backend (Redis when reachable, else in-memory)
+    and bind it to the app via init_app(). flask-limiter resolves the
+    backend from `RATELIMIT_STORAGE_URI` in app.config during init_app.
+    """
     redis_url = config.REDIS_URL
-    default_limits = config.RATE_LIMIT_DEFAULT
+    storage_uri = "memory://"
 
     if redis_url:
         try:
@@ -145,32 +163,15 @@ def init_limiter(app: Flask) -> Limiter:
 
             r = redis.from_url(redis_url)
             r.ping()
-
-            limiter = Limiter(
-                app=app,
-                key_func=get_rate_limit_key,
-                default_limits=default_limits,
-                storage_uri=redis_url,
-                default_limits_exempt_when=_skip_options_requests,
-            )
+            storage_uri = redis_url
             logger.info("Rate limiter initialized with Redis")
         except Exception as e:
             logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
-            limiter = Limiter(
-                app=app,
-                key_func=get_rate_limit_key,
-                default_limits=default_limits,
-                default_limits_exempt_when=_skip_options_requests,
-            )
     else:
-        limiter = Limiter(
-            app=app,
-            key_func=get_rate_limit_key,
-            default_limits=default_limits,
-            default_limits_exempt_when=_skip_options_requests,
-        )
         logger.info("Rate limiter initialized with in-memory storage")
 
+    app.config["RATELIMIT_STORAGE_URI"] = storage_uri
+    limiter.init_app(app)
     return limiter
 
 

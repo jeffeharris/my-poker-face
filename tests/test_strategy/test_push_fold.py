@@ -219,7 +219,7 @@ class TestAggregateStructure:
 
     def test_sb_push_monotone_and_bounded(self, chart):
         pcts = [self._pct(chart[f"{d}bb"]["sb_open"], "jam") for d in self.DEPTHS]
-        for shallow, deep in zip(pcts, pcts[1:]):
+        for shallow, deep in zip(pcts, pcts[1:], strict=False):
             assert shallow >= deep, f"SB push % not monotone over depth: {pcts}"
         # 5bb pure jam/fold ~74% (any-two is a ~2-3bb regime); 15bb tighter ~46%.
         assert pcts[0] >= 65.0, f"5bb SB push too tight: {pcts[0]:.1f}%"
@@ -228,7 +228,7 @@ class TestAggregateStructure:
 
     def test_bb_call_monotone_and_bounded(self, chart):
         pcts = [self._pct(chart[f"{d}bb"]["bb_vs_jam"], "call") for d in self.DEPTHS]
-        for shallow, deep in zip(pcts, pcts[1:]):
+        for shallow, deep in zip(pcts, pcts[1:], strict=False):
             assert shallow >= deep, f"BB call % not monotone over depth: {pcts}"
         assert pcts[0] > pcts[-1]
         assert 0.0 < pcts[-1] < pcts[0] <= 100.0

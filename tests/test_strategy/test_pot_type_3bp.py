@@ -94,6 +94,7 @@ class TestSerialization:
 
 # ── 3BP → SRP fallback (the authored 3BP chart was cut) ──────────────────
 
+
 class TestThreeBetFallback:
     def test_3bp_missing_degrades_to_srp(self):
         # A table with only an SRP entry: a 3BP lookup degrades to it, not the

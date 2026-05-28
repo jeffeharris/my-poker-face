@@ -53,7 +53,9 @@ class AbstractAction(str, Enum):
 
 # Engine tokens that must never appear as abstract strategy keys (the shared
 # fold/check/call are valid in both spaces; these are engine-only).
-ENGINE_ONLY_TOKENS = frozenset({EngineAction.BET.value, EngineAction.RAISE.value, EngineAction.ALL_IN.value})
+ENGINE_ONLY_TOKENS = frozenset(
+    {EngineAction.BET.value, EngineAction.RAISE.value, EngineAction.ALL_IN.value}
+)
 
 _ABSTRACT_FIXED = frozenset(a.value for a in AbstractAction)
 

@@ -68,10 +68,11 @@ from cash_mode.tables import personality_for_seat
 from core.economy import ledger as chip_ledger
 from flask_app import config
 
-# `limiter` is set by init_limiter() during init_extensions(), which runs
-# before blueprints are imported, and is never reassigned afterward — so a
-# top-level import captures the real instance (unlike the repo globals, which
-# are reassigned by init_persistence() and must be imported lazily).
+# `limiter` is a real Limiter constructed at import time in extensions.py
+# (init_limiter() only attaches the storage backend via init_app()), so it is
+# never None and never reassigned — a top-level import safely captures it
+# (unlike the repo globals, which are reassigned by init_persistence() and must
+# be imported lazily).
 from flask_app.extensions import limiter
 from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
 from poker.memory.relationship_events import RelationshipEvent
@@ -1264,19 +1265,27 @@ def sit_at_table():
     # "ghost me" seat on session resume, which then survived the
     # next leave and blocked AI live-fill on the abandoned chair.
     from cash_mode.tables import human_slot
+    from flask_app.services import game_state_service
 
-    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
-    if table is None:
-        return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
-    if table.seats[seat_index]["kind"] != "open":
-        return jsonify(
-            {
-                "error": "Seat is not open",
-                "seat_kind": table.seats[seat_index]["kind"],
-            }
-        ), 409
-    claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
-    cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+    # Take the per-sandbox seat lock for the read-check-claim-save: the
+    # world ticker's refresh_unseated_tables live-fills open seats on the
+    # same `cash_tables` blob, so without this a ticker tick between our
+    # load and save would be clobbered (its AI's buy-in stranded). The
+    # window is small — once we save a human into the seat the ticker
+    # skips this table — so we hold the lock only around the claim.
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+        if table is None:
+            return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+        if table.seats[seat_index]["kind"] != "open":
+            return jsonify(
+                {
+                    "error": "Seat is not open",
+                    "seat_kind": table.seats[seat_index]["kind"],
+                }
+            ), 409
+        claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
+        cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
 
     # Build the cash game using the table's CURRENT AI roster + chip
     # counts, sourced via the shared preselected-builder.
@@ -1300,8 +1309,18 @@ def sit_at_table():
         table_type=claimed_table.table_type,
     )
     if err is not None:
-        # Roll back the seat claim so the player can retry.
-        cash_table_repo.save_table(table, sandbox_id=sandbox_id)
+        # Roll back the seat claim so the player can retry. Re-read under
+        # the sandbox lock and re-open ONLY our seat (rather than writing
+        # back the stale pre-claim snapshot), so we don't clobber any
+        # live-fill the ticker / a concurrent sit did to other seats.
+        from cash_mode.tables import open_slot
+
+        with game_state_service.get_sandbox_lock(sandbox_id):
+            current = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+            if current is not None and current.seats[seat_index].get("kind") == "human":
+                cash_table_repo.save_table(
+                    current.with_seat(seat_index, open_slot()), sandbox_id=sandbox_id
+                )
         return jsonify(err[0]), err[1]
 
     # Debit the player's bankroll. Loan fields stay zeroed — this is
@@ -1867,23 +1886,28 @@ def sponsor_and_sit():
         # the sweep because the sweep may have rewritten this table's
         # row; building `with_seat` from a stale snapshot would
         # resurrect the orphan (the regression we just fixed in sit).
-        _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
-        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
-        if table is None:
-            return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
-        if table.seats[seat_index]["kind"] != "open":
-            return jsonify(
-                {
-                    "error": "Seat is not open",
-                    "seat_kind": table.seats[seat_index]["kind"],
-                }
-            ), 409
-        pre_claim_table = table
-        claimed_table = table.with_seat(
-            seat_index,
-            human_slot(owner_id, offer_amount),
-        )
-        cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
+        # Hold the per-sandbox seat lock around the whole claim so the
+        # world ticker's live-fill can't clobber it (same race as sit).
+        from flask_app.services import game_state_service
+
+        with game_state_service.get_sandbox_lock(sandbox_id):
+            _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
+            table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+            if table is None:
+                return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+            if table.seats[seat_index]["kind"] != "open":
+                return jsonify(
+                    {
+                        "error": "Seat is not open",
+                        "seat_kind": table.seats[seat_index]["kind"],
+                    }
+                ), 409
+            pre_claim_table = table
+            claimed_table = table.with_seat(
+                seat_index,
+                human_slot(owner_id, offer_amount),
+            )
+            cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
         preselected_ai, preselected_chips, dealer_player_idx = _build_preselected_from_table(
             claimed_table=claimed_table,
             seat_index=seat_index,
@@ -1907,9 +1931,19 @@ def sponsor_and_sit():
         table_type=claimed_table.table_type if claimed_table is not None else 'lobby',
     )
     if err is not None:
-        # Roll back the seat claim so the player can retry.
-        if pre_claim_table is not None:
-            cash_table_repo.save_table(pre_claim_table, sandbox_id=sandbox_id)
+        # Roll back the seat claim so the player can retry. Re-read under
+        # the sandbox lock and re-open only our seat, so we don't clobber a
+        # live-fill the ticker / a concurrent sit did to other seats.
+        if pre_claim_table is not None and table_id is not None:
+            from cash_mode.tables import open_slot
+            from flask_app.services import game_state_service
+
+            with game_state_service.get_sandbox_lock(sandbox_id):
+                current = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+                if current is not None and current.seats[seat_index].get("kind") == "human":
+                    cash_table_repo.save_table(
+                        current.with_seat(seat_index, open_slot()), sandbox_id=sandbox_id
+                    )
         return jsonify(err[0]), err[1]
 
     # Stamp table_id + seat_index on game_data so leave_table can free
@@ -2090,83 +2124,91 @@ def rebuy():
     if not isinstance(amount, int) or amount <= 0:
         return jsonify({"error": "amount must be a positive integer"}), 400
 
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, stake_repo
     from flask_app.services import game_state_service
     from poker.poker_state_machine import PokerPhase
 
-    game_data = game_state_service.get_game(game_id)
-    state_machine = game_data["state_machine"]
-    stake_label = game_data.get("cash_stake_label")
-    if stake_label not in STAKES_LADDER:
-        return jsonify({"error": "Game has no valid cash_stake_label"}), 500
-    _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
+    # Take the per-game lock and re-read state inside it (see top_up):
+    # progress_game mutates the same game_state under this lock, so a
+    # lock-free read-modify-write here could clobber hand state or lose
+    # the chip add if it interleaved with hand progression.
+    lock = game_state_service.get_game_lock(game_id)
+    with lock:
+        game_data = game_state_service.get_game(game_id)
+        if game_data is None:
+            return jsonify({"error": "No active cash session"}), 404
+        state_machine = game_data["state_machine"]
+        stake_label = game_data.get("cash_stake_label")
+        if stake_label not in STAKES_LADDER:
+            return jsonify({"error": "Game has no valid cash_stake_label"}), 500
+        _, min_buy_in, max_buy_in = table_buy_in_window(stake_label)
 
-    # Between-hands gate (same set as top-up).
-    if state_machine.current_phase not in (
-        PokerPhase.INITIALIZING_GAME,
-        PokerPhase.INITIALIZING_HAND,
-        PokerPhase.HAND_OVER,
-    ):
-        return jsonify({"error": "Rebuy is only allowed between hands"}), 400
+        # Between-hands gate (same set as top-up).
+        if state_machine.current_phase not in (
+            PokerPhase.INITIALIZING_GAME,
+            PokerPhase.INITIALIZING_HAND,
+            PokerPhase.HAND_OVER,
+        ):
+            return jsonify({"error": "Rebuy is only allowed between hands"}), 400
 
-    human_idx = next(
-        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
-        None,
-    )
-    if human_idx is None:
-        return jsonify({"error": "Player not seated"}), 400
-    human_player = state_machine.game_state.players[human_idx]
-    if human_player.stack != 0:
-        return jsonify(
-            {
-                "error": "Rebuy is only allowed when stack is 0 (use top-up otherwise)",
-                "stack": human_player.stack,
-            }
-        ), 400
-
-    if amount < min_buy_in or amount > max_buy_in:
-        return jsonify(
-            {
-                "error": (
-                    f"amount {amount} out of range for {stake_label} table "
-                    f"(min={min_buy_in}, max={max_buy_in})"
-                ),
-            }
-        ), 400
-
-    bankroll = _load_or_seed_player_bankroll(owner_id)
-
-    # Block rebuy while an active stake is live for this session.
-    # Mingling stake-funded chips with fresh bankroll chips would corrupt
-    # the leave-time settlement math (the new buy-in would be subject to
-    # the staker's cut on the upside). Force a /leave to settle first.
-    from flask_app.extensions import stake_repo
-
-    if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
-        return jsonify(
-            {
-                "error": "Rebuy disabled while a stake is active. Leave the table to settle.",
-            }
-        ), 400
-    if bankroll.chips < amount:
-        return jsonify({"error": "Insufficient bankroll"}), 400
-
-    state_machine.game_state = state_machine.game_state.update_player(
-        human_idx,
-        stack=amount,
-    )
-    bankroll_repo.save_player_bankroll(
-        PlayerBankrollState(
-            player_id=bankroll.player_id,
-            chips=bankroll.chips - amount,
-            starting_bankroll=bankroll.starting_bankroll,
+        human_idx = next(
+            (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+            None,
         )
-    )
+        if human_idx is None:
+            return jsonify({"error": "Player not seated"}), 400
+        human_player = state_machine.game_state.players[human_idx]
+        if human_player.stack != 0:
+            return jsonify(
+                {
+                    "error": "Rebuy is only allowed when stack is 0 (use top-up otherwise)",
+                    "stack": human_player.stack,
+                }
+            ), 400
 
-    # Rebuy is another bankroll → table transfer, just like top-up;
-    # leave-time P&L needs it counted as money put in (not won).
-    _increment_cash_session_buy_in(game_id, amount)
+        if amount < min_buy_in or amount > max_buy_in:
+            return jsonify(
+                {
+                    "error": (
+                        f"amount {amount} out of range for {stake_label} table "
+                        f"(min={min_buy_in}, max={max_buy_in})"
+                    ),
+                }
+            ), 400
 
+        bankroll = _load_or_seed_player_bankroll(owner_id)
+
+        # Block rebuy while an active stake is live for this session.
+        # Mingling stake-funded chips with fresh bankroll chips would corrupt
+        # the leave-time settlement math (the new buy-in would be subject to
+        # the staker's cut on the upside). Force a /leave to settle first.
+        if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
+            return jsonify(
+                {
+                    "error": "Rebuy disabled while a stake is active. Leave the table to settle.",
+                }
+            ), 400
+        if bankroll.chips < amount:
+            return jsonify({"error": "Insufficient bankroll"}), 400
+
+        state_machine.game_state = state_machine.game_state.update_player(
+            human_idx,
+            stack=amount,
+        )
+        bankroll_repo.save_player_bankroll(
+            PlayerBankrollState(
+                player_id=bankroll.player_id,
+                chips=bankroll.chips - amount,
+                starting_bankroll=bankroll.starting_bankroll,
+            )
+        )
+
+        # Rebuy is another bankroll → table transfer, just like top-up;
+        # leave-time P&L needs it counted as money put in (not won).
+        _increment_cash_session_buy_in(game_id, amount)
+
+    # Emit + resume play outside the lock: progress_game re-acquires this
+    # same (non-reentrant) game lock, so calling it inside would deadlock.
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
 
     update_and_emit_game_state(game_id)
@@ -2285,8 +2327,7 @@ def reseat():
     fillable_indices = [
         i
         for i, s in enumerate(table.seats)
-        if s.get("kind") == "open"
-        or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
+        if s.get("kind") == "open" or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
     ]
     seated_pids = []
     for cand in candidates:
@@ -2546,13 +2587,30 @@ def payoff_stake(stake_id: str):
             }
         ), 503
 
-    # Transfer: player bankroll → staker bankroll. credit_ai_cash_out
-    # mirrors the leave-time settlement path so the staker's bankroll
-    # accounting (projection-with-regen + cap clamp + ledger
-    # instrumentation) stays consistent across "session-end settle" and
-    # "voluntary payoff" — the staker doesn't experience a different
-    # accounting shape depending on which event produced the credit.
     now = datetime.utcnow()
+
+    # Atomically claim the carry→settled transition BEFORE moving any
+    # chips. Compare-and-swap: if a concurrent payoff already settled this
+    # stake, the UPDATE matches 0 rows and we bail without double-debiting
+    # the player / double-crediting the staker. (The status check above is
+    # a fast-fail; this is the actual race guard.)
+    if not stake_repo.update_status(
+        stake_id,
+        STAKE_STATUS_SETTLED,
+        settled_at=now,
+        expected_status=STAKE_STATUS_CARRY,
+    ):
+        return jsonify(
+            {
+                "error": "Stake is no longer in 'carry' status (already settled?)",
+            }
+        ), 409
+
+    # We own the transition now — move the chips. Transfer: player bankroll
+    # → staker bankroll. credit_ai_cash_out mirrors the leave-time
+    # settlement path so the staker's bankroll accounting
+    # (projection-with-regen + cap clamp + ledger instrumentation) stays
+    # consistent across "session-end settle" and "voluntary payoff".
     new_player_chips = bankroll.chips - carry_amount
     bankroll_repo.save_player_bankroll(
         PlayerBankrollState(
@@ -2575,7 +2633,6 @@ def payoff_stake(stake_id: str):
     )
 
     stake_repo.update_carry_amount(stake_id, 0)
-    stake_repo.update_status(stake_id, STAKE_STATUS_SETTLED, settled_at=now)
 
     # v106 payout accounting on voluntary payoff:
     #   staker_payout  += carry_amount  (staker received the deferred chips)
@@ -3600,14 +3657,26 @@ def offer_stake_to_ai():
             now=now,
         )
 
-    updated_table = table.with_seat(
-        open_seat_index,
-        ai_slot(target_pid, seat_chips),
-    )
-    # save_table enforces the seated⇒not-idle invariant: if the staked AI
-    # was resting in the idle pool, its row is cleared in the same write
-    # (see CashTableRepository.save_table).
-    cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
+    # Persist the seat under the per-sandbox lock, re-reading the table
+    # first so we don't clobber a ticker live-fill that took our chosen
+    # seat between selection and now (which would strand that AI's already
+    # debited buy-in). Saving the FRESH table preserves any other seat the
+    # ticker changed meanwhile.
+    from flask_app.services import game_state_service
+
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        fresh = cash_table_repo.load_table(target_table_id, sandbox_id=sandbox_id)
+        if fresh is None or fresh.seats[open_seat_index].get("kind") != "open":
+            # Lost the seat in the race window. The player was already
+            # debited above; like the other post-debit steps here, the
+            # resulting drift is surfaced by the chip-ledger audit. Ask
+            # them to retry rather than clobbering whoever took the seat.
+            return jsonify({"error": "That seat was just taken — please try again"}), 409
+        # save_table enforces the seated⇒not-idle invariant: if the staked AI
+        # was resting in the idle pool, its row is cleared in the same write
+        # (see CashTableRepository.save_table).
+        updated_table = fresh.with_seat(open_seat_index, ai_slot(target_pid, seat_chips))
+        cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
 
     import uuid as _uuid
 
@@ -4254,7 +4323,9 @@ def _leave_table_locked(owner_id: str, game_id: str):
             _free_ghost_human_seats(owner_id, sandbox_id=sandbox_id)
 
             # Final refresh pass: lets AI movement act on the post-leave
-            # state (e.g., an AI who won big can now stake_up).
+            # state (e.g., an AI who won big can now stake_up). Hold the
+            # per-sandbox seat lock so it serializes with the world ticker's
+            # refresh (which now holds the same lock).
             try:
                 from cash_mode.lobby import refresh_unseated_tables
                 from flask_app.extensions import (
@@ -4263,17 +4334,18 @@ def _leave_table_locked(owner_id: str, game_id: str):
                     stake_repo,
                 )
 
-                refresh_unseated_tables(
-                    cash_table_repo=cash_table_repo,
-                    personality_repo=personality_repo,
-                    bankroll_repo=bankroll_repo,
-                    user_id=owner_id,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                    chip_ledger_repo=chip_ledger_repo,
-                    relationship_repo=relationship_repo,
-                    stake_repo=stake_repo,
-                )
+                with game_state_service.get_sandbox_lock(sandbox_id):
+                    refresh_unseated_tables(
+                        cash_table_repo=cash_table_repo,
+                        personality_repo=personality_repo,
+                        bankroll_repo=bankroll_repo,
+                        user_id=owner_id,
+                        sandbox_id=sandbox_id,
+                        now=now,
+                        chip_ledger_repo=chip_ledger_repo,
+                        relationship_repo=relationship_repo,
+                        stake_repo=stake_repo,
+                    )
             except Exception as e:
                 logger.warning(
                     "[CASH][LOBBY] leave-time final refresh failed: %s",
@@ -4361,72 +4433,80 @@ def top_up():
     if amount <= 0:
         return jsonify({"error": "amount must be a positive integer"}), 400
 
-    from flask_app.extensions import bankroll_repo
+    from flask_app.extensions import bankroll_repo, stake_repo
     from flask_app.services import game_state_service
     from poker.poker_state_machine import PokerPhase
 
-    game_data = game_state_service.get_game(game_id)
-    state_machine = game_data["state_machine"]
+    # Take the per-game lock and re-read state inside it: progress_game
+    # mutates the same game_state under this lock, so a lock-free
+    # read-modify-write here would clobber hand state or lose the chip
+    # add if it interleaved with hand progression (see leave_table).
+    lock = game_state_service.get_game_lock(game_id)
+    with lock:
+        game_data = game_state_service.get_game(game_id)
+        if game_data is None:
+            return jsonify({"error": "No active cash session"}), 404
+        state_machine = game_data["state_machine"]
 
-    human_idx = next(
-        (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
-        None,
-    )
-    if human_idx is None:
-        return jsonify({"error": "Player not seated"}), 400
-    human_player = state_machine.game_state.players[human_idx]
+        human_idx = next(
+            (i for i, p in enumerate(state_machine.game_state.players) if p.is_human),
+            None,
+        )
+        if human_idx is None:
+            return jsonify({"error": "Player not seated"}), 400
+        human_player = state_machine.game_state.players[human_idx]
 
-    # Phase gate: between-hands phases are always safe. Mid-hand we
-    # only allow it once the human has folded — they can't act this
-    # hand, so the new chips just sit on the stack until the next
-    # deal. A still-active player topping up mid-hand would shift
-    # call/raise math underneath the AI opponents.
-    between_hands = state_machine.current_phase in (
-        PokerPhase.INITIALIZING_GAME,
-        PokerPhase.INITIALIZING_HAND,
-        PokerPhase.HAND_OVER,
-    )
-    if not between_hands and not human_player.is_folded:
-        return jsonify(
-            {
-                "error": "Top up is only allowed between hands or after folding",
-            }
-        ), 400
+        # Phase gate: between-hands phases are always safe. Mid-hand we
+        # only allow it once the human has folded — they can't act this
+        # hand, so the new chips just sit on the stack until the next
+        # deal. A still-active player topping up mid-hand would shift
+        # call/raise math underneath the AI opponents.
+        between_hands = state_machine.current_phase in (
+            PokerPhase.INITIALIZING_GAME,
+            PokerPhase.INITIALIZING_HAND,
+            PokerPhase.HAND_OVER,
+        )
+        if not between_hands and not human_player.is_folded:
+            return jsonify(
+                {
+                    "error": "Top up is only allowed between hands or after folding",
+                }
+            ), 400
 
-    bankroll = bankroll_repo.load_player_bankroll(owner_id)
-    if bankroll is None or bankroll.chips < amount:
-        return jsonify({"error": "Insufficient bankroll"}), 400
-    # Mingling bankroll chips with stake chips would corrupt the
-    # leave-time math (your top-up money would be taxed by the
-    # staker's cut). Force the player to settle first.
-    from flask_app.extensions import stake_repo
+        bankroll = bankroll_repo.load_player_bankroll(owner_id)
+        if bankroll is None or bankroll.chips < amount:
+            return jsonify({"error": "Insufficient bankroll"}), 400
+        # Mingling bankroll chips with stake chips would corrupt the
+        # leave-time math (your top-up money would be taxed by the
+        # staker's cut). Force the player to settle first.
+        if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
+            return jsonify(
+                {
+                    "error": "Top-up disabled while a stake is active. Leave the table to settle.",
+                }
+            ), 400
 
-    if stake_repo is not None and stake_repo.load_active_for_session(game_id) is not None:
-        return jsonify(
-            {
-                "error": "Top-up disabled while a stake is active. Leave the table to settle.",
-            }
-        ), 400
+        new_stack = state_machine.game_state.players[human_idx].stack + amount
+        state_machine.game_state = state_machine.game_state.update_player(
+            human_idx,
+            stack=new_stack,
+        )
 
-    new_stack = state_machine.game_state.players[human_idx].stack + amount
-    state_machine.game_state = state_machine.game_state.update_player(
-        human_idx,
-        stack=new_stack,
-    )
+        new_bankroll = PlayerBankrollState(
+            player_id=bankroll.player_id,
+            chips=bankroll.chips - amount,
+            starting_bankroll=bankroll.starting_bankroll,
+            # Loan fields are 0 by virtue of the guard above; no need to copy.
+        )
+        bankroll_repo.save_player_bankroll(new_bankroll)
 
-    new_bankroll = PlayerBankrollState(
-        player_id=bankroll.player_id,
-        chips=bankroll.chips - amount,
-        starting_bankroll=bankroll.starting_bankroll,
-        # Loan fields are 0 by virtue of the guard above; no need to copy.
-    )
-    bankroll_repo.save_player_bankroll(new_bankroll)
+        # Bump the durable session's total_buy_in so leave-time P&L counts
+        # this top-up as money put in (not won). Skipped silently if the
+        # session row doesn't exist (legacy game predating cash_sessions).
+        _increment_cash_session_buy_in(game_id, amount)
 
-    # Bump the durable session's total_buy_in so leave-time P&L counts
-    # this top-up as money put in (not won). Skipped silently if the
-    # session row doesn't exist (legacy game predating cash_sessions).
-    _increment_cash_session_buy_in(game_id, amount)
-
+    # Emit outside the lock — update_and_emit_game_state only reads, and the
+    # game lock is non-reentrant.
     from flask_app.handlers.game_handler import update_and_emit_game_state
 
     update_and_emit_game_state(game_id)
@@ -4553,19 +4633,24 @@ def get_lobby():
                 stake_repo,
                 vice_state_repo,
             )
+            from flask_app.services import game_state_service
 
-            refresh_unseated_tables(
-                cash_table_repo=cash_table_repo,
-                personality_repo=personality_repo,
-                bankroll_repo=bankroll_repo,
-                user_id=owner_id,
-                sandbox_id=sandbox_id,
-                chip_ledger_repo=chip_ledger_repo,
-                relationship_repo=relationship_repo,
-                stake_repo=stake_repo,
-                vice_repo=vice_state_repo,
-                side_hustle_repo=side_hustle_state_repo,
-            )
+            # Hold the per-sandbox seat lock so this legacy read-driven
+            # refresh serializes with concurrent human seat claims (sit /
+            # sponsor-sit / stake-offer) on the same cash_tables blob.
+            with game_state_service.get_sandbox_lock(sandbox_id):
+                refresh_unseated_tables(
+                    cash_table_repo=cash_table_repo,
+                    personality_repo=personality_repo,
+                    bankroll_repo=bankroll_repo,
+                    user_id=owner_id,
+                    sandbox_id=sandbox_id,
+                    chip_ledger_repo=chip_ledger_repo,
+                    relationship_repo=relationship_repo,
+                    stake_repo=stake_repo,
+                    vice_repo=vice_state_repo,
+                    side_hustle_repo=side_hustle_state_repo,
+                )
         except Exception as e:
             logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)
 

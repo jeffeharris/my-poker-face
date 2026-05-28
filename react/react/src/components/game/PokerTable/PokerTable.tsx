@@ -99,6 +99,9 @@ export function PokerTable({
   const shuffleQuote = useMemo(() => {
     const q = pickQuote('between_hands');
     return q ? { text: q.text, attribution: q.attribution } : undefined;
+    // handNumberForQuote is an intentional recompute trigger (not used in the
+    // body): re-pick the quote once per hand, stable across intra-hand renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handNumberForQuote]);
 
   // Handle tournament completion - clean up and return to menu

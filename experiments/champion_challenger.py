@@ -691,7 +691,15 @@ def main():
 
     seeds = [int(s) for s in args.seeds.split(',')]
     work = [
-        (args.change, args.archetype, args.seats, args.challenger_seats, args.hands, s, args.stack_bb)
+        (
+            args.change,
+            args.archetype,
+            args.seats,
+            args.challenger_seats,
+            args.hands,
+            s,
+            args.stack_bb,
+        )
         for s in seeds
     ]
     if len(seeds) > 1:

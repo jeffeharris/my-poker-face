@@ -543,10 +543,24 @@ class GameRepository(BaseRepository):
                 (game_id,),
             )
 
-            return {
-                row['player_name']: self._build_emotional_state_dict(row)
-                for row in cursor.fetchall()
-            }
+            # Per-row guard: one corrupt emotional_state_json must not wipe
+            # every player's restored emotion. Log+skip the bad row, keep the
+            # good ones. (Without this a single bad row threw and the caller's
+            # wholesale except left ALL AIs at default emotion.)
+            states: Dict[str, Dict[str, Any]] = {}
+            for row in cursor.fetchall():
+                player_name = row['player_name']
+                try:
+                    states[player_name] = self._build_emotional_state_dict(row)
+                except Exception as e:
+                    logger.error(
+                        "Skipping corrupt emotional_state row for %r in game %r: %s",
+                        player_name,
+                        game_id,
+                        e,
+                        exc_info=True,
+                    )
+            return states
 
     def delete_emotional_state_for_game(self, game_id: str) -> None:
         """Delete all emotional states for a game."""
@@ -669,10 +683,24 @@ class GameRepository(BaseRepository):
                 (game_id,),
             )
 
-            return {
-                row['player_name']: self._build_controller_state_dict(row)
-                for row in cursor.fetchall()
-            }
+            # Per-row guard: one corrupt psychology_json/tilt_state_json must
+            # not wipe every player's restored psychology. Log+skip the bad
+            # row, keep the good ones. (Without this a single bad row threw and
+            # the caller's wholesale except left ALL AIs at default tilt.)
+            states: Dict[str, Dict[str, Any]] = {}
+            for row in cursor.fetchall():
+                player_name = row['player_name']
+                try:
+                    states[player_name] = self._build_controller_state_dict(row, player_name)
+                except Exception as e:
+                    logger.error(
+                        "Skipping corrupt controller_state row for %r in game %r: %s",
+                        player_name,
+                        game_id,
+                        e,
+                        exc_info=True,
+                    )
+            return states
 
     # --- Opponent Models ---
 

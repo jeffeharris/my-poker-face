@@ -172,7 +172,10 @@ def _resolve_pace(owner_id: str) -> Tuple[float, int]:
     if repo is not None:
         try:
             pace = repo.get_world_pace(owner_id)
-        except Exception:
+        except Exception as e:
+            # Display-only fallback, but log it so a persistent pace-lookup
+            # failure (e.g. a broken user_prefs read) isn't silently invisible.
+            logger.warning("world-pace lookup failed for %r; using default: %s", owner_id, e)
             pace = _DEFAULT_PACE
     return _PACE_PARAMS.get(pace, _PACE_PARAMS[_DEFAULT_PACE])
 
@@ -182,7 +185,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     from cash_mode.activity import recent_events, serialize_event
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
-    from flask_app.services import presence
+    from flask_app.services import game_state_service, presence
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
     if run_every > 1 and (_cycle % run_every) != 0:
@@ -194,19 +197,24 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         existing = recent_events(limit=1, sandbox_id=sandbox_id)
         _last_marker[owner_id] = existing[0].created_at if existing else ""
 
-    refresh_unseated_tables(
-        cash_table_repo=extensions.cash_table_repo,
-        personality_repo=extensions.personality_repo,
-        bankroll_repo=extensions.bankroll_repo,
-        user_id=owner_id,
-        sandbox_id=sandbox_id,
-        hand_sim_prob=hand_sim_prob,
-        chip_ledger_repo=extensions.chip_ledger_repo,
-        relationship_repo=extensions.relationship_repo,
-        stake_repo=extensions.stake_repo,
-        vice_repo=extensions.vice_state_repo,
-        side_hustle_repo=extensions.side_hustle_state_repo,
-    )
+    # Serialize the live-fill against human seat claims (sit / sponsor-sit /
+    # stake-offer) via the per-sandbox seat lock — both read-modify-write the
+    # same cash_tables seats blob, and last-write-wins would otherwise strand
+    # a just-placed AI or human.
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        refresh_unseated_tables(
+            cash_table_repo=extensions.cash_table_repo,
+            personality_repo=extensions.personality_repo,
+            bankroll_repo=extensions.bankroll_repo,
+            user_id=owner_id,
+            sandbox_id=sandbox_id,
+            hand_sim_prob=hand_sim_prob,
+            chip_ledger_repo=extensions.chip_ledger_repo,
+            relationship_repo=extensions.relationship_repo,
+            stake_repo=extensions.stake_repo,
+            vice_repo=extensions.vice_state_repo,
+            side_hustle_repo=extensions.side_hustle_state_repo,
+        )
 
     _maybe_record_holdings_snapshot(sandbox_id)
 

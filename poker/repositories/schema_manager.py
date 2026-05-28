@@ -5225,11 +5225,15 @@ class SchemaManager:
           1. CREATE TABLE stakes — one row per session-scoped stake
              deal, replacing the `active_loan_*` columns on
              `player_bankroll_state` as the persistence surface for
-             stakes and their post-bust carries. Phase 1 Commit 3
-             migrates `active_loan_*` data into rows here; the columns
-             themselves stick around through Phase 1 as a safety net
-             and get dropped in Phase 2 once the new settlement path
-             is live.
+             stakes and their post-bust carries. The cutover is
+             code-side only: readers/writers switched to
+             `StakeRepository`, and the now-dead `active_loan_*`
+             columns are dropped outright in v99. There is NO data
+             backfill from `active_loan_*` into `stakes` — none was
+             needed because cash mode never shipped, so those columns
+             never held production data. (Earlier plans referenced a
+             "Phase 1 Commit 3" backfill; it was never implemented and
+             isn't required.)
 
           2. UPDATE chip_ledger_entries SET reason = ... — renames any
              existing `house_loan_issue` / `house_loan_settle` ledger

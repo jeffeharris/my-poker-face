@@ -46,11 +46,6 @@ from .controllers import (
 )
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS
 from .poker_state_machine import PokerStateMachine
-from .strategy.hand_classification import (
-    RANK_VALUES,
-    _classify_straight_draw,
-    classify_hand_full,
-)
 from .rule_strategies import (
     BUILT_IN_STRATEGIES,
     CHAOS_BOTS,
@@ -74,6 +69,11 @@ from .rule_strategies import (
     _strategy_pot_odds_robot,
 )
 from .stack_utils import effective_stack_bb, effective_stack_chips, spr as compute_spr
+from .strategy.hand_classification import (
+    RANK_VALUES,
+    _classify_straight_draw,
+    classify_hand_full,
+)
 
 # These imports are intentionally re-exported for backward compatibility.
 # See the module docstring for the migration history.

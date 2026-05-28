@@ -82,6 +82,10 @@ export function StakeOfferModal({ target, bankroll, onClose, onAccepted }: Stake
     setRefusal(null);
     setAccepted(null);
     setSubmitError(null);
+    // Reset only when the modal opens for a genuinely different candidate/stake,
+    // not on every new `target` object reference — depending on `target` itself
+    // would wipe in-progress input whenever the parent re-renders a fresh object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.candidate.personality_id, target?.stakeLabel, target?.minBuyIn]);
 
   // Match-share clamps differently — principal + match must fit

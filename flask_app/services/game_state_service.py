@@ -16,6 +16,15 @@ games: Dict[str, dict] = {}
 game_locks: Dict[str, threading.Lock] = {}
 _game_locks_lock = threading.Lock()
 
+# Per-sandbox locks serialize cash-mode seat mutations. The human sit /
+# sponsor-sit routes and the world ticker's `refresh_unseated_tables` both
+# read-modify-write the same `cash_tables` seats JSON blob; without a shared
+# lock a human claim can clobber a just-placed live-fill AI (stranding its
+# already-debited buy-in). Per-sandbox granularity matches the ticker, which
+# advances one sandbox at a time.
+sandbox_locks: Dict[str, threading.Lock] = {}
+_sandbox_locks_lock = threading.Lock()
+
 # TTL-based eviction for stale games
 game_last_access: Dict[str, datetime] = {}
 GAME_TTL_HOURS = 2
@@ -136,6 +145,24 @@ def get_game_lock(game_id: str) -> threading.Lock:
         if game_id not in game_locks:
             game_locks[game_id] = threading.Lock()
         return game_locks[game_id]
+
+
+def get_sandbox_lock(sandbox_id: str) -> threading.Lock:
+    """Get or create the per-sandbox seat-mutation lock.
+
+    Held around any read-modify-write of a sandbox's `cash_tables` seats
+    — the human sit / sponsor-sit seat claims and the world ticker's
+    `refresh_unseated_tables` — so they serialize instead of clobbering
+    each other's last-write-wins seat blob. See `sandbox_locks`.
+
+    `sandbox_id` may be None for legacy/unscoped callers; they share a
+    single lock keyed on "" (still correct, just coarser).
+    """
+    key = sandbox_id or ""
+    with _sandbox_locks_lock:
+        if key not in sandbox_locks:
+            sandbox_locks[key] = threading.Lock()
+        return sandbox_locks[key]
 
 
 def get_game_owner_info(game_id: str) -> tuple:

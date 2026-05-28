@@ -119,6 +119,12 @@ class TestCreatePersonalityRoute:
         # so a fresh init_persistence doesn't reach into already-bound
         # names.)
         route_mod.personality_repo = ext.personality_repo
+        # Same by-name-binding hazard for auth_manager: the route module
+        # captures it at import, which (now that the module imports cleanly
+        # even before create_app) can be None. create_app() above sets
+        # ext.auth_manager to a real AuthManager — rebind so the setattr
+        # below patches a live object rather than None.
+        route_mod.auth_manager = ext.auth_manager
 
         # Stub auth: route's auth_manager.get_current_user returns a
         # fake user dict instead of consulting Flask session.

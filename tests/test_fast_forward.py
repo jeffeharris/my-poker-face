@@ -342,6 +342,17 @@ class _FastForwardRouteBase(unittest.TestCase):
             ),
         )
         self._authz_patcher.start()
+        # `game_repo` is likewise bound at game_routes import time. If an
+        # earlier test imported game_routes while `ext.game_repo` was None
+        # (or pointed at a since-deleted tempdb), the module name stays
+        # pinned to that stale value and `_authorize_game_access` raises
+        # instead of returning a clean 404. Pin it to this class's repo,
+        # mirroring the auth_manager patch above.
+        self._game_repo_patcher = patch(
+            'flask_app.routes.game_routes.game_repo',
+            self.repos['game_repo'],
+        )
+        self._game_repo_patcher.start()
 
         # Stub game_data in game_state_service — handle_ai_action /
         # progress_game aren't exercised here; we only care that the
@@ -369,6 +380,7 @@ class _FastForwardRouteBase(unittest.TestCase):
 
     def tearDown(self):
         self._progress_patcher.stop()
+        self._game_repo_patcher.stop()
         self._authz_patcher.stop()
         self._auth_patcher.stop()
         for gid in list(self._service.games.keys()):

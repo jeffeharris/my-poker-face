@@ -131,7 +131,7 @@ export function SponsorModal({
         setConfirmingKey(null);
       }
     },
-    [stakeLabel, busy, confirmingKey, navigate]
+    [stakeLabel, busy, confirmingKey, navigate, origin]
   );
 
   if (!isOpen) return null;
