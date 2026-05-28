@@ -183,6 +183,24 @@ def test_tick_emits_new_world_events(monkeypatch):
     assert ticker_service._last_marker["u1"] == "2026-05-24T12:05:00"
 
 
+def test_tick_forwards_live_seated_pids(monkeypatch):
+    # A live cash game in this sandbox must be reported as occupied to the
+    # refresh, so the world ticker can't seat/bust the human's live opponent
+    # elsewhere (the double-booked-persona corruption).
+    from flask_app.services import game_state_service
+
+    calls = _patch_tick(monkeypatch, pace="lively", events=[])
+    monkeypatch.setattr(
+        game_state_service,
+        "games",
+        {"cash-abc": {"sandbox_id": "sbx1", "cash_personality_ids": {"Zeus": "zeus"}}},
+    )
+    ticker_service._cycle = 1
+    ticker_service._tick_sandbox(FakeSocketIO(), "u1", "sbx1")
+
+    assert calls["refresh"]["live_seated_pids"] == {"zeus"}
+
+
 def test_subtle_pace_skips_off_cycles(monkeypatch):
     calls = _patch_tick(monkeypatch, pace="subtle", events=[])
     sio = FakeSocketIO()

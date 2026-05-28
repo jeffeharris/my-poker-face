@@ -142,6 +142,46 @@ def _off_grid_pids(sandbox_id: Optional[str], now: datetime) -> set:
     return pids
 
 
+def live_cash_seated_pids(sandbox_id: Optional[str]) -> set:
+    """Personality ids seated as AI opponents in any *live* cash game for
+    `sandbox_id` — the authoritative "who is the human playing right now".
+
+    The world sim's occupancy view (`cash_mode/lobby.py:_global_seated_set`)
+    is built only from the persisted `cash_tables` snapshot. A human's live
+    hand lives in the in-memory game registry (`game_state_service`), and
+    its `cash_tables` row can lag or be absent (the legacy `/api/cash/start`
+    path never writes a human slot; a mid-session table/stake move frees the
+    old row; the hand-boundary refresh early-returns when `cash_table_id` is
+    unset). When that happens, an AI that is the human's *current* live
+    opponent stays visible to the world ticker, which can seat — and bust —
+    it at another table mid-hand: the double-booked-persona corruption.
+
+    Returning the live opponents straight from the registry lets the world
+    sim treat them as occupied regardless of snapshot staleness. Reads the
+    registry dict directly (not `get_game`) so enumeration never refreshes
+    the TTL and pins abandoned games in memory. Fail-soft: any error yields
+    the empty set so a flaky read never blocks the world from advancing.
+    """
+    if not sandbox_id:
+        return set()
+    pids: set = set()
+    try:
+        for game_id in game_state_service.list_game_ids():
+            if not game_id.startswith('cash-'):
+                continue
+            gd = game_state_service.games.get(game_id)
+            if not gd:
+                continue
+            if _sandbox_id_for(gd) != sandbox_id:
+                continue
+            cash_pids = gd.get('cash_personality_ids') or {}
+            pids.update(cash_pids.values())
+    except Exception as e:
+        logger.warning("[CASH] live_cash_seated_pids lookup failed: %s", e)
+        return set()
+    return pids
+
+
 def _track_guest_hand(game_id: str, game_data: dict) -> bool:
     """Track hand completion for guest users and emit limit event if needed.
 
