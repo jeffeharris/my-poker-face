@@ -1,0 +1,365 @@
+/* WhereaboutsDrawer — centered fade+slide panel, mirrors NetWorthDrawer
+ * so it clears the fixed PageLayout header (portal-to-body + z-index). */
+
+/* Lobby trigger — a slim, right-aligned link-style pill under the
+ * activity ticker. Deliberately quiet: a power-user affordance, not a
+ * headline action. */
+.cash-entry__whereabouts-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -2px 0 2px;
+}
+
+.cash-entry__whereabouts-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 3px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #9aa0aa);
+  border-radius: 6px;
+}
+
+.cash-entry__whereabouts-trigger:hover {
+  color: var(--text-primary, #f5f5f5);
+}
+
+.whereabouts-drawer__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 1000;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  animation: whereabouts-fade-in 0.18s ease-out;
+}
+
+@keyframes whereabouts-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.whereabouts-drawer__sheet {
+  background: var(--surface-1, #1c1f25);
+  color: var(--text-primary, #f5f5f5);
+  border-radius: 16px;
+  max-width: 480px;
+  width: 100%;
+  margin: auto;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  animation: whereabouts-slide-up 0.24s ease-out;
+}
+
+@keyframes whereabouts-slide-up {
+  from {
+    transform: translateY(24px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.whereabouts-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.whereabouts-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.whereabouts-drawer__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  display: inline-flex;
+}
+
+.whereabouts-drawer__close:hover {
+  color: var(--text-primary, #f5f5f5);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.whereabouts-drawer__body {
+  padding: 8px 18px 4px;
+  overflow-y: auto;
+}
+
+.whereabouts-drawer__loading,
+.whereabouts-drawer__empty {
+  padding: 28px 8px;
+  text-align: center;
+  color: var(--text-secondary, #aaa);
+  font-size: 14px;
+}
+
+.whereabouts-drawer__empty-hint {
+  margin-top: 8px;
+  font-size: 12.5px;
+  opacity: 0.8;
+  line-height: 1.45;
+}
+
+.whereabouts-drawer__error {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(214, 110, 110, 0.12);
+  color: #e69a9a;
+  font-size: 13px;
+}
+
+.whereabouts-drawer__section {
+  margin: 14px 0 6px;
+}
+
+.whereabouts-drawer__section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #9aa0aa);
+}
+
+.whereabouts-drawer__section-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary, #aaa);
+  letter-spacing: 0;
+}
+
+.whereabouts-drawer__section-empty {
+  margin: 0;
+  padding: 2px 2px 4px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--text-secondary, #7f858f);
+  opacity: 0.7;
+}
+
+.whereabouts-drawer__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.whereabouts-drawer__section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 0 2px;
+  padding: 3px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #9aa0aa);
+  border-radius: 6px;
+}
+
+.whereabouts-drawer__section-toggle:hover {
+  color: var(--text-primary, #f5f5f5);
+}
+
+.whereabouts-drawer__section-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.whereabouts-drawer__section-toggle.is-expanded svg {
+  transform: rotate(180deg);
+}
+
+/* Fog-of-war row — quiet, non-interactive teaser of unmet strangers. */
+.whereabouts-drawer__unmet {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  font-size: 12.5px;
+  color: var(--text-secondary, #7f858f);
+}
+
+.whereabouts-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.whereabouts-row--expandable {
+  cursor: pointer;
+}
+
+.whereabouts-row--expandable:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.whereabouts-row__chevron {
+  flex: 0 0 auto;
+  color: var(--text-secondary, #7f858f);
+  transition: transform 0.15s ease;
+}
+
+.whereabouts-row.is-expanded .whereabouts-row__chevron {
+  transform: rotate(180deg);
+}
+
+.whereabouts-row__avatar {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.whereabouts-row__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.whereabouts-row__avatar-fallback {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary, #ccc);
+}
+
+.whereabouts-row__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.whereabouts-row__name-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.whereabouts-row__name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.whereabouts-row__detail {
+  font-size: 12.5px;
+  color: var(--text-secondary, #9aa0aa);
+  margin-top: 1px;
+  /* Clamp to 2 lines by default; expandable hustle/vice rows drop the
+     clamp on tap (.is-expanded) so the full narration is readable. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.whereabouts-row__detail.is-expanded {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+}
+
+/* The world's short-term memory — newest notable event, a touch dimmer than
+   the activity detail so it reads as background flavor. */
+.whereabouts-row__memory {
+  font-size: 11.5px;
+  color: var(--text-tertiary, #6f757e);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.whereabouts-row__pnl {
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.whereabouts-row__pnl--up {
+  color: #6ed68f;
+}
+.whereabouts-row__pnl--down {
+  color: #d68585;
+}
+.whereabouts-row__pnl--even {
+  color: var(--text-secondary, #8a8f99);
+}
+
+/* Muted, non-colored "vs. you" suffix that makes the amount self-describing. */
+.whereabouts-row__pnl-label {
+  color: var(--text-secondary, #8a8f99);
+  font-weight: 400;
+}
+
+.whereabouts-row__timing {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary, #9aa0aa);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.whereabouts-drawer__footnote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 10px 18px 16px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #7f858f);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}

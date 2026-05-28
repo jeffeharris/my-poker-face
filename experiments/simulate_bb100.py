@@ -177,6 +177,29 @@ ARCHETYPES = {
         'kind': 'rule_bot',
         'strategy': 'maniac',
     },
+    # Fish (casino tourist): loose-passive calling station that now value-bets
+    # its strong hands with honest, size=strength sizing. 'Fish' is the
+    # baseline; the rest layer one readable aggression leak. See
+    # poker/rule_strategies.py::_strategy_fish / FishLeak.
+    'Fish': {
+        'kind': 'rule_bot',
+        'strategy': 'fish',
+    },
+    'Fish-Transparent': {
+        'kind': 'rule_bot',
+        'strategy': 'fish',
+        'fish_leak': 'bets_strong_transparently',
+    },
+    'Fish-Spew': {
+        'kind': 'rule_bot',
+        'strategy': 'fish',
+        'fish_leak': 'spews_bluffs',
+    },
+    'Fish-Sticky': {
+        'kind': 'rule_bot',
+        'strategy': 'fish',
+        'fish_leak': 'sticky_then_pops',
+    },
 }
 
 TERMINAL_PHASES = {PokerPhase.HAND_OVER, PokerPhase.GAME_OVER}
@@ -272,10 +295,12 @@ def make_controller(
     # Rule-based controller path: no strategy table, no LLM, no psychology
     if archetype_config.get('kind') == 'rule_bot':
         strategy = archetype_config['strategy']
-        rule_config = CHAOS_BOTS.get(strategy) or RuleConfig(
-            strategy=strategy,
-            name=name,
-        )
+        fish_leak = archetype_config.get('fish_leak')
+        # Use the CHAOS_BOTS preset unless this archetype designates a fish
+        # leak, in which case build a fresh config carrying it.
+        rule_config = CHAOS_BOTS.get(strategy)
+        if rule_config is None or fish_leak is not None:
+            rule_config = RuleConfig(strategy=strategy, name=name, fish_leak=fish_leak)
         return RuleBasedController(
             player_name=name,
             state_machine=sm,

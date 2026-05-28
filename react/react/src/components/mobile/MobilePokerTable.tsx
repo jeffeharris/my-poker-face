@@ -10,7 +10,9 @@ import { FloatingChat } from './FloatingChat';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
-import { ShuffleLoading } from '../shared/ShuffleLoading';
+import { ShuffleLoading, type TickerLine } from '../shared/ShuffleLoading';
+import { selectInterhandTicker } from '../cash/interhandTicker';
+import { feedEventKey, renderEventIcon } from '../cash/tickerEvents';
 import { pickQuote } from '../game/WinnerAnnouncement/quote-flavor';
 import { GuestLimitModal } from '../shared';
 import { useUsageStats } from '../../hooks/useUsageStats';
@@ -22,6 +24,7 @@ import { CoachBubble } from './CoachBubble';
 import { MobileCashButton } from '../cash/MobileCashButton';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
+import { SoloTableModal } from '../cash/SoloTableModal';
 import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
@@ -46,6 +49,10 @@ interface MobilePokerTableProps {
   onBack?: () => void;
   onGameLoadFailed?: () => void;
 }
+
+// How many world-ticker beats the interhand "meanwhile, elsewhere" strip
+// shows at once. A few of the biggest/rarest — not a full feed.
+const MAX_INTERHAND_TICKER = 3;
 
 export function MobilePokerTable({
   gameId: providedGameId,
@@ -141,6 +148,8 @@ export function MobilePokerTable({
   const runItOut = useGameStore((state) => state.runItOut);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
+  const worldEvents = useGameStore((state) => state.worldEvents);
+  const aiInstant = useGameStore((state) => state.aiInstant);
 
   // Non-game-state from the hook (socket, overlays, actions)
   const {
@@ -214,6 +223,21 @@ export function MobilePokerTable({
     const q = pickQuote('between_hands');
     return q ? { text: q.text, attribution: q.attribution } : undefined;
   }, [handNumber]);
+
+  // Cash/career mode: turn the interhand pause into a "meanwhile, elsewhere"
+  // world ticker — the bigger, rarer beats from around the room since this
+  // hand started (events tagged with the hand that just ended), minus routine
+  // sit-downs/leaves. `undefined` in tournament mode, where the world isn't
+  // simulated and the hand-number badge stays.
+  const interhandTicker = useMemo<TickerLine[] | undefined>(() => {
+    if (!cashMode) return undefined;
+    const thisHand = worldEvents.filter((w) => w.hand === handNumber).map((w) => w.event);
+    return selectInterhandTicker(thisHand, MAX_INTERHAND_TICKER).map((e) => ({
+      key: feedEventKey(e),
+      icon: renderEventIcon(e.type),
+      message: e.message,
+    }));
+  }, [cashMode, worldEvents, handNumber]);
 
   // Don't highlight active player during run-it-out, non-betting phases, or when phase is not set
   const shouldHighlightActivePlayer = isBettingPhase(phase, runItOut);
@@ -293,14 +317,18 @@ export function MobilePokerTable({
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
 
-  // Stable map of player name → avatar URL for FloatingChat
+  // Map of player name → avatar URL for FloatingChat. Accumulated across the
+  // whole session (never pruned): a player who busts/leaves drops out of
+  // `storePlayers`, but a chat message they sent right before going still
+  // needs their avatar, so we remember every avatar we've ever seen here.
+  const avatarCacheRef = useRef<Map<string, string>>(new Map());
   const playerAvatars = useMemo(() => {
-    if (!storePlayers) return new Map<string, string>();
-    const map = new Map<string, string>();
-    for (const p of storePlayers) {
-      if (p.avatar_url) map.set(p.name, `${config.API_URL}${p.avatar_url}`);
+    const cache = avatarCacheRef.current;
+    for (const p of storePlayers ?? []) {
+      if (p.avatar_url) cache.set(p.name, `${config.API_URL}${p.avatar_url}`);
     }
-    return map;
+    // Fresh snapshot so memoized consumers see a new identity when it grows.
+    return new Map(cache);
   }, [storePlayers]);
 
   // Heads-up mode: only 1 AI opponent remains
@@ -373,9 +401,10 @@ export function MobilePokerTable({
         smallBlind={smallBlind}
         bigBlind={bigBlind}
         handNumber={handNumber}
+        tableName={cashMode?.table_name}
       />
     ),
-    [phase, smallBlind, bigBlind, handNumber]
+    [phase, smallBlind, bigBlind, handNumber, cashMode?.table_name]
   );
 
   const handleCoachToggle = useCallback(() => {
@@ -499,6 +528,11 @@ export function MobilePokerTable({
            *  cash_rebuy_needed. Sits above MobileCashSheet so the player
            *  can't dismiss it by tapping outside. */}
           <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+
+          {/* Cash mode "everyone left" prompt — fires when the table
+           *  empties of opponents but the human still has chips (paused
+           *  server-side). Stay & play reseats; Return to lobby cashes out. */}
+          <SoloTableModal cashMode={cashMode} />
 
           {/* Character dossier — opens when tapping an opponent avatar
            *  (when LLM debug isn't enabled). Uses the live Player blob
@@ -946,35 +980,41 @@ export function MobilePokerTable({
                     </button>
                   )}
                 <span className="waiting-text" data-testid="waiting-text">
-                  {aiThinking && currentPlayer
+                  {aiThinking && currentPlayer && !currentPlayer.is_human
                     ? `${currentPlayer.name} is thinking...`
-                    : 'Waiting...'}
+                    : aiThinking
+                      ? 'Submitting...'
+                      : 'Waiting...'}
                 </span>
                 {/* Fast-forward: any time someone else is acting — including
                 while the human is folded (waiting out the hand is exactly
                 when FF matters). The auto-reset fires when action returns
                 to the human on the next hand's preflop. */}
-                {gameId && humanPlayer && currentPlayer && !currentPlayer.is_human && (
-                  <button
-                    className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
-                    data-testid="action-btn-ff"
-                    onClick={() => {
-                      gameAPI.fastForward(gameId, !fastForward).catch((e) => {
-                        logger.warn('[FF] toggle failed', e);
-                      });
-                    }}
-                    title={
-                      fastForward
-                        ? 'Tap to return to normal speed'
-                        : 'Skip AI deliberation — resolve to your next turn'
-                    }
-                  >
-                    <span className="action-icon">
-                      <FastForward />
-                    </span>
-                    <span className="btn-label">{fastForward ? 'Stop' : 'FF'}</span>
-                  </button>
-                )}
+                {gameId &&
+                  humanPlayer &&
+                  currentPlayer &&
+                  !currentPlayer.is_human &&
+                  !aiInstant && (
+                    <button
+                      className={`action-btn ff-btn ${fastForward ? 'queued' : ''}`}
+                      data-testid="action-btn-ff"
+                      onClick={() => {
+                        gameAPI.fastForward(gameId, !fastForward).catch((e) => {
+                          logger.warn('[FF] toggle failed', e);
+                        });
+                      }}
+                      title={
+                        fastForward
+                          ? 'Tap to return to normal speed'
+                          : 'Skip AI deliberation — resolve to your next turn'
+                      }
+                    >
+                      <span className="action-icon">
+                        <FastForward />
+                      </span>
+                      <span className="btn-label">{fastForward ? 'Stop' : 'FF'}</span>
+                    </button>
+                  )}
                 <button
                   className="action-btn chat-btn"
                   data-testid="action-btn-chat"
@@ -1020,7 +1060,8 @@ export function MobilePokerTable({
             isVisible={isInterhandPhase}
             message={interhandMessage || 'Shuffling'}
             submessage={interhandSubmessage}
-            handNumber={handNumber}
+            handNumber={cashMode ? undefined : handNumber}
+            ticker={interhandTicker}
             quote={interhandQuote}
             variant="interhand"
           />

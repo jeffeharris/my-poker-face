@@ -2541,7 +2541,7 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "calls_river_light"
+      "fish_leak": "sticky_then_pops"
     },
     "Golf Trip Brad": {
       "archetype": "fish",
@@ -2590,7 +2590,7 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "doesnt_believe_big_bets"
+      "fish_leak": "bets_strong_transparently"
     },
     "Freddie Fratboy": {
       "archetype": "fish",
@@ -2639,7 +2639,7 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "chases_any_draw"
+      "fish_leak": "spews_bluffs"
     }
   }
 }

@@ -15,11 +15,32 @@ import random
 import pytest
 
 from poker.rule_strategies import (
+    FISH_BET_BLUFF,
+    FISH_BET_MEDIUM,
+    FISH_BET_NUTS,
+    FISH_BET_STRONG,
+    FISH_POP_MEDIUM,
+    FISH_POP_NUTS,
+    FISH_POP_STRONG,
     POT_COMMITTED_THRESHOLD,
     SPITE_RAISE_PROBABILITY,
     FishLeak,
     _strategy_fish,
 )
+
+
+class _ForceRoll:
+    """rng stub whose .random() is always below any leak probability."""
+
+    def random(self):
+        return 0.0
+
+
+class _NoRoll:
+    """rng stub whose .random() is always above any leak probability."""
+
+    def random(self):
+        return 0.99
 
 
 def _fish_context(**overrides):
@@ -49,6 +70,32 @@ def _fish_context(**overrides):
     }
     ctx.update(overrides)
     return ctx
+
+
+def _free_context(**overrides):
+    """Checked-to (free to act) context with pot/sizing fields for value-bet tests.
+
+    Pot is large relative to min_raise so pot-fraction sizing isn't
+    swallowed by the min-raise floor — lets us assert the "bigger hand →
+    bigger bet" tell. `made_tier` defaults to air; equity is low so the
+    equity fallback doesn't fire unless a test sets it.
+    """
+    ctx = _fish_context(
+        cost_to_call=0,
+        valid_actions=['check', 'raise'],
+        equity=0.30,
+        pot_total=2000,
+        min_raise=200,
+        max_raise=10000,
+        made_tier='air',
+    )
+    ctx.update(overrides)
+    return ctx
+
+
+def _expected_bet(ctx, fraction):
+    """Mirror _fish_bet sizing so assertions track the constants, not magic numbers."""
+    return max(ctx['min_raise'], min(int(ctx['pot_total'] * fraction), ctx['max_raise']))
 
 
 class TestBaselineFishBehavior:
@@ -320,3 +367,158 @@ class TestLeakIndependence:
             equity=0.85,
         )
         assert _strategy_fish(ctx)['action'] == 'raise'
+
+
+class TestBaselineValueBetting:
+    """Checked-to, no leak: honest value betting with size ∝ strength."""
+
+    def test_bets_nuts_when_checked_to(self):
+        ctx = _free_context(made_tier='nuts')
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_NUTS)
+
+    def test_strong_bets_smaller_than_nuts(self):
+        """The tell: a stronger made hand bets bigger."""
+        nuts = _strategy_fish(_free_context(made_tier='nuts'))['raise_to']
+        strong = _strategy_fish(_free_context(made_tier='strong_made'))['raise_to']
+        assert strong == _expected_bet(_free_context(), FISH_BET_STRONG)
+        assert strong < nuts
+
+    def test_checks_top_pair_at_baseline(self):
+        # Baseline only value-bets strong_made+. Top pair (medium_made) checks.
+        ctx = _free_context(made_tier='medium_made')
+        assert _strategy_fish(ctx)['action'] == 'check'
+
+    def test_checks_air(self):
+        ctx = _free_context(made_tier='air', equity=0.30)
+        assert _strategy_fish(ctx)['action'] == 'check'
+
+    def test_equity_fallback_bets_without_made_tier(self):
+        # No made_tier signal (preflop / fixture) but high equity → value bet.
+        ctx = _free_context(made_tier='air', equity=0.85)
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_NUTS)
+
+    def test_checks_when_raise_unavailable(self):
+        ctx = _free_context(made_tier='nuts', valid_actions=['check'])
+        assert _strategy_fish(ctx)['action'] == 'check'
+
+
+class TestBetsStrongTransparently:
+    leak = FishLeak.BETS_STRONG_TRANSPARENTLY
+
+    def test_bets_top_pair_when_checked_to(self):
+        # Widens the value range down to top pair (baseline would check).
+        ctx = _free_context(fish_leak=self.leak, made_tier='medium_made')
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_MEDIUM)
+
+    def test_value_raises_top_pair_facing_bet(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            has_top_pair_or_better=True,
+            made_tier='medium_made',
+            pot_total=2000,
+            max_raise=10000,
+        )
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_POP_MEDIUM)
+
+    def test_pops_bigger_with_monster(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            has_top_pair_or_better=True,
+            made_tier='nuts',
+            pot_total=2000,
+            max_raise=10000,
+        )
+        decision = _strategy_fish(ctx)
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_POP_NUTS)
+        assert decision['raise_to'] > _expected_bet(ctx, FISH_POP_MEDIUM)
+
+    def test_no_pop_without_made_hand_folds_air(self):
+        # Trigger fails (no top pair) → falls through to calling-station ladder.
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            has_top_pair_or_better=False,
+            made_tier='air',
+        )
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+
+class TestSpewsBluffs:
+    leak = FishLeak.SPEWS_BLUFFS
+
+    def test_bluffs_air_when_roll_succeeds(self):
+        ctx = _free_context(fish_leak=self.leak, made_tier='air', equity=0.20, _rng=_ForceRoll())
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_BLUFF)
+
+    def test_checks_air_when_roll_fails(self):
+        ctx = _free_context(fish_leak=self.leak, made_tier='air', equity=0.20, _rng=_NoRoll())
+        assert _strategy_fish(ctx)['action'] == 'check'
+
+    def test_value_bets_strong_even_when_roll_fails(self):
+        # Value branch runs before the bluff roll — a real hand still bets.
+        ctx = _free_context(fish_leak=self.leak, made_tier='nuts', _rng=_NoRoll())
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_NUTS)
+
+    def test_facing_bet_is_still_calling_station(self):
+        # Spew is a checked-to behavior; facing a large bet with air → fold.
+        ctx = _fish_context(fish_leak=self.leak, _rng=_ForceRoll())
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+
+class TestStickyThenPops:
+    leak = FishLeak.STICKY_THEN_POPS
+
+    def test_pops_nuts_facing_bet(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            made_tier='nuts',
+            pot_total=2000,
+            max_raise=10000,
+        )
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_POP_NUTS)
+
+    def test_pops_strong_made_smaller_than_nuts(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            made_tier='strong_made',
+            pot_total=2000,
+            max_raise=10000,
+        )
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_POP_STRONG)
+
+    def test_top_pair_does_not_pop_reverts_to_calling(self):
+        # medium_made (top pair) is NOT a monster → no pop; reverts to the
+        # calling-station ladder, which calls a large bet at equity >= 0.55.
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            made_tier='medium_made',
+            has_top_pair_or_better=True,
+            equity=0.60,
+        )
+        assert _strategy_fish(ctx)['action'] == 'call'
+
+    def test_air_folds_facing_bet(self):
+        ctx = _fish_context(fish_leak=self.leak, made_tier='air')
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+    def test_free_with_monster_uses_baseline_value_bet(self):
+        # When checked to, sticky behaves like baseline (value-bets monsters).
+        ctx = _free_context(fish_leak=self.leak, made_tier='nuts')
+        decision = _strategy_fish(ctx)
+        assert decision['action'] == 'raise'
+        assert decision['raise_to'] == _expected_bet(ctx, FISH_BET_NUTS)

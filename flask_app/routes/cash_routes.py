@@ -1322,6 +1322,10 @@ def sit_at_table():
     if game_data is not None:
         game_data["cash_table_id"] = table_id
         game_data["cash_seat_index"] = seat_index
+        # Friendly room name for the in-game header chip + arrival toast.
+        # Rides along with table_id so build_cash_mode_payload stays a
+        # pure reader (no per-frame DB lookup on the hot game-state path).
+        game_data["cash_table_name"] = claimed_table.name
         game_state_service.set_game(game_id, game_data)
 
     _record_cash_session_start(
@@ -1917,6 +1921,10 @@ def sponsor_and_sit():
         if game_data is not None:
             game_data["cash_table_id"] = table_id
             game_data["cash_seat_index"] = seat_index
+            # Friendly room name for the header chip / arrival toast.
+            # claimed_table may be None on this sponsor path; degrade to
+            # None so the frontend simply omits the chip.
+            game_data["cash_table_name"] = claimed_table.name if claimed_table is not None else None
             game_state_service.set_game(game_id, game_data)
 
     # Persist the stake row that leave_table will settle. `stake_id`
@@ -2162,10 +2170,12 @@ def rebuy():
     from flask_app.handlers.game_handler import progress_game, update_and_emit_game_state
 
     update_and_emit_game_state(game_id)
-    # Resume play: if the table was paused in HAND_OVER because the
-    # human's bust dropped chip-holders below 2, refilling our stack
-    # restores quorum. Kick progress_game so the next hand actually
-    # deals instead of waiting for some other event.
+    # Resume play: the table pauses in HAND_OVER whenever the human is
+    # busted (whether or not 2+ AIs still hold chips — see
+    # handle_evaluating_hand_phase), so the rebuy has a between-hands
+    # window to land in. Refilling our stack clears the bust; kick
+    # progress_game so the next hand actually deals instead of waiting
+    # for some other event.
     progress_game(game_id)
 
     return jsonify(
@@ -2174,6 +2184,176 @@ def rebuy():
             "bankroll": bankroll.chips - amount,
         }
     )
+
+
+@cash_bp.route("/api/cash/reseat", methods=["POST"])
+def reseat():
+    """POST /api/cash/reseat  body: {personality_ids?: [str]}
+
+    "Stay and play" from the everyone-left prompt: the table emptied of
+    opponents (all left or busted without a refill) while the human still
+    has chips, so the game paused in HAND_OVER. This seats up to two
+    fresh AIs — preferring the ones the prompt named in
+    `personality_ids` — debits their bankrolls for a buy-in, drops them
+    into the running game, and kicks `progress_game` so the next hand
+    deals.
+
+    Distinct from /api/cash/rebuy (which refills the *human's* stack):
+    reseat never touches the human's chips or any active stake, so there
+    is no settlement-math interaction.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    game_id = _find_active_cash_game_id(owner_id)
+    if game_id is None:
+        return jsonify({"error": "No active cash session"}), 404
+
+    from datetime import datetime
+
+    from cash_mode.tables import CashTableState, ai_slot
+    from core.economy import ledger as chip_ledger
+    from flask_app.extensions import bankroll_repo, cash_table_repo, chip_ledger_repo
+    from flask_app.handlers.game_handler import (
+        _project_candidate_buy_in,
+        _sandbox_id_for,
+        _seat_freshly_filled_ais,
+        progress_game,
+        select_rejoin_candidates,
+        update_and_emit_game_state,
+    )
+    from flask_app.services import game_state_service
+    from poker.poker_state_machine import PokerPhase
+
+    game_data = game_state_service.get_game(game_id)
+    if game_data is None:
+        return jsonify({"error": "No active cash session"}), 404
+    state_machine = game_data["state_machine"]
+
+    # Only meaningful from the paused solo state the prompt is shown for.
+    if not game_data.get("cash_solo_paused"):
+        return jsonify({"error": "Table is not waiting for players"}), 400
+    if state_machine.current_phase not in (
+        PokerPhase.INITIALIZING_GAME,
+        PokerPhase.INITIALIZING_HAND,
+        PokerPhase.HAND_OVER,
+    ):
+        return jsonify({"error": "Reseat is only allowed between hands"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    prefer_pids = payload.get("personality_ids") or None
+    if prefer_pids is not None and not isinstance(prefer_pids, list):
+        return jsonify({"error": "personality_ids must be a list"}), 400
+
+    candidates = select_rejoin_candidates(
+        game_data, state_machine.game_state, limit=2, prefer_pids=prefer_pids
+    )
+    if not candidates:
+        return jsonify({"error": "No players available to join right now"}), 409
+
+    # Prune busted (stack 0) AI ghosts a pool-exhausted refill may have
+    # left in the player tuple, so the resumed table is a clean
+    # human + fresh AIs.
+    gs = state_machine.game_state
+    pruned = tuple(p for p in gs.players if p.is_human or p.stack > 0)
+    if len(pruned) != len(gs.players):
+        gs = gs.update(players=pruned)
+        state_machine.game_state = gs
+
+    big_blind = gs.current_ante
+    min_buy_in = big_blind * 40
+    max_buy_in = big_blind * 100
+    sandbox_id = _sandbox_id_for(game_data)
+    now = datetime.utcnow()
+
+    table_id = game_data.get("cash_table_id")
+    table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id) if table_id else None
+    if table is None:
+        # Legacy / table-less session: synthesize an in-memory table just
+        # to carry the seated slots into _seat_freshly_filled_ais. Not
+        # persisted (no table_id to save under).
+        table = CashTableState(
+            table_id=table_id or f"_session_{game_id}",
+            stake_label=game_data.get("cash_stake_label") or "",
+        )
+
+    # Fillable seats: genuinely `open` slots (voluntary departures) AND
+    # `ai` slots left at 0 chips (an AI busted and `_refill_cash_seats`
+    # found no replacement — `_refresh_lobby_table_for_session` persists
+    # those as `ai_slot(pid, 0)`, not `open`). Both are dead seats we can
+    # reuse. The human seat (and any live AI) is never touched.
+    fillable_indices = [
+        i
+        for i, s in enumerate(table.seats)
+        if s.get("kind") == "open"
+        or (s.get("kind") == "ai" and int(s.get("chips", 0)) == 0)
+    ]
+    seated_pids = []
+    for cand in candidates:
+        if not fillable_indices:
+            break
+        pid = cand["personality_id"]
+        proj = _project_candidate_buy_in(
+            pid, min_buy_in, max_buy_in, sandbox_id, now, bankroll_repo
+        )
+        if proj is None:
+            continue
+        buy_in, new_state, pre_regen_chips = proj
+        table = table.with_seat(fillable_indices.pop(0), ai_slot(pid, buy_in))
+        bankroll_repo.save_ai_bankroll(new_state, sandbox_id=sandbox_id)
+        try:
+            chip_ledger.record_ai_regen(
+                chip_ledger_repo,
+                personality_id=pid,
+                stored_chips=pre_regen_chips,
+                projected_chips=new_state.chips + buy_in,
+                context={"game_id": game_id, "site": "cash_reseat", "sandbox_id": sandbox_id},
+                sandbox_id=sandbox_id,
+            )
+        except Exception as e:
+            logger.warning("[CASH] reseat ledger record failed for %r: %s", pid, e)
+        seated_pids.append(pid)
+
+    if not seated_pids:
+        return jsonify({"error": "No players available to join right now"}), 409
+
+    if table_id:
+        # save_table enforces the seated⇒not-idle invariant in the same
+        # transaction (clears any cash_idle_pool row for the seated pids),
+        # so this is the single guard against the seated_and_idle
+        # split-brain for the real path.
+        cash_table_repo.save_table(table, sandbox_id=sandbox_id)
+    else:
+        # Legacy table-less session: there's no row to save through, so
+        # clear the idle rows directly to preserve the same invariant.
+        for pid in seated_pids:
+            try:
+                cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
+            except Exception as e:
+                logger.warning("[CASH] reseat idle-clear failed for %r: %s", pid, e)
+
+    # Drop the new AIs into the running game, then resume play.
+    _seat_freshly_filled_ais(game_id, game_data, state_machine, table, seated_pids)
+
+    game_data.pop("cash_solo_paused", None)
+    game_data.pop("cash_rejoin_candidates", None)
+    game_data["state_machine"] = state_machine
+    game_state_service.set_game(game_id, game_data)
+
+    update_and_emit_game_state(game_id)
+    # Kick the paused state machine so the next hand actually deals now
+    # that quorum is restored (mirrors the /rebuy resume path).
+    progress_game(game_id)
+
+    logger.info(
+        "[CASH] Reseated game_id=%r with %d AI(s): %s",
+        game_id,
+        len(seated_pids),
+        seated_pids,
+    )
+    return jsonify({"seated": seated_pids})
 
 
 @cash_bp.route("/api/cash/stakes/<stake_id>/default", methods=["POST"])
@@ -3426,6 +3606,9 @@ def offer_stake_to_ai():
         open_seat_index,
         ai_slot(target_pid, seat_chips),
     )
+    # save_table enforces the seated⇒not-idle invariant: if the staked AI
+    # was resting in the idle pool, its row is cleared in the same write
+    # (see CashTableRepository.save_table).
     cash_table_repo.save_table(updated_table, sandbox_id=sandbox_id, now=now)
 
     import uuid as _uuid
@@ -4395,10 +4578,29 @@ def get_lobby():
     # chain. Full Path C will source emotions from background-sim
     # state for unseated tables too.
     active_emotions: Dict[str, str] = {}
+    # Which table is the player currently seated at? Drives the lobby
+    # "you're seated here" pin (TableCard Resume state). None when the
+    # player has no live session.
+    #
+    # `has_active_session` is the DB-aware truth (any cash-* game row for
+    # this owner); `seated_table_id` is a display nicety. They can
+    # legitimately diverge: a session abandoned mid-hand survives as a
+    # DB-only `games` row that isn't in memory, so `get_game` returns
+    # None. We must STILL surface the Resume bar in that case — otherwise
+    # `_find_active_cash_game_id` keeps 409-ing every new sit while the
+    # lobby shows no way back in or out (the wedge that stranded a cold
+    # sponsored session). Fall back to the durable cash_sessions row for
+    # the table id / stake label so the pin + label work for cold resumes
+    # too.
+    seated_table_id: Optional[str] = None
+    seated_stake_label: Optional[str] = None
     active_game_id = _find_active_cash_game_id(owner_id)
+    has_active_session = active_game_id is not None
     if active_game_id:
         active_game = game_state_service.get_game(active_game_id)
         if active_game:
+            seated_table_id = active_game.get("cash_table_id")
+            seated_stake_label = active_game.get("cash_stake_label")
             for name, controller in (active_game.get("ai_controllers") or {}).items():
                 emotional_state = getattr(controller, "emotional_state", None)
                 if emotional_state:
@@ -4408,6 +4610,25 @@ def get_lobby():
                         active_emotions[name] = "confident"
                 else:
                     active_emotions[name] = "confident"
+        else:
+            # DB-only (cold) session — the game row exists but isn't
+            # loaded into memory. Pull the table id / stake label from
+            # the durable cash_sessions row so the Resume bar can route
+            # the player back through the cold-load (which rehydrates it).
+            try:
+                from flask_app.extensions import cash_session_repo as _cs_repo
+
+                if _cs_repo is not None:
+                    _cs = _cs_repo.load(active_game_id)
+                    if _cs is not None:
+                        seated_table_id = _cs.cash_table_id
+                        seated_stake_label = _cs.stake_label
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] cold-session lookup failed for %s: %s",
+                    active_game_id,
+                    exc,
+                )
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -4832,12 +5053,127 @@ def get_lobby():
             "tier": current_tier,
             "tier_stake_label": current_tier_stake,
             "tables": response_tables,
+            "seated_table_id": seated_table_id,
+            "seated_stake_label": seated_stake_label,
+            "has_active_session": has_active_session,
             "events": events_payload,
             "pending_forgiveness_count": pending_forgiveness_count,
             "active_vices": active_vices_payload,
             "world_pace": world_pace,
             "bankroll_history": bankroll_history,
             "last_session_delta": last_session_delta,
+        }
+    )
+
+
+@cash_bp.route("/api/cash/whereabouts", methods=["GET"])
+@limiter.limit(config.RATE_LIMIT_POLLING)
+def get_whereabouts():
+    """GET /api/cash/whereabouts — where are the people I've met?
+
+    Player-facing companion to the lobby. Lists every AI the player has
+    actually tangled with in cash (a `cash_pair_stats` row with chip
+    flow) and says where each one is right now: at another table,
+    resting in the idle pool (recharging / waiting to stake up), off on
+    a side hustle (earning back a buy-in), or indulging a vice. Scoped
+    to "met" personas so it doesn't spoil opponents the player hasn't
+    discovered yet, and so the list stays personal rather than a roster
+    dump.
+
+    The admin tripwire variant (`/api/admin/cash/whereabouts`) returns
+    the unfiltered world + invariant `stuck` flags; this route strips
+    `stuck` — a player shouldn't see "this persona is bugged."
+
+    Response: `{"now", "people": [...], "counts": {...}}`. Each person
+    carries name, status, location/timing, the player's PnL vs them,
+    plus `avatar_url` + `emotion` for rendering.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    from cash_mode.whereabouts import (
+        STUCK_UNKNOWN_PERSONALITY,
+        build_whereabouts,
+    )
+    from flask_app.extensions import (
+        bankroll_repo,
+        cash_table_repo,
+        personality_repo,
+        relationship_repo,
+        side_hustle_state_repo,
+        vice_state_repo,
+    )
+    from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
+
+    data = build_whereabouts(
+        sandbox_id=sandbox_id,
+        owner_id=owner_id,
+        now=datetime.utcnow(),
+        cash_table_repo=cash_table_repo,
+        side_hustle_repo=side_hustle_state_repo,
+        vice_repo=vice_state_repo,
+        relationship_repo=relationship_repo,
+        bankroll_repo=bankroll_repo,
+        personality_repo=personality_repo,
+    )
+
+    met_people = [p for p in data["people"] if p.get("met")]
+
+    # Bulk-resolve persisted emotion for the met pids (schema v97), same
+    # source the lobby uses for unseated AIs. Drives both the emotion chip
+    # and the avatar fallback's expression.
+    emotions: Dict[str, str] = {}
+    try:
+        pids = [p["personality_id"] for p in met_people]
+        blobs = bankroll_repo.load_emotional_state_json_for_pids(
+            pids,
+            sandbox_id=sandbox_id,
+        )
+        for pid, blob in (blobs or {}).items():
+            if blob:
+                emotions[pid] = _resolve_emotion_from_blob(blob, pid)
+    except Exception as exc:
+        logger.warning("[CASH][WHEREABOUTS] emotion resolution failed: %s", exc)
+
+    enriched = []
+    for person in met_people:
+        emotion = emotions.get(person["personality_id"], "confident")
+        # Never feed the personality_id as a name to the avatar fallback
+        # (that path can auto-create a zombie persona); orphans are
+        # filtered out of the met set anyway, but guard regardless.
+        avatar_url = None
+        if STUCK_UNKNOWN_PERSONALITY not in person.get("stuck", []):
+            try:
+                avatar_url = get_avatar_url_with_fallback(None, person["name"], emotion)
+            except Exception:
+                avatar_url = None
+        # Strip the internal health flags from the player payload — a
+        # player shouldn't see "this persona is bugged / overdue".
+        clean = {k: v for k, v in person.items() if k not in ("stuck", "watch")}
+        clean["emotion"] = emotion
+        clean["avatar_url"] = avatar_url
+        enriched.append(clean)
+
+    # Fog of war: how many trackable AIs are around that the player
+    # hasn't met yet. A count only — never their names/locations — so it
+    # teases the wider world without spoiling undiscovered personas.
+    unmet_count = len(data["people"]) - len(enriched)
+
+    return jsonify(
+        {
+            "now": data["now"],
+            "people": enriched,
+            "unmet_count": unmet_count,
+            "counts": {
+                "total": len(enriched),
+                "idle": sum(1 for p in enriched if p["status"] == "idle"),
+                "side_hustle": sum(1 for p in enriched if p["status"] == "side_hustle"),
+                "vice": sum(1 for p in enriched if p["status"] == "vice"),
+                "seated": sum(1 for p in enriched if p["status"] == "seated"),
+            },
         }
     )
 

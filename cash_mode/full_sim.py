@@ -91,6 +91,21 @@ def _get_session_memory_manager(sandbox_id: Optional[str], db_path: Optional[str
                 exc,
             )
             return None
+        # Carry opponent reads across sessions: restore this sandbox's
+        # persisted models so background AIs don't cold-start every time the
+        # controller cache cycles (they accumulate reads over a career).
+        # Mirrors the interactive restore in game_routes; keyed by the sim
+        # game_id so it's flat (UNIQUE(game_id, observer, opponent) upsert).
+        if db_path:
+            try:
+                from poker.memory.opponent_model import OpponentModelManager
+                from poker.repositories.game_repository import GameRepository
+
+                saved = GameRepository(db_path).load_opponent_models(f"sim_{sandbox_id}")
+                if saved:
+                    mm.opponent_model_manager = OpponentModelManager.from_dict(saved)
+            except Exception as exc:
+                logger.debug("[FULL_SIM] opponent-model restore failed: %s", exc)
         _session_memory_managers[sandbox_id] = mm
         _session_hand_counters[sandbox_id] = 0
         return mm
@@ -485,6 +500,29 @@ def _maybe_flush_psychology(
         _flush_psychology(controller, personality_id, bankroll_repo, sandbox_id)
 
 
+def _maybe_flush_opponent_models(memory_manager, sandbox_id: str, db_path) -> None:
+    """Persist this sandbox's opponent models every PSYCHOLOGY_FLUSH_EVERY_HANDS
+    hands, so reads survive backend restart + controller-cache eviction.
+
+    Keyed by the sim game_id (`sim_{sandbox_id}`) and upserted, so growth is
+    flat — bounded by the active observer/opponent pairs, not hand count.
+    """
+    if memory_manager is None or not sandbox_id or not db_path:
+        return
+    with _session_memory_lock:
+        count = _session_hand_counters.get(sandbox_id, 0)
+    if count % PSYCHOLOGY_FLUSH_EVERY_HANDS != 0:
+        return
+    try:
+        from poker.repositories.game_repository import GameRepository
+
+        GameRepository(db_path).save_opponent_models(
+            f"sim_{sandbox_id}", memory_manager.get_opponent_model_manager()
+        )
+    except Exception as exc:
+        logger.debug("[FULL_SIM] opponent-model flush failed: %s", exc)
+
+
 def _ai_seat_indices(seats: List[dict]) -> List[int]:
     return [i for i, s in enumerate(seats) if s.get("kind") == "ai" and int(s.get("chips", 0)) > 0]
 
@@ -815,6 +853,7 @@ def _play_one_hand_inner(
         pid = seat_pid_by_name[player.name]
         ctrl = controllers[player.name]
         _maybe_flush_psychology(ctrl, pid, bankroll_repo, sandbox_id)
+    _maybe_flush_opponent_models(memory_manager, sandbox_id, db_path_for_memory)
 
     # Awards already applied by _run_hand. Read final stacks.
     final_chips: Dict[str, int] = {seat_pid_by_name[p.name]: p.stack for p in sm.game_state.players}
@@ -858,6 +897,23 @@ def _play_one_hand_inner(
         winner_pid=winner_pid,
         loser_pid=loser_pid,
     )
+
+    # Ring buffer: persist notable events to each subject AI's recent-events
+    # memory (bounded, capped, "pop the oldest"). Event-driven — fires only on
+    # drama (bust/suckout/big pot), which is rare per hand, so this isn't the
+    # pressure_events firehose. Gives the lobby/dossier "what recently happened
+    # to this character" without the full per-decision write volume.
+    if bankroll_repo is not None and sandbox_id and hand_events:
+        by_pid: Dict[str, List[dict]] = {}
+        for ev in hand_events:
+            by_pid.setdefault(ev.personality_id, []).append(
+                {"type": ev.type, "amount": int(ev.amount), "opponent": ev.opponent_pid}
+            )
+        for pid, evs in by_pid.items():
+            try:
+                bankroll_repo.push_recent_events(pid, evs, sandbox_id=sandbox_id)
+            except Exception as exc:
+                logger.debug("[FULL_SIM] recent-events push failed for %s: %s", pid, exc)
 
     # Map the engine's post-hand dealer back to the cash-table seat
     # index. The engine doesn't rotate during a single hand, so this

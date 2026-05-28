@@ -216,10 +216,7 @@ class StrategyTable:
         # Texture neighbor. With the fallback on, swap texture at the degraded
         # (SRP, high) base; with it off, keep the node's own spr/pot_type
         # (reproduces the pre-fallback exact-or-default behavior).
-        base = (
-            replace(node, pot_type='SRP', spr_bucket='high')
-            if self.spr_fallback else node
-        )
+        base = replace(node, pot_type='SRP', spr_bucket='high') if self.spr_fallback else node
         neighbor_texture = _TEXTURE_NEIGHBOR.get(base.board_texture)
         if neighbor_texture:
             neighbor_node = replace(base, board_texture=neighbor_texture)

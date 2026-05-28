@@ -576,6 +576,7 @@ def api_game_state(game_id):
                             capture_label_repo=capture_label_repo,
                             decision_analysis_repo=decision_analysis_repo,
                             bot_types=llm_configs.get('bot_types'),
+                            ai_chat=llm_configs.get('ai_chat', True),
                         )
                         db_messages = game_repo.load_messages(game_id)
 
@@ -792,23 +793,32 @@ def api_game_state(game_id):
                             deck_seed=state_machine.current_hand_seed,
                         )
 
-                        # Try to load tournament tracker from database, or create new one
-                        tracker_data = game_repo.load_tournament_tracker(game_id)
-                        if tracker_data:
-                            tournament_tracker = TournamentTracker.from_dict(tracker_data)
-                            logger.info(
-                                f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
-                            )
-                        else:
-                            # Fallback: create new tracker with current players
-                            starting_players = [
-                                {'name': p.name, 'is_human': p.is_human}
-                                for p in state_machine.game_state.players
-                            ]
-                            tournament_tracker = TournamentTracker(
-                                game_id=game_id, starting_players=starting_players
-                            )
-                            tournament_tracker.hand_count = memory_manager.hand_count
+                        # Tournament tracker drives the elimination / placement
+                        # flow. Cash games must NOT have one: handle_eliminations()
+                        # keys off its mere presence, so a stray tracker reroutes a
+                        # cash bust into the tournament "Nth place" screen instead of
+                        # the rebuy/sponsor modal (see _detect_human_cash_bust). New
+                        # cash games (/api/cash/start) omit it; the cold-load path
+                        # used to rebuild it for everyone, which is the bug.
+                        tournament_tracker = None
+                        if not is_cash_game:
+                            # Try to load tournament tracker from database, or create new one
+                            tracker_data = game_repo.load_tournament_tracker(game_id)
+                            if tracker_data:
+                                tournament_tracker = TournamentTracker.from_dict(tracker_data)
+                                logger.info(
+                                    f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
+                                )
+                            else:
+                                # Fallback: create new tracker with current players
+                                starting_players = [
+                                    {'name': p.name, 'is_human': p.is_human}
+                                    for p in state_machine.game_state.players
+                                ]
+                                tournament_tracker = TournamentTracker(
+                                    game_id=game_id, starting_players=starting_players
+                                )
+                                tournament_tracker.hand_count = memory_manager.hand_count
 
                         # Seed hand_start_stacks / short_stack_players from current
                         # stacks. On mid-hand restore we don't know the real hand-start
@@ -832,7 +842,6 @@ def api_game_state(game_id):
                             'pressure_detector': pressure_detector,
                             'pressure_stats': pressure_stats,
                             'memory_manager': memory_manager,
-                            'tournament_tracker': tournament_tracker,
                             'owner_id': owner_id,
                             'owner_name': owner_name,
                             'messages': db_messages,
@@ -844,6 +853,9 @@ def api_game_state(game_id):
                             'hand_start_stacks': hand_start_stacks,
                             'short_stack_players': short_stack_players,
                         }
+                        # Only tournament games carry a tracker (see guard above).
+                        if tournament_tracker is not None:
+                            current_game_data['tournament_tracker'] = tournament_tracker
 
                         # Cash-mode metadata. STAKES_LADDER is the
                         # source of truth for stake_label ↔ big_blind;
@@ -909,6 +921,28 @@ def api_game_state(game_id):
                                         )
                                         current_game_data['cash_table_id'] = cs.cash_table_id
                                         current_game_data['cash_seat_index'] = cs.cash_seat_index
+                                        # Resolve the friendly room name for the
+                                        # header chip / arrival toast. One-time
+                                        # lookup on cold-load (not the hot
+                                        # game-state path). Best-effort: any
+                                        # miss leaves the chip off.
+                                        try:
+                                            from flask_app.extensions import (
+                                                cash_table_repo,
+                                            )
+
+                                            if (
+                                                cash_table_repo is not None
+                                                and cs.cash_table_id is not None
+                                            ):
+                                                _ct = cash_table_repo.load_table(
+                                                    cs.cash_table_id,
+                                                    sandbox_id=cold_load_sandbox_id,
+                                                )
+                                                if _ct is not None:
+                                                    current_game_data['cash_table_name'] = _ct.name
+                                        except Exception:
+                                            pass
                             except Exception as e:
                                 logger.warning(
                                     "[LOAD] cash_sessions cold-load restore failed for %r: %s",
@@ -1284,14 +1318,28 @@ def api_new_game():
 
     requested_personalities = data.get('personalities', [])
     default_llm_config = data.get('llm_config', {})
+    # Quick Play / themed games omit llm_config — fall back to the configured
+    # system default (groq llama for the tiered bot's narration) instead of the
+    # hardcoded 'openai' the controllers would otherwise default to.
+    if not default_llm_config:
+        from core.llm.settings import get_default_model, get_default_provider
+
+        default_llm_config = {
+            'provider': get_default_provider(),
+            'model': get_default_model(),
+        }
     starting_stack = data.get('starting_stack', 5000)
     big_blind = data.get('big_blind', 100)
     blind_growth = data.get('blind_growth', 1.5)
     blinds_increase = data.get('blinds_increase', 6)
     max_blind = data.get('max_blind', 1000)  # 0 = no limit
+    # AI table talk. When off, the tiered ("Solver") bot makes ZERO LLM calls
+    # (no narration) so play is instant — surfaced to the UI as
+    # game_state['ai_instant'] to hide the now-pointless fast-forward button.
+    ai_chat = bool(data.get('ai_chat', True))
 
     # Validate game mode (if provided)
-    game_mode = data.get('game_mode', 'standard').lower()
+    game_mode = data.get('game_mode', 'casual').lower()
     # 'competitive' is auto-mapped to 'pro' downstream (kept here for backward compat).
     VALID_GAME_MODES = {'casual', 'standard', 'pro', 'competitive'}
     if game_mode not in VALID_GAME_MODES:
@@ -1312,7 +1360,8 @@ def api_new_game():
 
     # Note: UI warns if starting stack < 10x big blind, but we allow it
 
-    # Per-player controller selection (defaults to 'standard' for omitted entries).
+    # Per-player controller selection (defaults to 'sharp' = the tiered solver
+    # bot, the core engine; LLM-driven bots are opt-in via Custom Game).
     # Legacy values 'hybrid' / 'tiered' are accepted on input but auto-mapped to
     # 'standard' / 'sharp' before storage. They are NOT advertised in error
     # responses so new clients don't pick them up as legitimate choices.
@@ -1433,7 +1482,12 @@ def api_new_game():
             # Use per-player config if set, otherwise use default
             player_config = player_llm_configs.get(player.name, default_llm_config)
             player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            bot_type = bot_types.get(player.name, 'standard')
+            if not ai_chat:
+                # Quiet the LLM-driven bots (Guided/Improv) when chat is off.
+                player_prompt_config = player_prompt_config.copy(
+                    chattiness=False, dramatic_sequence=False
+                )
+            bot_type = bot_types.get(player.name, 'sharp')
 
             if bot_type == 'sharp':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
@@ -1446,7 +1500,7 @@ def api_new_game():
                     owner_id=owner_id,
                     capture_label_repo=capture_label_repo,
                     decision_analysis_repo=decision_analysis_repo,
-                    expression_enabled=True,
+                    expression_enabled=ai_chat,
                 )
             elif bot_type == 'baseline_solver':
                 from flask_app.handlers.tiered_factory import build_tiered_controller
@@ -1585,6 +1639,7 @@ def api_new_game():
         'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
         'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
         'default_game_mode': game_mode,  # Game-level mode setting
+        'ai_chat': ai_chat,  # Game-level AI table talk toggle (drives ai_instant)
         'last_announced_phase': None,  # Track which phase we've announced cards for
         'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
         'guest_messages_this_action': 0,  # Chat rate limiting for guests
@@ -1605,13 +1660,13 @@ def api_new_game():
 
     # Stamp the resolved bot type for every AI player so the saved game is
     # self-describing on restore. The front-end omits bot_types from the
-    # request when all opponents are on the default ('standard'); without
+    # request when all opponents are on the default ('sharp'); without
     # this, the dict on disk is empty and restoration can't tell that the
-    # standard path was wanted.
+    # tiered path was wanted.
     saved_bot_types = dict(bot_types)
     for player in state_machine.game_state.players:
         if not player.is_human:
-            saved_bot_types.setdefault(player.name, 'standard')
+            saved_bot_types.setdefault(player.name, 'sharp')
 
     game_repo.save_game(
         game_id,
@@ -1622,6 +1677,7 @@ def api_new_game():
             'player_llm_configs': player_llm_configs,
             'default_llm_config': default_llm_config,
             'bot_types': saved_bot_types,
+            'ai_chat': ai_chat,
         },
     )
     game_repo.save_tournament_tracker(game_id, tournament_tracker)

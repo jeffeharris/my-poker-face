@@ -79,8 +79,12 @@ sandbox_repo = None
 vice_state_repo = None
 side_hustle_state_repo = None
 user_prefs_repo = None
+user_avatar_repo = None
 holdings_snapshots_repo = None
 persistence_db_path = None  # for callers that need the raw path
+
+# Human-player avatar service (acquire/generate/process/persist user avatars)
+user_avatar_service = None
 
 # Pressure event repository (separate, not part of create_repos)
 event_repository = None
@@ -192,11 +196,12 @@ def init_persistence() -> None:
         vice_state_repo, \
         side_hustle_state_repo, \
         user_prefs_repo, \
+        user_avatar_repo, \
         holdings_snapshots_repo, \
         persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
-    global event_repository
+    global event_repository, user_avatar_service
 
     db_path = config.DB_PATH
     repos = create_repos(db_path)
@@ -226,10 +231,15 @@ def init_persistence() -> None:
     vice_state_repo = repos['vice_state_repo']
     side_hustle_state_repo = repos['side_hustle_state_repo']
     user_prefs_repo = repos['user_prefs_repo']
+    user_avatar_repo = repos['user_avatar_repo']
     holdings_snapshots_repo = repos['holdings_snapshots_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)
+
+    from poker.user_avatar_service import UserAvatarService
+
+    user_avatar_service = UserAvatarService(user_avatar_repo)
 
 
 def init_personality_generator() -> PersonalityGenerator:

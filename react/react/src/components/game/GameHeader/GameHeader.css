@@ -49,6 +49,70 @@
   letter-spacing: var(--letter-spacing-wide);
 }
 
+/* Cash-mode room name — the leading identity item. Brighter + heavier
+   than the secondary info so "where you are" reads as the anchor. */
+.game-header__location {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cash-mode room toggle: the room name + chevron act as a button that
+   slides out the hand # / blinds. Reset native button chrome and inherit
+   the header's typography. */
+.game-header__room-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.game-header__room-toggle:hover .game-header__location,
+.game-header__room-toggle:focus-visible .game-header__location {
+  color: var(--color-gold-light);
+}
+
+/* The room name is the headline here — show it in full instead of the old
+   14ch clamp. It can still shrink + ellipsize (base rule), but only if the
+   expanded details leave no room. */
+.game-header__room-toggle .game-header__location {
+  max-width: none;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.game-header__room-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.game-header__room-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* The sliding detail group. overflow:hidden lets framer animate width
+   from 0 → auto without the content spilling mid-transition. */
+.game-header__room-details {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .game-header__separator {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);

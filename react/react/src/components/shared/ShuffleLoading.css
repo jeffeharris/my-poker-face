@@ -135,6 +135,71 @@
 }
 
 /* ===========================================
+   THREE-BAND LAYOUT (interhand variant)
+   Reserve fixed-height bands so the quote, deck, and activity feed each own
+   their space — content changes within one band (quote length, ticker rows
+   streaming in) can't reflow the others. By default the band wrappers are
+   `display: contents`, so the overlay variant keeps its content-sized
+   centered column untouched.
+   =========================================== */
+
+.shuffle-loading-band {
+  display: contents;
+}
+
+/* interhand: fill the screen and split it 40 / 20 / 40 (the 2fr / 1fr / 2fr
+   ratio), but never let the middle band fall below the deck's reserved height
+   — on short screens the top/bottom bands give up space first so the cards
+   always have their full 80×112 box and never squish. */
+.shuffle-loading-content.shuffle-loading-content--bands {
+  display: grid;
+  grid-template-rows: minmax(0, 2fr) minmax(150px, 1fr) minmax(0, 2fr);
+  align-items: stretch;
+  justify-items: stretch;
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+
+.shuffle-loading-content--bands .shuffle-loading-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 0 16px;
+}
+
+/* Quote: sits in the top band, nudged down off the very top so it reads a bit
+   closer to the deck. Clips rather than pushes if unusually long. */
+.shuffle-loading-content--bands .shuffle-loading-band--quote {
+  padding: 56px 16px 0;
+  overflow: hidden;
+}
+
+/* Deck + status: tighter internal gap than the overlay's 32px. */
+.shuffle-loading-content--bands .shuffle-loading-band--deck {
+  gap: 12px;
+}
+
+/* Keep the deck at its true 80×112 — as a flex child in a short (20%) band it
+   would otherwise shrink vertically and the cards would look like squished
+   squares. flex-shrink:0 holds the aspect ratio; it just bleeds a few px into
+   the surrounding whitespace on very short screens (no reflow — rows are fixed). */
+.shuffle-loading-content--bands .shuffle-loading-deck {
+  flex-shrink: 0;
+}
+
+/* Activity: anchor to the top of the bottom band so ticker rows streaming in
+   (0 → 3) fill downward without nudging the rows already on screen. */
+.shuffle-loading-content--bands .shuffle-loading-band--activity {
+  justify-content: flex-start;
+  padding-top: 20px;
+  overflow: hidden;
+}
+
+/* ===========================================
    QUOTE BLOCK
    Optional flavor text rendered above the deck
    =========================================== */
@@ -403,6 +468,77 @@
   font-weight: var(--font-weight-bold);
   color: var(--color-gold-light);
   text-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+}
+
+/* ===========================================
+   WORLD TICKER (interhand, cash/career mode)
+   "Meanwhile, elsewhere" — a few of the bigger/rarer beats that happened
+   around the room since this hand started. Replaces the hand-number badge.
+   =========================================== */
+
+.shuffle-loading-ticker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+  padding: 10px 18px;
+  background: rgba(212, 165, 116, 0.06);
+  border: 1px solid rgba(212, 165, 116, 0.12);
+  border-radius: var(--radius-xl);
+  animation: shuffleLoadingBadgeFadeIn 0.6s ease-out 0.3s both;
+}
+
+.shuffle-loading-ticker-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wider);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.shuffle-loading-ticker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shuffle-loading-ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+  text-align: left;
+}
+
+.shuffle-loading-ticker-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+/* The reused event glyphs (from ActivityTicker.renderEventIcon) carry the
+   lobby-ticker classes; restate the essentials here so they render even
+   though CashMode.css isn't loaded on the game page. */
+.shuffle-loading-ticker .lobby-ticker__icon {
+  flex: 0 0 auto;
+  color: var(--color-gold-light);
+}
+
+.shuffle-loading-ticker .lobby-ticker__dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
 }
 
 /* ===========================================

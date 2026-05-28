@@ -19,7 +19,7 @@ import logging
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict
+from typing import Dict, Optional
 
 from .hand_tiers import PREMIUM_HANDS, TOP_10_HANDS, TOP_20_HANDS, TOP_35_HANDS, TOP_45_HANDS
 
@@ -29,18 +29,24 @@ logger = logging.getLogger(__name__)
 class FishLeak(str, Enum):
     """Designated, exploitable leak for a fish-archetype tourist.
 
-    The base `_strategy_fish` already plays bad poker — calling station,
-    raises nothing, folds to large bets only with marginal hands. A leak
+    The base `_strategy_fish` plays a loose-passive calling station that
+    value-bets its strong hands with honest, *unbalanced* sizing (bigger
+    hand → bigger bet) but never raises a bet and never bluffs. A leak
     layers one specific, identifiable deviation on top so the same
     tourist makes the same mistake hand after hand: a grinder can learn
     to recognize and exploit it.
 
-    Each value modifies exactly one branch of `_strategy_fish`. When no
-    leak is set, fish play the calling-station baseline unchanged.
+    Most leaks (the first block below) just widen how loosely the tourist
+    *calls*. The aggression leaks (second block) instead give the tourist
+    a readable *betting/raising* tell — transparent value, habitual spew,
+    or a rock that only wakes up with the nuts. Each value modifies one
+    branch of `_strategy_fish`; when no leak is set the baseline runs
+    unchanged.
 
     Spec: docs/plans/CASH_MODE_EPHEMERAL_TOURISTS.md
     """
 
+    # Passive (calling) leaks — widen the call/fold ladder.
     CALLS_DOWN_TOP_PAIR = "calls_down_top_pair"  # large bets: top pair or better → call
     CHASES_ANY_DRAW = "chases_any_draw"  # medium bets: FD/OESD → call
     DOESNT_BELIEVE_BIG_BETS = "doesnt_believe_big_bets"  # large bets: weakened threshold
@@ -48,15 +54,37 @@ class FishLeak(str, Enum):
     POT_COMMITTED_EARLY = "pot_committed_early"  # once ≥30% in, can't fold
     OVERVALUES_FACE_CARDS = "overvalues_face_cards"  # medium bets: any face card → call
     CALLS_RIVER_LIGHT = "calls_river_light"  # river specifically: weak call threshold
+
+    # Aggression leaks — give the tourist a readable betting/raising tell.
     SPITE_RAISES_WHEN_LOSING = (
         "spite_raises_when_losing"  # losing at table: random min-raise bluffs
     )
+    BETS_STRONG_TRANSPARENTLY = (
+        "bets_strong_transparently"  # bets/raises a wide value range, size = strength
+    )
+    SPEWS_BLUFFS = "spews_bluffs"  # checked to with air → fires a bet far too often
+    STICKY_THEN_POPS = "sticky_then_pops"  # calling station until a monster → pops big
 
 
 # Tunables for leak triggers. Held as module-level so unit tests can
 # patch them without monkey-patching the strategy function itself.
 POT_COMMITTED_THRESHOLD = 0.30  # fraction-of-starting-stack invested this hand
 SPITE_RAISE_PROBABILITY = 0.08  # per-decision chance to spite-raise when losing
+SPEW_BLUFF_PROBABILITY = 0.40  # SPEWS_BLUFFS: chance to bet air when checked to
+
+# Honest value-bet sizing (fraction of pot) when a fish is checked to.
+# The tourist's tell: a bigger made hand → a bigger bet, uncorrected and
+# unbalanced on purpose. That transparency is what keeps the fish
+# readable and exploitable even once it starts betting.
+FISH_BET_NUTS = 0.66  # nuts / equity >= 0.80
+FISH_BET_STRONG = 0.50  # strong_made / equity >= 0.65
+FISH_BET_MEDIUM = 0.40  # medium_made (top pair) — transparent-bettor leak only
+FISH_BET_BLUFF = 0.60  # SPEWS_BLUFFS air bet
+
+# Facing-a-bet "pop" sizing (fraction of pot) for the aggression leaks.
+FISH_POP_NUTS = 1.0
+FISH_POP_STRONG = 0.80
+FISH_POP_MEDIUM = 0.60
 
 
 @dataclass(frozen=True)
@@ -67,6 +95,7 @@ class RuleConfig:
     rules: tuple = field(default_factory=tuple)  # Custom rules for "custom" strategy
     raise_size: str = "min"  # Default raise sizing: "min", "pot", "half_pot", "all_in"
     name: str = "RuleBot"  # Display name for the bot
+    fish_leak: Optional[str] = None  # FishLeak value for strategy='fish' (else ignored)
 
     @classmethod
     def from_dict(cls, d: Dict) -> 'RuleConfig':
@@ -76,6 +105,7 @@ class RuleConfig:
             rules=rules,
             raise_size=d.get('raise_size', 'min'),
             name=d.get('name', 'RuleBot'),
+            fish_leak=d.get('fish_leak'),
         )
 
     @classmethod
@@ -597,31 +627,85 @@ def _strategy_case_based(context: Dict) -> Dict:
     return check()
 
 
-def _strategy_fish(context: Dict) -> Dict:
-    """Classic loose-passive 'calling station' — the casino tourist.
+def _fish_bet(context: Dict, fraction: float) -> Optional[Dict]:
+    """Build a pot-fraction bet/raise for a fish, clamped to legal sizing.
 
-    The fish is here to lose chips, not to make decisions. Base behavior:
-      - Free to act → check. (Almost never raises blind.)
+    Returns a raise decision, or None when raising isn't available (the
+    caller then falls back to check/call). Sizing mirrors
+    `_strategy_case_based` / `_strategy_bluffbot`: `pot * fraction`,
+    floored at the minimum legal raise and capped at the maximum. Pot
+    defaults to 0 (→ min raise) so the helper stays safe when a caller or
+    test fixture omits `pot_total`.
+    """
+    if 'raise' not in context.get('valid_actions', []):
+        return None
+    pot = context.get('pot_total', 0) or 0
+    min_raise = context.get('min_raise', 0)
+    size = max(min_raise, int(pot * fraction))
+    max_raise = context.get('max_raise')
+    if max_raise:
+        size = min(size, max_raise)
+    return {'action': 'raise', 'raise_to': size}
+
+
+def _fish_value_fraction(context: Dict, *, include_top_pair: bool) -> Optional[float]:
+    """Pot fraction to value-bet when checked to, or None to just check.
+
+    Honest, monotonic sizing — bigger made hand → bigger bet — keyed on
+    the made-hand tier with an equity fallback for fixtures that omit
+    `made_tier`. `include_top_pair` widens the value range down to top
+    pair (the transparent-bettor leak); the baseline only bets
+    strong_made or better.
+    """
+    made_tier = context.get('made_tier', 'air')
+    equity = context.get('equity', 0.5)
+    if made_tier == 'nuts' or equity >= 0.80:
+        return FISH_BET_NUTS
+    if made_tier == 'strong_made' or equity >= 0.65:
+        return FISH_BET_STRONG
+    if include_top_pair and (made_tier == 'medium_made' or equity >= 0.55):
+        return FISH_BET_MEDIUM
+    return None
+
+
+def _fish_pop_fraction(made_tier: str) -> float:
+    """Pot fraction for a fish's facing-a-bet pop, sized by made tier."""
+    if made_tier == 'nuts':
+        return FISH_POP_NUTS
+    if made_tier == 'strong_made':
+        return FISH_POP_STRONG
+    return FISH_POP_MEDIUM
+
+
+def _strategy_fish(context: Dict) -> Dict:
+    """Loose-passive 'calling station' tourist with honest value betting.
+
+    The fish is here to lose chips, not to outplay anyone. Base behavior:
+      - Checked to → value-bet strong_made+ hands with honest, unbalanced
+        sizing (bigger hand → bigger bet); check everything else. This is
+        the tell: a fish that bets is a fish that has something.
       - Facing a small bet (≤ 3 BB) → always calls. Tourist doesn't
         understand pot odds; sees a bet, pays the bet.
       - Facing a medium bet (3-8 BB) → calls with any pair, draw, or
         broadway. Folds total air.
       - Facing a large bet (> 8 BB) → calls only with a real hand
         (top-20 or equity >= 0.55). Folds otherwise.
-      - Raises ONLY with monsters (TOP_10 + equity ≥ 0.70), small size
-        (min raise). No bluffs, no value-thin raises.
+      - Never *raises* a bet and never bluffs at baseline. Facing-a-bet
+        aggression and bluffing only come from an aggression leak.
 
-    Net play profile: very high VPIP (~0.70-0.85), near-zero PFR,
-    near-zero fold_to_cbet (calls flop wide), high WTSD. The classic
-    chip donor pattern that grinders feast on.
+    Net play profile: very high VPIP (~0.70-0.85), low PFR, near-zero
+    fold_to_cbet (calls flop wide), high WTSD. The classic chip-donor
+    pattern grinders feast on — now legible, because its bets (and, with
+    a leak, its raises) map transparently to hand strength.
 
     **Designated leaks** (`context['fish_leak']` matches a `FishLeak`
     value) layer one specific deviation on top of the baseline. Each
     leak fires only when its trigger holds; otherwise base behavior
     runs unchanged. See `FishLeak` enum for the catalogue.
 
-    No psychology, no position adjustments, no opponent modeling. The
-    tourist is too drunk / distracted / inexperienced for any of that.
+    No psychology, no position adjustments, no opponent modeling, no
+    bet-sizing balance. The tourist is too drunk / distracted /
+    inexperienced for any of that.
     """
     canonical = context.get('canonical_hand', '')
     equity = context.get('equity', 0.5)
@@ -630,6 +714,7 @@ def _strategy_fish(context: Dict) -> Dict:
     cost_in_bb = cost_to_call / big_blind if big_blind > 0 else cost_to_call
     leak = context.get('fish_leak')
     street = context.get('street', '')
+    made_tier = context.get('made_tier', 'air')
 
     # --- POT_COMMITTED_EARLY: once enough in the pot, can't fold ------
     # Fires across every branch — overrides fold decisions but never
@@ -657,15 +742,32 @@ def _strategy_fish(context: Dict) -> Dict:
 
     if cost_to_call == 0:
         # --- LIMPS_EVERY_HAND: preflop, never folds OR raises — just limps ---
-        # We're already free-to-act; base behavior is check (which IS
-        # limp preflop). The leak's deviation is at the facing-bet
-        # branch below — but here it suppresses the monster raise so the
-        # tourist truly is passive on every preflop hand.
+        # The tourist truly is passive on every preflop hand: suppress
+        # even the value bet so they only ever limp in preflop.
         if leak == FishLeak.LIMPS_EVERY_HAND and street == 'preflop':
             return {'action': 'check', 'raise_to': 0}
 
-        if canonical in TOP_10_HANDS and equity >= 0.70 and 'raise' in context['valid_actions']:
-            return {'action': 'raise', 'raise_to': context['min_raise']}
+        # --- Honest value betting (baseline + transparent-bettor widening) ---
+        # Bigger made hand → bigger bet, no balance. The transparent
+        # bettor widens the value range down to top pair; everyone else
+        # bets strong_made or better. A fish that bets has something.
+        include_top_pair = leak == FishLeak.BETS_STRONG_TRANSPARENTLY
+        frac = _fish_value_fraction(context, include_top_pair=include_top_pair)
+        if frac is not None:
+            bet = _fish_bet(context, frac)
+            if bet is not None:
+                return bet
+
+        # --- SPEWS_BLUFFS: checked to with air → fire a bet far too often ---
+        # The bluffer who won't stop betting. Probabilistic; uses
+        # context['_rng'] when provided so tests can pin the roll.
+        if leak == FishLeak.SPEWS_BLUFFS:
+            rng = context.get('_rng') or random
+            if rng.random() < SPEW_BLUFF_PROBABILITY:
+                bluff = _fish_bet(context, FISH_BET_BLUFF)
+                if bluff is not None:
+                    return bluff
+
         return {'action': 'check', 'raise_to': 0}
 
     # --- LIMPS_EVERY_HAND: preflop facing-bet, always calls ----------
@@ -676,6 +778,26 @@ def _strategy_fish(context: Dict) -> Dict:
         and 'call' in context['valid_actions']
     ):
         return {'action': 'call', 'raise_to': 0}
+
+    # --- STICKY_THEN_POPS: calling station until a monster, then pops big ---
+    # The rock that finally wakes up. Pure passive call/fold (below) on
+    # everything except a genuine monster (two pair / set / better), which
+    # it raises hard. A raise from this tourist means the nuts.
+    if leak == FishLeak.STICKY_THEN_POPS and made_tier in ('nuts', 'strong_made'):
+        pop = _fish_bet(context, _fish_pop_fraction(made_tier))
+        if pop is not None:
+            return pop
+
+    # --- BETS_STRONG_TRANSPARENTLY: value-raise top pair or better -------
+    # Wears the hand on its sleeve facing a bet too: raises any top pair
+    # or better, sized by strength. Otherwise falls through to the
+    # calling-station ladder below.
+    if leak == FishLeak.BETS_STRONG_TRANSPARENTLY and context.get(
+        'has_top_pair_or_better', False
+    ):
+        pop = _fish_bet(context, _fish_pop_fraction(made_tier))
+        if pop is not None:
+            return pop
 
     if cost_in_bb <= 3:
         if 'call' in context['valid_actions']:

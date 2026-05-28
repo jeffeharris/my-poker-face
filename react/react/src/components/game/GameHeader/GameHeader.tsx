@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronRight } from 'lucide-react';
 import { formatCompactCurrency } from '../../../utils/formatters';
 import './GameHeader.css';
 
@@ -5,6 +8,12 @@ interface GameHeaderProps {
   handNumber?: number;
   blinds: { small: number; big: number };
   phase: string;
+  /** Cash-mode location: the friendly room name ("The Lodge") and stake
+   *  tier ("$50"). When present, the header collapses to just the room
+   *  name and the street badge is dropped (the board already tells you the
+   *  street) — clicking the room name slides out the hand # and blinds.
+   *  Omitted for tournament games, which keep the full inline info. */
+  location?: { tableName?: string | null; stakeLabel?: string | null };
   onBackClick?: () => void;
   onSettingsClick?: () => void;
 }
@@ -13,6 +22,7 @@ export function GameHeader({
   handNumber,
   blinds,
   phase,
+  location,
   onBackClick,
   onSettingsClick,
 }: GameHeaderProps) {
@@ -23,6 +33,10 @@ export function GameHeader({
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join('-');
   };
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const tableName = location?.tableName ?? null;
+  const blindsText = `Blinds ${formatCompactCurrency(blinds.small)}/${formatCompactCurrency(blinds.big, false)}`;
 
   return (
     <header className="game-header glass">
@@ -42,15 +56,57 @@ export function GameHeader({
 
       {/* Center: Game info */}
       <div className="game-header__center">
-        {handNumber !== undefined && (
-          <span className="game-header__info-item">Hand #{handNumber}</span>
+        {tableName ? (
+          // Cash mode: the room name is the whole identity. Click it to slide
+          // out the hand # and blinds. No street badge — the board shows it.
+          <button
+            type="button"
+            className="game-header__room-toggle"
+            onClick={() => setDetailsOpen((open) => !open)}
+            aria-expanded={detailsOpen}
+            aria-label={detailsOpen ? 'Hide table details' : 'Show hand number and blinds'}
+          >
+            <span className="game-header__location" title={tableName}>
+              {tableName}
+            </span>
+            <ChevronRight
+              size={14}
+              className={`game-header__room-chevron${detailsOpen ? ' is-open' : ''}`}
+              aria-hidden="true"
+            />
+            <AnimatePresence initial={false}>
+              {detailsOpen && (
+                <motion.span
+                  className="game-header__room-details"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 'auto', opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
+                  <span className="game-header__separator">&#8226;</span>
+                  {handNumber !== undefined && (
+                    <>
+                      <span className="game-header__info-item">Hand #{handNumber}</span>
+                      <span className="game-header__separator">&#8226;</span>
+                    </>
+                  )}
+                  <span className="game-header__info-item">{blindsText}</span>
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+        ) : (
+          // Tournament mode: full inline info, including the street badge.
+          <>
+            {handNumber !== undefined && (
+              <span className="game-header__info-item">Hand #{handNumber}</span>
+            )}
+            <span className="game-header__separator">&#8226;</span>
+            <span className="game-header__info-item">{blindsText}</span>
+            <span className="game-header__separator">&#8226;</span>
+            <span className="game-header__phase-badge">{formatPhase(phase)}</span>
+          </>
         )}
-        <span className="game-header__separator">&#8226;</span>
-        <span className="game-header__info-item">
-          Blinds {formatCompactCurrency(blinds.small)}/{formatCompactCurrency(blinds.big, false)}
-        </span>
-        <span className="game-header__separator">&#8226;</span>
-        <span className="game-header__phase-badge">{formatPhase(phase)}</span>
       </div>
 
       {/* Right: Settings */}

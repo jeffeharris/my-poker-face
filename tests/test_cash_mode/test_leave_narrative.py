@@ -94,22 +94,35 @@ class TestBuildMessages:
 
 
 class TestRenderSequence:
-    def test_joins_beats_with_space(self):
+    def test_joins_beats_with_newline(self):
+        # Newline-joined to match the in-hand decision/comment path (so the
+        # frontend renders each beat — action vs speech — distinctly).
         out = _render_sequence({"dramatic_sequence": ["*nods*", "Goodbye."]})
-        assert out == "*nods* Goodbye."
+        assert out == "*nods*\nGoodbye."
 
     def test_trims_empty_beats(self):
         out = _render_sequence({"dramatic_sequence": ["*nods*", "", "  ", "GG."]})
-        assert out == "*nods* GG."
+        assert out == "*nods*\nGG."
 
     def test_caps_at_four_beats(self):
         out = _render_sequence({"dramatic_sequence": ["a", "b", "c", "d", "e", "f"]})
-        assert out == "a b c d"
+        assert out == "a\nb\nc\nd"
+
+    def test_splits_mixed_action_speech_beat(self):
+        # The bug this fix targets: a beat mixing an action and speech used to
+        # come back as one run-on line. normalize_dramatic_sequence splits it.
+        out = _render_sequence({"dramatic_sequence": ["*tosses chips* good game"]})
+        assert out == "*tosses chips*\ngood game"
+
+    def test_renders_bare_string(self):
+        # The LLM occasionally returns a string instead of a list; render it
+        # (same as the decision path) rather than dropping it.
+        assert _render_sequence({"dramatic_sequence": "See you around."}) == "See you around."
 
     def test_none_when_no_sequence(self):
         assert _render_sequence({"other_field": "foo"}) is None
         assert _render_sequence({"dramatic_sequence": []}) is None
-        assert _render_sequence({"dramatic_sequence": "not a list"}) is None
+        assert _render_sequence({"dramatic_sequence": 42}) is None
         assert _render_sequence(None) is None
 
 
@@ -130,7 +143,7 @@ class TestGenerateLeaveComment:
         )
         client = self._mock_client(canned)
         out = generate_leave_comment(_ctx(), llm_client=client)
-        assert out == "*tips hat* Until next time."
+        assert out == "*tips hat*\nUntil next time."
 
     def test_tags_call_type_and_template(self):
         canned = json.dumps({"dramatic_sequence": ["bye"]})
@@ -238,7 +251,7 @@ class TestGenerateJoinComment:
         )
         client = self._mock_client(canned)
         out = generate_join_comment(_jctx(), llm_client=client)
-        assert out == "*pulls up a chair* Evening, folks."
+        assert out == "*pulls up a chair*\nEvening, folks."
 
     def test_tags_join_template(self):
         canned = json.dumps({"dramatic_sequence": ["hi"]})

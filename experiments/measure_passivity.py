@@ -65,19 +65,20 @@ from experiments.simulate_bb100 import (
     make_controller,
     make_game_state,
 )
+
+# For per-node EV attribution (ab_node_attribution): build the same node key the
+# controller looks up, so an attribution bucket maps directly to a chart entry.
+from poker.card_utils import card_to_string
+from poker.controllers import _get_canonical_hand
 from poker.poker_game import (
     advance_to_next_active_player,
     play_turn,
 )
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.strategy.multistreet_context import H1_BARREL_TARGET, H2_FOLD_TARGET, derive_signals
+from poker.strategy.preflop_classifier import build_preflop_node
 from poker.strategy.preflop_isolate import build_isolation_table
 from poker.strategy.strategy_table import load_strategy_table
-# For per-node EV attribution (ab_node_attribution): build the same node key the
-# controller looks up, so an attribution bucket maps directly to a chart entry.
-from poker.card_utils import card_to_string
-from poker.controllers import _get_canonical_hand
-from poker.strategy.preflop_classifier import build_preflop_node
 
 # Frozen clone profiles (Track 2 eval). Resolved relative to this module so
 # they work regardless of cwd / worktree.
@@ -362,7 +363,9 @@ def run_passivity_hand(sm, controllers, hero_name: str, stats: PassivityStats, h
             snap0 = getattr(controller, '_last_pipeline_snapshot', {}) or {}
             node_id = snap0.get('node_key')
             if not node_id and phase_name == 'PRE_FLOP':
-                hole = [card_to_string(c) for c in current_player.hand] if current_player.hand else []
+                hole = (
+                    [card_to_string(c) for c in current_player.hand] if current_player.hand else []
+                )
                 canon = _get_canonical_hand(hole) if len(hole) == 2 else ''
                 if canon:
                     try:
@@ -705,7 +708,9 @@ def print_report(
     leak_report: bool = False,
     stack_bb: int = 100,
 ):
-    opp_desc = (f'{len(opponents)}x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
+    opp_desc = (
+        (f'{len(opponents)}x ' + opponents[0]) if len(set(opponents)) == 1 else '+'.join(opponents)
+    )
     total_hands = n_hands * len(seeds)
     print("\n" + "=" * 72)
     print(
@@ -839,7 +844,9 @@ def print_report(
 
 
 def _run_seed_worker(
-    args: Tuple[str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int, Optional[str]],
+    args: Tuple[
+        str, List[str], int, int, str, str, Optional[str], Optional[frozenset], int, Optional[str]
+    ],
 ):
     """ProcessPool worker: run one (roster, seed) cell. Loads its own table.
 
@@ -850,7 +857,18 @@ def _run_seed_worker(
     table; opponents keep the default chart. Built inside the worker (not the
     parent) so the unpicklable StrategyTable never crosses the process boundary.
     """
-    hero, opponents, n_hands, seed, mode, entry, clone_profile, h1_classes, stack_bb, preflop_chart = args
+    (
+        hero,
+        opponents,
+        n_hands,
+        seed,
+        mode,
+        entry,
+        clone_profile,
+        h1_classes,
+        stack_bb,
+        preflop_chart,
+    ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if clone_profile:
         _ensure_clone_registered(clone_profile)

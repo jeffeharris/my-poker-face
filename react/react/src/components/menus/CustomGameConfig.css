@@ -880,6 +880,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  text-align: center;
 }
 
 .preset-card:hover {
@@ -904,6 +905,9 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   line-height: var(--line-height-snug);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .preset-card__custom-badge {
@@ -928,6 +932,13 @@
 .game-mode-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+/* AI Chat: two full-width options (Funner / Faster) that split the row. */
+.ai-chat-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-2);
 }
 
@@ -1006,9 +1017,22 @@
   transform: rotate(180deg);
 }
 
-/* Advanced settings panel */
+/* Advanced settings panel — drops down from the toggle (matches the
+   chevron affordance) instead of sliding up like a bottom sheet. */
+@keyframes advancedDropdown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .advanced-panel {
-  animation: slideUp 0.3s var(--ease-out-expo);
+  animation: advancedDropdown 0.25s var(--ease-out-expo);
+  transform-origin: top;
 }
 
 .settings-section {

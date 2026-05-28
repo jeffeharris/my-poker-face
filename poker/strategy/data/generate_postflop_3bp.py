@@ -57,8 +57,7 @@ def _norm(profile: Dict[str, float]) -> Dict[str, float]:
     return out
 
 
-def transform_3bp(actions: Dict[str, float], made: str, draw: str,
-                  facing: str) -> Dict[str, float]:
+def transform_3bp(actions: Dict[str, float], made: str, draw: str, facing: str) -> Dict[str, float]:
     """Polarize an SRP action distribution toward 3-bet-pot dynamics."""
     new = dict(actions)
     commit_worthy = made in _COMMIT_MADE or draw in _COMMIT_DRAW
@@ -72,9 +71,9 @@ def transform_3bp(actions: Dict[str, float], made: str, draw: str,
             new[passive_key] = new.get(passive_key, 0.0) - move
             if aggressive:
                 agg_total = sum(new[a] for a in aggressive)
-                for a in aggressive:                 # scale existing sizing up
+                for a in aggressive:  # scale existing sizing up
                     new[a] += move * (new[a] / agg_total)
-            else:                                    # no sizing yet → default
+            else:  # no sizing yet → default
                 sink = _DEFAULT_BET if facing == 'unopened' else _DEFAULT_RAISE
                 new[sink] = new.get(sink, 0.0) + move
     else:

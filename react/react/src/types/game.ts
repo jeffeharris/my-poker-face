@@ -48,6 +48,21 @@ export interface CashModeInfo {
   /** Present when the player has an outstanding sponsor loan; drives the
    *  leave-table settlement preview. Null when no loan is active. */
   active_loan?: CashActiveLoan | null;
+  /** The specific table the player is seated at. `table_name` is the
+   *  friendly room label ("The Lodge") shown in the in-game header chip
+   *  + arrival toast. Both omitted for legacy sessions where the name
+   *  wasn't resolved — the chip then simply doesn't render. */
+  table_id?: string | null;
+  table_name?: string | null;
+  /** True when every opponent has left/busted and only the human (with
+   *  chips) remains — the table is paused. Drives the "everyone left"
+   *  SoloTableModal. Set server-side at the hand-boundary pause, so it
+   *  never flashes during a normal heads-up win. */
+  human_alone?: boolean;
+  /** When `human_alone`, the AIs the "Stay & play" option would seat.
+   *  Empty (or absent) means no one is available, so the prompt offers
+   *  only "Return to lobby". */
+  rejoin_candidates?: { personality_id: string; name: string }[];
 }
 
 export interface GameState {
@@ -77,6 +92,10 @@ export interface GameState {
    *  Set by POST /api/game/<id>/fast-forward, auto-cleared when action
    *  returns to the human. */
   fast_forward?: boolean;
+  /** True when every AI seat resolves with zero LLM calls (all Solver with
+   *  AI Chat off, or rule bots) — nothing to fast-forward, so the UI hides
+   *  the FF button. */
+  ai_instant?: boolean;
 }
 
 /** Player's showdown hand information */

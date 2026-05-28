@@ -40,6 +40,9 @@ from cash_mode.full_sim import (
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
     RosterRefreshResult,
+    is_in_vice_cooldown,
+    project_idle_energy,
+    record_vice_cooldown,
     refresh_table_roster,
 )
 from cash_mode.staker_history import StakerHistoryStats
@@ -360,6 +363,9 @@ def ensure_lobby_seeded(
                 seat_position = next(position_iter)
                 seats[seat_position] = ai_slot(pid, ai_buy_in)
                 seated_globally.add(pid)
+                # (If this AI was idle, the seated⇒not-idle invariant is
+                # enforced by the save_table call after this loop — see
+                # CashTableRepository.save_table.)
                 filled += 1
                 # Debit the AI's bankroll to fund their initial seat
                 # chips. Without this debit the chip-ledger audit
@@ -479,6 +485,35 @@ def _select_new_last_stands(
     return newly
 
 
+def _persist_reseat_recovery(bankroll_repo, personality_id, sandbox_id, recovered_energy) -> None:
+    """Write recovered idle energy back to emotional_state_json so the AI's
+    rebuilt controller hydrates the rested value rather than the drained
+    leave-time energy (otherwise it would re-seat and immediately generate
+    tenure leave-pressure again). Best-effort — failures are swallowed.
+    """
+    if bankroll_repo is None:
+        return
+    try:
+        import json as _json
+
+        blob = bankroll_repo.load_emotional_state_json(personality_id, sandbox_id=sandbox_id)
+        if not blob:
+            return
+        state = _json.loads(blob)
+        axes = state.get("axes")
+        if isinstance(axes, dict):
+            axes["energy"] = round(float(recovered_energy), 4)
+            bankroll_repo.save_emotional_state_json(
+                personality_id, _json.dumps(state), sandbox_id=sandbox_id
+            )
+    except Exception as exc:  # noqa: BLE001 — recovery write-back is best-effort
+        logger.debug(
+            "[CASH][LOBBY] reseat energy write-back failed for %s: %s",
+            personality_id,
+            exc,
+        )
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -574,6 +609,12 @@ def refresh_unseated_tables(
                 exc,
             )
             on_vice = set()
+        # Post-vice refractory window: an AI that just finished a vice
+        # can't be sent off to another for VICE_COOLDOWN_SECONDS, so it
+        # returns and plays a while still rich instead of bouncing right
+        # back out. Applies to idle- and leave-triggered vices alike.
+        for _end in vice_ends:
+            record_vice_cooldown(_end.personality_id, now)
 
     # Side-hustle expiry pass — the mirror of the vice expiry pass.
     # Runs BEFORE the table loop so an AI who finished hustling (and was
@@ -840,6 +881,70 @@ def refresh_unseated_tables(
     # episode rather than every tick.
     last_stand_qualifying: Dict[str, Tuple[str, str]] = {}
 
+    # Vice-on-leave plumbing. A discretionary leaver (take_break /
+    # bored_move) who is rich enough rolls the existing wealth×psych vice
+    # probability AT the leave and goes straight off-grid (see
+    # refresh_table_roster's `go_vice`) — the fix for the post-loop
+    # idle-only scan never catching a winner who re-seats before it runs.
+    # Built once per refresh: the cast median is a slow aggregate, fine to
+    # snapshot here and reuse for the leave commits below. None (no
+    # interception) unless real vice is on and the cast is rich enough.
+    _vice_cast_median = 0
+    _vice_prob_lookup = None
+    all_vice_bound: List[str] = []
+    if (
+        vice_mode == 'real'
+        and vice_repo is not None
+        and bankroll_repo is not None
+        and sandbox_id is not None
+    ):
+        from cash_mode.ai_vice_spending import (
+            MIN_CAST_MEDIAN_FOR_VICE,
+            _load_psych_snapshot,
+            compute_cast_median,
+            compute_excess_ratio,
+            compute_pressure,
+            compute_vice_probability,
+        )
+
+        try:
+            _vice_cast_median = compute_cast_median(
+                bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+            )
+        except Exception as exc:
+            logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+            _vice_cast_median = 0
+
+        if _vice_cast_median >= MIN_CAST_MEDIAN_FOR_VICE:
+
+            def _vice_prob_lookup(pid: str) -> float:
+                # Refractory window: no urge to celebrate right after one.
+                if is_in_vice_cooldown(pid, now):
+                    return 0.0
+                try:
+                    current = bankroll_repo.load_ai_bankroll_current(
+                        pid, sandbox_id=sandbox_id, now=now
+                    )
+                except Exception:
+                    return 0.0
+                if not current or current <= 0:
+                    return 0.0
+                excess = compute_excess_ratio(current, _vice_cast_median)
+                if excess <= 0:
+                    return 0.0
+                psych = _load_psych_snapshot(
+                    bankroll_repo=bankroll_repo,
+                    personality_id=pid,
+                    sandbox_id=sandbox_id,
+                )
+                if psych is None:
+                    pressure = compute_pressure(0.7, 0.7, 0.7)
+                else:
+                    pressure = compute_pressure(
+                        psych['confidence'], psych['composure'], psych['energy']
+                    )
+                return compute_vice_probability(excess, pressure)
+
     out: Dict[str, RosterRefreshResult] = {}
     for table in tables:
         if table.human_seat_index() is not None:
@@ -979,6 +1084,7 @@ def refresh_unseated_tables(
         agg_rebuy_changes = []
         agg_stake_creations = []
         agg_leave_signals: Dict[str, str] = {}
+        agg_vice_bound: List[str] = []
         for _ in range(burst_n):
             # Rotate the dealer button to the next occupied seat for
             # this hand. Matters for seat-choice UX — when a player
@@ -1116,6 +1222,49 @@ def refresh_unseated_tables(
                     _order_index = {pid: i for i, pid in enumerate(_predator_ids)}
                     _pred_entries.sort(key=lambda e: _order_index.get(e.personality_id, 1_000_000))
                     _table_idle_pool = _pred_entries + _other_entries
+
+            # Idle-recovery gate: project each idle candidate's energy forward
+            # through the rest it's had (now − left_at) toward its baseline, so
+            # the re-seat path can keep still-tired AIs resting and bring
+            # rested ones back. Energy lives in the blob for idle AIs; memoize
+            # per table-refresh to avoid re-reading it for every open seat.
+            _reseat_left_at = {e.personality_id: e.left_at for e in _table_idle_pool}
+            _reseat_energy_memo: Dict[str, float] = {}
+
+            def _reseat_energy_lookup(
+                pid: str, _la=_reseat_left_at, _memo=_reseat_energy_memo
+            ) -> float:
+                import json as _json
+
+                if pid in _memo:
+                    return _memo[pid]
+                stored = baseline = 0.5
+                if bankroll_repo is not None:
+                    try:
+                        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+                        if blob:
+                            state = _json.loads(blob)
+                            stored = float(state.get("axes", {}).get("energy", 0.5))
+                            baseline = float(
+                                state.get("anchors", {}).get("baseline_energy", stored)
+                            )
+                    except Exception:
+                        stored = baseline = 0.5
+                la = _la.get(pid)
+                if la is None:
+                    projected = stored
+                else:
+                    try:
+                        idle_seconds = max(0.0, (now - la).total_seconds())
+                    except Exception:
+                        idle_seconds = 0.0
+                    projected = project_idle_energy(stored, baseline, idle_seconds)
+                # Recovery fraction toward baseline (1.0 = fully rested); the
+                # re-seat gate is relative so low-baseline AIs aren't stranded.
+                frac = 1.0 if baseline <= 0 else min(1.0, projected / baseline)
+                _memo[pid] = frac
+                return frac
+
             per_hand = refresh_table_roster(
                 table,
                 idle_pool=_table_idle_pool,
@@ -1132,6 +1281,7 @@ def refresh_unseated_tables(
                 live_fill_prob=_effective_live_fill_prob,
                 defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
+                energy_lookup=_reseat_energy_lookup,
                 # Phase 4: intercept forced_leave with take_stake when
                 # peer AIs are willing to fund the busting borrower.
                 # Wired only when callers pass relationship_repo and
@@ -1165,6 +1315,10 @@ def refresh_unseated_tables(
                 # legacy uniform-random pick.
                 history_lookup=(_history_for if _take_stake_enabled else None),
                 starting_bankroll_lookup=(_starting_bankroll_for if _take_stake_enabled else None),
+                # Vice-on-leave: roll vice for a discretionary leaver so a
+                # winner goes off-grid instead of into the idle pool. None
+                # when real vice is off / cast too poor (no interception).
+                vice_prob_lookup=_vice_prob_lookup,
             )
             # Carry the post-hand table forward to the next iteration.
             table = per_hand.new_table
@@ -1180,9 +1334,18 @@ def refresh_unseated_tables(
             agg_idle_changes.extend(per_hand.idle_changes)
             agg_bankroll_changes.extend(per_hand.bankroll_changes)
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
+            # Persist recovered energy for AIs that just returned from the idle
+            # pool, so their rebuilt controller starts rested (the gate already
+            # ensured they recovered past the floor before re-seating).
+            for _pid in per_hand.freshly_seated_personality_ids:
+                if _pid in _reseat_left_at:
+                    _persist_reseat_recovery(
+                        bankroll_repo, _pid, sandbox_id, _reseat_energy_lookup(_pid)
+                    )
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
+            agg_vice_bound.extend(per_hand.vice_bound)
             # Update the burst-local set so subsequent hands within
             # this same burst can't double-stake the same borrower.
             for sc in per_hand.stake_creations:
@@ -1199,7 +1362,12 @@ def refresh_unseated_tables(
             rebuy_changes=agg_rebuy_changes,
             leave_signals=agg_leave_signals,
             stake_creations=agg_stake_creations,
+            vice_bound=agg_vice_bound,
         )
+        # Roll up this table's go_vice leavers for the refresh-level
+        # commit below (their from_seat credits are applied in-loop, so
+        # the bankroll is whole by the time we size the spend).
+        all_vice_bound.extend(result.vice_bound)
 
         # Aspiration-ask: AIs seated at this table after the burst may
         # decide they want to climb a tier without busting. Mutates
@@ -1762,6 +1930,19 @@ def refresh_unseated_tables(
     # in the bank pool on the same tick they're available for tourist
     # injection / casino seeding (vice_spending is in
     # BANK_POOL_DEPOSIT_REASONS).
+    # Sandbox-wide seated pids — the off-grid (vice / side-hustle) passes
+    # below draw from `list_idle`, but a seating-path bug could leave a
+    # seated AI with a stale idle row (the `seated_and_idle` split-brain).
+    # Never send a *seated* AI off-grid: that would compound it into
+    # `seated_and_offgrid`. Defense-in-depth — the seat-write paths now
+    # clear idle rows, but this guard keeps the invariant locally.
+    _seated_pids: Set[str] = {
+        slot.get("personality_id")
+        for tbl in cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+        for slot in tbl.seats
+        if slot.get("kind") == "ai" and slot.get("personality_id")
+    }
+
     vice_starts: list = []
     if (
         vice_mode == 'real'
@@ -1778,9 +1959,20 @@ def refresh_unseated_tables(
             # idle_pool was already filtered to exclude on_vice AIs at
             # the top of this function. Refresh from the current idle
             # snapshot so any AIs who entered idle during the table
-            # loop are eligible too.
+            # loop are eligible too. Exclude seated AIs (split-brain
+            # guard) and fish (a casino-only, pool-funded class that
+            # never goes off-grid — mirrors the side-hustle pass).
             current_idle = cash_table_repo.list_idle(sandbox_id=sandbox_id)
-            candidates = {e.personality_id for e in current_idle if e.personality_id not in on_vice}
+            candidates = {
+                e.personality_id
+                for e in current_idle
+                if e.personality_id not in on_vice
+                and e.personality_id not in _seated_pids
+                and e.personality_id not in _fish_ids
+                # Respect the post-vice refractory window here too, so the
+                # idle-path and the leave-path share one cooldown.
+                and not is_in_vice_cooldown(e.personality_id, now)
+            }
 
             def _vice_narrate(pid, amount, snapshot):
                 # Bind the personality_repo so the LLM prompt can
@@ -1803,6 +1995,31 @@ def refresh_unseated_tables(
                 now=now,
                 narrate_fn=_vice_narrate,
             )
+
+            # Leave-vice commits: AIs whose discretionary leave a vice roll
+            # intercepted (go_vice) went off-grid this refresh. The roll
+            # already happened, so this only sizes + commits the spend
+            # (debit bankroll → bank pool), bypassing the idle-only scan
+            # and its per-refresh cap. from_seat credits were applied in
+            # the table loop, so the bankroll is whole. Reuses the same
+            # cast-median snapshot built before the loop.
+            if all_vice_bound and _vice_cast_median > 0:
+                from cash_mode.ai_vice_spending import commit_leave_vice
+
+                for _pid in all_vice_bound:
+                    committed = commit_leave_vice(
+                        personality_id=_pid,
+                        cast_median=_vice_cast_median,
+                        vice_repo=vice_repo,
+                        bankroll_repo=bankroll_repo,
+                        chip_ledger_repo=chip_ledger_repo,
+                        sandbox_id=sandbox_id,
+                        rng=rng,
+                        now=now,
+                        narrate_fn=_vice_narrate,
+                    )
+                    if committed is not None:
+                        vice_starts.append(committed)
         except Exception as exc:
             logger.warning(
                 "[CASH][LOBBY] AI vice spending failed: %s",
@@ -1852,7 +2069,9 @@ def refresh_unseated_tables(
             candidates: Set[str] = set()
             for e in current_idle:
                 pid = e.personality_id
-                if pid in on_vice or pid in on_hustle or pid in _fish_ids:
+                # Same split-brain guard as the vice pass: never send a
+                # seated AI off-grid on a hustle (seated_and_offgrid).
+                if pid in on_vice or pid in on_hustle or pid in _fish_ids or pid in _seated_pids:
                     continue
                 try:
                     projected = bankroll_repo.load_ai_bankroll_current(

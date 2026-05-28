@@ -1,3 +1,10 @@
+---
+purpose: Deferred issues and tech debt identified during review, triaged by priority tier
+type: reference
+created: 2026-02-04
+last_updated: 2026-05-26
+---
+
 # Triage: Deferred Issues
 
 Issues identified during code review but deferred for future work.
@@ -61,6 +68,24 @@ isolated, ~6K LOC). Make each module strict, then freeze it and expand outward.
   this (`poker/` alone is 69K LOC), hence the per-module rollout.
 - **Added:** CI/maintainability pass, 2026-05-25.
 
+## Fragile cash-game detection via `gameId.startsWith('cash-')`
+
+Cash/career games are distinguished from tournament games by string-matching
+the game id prefix (`gameId.startsWith('cash-')`). This is used to decide
+navigation (the in-game "back" button routes career → `/cash`, tournament →
+`/menu/tournament`) and 404 recovery.
+
+- **Why fragile:** Couples routing/UX logic to an id naming convention. A
+  future change to how cash game ids are minted would silently misroute the
+  back button and the game-not-found fallback with no type error to catch it.
+- **Where:** `react/react/src/components/game/GamePage.tsx` (`handleBack`,
+  `handleGameLoadFailed`). Likely also worth auditing other `'cash-'` prefix
+  checks across the frontend.
+- **Better:** Surface an explicit `game_mode` / `mode: 'cash' | 'tournament'`
+  field on the game state from the backend and branch on that instead of the
+  id shape.
+- **Added:** Career back-nav feature, 2026-05-26.
+
 ---
 
 # Tier 3: Low Priority
@@ -102,3 +127,28 @@ GitHub Issues with the right label.
 - **Why low priority:** Pure curation/labeling — no code, no blocker. Do it once
   there's a reason to invite outside contributors.
 - **Added:** CI/maintainability pass, 2026-05-25.
+
+## Wind down `game_mode` (only `casual` is exposed; rest are code-only)
+
+`game_mode` only shapes **LLM-driven bot prompts**; the tiered core engine
+ignores it entirely. As of the 2026-05-26 settings cleanup, the game UI exposes
+**only `casual`** (`react/src/constants/gameModes.ts`). `standard`, `pro`, and
+the legacy `competitive` alias are **retained in code** (`config/game_modes.yaml`,
+`PromptConfig.from_mode_name`, `VALID_GAME_MODES`) for experiments, the API, and
+old saved games — but are no longer selectable from the game.
+
+- **Stage 1 — drop the `competitive` alias** (once no live/saved games carry it):
+  - `flask_app/routes/game_routes.py` — remove `'competitive'` from `VALID_GAME_MODES`.
+  - `poker/prompt_config.py` `from_mode_name` (~line 173-174) — delete the
+    `competitive → pro` alias + deprecation `logger.warning`.
+  - Grep for remaining `'competitive'` literals (themes, presets, tests).
+  - **Safe when:** `SELECT COUNT(*)` of games (and per-opponent overrides) still
+    referencing `'competitive'` is 0, or a one-time migration rewrites them to `pro`.
+- **Stage 2 — fully remove `standard`/`pro` (only if the LLM bots are retired
+  from Custom Game too):** delete the presets from `game_modes.yaml`, the
+  `from_mode_name` factories, and the `game_mode` plumbing on the new-game route.
+  Tied to the controller quarantine (chaos/hybrid/lean) — keep these modes as
+  long as those bots are selectable in Custom Game.
+- **Why deferred:** removing now would 500 on persisted games still holding the
+  old mode, and the LLM bots still consume these presets in Custom Game.
+- **Added:** Controller-consolidation / settings cleanup, 2026-05-26.

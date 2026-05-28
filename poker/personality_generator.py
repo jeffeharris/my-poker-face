@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.llm import CallType, LLMClient
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import get_assistant_model, get_assistant_provider
 
 from .repositories import PersonalityRepository
 
@@ -290,8 +290,10 @@ Respond with ONLY a JSON object in this exact format:
             SchemaManager(db_path).ensure_schema()
             self.personality_repo = PersonalityRepository(db_path)
 
-        # Use stateless LLMClient for generation
-        self._client = LLMClient(model=get_default_model(), provider=get_default_provider())
+        # Use stateless LLMClient for generation. Personality generation uses the
+        # Assistant tier (a stronger model) — the Default tier is the cheap groq
+        # llama used for in-game narration, too weak for authoring personalities.
+        self._client = LLMClient(model=get_assistant_model(), provider=get_assistant_provider())
 
         # Cache for this session
         self._cache = {}

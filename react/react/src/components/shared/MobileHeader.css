@@ -90,6 +90,62 @@
   border: 1px solid var(--color-border-default);
 }
 
+.mobile-game-info__location {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  max-width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--color-border-default);
+}
+
+/* Cash-mode toggle: the whole pill is a button. Reset native button chrome
+   (the .mobile-game-info base supplies the pill background/border). When
+   collapsed the room name stands alone, so drop its trailing divider. */
+.mobile-game-info--toggle {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Show the full room name (drop the old 10ch clamp). It can still shrink +
+   ellipsize, but only when the expanded details crowd it on a narrow phone. */
+.mobile-game-info--toggle .mobile-game-info__location {
+  padding-right: 0;
+  border-right: none;
+  max-width: none;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.mobile-game-info__chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.mobile-game-info__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* Sliding detail group — overflow:hidden lets framer animate width 0 → auto.
+   flex-shrink:0 keeps it intact so the room name yields first when space is tight. */
+.mobile-game-info__details {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .mobile-game-info__phase {
   font-family: var(--font-display);
   font-size: var(--font-size-sm);

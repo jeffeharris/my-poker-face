@@ -1,5 +1,6 @@
-import { memo, type ReactNode } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { memo, useState, type ReactNode } from 'react';
+import { ChevronRight, MessageCircle } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { BackButton } from './BackButton';
 import { formatCompactCurrency } from '../../utils/formatters';
 import './MobileHeader.css';
@@ -69,16 +70,25 @@ export interface GameInfoDisplayProps {
   smallBlind: number;
   bigBlind: number;
   handNumber?: number;
+  /** Cash-mode room name ("The Lodge"). Shown as the leading item so the
+   *  player knows which table they're at. Omitted for tournaments. */
+  tableName?: string | null;
 }
 
 /**
- * Game info display for mobile header - shows phase and blinds.
+ * Game info display for mobile header.
+ *
+ * Tournament: shows hand #, street, and blinds inline.
+ * Cash (tableName present): collapses to just the room name and drops the
+ * street badge (the board already shows the street) — tapping the room name
+ * slides out the hand # and blinds.
  */
 export const GameInfoDisplay = memo(function GameInfoDisplay({
   phase,
   smallBlind,
   bigBlind,
   handNumber,
+  tableName,
 }: GameInfoDisplayProps) {
   // Format phase for display (e.g., "PRE_FLOP" -> "Pre-Flop")
   const formatPhase = (p: string) => {
@@ -90,14 +100,52 @@ export const GameInfoDisplay = memo(function GameInfoDisplay({
 
   // Fallback: small blind is typically half of big blind
   const displaySmallBlind = smallBlind || Math.floor(bigBlind / 2);
+  const blindsText = `${formatCompactCurrency(displaySmallBlind)}/${formatCompactCurrency(bigBlind, false)}`;
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  if (tableName) {
+    return (
+      <button
+        type="button"
+        className="mobile-game-info mobile-game-info--toggle"
+        onClick={() => setDetailsOpen((open) => !open)}
+        aria-expanded={detailsOpen}
+        aria-label={detailsOpen ? 'Hide table details' : 'Show hand number and blinds'}
+      >
+        <span className="mobile-game-info__location" title={tableName}>
+          {tableName}
+        </span>
+        <ChevronRight
+          size={14}
+          className={`mobile-game-info__chevron${detailsOpen ? ' is-open' : ''}`}
+          aria-hidden="true"
+        />
+        <AnimatePresence initial={false}>
+          {detailsOpen && (
+            <motion.span
+              className="mobile-game-info__details"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 'auto', opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              {handNumber !== undefined && (
+                <span className="mobile-game-info__hand">#{handNumber}</span>
+              )}
+              <span className="mobile-game-info__blinds">{blindsText}</span>
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </button>
+    );
+  }
 
   return (
     <div className="mobile-game-info">
       {handNumber !== undefined && <span className="mobile-game-info__hand">#{handNumber}</span>}
       <span className="mobile-game-info__phase">{formatPhase(phase)}</span>
-      <span className="mobile-game-info__blinds">
-        {formatCompactCurrency(displaySmallBlind)}/{formatCompactCurrency(bigBlind, false)}
-      </span>
+      <span className="mobile-game-info__blinds">{blindsText}</span>
     </div>
   );
 });

@@ -12,6 +12,7 @@ import { PlayerCommandCenter } from '../PlayerCommandCenter';
 import { StatsPanel } from '../StatsPanel';
 import { CashControls } from '../../cash/CashControls';
 import { BustModal } from '../../cash/BustModal';
+import { SoloTableModal } from '../../cash/SoloTableModal';
 import { ActivityFeed } from '../ActivityFeed';
 import { ActionBadge } from '../../shared';
 import { ShuffleLoading } from '../../shared/ShuffleLoading';
@@ -273,12 +274,21 @@ export function PokerTable({
   return (
     <>
       <BustModal event={cashBustEvent} onDismiss={clearCashBustEvent} />
+      <SoloTableModal cashMode={gameState.cash_mode} />
       <StadiumLayout
         header={
           <GameHeader
             handNumber={gameState.hand_number}
             blinds={{ small: gameState.small_blind, big: gameState.big_blind }}
             phase={gameState.phase}
+            location={
+              gameState.cash_mode
+                ? {
+                    tableName: gameState.cash_mode.table_name,
+                    stakeLabel: gameState.cash_mode.stake_label,
+                  }
+                : undefined
+            }
             onBackClick={
               onBack ??
               (() => {
@@ -328,6 +338,7 @@ export function PokerTable({
               isBigBlind={isHumanBigBlind}
               bettingContext={gameState.betting_context}
               fastForward={gameState.fast_forward ?? false}
+              aiInstant={gameState.ai_instant ?? false}
               onFastForward={
                 gameId
                   ? (enabled: boolean) => {

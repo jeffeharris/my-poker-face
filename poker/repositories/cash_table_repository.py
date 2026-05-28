@@ -13,6 +13,7 @@ Spec: `docs/plans/CASH_MODE_LOBBY_HANDOFF.md` §"Persistent table state".
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -59,6 +60,54 @@ def _has_column(conn, table_name: str, column_name: str) -> bool:
     return any(row[1] == column_name for row in conn.execute(f"PRAGMA table_info({table_name})"))
 
 
+def _prior_seated_stamps(seats_json: Optional[str]) -> dict:
+    """Map ``personality_id -> seated_at`` from a persisted seats blob.
+
+    Best-effort: a malformed or absent blob yields ``{}``. Only AI slots
+    that already carry a ``seated_at`` contribute. Used by ``save_table``
+    to carry an AI's sit-down timestamp forward across re-saves.
+    """
+    if not seats_json:
+        return {}
+    try:
+        seats = json.loads(seats_json)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(seats, list):
+        return {}
+    stamps: dict = {}
+    for slot in seats:
+        if (
+            isinstance(slot, dict)
+            and slot.get("kind") == "ai"
+            and slot.get("seated_at")
+            and slot.get("personality_id")
+        ):
+            stamps[slot["personality_id"]] = slot["seated_at"]
+    return stamps
+
+
+def _stamp_seated_at(seats: List[dict], prior_stamps: dict, now_iso: str) -> List[dict]:
+    """Return a copy of ``seats`` where every AI slot carries ``seated_at``.
+
+    ``seated_at`` marks when that AI sat at THIS table. A pid already
+    seated here (present in ``prior_stamps``, read from the table's
+    previously-persisted seats) keeps its original stamp — so the clock
+    survives per-hand chip updates and same-seat rebuys, and only the chip
+    count changes. A pid not previously at this table is a fresh sit-down,
+    stamped ``now``; the timer therefore resets naturally on a table
+    change. Non-AI slots pass through untouched.
+    """
+    out: List[dict] = []
+    for slot in seats:
+        if isinstance(slot, dict) and slot.get("kind") == "ai" and slot.get("personality_id"):
+            stamp = prior_stamps.get(slot["personality_id"]) or now_iso
+            out.append({**slot, "seated_at": stamp})
+        else:
+            out.append(slot)
+    return out
+
+
 class CashTableRepository(BaseRepository):
     """CRUD for `cash_tables`.
 
@@ -90,7 +139,6 @@ class CashTableRepository(BaseRepository):
         """
         if now is None:
             now = datetime.utcnow()
-        seats_blob = seats_to_json(state.seats)
         created_iso = state.created_at.isoformat() if state.created_at else None
         with self._get_connection() as conn:
             scoped = _has_column(conn, "cash_tables", "sandbox_id")
@@ -104,16 +152,23 @@ class CashTableRepository(BaseRepository):
             if scoped:
                 existing = conn.execute(
                     """
-                    SELECT created_at FROM cash_tables
+                    SELECT created_at, seats_json FROM cash_tables
                     WHERE table_id = ? AND sandbox_id = ?
                     """,
                     (state.table_id, sandbox_id),
                 ).fetchone()
             else:
                 existing = conn.execute(
-                    "SELECT created_at FROM cash_tables WHERE table_id = ?",
+                    "SELECT created_at, seats_json FROM cash_tables WHERE table_id = ?",
                     (state.table_id,),
                 ).fetchone()
+            # Stamp each AI seat with when it sat at THIS table. Carrying
+            # forward the prior row's stamps preserves the clock across
+            # per-hand chip updates and rebuys; a pid new to the table is
+            # stamped `now` (so the timer resets on a table change). Lives
+            # in the seats_json blob — no schema column.
+            prior_stamps = _prior_seated_stamps(existing["seats_json"] if existing else None)
+            seats_blob = seats_to_json(_stamp_seated_at(state.seats, prior_stamps, now.isoformat()))
             # Build column-list dynamically so this repo stays compatible
             # with pre-v111 schemas (used by some legacy fixtures).
             extra_set_cols = []
@@ -254,6 +309,42 @@ class CashTableRepository(BaseRepository):
                                 now.isoformat(),
                                 *extra_ins_vals,
                             ),
+                        )
+
+            # Enforce the seated⇒not-idle invariant in the SAME transaction
+            # as the seat write. An AI present in this table's seats cannot
+            # also be resting in `cash_idle_pool` — that's the recurring
+            # `seated_and_idle` split-brain. Every seating path funnels
+            # through save_table (it's the sole writer of `seats_json`), so
+            # clearing here is the single chokepoint that keeps the two
+            # tables consistent without each caller having to remember. AIs
+            # that just LEFT are already gone from `state.seats`, so their
+            # freshly-added idle rows are untouched. No-op when the idle
+            # table is absent (pre-v92 fixtures) or no AI is seated.
+            if _has_column(conn, "cash_idle_pool", "personality_id"):
+                seated_pids = [
+                    slot["personality_id"]
+                    for slot in state.seats
+                    if slot.get("kind") == "ai" and slot.get("personality_id")
+                ]
+                if seated_pids:
+                    placeholders = ", ".join("?" * len(seated_pids))
+                    if _has_column(conn, "cash_idle_pool", "sandbox_id"):
+                        conn.execute(
+                            f"""
+                            DELETE FROM cash_idle_pool
+                            WHERE sandbox_id = ?
+                              AND personality_id IN ({placeholders})
+                            """,
+                            (sandbox_id, *seated_pids),
+                        )
+                    else:
+                        conn.execute(
+                            f"""
+                            DELETE FROM cash_idle_pool
+                            WHERE personality_id IN ({placeholders})
+                            """,
+                            tuple(seated_pids),
                         )
 
     def load_table(

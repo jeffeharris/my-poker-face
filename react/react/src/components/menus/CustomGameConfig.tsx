@@ -31,7 +31,18 @@ import { PageLayout, MenuBar, BottomSheet } from '../shared';
 import { useLLMProviders } from '../../hooks/useLLMProviders';
 import { useAuth } from '../../hooks/useAuth';
 import type { OpponentLLMConfig, OpponentConfig } from '../../types/llm';
-import { GAME_MODES } from '../../constants/gameModes';
+import {
+  STACK_OPTIONS as stackOptions,
+  BLIND_OPTIONS as blindOptions,
+  BLIND_GROWTH_OPTIONS as blindGrowthOptions,
+  BLINDS_INCREASE_OPTIONS as blindsIncreaseOptions,
+  MAX_BLIND_OPTIONS as maxBlindOptions,
+  BLIND_PRESETS,
+  DEFAULT_PRESET,
+  PRESET_BIG_BLIND,
+  presetStack,
+  type BlindPresetId,
+} from '../../constants/gameStructure';
 import './CustomGameConfig.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -69,6 +80,7 @@ interface LLMConfig {
   blind_growth?: number;
   blinds_increase?: number;
   max_blind?: number;
+  ai_chat?: boolean;
 }
 
 type BotType = 'chaos' | 'standard' | 'lean' | 'sharp' | 'casebot' | 'gto_lite' | 'baseline_solver';
@@ -138,7 +150,7 @@ interface GamePreset {
   id: string;
   name: string;
   icon: React.ReactNode;
-  desc: string;
+  desc: string[];
   starting_stack: number;
   big_blind: number;
   blind_growth: number;
@@ -146,41 +158,25 @@ interface GamePreset {
   max_blind: number;
 }
 
-const GAME_PRESETS: GamePreset[] = [
-  {
-    id: 'quick',
-    name: 'Quick & Dirty',
-    icon: <Zap size={28} />,
-    desc: '50BB deep, fast blinds. Games end quick.',
-    starting_stack: 10000,
-    big_blind: 200,
-    blind_growth: 1.5,
-    blinds_increase: 4,
-    max_blind: 0,
-  },
-  {
-    id: 'tournament',
-    name: 'Tournament',
-    icon: <Trophy size={28} />,
-    desc: '100BB deep, steady growth. Classic feel.',
-    starting_stack: 10000,
-    big_blind: 100,
-    blind_growth: 1.5,
-    blinds_increase: 6,
-    max_blind: 0,
-  },
-  {
-    id: 'deep',
-    name: 'Deep Stack',
-    icon: <Layers size={28} />,
-    desc: '200BB deep, slow blinds. Play the long game.',
-    starting_stack: 10000,
-    big_blind: 50,
-    blind_growth: 1.25,
-    blinds_increase: 10,
-    max_blind: 0,
-  },
-];
+// Icons are UI-only; the structure values come from the shared source of
+// truth (gameStructure.ts) so the tournament menu and Custom Game never drift.
+const PRESET_ICONS: Record<BlindPresetId, React.ReactNode> = {
+  quick: <Zap size={28} />,
+  tournament: <Trophy size={28} />,
+  deep: <Layers size={28} />,
+};
+
+const GAME_PRESETS: GamePreset[] = BLIND_PRESETS.map((p) => ({
+  id: p.id,
+  name: p.label,
+  icon: PRESET_ICONS[p.id],
+  desc: p.desc,
+  starting_stack: presetStack(p),
+  big_blind: PRESET_BIG_BLIND,
+  blind_growth: p.blindGrowth,
+  blinds_increase: p.blindsIncrease,
+  max_blind: p.maxBlind,
+}));
 
 // ─── Component ───────────────────────────────────────────────────────
 
@@ -208,14 +204,17 @@ export function CustomGameConfig({
   const [expandedConfigSlot, setExpandedConfigSlot] = useState<number | null>(null);
 
   // Step 2: Game settings
-  const [selectedPreset, setSelectedPreset] = useState<string>('tournament');
-  const [startingStack, setStartingStack] = useState(10000);
-  const [bigBlind, setBigBlind] = useState(100);
-  const [blindGrowth, setBlindGrowth] = useState(1.5);
-  const [blindsIncrease, setBlindsIncrease] = useState(6);
-  const [maxBlind, setMaxBlind] = useState(0);
+  // Defaults = the shared "Tournament" preset, so a fresh Custom Game opens on
+  // the same sane structure the tournament menu uses.
+  const [selectedPreset, setSelectedPreset] = useState<string>(DEFAULT_PRESET.id);
+  const [startingStack, setStartingStack] = useState(presetStack(DEFAULT_PRESET));
+  const [bigBlind, setBigBlind] = useState(PRESET_BIG_BLIND);
+  const [blindGrowth, setBlindGrowth] = useState(DEFAULT_PRESET.blindGrowth);
+  const [blindsIncrease, setBlindsIncrease] = useState(DEFAULT_PRESET.blindsIncrease);
+  const [maxBlind, setMaxBlind] = useState(DEFAULT_PRESET.maxBlind);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [defaultGameMode, setDefaultGameMode] = useState('standard');
+  // AI table talk. Off → the Solver bot makes no LLM call (instant play).
+  const [aiChat, setAiChat] = useState(true);
 
   // Model config
   const {
@@ -387,12 +386,11 @@ export function CustomGameConfig({
   };
 
   const resetOpponentConfig = (name: string) => {
+    // "Use Game Defaults" only governs the LLM provider/model/reasoning.
+    // The Controller (bot type) is orthogonal — a deterministic bot uses no
+    // LLM at all — so it must NOT be cleared here, or toggling defaults back
+    // on would silently discard the controller the user just picked.
     setOpponentConfigs((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    setOpponentBotTypes((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -448,11 +446,12 @@ export function CustomGameConfig({
       return name;
     });
 
-    // Only forward non-default bot type selections
+    // Only forward non-default bot type selections ('sharp' = tiered = the
+    // core default, matching the backend; omitting it lets the server default.)
     const botTypes: Record<string, BotType> = {};
     for (const name of filled) {
       const bt = opponentBotTypes[name];
-      if (bt && bt !== 'standard') botTypes[name] = bt;
+      if (bt && bt !== 'sharp') botTypes[name] = bt;
     }
 
     onStartGame(
@@ -466,8 +465,11 @@ export function CustomGameConfig({
         blind_growth: blindGrowth,
         blinds_increase: blindsIncrease,
         max_blind: maxBlind,
+        ai_chat: aiChat,
       },
-      defaultGameMode,
+      // game_mode is no longer player-selectable; the tiered core engine
+      // ignores it and the LLM bots in Custom Game use 'casual'.
+      'casual',
       Object.keys(botTypes).length > 0 ? botTypes : undefined
     );
   };
@@ -759,12 +761,7 @@ export function CustomGameConfig({
   );
 
   // ─── Step 2: Game Settings ─────────────────────────────────────────
-
-  const stackOptions = [1000, 2500, 5000, 10000, 20000];
-  const blindOptions = [10, 25, 50, 100, 200];
-  const blindGrowthOptions = [1.25, 1.5, 2];
-  const blindsIncreaseOptions = [4, 6, 8, 10];
-  const maxBlindOptions = [200, 500, 1000, 2000, 5000, 0];
+  // Stack / blind / growth / cap option ranges live in gameStructure.ts.
 
   const renderStep1 = () => (
     <div className="wizard-step-panel" key="step-1">
@@ -783,26 +780,41 @@ export function CustomGameConfig({
               )}
               <div className="preset-card__icon">{preset.icon}</div>
               <div className="preset-card__name">{preset.name}</div>
-              <div className="preset-card__desc">{preset.desc}</div>
+              <div className="preset-card__desc">
+                {preset.desc.map((line) => (
+                  <span key={line} className="preset-card__desc-line">
+                    {line}
+                  </span>
+                ))}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Game mode cards */}
+      {/* AI Chat: pick the table feel. "Faster" turns off AI chat so the
+          Solver bot makes zero LLM calls (instant play). */}
       <div className="game-mode-section">
-        <p className="presets-section__label">Game Mode</p>
-        <div className="game-mode-grid">
-          {GAME_MODES.map((gm) => (
-            <button
-              key={gm.value}
-              className={`selectable-card game-mode-card ${defaultGameMode === gm.value ? 'selectable-card--selected' : ''}`}
-              onClick={() => setDefaultGameMode(gm.value)}
-            >
-              <div className="game-mode-card__name">{gm.label}</div>
-              <div className="game-mode-card__desc">{gm.description}</div>
-            </button>
-          ))}
+        <p className="presets-section__label">AI Chat</p>
+        <div className="ai-chat-toggle">
+          <button
+            type="button"
+            className={`selectable-card game-mode-card ${aiChat ? 'selectable-card--selected' : ''}`}
+            onClick={() => setAiChat(true)}
+            aria-pressed={aiChat}
+          >
+            <div className="game-mode-card__name">Funner</div>
+            <div className="game-mode-card__desc">w/ AI chat — they react &amp; trash-talk</div>
+          </button>
+          <button
+            type="button"
+            className={`selectable-card game-mode-card ${!aiChat ? 'selectable-card--selected' : ''}`}
+            onClick={() => setAiChat(false)}
+            aria-pressed={!aiChat}
+          >
+            <div className="game-mode-card__name">Faster</div>
+            <div className="game-mode-card__desc">no AI chat — instant Solver play</div>
+          </button>
         </div>
       </div>
 
@@ -1031,13 +1043,6 @@ export function CustomGameConfig({
           </span>
           <span className="review-stat__divider" />
           <span className="review-stat">
-            <span className="review-stat__value" style={{ textTransform: 'capitalize' }}>
-              {defaultGameMode}
-            </span>
-            <span className="review-stat__label">Mode</span>
-          </span>
-          <span className="review-stat__divider" />
-          <span className="review-stat">
             <span className="review-stat__value">{defaultModel}</span>
             <span className="review-stat__label">AI</span>
           </span>
@@ -1193,48 +1198,31 @@ export function CustomGameConfig({
                     </div>
                   )}
                   <div className="config-sheet__field">
-                    <label className="config-sheet__label">Game Mode Override</label>
+                    <label className="config-sheet__label">Opponent AI</label>
                     <select
                       className="config-sheet__select"
-                      value={opponentConfigs[configName]?.game_mode || ''}
-                      onChange={(e) =>
-                        handleOpponentConfigChange(configName, 'game_mode', e.target.value)
-                      }
-                      disabled={useDefaults}
-                    >
-                      <option value="">Use game default ({defaultGameMode})</option>
-                      {GAME_MODES.map((gm) => (
-                        <option key={gm.value} value={gm.value}>
-                          {gm.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="config-sheet__field">
-                    <label className="config-sheet__label">Controller</label>
-                    <select
-                      className="config-sheet__select"
-                      value={opponentBotTypes[configName] ?? 'standard'}
+                      value={opponentBotTypes[configName] ?? 'sharp'}
                       onChange={(e) =>
                         setOpponentBotTypes((prev) => ({
                           ...prev,
                           [configName]: e.target.value as BotType,
                         }))
                       }
-                      disabled={useDefaults}
                     >
-                      <optgroup label="LLM-driven">
-                        <option value="standard">Standard (default)</option>
-                        <option value="chaos">Chaos — full LLM, full personality</option>
-                        <option value="lean">Lean — cheap LLM, options-bounded</option>
-                        <option value="sharp">Sharp — solver-based GTO</option>
-                      </optgroup>
-                      <optgroup label="Training bots (deterministic, no chat)">
-                        <option value="casebot">CaseBot — adaptive case-based rules</option>
-                        <option value="gto_lite">GTO-Lite — pot-odds math</option>
-                        <option value="baseline_solver">
-                          BaselineSolver — pure solver, no personality
+                      {/* Ordered by how much freedom the LLM has in the decision.
+                          Values are the internal bot_type codenames. */}
+                      <optgroup label="AI style">
+                        <option value="sharp">
+                          Solver — plays the math, personality on top (default)
                         </option>
+                        <option value="standard">Guided — LLM chooses from smart options</option>
+                        <option value="chaos">Improv — pure LLM, full freedom</option>
+                      </optgroup>
+                      <optgroup label="More">
+                        <option value="lean">Guided · Lean — cheaper bounded LLM</option>
+                        <option value="casebot">CaseBot — rule-based</option>
+                        <option value="gto_lite">GTO-Lite — pot-odds math</option>
+                        <option value="baseline_solver">Solver · no personality</option>
                       </optgroup>
                     </select>
                   </div>

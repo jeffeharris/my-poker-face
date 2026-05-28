@@ -364,6 +364,12 @@ class ExpressionGenerator:
         if rel_block:
             user_text = f"{user_text}\n\n{rel_block}"
 
+        # Append the human's self-description block when present, so sharp/tiered
+        # narration can riff on it like the other bots do in their decisions.
+        bio_block = getattr(ctx, 'human_bio', '') or ''
+        if bio_block.strip():
+            user_text = f"{user_text}\n\n{bio_block.strip()}"
+
         return system_text, user_text
 
     def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:

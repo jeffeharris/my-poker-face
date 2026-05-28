@@ -13,7 +13,9 @@ export type AdminTab =
   | 'templates'
   | 'settings'
   | 'debug'
-  | 'chip-ledger';
+  | 'chip-ledger'
+  | 'whereabouts'
+  | 'range-explorer';
 
 export interface SidebarItem {
   id: AdminTab;

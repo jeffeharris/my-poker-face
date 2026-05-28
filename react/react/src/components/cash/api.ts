@@ -8,6 +8,7 @@
  */
 
 import { config } from '../../config';
+import type { SessionSummary } from './CashOutSummary';
 import type {
   CashAction,
   CashApiResponse,
@@ -27,6 +28,7 @@ import type {
   StakeLabel,
   StakeOfferResponse,
   StakerForgiveResponse,
+  WhereaboutsResponse,
   WorldPace,
 } from './types';
 
@@ -88,7 +90,20 @@ export async function topUp(amount: number): Promise<{ stack: number; bankroll: 
   return postJson('/topup', { amount });
 }
 
-export async function leaveTable(): Promise<CashApiResponse> {
+/** The /api/cash/leave settlement response. Canonical home for the
+ *  shape the leave flow reads (chips returned, sponsor cut, session
+ *  summary). Components should import this rather than redeclaring it. */
+export interface LeaveResponse {
+  session_ended: boolean;
+  chips_at_table: number;
+  had_active_loan: boolean;
+  sponsor_repaid: number;
+  returned_chips: number;
+  bankroll: number;
+  session_summary: SessionSummary | null;
+}
+
+export async function leaveTable(): Promise<LeaveResponse> {
   return postJson('/leave');
 }
 
@@ -121,6 +136,14 @@ export async function rebuy(amount: number): Promise<{ stack: number; bankroll: 
   return postJson('/rebuy', { amount });
 }
 
+/** "Stay & play" from the everyone-left prompt: seat fresh AIs at the
+ *  solo table and resume play. `personalityIds` are the candidates the
+ *  prompt named — the server prefers them but falls back to any
+ *  eligible AI. Returns the personality_ids actually seated. */
+export async function reseatTable(personalityIds: string[]): Promise<{ seated: string[] }> {
+  return postJson('/reseat', { personality_ids: personalityIds });
+}
+
 // --- Lobby v1.5 ---
 
 export async function getLobby(): Promise<LobbyResponse> {
@@ -141,6 +164,13 @@ export async function setWorldPace(pace: WorldPace): Promise<{ world_pace: World
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+/** Fetch where the AIs you've met are right now — at another table,
+ *  recharging in the idle pool, on a side hustle, or on a vice. Scoped
+ *  server-side to met personas; safe to poll while the drawer is open. */
+export async function getWhereabouts(): Promise<WhereaboutsResponse> {
+  return getJson('/whereabouts');
 }
 
 // --- Net Worth (Phase 3) ---
