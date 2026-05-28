@@ -460,7 +460,7 @@ export function MobileChatSheet({
                     className="mcs-text-input"
                     placeholder={
                       guestChatDisabled
-                        ? 'Chat available next turn'
+                        ? 'Sign in with Google to chat'
                         : textTarget && textTarget !== 'table'
                           ? `Message ${textTarget}...`
                           : 'Say something...'

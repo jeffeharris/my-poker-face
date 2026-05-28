@@ -169,7 +169,7 @@ export function ActivityFeed({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={guestChatDisabled ? 'Chat available next turn' : 'Say something...'}
+              placeholder={guestChatDisabled ? 'Sign in with Google to chat' : 'Say something...'}
               className="activity-feed__text-input"
               disabled={guestChatDisabled}
               autoFocus

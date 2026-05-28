@@ -19,16 +19,19 @@ from poker.controllers import AIPlayerController
 # TiltState removed - now using ComposureState from player_psychology
 from poker.emotional_state import EmotionalState
 from poker.guest_limits import (
+    GUEST_FREE_CHAT_ENABLED,
     GUEST_LIMITS_ENABLED,
     GUEST_MAX_ACTIVE_GAMES,
     GUEST_MAX_HANDS,
     GUEST_MAX_OPPONENTS,
+    check_guest_free_chat,
     check_guest_game_limit,
     check_guest_hands_limit,
     check_guest_message_limit,
     is_guest,
     validate_guest_opponent_count,
 )
+from poker.memory.chat_intent import map_tone
 from poker.hybrid_ai_controller import HybridAIController
 from poker.memory import AIMemoryManager
 from poker.memory.opponent_model import OpponentModelManager
@@ -470,6 +473,10 @@ def get_usage_stats():
             hands_played = guest_tracking_repo.get_hands_played(tracking_id)
 
     hands_limit_reached = guest and GUEST_LIMITS_ENABLED and hands_played >= GUEST_MAX_HANDS
+    # PRH-27: whether free-text chat is sign-in-gated for this user. Lets the
+    # client disable the keyboard input + steer to "sign in to chat" without
+    # guessing the server policy.
+    free_chat_locked = guest and GUEST_LIMITS_ENABLED and not GUEST_FREE_CHAT_ENABLED
 
     return jsonify(
         {
@@ -479,6 +486,7 @@ def get_usage_stats():
             'max_opponents': GUEST_MAX_OPPONENTS if guest else 9,
             'max_active_games': GUEST_MAX_ACTIVE_GAMES if guest else 10,
             'is_guest': guest,
+            'free_chat_locked': free_chat_locked,
         }
     )
 
@@ -1926,6 +1934,17 @@ def api_send_message(game_id):
     is_guest_user = current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED
 
     if is_guest_user:
+        # PRH-27: free-text chat is sign-in-gated for guests. A recognized
+        # quick-chat tone marks structured (bounded-vocabulary) chat, which
+        # stays allowed; everything else is free text that would reach the AI
+        # prompt verbatim.
+        has_structured_tone = map_tone(tone, intensity) is not None
+        allowed, error_msg = check_guest_free_chat(current_user, has_structured_tone)
+        if not allowed:
+            return jsonify(
+                {'success': False, 'error': error_msg, 'code': 'GUEST_FREE_CHAT_LOCKED'}
+            ), 403
+
         msgs_this_action = current_game_data.get('guest_messages_this_action', 0)
         allowed, error_msg = check_guest_message_limit(current_user, msgs_this_action)
         if not allowed:
@@ -2335,6 +2354,15 @@ def register_socket_events(sio):
             logger.debug(f"[SOCKET] send_message unauthorized: user={user_id}, owner={owner_id}")
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
+
+        # PRH-27: gate free-text chat for guests (mirror of api_send_message).
+        # This socket path otherwise bypasses every guest chat check.
+        if user and is_guest(user) and GUEST_LIMITS_ENABLED:
+            has_structured_tone = map_tone(data.get('tone'), data.get('intensity')) is not None
+            allowed, error_msg = check_guest_free_chat(user, has_structured_tone)
+            if not allowed:
+                emit('auth_error', {'error': error_msg, 'code': 'GUEST_FREE_CHAT_LOCKED'})
+                return
 
         send_message(game_id, sender, content, message_type, addressing=addressing)
 

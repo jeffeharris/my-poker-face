@@ -38,10 +38,14 @@ central-bank-on-one-side rule, per-sandbox conservation audit). But:
 **All Critical / High / Medium items are resolved on `prep-for-main`.** The
 detail below is the original as-of-2026-05-27 audit; this table is the
 authoritative scorecard. Per-item rationale lives in the cited commit messages
-(and `docs/PRH_1_2_IMPLEMENTATION.md` for PRH-1/2). The second-wave audits are
-now complete (see "Second-wave audit results" at the bottom): **no deadlock**,
-but a **stalled-provider hang** class (`PRH-18…24`) — findings with recommended
-fixes, not yet landed.
+(and `docs/PRH_1_2_IMPLEMENTATION.md` for PRH-1/2). The second- and third-wave
+audits are now complete (see the two results sections at the bottom): the
+second wave (`PRH-18…24`) found **no deadlock** but a **stalled-provider hang**
+class; the third wave (`PRH-25…35`, public *mobile* launch) surfaced the
+real go-public blockers — **the spend cap ships disabled, guest minting is
+unthrottled, there's no content moderation or alerting**. All are findings with
+recommended fixes; the only one landed so far is **PRH-27's guest-free-chat
+lock**.
 
 | ID | Status | Landed in |
 |----|--------|-----------|
@@ -194,3 +198,52 @@ The real risk is **a slow/stalled LLM call held *under* a lock** (the Audit-A
 LLM timeout for in-game/ticker calls. It bounds the hand hang (A), the ticker
 freeze (PRH-21), and the leave/top-up/rebuy block (PRH-22) in one stroke;
 PRH-19/21/22 are then refinements rather than the safety net.
+
+---
+
+## Third-wave audit results (2026-05-28) — public *mobile* launch
+
+Three further read-only scans aimed specifically at going public on mobile:
+**operational resilience / data durability**, **mobile-network resilience +
+funnel abuse**, and **content safety / secrets / observability**. The encouraging
+part first — verified solid, *do not re-litigate*: Google OAuth + admin guards +
+debug/replay/interrogate endpoints all gated; `SECRET_KEY` fails-closed in prod,
+no key/`str(e)` secret leakage, debug verbosity off; the SQLite PRAGMA baseline
+(WAL + `busy_timeout=5000` + retry-on-lock); the Socket.IO reconnect config
+(infinite retry, 1–5s backoff, foreground resync, gone-game latch); the in-game
+loop is socket-push not interval-polled (low reconnect-storm exposure); cold-load
+rebuilds a mid-hand game faithfully. New IDs `PRH-25…35`. These are findings;
+**PRH-27's guest-free-chat lock is the only one landed this session** (see below).
+
+### Tier 0 — launch blockers
+
+| ID | Finding | Location | Recommended fix |
+|----|---------|----------|-----------------|
+| **PRH-25** | **The spend kill-switch ships *disabled*, and the per-owner cap can't bind anonymous abuse.** `LLM_GLOBAL_DAILY_BUDGET_USD` and `LLM_PER_OWNER_DAILY_BUDGET_USD` both **default to 0 = off**; with no env config at launch there is neither a cap nor the per-user backstop PRH-2 implies. Worse, the per-owner cap keys on `owner_id`, which for a guest *is the guest_id* — a fresh guest = fresh budget bucket — so only the **global** cap can stop a botnet. | `flask_app/config.py:98-99`; per-owner query `core/llm/tracking.py:313-316`; guest owner_id `game_routes.py:1337` | **Arm `LLM_GLOBAL_DAILY_BUDGET_USD` before launch** — the only ceiling a guest cannot reset. (Code: done — PRH-2. Ops: set the env var.) |
+| **PRH-26** | **Guest minting is unauthenticated, un-CAPTCHA'd, and quota is trivially reset.** `POST /api/auth/login {guest:true}` has no dedicated rate limit/bot-check; a script sending a fresh random `guest_tracking_id` cookie gets a fresh `GUEST_MAX_HANDS=50` quota each time, and any guest can opt opponents into the costliest `chaos`/`standard` full-LLM bots. The username/password branch also accepts **any** credentials and mints a guest-limit-free session. | `poker/auth.py:91-155,158-179`; `poker/guest_limits.py:28`; bot opt-in `game_routes.py:1408-1431` | Dedicated rate limit on guest login; prefer the IP-derived tracking id over a client cookie; force guests to LLM-free `sharp` and gate `chaos`/`standard` behind real auth; 501 the password stub. |
+| **PRH-27** | **No content moderation on an unmoderated UGC+LLM pipeline.** In-game chat is appended verbatim into the AI's decision prompt (prompt-injection / offensive-output / cost surface); personality/theme *names* are interpolated into generation prompts; owner-flippable **public** personalities expose user names + LLM bios to all users. **PARTIALLY MITIGATED:** guest free-text chat is now sign-in-gated (`GUEST_FREE_CHAT_ENABLED`, default off; `check_guest_free_chat` on both the HTTP and socket send paths; client degrades to "sign in to chat"). Still open: moderation/length-cap on *authed* chat + names, prompt delimiting, and default-deny public personality sharing. | chat→prompt `message_handler.py:123`→`controllers.py:559`; names `personality_generator.py:392`; public share `personality_routes.py:725`; **lock** `poker/guest_limits.py` `check_guest_free_chat`, `game_routes.py` send paths | Add a moderation pass + length cap on authed chat/names; wrap user content in explicit prompt delimiters; admin-review (or default-deny) public personalities. |
+| **PRH-28** | **No alerting — every safety signal is log-only with nobody watching.** No Sentry/webhook/email anywhere; `[LEDGER] DRIFT RISK` literally comments "surface loudly for alerting" but nothing does. Combined with PRH-25 (cap off) you would not *know* an overrun or drift happened. | `core/economy/ledger.py:243`; `core/llm/budget.py:97-127`; `flask_app/config.py:108-125` | Wire one alerting sink (Sentry or a Slack-webhook log handler) on ERROR + `[LEDGER]`/`[LLM BUDGET]` prefixes. Cheap; it's what makes every other control real. |
+
+### Tier 1 — high
+
+| ID | Finding | Location | Recommended fix |
+|----|---------|----------|-----------------|
+| **PRH-29** | **Backups are WAL-unsafe and on-box only.** `deploy.sh` does a plain `cp` of a live WAL database (corrupt-prone — see the MEMORY note), only at deploy time, to the same disk. Single-box disk failure = total loss of the chip economy + accounts + history. | `deploy.sh:43-48`; WAL `base_repository.py:107-111` | Use the sqlite `.backup` API + `integrity_check`, schedule it (cron), ship off-box (Storage Box/S3); keep ≥7 daily. |
+| **PRH-30** | **The single worker's real ceiling is CPU, not connections.** Every AI decision runs a synchronous **2000-iteration equity Monte Carlo** inline (`decision_analyzer.py:230`, GIL-bound, never yields) plus ~4 full-game-JSON write transactions (`game_handler.py:3801-3821`). Practical ceiling: *low-tens* of concurrent active hands before turn latency shows. | `poker/decision_analyzer.py:230`; `flask_app/handlers/game_handler.py:3307,3801-3821` | Sample/async or lower-iteration the decision-quality analysis (it's analytics, not gameplay); coalesce the per-action triple-save to hand boundaries. Biggest throughput win. |
+| **PRH-31** | **The PRH-12 self-heal is dead on the client.** Backend emits 409 `RELOAD_REQUIRED` + a `reload_required` socket event, but the React client listens for *neither* — a tap right after a reconnect/eviction is a silently-dropped action that looks like a dead button. Mobile-specific (OS drops sockets on every backgrounding/handoff). Partly masked by reconnect-refresh + a 30s watchdog. | `react/.../usePokerGame.ts:885` (generic throw, no 409 handling); zero `reload_required` listeners | Handle the 409 (refetch + retry once) and add the `reload_required` socket listener. |
+| **PRH-32** | **Two tables grow unbounded and store user content verbatim forever.** Prod sets `LLM_PROMPT_CAPTURE=all` + `LLM_PROMPT_RETENTION_DAYS=0` (writes full prompts incl. user chat per decision, no cleanup); `api_usage` has no retention at all. Disk-fill *and* a privacy footprint. | `docker-compose.prod.yml:31-32`; `core/llm/tracking.py:494`; cleanup exists but unscheduled `prompt_capture_repository.py:670` | Set finite `LLM_PROMPT_RETENTION_DAYS` (and/or `all_except_decisions`), add a scheduled `api_usage` purge + `VACUUM`. |
+
+### Tier 2 — medium / polish
+
+| ID | Finding | Location | Recommended fix |
+|----|---------|----------|-----------------|
+| **PRH-33** | **Chat `sender` is client-controlled and unbounded in length.** `sender` is taken from the request and not forced to the seat name (UI spoof + the spoofed line enters the AI prompt as if another player said it); no server-side length cap on chat content (client caps at 200, server does not). | `game_routes.py:2312,1937` (sender); no length guard either path | Force `sender` server-side to the authenticated seat name; reject/truncate content over ~500 chars. |
+| **PRH-34** | **Thread-local SQLite connections are never closed per request** — `base_repository.py` stores a connection in `threading.local()` per repo with a `close()` that nothing calls (no `teardown` hook). Leaked connections hold WAL readers and fds over long uptime. | `poker/repositories/base_repository.py:95-115` | Register `teardown_appcontext`/socket-disconnect cleanup, or use a real pool. |
+| **PRH-35** | **No structured logging / request correlation / error dashboard.** stdout `basicConfig` only; no JSON formatter, per-request ID, log shipping, or error tracking (only Docker healthchecks). A silent error class can run for days. | `flask_app/__init__.py:17-20`; `docker-compose.prod.yml` | JSON formatter + per-request ID middleware; ship stdout to an aggregator. Folds into PRH-28. |
+
+### Corrections / open questions
+
+- **The "gevent worker doesn't monkey-patch" alarm is a false positive.** One scan flagged it Critical, but gunicorn's gevent worker calls `monkey.patch_all()` *itself* in `init_process` (library, not repo — hence the empty grep), so prod I/O almost certainly yields cooperatively. The real residual is just the non-standard `async_mode='threading'` pairing — **this is PRH-24, not a new finding.** A one-line runtime check (`socket.socket.__module__` inside the live worker) closes it.
+- **Native vs mobile-web is unresolved and changes the legal surface.** A wrapped native app pulls in Apple/Google *simulated-gambling* policy (age gating, no real-money implication, regional rules) + native crash reporting; responsive web/PWA drops most of that. Decide before the store submission path.
+
+**Suggested Tier-0 ordering:** PRH-25 (arm the budget — ops, minutes) → PRH-28 (one alerting sink) → PRH-26 (guest-creation throttle + bot/auth gating; PRH-27's chat lock already shipped) → the rest of PRH-27 (moderation). PRH-25+28 together turn the existing-but-passive financial controls into real ones.

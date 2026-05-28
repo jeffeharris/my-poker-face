@@ -7,6 +7,8 @@ export interface UsageStats {
   max_opponents: number;
   max_active_games: number;
   is_guest: boolean;
+  /** PRH-27: free-text chat is sign-in-gated for this user (guests by default). */
+  free_chat_locked?: boolean;
 }
 
 export interface UsageStatsContextValue {
