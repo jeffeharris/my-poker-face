@@ -244,3 +244,23 @@ Set `LLM_GLOBAL_DAILY_BUDGET_USD` (and optionally
 ARMED/DISABLED. Caveat from the original plan still holds: `estimated_cost` is
 NULL when a model's pricing row is missing → those rows count as $0 and slip the
 cap, so ensure pricing rows exist for prod models.
+
+### Known limitations
+- **Per-owner cap depends on `owner_id` propagation.** The gate only consults
+  the per-owner ceiling when the caller passes an `owner_id`. Several
+  generation paths — notably the paid image-generation routes (now admin-gated
+  by PRH-1) and a handful of background commentary/narration paths — call
+  `LLMClient` without threading an `owner_id` through. **For those calls the
+  per-owner layer does not bind, but the global cap still does** (its SUM
+  counts rows with NULL `owner_id`). Implication: always arm
+  `LLM_GLOBAL_DAILY_BUDGET_USD` — `LLM_PER_OWNER_DAILY_BUDGET_USD` alone
+  cannot bound the owner-less paths. Threading `owner_id` through
+  `poker/character_images.py` and the narration paths would tighten this, at
+  the cost of multi-file changes deferred from this MVP.
+- **Spend cache is eager-bumped between TTL recomputes.** `UsageTracker.record`
+  folds each call's `estimated_cost` into the cached totals immediately (see
+  `_bump_spend_cache`), so the gate sees new spend without waiting for the
+  cache TTL to expire. The bump preserves each entry's original timestamp,
+  so the periodic DB recompute still happens on schedule and supersedes any
+  drift. Worst-case residual slippage is bounded by concurrent in-flight
+  calls (whose cost has not yet been recorded), not by the cache TTL.

@@ -12,7 +12,7 @@ import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.llm import tracking
 from core.llm.tracking import UsageTracker
@@ -145,6 +145,54 @@ class TestRecentSpendReader(unittest.TestCase):
             self.assertEqual(tracker.get_recent_spend(owner_id='alice'), 0.0)
         finally:
             os.unlink(missing.name)
+
+    # ------------------------------------------------------------------
+    # Eager spend-cache bump (keeps the budget gate from lagging the TTL)
+    # ------------------------------------------------------------------
+    def test_bump_reflects_in_cached_read(self):
+        self.assertEqual(self.tracker.get_recent_spend(), 0.0)  # warm (None, 24)
+        self.tracker._bump_spend_cache(None, 0.50)
+        self.assertAlmostEqual(self.tracker.get_recent_spend(), 0.50, places=6)
+
+    def test_bump_targets_global_and_matching_owner_only(self):
+        self.tracker.get_recent_spend()  # warm global
+        self.tracker.get_recent_spend(owner_id='alice')
+        self.tracker.get_recent_spend(owner_id='bob')
+
+        self.tracker._bump_spend_cache('alice', 1.00)
+
+        self.assertAlmostEqual(self.tracker.get_recent_spend(), 1.00, places=6)  # global bumped
+        self.assertAlmostEqual(self.tracker.get_recent_spend(owner_id='alice'), 1.00, places=6)
+        self.assertEqual(self.tracker.get_recent_spend(owner_id='bob'), 0.0)  # untouched
+
+    def test_bump_ignores_none_or_nonpositive_cost(self):
+        self.tracker.get_recent_spend()
+        self.tracker._bump_spend_cache(None, None)
+        self.tracker._bump_spend_cache(None, 0.0)
+        self.tracker._bump_spend_cache(None, -5.0)
+        self.assertEqual(self.tracker.get_recent_spend(), 0.0)
+
+    def test_bump_is_superseded_by_ttl_recompute(self):
+        # The bump is an eager correction between recomputes — once the TTL
+        # elapses the cache recomputes from the DB (no rows here) and discards it.
+        self.tracker.get_recent_spend()
+        self.tracker._bump_spend_cache(None, 9.99)
+        self.assertAlmostEqual(self.tracker.get_recent_spend(), 9.99, places=6)
+        with patch.object(tracking, 'SPEND_CACHE_TTL', 0):
+            self.assertEqual(self.tracker.get_recent_spend(), 0.0)
+
+    def test_record_bumps_cache_without_reread(self):
+        # record() folds the inserted cost into the warm cache so the gate sees
+        # it immediately, rather than lagging behind by up to SPEND_CACHE_TTL.
+        self.tracker.get_recent_spend(owner_id='alice')  # warm (alice, 24)
+        self.tracker.get_recent_spend()  # warm (None, 24) at 0
+        with (
+            patch.object(self.tracker, '_insert_usage', return_value=0.40),
+            patch.object(self.tracker, '_log_stats'),
+        ):
+            self.tracker.record(MagicMock(), owner_id='alice')
+        self.assertAlmostEqual(self.tracker.get_recent_spend(), 0.40, places=6)
+        self.assertAlmostEqual(self.tracker.get_recent_spend(owner_id='alice'), 0.40, places=6)
 
 
 if __name__ == '__main__':

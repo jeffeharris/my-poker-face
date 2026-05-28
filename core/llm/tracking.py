@@ -182,7 +182,7 @@ class UsageTracker:
 
         # Persist to database
         try:
-            self._insert_usage(
+            estimated_cost = self._insert_usage(
                 response=response,
                 call_type=call_type,
                 game_id=game_id,
@@ -193,6 +193,10 @@ class UsageTracker:
                 message_count=message_count,
                 system_prompt_tokens=system_prompt_tokens,
             )
+            # Keep the spend cache (PRH-2) honest without a DB re-read: fold this
+            # call's cost into any warm cached totals so the budget gate sees it
+            # immediately, instead of lagging up to SPEND_CACHE_TTL behind it.
+            self._bump_spend_cache(owner_id, estimated_cost)
         except Exception as e:
             logger.error(f"Failed to persist usage data: {e}")
 
@@ -322,6 +326,25 @@ class UsageTracker:
         with self._spend_cache_lock:
             self._spend_cache.clear()
 
+    def _bump_spend_cache(self, owner_id: Optional[str], cost: Optional[float]) -> None:
+        """Add ``cost`` to any warm cached spend totals this call counts toward.
+
+        A just-recorded call falls inside every active rolling window, so we bump
+        the global key (``None``) and the call's owner key for *all* window sizes.
+        The cached entry's original timestamp is preserved, so the TTL still
+        forces a full DB recompute within ``SPEND_CACHE_TTL`` — this bump is an
+        eager correction between recomputes, not a replacement for them, so it
+        cannot drift or double-count (the recompute reads the persisted row).
+        Missing cache keys are left alone: the next read computes them fresh from
+        the DB, which already includes this row.
+        """
+        if not cost or cost <= 0:
+            return
+        with self._spend_cache_lock:
+            for (key_owner, window), (computed_at, total) in list(self._spend_cache.items()):
+                if key_owner is None or key_owner == owner_id:
+                    self._spend_cache[(key_owner, window)] = (computed_at, total + cost)
+
     def _get_sku_pricing(
         self,
         conn: sqlite3.Connection,
@@ -426,8 +449,8 @@ class UsageTracker:
         prompt_template: Optional[str],
         message_count: Optional[int],
         system_prompt_tokens: Optional[int],
-    ) -> None:
-        """Insert usage record into database."""
+    ) -> Optional[float]:
+        """Insert usage record into database. Returns the estimated cost (USD)."""
         is_image = isinstance(response, ImageResponse)
 
         with sqlite3.connect(self.db_path) as conn:
@@ -479,6 +502,8 @@ class UsageTracker:
                     pricing_ids_json,
                 ),
             )
+
+        return estimated_cost
 
 
 def capture_prompt(
