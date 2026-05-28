@@ -2986,9 +2986,12 @@ export function PersonalityManager({ onBack, embedded = false }: PersonalityMana
                 const currentVis = meta?.visibility || 'public';
                 const isOwner = !!currentUserId && meta?.owner_id === currentUserId;
                 const canChangeVisibility = isAdmin || isOwner;
-                const visibilityOptions = isAdmin
-                  ? (['public', 'private', 'disabled'] as const)
-                  : (['public', 'private'] as const);
+                // PRH-27: publishing is admin-only. A non-admin owner can keep
+                // their personality private (or un-publish a legacy public one)
+                // but can't make it public — the server rejects it too.
+                const visibilityOptions: readonly ('public' | 'private' | 'disabled')[] = isAdmin
+                  ? ['public', 'private', 'disabled']
+                  : ['private'];
                 return (
                   <div className="admin-detail__header">
                     <div>

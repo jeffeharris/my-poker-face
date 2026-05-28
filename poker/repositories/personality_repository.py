@@ -41,7 +41,7 @@ class PersonalityRepository(BaseRepository):
         config: Dict[str, Any],
         source: str = 'ai_generated',
         owner_id: Optional[str] = None,
-        visibility: str = 'public',
+        visibility: Optional[str] = None,
         personality_id: Optional[str] = None,
     ) -> str:
         """Save a personality configuration to the database.
@@ -51,8 +51,12 @@ class PersonalityRepository(BaseRepository):
             config: Personality config dict (may include 'id' as a hint;
                 explicit personality_id parameter wins if both provided)
             source: Provenance label (ai_generated, user_created, etc.)
-            owner_id: Owning user, when applicable
-            visibility: 'public' | 'private' | 'disabled'
+            owner_id: Owning user. ``None`` preserves an existing row's owner
+                on re-save (and stays ``None`` for a new row).
+            visibility: 'public' | 'private' | 'disabled'. ``None`` preserves an
+                existing row's visibility on re-save (PRH-27: editing e.g. an
+                avatar description must not silently publish a private
+                personality); a new row defaults to 'public'.
             personality_id: Stable identifier (slug-style). If omitted,
                 generated from name via slugify_personality_name. The
                 method preserves an existing row's personality_id when
@@ -76,6 +80,13 @@ class PersonalityRepository(BaseRepository):
             has_elasticity = 'elasticity_config' in columns
             has_ownership = 'owner_id' in columns
             has_personality_id = 'personality_id' in columns
+            has_visibility = 'visibility' in columns
+
+            # Fetch the existing row once so a re-save preserves identity,
+            # ownership, and visibility the caller didn't explicitly set.
+            existing = conn.execute(
+                "SELECT * FROM personalities WHERE name = ?", (name,)
+            ).fetchone()
 
             # Resolve the personality_id to write. Priority:
             #   1. Explicit parameter
@@ -83,13 +94,8 @@ class PersonalityRepository(BaseRepository):
             #   3. Existing row's personality_id (preserve across re-saves)
             #   4. Freshly slugified from name, with collision resolution
             resolved_id = personality_id or config.get('id')
-            if has_personality_id and not resolved_id:
-                existing = conn.execute(
-                    "SELECT personality_id FROM personalities WHERE name = ?",
-                    (name,),
-                ).fetchone()
-                if existing and existing['personality_id']:
-                    resolved_id = existing['personality_id']
+            if has_personality_id and not resolved_id and existing and existing['personality_id']:
+                resolved_id = existing['personality_id']
             if has_personality_id and not resolved_id:
                 base_slug = slugify_personality_name(name)
                 if base_slug:
@@ -109,6 +115,20 @@ class PersonalityRepository(BaseRepository):
                         name,
                     )
 
+            # Preserve owner_id / visibility on a re-save unless the caller
+            # explicitly overrides them. INSERT OR REPLACE rewrites the whole
+            # row, so without this an avatar/visual-identity edit (which passes
+            # neither) would silently orphan + publish a private personality.
+            resolved_owner_id = owner_id
+            if resolved_owner_id is None and existing is not None and has_ownership:
+                resolved_owner_id = existing['owner_id']
+            resolved_visibility = visibility
+            if resolved_visibility is None:
+                if existing is not None and has_visibility and existing['visibility']:
+                    resolved_visibility = existing['visibility']
+                else:
+                    resolved_visibility = 'public'
+
             if has_personality_id and has_elasticity and has_ownership:
                 conn.execute(
                     """
@@ -122,8 +142,8 @@ class PersonalityRepository(BaseRepository):
                         json.dumps(config_without_elasticity),
                         json.dumps(elasticity_config),
                         source,
-                        owner_id,
-                        visibility,
+                        resolved_owner_id,
+                        resolved_visibility,
                         resolved_id,
                     ),
                 )
@@ -139,8 +159,8 @@ class PersonalityRepository(BaseRepository):
                         json.dumps(config_without_elasticity),
                         json.dumps(elasticity_config),
                         source,
-                        owner_id,
-                        visibility,
+                        resolved_owner_id,
+                        resolved_visibility,
                     ),
                 )
             elif has_elasticity:

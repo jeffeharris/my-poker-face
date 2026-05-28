@@ -726,7 +726,10 @@ def generate_personality():
 def update_personality_visibility(name):
     """Set visibility for a personality.
 
-    Owners can toggle between public/private. Admins can also set disabled.
+    PRH-27: publishing is admin-only at this stage. A non-admin owner may set
+    their own personality to 'private'; only admins can set 'public' or
+    'disabled' (a public personality's user-chosen name + LLM-generated bio is
+    cross-user content, so it goes through admin review rather than self-serve).
     """
     try:
         current_user = auth_manager.get_current_user()
@@ -750,10 +753,18 @@ def update_personality_visibility(name):
                 }
             ), 400
 
-        # Only admins can set disabled
-        if visibility == 'disabled' and not is_admin:
+        # PRH-27: publishing (public) and disabling are admin-only. Non-admin
+        # owners can only set their own personality back to 'private'.
+        if visibility in ('public', 'disabled') and not is_admin:
             return jsonify(
-                {'success': False, 'error': 'Only admins can disable personalities'}
+                {
+                    'success': False,
+                    'error': (
+                        'Publishing personalities is admin-only right now. '
+                        'You can set your own to private.'
+                    ),
+                    'code': 'ADMIN_REQUIRED_FOR_PUBLIC',
+                }
             ), 403
 
         # Check ownership: must be owner or admin
