@@ -291,8 +291,31 @@ they're just not passed into the deviation layer.
    (`--adaptive-opp`, already built) — the point of that tendency is a punishable tell, which
    is what makes roadmap item 4 (the parked sizing-aware attack) finally worth reviving.
 
+### Slow-play — BUILT + PRICED (2026-05-28)
+
+Mechanism shipped (`spot_tendencies.py` + controller wiring + `--a-disable/--b-disable`
+gate flag; control = 100% NO_DIVERGENCE, verified; `test_strategy` green 1329). Priced
+on a TAG carrier (near-GTO, per-action cap 0.30), strength 0.8 (cap-saturated), A/B =
+slow-play OFF (`--a-disable spot_tendencies:slowplay`) vs ON, 24k HU:
+
+| Opponent | slow-play price (bb/100) | verdict |
+|---|---|---|
+| Baseline (self-play, **intrinsic**) | **−0.16** [−4.78, +4.46] | **free** — CI∋0 |
+| jeff (over-folder) | **−5.13** [−7.22, −3.03] | mild cost — the trap backfires |
+| punisher (reg) | **−1.56** [−3.16, +0.05] | ~free |
+
+- Fires on ~1% of hands (strong made + initiative + `unopened` + flop/turn); **every**
+  diverging node is a `flop/turn|…strong_/nuts` spot, cost spread thin across many (no
+  single-node concentration) → the cheap-variety signature.
+- **Verdict: FREE/CHEAP variety** — recognizable trappy character at ~0 intrinsic and
+  ≤−5 bb/100 worst-case (vs the over-folder field). Shippable; sets the slow-play budget.
+- **Finding (validates the variety thesis):** slow-play pays off vs *no* opponent in the
+  current field — a trap with no one to trap (the over-folder just takes a free card; the
+  reg doesn't over-bluff into a check). Its EV would *rise* in a field with aggressive
+  bettors → variety is self-reinforcing (a reason to build the aggressive tendencies too).
+
 ### Backlog (priority order, each priced + budgeted before shipping)
-slow-play (first) → donk-bet → open-limp → spot over/under-bluff → position-blindness →
+~~slow-play~~ (DONE) → donk-bet → open-limp → spot over/under-bluff → position-blindness →
 **sizing tells / face-up** (the strategic one; also exploitability-tested; ties to item 4).
 
 ### Coordination
