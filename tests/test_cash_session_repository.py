@@ -306,3 +306,42 @@ def test_record_and_list_events(repo):
 
     scoped = repo.list_events(sandbox_id="sbx-1")
     assert all(e["sandbox_id"] == "sbx-1" for e in scoped)
+
+
+def test_event_counts_aggregates_by_type_and_window(repo):
+    # Two started + one swept inside the window; one started well before.
+    repo.record_event("s1", "started", sandbox_id="sbx-1", now=ANCHOR)
+    repo.record_event("s2", "started", sandbox_id="sbx-1", now=ANCHOR)
+    repo.record_event("s1", "swept", sandbox_id="sbx-1", now=ANCHOR + timedelta(minutes=10))
+    repo.record_event("old", "started", sandbox_id="sbx-1", now=ANCHOR - timedelta(days=3))
+
+    # Window starting at ANCHOR excludes the 3-days-old started.
+    counts = repo.event_counts(since=ANCHOR)
+    assert counts == {"started": 2, "swept": 1}
+
+    # No window → everything.
+    assert repo.event_counts() == {"started": 3, "swept": 1}
+
+    # Sandbox filter that matches nothing → empty.
+    assert repo.event_counts(sandbox_id="nope") == {}
+
+
+def test_state_counts_groups_by_session_state(repo):
+    repo.create(_self_funded(session_id="cash-a", owner_id="u"))
+    repo.create(_self_funded(session_id="cash-b", owner_id="u"))
+    repo.create(_self_funded(session_id="cash-c", owner_id="u"))
+    repo.set_session_state("cash-b", "broken")
+    repo.finalise(
+        "cash-c",
+        ended_at=ANCHOR,
+        final_chips_at_table=0,
+        sponsor_repaid=0,
+        player_take_home=0,
+        hands_played=0,
+        hands_won=0,
+        biggest_pot_won=0,
+        duration_seconds=0,
+        closed_status=CLOSED_STATUS_GHOST_CLEANUP,
+    )
+    counts = repo.state_counts()
+    assert counts == {"active": 1, "broken": 1, "closed": 1}

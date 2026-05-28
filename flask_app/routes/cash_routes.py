@@ -4856,9 +4856,34 @@ def get_lobby():
     # too.
     seated_table_id: Optional[str] = None
     seated_stake_label: Optional[str] = None
+    # Tier 4.2: the active session's start time (ISO), so the lobby Resume
+    # bar can show "Paused Xh ago". Sourced from the durable cash_sessions
+    # row so it works for both hot and cold (DB-only) sessions.
+    seated_since: Optional[str] = None
     active_game_id = _find_active_cash_game_id(owner_id)
     has_active_session = active_game_id is not None
     if active_game_id:
+        # Load the durable cash_sessions row ONCE — it feeds both
+        # `seated_since` (always) and the cold-path table_id/stake_label
+        # fallback below, so we don't double-read.
+        persisted_session = None
+        try:
+            from flask_app.extensions import cash_session_repo as _cs_repo
+
+            if _cs_repo is not None:
+                persisted_session = _cs_repo.load(active_game_id)
+        except Exception as exc:
+            logger.warning(
+                "[CASH][LOBBY] cash_sessions lookup failed for %s: %s",
+                active_game_id,
+                exc,
+            )
+        if persisted_session is not None and getattr(persisted_session, "started_at", None):
+            try:
+                seated_since = persisted_session.started_at.isoformat()
+            except Exception:
+                seated_since = None
+
         active_game = game_state_service.get_game(active_game_id)
         if active_game:
             seated_table_id = active_game.get("cash_table_id")
@@ -4872,25 +4897,13 @@ def get_lobby():
                         active_emotions[name] = "confident"
                 else:
                     active_emotions[name] = "confident"
-        else:
+        elif persisted_session is not None:
             # DB-only (cold) session — the game row exists but isn't
             # loaded into memory. Pull the table id / stake label from
             # the durable cash_sessions row so the Resume bar can route
             # the player back through the cold-load (which rehydrates it).
-            try:
-                from flask_app.extensions import cash_session_repo as _cs_repo
-
-                if _cs_repo is not None:
-                    _cs = _cs_repo.load(active_game_id)
-                    if _cs is not None:
-                        seated_table_id = _cs.cash_table_id
-                        seated_stake_label = _cs.stake_label
-            except Exception as exc:
-                logger.warning(
-                    "[CASH][LOBBY] cold-session lookup failed for %s: %s",
-                    active_game_id,
-                    exc,
-                )
+            seated_table_id = persisted_session.cash_table_id
+            seated_stake_label = persisted_session.stake_label
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
 
@@ -5329,6 +5342,7 @@ def get_lobby():
             "tables": response_tables,
             "seated_table_id": seated_table_id,
             "seated_stake_label": seated_stake_label,
+            "seated_since": seated_since,
             "has_active_session": has_active_session,
             "events": events_payload,
             "pending_forgiveness_count": pending_forgiveness_count,

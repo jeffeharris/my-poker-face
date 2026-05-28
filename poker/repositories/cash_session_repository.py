@@ -392,6 +392,55 @@ class CashSessionRepository(BaseRepository):
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def event_counts(
+        self,
+        *,
+        since: Optional[datetime] = None,
+        sandbox_id: Optional[str] = None,
+    ) -> dict:
+        """Count lifecycle events by type (optionally within a window /
+        sandbox). Backs the admin Session Lifecycle card (Tier 4.3).
+
+        Returns `{event: count}`. SQL GROUP BY so it's accurate over the
+        whole window, not limited like `list_events`.
+        """
+        clauses = []
+        params: list = []
+        if since is not None:
+            clauses.append("created_at >= ?")
+            params.append(since.isoformat())
+        if sandbox_id is not None:
+            clauses.append("sandbox_id = ?")
+            params.append(sandbox_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT event, COUNT(*) AS n FROM cash_session_events{where} GROUP BY event",
+                tuple(params),
+            ).fetchall()
+            return {r["event"]: int(r["n"]) for r in rows}
+
+    def state_counts(self, *, sandbox_id: Optional[str] = None) -> dict:
+        """Count sessions by current `session_state` (optionally scoped).
+
+        Surfaces outstanding `broken` sessions (cleanup that couldn't
+        converge) and live `active`/`paused` ones for the admin card.
+        Returns `{session_state: count}`.
+        """
+        clauses = []
+        params: list = []
+        if sandbox_id is not None:
+            clauses.append("sandbox_id = ?")
+            params.append(sandbox_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT session_state, COUNT(*) AS n FROM cash_sessions{where} "
+                f"GROUP BY session_state",
+                tuple(params),
+            ).fetchall()
+            return {r["session_state"]: int(r["n"]) for r in rows}
+
     def delete(self, session_id: str) -> bool:
         """Remove a row by session_id.
 

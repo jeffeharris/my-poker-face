@@ -264,6 +264,12 @@
   width: 100%;
 }
 
+.cash-entry__resume-age {
+  opacity: 0.7;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+
 .cash-entry__resume-row .cash-entry__resume {
   flex: 1;
 }

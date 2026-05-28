@@ -18,6 +18,7 @@ from poker.authorization import require_permission
 
 from ..extensions import (
     bankroll_repo,
+    cash_session_repo,
     cash_table_repo,
     chip_ledger_repo,
     holdings_snapshots_repo,
@@ -137,6 +138,47 @@ def chip_ledger_holdings():
     except Exception as e:
         logger.error("chip-ledger holdings failed: %s", e, exc_info=True)
         return jsonify({'error': 'Holdings snapshot failed'}), 500
+
+
+@chip_ledger_bp.route('/api/admin/chip-ledger/lifecycle')
+@_admin_required
+def chip_ledger_lifecycle():
+    """Session-lifecycle telemetry for the admin Chip Economy tab (Tier 4.3).
+
+    Aggregates the `cash_session_events` stream (Tier 3.3) over a window
+    plus the current `session_state` distribution, so an operator can see
+    at a glance: how many sessions started / left cleanly / were swept as
+    orphans, and whether any `broken` sessions are outstanding (cleanup
+    that couldn't converge — the wedge class this whole plan targets).
+
+    `?window_hours=<int>` (default 24, clamped [1, 720]) bounds the event
+    counts; `?sandbox_id=` scopes both event + state counts.
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        window_hours = int(request.args.get('window_hours', 24))
+    except (TypeError, ValueError):
+        window_hours = 24
+    window_hours = max(1, min(720, window_hours))
+    since = datetime.utcnow() - timedelta(hours=window_hours)
+    sandbox_id = _sandbox_arg()
+
+    try:
+        events = cash_session_repo.event_counts(since=since, sandbox_id=sandbox_id)
+        states = cash_session_repo.state_counts(sandbox_id=sandbox_id)
+        return jsonify(
+            {
+                'window_hours': window_hours,
+                'events': events,
+                'states': states,
+                # Convenience headline: cleanup that couldn't converge.
+                'outstanding_broken': int(states.get('broken', 0)),
+            }
+        )
+    except Exception as e:
+        logger.error("chip-ledger lifecycle failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Lifecycle stats failed'}), 500
 
 
 @chip_ledger_bp.route('/api/admin/chip-ledger/holdings/history')

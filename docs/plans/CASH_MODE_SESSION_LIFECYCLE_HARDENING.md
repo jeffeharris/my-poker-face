@@ -7,9 +7,10 @@ last_updated: 2026-05-28
 
 # Cash Mode: Session Lifecycle Hardening
 
-> **Status (2026-05-28): Tier 1 + Tier 2 + Tier 3 (minus 3.2) SHIPPED on
-> this branch.** Only the outbox-pattern teardown (3.2) and Tier 4 remain
-> planned. Triggered by a wedge where `guest_jeff` had an
+> **Status (2026-05-28): Tier 1 + Tier 2 + Tier 3 (minus 3.2) + Tier 4
+> (4.2 + 4.3) SHIPPED on this branch.** Only the outbox-pattern teardown
+> (3.2) and the inline resume-error card (4.1) remain planned. Triggered
+> by a wedge where `guest_jeff` had an
 > orphan `cash--7j9cUI...` row that blocked every new sit with "A cash
 > session is already active. Leave first." while Resume itself
 > two-toasted-then-worked. Cleanup was applied via
@@ -79,6 +80,28 @@ last_updated: 2026-05-28
 > cash sweep green. **3.2 (outbox saga) deliberately deferred** — the
 > idempotency guard already gives convergence; the saga is a large rewrite
 > with its own regression surface.
+>
+> **What landed for Tier 4 (2026-05-28):**
+> - **4.3** admin "Session lifecycle" card on the Chip Economy tab,
+>   backed by a new `GET /api/admin/chip-ledger/lifecycle` endpoint that
+>   aggregates the Tier-3 `cash_session_events` stream over a window
+>   (`event_counts`) plus the current `session_state` distribution
+>   (`state_counts`). Headlines started/left/swept/broke over the window
+>   + outstanding `broken` count (alert-styled when >0 — the wedge class
+>   this plan targets). Closes the observability loop: orphans are now
+>   *visible* in prod, not just self-healing.
+> - **4.2** lobby Resume bar shows "paused Xm/Xh/Xd ago" from a new
+>   `seated_since` field on `/api/cash/lobby` (durable cash_sessions
+>   `started_at`, so it works for cold sessions too). The lobby route now
+>   loads the session row once for both `seated_since` and the cold-path
+>   table/stake fallback.
+>
+> **4.1 deferred** — the T1.4 retry already absorbs the common transient,
+> and bouncing to /cash on a genuinely-gone session is reasonable; the
+> inline Retry/End-session card is low marginal value. Tests:
+> `test_cash_session_repository` (+event_counts/state_counts),
+> `test_cash_lobby_route` cold-session test extended for `seated_since`.
+> 116-test cash sweep green; tsc + eslint clean.
 >
 > Companion to [[CASH_MODE_BACKING_SYSTEM_HANDOFF]] (stake settlement
 > math, source-of-truth) and [[../technical/CASH_MODE_FISH_AS_PERSONAS]]

@@ -277,6 +277,10 @@ export interface LobbyResponse {
    *  Without it the player is wedged — the backend 409s every new sit but
    *  the lobby shows no active session. */
   has_active_session?: boolean;
+  /** ISO start time of the active session, for the Resume bar's
+   *  "Paused Xh ago" hint. From the durable cash_sessions row, so it
+   *  works for cold (DB-only) sessions too. Null when no active session. */
+  seated_since?: string | null;
   events: LobbyEvent[];
   /** v110 — count of AI-borrower carries asking the player to forgive.
    *  Drives the wallet badge in the Lobby header. The full request

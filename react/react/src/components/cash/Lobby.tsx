@@ -158,6 +158,20 @@ function mergeEvents(existing: LobbyEvent[], incoming: LobbyEvent[]): LobbyEvent
     .slice(0, MAX_FEED_EVENTS);
 }
 
+/** Coarse "paused Xm/Xh/Xd ago" for the Resume bar. Returns null for a
+ *  missing/just-now/unparseable timestamp so the caller can omit the hint. */
+function formatPausedAgo(iso: string | null): string | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return null;
+  if (mins < 60) return `paused ${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `paused ${hrs}h ago`;
+  return `paused ${Math.floor(hrs / 24)}d ago`;
+}
+
 export function Lobby() {
   const navigate = useNavigate();
   const [bankroll, setBankroll] = useState<number | null>(null);
@@ -176,6 +190,8 @@ export function Lobby() {
   /** Stake label for the Resume bar when the seated table isn't in the
    *  rendered lobby list (cold / cross-sandbox session). */
   const [seatedStakeLabelFromServer, setSeatedStakeLabelFromServer] = useState<string | null>(null);
+  /** ISO start time of the active session, for the Resume bar's age hint. */
+  const [seatedSince, setSeatedSince] = useState<string | null>(null);
   const [events, setEvents] = useState<LobbyEvent[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -291,6 +307,7 @@ export function Lobby() {
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
         setSeatedStakeLabelFromServer(lobby.seated_stake_label ?? null);
+        setSeatedSince(lobby.seated_since ?? null);
         // Merge into the rolling feed rather than replace, so history the
         // server snapshot no longer carries stays scrollable. Drop any
         // prior self last-stand line first so the poll snapshot stays
@@ -521,6 +538,10 @@ export function Lobby() {
                 <Play size={18} aria-hidden="true" />
                 <span className="cash-entry__resume-text">
                   Resume your{seatedStakeLabel ? ` ${seatedStakeLabel}` : ''} session
+                  {(() => {
+                    const ago = formatPausedAgo(seatedSince);
+                    return ago ? <span className="cash-entry__resume-age"> · {ago}</span> : null;
+                  })()}
                 </span>
                 <ChevronRight size={18} className="cash-entry__resume-arrow" aria-hidden="true" />
               </button>
