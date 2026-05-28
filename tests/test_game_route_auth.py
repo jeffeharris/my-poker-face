@@ -76,25 +76,19 @@ class TestGameRouteAuth(unittest.TestCase):
         self._route_patchers = [
             patch('flask_app.extensions.game_repo', self.repos['game_repo']),
             patch('flask_app.extensions.user_repo', self.repos['user_repo']),
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.repos['prompt_preset_repo']
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.repos['prompt_preset_repo']),
             patch(
                 'flask_app.extensions.guest_tracking_repo',
                 self.repos['guest_tracking_repo'],
             ),
-            patch(
-                'flask_app.extensions.hand_history_repo', self.repos['hand_history_repo']
-            ),
+            patch('flask_app.extensions.hand_history_repo', self.repos['hand_history_repo']),
             patch('flask_app.extensions.tournament_repo', self.repos['tournament_repo']),
             patch('flask_app.extensions.llm_repo', self.repos['llm_repo']),
             patch(
                 'flask_app.extensions.decision_analysis_repo',
                 self.repos['decision_analysis_repo'],
             ),
-            patch(
-                'flask_app.extensions.capture_label_repo', self.repos['capture_label_repo']
-            ),
+            patch('flask_app.extensions.capture_label_repo', self.repos['capture_label_repo']),
             patch('flask_app.extensions.coach_repo', self.repos['coach_repo']),
             patch('flask_app.extensions.persistence_db_path', self.repos['db_path']),
         ]

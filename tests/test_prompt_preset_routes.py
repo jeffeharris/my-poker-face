@@ -66,9 +66,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
 
     def test_create_requires_authentication(self):
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(None)),
         ):
             response = self.client.post('/api/prompt-presets', json={'name': 'no-auth'})
@@ -80,9 +78,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
     def test_create_sets_owner_from_current_user(self):
         user = {'id': 'user-1', 'name': 'User One'}
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
         ):
             response = self.client.post('/api/prompt-presets', json={'name': 'my-preset'})
@@ -99,9 +95,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
         user = {'id': 'user-2', 'name': 'User Two'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
@@ -121,9 +115,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
         user = {'id': 'user-1', 'name': 'User One'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
@@ -145,12 +137,8 @@ class TestPromptPresetRoutes(unittest.TestCase):
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
-            patch(
-                'flask_app.extensions.auth_manager', self._auth_manager(admin_user)
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(admin_user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
                 return_value=self._admin_authz(True),
@@ -171,9 +159,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
         user = {'id': 'user-2', 'name': 'User Two'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
@@ -192,9 +178,7 @@ class TestPromptPresetRoutes(unittest.TestCase):
         user = {'id': 'user-1', 'name': 'User One'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
             patch('flask_app.extensions.auth_manager', self._auth_manager(user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
@@ -213,12 +197,8 @@ class TestPromptPresetRoutes(unittest.TestCase):
         admin_user = {'id': 'admin-1', 'name': 'Admin'}
 
         with (
-            patch(
-                'flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo
-            ),
-            patch(
-                'flask_app.extensions.auth_manager', self._auth_manager(admin_user)
-            ),
+            patch('flask_app.extensions.prompt_preset_repo', self.prompt_preset_repo),
+            patch('flask_app.extensions.auth_manager', self._auth_manager(admin_user)),
             patch(
                 'flask_app.routes.prompt_preset_routes.get_authorization_service',
                 return_value=self._admin_authz(True),
