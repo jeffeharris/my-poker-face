@@ -1363,6 +1363,28 @@ def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machin
     }
     departed_pids = pre_refresh_ai_pids - post_refresh_ai_pids
     if departed_pids:
+        # PRH-3: credit each departing AI's seat chips back to its bankroll
+        # (with a ledger row) BEFORE dropping it from game state. The seated
+        # path previously destroyed these chips on voluntary leaves
+        # (bored_move / stake_up / take_break) — a monotonic ledger drift.
+        try:
+            from flask_app.extensions import chip_ledger_repo
+
+            _credit_departed_ai_bankrolls(
+                result,
+                departed_pids,
+                bankroll_repo=bankroll_repo,
+                chip_ledger_repo=chip_ledger_repo,
+                sandbox_id=sandbox_id,
+                now=now,
+                table_id=result.new_table.table_id,
+            )
+        except Exception as e:
+            logger.error(
+                "[CASH][LOBBY] departed-AI bankroll credit failed: %s",
+                e,
+                exc_info=True,
+            )
         try:
             _remove_departed_ais_from_game(
                 game_id,
@@ -1738,6 +1760,62 @@ def _emit_seated_movement_chat(
             )
 
 
+def _credit_departed_ai_bankrolls(
+    result,
+    departed_pids,
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id,
+    now,
+    table_id,
+) -> int:
+    """PRH-3: return each voluntarily-departed seated AI's seat chips to its
+    bankroll (with a ledger row), instead of destroying them.
+
+    Mirrors the unseated path's `from_seat` credit
+    (`cash_mode/lobby.py` `refresh_table_roster` consumer): the human's
+    seated table is processed ONLY here (`refresh_unseated_tables` skips
+    human-seated tables), so this is the sole place these chips get
+    credited — there is no double-credit.
+
+    Only `from_seat` changes are credited. `to_seat` (rebuy / live-fill) is
+    the *debit* channel, consumed separately by `_apply_rebuys` /
+    `_seat_freshly_filled_ais`; crediting it here would double-handle (see
+    the rebuy note in `cash_mode/movement.py`). Keyed on the stable
+    `personality_id` carried on each `BankrollChange`, never the name map
+    (PRH-13 — that map has a desync history).
+
+    Stake settlement on a seated voluntary leave is NOT replicated here:
+    the borrower is credited its full seat chips (chips are conserved); the
+    unseated path's staker-payout settlement is a separate, deferred concern.
+
+    Returns the total chips credited (for logging / test assertions).
+    """
+    from cash_mode.bankroll import credit_ai_cash_out
+
+    credited = 0
+    for bc in result.bankroll_changes:
+        if bc.direction != "from_seat" or bc.amount <= 0:
+            continue
+        if bc.personality_id not in departed_pids:
+            continue
+        credit_ai_cash_out(
+            bankroll_repo,
+            bc.personality_id,
+            bc.amount,
+            sandbox_id=sandbox_id,
+            now=now,
+            chip_ledger_repo=chip_ledger_repo,
+            ledger_context={
+                "site": "seated_table_vacate",
+                "table_id": table_id,
+            },
+        )
+        credited += bc.amount
+    return credited
+
+
 def _remove_departed_ais_from_game(
     game_id: str,
     game_data: dict,
@@ -1748,10 +1826,9 @@ def _remove_departed_ais_from_game(
     voluntarily left the persisted table from the running game so the
     next hand isn't dealt to ghost players.
 
-    The chips on the departing player's seat are not credited back to
-    the AI bankroll — that's the existing v1 behavior (chips stay
-    "on the table" conceptually). If/when leave-time cash-out is
-    extended to voluntary moves, plumb the credit through here.
+    The departing AI's seat chips are credited back to its bankroll by
+    `_credit_departed_ai_bankrolls` in the caller (PRH-3) *before* this
+    runs — this function only reconciles game state, not chips.
     """
     if not departed_pids:
         return
@@ -2004,7 +2081,11 @@ def handle_eliminations(
     Args:
         final_hand_data: Winner announcement data to include in tournament_complete event
     """
-    if 'tournament_tracker' not in game_data:
+    # Cash games have no tracker and must never route to tournament
+    # elimination logic. The cold-load/warm builders omit the key for cash;
+    # the cash_mode check is belt-and-suspenders against a leaked tracker
+    # (PRH-4) so a cash bust always reaches the rebuy modal, not "Nth place".
+    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
         return None
 
     tracker = game_data['tournament_tracker']
@@ -2400,7 +2481,8 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     Args:
         final_hand_data: Winner announcement data to include in tournament_complete event
     """
-    if 'tournament_tracker' not in game_data:
+    # Cash games never "complete" as a tournament — see handle_eliminations.
+    if 'tournament_tracker' not in game_data or game_data.get('cash_mode'):
         return False
 
     tracker = game_data['tournament_tracker']

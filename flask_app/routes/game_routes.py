@@ -793,23 +793,32 @@ def api_game_state(game_id):
                             deck_seed=state_machine.current_hand_seed,
                         )
 
-                        # Try to load tournament tracker from database, or create new one
-                        tracker_data = game_repo.load_tournament_tracker(game_id)
-                        if tracker_data:
-                            tournament_tracker = TournamentTracker.from_dict(tracker_data)
-                            logger.info(
-                                f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
-                            )
-                        else:
-                            # Fallback: create new tracker with current players
-                            starting_players = [
-                                {'name': p.name, 'is_human': p.is_human}
-                                for p in state_machine.game_state.players
-                            ]
-                            tournament_tracker = TournamentTracker(
-                                game_id=game_id, starting_players=starting_players
-                            )
-                            tournament_tracker.hand_count = memory_manager.hand_count
+                        # Tournament tracker: tournament games ONLY. Cash games
+                        # have no tracker — the warm cash builder
+                        # (cash_routes.py) omits the key, and `handle_eliminations`
+                        # / `check_tournament_complete` rely on its absence to
+                        # no-op. A cold-loaded cash game given a tracker would
+                        # misroute the next human bust to a tournament "Nth place"
+                        # GAME_OVER instead of the rebuy modal — and persist the
+                        # bad tracker (PRH-4). Build it only for tournaments.
+                        tournament_tracker = None
+                        if not is_cash_game:
+                            tracker_data = game_repo.load_tournament_tracker(game_id)
+                            if tracker_data:
+                                tournament_tracker = TournamentTracker.from_dict(tracker_data)
+                                logger.info(
+                                    f"[LOAD] Restored tournament tracker with {len(tournament_tracker.eliminations)} eliminations"
+                                )
+                            else:
+                                # Fallback: create new tracker with current players
+                                starting_players = [
+                                    {'name': p.name, 'is_human': p.is_human}
+                                    for p in state_machine.game_state.players
+                                ]
+                                tournament_tracker = TournamentTracker(
+                                    game_id=game_id, starting_players=starting_players
+                                )
+                                tournament_tracker.hand_count = memory_manager.hand_count
 
                         # Seed hand_start_stacks / short_stack_players from current
                         # stacks. On mid-hand restore we don't know the real hand-start
@@ -833,7 +842,6 @@ def api_game_state(game_id):
                             'pressure_detector': pressure_detector,
                             'pressure_stats': pressure_stats,
                             'memory_manager': memory_manager,
-                            'tournament_tracker': tournament_tracker,
                             'owner_id': owner_id,
                             'owner_name': owner_name,
                             'messages': db_messages,
@@ -845,6 +853,10 @@ def api_game_state(game_id):
                             'hand_start_stacks': hand_start_stacks,
                             'short_stack_players': short_stack_players,
                         }
+                        # Only tournament games carry a tracker key (PRH-4):
+                        # mirror the warm cash builder, which omits it for cash.
+                        if tournament_tracker is not None:
+                            current_game_data['tournament_tracker'] = tournament_tracker
 
                         # Cash-mode metadata. STAKES_LADDER is the
                         # source of truth for stake_label ↔ big_blind;
