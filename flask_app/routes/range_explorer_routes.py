@@ -34,7 +34,7 @@ from flask import Blueprint, jsonify, request
 
 from poker.authorization import require_permission
 
-from ..extensions import persistence_db_path
+from .. import extensions
 
 logger = logging.getLogger(__name__)
 
@@ -267,7 +267,7 @@ def _is_valid_canon(canon: str | None) -> bool:
 
 def _open_ro() -> sqlite3.Connection:
     """Read-only connection to the live persistence DB (WAL-safe)."""
-    return sqlite3.connect(f'file:{persistence_db_path}?mode=ro', uri=True)
+    return sqlite3.connect(f'file:{extensions.persistence_db_path}?mode=ro', uri=True)
 
 
 def _load_persona_names(conn: sqlite3.Connection) -> set[str]:

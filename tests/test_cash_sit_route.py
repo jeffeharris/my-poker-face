@@ -162,12 +162,11 @@ class _CashSitRouteBase(unittest.TestCase):
         cls.app.testing = True
         cls.client = cls.app.test_client()
 
-        # game_routes.py captures `prompt_preset_repo` at module-import
-        # time (this is the documented flake in handoff caveats). For
-        # the test harness — where multiple files create fresh tempdbs —
-        # we explicitly rebind the module-level attribute to OUR repo so
+        # game_routes reads these repos live via `extensions.X`. For the
+        # test harness — where multiple files create fresh tempdbs — we
+        # explicitly pin the canonical extensions bindings to OUR repos so
         # the route doesn't query a closed connection.
-        import flask_app.routes.game_routes as _gr
+        import flask_app.extensions as _ext
 
         for key in (
             'prompt_preset_repo',
@@ -185,9 +184,9 @@ class _CashSitRouteBase(unittest.TestCase):
             'personality_repo',
         ):
             if key in repos:
-                setattr(_gr, key, repos[key])
+                setattr(_ext, key, repos[key])
             elif key == 'persistence_db_path':
-                setattr(_gr, key, repos['db_path'])
+                setattr(_ext, key, repos['db_path'])
 
         from cash_mode.lobby import ensure_lobby_seeded
 

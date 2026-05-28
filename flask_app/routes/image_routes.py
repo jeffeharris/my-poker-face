@@ -22,8 +22,8 @@ from poker.character_images import (
 )
 from poker.image_processing import detect_image_mimetype
 
-from .. import config
-from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
+from .. import config, extensions
+from ..extensions import limiter
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
@@ -383,9 +383,11 @@ def regenerate_avatar(personality_name: str):
             ), 400
 
         # Validate personality exists before expensive API calls
-        from ..extensions import personality_generator
 
-        if personality_generator and not personality_generator.get_personality(personality_name):
+        if (
+            extensions.personality_generator
+            and not extensions.personality_generator.get_personality(personality_name)
+        ):
             return jsonify(
                 {'success': False, 'error': f'Personality {personality_name} not found'}
             ), 404
@@ -436,11 +438,10 @@ def regenerate_avatar(personality_name: str):
                 error_count += 1
 
         # Get the current avatar_description (may have been auto-generated during regeneration)
-        from ..extensions import personality_generator
 
         avatar_description = (
-            personality_generator.get_avatar_description(personality_name)
-            if personality_generator
+            extensions.personality_generator.get_avatar_description(personality_name)
+            if extensions.personality_generator
             else None
         )
 
@@ -473,7 +474,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
     import sqlite3
 
     try:
-        with sqlite3.connect(persistence_db_path) as conn:
+        with sqlite3.connect(extensions.persistence_db_path) as conn:
             cursor = conn.execute(
                 "SELECT image_data, content_type FROM reference_images WHERE id = ?",
                 (reference_id,),
@@ -494,7 +495,7 @@ def _get_reference_image_data_url(reference_id: str) -> str | None:
 def get_avatar_stats():
     """Get statistics about avatar images in the database."""
     try:
-        stats = personality_repo.get_avatar_stats()
+        stats = extensions.personality_repo.get_avatar_stats()
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error getting avatar stats: {e}")
@@ -505,7 +506,7 @@ def get_avatar_stats():
 @limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
-    user = auth_manager.get_current_user() if auth_manager else None
+    user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     if not user or not user.get('id'):
         return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
 

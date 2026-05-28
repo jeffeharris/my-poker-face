@@ -17,8 +17,8 @@ from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from .. import config
-from ..extensions import auth_manager, limiter
+from .. import config, extensions
+from ..extensions import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _auth_required(f):
 
     @wraps(f)
     def wrapped(*args, **kwargs):
-        user = auth_manager.get_current_user() if auth_manager else None
+        user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         if not user:
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
         g.profile_user = user
@@ -55,14 +55,13 @@ def _too_large() -> bool:
 @_auth_required
 def get_profile():
     """Return the current user's avatar URL and bio."""
-    from ..extensions import user_avatar_service, user_prefs_repo
 
     user_id = g.profile_user['id']
     return jsonify(
         {
             'success': True,
-            'avatar_url': user_avatar_service.get_avatar_url(user_id),
-            'bio': user_prefs_repo.get_bio(user_id),
+            'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
+            'bio': extensions.user_prefs_repo.get_bio(user_id),
         }
     )
 
@@ -71,14 +70,13 @@ def get_profile():
 @_auth_required
 def set_bio():
     """Set (or clear) the current user's AI-visible self-description."""
-    from ..extensions import user_prefs_repo
 
     data = request.get_json(silent=True) or {}
     bio = data.get('bio', '')
     if not isinstance(bio, str):
         return jsonify({'success': False, 'error': 'bio must be a string'}), 400
 
-    stored = user_prefs_repo.set_bio(g.profile_user['id'], bio)
+    stored = extensions.user_prefs_repo.set_bio(g.profile_user['id'], bio)
     return jsonify({'success': True, 'bio': stored})
 
 
@@ -93,8 +91,6 @@ def upload_avatar():
     """
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     if _too_large():
         return jsonify({'success': False, 'error': 'Image is too large (max 8 MB)'}), 413
 
@@ -102,12 +98,12 @@ def upload_avatar():
     try:
         if 'file' in request.files and request.files['file'].filename:
             image_bytes = request.files['file'].read()
-            avatar_url = user_avatar_service.store_from_bytes(user_id, image_bytes)
+            avatar_url = extensions.user_avatar_service.store_from_bytes(user_id, image_bytes)
         else:
             url = (request.get_json(silent=True) or {}).get('url')
             if not url:
                 return jsonify({'success': False, 'error': 'No image file or URL provided'}), 400
-            avatar_url = user_avatar_service.store_from_url(user_id, url)
+            avatar_url = extensions.user_avatar_service.store_from_url(user_id, url)
         return jsonify({'success': True, 'avatar_url': avatar_url})
     except UserAvatarError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -123,12 +119,10 @@ def generate_avatar():
     """Generate an avatar from a text description."""
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     user_id = g.profile_user['id']
     prompt = (request.get_json(silent=True) or {}).get('prompt', '')
     try:
-        avatar_url = user_avatar_service.generate_from_prompt(user_id, prompt)
+        avatar_url = extensions.user_avatar_service.generate_from_prompt(user_id, prompt)
         return jsonify({'success': True, 'avatar_url': avatar_url})
     except UserAvatarError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -144,8 +138,6 @@ def generate_avatar_from_photo():
     """Generate an avatar by stylizing an uploaded photo (img2img)."""
     from poker.user_avatar_service import UserAvatarError
 
-    from ..extensions import user_avatar_service
-
     if _too_large():
         return jsonify({'success': False, 'error': 'Image is too large (max 8 MB)'}), 413
     if 'file' not in request.files or not request.files['file'].filename:
@@ -160,7 +152,7 @@ def generate_avatar_from_photo():
         strength = 0.6
 
     try:
-        avatar_url = user_avatar_service.generate_from_photo(
+        avatar_url = extensions.user_avatar_service.generate_from_photo(
             user_id, photo_bytes, prompt=prompt, strength=strength
         )
         return jsonify({'success': True, 'avatar_url': avatar_url})
@@ -175,9 +167,8 @@ def generate_avatar_from_photo():
 @_auth_required
 def delete_avatar():
     """Remove the current user's custom avatar."""
-    from ..extensions import user_avatar_service
 
-    user_avatar_service.delete(g.profile_user['id'])
+    extensions.user_avatar_service.delete(g.profile_user['id'])
     return jsonify({'success': True})
 
 
@@ -196,9 +187,7 @@ def serve_user_avatar_full(public_id: str):
 
 
 def _serve(public_id: str, *, full: bool):
-    from ..extensions import user_avatar_repo
-
-    record = user_avatar_repo.get_image_by_public_id(public_id, full=full)
+    record = extensions.user_avatar_repo.get_image_by_public_id(public_id, full=full)
     if not record:
         return jsonify({'error': 'Avatar not found'}), 404
     return Response(

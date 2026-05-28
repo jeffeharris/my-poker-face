@@ -12,8 +12,8 @@ from core.llm import CallType, LLMClient
 from poker.authorization import get_authorization_service, require_permission
 from poker.utils import get_celebrities
 
-from .. import config
-from ..extensions import auth_manager, limiter, personality_generator, personality_repo
+from .. import config, extensions
+from ..extensions import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def personalities_page():
 def get_personalities():
     """Get all personalities visible to the current user."""
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -40,7 +40,7 @@ def get_personalities():
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
 
-        db_personalities = personality_repo.list_personalities(
+        db_personalities = extensions.personality_repo.list_personalities(
             limit=200,
             user_id=user_id,
             include_disabled=is_admin,
@@ -54,7 +54,7 @@ def get_personalities():
 
         for p in db_personalities:
             name = p['name']
-            config_data = personality_repo.load_personality(name)
+            config_data = extensions.personality_repo.load_personality(name)
             if config_data:
                 personalities[name] = config_data
 
@@ -91,7 +91,7 @@ def get_personalities():
 def get_personality(name):
     """Get a specific personality."""
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -100,11 +100,11 @@ def get_personality(name):
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
-        db_personality = personality_repo.load_personality(name)
+        db_personality = extensions.personality_repo.load_personality(name)
         if db_personality:
             return jsonify({'success': True, 'personality': db_personality, 'name': name})
 
@@ -134,7 +134,7 @@ def create_personality():
     Saves to database only (database is the source of truth).
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -147,7 +147,7 @@ def create_personality():
             return jsonify({'success': False, 'error': 'Name is required'})
 
         # Check for name collision
-        existing = personality_repo.load_personality(name)
+        existing = extensions.personality_repo.load_personality(name)
         if existing:
             return jsonify(
                 {'success': False, 'error': 'A personality with this name already exists'}
@@ -172,7 +172,7 @@ def create_personality():
         # collision-suffixed if needed) and returns it. Surface it in the
         # response so clients can persist relationship state, bankrolls,
         # etc. keyed on the stable id rather than the display name.
-        personality_id = personality_repo.save_personality(
+        personality_id = extensions.personality_repo.save_personality(
             name,
             personality_config,
             source='user_created',
@@ -198,14 +198,14 @@ def update_personality(name):
     Saves to database only (database is the source of truth).
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
             ), 401
 
         user_id = current_user['id']
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
 
@@ -215,12 +215,12 @@ def update_personality(name):
         personality_config = request.json
 
         # Use update method that preserves owner_id and visibility
-        updated = personality_repo.update_personality_config(
+        updated = extensions.personality_repo.update_personality_config(
             name, personality_config, source='user_edited'
         )
         if not updated:
             # Personality doesn't exist yet (e.g., manual create) — create it
-            personality_repo.save_personality(
+            extensions.personality_repo.save_personality(
                 name,
                 personality_config,
                 source='user_created',
@@ -246,7 +246,7 @@ def update_avatar_description(name):
         }
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -255,7 +255,7 @@ def update_avatar_description(name):
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
         if not owner_id and not is_admin:
@@ -270,12 +270,12 @@ def update_avatar_description(name):
             return jsonify({'success': False, 'error': 'avatar_description is required'}), 400
 
         # Check if personality exists
-        personality_config = personality_generator.get_personality(name)
+        personality_config = extensions.personality_generator.get_personality(name)
         if not personality_config:
             return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         # Update avatar_description via personality_generator (handles both cache and persistence)
-        personality_generator.set_avatar_description(name, avatar_description)
+        extensions.personality_generator.set_avatar_description(name, avatar_description)
 
         return jsonify(
             {
@@ -297,14 +297,14 @@ def delete_personality(name):
     Note: Also deletes associated avatar images from database.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
             ), 401
 
         user_id = current_user['id']
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
 
@@ -312,10 +312,10 @@ def delete_personality(name):
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
         # Delete associated avatar images
-        personality_repo.delete_avatar_images(name)
+        extensions.personality_repo.delete_avatar_images(name)
 
         # Delete the personality
-        deleted = personality_repo.delete_personality(name)
+        deleted = extensions.personality_repo.delete_personality(name)
 
         if not deleted:
             return jsonify({'success': False, 'error': f'Personality {name} not found'})
@@ -340,11 +340,11 @@ def get_reference_image(name):
     """
     try:
         # Check if personality exists
-        personality_config = personality_generator.get_personality(name)
+        personality_config = extensions.personality_generator.get_personality(name)
         if not personality_config:
             return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
-        reference_image_id = personality_generator.get_reference_image_id(name)
+        reference_image_id = extensions.personality_generator.get_reference_image_id(name)
 
         return jsonify({'success': True, 'reference_image_id': reference_image_id})
     except Exception as e:
@@ -367,7 +367,7 @@ def update_reference_image(name):
     Set to null to clear the reference image.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -376,7 +376,7 @@ def update_reference_image(name):
         user_id = current_user.get('id')
         auth_service = get_authorization_service()
         is_admin = auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools')
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         if owner_id and owner_id != user_id and not is_admin:
             return jsonify({'success': False, 'error': 'Permission denied'}), 403
         if not owner_id and not is_admin:
@@ -388,12 +388,12 @@ def update_reference_image(name):
         reference_image_id = data.get('reference_image_id')
 
         # Check if personality exists
-        personality_config = personality_generator.get_personality(name)
+        personality_config = extensions.personality_generator.get_personality(name)
         if not personality_config:
             return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
         # Update reference image ID
-        personality_generator.set_reference_image_id(name, reference_image_id)
+        extensions.personality_generator.set_reference_image_id(name, reference_image_id)
 
         return jsonify(
             {
@@ -483,9 +483,11 @@ def generate_theme():
             return jsonify({'error': 'Theme is required'}), 400
 
         # Load personality names from database filtered by user visibility
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         user_id = current_user.get('id') if current_user else None
-        db_personalities = personality_repo.list_personalities(limit=200, user_id=user_id)
+        db_personalities = extensions.personality_repo.list_personalities(
+            limit=200, user_id=user_id
+        )
         if db_personalities:
             all_personalities = [p['name'] for p in db_personalities]
         else:
@@ -549,7 +551,7 @@ Guidelines:
 Return ONLY the JSON object, no other text."""
 
         # Get owner_id for tracking
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         owner_id = current_user.get('id') if current_user else None
 
         client = LLMClient(
@@ -648,7 +650,7 @@ def generate_personality():
     try:
         from poker.personality_generator import PersonalityGenerator
 
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -664,7 +666,7 @@ def generate_personality():
 
         # Check for name collision (skip if force-regenerating existing personality)
         if not force_generate:
-            existing = personality_repo.load_personality(name)
+            existing = extensions.personality_repo.load_personality(name)
             if existing:
                 return jsonify(
                     {'success': False, 'error': 'A personality with this name already exists'}
@@ -705,7 +707,7 @@ def update_personality_visibility(name):
     Owners can toggle between public/private. Admins can also set disabled.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -733,7 +735,7 @@ def update_personality_visibility(name):
             ), 403
 
         # Check ownership: must be owner or admin
-        owner_id = personality_repo.get_personality_owner(name)
+        owner_id = extensions.personality_repo.get_personality_owner(name)
         if not is_admin and owner_id != user_id:
             return jsonify(
                 {
@@ -742,7 +744,7 @@ def update_personality_visibility(name):
                 }
             ), 403
 
-        updated = personality_repo.set_visibility(name, visibility)
+        updated = extensions.personality_repo.set_visibility(name, visibility)
         if not updated:
             return jsonify({'success': False, 'error': f'Personality {name} not found'}), 404
 
@@ -762,7 +764,7 @@ def _resolve_personality_id_or_404(name):
     Returns (personality_id, None) on success or (None, (json_body, status))
     on failure so the caller can short-circuit with the error tuple.
     """
-    pid = personality_repo.resolve_name_to_personality_id(name)
+    pid = extensions.personality_repo.resolve_name_to_personality_id(name)
     if not pid:
         return None, ({'success': False, 'error': f'Personality {name} not found'}, 404)
     return pid, None
@@ -790,7 +792,7 @@ def get_bankroll_knobs(name):
     aren't a per-user personality field.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -806,9 +808,7 @@ def get_bankroll_knobs(name):
         if err is not None:
             return jsonify(err[0]), err[1]
 
-        from ..extensions import bankroll_repo
-
-        knobs = bankroll_repo.load_personality_knobs(pid)
+        knobs = extensions.bankroll_repo.load_personality_knobs(pid)
         # Admin route — sum stored chips across every sandbox this
         # personality has a bankroll row in. `current_bankroll` here
         # is the cross-sandbox view, not a single save-file's value.
@@ -816,9 +816,7 @@ def get_bankroll_knobs(name):
         # per-sandbox admin surface (Phase 2.5+).
         import sqlite3
 
-        from ..extensions import persistence_db_path
-
-        with sqlite3.connect(persistence_db_path) as _conn:
+        with sqlite3.connect(extensions.persistence_db_path) as _conn:
             row = _conn.execute(
                 "SELECT COALESCE(SUM(chips), 0) FROM ai_bankroll_state " "WHERE personality_id = ?",
                 (pid,),
@@ -857,7 +855,7 @@ def update_bankroll_knobs(name):
     Admin-only.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -877,9 +875,7 @@ def update_bankroll_knobs(name):
         if not isinstance(payload, dict):
             return jsonify({'success': False, 'error': 'Request body must be a JSON object'}), 400
 
-        from ..extensions import bankroll_repo
-
-        current = bankroll_repo.load_personality_knobs(pid)
+        current = extensions.bankroll_repo.load_personality_knobs(pid)
 
         # Validate types per-field. Anything not provided keeps the
         # current stored value — partial updates are the norm.
@@ -911,7 +907,7 @@ def update_bankroll_knobs(name):
         if new_knobs.buy_in_multiplier <= 0:
             return jsonify({'success': False, 'error': 'buy_in_multiplier must be > 0'}), 400
 
-        saved = bankroll_repo.save_personality_knobs(pid, new_knobs)
+        saved = extensions.bankroll_repo.save_personality_knobs(pid, new_knobs)
         if not saved:
             return jsonify(
                 {
@@ -941,9 +937,7 @@ def _read_personality_config(pid):
     {} on any error so callers can default-fill missing pieces."""
     import sqlite3
 
-    from ..extensions import persistence_db_path
-
-    with sqlite3.connect(persistence_db_path) as conn:
+    with sqlite3.connect(extensions.persistence_db_path) as conn:
         row = conn.execute(
             "SELECT config_json FROM personalities WHERE personality_id = ?",
             (pid,),
@@ -976,7 +970,7 @@ def get_borrower_profile(name):
     Admin-only.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -996,8 +990,6 @@ def get_borrower_profile(name):
             BORROWER_PROFILE_DEFAULTS,
             compute_default_willingness_threshold,
         )
-
-        from ..extensions import bankroll_repo
 
         config = _read_personality_config(pid)
         anchors = config.get('anchors') if isinstance(config, dict) else None
@@ -1019,7 +1011,7 @@ def get_borrower_profile(name):
         # Effective value (mirrors load_borrower_profile's derivation
         # logic) so the admin UI sees exactly what the staking engine
         # would use at evaluation time.
-        profile = bankroll_repo.load_borrower_profile(pid)
+        profile = extensions.bankroll_repo.load_borrower_profile(pid)
         ego_derived = compute_default_willingness_threshold(ego)
 
         return jsonify(
@@ -1060,7 +1052,7 @@ def update_borrower_profile(name):
     Admin-only.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -1120,9 +1112,7 @@ def update_borrower_profile(name):
             else:
                 threshold_override = None
 
-        from ..extensions import bankroll_repo
-
-        saved = bankroll_repo.save_borrower_profile(
+        saved = extensions.bankroll_repo.save_borrower_profile(
             pid,
             willing=bool(payload['willing']),
             willingness_threshold=threshold_override,
@@ -1149,7 +1139,7 @@ def update_borrower_profile(name):
                 ego = float(anchors.get('ego', 0.5))
             except (TypeError, ValueError):
                 ego = 0.5
-        profile = bankroll_repo.load_borrower_profile(pid)
+        profile = extensions.bankroll_repo.load_borrower_profile(pid)
         ego_derived = compute_default_willingness_threshold(ego)
 
         return jsonify(
@@ -1186,7 +1176,7 @@ def get_staker_profile(name):
     Admin-only.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -1204,9 +1194,7 @@ def get_staker_profile(name):
 
         from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS
 
-        from ..extensions import bankroll_repo
-
-        profile = bankroll_repo.load_staker_profile(pid)
+        profile = extensions.bankroll_repo.load_staker_profile(pid)
         config = _read_personality_config(pid)
         # `explicit_sub`: the staker_profile sub-dict actually stored
         # in config_json. Lets the UI render "(default)" badges next
@@ -1267,7 +1255,7 @@ def update_staker_profile(name):
     Admin-only.
     """
     try:
-        current_user = auth_manager.get_current_user()
+        current_user = extensions.auth_manager.get_current_user()
         if not current_user:
             return jsonify(
                 {'success': False, 'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}
@@ -1319,8 +1307,6 @@ def update_staker_profile(name):
 
         from cash_mode.staker_profile import STAKER_PROFILE_DEFAULTS, StakerProfile
 
-        from ..extensions import bankroll_repo
-
         new_profile = StakerProfile(
             willing=bool(payload['willing']),
             max_loan_pct_of_bankroll=coerced['max_loan_pct_of_bankroll'],
@@ -1329,7 +1315,7 @@ def update_staker_profile(name):
             respect_floor=coerced['respect_floor'],
             heat_ceiling=coerced['heat_ceiling'],
         )
-        saved = bankroll_repo.save_staker_profile(pid, new_profile)
+        saved = extensions.bankroll_repo.save_staker_profile(pid, new_profile)
         if not saved:
             return jsonify(
                 {
@@ -1339,7 +1325,7 @@ def update_staker_profile(name):
             ), 404
 
         # Echo post-save state — same shape as GET.
-        profile = bankroll_repo.load_staker_profile(pid)
+        profile = extensions.bankroll_repo.load_staker_profile(pid)
         config = _read_personality_config(pid)
         explicit_sub = config.get('staker_profile') if isinstance(config, dict) else None
 

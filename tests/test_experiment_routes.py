@@ -74,7 +74,7 @@ class TestExperimentRoutes(unittest.TestCase):
         # which runs during app startup. The per-test `with patch(...)` blocks
         # below remain (harmless re-patch of the same object).
         self._exp_repo_patcher = patch(
-            'flask_app.routes.experiment_routes.experiment_repo',
+            'flask_app.extensions.experiment_repo',
             self.experiment_repo,
         )
         self._exp_repo_patcher.start()
@@ -103,7 +103,7 @@ class TestExperimentRoutes(unittest.TestCase):
         auth_mock = MagicMock()
         auth_mock.get_current_user.return_value = admin_user
         self._auth_patcher = patch(
-            'flask_app.routes.experiment_routes.auth_manager',
+            'flask_app.extensions.auth_manager',
             auth_mock,
         )
         self._auth_patcher.start()
@@ -116,7 +116,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_list_experiments_empty(self):
         """Test listing experiments when none exist."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.get('/api/experiments')
             data = response.get_json()
 
@@ -142,7 +142,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_get_personalities(self):
         """Test getting available personalities."""
-        with patch('flask_app.routes.experiment_routes.personality_repo', self.personality_repo):
+        with patch('flask_app.extensions.personality_repo', self.personality_repo):
             response = self.client.get('/api/experiments/personalities')
             data = response.get_json()
 
@@ -169,7 +169,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_missing_name(self):
         """Test validation fails without experiment name."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate', json={'config': {'num_tournaments': 5}}
             )
@@ -181,7 +181,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_invalid_name_format(self):
         """Test validation fails with invalid name format."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate', json={'config': {'name': 'Invalid Name With Spaces'}}
             )
@@ -193,7 +193,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_valid(self):
         """Test validation passes with valid config."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -213,7 +213,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_invalid_range(self):
         """Test validation fails with out-of-range values."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -232,7 +232,7 @@ class TestExperimentRoutes(unittest.TestCase):
 
     def test_validate_config_warning_for_large_experiment(self):
         """Test validation warns for large experiments."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments/validate',
                 json={
@@ -311,7 +311,7 @@ This will compare model performance over 5 tournaments.'''
 
     def test_get_nonexistent_experiment(self):
         """Test getting a non-existent experiment returns 404."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.get('/api/experiments/99999')
             data = response.get_json()
 
@@ -321,7 +321,7 @@ This will compare model performance over 5 tournaments.'''
     @patch('flask_app.routes.experiment_routes.run_experiment_background')
     def test_create_experiment(self, mock_run):
         """Test creating and launching an experiment."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             response = self.client.post(
                 '/api/experiments',
                 json={
@@ -341,7 +341,7 @@ This will compare model performance over 5 tournaments.'''
 
     def test_create_experiment_duplicate_name(self):
         """Test creating experiment with duplicate name fails."""
-        with patch('flask_app.routes.experiment_routes.experiment_repo', self.experiment_repo):
+        with patch('flask_app.extensions.experiment_repo', self.experiment_repo):
             # Create first experiment directly in DB
             self.experiment_repo.create_experiment(
                 {'name': 'duplicate_name', 'description': 'First experiment'}
