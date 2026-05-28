@@ -88,7 +88,9 @@ export function PokerTable({
     onGameLoadFailed,
   });
 
-  const { wrappedSendMessage, guestChatDisabled } = useGuestChatLimit(
+  // Desktop chat is free-text only (no quick-chat panel), so it's gated by the
+  // guest free-chat lock rather than the per-turn quick-chat limit.
+  const { wrappedSendMessage, guestFreeChatLocked } = useGuestChatLimit(
     gameState?.awaiting_action,
     handleSendMessage
   );
@@ -359,7 +361,7 @@ export function PokerTable({
             messages={messages}
             onSendMessage={wrappedSendMessage}
             playerName={playerName}
-            guestChatDisabled={guestChatDisabled}
+            guestChatDisabled={guestFreeChatLocked}
           />
         }
       >

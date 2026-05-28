@@ -179,10 +179,8 @@ export function MobilePokerTable({
     onGameLoadFailed,
   });
 
-  const { wrappedSendMessage, guestChatDisabled, isGuest } = useGuestChatLimit(
-    awaitingAction,
-    handleSendMessage
-  );
+  const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
+    useGuestChatLimit(awaitingAction, handleSendMessage);
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
@@ -1073,7 +1071,7 @@ export function MobilePokerTable({
             playerName={playerName || 'Player'}
             players={storePlayers || []}
             guestChatDisabled={guestChatDisabled}
-            isGuest={isGuest}
+            guestFreeChatLocked={guestFreeChatLocked}
             initialTarget={chatInitialTarget}
           />
 

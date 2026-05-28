@@ -79,6 +79,13 @@ def create_app():
     # Initialize extensions
     init_extensions(app)
 
+    # PRH-28: attach the webhook alert handler (no-op unless ALERT_WEBHOOK_URL
+    # is set) before the budget/pricing startup checks, so a "[LLM BUDGET]
+    # DISABLED" or NULL-pricing warning on boot also pages.
+    from .services.alerting import init_alerting
+
+    init_alerting()
+
     # Arm the LLM spend kill-switch (PRH-2) from app config and announce its
     # status. core.llm can't import flask_app, so we push the limits in here.
     from core.llm.budget import configure_spend_limits

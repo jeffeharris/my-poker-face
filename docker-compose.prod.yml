@@ -37,6 +37,16 @@ services:
       - IMAGE_MODEL=${IMAGE_MODEL:-}
       - RUNWARE_API_KEY=${RUNWARE_API_KEY:-}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
+      # PRH-25: arm the LLM spend kill-switch in prod. Global is the hard
+      # backstop (the only ceiling a guest can't reset); per-owner caps any
+      # single signed-in user. Armed by default here so a fresh deploy is never
+      # unbounded; override via host env.
+      - LLM_GLOBAL_DAILY_BUDGET_USD=${LLM_GLOBAL_DAILY_BUDGET_USD:-50}
+      - LLM_PER_OWNER_DAILY_BUDGET_USD=${LLM_PER_OWNER_DAILY_BUDGET_USD:-5}
+      # PRH-28: alert destination for ERROR-level logs + [LEDGER]/[LLM BUDGET]
+      # signals. Slack-compatible webhook (Discord works via the /slack suffix).
+      # Unset = log-only (no-op handler).
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
     command: gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 -b 0.0.0.0:5000 --timeout 120 "flask_app.ui_web:create_app()"
     depends_on:
       - redis

@@ -45,7 +45,9 @@ export function useGuestChatLimit(
     [handleSendMessage, isGuest]
   );
 
-  const guestChatDisabled = isGuest && (guestFreeChatLocked || guestChatSentThisAction);
+  // Quick-chat is allowed for guests but rate-limited to one send per turn.
+  // Free-text chat is gated separately (guestFreeChatLocked), always, for guests.
+  const guestChatDisabled = isGuest && guestChatSentThisAction;
 
   return { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest };
 }
