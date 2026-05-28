@@ -1,242 +1,334 @@
 ---
-purpose: Plan to reduce developer wait time from tests while preserving confidence
+purpose: Plan to reduce developer wait time from tests by fixing fixture setup cost and compartmentalizing the suite safely
 type: plan
 created: 2026-05-14
-last_updated: 2026-05-22
+last_updated: 2026-05-28
 ---
 
 # Test Wait Time Reduction
 
+## TL;DR — there are two bottlenecks, not one
+
+Measured on 2026-05-28 (see [Baseline](#measured-baseline-2026-05-28)):
+
+1. **Fixture setup tax (the dominant cost).** `create_repos()` takes **~5.2s per call**
+   because it runs the full schema-migration chain plus ~28 repository constructors.
+   Every test that uses the `repos` / `persistence` / `flask_client` fixtures pays
+   that 5.2s. The 30 slowest tests in the full run are *all* ~8.3–8.6s and *most are
+   `setup`, not `call`* — the time is in building databases, not in test logic.
+2. **A monolithic suite shape.** CI runs the entire backend as one job; the local
+   `--quick` runner skips a hardcoded list of 11 files; pytest markers are applied to
+   only a fraction of tests. There is no reliable "run just the part I touched" path.
+
+**Compartmentalizing (what this plan is mostly about) attacks #2.** But #1 is why even
+a small compartment feels slow: a bucket of 100 DB-touching tests is still ~9 minutes
+of *pure setup*. So the highest-leverage single change is fixing the fixture tax, and
+it makes every tier and every compartment faster at once. Do it first or alongside the
+split — don't ship the split and assume the wait is solved.
+
+> **Status (2026-05-28): the fixture tax fix is implemented and validated.**
+> The full suite dropped from ~23 min to **3:01 (181s)** with no new failures.
+> See [Results](#results-2026-05-28). Phase 0 (markers + runner + Make targets) is
+> also implemented. Remaining: CI job split (Phase 2) and pollution cleanup (Phase 3).
+
 ## Goal
 
-Reduce the amount of time developers spend waiting on tests by separating fast
-correctness checks from slower integration and poker-quality validation runs.
+Local development should run the smallest *trustworthy* test set for the change at
+hand. Full-suite, integration, and poker-quality validation still exist, but they are
+not part of every edit/test loop.
 
-The main principle: local development should run the smallest useful test set.
-Full-suite and simulation validation should still exist, but they should not be
-part of every edit/test loop.
+## Measured baseline (2026-05-28)
 
-## Current Problem
+All runs inside the `backend` container (8 CPUs visible).
 
-The project has several different kinds of verification mixed together:
+| Measurement | Result | Notes |
+|---|---|---|
+| Full suite, `pytest tests/ -n auto` | **~23 min wall** (6157 passed, 16 failed) | Inflated by CPU contention during measurement; a clean run is estimated ~12–15 min |
+| `create_repos()` fresh DB | **5237 ms / call** (avg of 5) | The fixture tax. Schema migrations + ~28 repo constructors |
+| 30 slowest tests | **all ~8.3–8.6s, mostly `setup`** | Flat distribution → cost is fixture setup, not a few pathological tests |
+| Collection only (`--collect-only`) | **~6s** | Pure import overhead before any test runs |
+| `tests/test_strategy/` serial (61 files) | **2m06s** | Largest bucket by file count |
+| `tests/test_core/` serial (10 files) | **3m16s** | "Pure unit" by name, but LLM-heavy and slow — directory name ≠ speed |
+| Total test count | **6157 tests across 311 files** | |
 
-- small pure-function unit tests,
-- controller and strategy integration tests,
-- Flask/API tests,
-- TypeScript checks,
-- replay/tournament/simulation validation,
-- broad full-suite coverage runs.
+### Inventory
 
-These are useful, but they have very different feedback-loop costs. When they
-are treated as one undifferentiated suite, developers wait too long for changes
-that only affect one small subsystem.
+| Bucket | Files | Character |
+|---|---:|---|
+| `tests/test_strategy/` | 61 | Bot strategy, classification, exploitation; mostly CPU-bound, some sims |
+| `tests/test_cash_mode/` | 40 | Cash economy; many DB + integration |
+| `tests/test_memory/` | 30 | Psychology/relationship/memory; DB-backed |
+| `tests/test_repositories/` | 22 | Repository + schema migration tests; DB-heavy by definition |
+| `tests/test_core/` | 10 | LLM client/assistant; slow (`llm` tier) |
+| `tests/` (root) | 148 | Mixed: ~29 Flask/route, ~40 run real game sims/state machine, rest unit-ish |
 
-## Test Tiers
+### Existing marker coverage (incomplete — this is part of the problem)
 
-Adopt explicit tiers and use them consistently in local development, PR
-handoff, and CI.
+| Marker | Uses | Gap |
+|---|---:|---|
+| `integration` | 46 | Many integration tests unmarked |
+| `flask` | 19 | ~29 root files import `create_app`/`test_client`; only 19 marked |
+| `slow` | 5 | Slowest cost is unmarked fixture setup, not these 5 |
+| `llm` | 3 | `test_core/llm` (3m16s) largely unmarked |
+| `simulation` | **0** | Defined in the plan but never applied |
 
-| Tier | Purpose | Target Runtime | When to Run |
+The local `--quick` path does **not** use markers — `scripts/test.py` carries a
+hardcoded `SLOW_TESTS` list of 11 files it `--ignore`s. That list drifts out of date
+and silently excludes whatever someone remembered to add.
+
+## Results (2026-05-28)
+
+After implementing Lever 1 (schema-template fast path) and Phase 0 (markers, runner,
+Make targets):
+
+| Metric | Before | After |
+|---|---:|---:|
+| Full suite (`-n auto`) | ~23 min (measured, contended) | **3:01 (181s)** |
+| `create_repos()` fresh DB | 5337 ms | 11 ms (seeded copy) |
+| Per-test DB `setup` (sample) | 2.7–3.5 s | **0.04 s** |
+| `tests/test_repositories/` bucket | 6m19s | folded into a 39s 7-bucket run |
+| Slowest 20 tests | all `setup`, ~8.3s | all genuine `call` (sims/route); **no `setup`** |
+| Full-suite failures | 16 | 1 (pre-existing, see below) |
+
+The fixture `setup` tax is gone from the top of the profile. The remaining slow tests
+are genuine work — simulations (`test_sng_runner`, cash conservation/side-hustle),
+AI-resilience retries, and Flask route tests building `create_app()` per test. Those
+are what the `simulation` / `integration` / `flask` markers now gate out of the quick
+loop.
+
+What shipped:
+- `poker/repositories/schema_manager.py` — env-gated schema-template fast path.
+- `tests/conftest.py` — sets `POKER_TEST_SCHEMA_TEMPLATE=1`; `pytest_collection_modifyitems`
+  backfills `slow`/`simulation` markers on legacy unittest modules by filename.
+- `pytest.ini` — declares the `simulation` marker.
+- `scripts/test.py` — `--quick` now deselects by marker (`QUICK_DESELECT`) instead of a
+  hardcoded `--ignore` list.
+- `Makefile` — `test-quick`, `test-strategy`, `test-repos`, `test-cash`, `test-memory`,
+  `test-flask`, `test-llm`, `test-last` bucket targets.
+
+## Known risk: the suite is not cleanly partitionable yet
+
+The pre-fix run produced **16 failures**, all in `tests/test_experiment_routes.py` (15)
+and `tests/test_fast_forward.py` (1). They pass in isolation but fail under `-n auto`
+distribution — **cross-test state pollution** (a fixture/mock/global leaking between
+tests that land on the same xdist worker, consistent with the prior
+`test_websocket_auth` → `create_app` leak noted in project memory).
+
+Post-fix, **only 1 of these still fails** (`test_fast_forward::test_404_when_game_missing`),
+confirmed to **pass in isolation**. The faster setup reshuffled xdist scheduling so the
+15 experiment-routes failures happen not to collide now — which underscores the point:
+the pass/fail of these tests depends on *ordering*, not correctness. The pollution
+source is still there; Phase 3 must fix or quarantine it before narrow buckets can be
+trusted as a merge signal.
+
+Related observation (also Phase 3): the marker-based quick loop surfaced a non-failing
+background-thread warning `sqlite3.OperationalError: no such table: avatar_images`
+(`PytestUnhandledThreadExceptionWarning`). No test fails, and `avatar_images` *is* in
+the schema/template — this is the same daemon-vs-teardown race the conftest already
+fights (a lingering thread reconnecting to a deleted tmp DB → a fresh empty file). It is
+independent of the schema-build fast path (which only changes how a DB is *built*, not
+teardown). **A/B confirms it is pre-existing:** the same quick selection with the fast
+path OFF produced the warning **6 times** vs **1** with it on — faster teardown actually
+shrinks the race window. Candidate for the same daemon-lifecycle cleanup in Phase 3.
+
+This matters directly for compartmentalization: **a bucket can only be trusted in
+isolation if it does not depend on (or get corrupted by) global state from other
+tests.** Splitting a polluted suite can make a real regression pass locally and only
+surface in CI — the opposite of "safe." So pollution cleanup is a prerequisite for
+trusting narrow buckets, not an optional extra.
+
+## Strategy: two levers
+
+### Lever 1 — Kill the fixture tax (highest leverage) — IMPLEMENTED
+
+Build the migrated schema **once per process**, then seed each fresh test DB from it.
+
+A fixture-only approach was rejected because the cost has *many* entry points: a
+package `db_path` fixture, several per-file `db_path` fixtures, and ~15 `unittest`
+`setUp()` methods that call `create_repos()` directly. The single chokepoint they all
+funnel through is **`SchemaManager.ensure_schema()`**, so the fast path lives there,
+gated by an env var only tests set (`POKER_TEST_SCHEMA_TEMPLATE=1`, set in
+`tests/conftest.py`). Production never sets it → behavior is unchanged in prod.
+
+How it works (`poker/repositories/schema_manager.py`):
+- The first time an **empty** DB is built in a process, the result is snapshotted to a
+  temp template (only if it reached `SCHEMA_VERSION` — a clean full build).
+- Every subsequent **empty**-DB `ensure_schema()` is seeded from that template via the
+  **sqlite backup API** (WAL-safe, per project memory's "no plain `cp` of a live DB"),
+  then the normal `_init_db()` / `_run_migrations()` run as cheap no-ops.
+- Guarded to **only seed empty databases**, so schema-migration tests (which build an
+  OLD schema then assert forward migration) are never seeded and keep their coverage.
+
+Why it's safe: the seeded schema is byte-for-byte what a real build produces (same
+`schema_version` rows, tables, indexes, constraints), and each test still gets a fresh,
+isolated DB file.
+
+There is also a ~6s collection / import cost (e.g. `eval7`/`pyparsing`). Lower priority;
+revisit only if it dominates now that the fixture tax is gone.
+
+### Lever 2 — Compartmentalize safely
+
+Run the bucket that covers the code you touched, fall back to the full suite as the
+merge gate. "Safe" rests on three rules:
+
+1. **The full suite stays the merge gate.** Narrow buckets are a *fast local signal*,
+   never the thing that authorizes a merge. CI runs everything (Lever 2 only changes
+   how CI is *split*, not what it covers).
+2. **Buckets must be pollution-free to be trusted alone.** Fix or `@pytest.mark.quarantine`
+   the 16 order-dependent failures first; otherwise a green bucket can hide a real break.
+3. **Map source → tests conservatively.** When in doubt, a touched module pulls in the
+   integration tests that exercise it, not just its unit tests.
+
+#### Source → test bucket map
+
+| If you change… | Run this bucket | Marker shorthand |
+|---|---|---|
+| `poker/strategy/`, `poker/bounded_options.py`, `poker/*_controller.py`, charts | `tests/test_strategy/` | `make test-strategy` |
+| `poker/repositories/`, `poker/persistence.py`, schema/migrations | `tests/test_repositories/` + `tests/test_schema*` | `make test-repos` |
+| `poker/cash_mode/`, cash economy, lobby/whereabouts | `tests/test_cash_mode/` + `tests/test_cash*` | `make test-cash` |
+| `poker/` psychology / relationships / memory | `tests/test_memory/` | `make test-memory` |
+| `flask_app/` routes, auth, Socket.IO | `-m flask` + `tests/test_*route*` | `make test-flask` |
+| `core/llm/` | `tests/test_core/` | `make test-llm` (slow, opt-in) |
+| Game engine (`poker_game.py`, `poker_state_machine.py`) | `-m "not slow and not llm"` quick unit + sim smoke | `make test-unit` |
+| Docs / frontend only | none (backend) | — |
+
+## Test tiers (revised targets, post–Lever 1)
+
+| Tier | Purpose | Target | When |
 |---|---|---:|---|
-| Tier 0 | Import, compile, smoke checks | `<10s` | Constantly while editing |
-| Tier 1 | Focused unit tests for touched module | `<30s` | Every implementation loop |
-| Tier 2 | Relevant subsystem tests | `1-3 min` | Before handoff / before PR |
-| Tier 3 | Full Python quick suite + TypeScript | `5-10 min` | Before PR / CI |
-| Tier 4 | Full suite with coverage | CI budget | CI / pre-merge |
-| Tier 5 | Poker simulation and benchmark validation | manual/scheduled | Strategy-quality validation |
+| Tier 0 | Import/collect smoke (`--collect-only`) | `<10s` | While editing |
+| Tier 1 | Touched module's unit tests | `<30s` | Every loop |
+| Tier 2 | The relevant bucket from the map above | `<2 min` | Before handoff |
+| Tier 3 | `-m "not slow and not integration and not llm and not simulation"` + TypeScript | `2–4 min` | Before PR |
+| Tier 4 | Full suite + coverage | CI | Pre-merge gate |
+| Tier 5 | Poker simulation / bb100 validation | manual | Strategy-quality changes only |
 
-## Developer Workflow
+(Tier 3 target assumes Lever 1 lands; without it the quick loop is still dominated by
+the 5.2s fixture tax.)
 
-Use this default workflow:
+## Phase plan
 
-1. During implementation, run Tier 0 or Tier 1 only.
-2. Before handoff, run the relevant Tier 2 subsystem suite.
-3. Before PR, run quick Python checks plus TypeScript checks.
-4. Before merge, rely on CI for full coverage.
-5. Run simulation validation only when changing strategy behavior.
+Ordered by leverage and safety.
 
-For TieredBot work:
+- **Phase 0 — Marker hygiene + reliable quick runner ✅ DONE.**
+  - `simulation` marker declared in `pytest.ini`; `slow`/`simulation` backfilled onto
+    legacy unittest modules via `pytest_collection_modifyitems` in `tests/conftest.py`.
+  - `scripts/test.py --quick` now uses `-m "not slow and not integration and not llm
+    and not simulation"` instead of the hardcoded `SLOW_TESTS` list.
+  - Make targets added.
+  - *Remaining backfill:* full `flask`/`integration` completeness (e.g.
+    `test_game_route_auth`, `test_bot_type_dispatch` are slow + unmarked) — drive off
+    the appendix greps. Not blocking; the quick loop already excludes the big buckets.
+- **Phase 1 — Fixture tax fix (highest leverage) ✅ DONE.** Env-gated schema-template
+  fast path in `SchemaManager.ensure_schema()`. Full suite 23 min → 3:01; see
+  [Results](#results-2026-05-28).
+- **Phase 2 — Split CI into parallel jobs** (see [CI structure](#ci-structure)) so PR
+  feedback arrives in tiers. *Not started.* (Less urgent now the suite is ~3 min, but
+  still worth it for categorized signal.)
+- **Phase 3 — Isolation hardening.** Fix/quarantine the order-dependent failure(s);
+  audit fixtures that mutate shared files/DBs so `-n auto` is deterministic; only then
+  lean on narrow buckets as a *trusted* merge signal. *Not started.*
 
-| Change Area | Local Test Target |
-|---|---|
-| Hand classification | hand-classification and postflop-classifier tests |
-| Math floor / defense floor | math-floor, bluff-catch, value-override tests |
-| Exploitation offsets | exploitation and playstyle-rule tests |
-| Controller pipeline | TieredBot controller and intervention-trace tests |
-| Bot quality | simulation scripts, not normal pytest loop |
+## Proposed Make targets
 
-## Proposed Commands
-
-Add focused Make targets so developers do not need to remember long commands.
+Add focused targets so the bucket map is one command. (All run in the backend
+container — mirror `scripts/test.py`'s `docker compose exec` form.)
 
 ```makefile
-test-unit:
-	python3 -m pytest -q tests/test_strategy tests/test_preflop_classification.py
+test-quick:        ## Fast loop: skip slow/integration/llm/simulation
+	docker compose exec backend python -m pytest -q \
+		-m "not slow and not integration and not llm and not simulation"
 
-test-strategy-fast:
-	python3 -m pytest -q \
-		tests/test_strategy/test_math_floor.py \
-		tests/test_strategy/test_value_override.py \
-		tests/test_strategy/test_bluff_catch_gate.py \
-		tests/test_strategy/test_playstyle_rule_families.py \
-		tests/test_strategy/test_postflop_classifier.py
+test-strategy:     ## Bot strategy + classification + exploitation
+	docker compose exec backend python -m pytest -q tests/test_strategy/
 
-test-tiered:
-	python3 -m pytest -q tests/test_strategy/test_tiered_bot_controller.py tests/test_strategy/test_tiered_bot_exploitation.py
+test-repos:        ## Repositories + schema/migration
+	docker compose exec backend python -m pytest -q tests/test_repositories/ -k "repo or schema"
 
-test-routes-fast:
-	python3 -m pytest -q tests/test_game_route_auth.py tests/test_experiment_routes.py tests/test_admin_experiment_route_auth.py
+test-cash:         ## Cash mode economy + lobby
+	docker compose exec backend python -m pytest -q tests/test_cash_mode/ tests/ -k "cash"
 
-test-last:
-	python3 -m pytest -q --lf
+test-memory:       ## Psychology / relationships / memory
+	docker compose exec backend python -m pytest -q tests/test_memory/
 
-test-fail-first:
-	python3 -m pytest -q --ff
+test-flask:        ## Routes / auth / Socket.IO
+	docker compose exec backend python -m pytest -q -m flask
 
-validate-bots:
-	python3 experiments/phase_8_diagnostics.py
+test-llm:          ## LLM client/assistant (slow, opt-in)
+	docker compose exec backend python -m pytest -q tests/test_core/
+
+test-last:         ## Re-run last failures
+	docker compose exec backend python -m pytest -q --lf
+
+validate-bots:     ## Strategy-quality sims (Tier 5, manual)
+	docker compose exec backend python experiments/phase_8_diagnostics.py
 ```
 
-These targets should be refined after measuring actual runtime.
+Refine `-k` filters once markers are backfilled (Phase 0) — prefer `-m` over path/`-k`.
 
-## Pytest Markers
+## CI structure
 
-Make slow tests opt-in for the local quick loop.
+Split the single `test-backend` job into parallel jobs so signal arrives in tiers.
+Keep total coverage identical — the full suite still runs; it is just sharded.
 
-Recommended markers:
+1. `python-quick` — `-m "not slow and not integration and not llm and not simulation"`.
+   Fast PR signal, blocks merge.
+2. `python-integration` — `-m "integration or flask"`. Routes/repos/state-machine.
+3. `python-llm-sim` — `-m "llm or simulation"`. Slower; can run in parallel.
+4. `python-coverage` — full suite + `--cov-fail-under=40` (current gate). The
+   authoritative merge gate.
+5. `typescript` — unchanged (lint + typecheck + vitest + build).
+6. `bot-validation` — Tier 5 sims, scheduled/manual (already effectively manual).
 
-```python
-@pytest.mark.slow
-@pytest.mark.integration
-@pytest.mark.simulation
-@pytest.mark.llm
-@pytest.mark.flask
-```
+Jobs 1–3 give fast, categorized feedback; job 4 preserves today's guarantee. With
+`paths-filter` (already used for E2E), skip backend jobs entirely on docs/frontend-only
+PRs.
 
-Policy:
+## Simulation validation policy
 
-- `slow`: anything that materially increases local wait time.
-- `integration`: crosses module boundaries or requires app/database setup.
-- `simulation`: runs hands, tournaments, replays, or benchmark loops.
-- `llm`: touches live or mocked LLM-heavy paths.
-- `flask`: route, auth, Socket.IO, or app wiring tests.
-
-Update the quick runner to exclude expensive tests:
+Poker simulations are quality validation, not unit tests. Keep them as explicit
+commands, run only when changing strategy tables, exploitation offsets, hand-strength
+classification, value override, bluff-catch, math floor, or opponent modeling:
 
 ```bash
-pytest -m "not slow and not integration and not simulation and not llm"
+docker compose exec backend python experiments/phase_8_diagnostics.py
+docker compose exec backend python experiments/simulate_bb100.py
 ```
 
-## Parallel Execution
+Do not require simulation validation for Flask, repository, frontend, or doc changes.
 
-Use `pytest-xdist` for test groups that are safe to parallelize:
+## Definition of done
+
+- [x] `create_repos`-backed tests no longer pay 5.2s each (schema-template fast path
+  landed; full suite 23 min → 3:01, re-measured above).
+- [x] `scripts/test.py --quick` selects by marker, not a hardcoded file list.
+- [x] Documented Make targets exist for each bucket in the source→test map.
+- [~] `slow` / `integration` / `llm` / `simulation` / `flask` markers applied
+  consistently enough that `-m` selection is trustworthy. *Slow/simulation legacy
+  backfill done; `flask`/`integration` completeness is remaining Phase 0 work.*
+- [ ] CI runs tiered jobs for fast feedback while a full-coverage job remains the gate.
+  *(Phase 2.)*
+- [ ] The order-dependent failure(s) are fixed or quarantined, so narrow buckets can be
+  trusted in isolation. *(Phase 3.)*
+
+## Appendix — measurement commands
 
 ```bash
-python3 -m pytest -q -n auto
+# Full suite + slowest tests + total time
+docker compose exec -T backend python -m pytest tests/ -n auto --durations=30
+
+# Fixture tax
+docker compose exec -T backend python -c "import time,tempfile,os;from poker.repositories import create_repos;\
+t=time.perf_counter();[create_repos(tempfile.mktemp(suffix='.db')) for _ in range(5)];\
+print((time.perf_counter()-t)/5*1000,'ms/call')"
+
+# Collection-only (import overhead)
+docker compose exec -T backend python -m pytest tests/ --collect-only -q
+
+# Per-bucket serial time
+docker compose exec -T backend python -m pytest tests/test_strategy/ -q
+
+# Inventory greps used for the marker backfill
+grep -rln "create_app\|test_client\|socketio" tests/*.py     # flask candidates
+grep -rln "run_hand\|StateMachine\|tournament\|simulate"  tests/*.py   # simulation candidates
 ```
-
-Before enabling it globally:
-
-- identify tests that mutate shared files or databases,
-- isolate temp directories,
-- make mutable fixtures function-scoped,
-- make immutable expensive fixtures session-scoped.
-
-## Fixture Caching
-
-Audit repeated setup costs:
-
-- strategy table loading,
-- HU table loading,
-- config parsing,
-- state machine construction,
-- app/database setup.
-
-Use session-scoped fixtures for immutable data:
-
-```python
-@pytest.fixture(scope="session")
-def strategy_table():
-    return load_strategy_table()
-```
-
-Do not share mutable game state across tests. Share loaded tables/configs, then
-construct fresh state machines per test.
-
-## Simulation Validation Policy
-
-Poker simulations are quality validation, not normal unit tests.
-
-Keep these as explicit commands:
-
-```bash
-python3 experiments/phase_8_diagnostics.py
-python3 experiments/simulate_bb100.py
-python3 experiments/analyze_intervention_traces.py
-```
-
-Use them when changing:
-
-- strategy tables,
-- exploitation offsets,
-- hand-strength classification,
-- value override,
-- bluff-catch behavior,
-- math floor,
-- opponent modeling.
-
-Do not require full simulation validation for unrelated Flask, repository,
-frontend, or documentation changes.
-
-## CI Structure
-
-Recommended CI jobs:
-
-1. `python-fast`
-   - quick unit tests,
-   - no slow/integration/simulation/llm markers.
-
-2. `python-integration`
-   - Flask/routes/repositories/state-machine integration.
-
-3. `typescript`
-   - TypeScript type checks and frontend unit tests.
-
-4. `python-full`
-   - full suite with coverage.
-
-5. `bot-validation`
-   - scheduled or manually triggered simulation validation.
-
-This gives fast PR feedback without losing the deeper checks.
-
-## Measurement Plan
-
-Before and after changes, record:
-
-- full suite runtime,
-- `--quick` runtime,
-- strategy-fast runtime,
-- slowest 20 tests,
-- fixture setup time hotspots,
-- CI job wall time.
-
-Useful commands:
-
-```bash
-python3 -m pytest --durations=20
-python3 -m pytest -q --lf
-python3 -m pytest -q --ff
-```
-
-Track runtime improvements in this doc or a short follow-up report.
-
-## Definition of Done
-
-- Developers have documented fast targets for common work areas.
-- Slow/simulation tests are marked and excluded from the default quick loop.
-- Strategy changes can be iterated with focused tests under a short feedback
-  budget.
-- Simulation validation remains available but is opt-in/manual/scheduled.
-- CI provides fast initial signal and deeper confidence in separate jobs.
-
