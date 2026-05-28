@@ -36,9 +36,7 @@ from .strategy.exploitation import (
     classify_opponent_archetype,
     compute_exploitation_offsets_with_traces,
     compute_multiway_cbet_intensity,
-    compute_steal_pressure_intensity,
     compute_value_vs_station_intensity,
-    is_steal_pressure_enabled,
     is_value_vs_station_enabled,
     select_primary_aggressor,
 )
@@ -467,7 +465,6 @@ class TieredBotController(AIPlayerController):
         exploitation_strength: float,
         multiway_cbet_intensity: float,
         vvs_intensity_used: float,
-        steal_intensity_used: float,
         clamp_value: float = 0.4,
         clamp_tier_label: str = 'extreme',
     ) -> None:
@@ -494,7 +491,6 @@ class TieredBotController(AIPlayerController):
         snap['exploitation_strength'] = float(exploitation_strength)
         snap['multiway_cbet_intensity'] = float(multiway_cbet_intensity)
         snap['value_vs_station_intensity_used'] = float(vvs_intensity_used)
-        snap['steal_pressure_intensity_used'] = float(steal_intensity_used)
         snap['clamp_value'] = float(clamp_value)
         snap['clamp_tier_label'] = str(clamp_tier_label)
 
@@ -708,10 +704,10 @@ class TieredBotController(AIPlayerController):
         )
         self._last_intervention_trace.append(value_override_trace)
 
-        # Playstyle-gated rule diagnostics. Preflop only sees the
-        # steal_pressure counters fire (value_vs_station is
-        # postflop-only). Same call site shape as postflop so the
-        # method is symmetric.
+        # Playstyle-gated rule diagnostics. Preflop sees no playstyle
+        # counters fire (value_vs_station is postflop-only); the call
+        # still runs to reset the per-decision stash. Same call site
+        # shape as postflop so the method is symmetric.
         self._tally_playstyle_rule_event()
 
         # Phase 6 Step B: short-stack heuristic. Depth-aware suppression
@@ -1350,11 +1346,6 @@ class TieredBotController(AIPlayerController):
             vvs_intensity_raw = compute_value_vs_station_intensity(spots)
         vvs_intensity_used = vvs_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
 
-        steal_intensity_raw = 0.0
-        if decision_context.is_preflop and call_amount == 0 and has_bet_legal:
-            steal_intensity_raw = compute_steal_pressure_intensity(spots)
-        steal_intensity_used = steal_intensity_raw if is_steal_pressure_enabled(archetype) else 0.0
-
         # Plan §5: bluff reduction vs stations. Mirrors value_vs_station
         # but with the inverse hand-strength gate — fires on air-class
         # hands when a station is in the field. Shares the same station
@@ -1390,7 +1381,6 @@ class TieredBotController(AIPlayerController):
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             value_vs_station_intensity=vvs_intensity_used,
-            steal_pressure_intensity=steal_intensity_used,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
             non_all_in_station_continuing=non_all_in_station_continuing,
             disable_rules=getattr(self, "disable_rules", frozenset()),
@@ -1409,8 +1399,6 @@ class TieredBotController(AIPlayerController):
 
         self._last_value_vs_station_intensity_raw = vvs_intensity_raw
         self._last_value_vs_station_intensity_used = vvs_intensity_used
-        self._last_steal_pressure_intensity_raw = steal_intensity_raw
-        self._last_steal_pressure_intensity_used = steal_intensity_used
         self._last_phase_8_will_emit = phase_8_will_emit
         self._last_exploitation_archetype = archetype
 
@@ -1474,7 +1462,6 @@ class TieredBotController(AIPlayerController):
             exploitation_strength=exploitation_strength,
             multiway_cbet_intensity=multiway_cbet_intensity,
             vvs_intensity_used=vvs_intensity_used,
-            steal_intensity_used=steal_intensity_used,
             clamp_value=clamp_value,
             clamp_tier_label=clamp_tier_label,
         )
@@ -2135,8 +2122,7 @@ class TieredBotController(AIPlayerController):
         return override, trace
 
     def _tally_playstyle_rule_event(self):
-        """Diagnostic counters for the playstyle-gated rule families
-        (value_vs_station, steal_pressure).
+        """Diagnostic counters for the playstyle-gated value_vs_station rule.
 
         Reads stashed state set by `_apply_exploitation` and the
         `_last_value_override_fired` flag set by `_apply_value_override`.
@@ -2154,8 +2140,6 @@ class TieredBotController(AIPlayerController):
               enabled_eligible = fired
                                + superseded_by_override
                                + blocked_by_bias_floor
-          For steal_pressure (no override interaction):
-              enabled_eligible = fired + blocked_by_bias_floor
 
         `blocked_by_bias_floor` captures the case where the rule was
         enabled for the archetype AND would have driven non-zero
@@ -2184,8 +2168,6 @@ class TieredBotController(AIPlayerController):
 
         vvs_raw = getattr(self, '_last_value_vs_station_intensity_raw', 0.0)
         vvs_used = getattr(self, '_last_value_vs_station_intensity_used', 0.0)
-        steal_raw = getattr(self, '_last_steal_pressure_intensity_raw', 0.0)
-        steal_used = getattr(self, '_last_steal_pressure_intensity_used', 0.0)
         override_fired = getattr(self, '_last_value_override_fired', False)
         will_emit = getattr(self, '_last_phase_8_will_emit', False)
 
@@ -2203,26 +2185,11 @@ class TieredBotController(AIPlayerController):
             else:
                 c[f'value_vs_station_diagnostic_only_{archetype}'] += 1
 
-        # steal_pressure (no override interaction — preflop open spot
-        # and the override path requires facing aggression)
-        if steal_raw > 0.0:
-            c[f'steal_pressure_eligible_{archetype}'] += 1
-            if steal_used > 0.0:
-                c[f'steal_pressure_enabled_eligible_{archetype}'] += 1
-                if will_emit:
-                    c[f'steal_pressure_fired_{archetype}'] += 1
-                else:
-                    c[f'steal_pressure_blocked_by_bias_floor_{archetype}'] += 1
-            else:
-                c[f'steal_pressure_diagnostic_only_{archetype}'] += 1
-
         # Reset per-decision stash so the next decision starts clean.
         # Without this, an early-out _apply_exploitation could leave
         # stale intensities visible to the next tally call.
         self._last_value_vs_station_intensity_raw = 0.0
         self._last_value_vs_station_intensity_used = 0.0
-        self._last_steal_pressure_intensity_raw = 0.0
-        self._last_steal_pressure_intensity_used = 0.0
         self._last_phase_8_will_emit = False
         self._last_exploitation_archetype = None
         self._last_value_override_fired = False

@@ -5,8 +5,8 @@ when run through the controller. This is the integration test that
 catches breakage across the migrated layers (Steps 1-4).
 
 Tested:
-  - All 11 expected trace entries are produced per postflop decision
-    (personality + 5 exploitation + value_vs_station + steal_pressure
+  - All 10 expected trace entries are produced per postflop decision
+    (personality + 5 exploitation + value_vs_station
      + strong_hand_override + bluff_catch_override + short_stack +
      math_floor)
   - layer_order values are non-decreasing across the trace list
@@ -57,7 +57,6 @@ _EXPECTED_LAYERS = [
     ('exploitation', 'high_fold_to_cbet'),
     ('exploitation', 'multiway_cbet'),
     ('value_vs_station', 'default'),
-    ('steal_pressure', 'default'),
     ('strong_hand_override', 'default'),
     ('bluff_catch_override', 'default'),
     ('short_stack', 'default'),
@@ -97,7 +96,7 @@ class TestPostflopTraceSurface:
             hand_strength=None,
         )
         controller._last_intervention_trace.extend(exploitation_traces)
-        assert len(exploitation_traces) == 8
+        assert len(exploitation_traces) == 7
 
         # 2. value_override
         modified, vo_trace = controller._apply_value_override(
@@ -123,13 +122,14 @@ class TestPostflopTraceSurface:
         )
         controller._last_intervention_trace.append(bc_trace)
 
-        # The trace accumulator now holds 8 + 1 + 1 = 10 entries (Plan §5
-        # added bluff_reduction to the exploitation surface, bumping it
-        # from 7 to 8); the remaining traces (personality, defense_floor,
+        # The trace accumulator now holds 7 + 1 + 1 = 9 entries (the
+        # exploitation surface is 7: 5 exploitation rules +
+        # value_vs_station + bluff_reduction, after steal_pressure was
+        # removed); the remaining traces (personality, defense_floor,
         # short_stack, math_floor) are added by the
         # _get_postflop_decision orchestration step which we can't
         # easily simulate piecewise.
-        assert len(controller._last_intervention_trace) == 10
+        assert len(controller._last_intervention_trace) == 9
 
         # Every emitted trace must validate against schema invariants.
         for trace in controller._last_intervention_trace:
@@ -199,8 +199,8 @@ class TestPriorActionSourceChain:
                 effect='offsets_applied',
             )
 
-        # Simulate a full pipeline's trace list: personality + 7
-        # exploitation rules (3 fire, 4 don't) + strong_hand_override (no_op).
+        # Simulate a full pipeline's trace list: personality + 6
+        # exploitation rules (3 fire, 3 don't) + strong_hand_override (no_op).
         earlier = [
             fire_trace('personality'),
             fire_trace('exploitation', 'hyper_aggressive'),
@@ -224,12 +224,6 @@ class TestPriorActionSourceChain:
                 reason_code='intensity_below_threshold',
             ),
             fire_trace('value_vs_station'),
-            make_no_op_trace(
-                layer='steal_pressure',
-                rule_id='default',
-                layer_order=1,
-                reason_code='intensity_zero_or_gated',
-            ),
             make_no_op_trace(
                 layer='strong_hand_override',
                 rule_id='default',

@@ -234,6 +234,11 @@ LOCAL_ROSTERS = {
     'lag': ['LAG'] * 5,
     'nit': ['Nit'] * 5,
     'rock': ['Rock'] * 5,
+    # Self-play reference for personality pricing: the bare max-EV chart bot
+    # (BaselineSolverBot, no personality, no overbet/multistreet hero-layers).
+    # Pricing a personality vs THIS = its intrinsic "distance from optimal",
+    # unbiased by any specific opponent's leak. See PERSONALITY_PRICING_AND_VARIETY.md.
+    'baseline': ['Baseline'] * 5,
 }
 
 
@@ -323,6 +328,8 @@ def _run_seed(args):
         a_overbet,
         b_overbet,
         adaptive_opp,
+        a_hero,
+        b_hero,
     ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
@@ -344,7 +351,11 @@ def _run_seed(args):
     opponent_seats = _make_seat_names(opponents)
     if hero_name in opponent_seats:
         hero_name = f"{hero_arch}_hero"
-    config_arch = ARCHETYPES[hero_arch]
+    # Per-arm hero archetype (personality pricing): A and B can play DIFFERENT
+    # deviation profiles on the SAME seat/deck/opponents → the paired delta is
+    # the personality's pure EV cost. Default both to --hero (no change).
+    config_arch_a = ARCHETYPES[a_hero or hero_arch]
+    config_arch_b = ARCHETYPES[b_hero or hero_arch]
     opp_configs = [ARCHETYPES[o] for o in opponents]
 
     # bucket -> [n, sum_delta, sumsq_delta]
@@ -354,7 +365,7 @@ def _run_seed(args):
         dealer_idx = hand_num % (1 + len(opponents))
         da, ta = _run_one_hand(
             hero_name,
-            config_arch,
+            config_arch_a,
             table_a,
             opponent_seats,
             opp_configs,
@@ -368,7 +379,7 @@ def _run_seed(args):
         )
         db, tb = _run_one_hand(
             hero_name,
-            config_arch,
+            config_arch_b,
             table_b,
             opponent_seats,
             opp_configs,
@@ -463,6 +474,14 @@ def main():
         "--a base --b base --overbet-b to A/B the layer flag-flavor cleanly.",
     )
     p.add_argument(
+        '--a-hero',
+        default=None,
+        help="hero ARCHETYPE for arm A (default = --hero). Personality pricing: "
+        "set --a-hero Baseline --b-hero <Nit|Rock|TAG|'Calling Station'|LAG|Maniac> "
+        "to price that deviation profile's EV cost vs baseline, per node.",
+    )
+    p.add_argument('--b-hero', default=None, help="hero ARCHETYPE for arm B (default = --hero).")
+    p.add_argument(
         '--adaptive-opp',
         action='store_true',
         help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
@@ -495,6 +514,8 @@ def main():
             args.overbet_a,
             args.overbet_b,
             args.adaptive_opp,
+            args.a_hero,
+            args.b_hero,
         )
         for s in seeds
     ]
@@ -522,6 +543,9 @@ def main():
     if args.overbet_b:
         b_label += "+overbet"
     roster_label = f"{args.roster}{'+oracle' if args.adaptive_opp else ''}"
+    if args.a_hero or args.b_hero:
+        a_label = f"hero={args.a_hero or args.hero}"
+        b_label = f"hero={args.b_hero or args.hero}"
     print(
         f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
         f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "

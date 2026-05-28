@@ -5,6 +5,20 @@ Phase 6.5 of the tiered-bot architecture. See
 docs/plans/PHASE_6_OPPONENT_EXPLOITATION.md (Phase 6) and the Phase 6.5
 plan at ~/.claude/plans/yes-ship-the-strong-hand-zesty-manatee.md.
 
+## Consolidation note (2026-05-28)
+
+Both rules here — value_override (strong hands) and bluff_catch_override
+(marginal hands) — gate on `classify_opponent_archetype == 'hyper_aggressive'`,
+the same global-AF detection EXP_004 found fires on 0/26 of the real LLM field.
+The `maniac_counter` ablation (EXP_005 follow-up; champion_challenger CHANGES)
+found they NEVER fire vs ManiacBot/Fish-Spew (0/1000 action flips, +0.0 bb/100)
+— so they're DORMANT in practice. They are KEPT, not cut, because — unlike the
+deleted `steal_pressure` rule (dead by construction, empty frozenset) — they
+retain a LIVE path that fires vs a true all-in-spammer (>30% all-in / global
+AF>3.5), the layer's founding "call wider vs junk jams" exploit. REVISIT: to
+justify removing them, add an all-in-spammer backdrop bot and re-run the
+`maniac_counter` ablation — if they don't help even when firing, cut them.
+
 ## Architectural placement
 
 Sits between exploitation offsets (`apply_exploitation_offsets`) and math

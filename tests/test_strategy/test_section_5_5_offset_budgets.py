@@ -49,7 +49,6 @@ class TestBudgetFrameworkExists:
             ('exploitation', 'high_fold_to_cbet'),
             ('exploitation', 'multiway_cbet'),
             ('value_vs_station', 'default'),
-            ('steal_pressure', 'default'),
             ('bluff_reduction', 'default'),
         }
         budget_rules = set(MAX_L1_SHIFT_BY_RULE.keys())
