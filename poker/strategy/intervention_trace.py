@@ -76,7 +76,6 @@ _LAYER_NAMES = frozenset(
         'postflop_commit',  # low-SPR value commitment (SOLVER_CHART_SCOPE)
         'math_floor',
         'value_vs_station',  # Phase 8
-        'steal_pressure',  # Phase 8
         'bluff_reduction',  # Plan §5
     }
 )
@@ -102,16 +101,15 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'postflop_commit': frozenset({'default'}),
     'math_floor': frozenset({'default'}),
     'value_vs_station': frozenset({'default'}),
-    'steal_pressure': frozenset({'default'}),
     'bluff_reduction': frozenset({'default'}),
 }
 
 
 # Pipeline order of the postflop tiered-bot decision. Used as the
 # canonical `layer_order` on every trace so attribution analysis can
-# sort/group consistently. Phase 8's value_vs_station and steal_pressure
-# nest inside the exploitation step (they compute intensities that feed
-# `compute_exploitation_offsets`) — they share layer_order=1 with a
+# sort/group consistently. Phase 8's value_vs_station nests inside the
+# exploitation step (it computes an intensity that feeds
+# `compute_exploitation_offsets`) — it shares layer_order=1 with a
 # stable rule_id distinction.
 #
 # Promoting this to a single source of truth (was previously hard-coded
@@ -120,7 +118,6 @@ _LAYER_ORDER: Dict[str, int] = {
     'personality': 0,
     'exploitation': 1,
     'value_vs_station': 1,  # Phase 8: feeds exploitation
-    'steal_pressure': 1,  # Phase 8: feeds exploitation
     'bluff_reduction': 1,  # Plan §5: air-vs-station mirror of value_vs_station
     'induce_override': 2,  # Phase A: smooth-call vs barrelers (preempts strong_hand_override)
     'strong_hand_override': 2,

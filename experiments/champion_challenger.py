@@ -253,14 +253,12 @@ CHANGES: Dict[str, ChangeSpec] = {
 # exploitation fully off (strength 0) — so the win-rate is the rule's STANDALONE
 # contribution vs no exploitation. Same prerequisites as `exploitation`:
 # SNG-runner, --opponent-model, a non-Baseline --archetype, exploitable
-# --backdrop. `steal_pressure` is excluded — STEAL_PRESSURE_PLAYSTYLES is empty,
-# so it's dormant for every archetype and would read a degenerate null.
-# `value_vs_station` / `bluff_reduction` additionally need a value_vs_station
-# archetype (nit/rock/tag).
+# --backdrop. (`steal_pressure` was removed entirely — it shipped dormant for
+# every archetype and never earned its keep; see EXP_005 / the exploitation
+# consolidation.) `value_vs_station` / `bluff_reduction` additionally need a
+# value_vs_station archetype (nit/rock/tag).
 _ALL_EXPLOIT_RULE_KEYS = frozenset(_EXPLOIT_RULE_ORDER)
-_ABLATABLE_EXPLOIT_RULES = tuple(
-    key for key in _EXPLOIT_RULE_ORDER if key != ('steal_pressure', 'default')
-)
+_ABLATABLE_EXPLOIT_RULES = tuple(_EXPLOIT_RULE_ORDER)
 for _layer, _rule in _ABLATABLE_EXPLOIT_RULES:
     # The five 'exploitation'-layer rules have distinct rule_ids; the Phase-8
     # rules share rule_id='default' and are distinguished by their layer.

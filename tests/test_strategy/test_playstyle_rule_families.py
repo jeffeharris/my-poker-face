@@ -1,28 +1,21 @@
-"""Tests for the playstyle-gated rule families (value_vs_station, steal_pressure).
+"""Tests for the playstyle-gated value_vs_station rule family.
 
 Behavior under test:
 
   Pure intensity helpers
     - compute_value_vs_station_intensity: station detection, multi-station
       MAX upside, tight-opponent safety dampener, all-in / cold-start filters.
-    - compute_steal_pressure_intensity: tight-passive defender detection,
-      blind seat weighting, false-steal guard against tight-aggressive
-      players behind, all-in / cold-start filters.
 
   compute_exploitation_offsets integration
     - Both intensities at 0 leaves behavior byte-identical (no new keys).
     - value_vs_station_intensity > 0 pushes bet_* positive and check negative.
-    - steal_pressure_intensity > 0 pushes raise-like actions positive.
 
   Playstyle gate helpers
     - is_value_vs_station_enabled membership per archetype.
-    - is_steal_pressure_enabled returns False for every archetype in v1
-      (rule ships piping + diagnostics only).
 
   Controller-level gating
     - hand_strength gates value_vs_station: medium/weak/air → intensity 0.
-    - playstyle gates: lag/maniac never see value_vs_station_fired;
-      no archetype sees steal_pressure_fired in v1.
+    - playstyle gates: lag/maniac never see value_vs_station_fired.
     - can_act_behind reflects "yet to act this round" semantics via
       Player.has_acted (handles BB option + 3-bet re-opens without
       seat-order traversal).
@@ -45,17 +38,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from poker.strategy.exploitation import (
-    PFR_LOOSE_PER_OPEN_THRESHOLD,
-    STEAL_PRESSURE_PLAYSTYLES,
     VALUE_VS_STATION_PLAYSTYLES,
     VVS_SAFETY_WEIGHT,
     AggregatedOpponentStats,
     DecisionContext,
     OpponentSpot,
     compute_exploitation_offsets,
-    compute_steal_pressure_intensity,
     compute_value_vs_station_intensity,
-    is_steal_pressure_enabled,
     is_value_vs_station_enabled,
 )
 
@@ -109,9 +98,8 @@ def _station_stats(*, vpip: float = 0.85, **kwargs) -> AggregatedOpponentStats:
 
 
 def _tight_nit_stats(*, vpip: float = 0.10, **kwargs) -> AggregatedOpponentStats:
-    """Stats that satisfy _is_tight_nit: very low VPIP. PFR low so the
-    steal-pressure false-steal guard doesn't trip (a tight-passive
-    nit, not tight-aggressive)."""
+    """Stats that satisfy _is_tight_nit: very low VPIP, low PFR
+    (a tight-passive nit, not tight-aggressive)."""
     return _stats(vpip=vpip, pfr=0.05, aggression_factor=1.0, **kwargs)
 
 
@@ -207,93 +195,6 @@ class TestValueVsStationIntensity:
         assert compute_value_vs_station_intensity(spots) == pytest.approx(1.0)
 
 
-# ── compute_steal_pressure_intensity ───────────────────────────────────────
-
-
-class TestStealPressureIntensity:
-    def test_empty_spots_returns_zero(self):
-        assert compute_steal_pressure_intensity([]) == 0.0
-
-    def test_nobody_behind_returns_zero(self):
-        spots = [_spot('A', stats=_tight_nit_stats(), can_act_behind=False)]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_folded_player_behind_returns_zero(self):
-        # is_active False (folded) → not behind even with can_act_behind True
-        spots = [_spot('A', stats=_tight_nit_stats(), is_active=False, can_act_behind=True)]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_all_in_player_behind_ignored(self):
-        spots = [_spot('A', stats=_tight_nit_stats(), can_act_behind=True, is_all_in=True)]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_tight_passive_defender_returns_positive(self):
-        spots = [_spot('Nit', stats=_tight_nit_stats(vpip=0.05), can_act_behind=True)]
-        result = compute_steal_pressure_intensity(spots)
-        assert result > 0.0
-
-    def test_blind_defender_weighted_heavier(self):
-        # vpip/vol must sit mid-ramp (between 0.30 and 0.10) so the
-        # base intensity is < 1.0 and the blind weight (1.5x) actually
-        # changes the result. vpip=0.20 → base intensity (0.30-0.20)/
-        # (0.30-0.10) = 0.5.
-        in_blind = compute_steal_pressure_intensity(
-            [
-                _spot('BB', stats=_tight_nit_stats(vpip=0.20), can_act_behind=True, is_blind=True),
-            ]
-        )
-        non_blind = compute_steal_pressure_intensity(
-            [
-                _spot(
-                    'UTG', stats=_tight_nit_stats(vpip=0.20), can_act_behind=True, is_blind=False
-                ),
-            ]
-        )
-        assert in_blind > non_blind
-
-    def test_high_pfr_player_behind_kills_rule(self):
-        # A LAG-ish defender (pfr_per_open_opportunity clearly above
-        # PFR_LOOSE_PER_OPEN_THRESHOLD) would 3-bet back rather than
-        # fold. False-steal guard returns 0 even though a nit is also
-        # behind and would normally drive the rule.
-        spots = [
-            _spot('Nit', stats=_tight_nit_stats(vpip=0.05), can_act_behind=True),
-            _spot('LAG', stats=_stats(vpip=0.35, pfr=0.55), can_act_behind=True),
-        ]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_pfr_guard_above_threshold(self):
-        # pfr_per_open_opportunity exactly at PFR_LOOSE_PER_OPEN_THRESHOLD
-        # trips the guard. Setting both `pfr` and the opp-normalized
-        # field — guard now reads the opp-normalized one.
-        spots = [
-            _spot(
-                'TAG',
-                stats=_stats(
-                    vpip=0.18,
-                    pfr=PFR_LOOSE_PER_OPEN_THRESHOLD,
-                    pfr_per_open_opportunity=PFR_LOOSE_PER_OPEN_THRESHOLD,
-                ),
-                can_act_behind=True,
-            ),
-        ]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_cold_start_defender_excluded(self):
-        # Defender qualification needs >= MIN_HANDS_DEFAULT samples.
-        spots = [_spot('A', stats=_tight_nit_stats(hands_observed=5), can_act_behind=True)]
-        assert compute_steal_pressure_intensity(spots) == 0.0
-
-    def test_cold_start_opponent_does_not_trip_pfr_guard(self):
-        # Default pfr=0.5 on an unknown opponent would trip the guard
-        # otherwise. The min-hands gate keeps unknown opponents
-        # neutral — they neither qualify as defenders nor block the rule.
-        spots = [
-            _spot('Nit', stats=_tight_nit_stats(), can_act_behind=True),
-            _spot('Unknown', stats=_stats(hands_observed=3, pfr=0.5), can_act_behind=True),
-        ]
-        assert compute_steal_pressure_intensity(spots) > 0.0
-
 
 # ── compute_exploitation_offsets integration ──────────────────────────────
 
@@ -326,16 +227,6 @@ class TestExploitationOffsetsIntegration:
         assert offsets.get('bet_67', 0.0) > 0.0
         assert offsets.get('check', 0.0) < 0.0
 
-    def test_steal_pressure_intensity_pushes_raise_positive(self):
-        offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=50, vpip=0.3, aggression_factor=1.5),
-            adaptation_bias=0.9,
-            decision_context=_basic_decision_context(is_preflop=True),
-            available_actions=['fold', 'call', 'raise_2.5bb', 'all_in'],
-            steal_pressure_intensity=1.0,
-        )
-        assert offsets.get('raise_2.5bb', 0.0) > 0.0
-
 
 # ── Playstyle gate helpers ─────────────────────────────────────────────────
 
@@ -355,16 +246,6 @@ class TestPlaystyleGates:
 
     def test_value_vs_station_set_contents(self):
         assert VALUE_VS_STATION_PLAYSTYLES == frozenset({'nit', 'rock', 'tag'})
-
-    @pytest.mark.parametrize(
-        'archetype', ['nit', 'rock', 'tag', 'lag', 'maniac', 'calling_station', 'baseline']
-    )
-    def test_steal_pressure_disabled_for_every_archetype_in_v1(self, archetype):
-        # v1 ships the rule as piping + diagnostics only.
-        assert is_steal_pressure_enabled(archetype) is False
-
-    def test_steal_pressure_set_empty_in_v1(self):
-        assert STEAL_PRESSURE_PLAYSTYLES == frozenset()
 
 
 # ── _build_opponent_spots: can_act_behind preflop walkthrough ─────────────
@@ -526,16 +407,12 @@ class TestPlaystyleRuleTally:
         archetype='tag',
         vvs_raw=0.0,
         vvs_used=0.0,
-        steal_raw=0.0,
-        steal_used=0.0,
         override_fired=False,
         will_emit=True,
     ):
         controller._last_exploitation_archetype = archetype
         controller._last_value_vs_station_intensity_raw = vvs_raw
         controller._last_value_vs_station_intensity_used = vvs_used
-        controller._last_steal_pressure_intensity_raw = steal_raw
-        controller._last_steal_pressure_intensity_used = steal_used
         controller._last_value_override_fired = override_fired
         controller._last_phase_8_will_emit = will_emit
 
@@ -570,18 +447,6 @@ class TestPlaystyleRuleTally:
         assert c['value_vs_station_enabled_eligible_lag'] == 0
         assert c['value_vs_station_diagnostic_only_lag'] == 1
         assert c['value_vs_station_fired_lag'] == 0
-
-    def test_steal_pressure_disabled_in_v1_only_diagnostic(self):
-        # Any archetype should land in diagnostic_only because the
-        # frozenset is empty.
-        controller = self._controller_with_manager()
-        self._stash(controller, archetype='lag', steal_raw=0.4, steal_used=0.0)
-        controller._tally_playstyle_rule_event()
-        c = controller.opponent_model_manager._exploitation_counters
-
-        assert c['steal_pressure_eligible_lag'] == 1
-        assert c['steal_pressure_diagnostic_only_lag'] == 1
-        assert c['steal_pressure_fired_lag'] == 0
 
     def test_identity_eligible_decomposes(self):
         # Run a mix of decisions and verify the identity holds for each
@@ -658,16 +523,6 @@ class TestPlaystyleRuleTally:
         # Crucially: fired is NOT incremented when offsets weren't emitted.
         assert c['value_vs_station_fired_tag'] == 0
         assert c['value_vs_station_superseded_by_override_tag'] == 0
-
-    def test_steal_pressure_blocked_by_bias_floor(self):
-        controller = self._controller_with_manager()
-        self._stash(controller, archetype='lag', steal_raw=0.4, steal_used=0.4, will_emit=False)
-        controller._tally_playstyle_rule_event()
-        c = controller.opponent_model_manager._exploitation_counters
-
-        assert c['steal_pressure_enabled_eligible_lag'] == 1
-        assert c['steal_pressure_blocked_by_bias_floor_lag'] == 1
-        assert c['steal_pressure_fired_lag'] == 0
 
     def test_extended_identity_with_bias_floor(self):
         # Extended identity:
@@ -752,16 +607,6 @@ class TestAggregateColdStartBypass:
         )
         assert offsets.get('bet_33', 0.0) > 0.0
         assert offsets.get('check', 0.0) < 0.0
-
-    def test_cold_start_aggregate_does_not_block_steal_pressure(self):
-        offsets = compute_exploitation_offsets(
-            stats=_stats(hands_observed=5, vpip=0.85, aggression_factor=0.4),
-            adaptation_bias=0.9,
-            decision_context=_basic_decision_context(is_preflop=True),
-            available_actions=['fold', 'call', 'raise_2.5bb'],
-            steal_pressure_intensity=1.0,
-        )
-        assert offsets.get('raise_2.5bb', 0.0) > 0.0
 
     def test_gating_floor_still_blocks_phase_8(self):
         # adaptation_bias × tilt_factor <= GATING_FLOOR should block
