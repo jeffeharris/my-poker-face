@@ -164,6 +164,27 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),
+    # ── Maniac-counter ablation: champion DISABLES value_override +
+    # bluff_catch_override (the strong-hand-push / marginal-call-down counters vs
+    # a detected aggressor); challenger keeps them ON. Paired edge = the bb/100
+    # those two steps add. NOTE: both are gated by classify==hyper_aggressive
+    # (global AF>3.5 / all-in>30%) — the same detection EXP_004/005 showed fires
+    # on ~nobody — so vs a non-extreme backdrop this reads ~0 (the counter is
+    # dormant, not firing). Run vs ManiacBot / Fish-Spew to confirm dormancy on
+    # the realistic field; a non-zero edge means the machinery is load-bearing
+    # and should NOT be cut. ──
+    'maniac_counter': ChangeSpec(
+        description='value_override + bluff_catch_override OFF (champion) vs ON '
+        '(challenger) — does the maniac-counter machinery add bb/100?',
+        champion_table=lambda: load_strategy_table(),
+        challenger_table=lambda: load_strategy_table(),
+        champion_flags={
+            'disable_rules': frozenset(
+                {('strong_hand_override', 'default'), ('bluff_catch_override', 'default')}
+            )
+        },
+        challenger_flags={'disable_rules': frozenset()},
+    ),
     # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
     # preflop table at every effective-stack depth — the original
     # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
