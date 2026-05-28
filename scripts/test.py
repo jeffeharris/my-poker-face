@@ -39,20 +39,11 @@ import subprocess
 import sys
 import os
 
-# Slow test files to skip in quick mode (use --ignore for instant skip at collection)
-SLOW_TESTS = [
-    "tests/test_ai_memory.py",
-    "tests/test_ai_resilience.py",
-    "tests/test_chat_persistence.py",
-    "tests/test_experiment_routes.py",
-    "tests/test_experiment_variants.py",
-    "tests/test_message_history_impact.py",
-    "tests/test_personality_responses.py",
-    "tests/test_reflection_system.py",
-    "tests/test_tournament_flow.py",
-    "tests/test_core/llm/test_assistant.py",
-    "tests/test_core/llm/test_client.py",
-]
+# Quick mode deselects these marker categories (declared in pytest.ini; a few
+# legacy unittest modules are backfilled by filename in
+# tests/conftest.py::pytest_collection_modifyitems). Replaces the former
+# hardcoded SLOW_TESTS --ignore list, which drifted as tests were added/sped up.
+QUICK_DESELECT = "not slow and not integration and not llm and not simulation"
 
 
 def _run_cmd(cmd: list[str], capture: bool = False) -> subprocess.CompletedProcess:
@@ -124,10 +115,9 @@ def run(pattern: str = "", verbose: bool = False, quick_mode: bool = False) -> i
         cmd.append("-v")
 
     if quick_mode:
-        # Use --ignore to skip slow test files entirely (faster than -k)
-        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest", "tests/", "-n", "auto"]
-        for slow_file in SLOW_TESTS:
-            cmd += ["--ignore", slow_file]
+        # Deselect slow/integration/llm/simulation by marker (see QUICK_DESELECT).
+        cmd = ["docker", "compose", "exec", "backend", "python", "-m", "pytest",
+               "tests/", "-n", "auto", "-m", QUICK_DESELECT]
         if verbose:
             cmd.append("-v")
 

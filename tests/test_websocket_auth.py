@@ -8,24 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import flask_app.extensions as ext
-
 pytestmark = pytest.mark.flask
 
-
-@pytest.fixture(autouse=True)
-def _mock_extensions():
-    """Mock flask_app.extensions attributes needed for module import.
-
-    game_routes uses `from ..extensions import auth_manager` which copies the
-    reference at import time. We must also patch the module-level name in
-    game_routes for tests that need a working auth_manager.
-    """
-    mock_limiter = MagicMock()
-    old_limiter = ext.limiter
-    ext.limiter = mock_limiter
-    yield
-    ext.limiter = old_limiter
+# NOTE: this module used to mock `flask_app.extensions.limiter` with a bare
+# MagicMock so `game_routes` could be imported standalone. That froze the
+# module-singleton blueprints to mock view funcs (every later create_app() then
+# raised `AttributeError: __name__`). `extensions.limiter` is now a real app-less
+# Limiter created at import, so no mock is needed — see
+# docs/plans/TEST_WAIT_TIME_REDUCTION.md (Phase 3).
 
 
 def _make_game_data(owner_id='owner-123', game_started=False, is_human=True):

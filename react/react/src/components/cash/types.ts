@@ -211,7 +211,13 @@ export interface LobbyEvent {
     | 'hustle_end'
     // Last stand — an AI (or the player) has their entire bankroll on a
     // single table. The predator signal: a vulnerable seat to target.
-    | 'last_stand';
+    | 'last_stand'
+    // Whales — a rare pool-funded high roller at a cardroom table. Arrival
+    // is the pull signal; departure is the quiet provisioning recall.
+    | 'whale_arrival'
+    | 'whale_departure'
+    // AI asking the human staker to forgive an outstanding carry.
+    | 'ai_requests_forgiveness';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -233,6 +239,14 @@ export interface LobbyEvent {
   reason: string;
   message: string;
   created_at: string;
+  /** Groups every event from one sim hand. Set only on the single-hand
+   *  path; null for non-hand and burst-compressed events. */
+  hand_id?: string | null;
+  /** Whether the ticker renders this row. The single-hand path emits one
+   *  composed `primary` summary per hand and demotes its atomic
+   *  win/all-in/bust events to `primary: false` — kept on the wire for
+   *  per-AI filtering, hidden from the feed. Absent ⇒ treated as primary. */
+  primary?: boolean;
 }
 
 /** An AI currently on a vice — off-grid for a bounded duration. */

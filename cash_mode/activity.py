@@ -202,6 +202,17 @@ class LobbyEvent:
     message: str
     created_at: str  # ISO-8601, UTC
     sandbox_id: Optional[str] = None
+    # Groups every event emitted from one sim hand (single-hand path only).
+    # None for non-hand events (join/leave/stake/vice) and burst-compressed
+    # events, which don't belong to one resolvable hand.
+    hand_id: Optional[str] = None
+    # Whether the lobby ticker should render this row. The single-hand path
+    # emits one composed `primary=True` summary per hand ("X shoved all-in
+    # and won $Y, busting Z") and demotes the atomic big_win/big_loss/
+    # all_in/bust events from that hand to `primary=False` — kept in the
+    # buffer for per-AI filtering, hidden from the ticker so a hand reads as
+    # one coherent line instead of a mis-ordered cluster.
+    primary: bool = True
 
 
 # Bounded ring; oldest events drop on overflow. 50 is enough to
@@ -321,6 +332,58 @@ def format_all_in_message(
 def format_bust_message(name: str, stake_label: str) -> str:
     """Phrasing for a bust event — AI's stack hit 0 during a hand."""
     return f"{name} busted out at {stake_label}"
+
+
+def _join_names(names: List[str]) -> str:
+    """Oxford-ish join, collapsing a long tail to "and N more"."""
+    names = [n for n in names if n]
+    if len(names) <= 1:
+        return names[0] if names else ""
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{names[0]}, {names[1]}, and {len(names) - 2} more"
+
+
+def format_hand_summary_message(
+    *,
+    winner: Optional[str],
+    loser: Optional[str],
+    amount: int,
+    stake_label: str,
+    winner_shoved: bool,
+    busted_names: List[str],
+) -> str:
+    """Compose ONE sentence for a single sim hand.
+
+    Folds a hand's beats into a single primary ticker line so the feed
+    reads as one coherent event instead of a mis-ordered cluster of
+    win/all-in/bust rows. `winner`/`loser` are display names (winner is
+    None for a bust-only hand that didn't cross the big-pot threshold);
+    `busted_names` is everyone who hit 0 this hand.
+
+    Note: in a multiway hand the bust clause is attributed to the headline
+    winner, which can slightly over-attribute a side-pot bust. The sims are
+    near-heads-up in practice (opponents are named ~96% of the time), so
+    this stays accurate for the common case and readable for the rare one.
+    """
+    # Bust-only hand: no headline win above threshold.
+    if not winner or amount <= 0:
+        who = _join_names(busted_names)
+        if not who:
+            return ""
+        tail = f" to {winner}" if winner and len(busted_names) == 1 else ""
+        return f"{who} busted out{tail} at {stake_label}"
+
+    lead = (
+        f"{winner} shoved all-in and won ${amount:,}"
+        if winner_shoved
+        else f"{winner} won ${amount:,}"
+    )
+    if busted_names:
+        return f"{lead}, busting {_join_names(busted_names)} at {stake_label}"
+    if loser:
+        return f"{lead} off {loser} at {stake_label}"
+    return f"{lead} at {stake_label}"
 
 
 def format_last_stand_message(name: str, stake_label: str) -> str:

@@ -27,6 +27,7 @@ from cash_mode.ai_carry_resolution import (
     AI_CARRY_TICKER_THRESHOLD,
     DEFAULT_PRESSURE_THRESHOLD,
     FORGIVENESS_RATE_LIMIT_SECONDS,
+    PAYOFF_AGE_RAMP_DAYS,
     PAYOFF_BANKROLL_FACTOR_FLOOR,
     PAYOFF_EVENT_BASE_RATE,
     PAYOFF_MIN_EAGERNESS_FRACTION,
@@ -97,10 +98,11 @@ class TestCarryAgeFactor(unittest.TestCase):
         s = self._make_stake(ANCHOR)
         self.assertAlmostEqual(_carry_age_factor(s, ANCHOR), 0.0)
 
-    def test_half_at_seven_days(self):
+    def test_half_at_half_ramp(self):
+        # Parametric on PAYOFF_AGE_RAMP_DAYS so the test survives ramp tuning.
         s = self._make_stake(ANCHOR)
         self.assertAlmostEqual(
-            _carry_age_factor(s, ANCHOR + timedelta(days=7)),
+            _carry_age_factor(s, ANCHOR + timedelta(days=PAYOFF_AGE_RAMP_DAYS / 2)),
             0.5,
             places=2,
         )
@@ -108,7 +110,7 @@ class TestCarryAgeFactor(unittest.TestCase):
     def test_saturates_at_ramp(self):
         s = self._make_stake(ANCHOR)
         self.assertAlmostEqual(
-            _carry_age_factor(s, ANCHOR + timedelta(days=14)),
+            _carry_age_factor(s, ANCHOR + timedelta(days=PAYOFF_AGE_RAMP_DAYS)),
             1.0,
         )
         self.assertAlmostEqual(

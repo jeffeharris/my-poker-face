@@ -5,8 +5,10 @@ Handles table creation and schema migrations.
 
 import json
 import logging
+import os
 import random
 import sqlite3
+import tempfile
 from typing import Dict
 
 from poker.personality_id import (
@@ -15,6 +17,16 @@ from poker.personality_id import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Test-only schema-template cache. Building a fresh DB runs the full migration
+# chain (~5.2s). When POKER_TEST_SCHEMA_TEMPLATE=1 (set by tests/conftest.py),
+# the first empty-DB build per process is snapshotted here and every subsequent
+# empty build is seeded from it via the sqlite backup API (~10ms). The resulting
+# schema is identical to a real build. The flag is never set in production, so
+# this path is inert there. See _maybe_seed_from_template / _maybe_save_as_template.
+_TEST_SCHEMA_TEMPLATE_ENV = "POKER_TEST_SCHEMA_TEMPLATE"
+_TEST_SCHEMA_TEMPLATE_SUFFIX = "_schema_template.db"
+_test_schema_template_path = None
 
 # v42: Schema consolidation - all tables now created in _init_db(), migrations are no-ops
 # v43: Add experiments and experiment_games tables for experiment tracking
@@ -218,9 +230,89 @@ class SchemaManager:
 
     def ensure_schema(self):
         """Create tables and run migrations. Idempotent."""
+        # Test-only fast path: seed a fresh DB from a cached, fully-migrated
+        # template instead of re-running the whole migration chain. Only fires
+        # for empty databases, so schema-migration tests (which build an OLD
+        # schema then assert forward migration) are untouched. Inert in prod.
+        seeded = self._maybe_seed_from_template()
+        started_empty = (not seeded) and self._db_is_empty()
         self._enable_wal_mode()
-        self._init_db()
-        self._run_migrations()
+        self._init_db()  # CREATE TABLE IF NOT EXISTS: no-ops on a seeded DB
+        self._run_migrations()  # early-returns when already at SCHEMA_VERSION
+        if started_empty:
+            self._maybe_save_as_template()
+
+    def _fast_test_mode(self) -> bool:
+        return os.environ.get(_TEST_SCHEMA_TEMPLATE_ENV) == "1"
+
+    def _is_template_path(self) -> bool:
+        return str(self.db_path).endswith(_TEST_SCHEMA_TEMPLATE_SUFFIX)
+
+    def _db_is_empty(self) -> bool:
+        """True if the DB has no user schema objects (a brand-new database file).
+
+        Counts ANY user object (tables, views, triggers, indexes), not just
+        tables, so a schema-migration test that prepares a DB with only a
+        view/trigger/index is never silently overwritten by the template seed.
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                (n,) = conn.execute(
+                    "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+                ).fetchone()
+            return n == 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _copy_db(src_path: str, dst_path: str) -> None:
+        """Copy a sqlite DB via the backup API (correct even with WAL sidecars)."""
+        src = sqlite3.connect(src_path)
+        dst = sqlite3.connect(dst_path)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            src.close()
+            dst.close()
+
+    def _maybe_seed_from_template(self) -> bool:
+        """Seed an empty test DB from the cached template. Returns True if seeded."""
+        if not self._fast_test_mode() or self._is_template_path():
+            return False
+        tpl = _test_schema_template_path
+        if not tpl or not os.path.exists(tpl):
+            return False
+        if os.path.abspath(self.db_path) == os.path.abspath(tpl):
+            return False
+        if not self._db_is_empty():
+            return False
+        try:
+            self._copy_db(tpl, self.db_path)
+            return True
+        except Exception as e:  # fall back to a normal build on any copy failure
+            logger.warning(f"schema template seed skipped ({e}); building normally")
+            return False
+
+    def _maybe_save_as_template(self) -> None:
+        """Snapshot the first clean, full build as the process-wide template."""
+        global _test_schema_template_path
+        if not self._fast_test_mode() or self._is_template_path():
+            return
+        if _test_schema_template_path and os.path.exists(_test_schema_template_path):
+            return
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+            if version != SCHEMA_VERSION:  # only snapshot a complete schema
+                return
+            fd, tpl = tempfile.mkstemp(suffix=_TEST_SCHEMA_TEMPLATE_SUFFIX)
+            os.close(fd)
+            os.remove(tpl)  # backup() creates it fresh
+            self._copy_db(self.db_path, tpl)
+            _test_schema_template_path = tpl
+        except Exception as e:
+            logger.warning(f"schema template save skipped: {e}")
 
     def _init_db(self):
         """Initialize the database schema.

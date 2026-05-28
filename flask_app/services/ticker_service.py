@@ -256,6 +256,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     from cash_mode.activity import recent_events, serialize_event
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
+    from flask_app.handlers.game_handler import live_cash_seated_pids
     from flask_app.services import presence
 
     hand_sim_prob, run_every = _resolve_pace(owner_id)
@@ -280,6 +281,7 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         stake_repo=extensions.stake_repo,
         vice_repo=extensions.vice_state_repo,
         side_hustle_repo=extensions.side_hustle_state_repo,
+        live_seated_pids=live_cash_seated_pids(sandbox_id),
     )
 
     _maybe_record_holdings_snapshot(sandbox_id)

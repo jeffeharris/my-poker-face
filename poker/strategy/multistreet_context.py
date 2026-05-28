@@ -299,6 +299,8 @@ def apply_multistreet_context(
     h1_enabled: bool = True,
     h2_enabled: bool = True,
     h1_classes: Optional[frozenset] = None,
+    h1_streets: Optional[frozenset] = None,
+    street: Optional[str] = None,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -333,6 +335,11 @@ def apply_multistreet_context(
         )
 
     # ── H1: barrel / initiative continuation ────────────────────────────────
+    # `h1_streets` (None = all) restricts the streets H1 barrels on. The
+    # per-node attribution gate showed river barrel-continuation bleeds vs both
+    # a folder and a reg (the "strong draw" has resolved by the river → bluffing
+    # busted equity into a caller), while flop/turn continuation captures fold
+    # equity vs over-folders. Pass {'FLOP','TURN'} to drop the toxic river leg.
     barrel_classes = h1_classes if h1_classes is not None else H1_BARREL_TARGET.keys()
     h1_applies = (
         h1_enabled
@@ -341,6 +348,7 @@ def apply_multistreet_context(
         and active_count <= H1_MAX_ACTIVE_PLAYERS
         and hand_class in H1_BARREL_TARGET
         and hand_class in barrel_classes
+        and (h1_streets is None or (street or '').upper() in h1_streets)
     )
     if h1_applies:
         if is_rule_disabled(disable_rules, LAYER, 'barrel'):

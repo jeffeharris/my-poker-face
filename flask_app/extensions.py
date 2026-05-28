@@ -50,8 +50,11 @@ def _get_socketio_cors_origins():
 # SocketIO instance - initialized without app
 socketio = SocketIO(cors_allowed_origins=_get_socketio_cors_origins(), async_mode='threading')
 
-# Limiter instance - will be initialized with app
-limiter = None
+# Limiter instance is created below, AFTER get_rate_limit_key/_skip_options_requests
+# are defined. It is a real, app-less Limiter (not None) so that route modules'
+# `@limiter.limit(...)` / `@limiter.exempt` decorators work at import time
+# regardless of init ordering. It gets bound to the app + storage in init_limiter()
+# via limiter.init_app(app). See docs/plans/TEST_WAIT_TIME_REDUCTION.md (Phase 3).
 
 # Individual repository globals (replace former `persistence` facade)
 game_repo = None
@@ -109,6 +112,18 @@ def _skip_options_requests() -> bool:
     return request.method == "OPTIONS"
 
 
+# Real, app-less limiter (see the note above the former `limiter = None`).
+# Created once at import; bound to an app + storage in init_limiter(). Keeping a
+# single stable object means the view decorators registered at route-import time
+# stay attached across every create_app() (the old per-app reassignment orphaned
+# them) and import order can never leave `limiter` as None/a mock.
+limiter = Limiter(
+    key_func=get_rate_limit_key,
+    default_limits=config.RATE_LIMIT_DEFAULT,
+    default_limits_exempt_when=_skip_options_requests,
+)
+
+
 def init_cors(app: Flask) -> None:
     """Initialize CORS configuration."""
     cors_origins_env = config.CORS_ORIGINS_ENV
@@ -137,44 +152,27 @@ def init_cors(app: Flask) -> None:
 
 
 def init_limiter(app: Flask) -> Limiter:
-    """Initialize rate limiter with optional Redis backend."""
-    global limiter
+    """Bind the module-level limiter to ``app`` (optionally Redis-backed).
 
-    redis_url = config.REDIS_URL
-    default_limits = config.RATE_LIMIT_DEFAULT
-
-    if redis_url:
+    Only chooses storage and calls ``limiter.init_app(app)`` on the SAME object
+    created at import — never reassigns the global, so the view decorators
+    already registered against it stay bound.
+    """
+    storage_uri = "memory://"
+    storage_label = "in-memory"
+    if config.REDIS_URL:
         try:
             import redis
 
-            r = redis.from_url(redis_url)
-            r.ping()
-
-            limiter = Limiter(
-                app=app,
-                key_func=get_rate_limit_key,
-                default_limits=default_limits,
-                storage_uri=redis_url,
-                default_limits_exempt_when=_skip_options_requests,
-            )
-            logger.info("Rate limiter initialized with Redis")
+            redis.from_url(config.REDIS_URL).ping()
+            storage_uri = config.REDIS_URL
+            storage_label = "Redis"
         except Exception as e:
             logger.warning(f"Redis not available, using in-memory rate limiting: {e}")
-            limiter = Limiter(
-                app=app,
-                key_func=get_rate_limit_key,
-                default_limits=default_limits,
-                default_limits_exempt_when=_skip_options_requests,
-            )
-    else:
-        limiter = Limiter(
-            app=app,
-            key_func=get_rate_limit_key,
-            default_limits=default_limits,
-            default_limits_exempt_when=_skip_options_requests,
-        )
-        logger.info("Rate limiter initialized with in-memory storage")
 
+    app.config["RATELIMIT_STORAGE_URI"] = storage_uri
+    limiter.init_app(app)
+    logger.info(f"Rate limiter initialized with {storage_label} storage")
     return limiter
 
 

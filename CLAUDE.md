@@ -107,6 +107,14 @@ docker compose exec frontend npx tsc --noEmit
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
 
+#### Writing tests (conventions)
+
+Conventions for authoring tests (markers, isolation, mocking, no import-copied globals)
+live in **`tests/CLAUDE.md`** — auto-loaded when working in that directory. Full rationale
+and the source→bucket map: **`docs/guides/TESTING.md`**. Coverage gate: CI enforces
+`--cov-fail-under=40` on `poker`/`flask_app`/`core` (a floor — prefer behavioural tests
+over line-padding; strategy quality is validated by sims, not unit coverage).
+
 ### Database Location
 
 **IMPORTANT**: The database path differs between environments:
