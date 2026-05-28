@@ -107,6 +107,33 @@ docker compose exec frontend npx tsc --noEmit
 - Verify prompt templates render correctly
 - Check that personality traits affect decisions appropriately
 
+#### Writing tests (conventions)
+
+Most tests here are authored by Claude. Follow these so new tests stay fast, isolated,
+and trustworthy. Full rationale + the source→bucket map: `docs/guides/TESTING.md`.
+
+- **Location/naming**: tests under `tests/`; use the bucket subdirs when one fits
+  (`test_strategy/`, `test_repositories/`, `test_cash_mode/`, `test_memory/`,
+  `test_core/llm/`). Files `test_*.py`, classes `Test*`.
+- **Mark expensive tests** so `--quick` stays fast — module-level
+  `pytestmark = pytest.mark.<marker>` (or a list), markers declared in `pytest.ini`:
+  `slow`, `integration` (crosses modules / needs app+DB), `flask` (route/auth/Socket.IO),
+  `llm` (LLM provider code), `simulation` (runs hands/tournaments/replays).
+- **Isolation**: use the shared `db_path` / `repos` fixtures for a temp DB and `tmp_path`
+  for files. Never touch `data/` or the real DB. No test-order or cross-test dependencies.
+- **Mock all LLM/network calls** (`make_openai_response` / `mock_openai_response`). Tests
+  must never hit a real provider.
+- **Don't import-copy mutable globals** in new code (e.g. `from ..extensions import game_repo`);
+  read `extensions.X` live. Import-time copies are the root of the known xdist pollution
+  (see the guide).
+- **Before done**: run the relevant bucket (`make test-<bucket>`). **Before a PR**:
+  `python3 scripts/test.py --quick` + `--ts`. Don't run bare `pytest` on the host.
+
+**Coverage policy**: CI enforces `--cov-fail-under=40` on `poker`/`flask_app`/`core` (a
+floor, not a target). New logic needs *behavioural* tests (branches, edge cases, error
+paths), not line-padding. Strategy/bot-quality is validated by sims (`experiments/…`),
+not unit coverage.
+
 ### Database Location
 
 **IMPORTANT**: The database path differs between environments:
