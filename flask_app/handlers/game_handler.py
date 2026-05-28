@@ -279,10 +279,19 @@ def restore_ai_controllers(
     controller_states = {}
     emotional_states = {}
     try:
+        # The loaders now skip individual corrupt rows internally, so an
+        # empty dict here means "no saved state" (a fresh/legacy game) —
+        # benign. Reaching this except means a catastrophic load failure
+        # (e.g. DB/connection error): every AI silently reverts to default
+        # tilt/emotion, so log it loudly (error + traceback), not as a warning.
         controller_states = game_repo.load_all_controller_states(game_id)
         emotional_states = game_repo.load_all_emotional_states(game_id)
     except Exception as e:
-        logger.warning(f"Could not load controller/emotional states: {e}")
+        logger.error(
+            f"Failed to load controller/emotional states for {game_id}; "
+            f"all AIs will restore at default psychology: {e}",
+            exc_info=True,
+        )
 
     # Legacy bot_type aliases for stored games predating the chaos/standard/lean/sharp lineup.
     # hybrid → standard (full Hybrid path; previously also covered lean-bounded forced default)
@@ -705,14 +714,22 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
     owner_id_cash = current_game_data.get('owner_id')
     game_id_cash = current_game_data.get('game_id')
     bankroll_chips = 0
+    bankroll_unavailable = False
     active_loan = None
     if owner_id_cash:
         try:
             bankroll = bankroll_repo.load_player_bankroll(owner_id_cash)
             if bankroll is not None:
                 bankroll_chips = bankroll.chips
-        except Exception:
-            pass
+        except Exception as e:
+            # Don't silently render a transient load failure as "$0 bankroll":
+            # that's indistinguishable from genuinely broke and wrongly gates
+            # top-up/rebuy. Log it and flag it so the UI can show "couldn't
+            # load balance" instead of a false zero.
+            logger.warning(
+                "[CASH] failed to load bankroll for %r: %s", owner_id_cash, e, exc_info=True
+            )
+            bankroll_unavailable = True
     # `active_loan` shape preserves the legacy frontend contract
     # (amount/floor/rate/lender_id). Sourced from the active stake
     # row when one exists. `floor` defaults to 1.0 since the stake
@@ -730,12 +747,19 @@ def build_cash_mode_payload(current_game_data: dict, game_state) -> Optional[dic
                     'rate': stake.cut,
                     'lender_id': stake.staker_id,
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            # A failed stake load masks an active loan as "no loan"; log it
+            # rather than swallowing so a persistent failure isn't invisible.
+            logger.warning(
+                "[CASH] failed to load active stake for %r: %s", game_id_cash, e, exc_info=True
+            )
     big_blind = game_state.current_ante
     return {
         'stake_label': current_game_data.get('cash_stake_label'),
         'bankroll': bankroll_chips,
+        # True when the bankroll load above threw — lets the UI distinguish
+        # "couldn't load balance" from a real $0 (which gates top-up/rebuy).
+        'bankroll_unavailable': bankroll_unavailable,
         'big_blind': big_blind,
         'min_buy_in': big_blind * 40,
         'max_buy_in': big_blind * 100,
@@ -906,16 +930,21 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         game_state = game_state.update(players=new_players)
         state_machine.game_state = game_state
 
-        # Persist AI bankroll debit
-        bankroll_repo.save_ai_bankroll(replacement_state, sandbox_id=sandbox_id)
+        # Persist AI bankroll debit. Pass chip_ledger_repo so a first-write
+        # for this personality+sandbox emits the `ai_seed` audit entry (the
+        # lobby seed path does the same) — without it, refilled chips could
+        # enter the economy with no ledger row → conservation drift.
+        from core.economy import ledger as chip_ledger
+        from flask_app.extensions import chip_ledger_repo
+
+        bankroll_repo.save_ai_bankroll(
+            replacement_state, sandbox_id=sandbox_id, chip_ledger_repo=chip_ledger_repo
+        )
         # (The seated⇒not-idle invariant is enforced when this seat is
         # persisted to cash_tables by `_refresh_lobby_table_for_session`'s
         # save_table — see CashTableRepository.save_table.)
         # Record any regen that this write commits. Transfer to table
         # stack is a pure non-bank move and isn't ledger-worthy.
-        from core.economy import ledger as chip_ledger
-        from flask_app.extensions import chip_ledger_repo
-
         # replacement_state.chips = projected - buy_in, so we
         # reconstruct projected = chips + buy_in to compare against
         # the pre-regen stored value.
@@ -1444,7 +1473,8 @@ def _apply_rebuys(
     will retry the refresh path. The "missing controller / missing
     name" cases are no-ops.
     """
-    from cash_mode.bankroll import AIBankrollState, project_bankroll
+    from cash_mode.bankroll import debit_bankroll_for_seat
+    from flask_app.extensions import chip_ledger_repo
 
     if not rebuy_changes:
         return
@@ -1457,38 +1487,21 @@ def _apply_rebuys(
         name = pid_to_name.get(change.personality_id)
         if not name:
             continue
-        # 1. Bankroll debit. Mirror the pattern used by _refill_cash_seats
-        # for fresh seats: project to `now`, subtract, persist. Pure
-        # transfer — chips moved bankroll → seat, no ledger entry needed
-        # (matches credit_ai_cash_out's complement on the leave path).
+        # 1. Audit-safe bankroll debit. debit_bankroll_for_seat projects
+        # regen forward, commits it as an ai_regen ledger row, and REFUSES
+        # (returns None) if the projected bankroll can't cover the rebuy.
+        # This replaces the old project + max(0, projected - amount) clamp,
+        # which silently MINTED `amount - projected` phantom chips when the
+        # AI was short while still bumping the seat the full amount.
         try:
-            knobs = bankroll_repo.load_personality_knobs(change.personality_id)
-            stored = bankroll_repo.load_ai_bankroll(change.personality_id, sandbox_id=sandbox_id)
-            if stored is None:
-                # Defensive: an AI without a bankroll row shouldn't be
-                # rolling rebuy in the first place (the pressure model
-                # only fires when projected bankroll signals affordability).
-                # Skip the debit and keep going.
-                logger.warning(
-                    "[CASH][LOBBY] rebuy: no bankroll row for %r; seat chips bumped without debit",
-                    change.personality_id,
-                )
-            else:
-                projected = project_bankroll(
-                    stored,
-                    knobs.starting_bankroll,
-                    knobs.bankroll_rate,
-                    now,
-                )
-                new_chips = max(0, projected - change.amount)
-                bankroll_repo.save_ai_bankroll(
-                    AIBankrollState(
-                        personality_id=change.personality_id,
-                        chips=new_chips,
-                        last_regen_tick=now,
-                    ),
-                    sandbox_id=sandbox_id,
-                )
+            debited = debit_bankroll_for_seat(
+                bankroll_repo,
+                change.personality_id,
+                change.amount,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
         except Exception as e:
             logger.warning(
                 "[CASH][LOBBY] rebuy bankroll debit failed for %r (+%d): %s",
@@ -1496,8 +1509,20 @@ def _apply_rebuys(
                 change.amount,
                 e,
             )
+            continue
+        if debited is None:
+            # Insufficient or missing bankroll — do NOT bump the seat, or
+            # we'd add chips to the table with no backing debit (the exact
+            # phantom-chip leak this helper exists to prevent).
+            logger.warning(
+                "[CASH][LOBBY] rebuy refused for %r (+%d): insufficient/missing "
+                "bankroll; seat left unchanged",
+                change.personality_id,
+                change.amount,
+            )
+            continue
 
-        # 2. Mirror to live game state.
+        # 2. Mirror to live game state (only after a successful debit).
         idx = name_to_player_idx.get(name)
         if idx is None:
             continue
@@ -3065,9 +3090,7 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             # HAND_OVER frame, about to be refilled) never trips it.
             paused_players = state_machine.game_state.players
             human = next((p for p in paused_players if p.is_human), None)
-            others_have_chips = any(
-                p.stack > 0 and not p.is_human for p in paused_players
-            )
+            others_have_chips = any(p.stack > 0 and not p.is_human for p in paused_players)
             if human is not None and human.stack > 0 and not others_have_chips:
                 candidates = []
                 try:
