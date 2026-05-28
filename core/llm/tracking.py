@@ -6,7 +6,7 @@ import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 # Cache TTL in seconds (1 hour)
 PRICING_CACHE_TTL = 3600
+
+# Spend-reader cache TTL in seconds. Short, because this backs the per-call
+# spend gate (PRH-2): we must not add a DB read to every LLM call on the hot
+# decision path, but the running total may only lag reality by a few seconds.
+SPEND_CACHE_TTL = 30
+
+# Default rolling window for the daily spend ceiling.
+SPEND_WINDOW_HOURS = 24
 
 # Configurable database path for prompt captures
 _capture_db_path: Optional[str] = None
@@ -107,6 +115,12 @@ class UsageTracker:
         self._pricing_cache: Dict[Tuple[str, str, str], PricingEntry] = {}
         self._cache_loaded_at: Optional[float] = None
         self._cache_lock = threading.Lock()
+
+        # Spend cache (PRH-2): {(owner_id_or_None, window_hours): (computed_at_epoch, total_usd)}.
+        # owner_id == None is the global (all-owners) running total. The window
+        # is part of the key so two different windows can't alias each other.
+        self._spend_cache: Dict[Tuple[Optional[str], int], Tuple[float, float]] = {}
+        self._spend_cache_lock = threading.Lock()
 
     @classmethod
     def get_default(cls) -> "UsageTracker":
@@ -240,6 +254,73 @@ class UsageTracker:
         """Force cache refresh on next lookup. Call after updating pricing."""
         with self._cache_lock:
             self._cache_loaded_at = None
+
+    # ------------------------------------------------------------------
+    # Spend reader (PRH-2 — the read side of the global/per-owner kill-switch)
+    # ------------------------------------------------------------------
+    def get_recent_spend(
+        self,
+        owner_id: Optional[str] = None,
+        window_hours: int = SPEND_WINDOW_HOURS,
+    ) -> float:
+        """Return summed `estimated_cost` (USD) over a rolling window.
+
+        Backs the spend gate, so it is cached in memory with a short TTL
+        (`SPEND_CACHE_TTL`) to keep a DB read off the hot per-call path.
+
+        Args:
+            owner_id: If given, sum only rows for that owner; otherwise sum
+                across all owners (the global total).
+            window_hours: Rolling window size in hours (default 24h).
+
+        Returns:
+            Total estimated USD spend over the window. Rows with a NULL
+            `estimated_cost` (missing pricing) count as $0. Fails open: on any
+            DB error this returns 0.0 (and logs) so a spend backstop can never
+            freeze the game over a DB hiccup.
+        """
+        cache_key = (owner_id, window_hours)
+        now = datetime.now(timezone.utc).timestamp()
+        with self._spend_cache_lock:
+            cached = self._spend_cache.get(cache_key)
+            if cached is not None and now - cached[0] < SPEND_CACHE_TTL:
+                return cached[1]
+
+        # Recompute outside the lock — the SUM query is the slow part and we
+        # don't want to serialize concurrent callers behind it.
+        total = self._query_recent_spend(owner_id, window_hours)
+
+        with self._spend_cache_lock:
+            self._spend_cache[cache_key] = (now, total)
+        return total
+
+    def _query_recent_spend(self, owner_id: Optional[str], window_hours: int) -> float:
+        """Run the rolling-window SUM(estimated_cost) query. Fails open (0.0)."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                if owner_id is None:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(estimated_cost), 0) FROM api_usage "
+                        "WHERE created_at >= ?",
+                        (cutoff,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(estimated_cost), 0) FROM api_usage "
+                        "WHERE created_at >= ? AND owner_id = ?",
+                        (cutoff, owner_id),
+                    ).fetchone()
+            return float(row[0]) if row and row[0] is not None else 0.0
+        except Exception as e:
+            # Fail open: a cost backstop must never freeze the game on a DB error.
+            logger.error(f"Failed to read recent LLM spend (failing open, returning $0): {e}")
+            return 0.0
+
+    def invalidate_spend_cache(self) -> None:
+        """Drop the cached spend totals so the next read recomputes immediately."""
+        with self._spend_cache_lock:
+            self._spend_cache.clear()
 
     def _get_sku_pricing(
         self,

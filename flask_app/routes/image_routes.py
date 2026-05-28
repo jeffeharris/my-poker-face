@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request, send_from_directory
 
 from core.llm.config import POLLINATIONS_RATE_LIMIT_DELAY
+from poker.authorization import require_permission
 from poker.character_images import (
     EMOTIONS,
     generate_character_images,
@@ -22,12 +23,17 @@ from poker.character_images import (
 )
 
 from .. import config
-from ..extensions import auth_manager, limiter, persistence_db_path, personality_repo
+from ..extensions import limiter, persistence_db_path, personality_repo
 from ..handlers.avatar_handler import PRIORITY_EMOTIONS, start_single_emotion_generation
 
 logger = logging.getLogger(__name__)
 
 image_bp = Blueprint('image', __name__)
+
+# PRH-1: per-route admin guard for the two paid image-*generation* POST routes.
+# The blueprint as a whole must stay open — its GET routes serve avatars/grids
+# in-game — so we cannot register_admin_guard(image_bp). Guard the spenders only.
+_admin_only = require_permission('can_access_admin_tools')
 
 
 def _detect_image_mimetype(image_data: bytes) -> str:
@@ -351,6 +357,7 @@ def list_emotions():
 
 @image_bp.route('/api/avatar/<personality_name>/regenerate', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_REGENERATE_AVATAR)
+@_admin_only
 def regenerate_avatar(personality_name: str):
     """Regenerate avatar images for specific emotions.
 
@@ -507,12 +514,9 @@ def get_avatar_stats():
 
 @image_bp.route('/api/generate-character-images/<personality_name>', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_GENERATE_IMAGES)
+@_admin_only
 def generate_character_images_endpoint(personality_name):
     """Generate images for a personality on-demand."""
-    user = auth_manager.get_current_user() if auth_manager else None
-    if not user or not user.get('id'):
-        return jsonify({'error': 'Authentication required', 'code': 'AUTH_REQUIRED'}), 401
-
     try:
         data = request.get_json() or {}
         emotions = data.get('emotions')

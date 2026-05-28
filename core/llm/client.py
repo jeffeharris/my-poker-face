@@ -5,6 +5,7 @@ import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from .budget import classify_shed, get_spend_gate
 from .config import AVAILABLE_PROVIDERS, DEFAULT_MAX_TOKENS
 from .providers.anthropic import AnthropicProvider
 from .providers.base import LLMProvider
@@ -130,6 +131,31 @@ class LLMClient:
             LLMResponse with content and usage data
         """
         import json as json_module
+
+        # PRH-2 spend gate: short-circuit before any provider dispatch when the
+        # daily LLM budget is exceeded. Returns a failed LLMResponse — decision
+        # callers fall back to the deterministic engine; cosmetic calls vanish.
+        gate = get_spend_gate()
+        if gate.enabled:
+            reason = gate.over_budget_reason(owner_id, self._tracker)
+            if reason:
+                logger.warning(
+                    "[LLM BUDGET] blocked %s call (%s): %s",
+                    call_type.value if call_type else "unknown",
+                    classify_shed(call_type),
+                    reason,
+                )
+                return LLMResponse(
+                    content="",
+                    model=self._provider.model,
+                    provider=self._provider.provider_name,
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_ms=0,
+                    status="error",
+                    error_code="budget_exceeded",
+                    error_message=reason,
+                )
 
         start_time = time.time()
 
@@ -352,6 +378,27 @@ class LLMClient:
         Returns:
             ImageResponse with URL and metadata
         """
+        # PRH-2 spend gate: image generation is cosmetic and the most expensive
+        # per-call spend — block it first when over the daily budget.
+        gate = get_spend_gate()
+        if gate.enabled:
+            reason = gate.over_budget_reason(owner_id, self._tracker)
+            if reason:
+                logger.warning(
+                    "[LLM BUDGET] blocked image generation (%s): %s",
+                    classify_shed(call_type),
+                    reason,
+                )
+                return ImageResponse(
+                    url="",
+                    model=self._provider.image_model,
+                    provider=self._provider.provider_name,
+                    size=size,
+                    status="error",
+                    error_code="budget_exceeded",
+                    error_message=reason,
+                )
+
         start_time = time.time()
 
         try:

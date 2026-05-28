@@ -79,6 +79,19 @@ def create_app():
     # Initialize extensions
     init_extensions(app)
 
+    # Arm the LLM spend kill-switch (PRH-2) from app config and announce its
+    # status. core.llm can't import flask_app, so we push the limits in here.
+    from core.llm.budget import configure_spend_limits
+
+    from .config import (
+        LLM_GLOBAL_DAILY_BUDGET_USD,
+        LLM_PER_OWNER_DAILY_BUDGET_USD,
+        log_llm_budget_status,
+    )
+
+    configure_spend_limits(LLM_GLOBAL_DAILY_BUDGET_USD, LLM_PER_OWNER_DAILY_BUDGET_USD)
+    log_llm_budget_status()
+
     # Mark any experiments that were running when server stopped as interrupted
     recover_interrupted_experiments()
 

@@ -1,8 +1,11 @@
 """Configuration for the Flask application."""
 
+import logging
 import os
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -62,6 +65,65 @@ RATE_LIMIT_GENERATE_PERSONALITY = os.environ.get('RATE_LIMIT_GENERATE_PERSONALIT
 RATE_LIMIT_GENERATE_THEME = os.environ.get('RATE_LIMIT_GENERATE_THEME', '10 per hour')
 RATE_LIMIT_REGENERATE_AVATAR = os.environ.get('RATE_LIMIT_REGENERATE_AVATAR', '10 per hour')
 RATE_LIMIT_GENERATE_IMAGES = os.environ.get('RATE_LIMIT_GENERATE_IMAGES', '5 per hour')
+
+# ---------------------------------------------------------------------------
+# LLM spend kill-switch (PRH-2)
+# ---------------------------------------------------------------------------
+# Rolling 24h spend ceilings in USD, enforced centrally in LLMClient (the gate
+# itself lands in a follow-up step). Two layers:
+#   - LLM_GLOBAL_DAILY_BUDGET_USD: total spend across every owner.
+#   - LLM_PER_OWNER_DAILY_BUDGET_USD: spend attributable to a single owner_id.
+#
+# Disabled sentinel: 0 (or unset, or any non-positive value) => that layer is
+# OFF and enforces no ceiling. Both default to disabled so this change is inert
+# until an operator opts in via env. Startup logs loudly which layers are live
+# (see log_llm_budget_status, called from create_app).
+
+
+def _read_budget_usd(env_name: str) -> float:
+    """Parse a USD budget env var; treat blank/garbage/non-positive as disabled (0.0)."""
+    raw = os.environ.get(env_name)
+    if not raw:
+        return 0.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring non-numeric %s=%r; treating spend layer as disabled", env_name, raw
+        )
+        return 0.0
+    return value if value > 0 else 0.0
+
+
+LLM_GLOBAL_DAILY_BUDGET_USD = _read_budget_usd('LLM_GLOBAL_DAILY_BUDGET_USD')
+LLM_PER_OWNER_DAILY_BUDGET_USD = _read_budget_usd('LLM_PER_OWNER_DAILY_BUDGET_USD')
+
+
+def log_llm_budget_status() -> None:
+    """Log loudly, at startup, whether the LLM spend kill-switch is armed.
+
+    A disabled budget means an overrun runs until the provider's own billing
+    limit — operators should see this in the boot log, not discover it later.
+    """
+    if LLM_GLOBAL_DAILY_BUDGET_USD <= 0 and LLM_PER_OWNER_DAILY_BUDGET_USD <= 0:
+        logger.warning(
+            "[LLM BUDGET] spend kill-switch DISABLED — no global or per-owner daily "
+            "ceiling is enforced. Set LLM_GLOBAL_DAILY_BUDGET_USD (and optionally "
+            "LLM_PER_OWNER_DAILY_BUDGET_USD) to arm it."
+        )
+        return
+
+    parts = []
+    if LLM_GLOBAL_DAILY_BUDGET_USD > 0:
+        parts.append(f"global=${LLM_GLOBAL_DAILY_BUDGET_USD:.2f}/24h")
+    else:
+        parts.append("global=disabled")
+    if LLM_PER_OWNER_DAILY_BUDGET_USD > 0:
+        parts.append(f"per_owner=${LLM_PER_OWNER_DAILY_BUDGET_USD:.2f}/24h")
+    else:
+        parts.append("per_owner=disabled")
+    logger.info("[LLM BUDGET] spend kill-switch ARMED — %s", ", ".join(parts))
+
 
 # Pagination
 GAME_LIST_MAX_LIMIT = int(os.environ.get('GAME_LIST_MAX_LIMIT', '100'))
