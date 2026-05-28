@@ -320,6 +320,32 @@ class TieredBotController(AIPlayerController):
         self.multistreet_h2_foldbarrel: bool = False
         self.multistreet_h1_streets: frozenset = frozenset({'FLOP', 'TURN'})
 
+        # Overbet sizing layer (docs/plans/POSTFLOP_NEXT_LEVER.md). The chart bet
+        # menu caps at bet_100 — the bot can't overbet without this. Per-node
+        # attribution measured value overbets (nuts/strong_made, ~150% pot,
+        # turn+river) +EV or neutral vs every opponent type, never negative:
+        # punisher (reg) +13 [+8.5, +17.5], jeff +42 HU / +73 6-max, station +159,
+        # nit +11.5, lag +12.2. Multistreet sets the bet frequency; this layer
+        # sets the bet size for value classes in polarized aggressor spots.
+        #
+        # ON as of 2026-05-28 (runtime layer validated against the load-time
+        # `_overbet_transform` measure: vs jeff +42.50 vs the probe's +42.47,
+        # matched to 0.03 bb/100; vs punisher +13.80 vs +13.02, matched within
+        # seed noise; top per-node contributions identical).
+        #
+        # The face-up balance concern (always-overbet pure value is exploitable
+        # vs a sizing-aware adapter) does not bite vs the current opponent set:
+        # no clone reads bet-sizing tells, and the tiered bot's own exploitation
+        # layer keys on opponent frequencies (vpip/ftc/AF), not sizing. Future:
+        # build sizing-aware opponent modeling, then tune `overbet_fraction`
+        # down + add an overbet-bluff frequency for adapters.
+        self.enable_overbet_context: bool = True
+        self.overbet_size: int = 150  # bet_150 = 150% pot (smallest validated)
+        self.overbet_fraction: float = 1.0  # share of bet mass → overbet (1.0 = the measured probe)
+        self.overbet_classes: Optional[frozenset] = None  # None = default {nuts, strong_made}
+        self.overbet_streets: Optional[frozenset] = None  # None = default {TURN, RIVER}
+        self.overbet_max_active: Optional[int] = None  # None = no multiway gate (matches measured 6-max +73)
+
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
         # decision — dominant cost in long sim runs) but still
@@ -1053,6 +1079,49 @@ class TieredBotController(AIPlayerController):
             )
         self._last_intervention_trace.append(multistreet_trace)
 
+        # 6a.5b.3 Overbet sizing (docs/plans/POSTFLOP_NEXT_LEVER.md).
+        # The chart bet menu caps at bet_100 — the bot is structurally incapable
+        # of overbetting. Per-node attribution (HU + 6-max paired-CRN) measured
+        # value overbets (nuts/strong_made, 150% pot, turn+river) +EV or neutral
+        # vs every opponent, never negative: punisher (reg) +13 [+8.5, +17.5],
+        # jeff +42 HU / +73 6-max, station +159. Multistreet sets the bet
+        # *frequency*; this layer sets the *size* — so it runs immediately after.
+        # Behind enable_overbet_context; OFF arm is byte-identical.
+        overbet_trace = make_no_op_trace(
+            layer='overbet_context',
+            rule_id='default',
+            layer_order=layer_order_for('overbet_context'),
+            reason_code='flag_disabled',
+        )
+        if getattr(self, 'enable_overbet_context', False):
+            from .strategy.overbet_context import apply_overbet_context
+
+            overbet_prior_fired = (
+                induce_override_trace.fired
+                or value_override_trace.fired
+                or bluff_catch_trace.fired
+                or multistreet_trace.fired
+            )
+            modified_strategy, overbet_trace = apply_overbet_context(
+                modified_strategy,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                street=node.street,
+                active_count=active_count,
+                overbet_size=getattr(self, 'overbet_size', 150),
+                overbet_fraction=getattr(self, 'overbet_fraction', 1.0),
+                overbet_classes=getattr(self, 'overbet_classes', None),
+                overbet_streets=getattr(self, 'overbet_streets', None),
+                overbet_max_active=getattr(self, 'overbet_max_active', None),
+                prior_layer_fired=overbet_prior_fired,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            overbet_trace = _fill_prior_action_source(
+                overbet_trace,
+                self._last_intervention_trace,
+            )
+        self._last_intervention_trace.append(overbet_trace)
+
         # NOTE: the value-bet floor override (§12) was retired (§14) once its
         # win was traced to multiway over-suppressing value hands and baked
         # into apply_multiway_adjustment's VALUE_CLASSES exemption (the root
@@ -1074,6 +1143,7 @@ class TieredBotController(AIPlayerController):
             or value_override_trace.fired
             or bluff_catch_trace.fired
             or multistreet_trace.fired
+            or overbet_trace.fired
         )
         defense_floor_facing_bet = outer_decision_context.bet_bucket is not None
         modified_strategy, defense_floor_trace = apply_defense_floor(
