@@ -2443,6 +2443,8 @@ def _emit_sim_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Push paired big_win + big_loss events for a sim hand.
 
@@ -2498,6 +2500,8 @@ def _emit_sim_events(
                 message=format_big_win_message(winner_name, loser_name, stake, delta),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
         record_event(
@@ -2511,6 +2515,8 @@ def _emit_sim_events(
                 message=format_big_loss_message(loser_name, winner_name, stake, delta),
                 created_at=ts,
                 sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=primary,
             )
         )
     except Exception:
@@ -2541,6 +2547,46 @@ def _emit_burst_events(
     framing reads "X shoved" once, not "X shoved 4 times").
     """
     if not sim_results:
+        return
+
+    # Single live hand (the common case): collapse the hand's beats into
+    # ONE composed primary line so the feed reads as a coherent sentence
+    # ("X shoved all-in and won $Y, busting Z") instead of a mis-ordered
+    # win/all-in/bust cluster. The atomic events are still recorded
+    # (primary=False) for per-AI filtering. The multi-hand burst path below
+    # stays compressed — its events span different hands and can't honestly
+    # be joined into one sentence.
+    if len(sim_results) == 1:
+        r = sim_results[0]
+        hand_id = f"{table.table_id}:{now.isoformat()}"
+        if r.big_event:
+            _emit_sim_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        if r.hand_events:
+            _emit_hand_events(
+                table=table,
+                sim_result=r,
+                personality_repo=personality_repo,
+                now=now,
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=False,
+            )
+        _emit_hand_summary(
+            table=table,
+            sim_result=r,
+            personality_repo=personality_repo,
+            now=now,
+            hand_id=hand_id,
+            sandbox_id=sandbox_id,
+        )
         return
 
     # Pick the biggest big_event hand for the headline win/loss
@@ -2669,6 +2715,8 @@ def _emit_hand_events(
     personality_repo,
     now: datetime,
     sandbox_id: Optional[str] = None,
+    hand_id: Optional[str] = None,
+    primary: bool = True,
 ) -> None:
     """Translate `HandSimResult.hand_events` into `LobbyEvent`s.
 
@@ -2725,6 +2773,8 @@ def _emit_hand_events(
                         message=format_all_in_message(name, stake, opponent_name),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
@@ -2744,11 +2794,131 @@ def _emit_hand_events(
                         message=format_bust_message(name, stake),
                         created_at=ts,
                         sandbox_id=sandbox_id,
+                        hand_id=hand_id,
+                        primary=primary,
                     )
                 )
                 seen_types.add(evt.type)
             except Exception:
                 pass
+
+
+def _emit_hand_summary(
+    *,
+    table,
+    sim_result,
+    personality_repo,
+    now: datetime,
+    hand_id: str,
+    sandbox_id: Optional[str] = None,
+) -> None:
+    """Emit the ONE composed primary line summarizing a single sim hand.
+
+    Headline priority: a big-pot win (folding in the winner's shove and the
+    loser's bust) → a bust → a lone all-in shove. Reuses the atomic event
+    `type` (big_win / all_in / bust) so the ticker picks the right icon; the
+    `primary=False` atomic copies emitted alongside carry the structured
+    data for filtering. Emits nothing when the hand had no notable beat
+    (matching the prior behavior where no atomic event would have fired).
+    """
+    from cash_mode.activity import (
+        EVENT_ALL_IN,
+        EVENT_BIG_WIN,
+        EVENT_BUST,
+        LobbyEvent,
+        format_all_in_message,
+        format_hand_summary_message,
+        record_event,
+    )
+    from cash_mode.full_sim import HAND_EVENT_ALL_IN, HAND_EVENT_BUST
+
+    def _name_for(pid: Optional[str]) -> Optional[str]:
+        if not pid:
+            return None
+        try:
+            personality = personality_repo.load_personality_by_id(pid)
+        except Exception:
+            return None
+        if not personality:
+            return None
+        return personality.get("name") or pid
+
+    stake = table.stake_label
+    winner_pid = sim_result.winner_pid
+    loser_pid = sim_result.loser_pid
+    busted_pids = [
+        e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_BUST
+    ]
+    allin_pids = {
+        e.personality_id for e in sim_result.hand_events if e.type == HAND_EVENT_ALL_IN
+    }
+
+    winner_name = _name_for(winner_pid)
+    loser_name = _name_for(loser_pid)
+    busted_names = [n for n in (_name_for(p) for p in busted_pids) if n]
+    delta = int(sim_result.delta)
+
+    etype: Optional[str] = None
+    subject_pid: Optional[str] = None
+    opponent_pid = ""
+    message = ""
+
+    if sim_result.big_event and winner_name and winner_pid:
+        winner_shoved = winner_pid in allin_pids
+        etype = EVENT_ALL_IN if winner_shoved else EVENT_BIG_WIN
+        subject_pid = winner_pid
+        opponent_pid = loser_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=loser_name,
+            amount=delta,
+            stake_label=stake,
+            winner_shoved=winner_shoved,
+            busted_names=busted_names,
+        )
+    elif busted_names:
+        etype = EVENT_BUST
+        subject_pid = busted_pids[0]
+        opponent_pid = winner_pid or ""
+        message = format_hand_summary_message(
+            winner=winner_name,
+            loser=None,
+            amount=0,
+            stake_label=stake,
+            winner_shoved=False,
+            busted_names=busted_names,
+        )
+    elif allin_pids:
+        shover_pid = next(iter(allin_pids))
+        shover_name = _name_for(shover_pid)
+        if shover_name:
+            etype = EVENT_ALL_IN
+            subject_pid = shover_pid
+            opponent = loser_pid if shover_pid == winner_pid else winner_pid
+            opponent_pid = opponent or ""
+            message = format_all_in_message(shover_name, stake, _name_for(opponent))
+
+    if not (etype and subject_pid and message):
+        return
+
+    try:
+        record_event(
+            LobbyEvent(
+                type=etype,
+                table_id=table.table_id,
+                stake_label=stake,
+                personality_id=subject_pid,
+                name=_name_for(subject_pid) or subject_pid,
+                reason=opponent_pid,
+                message=message,
+                created_at=now.isoformat(),
+                sandbox_id=sandbox_id,
+                hand_id=hand_id,
+                primary=True,
+            )
+        )
+    except Exception:
+        pass
 
 
 def _emit_carry_resolution_events(

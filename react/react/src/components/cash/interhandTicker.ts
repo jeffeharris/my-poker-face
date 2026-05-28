@@ -12,7 +12,7 @@
  */
 
 import type { LobbyEvent } from './types';
-import { dedupeChipPairs, feedEventKey } from './tickerEvents';
+import { dedupeFeed, feedEventKey } from './tickerEvents';
 
 /** Pure "comings and goings" — an AI sitting down or getting up. Suppressed
  *  from the interhand ticker by design: the between-hand screen is for the
@@ -53,7 +53,7 @@ const DEFAULT_PRIORITY = 7;
  */
 export function selectInterhandTicker(events: LobbyEvent[], max: number): LobbyEvent[] {
   const seen = new Set<string>();
-  const candidates = dedupeChipPairs(events).filter((e) => {
+  const candidates = dedupeFeed(events).filter((e) => {
     if (SUPPRESSED_TYPES.has(e.type)) return false;
     const key = feedEventKey(e);
     if (seen.has(key)) return false;

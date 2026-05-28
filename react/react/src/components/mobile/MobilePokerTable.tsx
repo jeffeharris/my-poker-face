@@ -365,9 +365,13 @@ export function MobilePokerTable({
     }
     const names =
       winnerInfo.winners.length > 1 ? winnerInfo.winners.join(' & ') : winnerInfo.winners[0];
-    const verb = winnerInfo.winners.length > 1 ? 'split' : 'won';
-    setInterhandMessage(`${names} ${verb}`);
-    setInterhandSubmessage(netProfit != null && netProfit > 0 ? `+$${netProfit}` : undefined);
+    const verb = winnerInfo.winners.length > 1 ? 'SPLIT' : 'WON';
+    // Name on its own line (the hero); the amount drops to the line below as
+    // "WON $X" — no animated dots, since the hand is finished, not loading.
+    setInterhandMessage(names);
+    setInterhandSubmessage(
+      netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
+    );
 
     clearWinnerInfo();
   }, [winnerInfo, clearWinnerInfo]);
@@ -1064,6 +1068,7 @@ export function MobilePokerTable({
             ticker={interhandTicker}
             quote={interhandQuote}
             variant="interhand"
+            showDots={!interhandMessage}
           />
 
           {/* Chat Sheet - Redesigned with tabs for Quick Chat / Keyboard */}

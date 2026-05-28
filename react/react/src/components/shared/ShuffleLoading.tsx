@@ -41,6 +41,10 @@ interface ShuffleLoadingProps {
   variant?: 'overlay' | 'interhand';
   /** 'fade' (default): opacity fade-out. 'slide': slide off screen to the left. */
   exitStyle?: 'fade' | 'slide';
+  /** Animated trailing dots after the status text. On for loading states
+   *  ("Shuffling…"); off when the message is a finished result like a hand
+   *  winner, which shouldn't read as still-in-progress. Default on. */
+  showDots?: boolean;
 }
 
 /**
@@ -59,6 +63,7 @@ export const ShuffleLoading = memo(function ShuffleLoading({
   variant = 'overlay',
   exitStyle = 'fade',
   quote,
+  showDots = true,
 }: ShuffleLoadingProps) {
   const [showContent, setShowContent] = useState(false);
   // Keep component mounted during fade-out
@@ -145,11 +150,13 @@ export const ShuffleLoading = memo(function ShuffleLoading({
 
         <div className="shuffle-loading-status">
           <span className="shuffle-loading-text">{message}</span>
-          <div className="shuffle-loading-dots">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
-          </div>
+          {showDots && (
+            <div className="shuffle-loading-dots">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+            </div>
+          )}
         </div>
 
         {submessage && <p className="shuffle-loading-submessage">{submessage}</p>}
