@@ -181,6 +181,21 @@ A time-boxed attempt confirmed a partial mock fix only relocates the failure; th
 fix is the refactor above, scoped as its own task. Until then the failure is rare and
 order-dependent (passes in isolation); it does not block the speedup work that shipped.
 
+**Status (2026-05-28): limiter half SHIPPED, repo half remains.**
+- `91fafd9d` makes `extensions.limiter` a real app-less `Limiter` bound via
+  `limiter.init_app(app)` (step 1 above). This **eliminates the blueprint-poisoning
+  vector** (no more `create_app()` `AttributeError: __name__`) and fixes a latent prod
+  bug (the old per-`create_app` reassignment orphaned the view decorators). No
+  regressions.
+- The **repo half (step 2, live `extensions.X` lookup) is NOT done** — it is a ~300-site
+  refactor across the route modules (`game_routes` alone is ~100 sites). Bounded
+  stop-gaps were tried and rejected: a per-test "re-sync route globals" autouse fixture
+  and `pytest --dist loadscope` both still left `test_fast_forward::test_404` failing
+  under `-n auto` (the shared mutable `extensions.*` globals get clobbered across
+  xdist-interleaved tests regardless). So the suite still has **one** order-dependent
+  failure; it passes in isolation. The live-lookup refactor is the real fix and is its
+  own task — do not paper over it.
+
 This matters directly for compartmentalization: **a bucket can only be trusted in
 isolation if it does not depend on (or get corrupted by) global state from other
 tests.** Splitting a polluted suite can make a real regression pass locally and only
