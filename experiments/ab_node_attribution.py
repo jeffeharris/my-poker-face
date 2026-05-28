@@ -235,7 +235,7 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table AND the multistreet `mode`
@@ -254,6 +254,10 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     _apply_mode(controllers[0], mode)
     controllers[0].multistreet_h1_classes = None
     controllers[0].multistreet_h1_streets = h1_streets
+    # Overbet runtime layer flag (default off; production __init__ also defaults
+    # False until validated). Set per-arm so the gate can A/B the LAYER on the
+    # SAME chart — symmetric to the multistreet flag-flavor arm.
+    controllers[0].enable_overbet_context = overbet
     for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
         controllers.append(
             make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
@@ -280,7 +284,7 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         _ensure_clone_registered(ROSTER_CLONE_PROFILE[roster_name])
@@ -304,8 +308,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets)
-        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets)
+        da, ta = _run_one_hand(hero_name, config_arch, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet)
+        db, tb = _run_one_hand(hero_name, config_arch, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -353,6 +357,13 @@ def main():
                    help="streets H1 barrel-continuation fires on: 'all' (default) or a "
                    "comma-separated subset (e.g. 'flop,turn' to drop the toxic river "
                    "barrel found by per-node attribution). Applies to whichever arm runs H1.")
+    p.add_argument('--overbet-a', action='store_true',
+                   help="enable the overbet_context runtime layer on arm A. With --overbet-b on "
+                   "the other arm this A/Bs the production layer (vs the load-time "
+                   "_overbet_transform arm in --b).")
+    p.add_argument('--overbet-b', action='store_true',
+                   help="enable the overbet_context runtime layer on arm B (default off). Set "
+                   "--a base --b base --overbet-b to A/B the layer flag-flavor cleanly.")
     args = p.parse_args()
 
     seeds = [int(s) for s in args.seeds.split(',')]
@@ -361,7 +372,7 @@ def main():
         None if args.h1_streets == 'all'
         else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
     )
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets) for s in seeds]
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -381,6 +392,10 @@ def main():
 
     a_label = f"{args.a}/{args.a_mode}" if args.a_mode != 'off' else args.a
     b_label = f"{args.b}/{args.b_mode}" if args.b_mode != 'off' else args.b
+    if args.overbet_a:
+        a_label += "+overbet"
+    if args.overbet_b:
+        b_label += "+overbet"
     print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={args.roster}"
           f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
           f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")

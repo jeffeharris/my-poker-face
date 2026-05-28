@@ -37,10 +37,15 @@ menu caps at `bet_100` — **the bot is structurally incapable of overbetting.**
 Adding **value overbets** (nuts/strong, ~150% pot, turn+river) measured +EV or
 neutral vs *every* opponent type, never negative: punisher (reg) **+13**, jeff
 **+42** HU / **+73 6-max**, station +159, nit/lag +11-12. The biggest postflop
-lever of the session — and pure chart-data (the resolver already handles
-overbets). Bluff overbets add ~nothing (bot rarely bets air late); size is a
-plateau vs the reg (clone has no size-fear → don't over-tune). **Not yet shipped**
-(chart-authoring work pending). See "Sizing / overbets" below + captain's log.
+lever of the session. Bluff overbets add ~nothing (bot rarely bets air late);
+size is a plateau vs the reg (clone has no size-fear → don't over-tune).
+
+**SHIPPED 2026-05-28 as a runtime layer** (not chart-data — the multiway/active
+gate has to be runtime, and per-bot tunability matches the personality/multistreet
+pattern). `poker/strategy/overbet_context.py` + `enable_overbet_context=True` in
+`TieredBotController.__init__`. Runtime validated vs the load-time probe to 0.03
+bb/100 (jeff +42.50 vs +42.47); test_strategy green (1377 passed). See "Sizing /
+overbets" below + captain's log.
 
 ## What shipped (production behavior change)
 
@@ -122,7 +127,7 @@ is structural (→ the parked solver program, expensive, and multiway is
 research-grade — see codex note below), and the cheap improvement frontier is
 genuinely exhausted.
 
-## Sizing / overbets — MEASURED 2026-05-27, ship pending (chart-data)
+## Sizing / overbets — MEASURED 2026-05-27, SHIPPED 2026-05-28 (runtime layer)
 
 The biggest postflop lever found this session. Full matrix on the attribution
 gate (HU, 12-24k paired-CRN hands; arms `size_collapse`, `overbet_value`,
@@ -141,13 +146,26 @@ gate (HU, 12-24k paired-CRN hands; arms `size_collapse`, `overbet_value`,
   the sticky clones — but that's a **clone artifact** (no size-fear); don't
   over-tune. 150-200% is the defensible production size.
 
-**Ship design (next):** add overbet weight to nuts/strong on dry turns (+ some
-river), value-only, ~150-200% pot, **with a multiway/active-count gate** (the
-6-max +73 fires multiway, where overbetting `strong_made` into a reg-heavy field
-is riskier). Pure chart-data — either a load-time transform or authored JSON
-columns. **Caveat:** the probe is a crude max-overbet (relabels all value bets);
-the clones can't model overbet psychology, so +13 vs the reg is the conservative
-floor, not a humans number.
+**Shipped 2026-05-28: `poker/strategy/overbet_context.py`** (runtime layer,
+sibling of `multistreet_context`). Pipeline slot between multistreet and
+defense_floor — multistreet sets the bet *frequency*, this layer sets the bet
+*size*. Knobs: `overbet_size` (150), `overbet_fraction` (1.0 = the measured
+probe), `overbet_classes` ({nuts, strong_made}), `overbet_streets` ({TURN,
+RIVER}), `overbet_max_active` (None = no multiway gate, matches the +73 6-max
+measurement). Validated vs the load-time `_overbet_transform`: jeff +42.50
+[+34.46, +50.54] vs probe +42.47 — matched to 0.03 bb/100; top per-node
+contributions byte-identical. 20 unit tests; `intervention_trace` registry
+extended; `--overbet-a/--overbet-b` flag-flavor arms on the attribution gate.
+
+**Caveats baked in:** the probe is a crude max-overbet (relabels all value bets)
+— vs an *adapting* opponent it's face-up and would be exploitable. None of our
+clones — *and the tiered bot's own exploitation layer* — reads bet-sizing tells
+(exploitation keys on vpip/ftc/AF only). So the face-up overbet has no opponent
+that can punish it in the current system. The leak is real but currently
+unmeasurable. Follow-on: **sizing-aware opponent modeling** (would let the bot
+*punish* opponents who size face-up AND be the adaptive opponent we need to
+measure our own overbet's exploitability and tune `overbet_fraction` + a thin
+overbet-bluff freq).
 
 ## Tools available (all built/validated this session)
 
