@@ -2,7 +2,7 @@
 purpose: Severity-tiered production-hardening punch list for a public release, synthesized from three read-only audits (chip-economy conservation, cold-load/session-resume, LLM cost/abuse)
 type: reference
 created: 2026-05-27
-last_updated: 2026-05-27
+last_updated: 2026-05-28
 ---
 
 # Public-Release Hardening Punch List
@@ -30,6 +30,40 @@ central-bank-on-one-side rule, per-sandbox conservation audit). But:
    path and the cold-load builder** → a live chip-destruction leak *and* a
    reintroduced tournament-misroute, both untested. This is the project's
    long-running ghost-seat / in-memory-vs-persisted bug class, still live.
+
+---
+
+## Resolution status (updated 2026-05-28)
+
+**All Critical / High / Medium items are resolved on `prep-for-main`.** The
+detail below is the original as-of-2026-05-27 audit; this table is the
+authoritative scorecard. Per-item rationale lives in the cited commit messages
+(and `docs/PRH_1_2_IMPLEMENTATION.md` for PRH-1/2). Only the second-wave audits
+(see bottom) remain — they are investigations, not known fixes.
+
+| ID | Status | Landed in |
+|----|--------|-----------|
+| PRH-1 | ✅ admin-gated both paid image POST routes | `f631873a` |
+| PRH-2 | ✅ global + per-owner LLM spend kill-switch (gate, NULL-cost warn, owner_id threaded through all paid paths) | `f631873a`, `f9dc6c1f`, `00e67aa5` |
+| PRH-3 | ✅ seated AI departure credits bankroll + ledger (keyed on personality_id) | `0fa847f9` |
+| PRH-4 | ✅ cold-load omits tournament_tracker for cash; cash_mode belt-and-suspenders on elimination/complete | `0fa847f9` |
+| PRH-5 | ✅ rebuy uses `debit_bankroll_for_seat` (refuses + skips seat bump; no mint clamp) | `338220e3` |
+| PRH-6 | ✅ audit `live_session_human_stacks` term (composes with active_loans_principal) + `drift_reliable` gate | `6c57c574` |
+| PRH-7 | ✅ guest-gated personality/theme gen + HMAC(IP) tracking fallback | `aed87755` |
+| PRH-8 | ✅ confirmed conservative (no code): PRH-2 per-owner cap binds narration via owner_id; guests bounded by `GUEST_MAX_HANDS=50`; `fully_silent` gate; fast_forward zero-LLM | n/a (verified) |
+| PRH-9 | ✅ `set_game` stamps `game_id` → `active_loan` HUD populates | `6c57c574` |
+| PRH-10 | ✅ require Redis in prod (fail startup if set-but-unreachable) | `aed87755` |
+| PRH-11 | ✅ central ledger DB-write failure escalated to ERROR `[LEDGER] DRIFT RISK` (alertable; audit is reconciliation) | `6c57c574` |
+| PRH-12 | ✅ self-healing cold-load: 409 `RELOAD_REQUIRED` on action + `reload_required` socket emit on persisted-but-evicted | `aed87755` |
+| PRH-13 | ✅ folded into PRH-3 (credit driven off `bankroll_changes`, not the name map) | `0fa847f9` |
+| PRH-14 | ✅ `MAX_ACTIVE_SANDBOXES_PER_CYCLE` caps ticker fan-out (post-rotation, fair) | `aed87755` |
+| PRH-15 | ✅ coach review history persisted (schema v118 + repo save/load + restore-on-miss at both read sites) | `aed87755` |
+| PRH-16 | ✅ vice debit drops the `max(0, …)` mint clamp (floor guard is the real skip) | `6c57c574` |
+| PRH-17 | ✅ carry-path conservation test (payoff/default drift==0 via the real helpers) | `6c57c574` |
+
+Optional future enhancement (PRH-8 "consider", not a gap): auto-flip
+`fast_forward` (zero-LLM) under budget pressure so flavor degrades gracefully
+instead of erroring.
 
 ---
 
