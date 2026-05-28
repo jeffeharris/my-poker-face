@@ -6,7 +6,7 @@ solver baseline in logit space.
 """
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Tuple
 
 from ..archetypes import classify_from_anchors
 
@@ -21,6 +21,12 @@ class DeviationProfile:
     looseness_scale: float  # Multiplier for looseness offsets
     risk_scale: float  # Multiplier for risk identity offsets
     ego_fold_penalty: float  # Penalty applied to fold when ego > 0
+    # item 3: spot/line-specific tendencies as ((name, strength), ...) — a
+    # hashable, frozen-safe map. Empty = none active (default). Each name is a
+    # registered rule in spot_tendencies.py; strength in [0, 1] scales the
+    # reshape (then bounded by max_per_action_shift). Priced + budgeted before
+    # a profile turns one on. See PERSONALITY_PRICING_AND_VARIETY.md.
+    spot_tendencies: Tuple[Tuple[str, float], ...] = ()
 
 
 # Predefined profiles from architecture doc:

@@ -241,7 +241,7 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table AND the multistreet `mode`
@@ -257,6 +257,10 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     sm.current_hand_seed = hand_seed
     controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
     controllers[0].opponent_model_manager = None
+    # Per-arm rule ablation (mirrors the per-arm hero/mode/overbet flags): toggle
+    # a (layer, rule_id) on the hero so the gate can A/B a single layer-rule (e.g.
+    # a spot tendency) on the SAME chart. Empty = nothing disabled.
+    controllers[0].disable_rules = disable_rules or frozenset()
     _apply_mode(controllers[0], mode)
     controllers[0].multistreet_h1_classes = None
     controllers[0].multistreet_h1_streets = h1_streets
@@ -290,7 +294,7 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         # `adaptive_opp` registers the perfect-overbet-punisher clone variant under
@@ -323,8 +327,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet)
-        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet)
+        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable)
+        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -345,6 +349,20 @@ def _merge(into, src):
 
 def _bb(chips):
     return 100.0 * (chips / BIG_BLIND)
+
+
+def _parse_disables(spec):
+    """Parse 'layer:rule,layer:rule' into a frozenset of (layer, rule_id) tuples."""
+    if not spec:
+        return frozenset()
+    out = set()
+    for tok in spec.split(','):
+        tok = tok.strip()
+        if not tok:
+            continue
+        layer, _, rule = tok.partition(':')
+        out.add((layer.strip(), (rule.strip() or 'default')))
+    return frozenset(out)
 
 
 def main():
@@ -385,6 +403,13 @@ def main():
                    "to price that deviation profile's EV cost vs baseline, per node.")
     p.add_argument('--b-hero', default=None,
                    help="hero ARCHETYPE for arm B (default = --hero).")
+    p.add_argument('--a-disable', default=None,
+                   help="ablate rules on arm A's hero: comma-separated 'layer:rule_id' "
+                   "(e.g. 'spot_tendencies:slowplay'). Price one layer-rule by disabling "
+                   "it on arm A and leaving arm B on. Control: same value on both arms = "
+                   "100%% NO_DIVERGENCE.")
+    p.add_argument('--b-disable', default=None,
+                   help="ablate rules on arm B's hero (same format as --a-disable).")
     p.add_argument('--adaptive-opp', action='store_true',
                    help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
                    "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
@@ -398,7 +423,9 @@ def main():
         None if args.h1_streets == 'all'
         else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
     )
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero) for s in seeds]
+    a_disable = _parse_disables(args.a_disable)
+    b_disable = _parse_disables(args.b_disable)
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -426,6 +453,10 @@ def main():
     if args.a_hero or args.b_hero:
         a_label = f"hero={args.a_hero or args.hero}"
         b_label = f"hero={args.b_hero or args.hero}"
+    if args.a_disable:
+        a_label += f" -[{args.a_disable}]"
+    if args.b_disable:
+        b_label += f" -[{args.b_disable}]"
     print(f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
           f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "
           f"{args.hands}h x {len(seeds)} seeds = {total_n} hands ===")

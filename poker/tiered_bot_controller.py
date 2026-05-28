@@ -951,6 +951,38 @@ class TieredBotController(AIPlayerController):
         # selected) — see that method. Done as a side effect of the
         # tally call so we don't duplicate _select_exploitation_stats_from_spots.
 
+        # 6.b Spot/line-specific personality tendencies (item 3,
+        # PERSONALITY_PRICING_AND_VARIETY.md). Runs in the personality block
+        # (layer_order 0), right after the global-scalar distortion and before
+        # exploitation. Reshapes only on the node/line spots a configured
+        # tendency targets (e.g. slow-play a strong hand with initiative).
+        # OFF (profile.spot_tendencies empty) is byte-identical.
+        if (
+            anchors
+            and not self.skip_personality_distortion
+            and self.deviation_profile.spot_tendencies
+        ):
+            from .strategy.multistreet_context import derive_signals
+            from .strategy.spot_tendencies import apply_spot_tendencies
+
+            spot_signals = derive_signals(self, node.street)
+            modified_strategy, spot_traces = apply_spot_tendencies(
+                modified_strategy,
+                spot_tendencies=self.deviation_profile.spot_tendencies,
+                max_per_action_shift=self.deviation_profile.max_per_action_shift,
+                hand_class=hand_strength,
+                action_context=node.facing_action,
+                street=node.street,
+                has_initiative=spot_signals.was_prev_street_aggressor,
+                disable_rules=getattr(self, "disable_rules", frozenset()),
+            )
+            self._last_intervention_trace.extend(spot_traces)
+            if self.debug_logging:
+                logger.info(
+                    f"[TIERED_BOT] {self.player_name}: "
+                    f"spot_tendencies={modified_strategy.action_probabilities}"
+                )
+
         # 6a. Phase 6: opponent exploitation (between personality and math floor)
         modified_strategy, exploitation_traces = self._apply_exploitation(
             modified_strategy,
