@@ -802,7 +802,8 @@ class TieredBotController(AIPlayerController):
         # 3BP → SRP). The authored precision slices were cut after the hardened
         # SNG gate measured them neutral (docs/plans/SNG_RUNNER_HARDENING.md).
         base_strategy = self.strategy_table.lookup_postflop_with_fallback(
-            node, valid_actions,
+            node,
+            valid_actions,
         )
 
         if self.debug_logging:
