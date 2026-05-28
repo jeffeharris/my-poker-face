@@ -52,7 +52,7 @@ runs in Docker: `docker compose exec -T backend python ...`.
 - Sim wiring: `simulate_bb100.make_controller` sets `controller._deviation_profile = DEVIATION_PROFILES[profile_key]` (None for `Baseline`, which sets `skip_personality_distortion=True`). `ARCHETYPES[name]` carries `{kind, profile, anchors}`.
 
 **The eval gates (the pricing instruments):**
-- `experiments/ab_node_attribution.py` — **paired-CRN first-divergence per-node attribution** (the primary pricing tool). Already supports `--a-mode/--b-mode` (multistreet), `--overbet-a/-b`, `--adaptive-opp` (D1 oracle), `--h1-streets`, `--heads-up`, `--stack-bb`. **Extension needed for this program: `--a-hero/--b-hero`** (per-arm hero archetype) — see methodology.
+- `experiments/ab_node_attribution.py` — **paired-CRN first-divergence per-node attribution** (the primary pricing tool). Already supports `--a-mode/--b-mode` (multistreet), `--overbet-a/-b`, `--adaptive-opp` (D1 oracle), `--h1-streets`, `--heads-up`, `--stack-bb`. **`--a-hero/--b-hero`** (per-arm hero archetype) — BUILT 2026-05-28; control `--a-hero Baseline --b-hero Baseline` = 100% NO_DIVERGENCE / +0.00, verified. Local self-play roster: `baseline` (= `['Baseline']*5`).
 - `experiments/measure_passivity.py` — Tier-A diagnostics + `--leak-report`.
 - `experiments/champion_challenger.py`, `experiments/sng_runner.py`, `experiments/exploit_bb100.py` — other gates (parallel session's; coordinate).
 
@@ -78,12 +78,11 @@ variance (the session's load-bearing lesson — `champion_challenger`/SNG nulls 
 gate-coarseness artifacts); first-divergence gives the *where*, which is what makes
 the price actionable.
 
-**Required extension (build before running):** `ab_node_attribution` currently
-takes a single `--hero` for both arms. Add `--a-hero` / `--b-hero` overrides
-(default to `--hero`), resolved per arm into `ARCHETYPES[...]` → distinct
-`config_arch` passed to each arm's `_run_one_hand`. Same seat name (opponents/deck
-identical), different deviation profile. Mirrors the `--a-mode/--b-mode` pattern.
-Control: `--a-hero Baseline --b-hero Baseline` MUST be 100% NO_DIVERGENCE / +0.00.
+**Extension (BUILT 2026-05-28):** `ab_node_attribution` now takes `--a-hero` /
+`--b-hero` overrides (default to `--hero`), resolved per arm into `ARCHETYPES[...]`
+→ distinct `config_arch` passed to each arm's `_run_one_hand`. Same seat name
+(opponents/deck identical), different deviation profile. Mirrors `--a-mode/--b-mode`.
+Control: `--a-hero Baseline --b-hero Baseline` = 100% NO_DIVERGENCE / +0.00 (verified).
 
 **Reference — the price is a vector, anchored on SELF-PLAY (corrected 2026-05-28):**
 - **PRIMARY anchor = self-play vs `Baseline`** (`--roster baseline`, the bare max-EV
@@ -159,31 +158,55 @@ themselves exploit-leaning deviations).
 - Flag any profile that is **broken** (< −15 or one-node-concentrated) for a
   `max_kl` re-cap or a deviation-logic fix.
 
-### Results (done 2026-05-28, 12k HU each — self-play PRIMARY + jeff field slice; punisher TBD)
+### Results (vector COMPLETE 2026-05-28 — self-play + jeff + punisher; Maniac re-capped)
 
-| Profile | **vs Baseline (self-play, INTRINSIC — primary)** | vs jeff (over-folder slice) | vs punisher | Verdict (budget) |
+N per cell: jeff = 12k HU; punisher = 24k HU; self-play 24k for the wide-CI profiles
+(LAG, Maniac), 12k for nit/rock/tag/calling_station (CIs already decisive there).
+
+| Profile | **vs Baseline (self-play, INTRINSIC — primary)** | vs jeff (over-folder slice) | vs punisher (reg) | Verdict (budget) |
 |---|---|---|---|---|
-| nit | **+6.45** [−4.2, +17.1] | −5.79 [−9.8, −1.8] | _TBD_ | **free** — tight is safe vs competent; CI∋0 |
-| rock | **+4.25** [−6.1, +14.6] | −6.21 [−10.2, −2.3] | _TBD_ | **free** — CI∋0 |
-| tag | **+0.26** [−10.5, +11.0] | +3.73 [−1.8, +9.2] | _TBD_ | **free** — near-GTO, ~0 as expected |
-| lag | **−7.05** [−22.9, +8.8] | +7.20 [+0.25, +14.2] | _TBD_ | **priced** — modest spew vs competent; CI∋0 |
-| calling_station | **−10.26** [−19.7, −0.8] | −4.95 [−8.7, −1.2] | _TBD_ | **priced** — CI-clear; pays off value (FLOP −5.2) |
-| maniac | **−24.14** [−45.9, −2.4] | +9.94 [+0.73, +19.2] | _TBD_ | **expensive / borderline-broken** — CI-clear, FLOP-concentrated (−16.4) → re-cap `max_kl` |
+| nit | **+6.45** [−4.2, +17.1] _(12k)_ | −5.79 [−9.8, −1.8] | −2.39 [−5.2, +0.4] | **free** — CI∋0 vs both competent refs |
+| rock | **+4.25** [−6.1, +14.6] _(12k)_ | −6.21 [−10.2, −2.3] | −2.25 [−5.0, +0.5] | **free** — CI∋0 |
+| tag | **+0.26** [−10.5, +11.0] _(12k)_ | +3.73 [−1.8, +9.2] | +0.82 [−1.7, +3.3] | **free** — near-GTO, ~0 |
+| lag | **−0.89** [−12.1, +10.4] _(24k)_ | +7.20 [+0.25, +14.2] | +0.47 [−3.7, +4.6] | **free** — 24k pulled it −7→~0; CI∋0 everywhere |
+| calling_station | **−10.26** [−19.7, −0.8] _(12k)_ | −4.95 [−8.7, −1.2] | −1.38 [−3.9, +1.2] | **priced** — intrinsic CI-clear; ~free vs the reg |
+| maniac (pre-recap) | **−15.67** [−30.6, −0.8] _(24k)_ | +9.94 [+0.7, +19.2] | −0.76 [−6.1, +4.6] | **borderline-broken** — CI-clear, FLOP −12.3 → re-capped ↓ |
+| **maniac (re-capped 0.60→0.35)** | **−11.30** [−25.5, +2.9] _(24k)_ | +13.08 [+6.9, +19.3] | −0.65 [−5.7, +4.4] | **priced flavor** — off the broken line; fish-exploit + reg-neutrality intact |
 
-**Read — the self-play anchor inverted the jeff ranking (the whole reason to anchor on it):**
-- **Intrinsic ranking (cheap→expensive):** Nit/Rock/TAG ≈ **free** (CI∋0, ~0 to +6) →
-  LAG −7 / Calling Station −10 → **Maniac −24** (the costliest, CI-clear).
+**Read 1 — the self-play anchor inverted the jeff ranking (the whole reason to anchor on it):**
+- **Intrinsic ranking (cheap→expensive):** Nit/Rock/TAG/LAG ≈ **free** (CI∋0) →
+  Calling Station −10 → **Maniac −16** (the costliest, CI-clear).
 - **vs jeff was nearly the *opposite*:** Maniac read **best** (+9.94) but is the **worst**
-  intrinsically (−24); Nit read **costly** (−5.79) but is **free** intrinsically (+6.45).
+  intrinsically; Nit read **costly** (−5.79) but is **free** intrinsically (+6.45).
   jeff's number was *fish-exploitation*, not personality cost — pricing on jeff alone
   would have inverted the verdict. (Also: a 400h Nit self-play smoke read −50; the 12k
-  run is +6.45 — the smoke was pure noise. Never read a 400h number.)
-- **Budget verdicts:** Nit/Rock/TAG ship freely (cheap variety); LAG & Calling Station
-  are priced flavor (acceptable, recognizable characters); **Maniac (−24, FLOP-concentrated)
-  is over the budget → re-cap its `max_kl` to rein in flop over-aggression**, then re-price.
-- **Caveat:** still the realistic-field price needs the **punisher (reg) vector** + a mix;
-  self-play is the intrinsic ceiling-of-cost anchor, the field price sits between it and
-  the (fish-flattering) jeff slice. 24k would tighten the wide CIs (LAG/Maniac span widely).
+  run is +6.45 — pure noise. Never read a 400h number.)
+
+**Read 2 — the punisher (reg) vector: every profile is CI∋0 (~free vs a disciplined reg, HU).**
+Neither the fish (jeff) nor the reg (punisher) *extracts* the intrinsic cost — the personalities
+don't bleed much against a competent HU opponent. **The intrinsic self-play number is the real
+"distance from optimal"; the field slices are color, not the price.** (The product-relevant cost
+is vs the realistic mix, which sits between intrinsic and the fish-flattering jeff slice.)
+
+**Read 3 — 24k pulled the wide-CI profiles toward 0:** LAG −7.05→**−0.89**, Maniac −24.14→**−15.67**.
+The 12k point estimates overstated both costs; the tighter runs are the trustworthy ones (same
+lesson as the 400h smoke, one order up).
+
+**Read 4 — the Maniac re-cap, and the surprise about which lever bites:**
+- Maniac intrinsic −15.67 was CI-clear and **FLOP-concentrated (−12.3 of −15.7 = 79%)** → trips
+  both broken-criteria (point estimate at the −15 line AND street-concentrated) → re-cap warranted.
+- **`max_kl` is INERT for Maniac.** In `clamp_divergence` the per-action clip runs *before* the KL
+  check, and it already pulls realized KL (≈0.95) under the cap, so `max_kl` never engages. Dropping
+  `max_kl` 1.2→1.0 was **byte-identical** (same per-node counts). The guessed KL limiter is the wrong
+  knob. **The binding lever is `max_per_action_shift`.**
+- Swept it (intrinsic self-play 24k): `0.60→−15.7, 0.45→−13.6, 0.35→−11.3, 0.25→−7.5, 0.15→−7.0`
+  (knee ~0.25–0.35, then flattens — the residual ~−7 is the scales, not the cap). **Chose 0.35 →
+  −11.30:** off the broken line into priced flavor, still the costliest/most flop-aggressive
+  profile (FLOP −8.1) — recognizably a maniac, now bounded.
+- **Latent clamp bug fixed in passing:** the tighter (now-binding) 0.35 cap exposed that
+  `_clip_and_normalize`'s default 10 iterations under-converged (~2e-6 cap residual; broke the
+  cap invariant + a unit test). It's slow *linear* convergence (50 iters → 7e-11), not a cycle →
+  bumped the default to 100. Price unchanged; `test_strategy` green (1322).
 
 ---
 
@@ -205,8 +228,11 @@ AI personalities wants, and the thing that revives the parked adaptation work.
 
 ## Roadmap after Experiment 1
 
-1. **Price the 6 profiles** (Exp 1) → audit: real variety vs broken vs accidental +EV.
-2. **Re-cap `max_kl` per profile from the measured budget** (replace the guess).
+1. **Price the 6 profiles** (Exp 1) → audit: real variety vs broken vs accidental +EV. ✅ DONE.
+2. **Re-cap the binding bound per profile from the measured budget** (replace the guess). ✅
+   Maniac done. **Finding: for the aggressive profiles `max_kl` is *inert*** (the per-action
+   clip in `clamp_divergence` runs first and pulls realized KL under the cap), so the lever
+   that actually bites is **`max_per_action_shift`**, not `max_kl`. Re-cap whichever binds.
 3. **New spot/line-specific tendencies** (today's deviations are *global scalars*):
    sizing tells / face-up, slow-play/trap, donk-bet, open-limp, position-blindness,
    spot-specific over/under-bluffing. Each priced + budgeted before shipping.
