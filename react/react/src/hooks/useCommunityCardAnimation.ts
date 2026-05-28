@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useLayoutEffect, useMemo } from 'react';
 
 interface CardAnimationState {
   shouldAnimate: boolean;
@@ -22,7 +22,11 @@ export function useCommunityCardAnimation(
   const isInitialMount = useRef(true);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => {
+  // NOTE: layout effect (not useEffect) so the "which cards animate" decision is
+  // committed BEFORE the browser paints. Otherwise the first render after a deal
+  // paints the card statically in its final spot (isAnimating=false), then this
+  // effect flips it and it flies in — a visible flash, worst under fast bot play.
+  useLayoutEffect(() => {
     const count = newlyDealtCount ?? 0;
 
     // On initial mount with cards already present (e.g. page refresh), skip animation
