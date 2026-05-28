@@ -236,8 +236,69 @@ AI personalities wants, and the thing that revives the parked adaptation work.
 3. **New spot/line-specific tendencies** (today's deviations are *global scalars*):
    sizing tells / face-up, slow-play/trap, donk-bet, open-limp, position-blindness,
    spot-specific over/under-bluffing. Each priced + budgeted before shipping.
+   **→ SCOPED 2026-05-28, see "Item 3 scope" below.**
 4. **Close the loop:** with exploitable personalities in the field, re-judge the
    parked sizing-aware C (attack) + bluff-catch calibration — they now have targets.
+
+## Item 3 scope — spot/line-specific tendencies (2026-05-28)
+
+**Decisions (locked with the user):** build the **general mechanism first**; validate
+it on **slow-play** (an easy action-mass reshape) before the harder sizing tell.
+
+### Why the deviation layer can't do this today (the structural fact)
+`modify_strategy` is **spot-blind** — it takes only `base / legal_actions / anchors /
+emotional_state / deviation_profile` and applies global logit scalars uniformly. The
+`node` (position IP/OOP, street, `made_tier`, `draw_modifier`, key-encoded board texture
++ `pot_type` + SPR) and the initiative signals (`was_prev_street_aggressor`,
+`preflop_aggressor`, `_find_preflop_raiser_idx`, SPR buckets from `postflop_classifier`)
+all **exist at the call site** (`tiered_bot_controller` ~650 preflop / ~878 postflop) —
+they're just not passed into the deviation layer.
+
+### Mechanism (general, build once) — mirrors `apply_river_bluff_guardrail`
+- **`apply_spot_tendencies(strategy, node, signals, profile)`** — an additive
+  post-personality layer that runs right after `modify_strategy` in both decision paths
+  (the river guardrail is the existing precedent; it's postflop-only, this is pre+postflop).
+- **Each tendency** = a named reshape `(node, signals) → adjusted probs | no-op`, gated by
+  per-profile config, **bounded by `clamp_divergence`** (reuse the per-action + KL caps so
+  every tendency is EV-bounded like the global scalars), emits an `InterventionTrace`, and is
+  **ablatable via `disable_rules`** under a stable rule id (e.g. `spot.slowplay`).
+- **Per-profile config:** a `spot_tendencies: {name: strength∈[0,1]}` map on the profile
+  (strength scales the reshape; absent/0 = off). **Default profiles ship with NO spot
+  tendencies on** until each is individually priced + budgeted in.
+- **Signals plumbing:** assemble a small `SpotSignals` from the same fields the multistreet
+  layer already reads (initiative, preflop-aggressor==hero, spr_bucket, is-first-in) so sim
+  and live agree; the harness already drives the `_sim_*` shadow fields.
+
+### First tendency — slow-play / trap (mechanism validation)
+- **Spot predicate:** `made_tier ∈ {nuts, strong_made}` AND hero has initiative
+  (`was_prev_street_aggressor`) AND `street ∈ {flop, turn}` (river slow-play is a different
+  animal and the guardrail already touches river).
+- **Effect:** shift a `strength`-scaled fraction of aggressive mass (`bet_*/raise_*`) → check,
+  bounded by `clamp_divergence`. Trap instead of fast-play.
+- **Why first:** cleanest reshape (no sizing dimension), recognizable character, signals exist,
+  and its cost (forgone value/protection) should **localize on the strong-hand flop/turn nodes**
+  — a sharp test that the per-node attribution prices a spot tendency where we expect.
+
+### Pricing path per tendency (the session contract)
+1. **Gate extension needed:** `--a-disable / --b-disable <rule_ids>` on `ab_node_attribution`,
+   feeding each arm's hero `disable_rules` (mirror of `--a-hero/--b-hero`). A/B = tendency
+   OFF (arm A disables it) vs ON (arm B). Control: identical disables both arms = 100%
+   NO_DIVERGENCE / +0.00.
+2. **Self-play intrinsic = the price**; jeff/punisher = field vector; **24k**; per-node
+   localization; budget verdict (free 0..−5 spread / priced −5..−15 localized / broken <−15
+   or one-node). Same bands the 6 profiles calibrated.
+3. **Sizing-tell only:** additionally measure **exploitability** via the D1 oracle
+   (`--adaptive-opp`, already built) — the point of that tendency is a punishable tell, which
+   is what makes roadmap item 4 (the parked sizing-aware attack) finally worth reviving.
+
+### Backlog (priority order, each priced + budgeted before shipping)
+slow-play (first) → donk-bet → open-limp → spot over/under-bluff → position-blindness →
+**sizing tells / face-up** (the strategic one; also exploitability-tested; ties to item 4).
+
+### Coordination
+The parallel session owns `exploitation.py` / the reader side (EXP_005 maniac-counter).
+**Slow-play / donk / limp are independent** (pure variety, no reader interaction).
+**Sizing-tells creates the exact target their layer reads — sync before building it.**
 
 ## Handoff pointers
 
