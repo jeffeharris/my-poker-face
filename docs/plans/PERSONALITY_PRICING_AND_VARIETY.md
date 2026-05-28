@@ -140,16 +140,28 @@ docker compose exec -T backend python -m experiments.ab_node_attribution \
 - Flag any profile that is **broken** (< −15 or one-node-concentrated) for a
   `max_kl` re-cap or a deviation-logic fix.
 
-### Results (fill in)
+### Results (vs jeff done 2026-05-28, 12k HU; vs punisher = next run)
 
-| Profile | vs jeff (HU) bb/100 | vs punisher (HU) bb/100 | Where it bleeds (top nodes) | Verdict |
+| Profile | vs jeff (HU) bb/100 | vs punisher (HU) | Where it bleeds/gains | Verdict |
 |---|---|---|---|---|
-| nit | _TBD_ | _TBD_ | | |
-| rock | _TBD_ | _TBD_ | | |
-| tag | _TBD_ | _TBD_ | | |
-| calling_station | _TBD_ | _TBD_ | | |
-| lag | _TBD_ | _TBD_ | | |
-| maniac | _TBD_ | _TBD_ | | |
+| nit | **−5.79** [−9.8, −1.8] | _TBD_ | RIVER/TURN/FLOP ~even (folds value) | priced flavor; cost spread, not broken |
+| rock | **−6.21** [−10.2, −2.3] | _TBD_ | spread (RIVER/FLOP/TURN) | priced flavor |
+| calling_station | **−4.95** [−8.7, −1.2] | _TBD_ | RIVER/TURN (sticky, pays late) | priced flavor |
+| tag | **+3.73** [−1.8, +9.2] | _TBD_ | TURN/FLOP + (near-GTO) | ~free / exploits over-folder |
+| lag | **+7.20** [+0.25, +14.2] | _TBD_ | FLOP +5.4 (aggression) | **+EV — exploits jeff's folding** |
+| maniac | **+9.94** [+0.73, +19.2] | _TBD_ | aggression vs folder | **+EV — exploits jeff's folding** |
+
+**Read (and the critical caveat):** all six are within ±10 bb/100, **none broken**
+(none < −15, none one-node-concentrated — costs are spread across streets → this is
+*character*, not bugs). The `max_kl` bounds are doing their job. BUT vs jeff (an
+over-folder) the number **conflates flavor-cost with over-folder-exploitation**:
+the aggressive profiles (tag/lag/maniac) read +EV because they're *punishing jeff's
+folding*, not because they're "free"; the tight/passive ones (nit/rock/station)
+cost −5 to −6 partly by *failing to exploit* jeff. **The intrinsic personality
+cost requires the punisher (reg) pass** (and ideally self-play) — the immediate
+next run, same command with `punisher`. Expect the aggressive profiles' edge to
+shrink/flip vs a reg and the tight ones to look cheaper. Only the *vector* across
+opponents is the true price; one opponent is a slice.
 
 ---
 
