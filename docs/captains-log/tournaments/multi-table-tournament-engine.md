@@ -134,3 +134,42 @@ by construction (button is a seat index, not bounded by the occupied count); fix
 it to assert the *resolved dealer index* is valid instead — a small reminder that
 when the model gets more realistic, the old invariants need re-reading, not just
 re-running.
+
+## 2026-05-29 (later still) — the live-human seam, headless first
+
+**Built `TournamentSession` and resisted the urge to start with the UI.** The
+temptation with "let's go" on Phase 2 was to start wiring React + Flask + sockets
+so there'd be something to look at. I deliberately didn't — the hard, risky part
+of Phase 2 is the *seam*: pacing the AI field to the human, pausing the world when
+they step away, and relocating the human across table breaks without resurrecting
+the ghost-seat bug class. So I built that as a pure, headless-testable coordinator
+and simulated the human with the same FakeHandResolver, deferring all UI.
+
+**The relocation worry evaporated — by design, not luck.** I'd flagged human
+relocation as the top risk (it's the cash-mode ghost-seat class). But because the
+whole engine is field-as-source-of-truth, the human is just another entry in the
+one seating model; moving them is the *same* atomic op as moving any AI, and
+`seating.table_for(human)` is always the truth. There was no special human-move
+code to get wrong. The earlier architectural bet paid a second dividend here.
+
+**Pacing + the blind clock after the human busts.** Two things needed care.
+(1) The 0/1/2 burst can bust a player mid-burst, which would leave a dead seat in
+the table while the next hand in the burst tried to compute a dealer index over
+it — so a burst stops the moment a hand busts someone (the dead seat is cleared at
+round end). (2) "Human hand = the clock tick" is true while the human plays, but
+after they bust I still need blinds to keep rising as the field fast-forwards — so
+the clock runs off a single `rounds` counter that keeps incrementing through
+`play_out()`, not off the human's hand count. Small, but either would have been a
+subtle bug.
+
+**Defined the standings data contract now, the UI later.** `standings_view()` /
+`human_table_view()` return plain dicts (field counts, blind level, per-seat
+stacks with button + human flags, recent knockouts) — pure reads that never
+advance anything, which is also the world-pause guarantee in code form. Building
+the contract before the React layer means the UI and the (still-deferred)
+persistence schema can be shaped against real, tested output rather than a guess.
+
+**Verified with the real engine, not just the fake.** Ran a session where both
+the human callback and the AI tables go through `EngineHandResolver`: an 8-player
+event ran 48 human hands, the human actually won, and conservation held every
+round. Good enough confidence that the seam is sound before any wiring.
