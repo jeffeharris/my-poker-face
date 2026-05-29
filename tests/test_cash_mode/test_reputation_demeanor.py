@@ -63,6 +63,32 @@ def test_intimidating_hits_low_poise_harder_than_high_poise():
     assert low_drop > high_drop
 
 
+def test_villain_press_is_floored_not_drained_to_zero():
+    # A long villain sit must NOT drain a low-poise character toward zero —
+    # the floor holds composure at >= (1 - MAX_DROP) x baseline.
+    p = _psych(LOW_POISE)
+    floor = (1.0 - p._REPUTATION_DEMEANOR_MAX_DROP) * p._baseline_composure
+    for _ in range(50):
+        p.recover()
+        p.react_to_table_reputation("intimidating")
+    assert p.composure >= floor - 1e-9
+    # And it actually reaches near the floor (it's a real, sustained press),
+    # not a no-op that left composure at baseline.
+    assert p.composure < p._baseline_composure
+
+
+def test_villain_press_recovers_to_baseline_after_villain_leaves():
+    p = _psych(LOW_POISE)
+    for _ in range(50):
+        p.recover()
+        p.react_to_table_reputation("intimidating")
+    rattled = p.composure
+    for _ in range(80):  # villain gone — only recovery now
+        p.recover()
+    assert p.composure > rattled
+    assert abs(p.composure - p._baseline_composure) < 0.02  # back to baseline
+
+
 def test_reassuring_lifts_confidence_or_energy():
     p = _psych(LOW_POISE)
     conf_before, energy_before = p.confidence, p.energy

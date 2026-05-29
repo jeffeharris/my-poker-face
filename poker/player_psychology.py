@@ -363,6 +363,15 @@ class PlayerPsychology:
     _SOCIAL_PROUD_EGO_FLOOR = 0.60
     _SOCIAL_EXPRESSIVE_FLOOR = 0.55
     _SOCIAL_COMPOSED_POISE_FLOOR = 0.60
+
+    # Player-prestige hook 4: max fraction a feared villain's per-hand
+    # intimidation may press composure/confidence BELOW the character's own
+    # baseline. The press is floored at `(1 - this) x baseline`, so a villain
+    # rattles opponents into a sustained on-edge band (≈40% down) and *holds*
+    # them there — it can't drain a low-poise/low-recovery character toward
+    # zero over a long sit (the failure mode without a floor). Recovery still
+    # pulls them back to baseline once the villain leaves.
+    _REPUTATION_DEMEANOR_MAX_DROP = 0.40
     _SOCIAL_AGGRESSIVE_FLOOR = 0.60
 
     def _classify_social_disposition(self) -> str:
@@ -462,7 +471,11 @@ class PlayerPsychology:
           - 'intimidating' : a feared Infamous Villain's table → a composure
             press. The (1−poise) sensitivity filter in `apply_pressure_event`
             makes low-poise opponents rattle/tilt (the exploitable edge) while
-            the composed shrug it off.
+            the composed shrug it off. The press is FLOORED at
+            `(1 − _REPUTATION_DEMEANOR_MAX_DROP) × baseline` per axis, so a long
+            sit holds opponents in an on-edge band (~40% down) instead of
+            draining them toward zero; recovery restores baseline once the
+            villain leaves.
           - 'reassuring'   : a Beloved Legend's table → a light confidence /
             energy lift (looser, friendlier play).
 
@@ -471,12 +484,23 @@ class PlayerPsychology:
         pure axis-application and stays callable for tests regardless.
         """
         if stimulus == 'intimidating':
-            event_name = 'reputation_villain_intimidation'
+            # Floor the press at (1 - MAX_DROP) x baseline so a long villain
+            # sit rattles opponents into a sustained on-edge band rather than
+            # draining low-poise characters toward zero hand after hand. The
+            # floor is per-axis (composure + confidence); the lift needs none.
+            keep = 1.0 - self._REPUTATION_DEMEANOR_MAX_DROP
+            comp_floor = keep * self._baseline_composure
+            conf_floor = keep * self._baseline_confidence
+            self.apply_pressure_event('reputation_villain_intimidation', multiplier=multiplier)
+            if self.axes.composure < comp_floor or self.axes.confidence < conf_floor:
+                self.axes = self.axes.update(
+                    composure=max(self.axes.composure, comp_floor),
+                    confidence=max(self.axes.confidence, conf_floor),
+                )
         elif stimulus == 'reassuring':
-            event_name = 'reputation_legend_warmth'
+            self.apply_pressure_event('reputation_legend_warmth', multiplier=multiplier)
         else:
             return
-        self.apply_pressure_event(event_name, multiplier=multiplier)
 
     # === EVENT RESOLUTION CONSTANTS ===
 
