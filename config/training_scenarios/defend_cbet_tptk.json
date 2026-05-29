@@ -1,0 +1,19 @@
+{
+  "id": "defend_cbet_tptk",
+  "name": "Top pair vs a c-bet",
+  "description": "You raised pre-flop and flopped top pair, top kicker. Villain continuation-bets two-thirds of the pot. Have a plan before you act.",
+  "tags": ["postflop", "facing-aggression", "value"],
+  "coach_focus_skills": ["respect_big_bets", "have_a_plan"],
+  "spot": {
+    "phase": "FLOP",
+    "big_blind": 100,
+    "hero_hole": ["Ah", "Ks"],
+    "community": ["Kc", "7d", "2h"],
+    "hero_stack_bb": 40,
+    "villain_stacks_bb": [38],
+    "pot_bb": 7.5,
+    "hero_bet_bb": 0,
+    "villain_bets_bb": [3.0],
+    "hero_position": "BTN"
+  }
+}

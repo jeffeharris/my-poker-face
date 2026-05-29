@@ -1,0 +1,19 @@
+{
+  "id": "fold_trash_preflop",
+  "name": "Trash hand facing a raise",
+  "description": "You're in the big blind with a hand that flops nothing useful, and there's a raise in front of you. Discipline drill.",
+  "tags": ["preflop", "discipline"],
+  "coach_focus_skills": ["fold_trash_hands", "raise_or_fold"],
+  "spot": {
+    "phase": "PRE_FLOP",
+    "big_blind": 100,
+    "hero_hole": ["7d", "2c"],
+    "community": [],
+    "hero_stack_bb": 100,
+    "villain_stacks_bb": [100],
+    "pot_bb": 5.5,
+    "hero_bet_bb": 1.0,
+    "villain_bets_bb": [3.5],
+    "hero_position": "BB"
+  }
+}

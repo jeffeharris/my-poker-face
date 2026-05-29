@@ -1,0 +1,19 @@
+{
+  "id": "river_overpair_vs_overbet",
+  "name": "Overpair facing a river overbet",
+  "description": "You got to the river with an overpair on a dry board, and villain suddenly fires an overbet. A big bet is usually a big hand — what's your read?",
+  "tags": ["postflop", "river", "facing-aggression"],
+  "coach_focus_skills": ["respect_big_bets", "dont_pay_double_barrels"],
+  "spot": {
+    "phase": "RIVER",
+    "big_blind": 100,
+    "hero_hole": ["Qs", "Qd"],
+    "community": ["7c", "4d", "2h", "9s", "3c"],
+    "hero_stack_bb": 60,
+    "villain_stacks_bb": [50],
+    "pot_bb": 26.0,
+    "hero_bet_bb": 0,
+    "villain_bets_bb": [12.0],
+    "hero_position": "BTN"
+  }
+}

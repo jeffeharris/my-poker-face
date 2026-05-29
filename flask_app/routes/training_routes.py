@@ -41,7 +41,10 @@ from training.scenario import (
     get_table_preset,
     list_table_presets,
 )
-from training.state_builder import build_table_preset_state_machine
+from training.state_builder import (
+    build_scripted_spot_state_machine,
+    build_table_preset_state_machine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +148,15 @@ def _build_training_game(
     player_name: str,
     difficulty: str,
     preset: TablePreset,
+    scenario=None,
 ) -> str:
     """Create + register a training game; return its `train-` game_id.
+
+    Two table sources: a free-play `preset` (default) or a scripted `scenario`
+    (a TrainingScenario whose `config` is a ScriptedSpot). When a scenario is
+    given, the table is built mid-hand via the scripted-spot factory and is
+    already positioned at the human's decision — so `run_until_player_action`
+    is skipped. `difficulty` still selects the villain roster either way.
 
     Deliberately does NOT wire: a relationship repo (relationship_states is not
     cash_mode-gated), a tournament tracker (no elimination/placement flow), a
@@ -166,12 +176,16 @@ def _build_training_game(
     # junk-persona auto-create); the difficulty roster, not the identity,
     # drives how they play. Anonymized opponents arrive with the Phase 5
     # read-the-player drill.
+    n_opponents = len(scenario.config.villain_stacks_bb) if scenario else preset.opponents
     pool = [n for n in get_celebrities(shuffled=True) if n.lower() != player_name.lower()]
-    ai_names = pool[: preset.opponents]
+    ai_names = pool[:n_opponents]
     bot_types_list = resolve_opponents(difficulty, len(ai_names))
     bot_types: Dict[str, str] = {name: bt for name, bt in zip(ai_names, bot_types_list)}
 
-    state_machine = build_table_preset_state_machine(preset, player_name, ai_names)
+    if scenario is not None:
+        state_machine = build_scripted_spot_state_machine(scenario.config, player_name, ai_names)
+    else:
+        state_machine = build_table_preset_state_machine(preset, player_name, ai_names)
     game_id = f"train-{generate_game_id()}"
 
     # Rule bots make zero LLM calls; the tiered "sharp" bot's narration is off
@@ -222,8 +236,11 @@ def _build_training_game(
         else:
             memory_manager.initialize_human_observer(player.name, personality_id=owner_id or pid)
 
-    # Deal cards + post blinds before recording hand start.
-    state_machine.run_until_player_action()
+    # Deal cards + post blinds before recording hand start. A scripted spot is
+    # already positioned mid-hand at the human's decision — advancing it would
+    # move past their turn, so only free-play preset tables run-until-action.
+    if scenario is None:
+        state_machine.run_until_player_action()
     memory_manager.on_hand_start(
         state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
     )
@@ -238,7 +255,8 @@ def _build_training_game(
         # placement flow (handle_eliminations keys off its presence).
         "training_mode": True,
         "training_difficulty": difficulty,
-        "training_preset": preset.id,
+        "training_preset": None if scenario else preset.id,
+        "training_scenario_id": scenario.id if scenario else None,
         "owner_id": owner_id,
         "owner_name": owner_name,
         "llm_config": default_llm_config,
@@ -254,7 +272,11 @@ def _build_training_game(
             {
                 "id": "1",
                 "sender": "Table",
-                "content": "***   TRAINING TABLE — this game does not count   ***",
+                "content": (
+                    f"***   DRILL: {scenario.name} — this game does not count   ***"
+                    if scenario
+                    else "***   TRAINING TABLE — this game does not count   ***"
+                ),
                 "timestamp": _now_iso(),
                 "type": "table",
             }
@@ -283,11 +305,11 @@ def _build_training_game(
     extensions.game_repo.save_coach_mode(game_id, "proactive")
 
     logger.info(
-        "[TRAINING] Created game_id=%r owner=%r difficulty=%r preset=%r opponents=%r bot_types=%r",
+        "[TRAINING] Created game_id=%r owner=%r difficulty=%r table=%r opponents=%r bot_types=%r",
         game_id,
         owner_id,
         difficulty,
-        preset.id,
+        f"scenario:{scenario.id}" if scenario else f"preset:{preset.id}",
         ai_names,
         bot_types,
     )
@@ -324,6 +346,16 @@ def start_training_session():
             }
         ), 400
 
+    # A scripted drill (scenario_id) takes precedence over a free-play preset.
+    scenario = None
+    scenario_id = data.get("scenario_id")
+    if scenario_id:
+        from training.scenario_library import get_scenario
+
+        scenario = get_scenario(scenario_id)
+        if scenario is None:
+            return jsonify({"error": f"Unknown scenario_id: {scenario_id}"}), 404
+
     preset_id = data.get("preset_id", DEFAULT_PRESET_ID)
     if preset_id not in VALID_PRESET_IDS:
         return jsonify(
@@ -342,6 +374,7 @@ def start_training_session():
             player_name=player_name,
             difficulty=difficulty,
             preset=preset,
+            scenario=scenario,
         )
     except Exception as e:
         logger.error("[TRAINING] failed to build training game: %s", e, exc_info=True)
@@ -352,19 +385,23 @@ def start_training_session():
             "game_id": game_id,
             "training_mode": True,
             "difficulty": difficulty,
-            "preset_id": preset.id,
+            "preset_id": None if scenario else preset.id,
+            "scenario_id": scenario.id if scenario else None,
         }
     )
 
 
 @training_bp.route("/api/training/scenarios", methods=["GET"])
 def list_training_scenarios():
-    """List the table presets a practice game can be set up with.
+    """List what a practice game can be set up with: free-play table presets
+    AND scripted-spot drills.
 
     Difficulty (who you face) is chosen separately; presets describe the table
-    shape (seats, stack depth, blinds). Auth-gated to match /start.
+    shape (seats, stack depth, blinds), drills are fixed teaching spots.
+    Auth-gated to match /start.
     """
     from flask_app import extensions
+    from training.scenario_library import list_scenarios
 
     current_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
     if not current_user or not current_user.get("id"):
@@ -381,4 +418,16 @@ def list_training_scenarios():
         }
         for p in list_table_presets()
     ]
-    return jsonify({"presets": presets, "default_preset_id": DEFAULT_PRESET_ID})
+    drills = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "description": s.description,
+            "tags": s.tags,
+            "phase": s.config.phase,
+        }
+        for s in list_scenarios()
+    ]
+    return jsonify(
+        {"presets": presets, "default_preset_id": DEFAULT_PRESET_ID, "drills": drills}
+    )

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sprout, Target, Flame, ChevronRight, GraduationCap } from 'lucide-react';
+import { Sprout, Target, Flame, GraduationCap, Play } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
@@ -12,32 +12,27 @@ interface DifficultyOption {
   title: string;
   blurb: string;
   icon: typeof Sprout;
-  variant: string;
 }
 
-// The opponent styles here mirror training/opponent_roster.py so the menu
-// copy stays honest about who you'll actually face.
+// Mirrors training/opponent_roster.py so the copy is honest about who you face.
 const DIFFICULTIES: DifficultyOption[] = [
   {
     id: 'easy',
     title: 'Easy',
-    blurb: 'Loose, passive opponents — calling stations and over-folders. Practice value-betting and punishing leaks.',
+    blurb: 'Loose, passive opponents — stations and over-folders. Practice value-betting and punishing leaks.',
     icon: Sprout,
-    variant: 'training-card--easy',
   },
   {
     id: 'medium',
     title: 'Medium',
-    blurb: 'Solid, predictable bots that play by pot odds and a sound baseline. Good for honing fundamentals.',
+    blurb: 'Solid, predictable bots that play by pot odds and a sound baseline. Hone your fundamentals.',
     icon: Target,
-    variant: 'training-card--medium',
   },
   {
     id: 'hard',
     title: 'Hard',
     blurb: 'The sharp solver — tough, balanced play. Test your reads and your discipline.',
     icon: Flame,
-    variant: 'training-card--hard',
   },
 ];
 
@@ -45,27 +40,34 @@ interface TablePreset {
   id: string;
   title: string;
   description: string;
-  opponents: number;
-  big_blind: number;
-  starting_stack_bb: number;
+}
+interface Drill {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  phase: string;
 }
 
-// Fallback if the presets endpoint is unreachable — the backend default is
-// 'standard', which is always a safe choice to send.
 const FALLBACK_PRESETS: TablePreset[] = [
-  { id: 'standard', title: '6-Max', description: 'Five opponents, 100bb deep.', opponents: 5, big_blind: 100, starting_stack_bb: 100 },
+  { id: 'standard', title: '6-Max', description: 'Five opponents, 100bb deep.' },
 ];
 
 interface TrainingMenuProps {
   playerName: string;
-  onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
+  onStart: (
+    difficulty: TrainingDifficulty,
+    opts: { presetId?: string; scenarioId?: string }
+  ) => void;
   onBack: () => void;
   isCreating?: boolean;
 }
 
 export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }: TrainingMenuProps) {
+  const [difficulty, setDifficulty] = useState<TrainingDifficulty>('medium');
   const [presets, setPresets] = useState<TablePreset[]>(FALLBACK_PRESETS);
   const [presetId, setPresetId] = useState('standard');
+  const [drills, setDrills] = useState<Drill[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,17 +78,22 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
         });
         if (!resp.ok) return;
         const data = await resp.json();
-        if (cancelled || !Array.isArray(data.presets) || data.presets.length === 0) return;
-        setPresets(data.presets);
-        setPresetId(data.default_preset_id ?? data.presets[0].id);
+        if (cancelled) return;
+        if (Array.isArray(data.presets) && data.presets.length > 0) {
+          setPresets(data.presets);
+          setPresetId(data.default_preset_id ?? data.presets[0].id);
+        }
+        if (Array.isArray(data.drills)) setDrills(data.drills);
       } catch (err) {
-        logger.error('Failed to load training presets:', err);
+        logger.error('Failed to load training scenarios:', err);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const activeDifficulty = DIFFICULTIES.find((d) => d.id === difficulty)!;
 
   return (
     <>
@@ -104,14 +111,43 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
         />
 
         <div className="training-menu__intro">
-          Pick a table and how tough you want it, {playerName}. Your coach is on
-          the whole time, and nothing here touches your bankroll, reputation, or
-          stats.
+          Pick how tough the table is, {playerName} — it applies to free play and
+          drills alike. The coach is on the whole time; nothing here touches your
+          bankroll, reputation, or stats.
         </div>
 
-        <fieldset className="training-menu__sizes" disabled={isCreating}>
-          <legend className="training-menu__sizes-label">Table</legend>
-          <div className="training-menu__size-row" role="radiogroup" aria-label="Table">
+        {/* Difficulty — shared by free play and drills */}
+        <fieldset className="training-menu__group" disabled={isCreating}>
+          <legend className="training-menu__group-label">Difficulty</legend>
+          <div className="training-menu__chips" role="radiogroup" aria-label="Difficulty">
+            {DIFFICULTIES.map((d) => {
+              const Icon = d.icon;
+              const active = difficulty === d.id;
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={
+                    `training-menu__chip training-menu__chip--${d.id}` +
+                    (active ? ' training-menu__chip--active' : '')
+                  }
+                  onClick={() => setDifficulty(d.id)}
+                >
+                  <Icon size={20} strokeWidth={1.75} />
+                  {d.title}
+                </button>
+              );
+            })}
+          </div>
+          <p className="training-menu__hint">{activeDifficulty.blurb}</p>
+        </fieldset>
+
+        {/* Free play — pick a table shape and deal in */}
+        <fieldset className="training-menu__group" disabled={isCreating}>
+          <legend className="training-menu__group-label">Free play</legend>
+          <div className="training-menu__chips" role="radiogroup" aria-label="Table">
             {presets.map((p) => (
               <button
                 key={p.id}
@@ -120,8 +156,7 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
                 aria-checked={presetId === p.id}
                 title={p.description}
                 className={
-                  'training-menu__size' +
-                  (presetId === p.id ? ' training-menu__size--active' : '')
+                  'training-menu__chip' + (presetId === p.id ? ' training-menu__chip--active' : '')
                 }
                 onClick={() => setPresetId(p.id)}
               >
@@ -129,34 +164,42 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
               </button>
             ))}
           </div>
-          <p className="training-menu__size-hint">
+          <p className="training-menu__hint">
             {presets.find((p) => p.id === presetId)?.description ?? ''}
           </p>
+          <button
+            type="button"
+            className="training-menu__primary"
+            disabled={isCreating}
+            onClick={() => onStart(difficulty, { presetId })}
+          >
+            <Play size={18} /> Deal me in
+          </button>
         </fieldset>
 
-        <div className="training-menu__difficulties">
-          {DIFFICULTIES.map((d) => {
-            const Icon = d.icon;
-            return (
-              <button
-                key={d.id}
-                type="button"
-                className={`training-card ${d.variant}`}
-                onClick={() => onStart(d.id, presetId)}
-                disabled={isCreating}
-              >
-                <div className="training-card__icon-wrap">
-                  <Icon className="training-card__icon" size={48} strokeWidth={1.5} />
-                </div>
-                <div className="training-card__content">
-                  <h2 className="training-card__title">{d.title}</h2>
-                  <p className="training-card__blurb">{d.blurb}</p>
-                </div>
-                <ChevronRight className="training-card__arrow" size={22} />
-              </button>
-            );
-          })}
-        </div>
+        {/* Drills — fixed teaching spots */}
+        {drills.length > 0 && (
+          <fieldset className="training-menu__group" disabled={isCreating}>
+            <legend className="training-menu__group-label">Drills</legend>
+            <div className="training-menu__drills">
+              {drills.map((dr) => (
+                <button
+                  key={dr.id}
+                  type="button"
+                  className="training-drill"
+                  disabled={isCreating}
+                  onClick={() => onStart(difficulty, { scenarioId: dr.id })}
+                >
+                  <span className="training-drill__phase">{dr.phase.replace('_', ' ')}</span>
+                  <span className="training-drill__body">
+                    <span className="training-drill__name">{dr.name}</span>
+                    <span className="training-drill__desc">{dr.description}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
       </PageLayout>
     </>
   );
