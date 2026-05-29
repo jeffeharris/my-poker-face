@@ -3,7 +3,7 @@ purpose: Measure whether the tiered bot leaks bb/100 to a per-street-aggressive 
 type: experiment
 status: complete
 hypothesis_summary: The bot over-folds and loses bb/100 to a per-street bomber whose global AF stays below the 3.5 trigger; vs an EXTREME ManiacBot that DOES trigger, it does not — isolating detection as the gap
-result_summary: NO-GO. Bot wins +145 vs Fish-Spew bomber and +30.7 vs ManiacBot with the exploit layer OFF; layer flips 0–1% of actions (inert vs aggression). Detection gap is real but not an EV leak — don't build. Maniac-side rules are deletion candidates. Untested: short-stack regime.
+result_summary: NO-GO. Bot wins +145 vs Fish-Spew bomber and +30.7 vs ManiacBot with the exploit layer OFF; layer flips 0–1% of actions (inert vs aggression). Detection gap is real but not an EV leak — don't build. Follow-up maniac_counter ablation: value_override/bluff_catch are dormant (0/1000 flips) but live-path (not dead-by-construction) → KEPT; only steal_pressure cut. Untested: short-stack regime.
 created: 2026-05-28
 last_updated: 2026-05-28
 ---
@@ -240,12 +240,20 @@ nothing in practice.
 1. **Do not build per-street-AF maniac detection.** The detection gap is real but
    not an EV leak at 100bb — the strategy table already declines to over-fold.
    This closes the EXP_004 "bonus lever."
-2. **Reframe the maniac-side exploitation rules as deletion candidates, not
-   expansion.** `value_override` / `bluff_catch` (and `_is_hyper_aggressive`) flip
-   0–1% of actions and add no measured bb/100 vs aggression — same category as the
-   dead `steal_pressure`. Worth a consolidation pass (alongside the
-   `steal_pressure` delete + `fold_to_cbet` sim-wiring fix) to shrink inert
-   surface area. Measure-before-cut, but the prior is "inert."
+2. **Consolidation (done, measure-first): cut `steal_pressure`, KEEP the maniac
+   counter.** A follow-up `maniac_counter` ablation (added to champion_challenger
+   CHANGES — champion disables `value_override` + `bluff_catch`, challenger keeps
+   them) found **0/1000 action flips + +0.0 bb/100 vs both ManiacBot and Fish-Spew**:
+   the counter is DORMANT — it never fires, because it gates on
+   `classify == hyper_aggressive`, which doesn't trip on per-street maniacs. BUT it
+   is **not dead-by-construction** like `steal_pressure` (empty frozenset): it
+   retains a LIVE path that would fire vs a true all-in-spammer (the layer's
+   founding "call wider vs junk jams" exploit). So `steal_pressure` was removed
+   (commit `0d62c174`) and `value_override`/`bluff_catch` are **KEPT** as dormant
+   tail-risk insurance with a revisit note in `value_override.py`. To justify
+   cutting them too: add an all-in-spammer backdrop bot and re-run the
+   `maniac_counter` ablation — if they don't help even when firing, cut. (The
+   `fold_to_cbet` sim-wiring fix remains separately deferred.)
 3. **If the "plow-through" worry persists, probe the short-stack regime** (SNG /
    turbo depth), not maniac detection — that's the one place the 100bb EV picture
    doesn't reach.
