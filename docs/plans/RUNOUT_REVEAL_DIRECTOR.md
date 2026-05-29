@@ -68,9 +68,9 @@ flow itself (we hand off to it).
 Replace the per-street sleep choreography in the `run_it_out` block with a single
 emission, computed at the hole-card reveal:
 
-- New socket event `runout_schedule` carrying, per street: the board after that street,
-  the `PlayerReaction`s (emotion + equities), and the winner set. This is
-  `compute_runout_reactions` output plus the per-street board snapshots.
+- New socket event `runout_schedule` carrying, **per card-reveal step** (see §D), the board
+  after that step, the `PlayerReaction`s (emotion + equities), and the winner set. This is a
+  card-level extension of `compute_runout_reactions` output plus the board snapshots.
 - After emitting the schedule, the backend **settles the hand without visual sleeps**:
   deal the remaining streets, advance to `EVALUATING_HAND`, run the psychology pipeline,
   emit `winner_announcement` — all immediately. The backend no longer owns run-out timing.
@@ -78,16 +78,64 @@ emission, computed at the hole-card reveal:
 ### B. Frontend — `useRunoutDirector` + `constants/runoutTiming.ts`
 
 - `runoutTiming.ts` — single tuning point (mirrors `interhandTiming.ts`, "Snappy"):
-  `revealStaggerMs`, `revealCardMs`, `perStreetHoldMs`, `showdownHoldMs`, plus a
-  `safetyCapMs`. All ms; FF multiplier applied centrally.
-- `useRunoutDirector({ schedule, fastForward })` — owns the timeline: walks
-  `INITIAL → FLOP → TURN → RIVER → SHOWDOWN`, exposing the current board to show and the
-  current per-player emotion, holding each beat for its tuned duration (FF-compressed),
-  with a safety cap so a malformed schedule can't hang. Emits a `done` signal when the
-  showdown beat elapses.
+  `revealStaggerMs`, `revealCardMs`, `perCardHoldMs`, `showdownHoldMs`, plus a `safetyCapMs`.
+  All ms; FF multiplier applied centrally.
+- `useRunoutDirector({ schedule, fastForward })` — owns the timeline: walks the schedule
+  **step by step** (hole-card reveal → each board card → showdown), exposing the current
+  board to show and the current per-player emotion, holding each beat for its tuned duration
+  (FF-compressed), with a safety cap so a malformed schedule can't hang. Emits `done` when
+  the showdown beat elapses.
 - Reveal animation: staggered slide-in on `.opponent-revealed-cards` (per-card and
-  per-opponent `animation-delay`, slightly slower slide). **No desktop flip** (`cardReveal`
-  is desktop-only and broken). The reveal *is* the beat — no separate frozen hold.
+  per-opponent `animation-delay`, slightly slower slide) — **shipped in Phase 1**. **No
+  desktop flip** (`cardReveal` is desktop-only and broken). The reveal *is* the beat — no
+  separate frozen hold.
+
+### D. Per-card reactions (the Phase 2 payoff over Phase 1's street granularity)
+
+Phase 1 (and today's backend) reacts at **street** boundaries — the flop's three cards land
+together and get one reaction. The director's whole point is to go **per card**:
+
+- **Each flop card individually.** `compute_runout_reactions` must compute equity after each
+  card added to the board (partial-board equity for flop card 1, then 2, then 3 — eval7
+  handles 1- and 2-card boards fine, just higher variance), not only after the full flop. The
+  schedule becomes a list of steps `[holeReveal, flop₁, flop₂, flop₃, turn, river, showdown]`,
+  each with `board_after`, per-player `equity_after`, and the reaction from that card's delta.
+  Now a player holding `AK` can light up on the `K` and stay flat on the `7` and `2`.
+- **Hole-card reveal.** The matchup read (today's `INITIAL`) is one reaction after both hole
+  cards are shown — a per-*card* hole reaction isn't poker-meaningful (you need both cards to
+  evaluate), so the hole step stays a single beat, timed to land as the cascade settles
+  (the behavior Phase 1's pre-flop change already set up). The human's own hole-card display
+  is part of this step — see §E.
+- Cost: ~6–7 equity calcs per hand instead of ~4. Pre-computed once on the deterministic
+  deck, so negligible.
+- The director plays each step: reveal the card (animation) → show per-player reaction →
+  `perCardHoldMs` → next card. This is the "react as each card peels off" feel; it's only
+  possible once the client owns the timeline (the backend can't sanely sleep between
+  individual flop cards without re-introducing the split-clock problem).
+
+### E. Human hole-card "commit" (immersion — idea, to refine in Phase 2)
+
+Today the human's hole cards sit static as large cards at the bottom of the screen
+(`.hero-cards` in `MobilePokerTable.tsx`, driven by `useCardAnimation` — which already has
+deal/exit animation infra with CSS-var-driven per-card transforms). The idea: during an
+all-in run-out, **animate the human's cards into the table** — "tossed" or "pushed in" —
+rather than leaving them parked.
+
+- **A few animation variants, chosen by comparative hand strength.** The human's equity is
+  already in the schedule (the reveal/`INITIAL` step). Map it to the gesture: a confident
+  forward *push* when well ahead, a looser *toss* when behind / on a draw, something neutral
+  in between. Small library of motions, equity-selected.
+- **The commit IS the matchup reveal — and the AI's cue to react.** Pushing/tossing the cards
+  in is the beat that puts the human's hand on the table, which is exactly when the AI
+  opponents react to the matchup (the hole-reveal/`INITIAL` reaction in §D). So the human's
+  card-commit animation and the opponents' reaction are the *same* timeline step: human
+  commits → AIs react. The director sequences them together.
+- **Why it needs the director.** The variant depends on schedule equity, and the commit must
+  be timed against the opponent reveal + reaction beat — both are timeline concerns the
+  director owns. Reuses the existing `useCardAnimation` transform/CSS-var pattern; adds a
+  run-out "commit" state with the equity-picked variant.
+- **To refine:** the exact set of variants and the equity→variant thresholds; whether the
+  commit also nudges the board/pot visually; reduced-motion fallback (static, as today).
 
 ### C. The coordination seam (the crux)
 
@@ -208,5 +256,15 @@ still backend-paced (so the "visible win" was smaller than advertised).
 
 - **Reconnection:** persist the schedule for resync, or accept the silent skip? (lean: at
   minimum suppress the all-cards reveal on a missed run-out)
-- **Phase 1 scope confirmation:** ship the CSS-only staggered reveal alone, or bundle it with
-  the Phase 2 director in one go?
+- **Human hole-card "commit" — now specified in §E**, but two things to pin before build:
+  the set of animation variants and the equity→variant thresholds, and whether the commit
+  also nudges the board/pot visually.
+
+## Shipped (Phase 1, on `career-mode-v0_1`)
+
+- `b06371d4` — staggered, sequential hole-card reveal (per-card + per-opponent cascade,
+  CSS + a `--reveal-index`), and the design note.
+- `11f1e414` — reaction-delivery fix (`is_reaction`) + reveal-hold tune.
+- (uncommitted at time of writing) backend pre-flop pacing: skip the dead `animation_sleep`
+  on the reveal step; surface pre-flop (`INITIAL`) reactions as their own beat after the
+  cards settle. Still **street-granular** — per-card reactions (§D) are the Phase 2 upgrade.

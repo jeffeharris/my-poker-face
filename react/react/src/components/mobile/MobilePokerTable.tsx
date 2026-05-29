@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
@@ -339,6 +339,22 @@ export function MobilePokerTable({
   // During showdown, move folded players to the ghost rail so active players have more room in the main row
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
+
+  // Run-out reveal cascade order: each revealed opponent reveals after the
+  // previous one finishes (and within an opponent, card 2 after card 1). The
+  // index is the opponent's position among revealed opponents in render order;
+  // the CSS turns it into a per-opponent animation-delay (var --reveal-index).
+  const revealOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    const cards = revealedCards?.players_cards;
+    if (!cards) return order;
+    const rendered = isInShowdown ? activeOpponents : opponents;
+    let idx = 0;
+    for (const p of rendered) {
+      if (cards[p.name]) order.set(p.name, idx++);
+    }
+    return order;
+  }, [revealedCards, isInShowdown, activeOpponents, opponents]);
 
   // Map of player name → avatar URL for FloatingChat. Accumulated across the
   // whole session (never pruned): a player who busts/leaves drops out of
@@ -750,7 +766,12 @@ export function MobilePokerTable({
                     {opponent.bet > 0 && <div className="opponent-bet">${opponent.bet}</div>}
                     {/* Revealed hole cards during run-it-out showdown */}
                     {revealedCards?.players_cards[opponent.name] && (
-                      <div className="opponent-revealed-cards">
+                      <div
+                        className="opponent-revealed-cards"
+                        style={
+                          { '--reveal-index': revealOrder.get(opponent.name) ?? 0 } as CSSProperties
+                        }
+                      >
                         {revealedCards.players_cards[opponent.name].map((card, i) => (
                           <Card key={i} card={card} faceDown={false} size="large" />
                         ))}

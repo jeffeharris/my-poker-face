@@ -3401,20 +3401,13 @@ def progress_game(game_id: str) -> None:
                     )
                     current_game_data['runout_reaction_schedule'] = reaction_schedule
 
-                    # Emit initial reactions based on equity at moment of reveal
-                    # Build current emotions so we can skip no-ops
-                    ai_controllers = current_game_data.get('ai_controllers', {})
-                    current_emotions = {
-                        name: ctrl.psychology.get_display_emotion()
-                        for name, ctrl in ai_controllers.items()
-                    }
-                    overrides = {}
-                    for reaction in reaction_schedule.reactions_by_phase.get('INITIAL', []):
-                        if reaction.emotion == current_emotions.get(reaction.player_name):
-                            continue  # Already showing this emotion
-                        overrides[reaction.player_name] = reaction.emotion
-                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
-                    current_game_data['runout_emotion_overrides'] = overrides
+                    # The INITIAL (hole-card) reactions are the players' read on
+                    # the matchup. We deliberately do NOT emit them here, at the
+                    # same instant as the reveal — they land as their own beat
+                    # AFTER the cards have settled (the PRE_FLOP per-street emit
+                    # below maps to the INITIAL schedule). Start with no overrides
+                    # so the reveal cascade plays on its own first.
+                    current_game_data['runout_emotion_overrides'] = {}
                     game_state_service.set_game(game_id, current_game_data)
 
                     # Brief pause for players to register the all-in matchup
@@ -3427,7 +3420,17 @@ def progress_game(game_id: str) -> None:
                 # then hold so the player can absorb before next street.
                 # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
                 # Turn/River (1 card): ~0.825s animation
-                animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
+                # PRE_FLOP is the reveal step — no community card is dealt, so
+                # there's no animation to wait for. Skipping it removes a dead
+                # ~1s before the board ran out; the reveal cascade already plays
+                # during RUNOUT_REVEAL_HOLD above, and the reaction_hold below
+                # now shows the preflop (INITIAL) reactions.
+                if current_phase == PokerPhase.FLOP:
+                    animation_sleep = 3
+                elif current_phase in (PokerPhase.TURN, PokerPhase.RIVER):
+                    animation_sleep = 1
+                else:
+                    animation_sleep = 0
                 reaction_hold = 1.5
                 delay = animation_sleep * config.ANIMATION_SPEED
                 if delay > 0:
@@ -3441,7 +3444,12 @@ def progress_game(game_id: str) -> None:
                 # Emit pre-computed avatar reactions for this street
                 reaction_schedule = current_game_data.get('runout_reaction_schedule')
                 if reaction_schedule:
-                    phase_name = current_phase.name
+                    # The PRE_FLOP reveal step shows the INITIAL (hole-card)
+                    # reactions — the players' read on the matchup — now as their
+                    # own beat, after the reveal has settled.
+                    phase_name = (
+                        'INITIAL' if current_phase == PokerPhase.PRE_FLOP else current_phase.name
+                    )
                     overrides = current_game_data.get('runout_emotion_overrides', {})
                     for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
                         current = overrides.get(reaction.player_name)

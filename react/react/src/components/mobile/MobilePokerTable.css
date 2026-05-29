@@ -1192,21 +1192,27 @@
     0 4px 12px rgba(0, 0, 0, 0.5),
     0 0 16px rgba(212, 165, 116, 0.3);
   border: 1px solid rgba(212, 165, 116, 0.4);
-  /* Each hole card reveals on its own beat — slower, staggered, with a slight
-     settle — so the all-in reveal reads as a deliberate moment rather than an
-     instant pop. `both` keeps the second card hidden through its stagger delay.
-     Total (~0.82s) stays well inside config.RUNOUT_REVEAL_HOLD (1.5s). */
+  /* Sequential reveal cascade. Within an opponent: card 2 lands a clear beat
+     after card 1. Across opponents: each starts after the previous pair, via
+     --reveal-index (the opponent's position among revealed opponents, set
+     inline in render order). `both` holds each card hidden through its delay
+     and slight settle. Heads-up finishes ~1.05s (inside RUNOUT_REVEAL_HOLD's
+     1.5s); multiway finishes during the following street's animation and is
+     never cut off. */
+  --reveal-base: calc(var(--reveal-index, 0) * 1.05s);
   transform-origin: center bottom;
-  animation: revealCardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 0;
+  animation: revealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--reveal-base);
 }
 
 .opponent-revealed-cards .playing-card:first-child {
   margin-left: 0;
 }
 
-/* Second hole card lands a beat after the first. */
+/* Second hole card lands a clear beat after the first. */
 .opponent-revealed-cards .playing-card:nth-child(2) {
-  animation-delay: 0.22s;
+  animation-delay: calc(var(--reveal-base) + 0.5s);
 }
 
 /* Cards inherit size from Card.css - using 'large' (18vw) which is bigger than community cards (14vw) */
