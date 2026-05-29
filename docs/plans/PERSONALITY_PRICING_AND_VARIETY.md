@@ -168,14 +168,45 @@ runs in Docker: `docker compose exec -T backend python ...`.
 > means more multiway pots, which mute postflop skill — another reason not to loosen
 > the strong end.**
 >
-> **Caveats / open follow-ups (NOT done):** (1) The `measure_passivity` bb/100 vs a
-> 1-vs-5-Baseline table is a roster artifact (over-rewards aggression, punishes the
-> caller), NOT the canonical price — re-price the table+distortion combo with the
-> paired-CRN gate (`ab_node_attribution` would need archetype-table wiring like its
-> `--a-hero/--b-hero`). Variety is *expected* to cost EV (the bleed is the skill
-> gradient), so the station's bleed is by design, but it's unpriced. (2) LAG/Maniac
-> still separate partly on aggression; LAG VPIP (38) is ~4pts over the textbook
-> ceiling — fine. (3) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb).
+> **Combo price — PAIRED-CRN, DONE (2026-05-29).** `ab_node_attribution` already
+> prices the full combo: `_run_one_hand` builds the hero via `make_controller`, which
+> attaches the archetype tables, so `--a-hero Baseline --b-hero <ARCH>` makes arm B use
+> its width table while arm A (Baseline) uses the base — the paired delta is the
+> table+distortion cost. **Must be 6-max** (HU bypasses the archetype table via the
+> HU-chart branch in `_select_preflop_table`). Control `--a-hero Baseline --b-hero
+> Baseline` = 100% NO_DIVERGENCE / +0.00, verified. Self-play vs 5×Baseline, 24k
+> (`baseline 3000 42,3042,...,21042 --a base --b base`):
+>
+> | arch | combo price (bb/100) | 95% CI | verdict |
+> |---|---|---|---|
+> | Nit | +0.12 | [−11.2, +11.5] | free (CI∋0) |
+> | Rock | +2.09 | [−7.3, +11.5] | free (CI∋0) |
+> | TAG | +5.00 | [−4.0, +14.0] | free, ~+EV (CI∋0) |
+> | LAG | +25.01 | [+6.0, +44.1] | CI-clear **+EV** |
+> | Calling Station | **−51.29** | [−72.1, −30.5] | CI-clear **−EV** (the fish) |
+> | Maniac | +53.78 | [+29.6, +78.0] | CI-clear **+EV** |
+>
+> **Read (the load-bearing caveat): self-play-vs-Baseline is NOT a clean "distance from
+> optimal."** Baseline is a *static, non-adapting* solver bot that OVER-FOLDS to 6-max
+> aggression, so the aggressive archetypes (LAG +25, Maniac +54) score +EV by *exploiting
+> that over-fold* — not by playing well; their edge is pure stolen fold-equity and would
+> crater vs a field that simply defends (stops over-folding). The robust signal is the
+> **Calling Station −51 (CI-clear)** — a station bleeds vs everyone; it's the intended
+> weak end of the gradient, now *priced*. The tight three are free (CI∋0). Divergence
+> rate tracks table-width: TAG 5% (≈base chart), Nit/Rock ~11–14%, loose three 26–41%.
+> So the gradient *direction* is right (Station = the fish; tight = solid; aggressive =
+> beats a static field) but the aggressive magnitudes are field-specific — price vs the
+> realistic mix, not one static roster (the session's recurring lesson). The competent-reg
+> (punisher) vector is the missing cost-side column (punisher is slow in 6-max + the HU
+> clone defends multiway poorly — a 1-seed probe read Maniac +138, unreliable); the proper
+> cost-side test is **re-pricing vs an exploitation-ON defender** (the `hyper_aggressive`
+> counter: detect high AF → stop over-folding / call down), which is roadmap item 4.
+>
+> **Other open follow-ups:** (1) LAG VPIP (38) is ~4pts over the textbook ceiling — fine.
+> (2) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb only). (3) Close
+> the loop: re-judge the `hyper_aggressive` defense vs the NEW Maniac archetype (prior
+> EXP_004/005 found it ~inert vs the ManiacBot *caricature* — competent static defense
+> already handles aggression; untested vs the realistic table+distortion Maniac).
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
