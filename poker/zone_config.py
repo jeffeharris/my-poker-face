@@ -197,6 +197,8 @@ EVENT_SEVERITY = {
     'social_jab_stoic': 'minor',
     'social_praise_warmed': 'minor',
     'social_praise_stoic': 'minor',
+    'social_flattery_vain': 'minor',
+    'social_flattery_seen_through': 'minor',
 }
 
 

@@ -96,6 +96,9 @@ export interface GameState {
    *  AI Chat off, or rule bots) — nothing to fast-forward, so the UI hides
    *  the FF button. */
   ai_instant?: boolean;
+  /** True when the owner's game speed is 'always' (fast-forward every AI
+   *  turn). Like ai_instant, the FF button is hidden since it's always on. */
+  always_fast_forward?: boolean;
 }
 
 /** Player's showdown hand information */

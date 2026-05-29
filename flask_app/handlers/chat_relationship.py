@@ -103,6 +103,83 @@ def _broadcast_targets(game_data: dict, sender: str) -> List[str]:
     return sorted(names)
 
 
+def _flattery_relationship_event(disposition: str):
+    """The relationship event for a flattery outcome, or None for 'unmoved'."""
+    from poker.memory.relationship_events import RelationshipEvent
+
+    if disposition == 'vain':
+        return RelationshipEvent.FLATTERY_LANDED
+    if disposition == 'sees_through':
+        return RelationshipEvent.FLATTERY_BACKFIRED
+    return None
+
+
+def _dispatch_flattery(
+    game_data: dict,
+    sender: str,
+    addressing: Optional[List[str]],
+    intensity: Optional[str],
+) -> None:
+    """Handle the `flatter` tone, whose valence flips by the TARGET's vanity.
+
+    Because the outcome (and thus the relationship event) depends on each
+    target's disposition, flattery can't ride the fixed tone→event mapping —
+    it's resolved per target here. For every addressed AI we fire the emotional
+    reaction; for explicit (non-broadcast) targets we also fire the
+    disposition-picked relationship event: FLATTERY_LANDED on the vain (they're
+    charmed), FLATTERY_BACKFIRED on the perceptive (they catch the ploy and
+    think less of you). 'unmoved' targets move nothing. Broadcasts ("flatter
+    the table") move only the reaction, at a reduced scale.
+    """
+    multiplier = 0.5 if intensity == 'chill' else 1.0
+    broadcast = not addressing
+    targets = _broadcast_targets(game_data, sender) if broadcast else addressing
+    scale = BROADCAST_REACTION_SCALE if broadcast else 1.0
+    controllers = game_data.get('ai_controllers') or {}
+
+    # Relationship side (explicit targets only) needs the opponent manager.
+    opponent_manager = None
+    actor_id = None
+    hand_id = None
+    if not broadcast:
+        memory_manager = game_data.get('memory_manager')
+        if memory_manager is not None:
+            mgr = memory_manager.get_opponent_model_manager()
+            if mgr is not None and mgr.has_relationship_repo:
+                opponent_manager = mgr
+                actor_id = mgr.resolve_player_id(sender)
+                hand_id = getattr(memory_manager, 'hand_count', None) or None
+
+    for target_name in targets:
+        if target_name == sender:
+            continue
+        controller = controllers.get(target_name)
+        psychology = getattr(controller, 'psychology', None)
+        if psychology is None:
+            continue
+        # (1) Emotional reaction (classifies vanity internally).
+        psychology.react_to_social_stimulus(
+            'flatter', opponent=sender, multiplier=multiplier * scale
+        )
+        # (2) Relationship valence flip — explicit targets only.
+        if opponent_manager is None:
+            continue
+        rel_event = _flattery_relationship_event(psychology._classify_flattery_disposition())
+        if rel_event is None:
+            continue
+        target_id = opponent_manager.resolve_player_id(target_name)
+        if not actor_id or not target_id or actor_id == target_id:
+            continue
+        opponent_manager.record_event(
+            actor_id=actor_id,
+            target_id=target_id,
+            event=rel_event,
+            context_multiplier=multiplier,
+            narrative=f"{sender} → {target_name}: flatter",
+            hand_id=hand_id,
+        )
+
+
 def dispatch_chat_relationship_event(
     game_data: dict,
     sender: str,
@@ -115,6 +192,10 @@ def dispatch_chat_relationship_event(
     Documented no-op when:
       - tone is missing / not in the recognized vocabulary (free-form
         chat — no structured intent to dispatch).
+
+    `flatter` is handled on a dedicated path (`_dispatch_flattery`) because
+    its valence flips by the target's vanity; everything below is the fixed
+    tone→event path.
 
     Two addressing modes:
       - Explicit target(s): both the emotional reaction (1) AND the
@@ -144,6 +225,12 @@ def dispatch_chat_relationship_event(
         return
 
     try:
+        # Flattery is disposition-dependent (valence flips per target), so it
+        # can't ride the fixed tone→event mapping — handle it on its own path.
+        if tone == 'flatter':
+            _dispatch_flattery(game_data, sender, addressing, intensity)
+            return
+
         from poker.memory.chat_intent import map_tone
 
         mapping = map_tone(tone, intensity)

@@ -77,6 +77,12 @@ class RelationshipEvent(Enum):
     # from COMPLIMENT (likability-weighted warmth): PROPS is respect-weighted,
     # the one chat lever that meaningfully raises the respect axis.
     PROPS = "chat_props"
+    # Flattery — insincere / over-the-top praise. The valence flips by the
+    # TARGET's vanity, so the dispatch picks which of these fires per-target:
+    # LANDED on the vain (charmed → likability up), BACKFIRED on the perceptive
+    # (they catch the ploy → respect + likability down).
+    FLATTERY_LANDED = "chat_flattery_landed"
+    FLATTERY_BACKFIRED = "chat_flattery_backfired"
 
     # Cash-mode staking events. The "actor" is the AI staker (extending
     # the stake, being repaid, or being defaulted on), the "target" is
@@ -162,6 +168,8 @@ ACTOR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.TAUNT_POST_WIN: AxisShift(heat=+0.20, respect=0.00, likability=-0.10),
     RelationshipEvent.FRIENDLY_BANTER: AxisShift(heat=0.00, respect=0.00, likability=+0.03),
     RelationshipEvent.PROPS: AxisShift(heat=0.00, respect=+0.10, likability=+0.02),
+    RelationshipEvent.FLATTERY_LANDED: AxisShift(heat=0.00, respect=0.00, likability=+0.02),
+    RelationshipEvent.FLATTERY_BACKFIRED: AxisShift(heat=0.00, respect=0.00, likability=-0.02),
     # Cash-mode staking. Actor = AI staker; their view of the borrower
     # moves on stake lifecycle events.
     #   STAKE_OFFERED: staker extends trust → small respect bump, small
@@ -253,6 +261,8 @@ MIRROR_AXIS_SHIFTS: Dict[RelationshipEvent, AxisShift] = {
     RelationshipEvent.TAUNT_POST_WIN: AxisShift(heat=+0.15, respect=0.00, likability=-0.10),
     RelationshipEvent.FRIENDLY_BANTER: AxisShift(heat=0.00, respect=0.00, likability=+0.03),
     RelationshipEvent.PROPS: AxisShift(heat=-0.02, respect=+0.08, likability=+0.05),
+    RelationshipEvent.FLATTERY_LANDED: AxisShift(heat=-0.02, respect=-0.02, likability=+0.06),
+    RelationshipEvent.FLATTERY_BACKFIRED: AxisShift(heat=+0.03, respect=-0.08, likability=-0.05),
     # Cash-mode staking. Mirror = borrower's view of the AI staker.
     # Receiving a stake creates gratitude; repaying confirms the
     # staker was trustworthy; defaulting curdles into mutual animosity

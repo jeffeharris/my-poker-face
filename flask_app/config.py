@@ -21,6 +21,12 @@ enable_ai_debug = os.environ.get('ENABLE_AI_DEBUG', 'false').lower() == 'true'
 # Animation speed multiplier — 1.0 is normal, 0 disables all pacing delays
 ANIMATION_SPEED = float(os.environ.get('ANIMATION_SPEED', '1.0'))
 
+# All-in run-out: how long (seconds, before ANIMATION_SPEED scaling) to hold on
+# the hole-card reveal so the player can register the matchup before the board
+# runs out. Was 4s, which read as a dead beat (the first board card is already
+# showing by the time this fires); 1.5s matches the per-street reaction cadence.
+RUNOUT_REVEAL_HOLD = float(os.environ.get('RUNOUT_REVEAL_HOLD', '1.5'))
+
 # AI decision mode — 'llm' for real LLM calls, 'fallback_random' for instant random actions
 AI_DECISION_MODE = os.environ.get('AI_DECISION_MODE', 'llm')
 

@@ -28,6 +28,14 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode.attractiveness import (
+    CASINO_VENUE_APPEAL,
+    DEFAULT_SEEK_RATE,
+    FillableTable,
+    SeatSeeker,
+    assign_seats_greedy,
+    seeker_buy_in,
+)
 from cash_mode.bankroll import (
     AIBankrollState,
     project_bankroll,
@@ -40,11 +48,14 @@ from cash_mode.full_sim import (
 )
 from cash_mode.movement import (
     DEFAULT_LIVE_FILL_PROB,
+    RESEAT_RECOVERY_FLOOR,
     RosterRefreshResult,
+    is_in_cooldown,
     is_in_vice_cooldown,
     project_idle_energy,
     record_vice_cooldown,
     refresh_table_roster,
+    reseat_readiness,
 )
 from cash_mode.staker_history import StakerHistoryStats
 from cash_mode.stakes import BORROWER_KIND_PERSONALITY
@@ -515,6 +526,260 @@ def _persist_reseat_recovery(bankroll_repo, personality_id, sandbox_id, recovere
         )
 
 
+def _process_global_greedy_fills(
+    *,
+    fill_ctx,
+    idle_pool,
+    eligible,
+    seated_globally,
+    fish_ids,
+    bankroll_lookup,
+    bankroll_repo,
+    cash_table_repo,
+    chip_ledger_repo,
+    personality_repo,
+    sandbox_id,
+    now,
+    rng,
+    seek_rate: float = DEFAULT_SEEK_RATE,
+) -> None:
+    """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
+
+    Runs once after the per-table movement loop (which ran Step 1 only,
+    `enable_live_fill=False`). Seats idle / eligible-never-seated AIs across
+    ALL tables at once: each seeker (most-desperate first) picks the single
+    most attractive table it can afford and has an open seat at, with
+    occupancy recomputed between picks so `W_CROWD` spreads sharks.
+
+    Owns its OWN contained persistence for fills — the per-table loop's
+    bankroll/idle/save_table passes have already run for Step-1 outcomes, so
+    Step 1's `from_seat`/settlement path is untouched here. Per Codex's
+    invariant: each new seat is debited inline (`debit_bankroll_for_seat`)
+    and we do NOT also append a result-level `to_seat` change (which would
+    double-debit). `seated_globally` is mutated in place as each AI is
+    seated so the next pick can't reuse it.
+    """
+    if not fill_ctx:
+        return
+
+    from cash_mode.bankroll import debit_bankroll_for_seat
+
+    # 1. Build a FillableTable + the usable open-seat indices per table.
+    #    Usable = open now AND open at pre-burst start (excludes seats
+    #    vacated during this refresh — defer-freshly-vacated, Invariant 6).
+    tables_state: Dict[str, FillableTable] = {}
+    fill_indices: Dict[str, List[int]] = {}
+    for tid, (result, preburst_open) in fill_ctx.items():
+        tbl = result.new_table
+        try:
+            _, min_bi, max_bi = table_buy_in_window(tbl.stake_label)
+        except KeyError:
+            continue
+        usable = [
+            i for i, s in enumerate(tbl.seats) if s.get("kind") == "open" and i in preburst_open
+        ]
+        if not usable:
+            continue
+        is_lobby = tbl.table_type == "lobby"
+        grinders = fish_chips = whale_chips = 0
+        for s in tbl.seats:
+            if s.get("kind") != "ai":
+                continue
+            if s.get("archetype") == "fish":
+                # A fish at a lobby table IS the whale (regular fish are
+                # casino-only); weigh it as a whale.
+                if is_lobby:
+                    whale_chips += int(s.get("chips", 0))
+                else:
+                    fish_chips += int(s.get("chips", 0))
+            else:
+                grinders += 1
+        tables_state[tid] = FillableTable(
+            table_id=tid,
+            stake_label=tbl.stake_label,
+            min_buy_in=min_bi,
+            max_buy_in=max_bi,
+            open_count=len(usable),
+            grinder_count=grinders,
+            fish_chips=fish_chips,
+            whale_chips=whale_chips,
+            # Casino = the low-rent public grind room: less attractive
+            # baseline, but the fish draw rides over it and it stays a valid
+            # open-to-all fallback (CASINO_VENUE_APPEAL).
+            venue_appeal=CASINO_VENUE_APPEAL if tbl.table_type == "casino" else 1.0,
+        )
+        fill_indices[tid] = usable
+    if not tables_state:
+        return
+
+    _knobs_cache: Dict[str, Any] = {}
+
+    def _knobs(pid: str):
+        if pid not in _knobs_cache:
+            _knobs_cache[pid] = bankroll_repo.load_personality_knobs(pid)
+        return _knobs_cache[pid]
+
+    def _recovery_fraction(pid: str, left_at) -> float:
+        """Recovery toward baseline for an idle AI (1.0 = fully rested) —
+        mirrors the retired per-table `_reseat_energy_lookup`."""
+        import json as _json
+
+        stored = baseline = 0.5
+        if bankroll_repo is not None:
+            try:
+                blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
+                if blob:
+                    st = _json.loads(blob)
+                    stored = float(st.get("axes", {}).get("energy", 0.5))
+                    baseline = float(st.get("anchors", {}).get("baseline_energy", stored))
+            except Exception:
+                stored = baseline = 0.5
+        if left_at is None:
+            projected = stored
+        else:
+            try:
+                idle_seconds = max(0.0, (now - left_at).total_seconds())
+            except Exception:
+                idle_seconds = 0.0
+            projected = project_idle_energy(stored, baseline, idle_seconds)
+        return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
+
+    def _can_afford_target(target_stake: str, projected: int) -> bool:
+        try:
+            _, t_min, _ = table_buy_in_window(target_stake)
+        except Exception:
+            return True  # unknown tier — don't gate
+        return projected >= t_min
+
+    # 2. Candidate pool: idle AIs first, then eligible-never-seated; exclude
+    #    fish (casino-only) and the already-seated.
+    candidates: List[Tuple[str, Any]] = []  # (pid, idle_entry | None)
+    seen: Set[str] = set()
+    for entry in idle_pool:
+        pid = entry.personality_id
+        if pid in fish_ids or pid in seated_globally or pid in seen:
+            continue
+        candidates.append((pid, entry))
+        seen.add(pid)
+    for cand in eligible:
+        pid = cand.get("personality_id")
+        if not pid or pid in fish_ids or pid in seated_globally or pid in seen:
+            continue
+        candidates.append((pid, None))
+        seen.add(pid)
+
+    # 3. Roll the seek-rate + apply the impure gates (recovery, cooldown,
+    #    target-stake) into each seeker's allowed_table_ids.
+    seekers: List[SeatSeeker] = []
+    idle_sourced: Set[str] = set()
+    recovery_frac: Dict[str, float] = {}
+    for pid, entry in candidates:
+        if rng.random() >= seek_rate:
+            continue
+        if entry is not None:
+            frac = _recovery_fraction(pid, entry.left_at)
+            if frac < RESEAT_RECOVERY_FLOOR or rng.random() >= reseat_readiness(frac):
+                continue  # still resting
+            recovery_frac[pid] = frac
+        projected = bankroll_lookup(pid) or 0
+        try:
+            knobs = _knobs(pid)
+        except Exception:
+            continue
+        allowed: Set[str] = set()
+        for tid, ft in tables_state.items():
+            if is_in_cooldown(tid, pid, now):
+                continue  # per-table leave cooldown (not a global ban)
+            if (
+                entry is not None
+                and entry.target_stake is not None
+                and entry.target_stake != ft.stake_label
+                and _can_afford_target(entry.target_stake, projected)
+            ):
+                continue  # target-stake stickiness (relaxed if can't afford target)
+            allowed.add(tid)
+        if not allowed:
+            continue
+        seekers.append(
+            SeatSeeker(
+                personality_id=pid,
+                projected_bankroll=projected,
+                starting_bankroll=knobs.starting_bankroll,
+                comfort_zone=knobs.stake_comfort_zone or STAKES_ORDER[0],
+                allowed_table_ids=frozenset(allowed),
+                buy_in_multiplier=knobs.buy_in_multiplier,
+            )
+        )
+        if entry is not None:
+            idle_sourced.add(pid)
+    if not seekers:
+        return
+
+    # Most-desperate-first priority (mirrors the retired hungry-grinder
+    # reorder): lower bankroll/starting ratio picks first; pid breaks ties.
+    seekers.sort(
+        key=lambda s: (s.projected_bankroll / max(1, s.starting_bankroll), s.personality_id)
+    )
+
+    assignments = assign_seats_greedy(seekers, tables_state)
+    if not assignments:
+        return
+
+    # 4. Apply each assignment: fund (inline debit) → seat → idle-remove.
+    affected: Dict[str, List[str]] = {}
+    for pid, tid in assignments:
+        result, _preburst = fill_ctx[tid]
+        ft = tables_state[tid]
+        idxs = fill_indices[tid]
+        if not idxs:
+            continue
+        knobs = _knobs(pid)
+        buy_in = seeker_buy_in(ft, knobs.buy_in_multiplier)
+        # Inline debit (pure transfer bankroll → seat). Refuses + returns
+        # None on insufficiency (regen race etc.); skip seating then so we
+        # never mint chips. The greedy core already affordability-checked,
+        # so this is the rare belt-and-suspenders path.
+        if (
+            debit_bankroll_for_seat(
+                bankroll_repo,
+                pid,
+                buy_in,
+                sandbox_id=sandbox_id,
+                chip_ledger_repo=chip_ledger_repo,
+                now=now,
+            )
+            is None
+        ):
+            continue
+        seat_idx = idxs.pop(0)
+        result.new_table.seats[seat_idx] = ai_slot(pid, buy_in)
+        # Keep the global occupancy set accurate (within-batch double-seating
+        # is already prevented by the one-seeker-per-pid candidate dedup; this
+        # keeps `seated_globally` correct for the returned state and any
+        # post-fill consumer that reads it).
+        seated_globally.add(pid)
+        result.freshly_seated_personality_ids.append(pid)
+        if pid in idle_sourced:
+            cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
+            if pid in recovery_frac:
+                _persist_reseat_recovery(bankroll_repo, pid, sandbox_id, recovery_frac[pid])
+        affected.setdefault(tid, []).append(pid)
+
+    # 5. Persist the mutated tables + emit arrival (JOIN) events for fills.
+    for tid, pids in affected.items():
+        result, _preburst = fill_ctx[tid]
+        cash_table_repo.save_table(result.new_table, sandbox_id=sandbox_id, now=now)
+        _emit_activity_events(
+            table=result.new_table,
+            previous_table=result.new_table,  # unused by the emitter
+            decisions={},
+            freshly_seated_personality_ids=pids,
+            personality_repo=personality_repo,
+            now=now,
+            sandbox_id=sandbox_id,
+        )
+
+
 def refresh_unseated_tables(
     *,
     cash_table_repo,
@@ -525,6 +790,13 @@ def refresh_unseated_tables(
     user_id: Optional[str] = None,
     sandbox_id: Optional[str] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+    # Per-refresh probability that an idle/eligible AI goes room-hunting in
+    # the global greedy fill (replaces the per-seat live_fill_prob Bernoulli;
+    # CASH_MODE_TABLE_ATTRACTIVENESS.md §2). Sim-tunable; a future refinement
+    # could scale it with the catch-up gap so long-unwatched lobbies fill
+    # faster. `live_fill_prob` is retained only for the (now fill-disabled)
+    # refresh_table_roster signature / back-compat.
+    seek_rate: float = DEFAULT_SEEK_RATE,
     hand_sim_prob: float = DEFAULT_HAND_SIM_PROB,
     chip_ledger_repo=None,
     # Phase 4: stake_repo + relationship_repo are required for the
@@ -964,6 +1236,12 @@ def refresh_unseated_tables(
                 return compute_vice_probability(excess, pressure)
 
     out: Dict[str, RosterRefreshResult] = {}
+    # Per-table context for the post-loop GLOBAL greedy fill
+    # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): the refresh result (to mutate
+    # seats + append to_seat/idle changes) and the set of seat indices that
+    # were OPEN at this table's pre-burst start — the fill may only use seats
+    # open the whole refresh, not ones freshly vacated this tick.
+    fill_ctx: Dict[str, Tuple[RosterRefreshResult, frozenset]] = {}
     for table in tables:
         if table.human_seat_index() is not None:
             # Active session table; the hand-boundary hook handles it.
@@ -1166,127 +1444,21 @@ def refresh_unseated_tables(
                 prior = getattr(ctrl, '_detached_hands', 0)
                 ctrl._detached_hands = (prior + 1) if zone == 'detached' else 0
 
-            # Per-hand movement + fill. Each iteration sees the latest
-            # seat state (chips updated by play_one_hand) and rolls
-            # against the same pressure model used at seated tables.
-            # Closed-economy: fish are a casino-only player class —
-            # ALWAYS filter them out of the lobby's idle pool, even at
-            # casino-tier stakes. Casino spawn pulls fish via its own
-            # path (`PersonalityRepository.list_fish_for_cash_mode` →
-            # `_refill_one_fish`), never via lobby live-fill. See
-            # `docs/plans/CASH_MODE_FISH_AS_PERSONAS.md`.
-            if _fish_ids:
-                _table_idle_pool = [e for e in idle_pool if e.personality_id not in _fish_ids]
-            else:
-                _table_idle_pool = idle_pool
-
-            # Predator pull. Two flavors, both boost the live-fill
-            # probability so seats fill faster and reorder the idle pool so
-            # the predators we want are seated first:
-            #   • Casino tables: hungry grinders (bankroll < starting × 0.8,
-            #     comfort zone in {$2,$10}) — economic pressure to farm fish.
-            #   • Cardroom (lobby) tables with a whale: AIs who can AFFORD
-            #     the stake, richest first. A whale sits at $50/$200, so the
-            #     casino-tier hunger signal doesn't fit — affordability does.
-            #     "A fish seat at a lobby table" IS the whale (regular fish
-            #     are casino-only). See `resolve_whale_provisioning`.
-            _effective_live_fill_prob = live_fill_prob
-            if table.table_type == 'casino':
-                from cash_mode.closed_economy import list_hungry_grinders
-
-                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
-                _hungry_grinder_ids = list_hungry_grinders(
-                    bankroll_repo,
-                    sandbox_id=sandbox_id,
-                    now=now,
-                )
-                _hungry_set = set(_hungry_grinder_ids)
-                if _hungry_set:
-                    _hungry_entries = [
-                        e for e in _table_idle_pool if e.personality_id in _hungry_set
-                    ]
-                    _other_entries = [
-                        e for e in _table_idle_pool if e.personality_id not in _hungry_set
-                    ]
-                    # Sort hungry entries by the global hunger ranking
-                    # (most desperate first); ties broken by personality_id.
-                    _order_index = {pid: i for i, pid in enumerate(_hungry_grinder_ids)}
-                    _hungry_entries.sort(
-                        key=lambda e: _order_index.get(e.personality_id, 1_000_000)
-                    )
-                    _table_idle_pool = _hungry_entries + _other_entries
-            elif table.table_type == 'lobby' and any(
-                s.get('kind') == 'ai' and s.get('archetype') == 'fish' for s in table.seats
-            ):
-                from cash_mode.closed_economy import list_affordable_predators
-
-                _effective_live_fill_prob = min(1.0, live_fill_prob * 2.0)
-                _predator_ids = list_affordable_predators(
-                    bankroll_repo,
-                    sandbox_id=sandbox_id,
-                    min_buy_in=table_min_buy_in,
-                    now=now,
-                )
-                _predator_set = set(_predator_ids)
-                if _predator_set:
-                    _pred_entries = [
-                        e for e in _table_idle_pool if e.personality_id in _predator_set
-                    ]
-                    _other_entries = [
-                        e for e in _table_idle_pool if e.personality_id not in _predator_set
-                    ]
-                    # Sort by the affordability ranking (richest first);
-                    # ties broken by personality_id.
-                    _order_index = {pid: i for i, pid in enumerate(_predator_ids)}
-                    _pred_entries.sort(key=lambda e: _order_index.get(e.personality_id, 1_000_000))
-                    _table_idle_pool = _pred_entries + _other_entries
-
-            # Idle-recovery gate: project each idle candidate's energy forward
-            # through the rest it's had (now − left_at) toward its baseline, so
-            # the re-seat path can keep still-tired AIs resting and bring
-            # rested ones back. Energy lives in the blob for idle AIs; memoize
-            # per table-refresh to avoid re-reading it for every open seat.
-            _reseat_left_at = {e.personality_id: e.left_at for e in _table_idle_pool}
-            _reseat_energy_memo: Dict[str, float] = {}
-
-            def _reseat_energy_lookup(
-                pid: str, _la=_reseat_left_at, _memo=_reseat_energy_memo
-            ) -> float:
-                import json as _json
-
-                if pid in _memo:
-                    return _memo[pid]
-                stored = baseline = 0.5
-                if bankroll_repo is not None:
-                    try:
-                        blob = bankroll_repo.load_emotional_state_json(pid, sandbox_id=sandbox_id)
-                        if blob:
-                            state = _json.loads(blob)
-                            stored = float(state.get("axes", {}).get("energy", 0.5))
-                            baseline = float(
-                                state.get("anchors", {}).get("baseline_energy", stored)
-                            )
-                    except Exception:
-                        stored = baseline = 0.5
-                la = _la.get(pid)
-                if la is None:
-                    projected = stored
-                else:
-                    try:
-                        idle_seconds = max(0.0, (now - la).total_seconds())
-                    except Exception:
-                        idle_seconds = 0.0
-                    projected = project_idle_energy(stored, baseline, idle_seconds)
-                # Recovery fraction toward baseline (1.0 = fully rested); the
-                # re-seat gate is relative so low-baseline AIs aren't stranded.
-                frac = 1.0 if baseline <= 0 else min(1.0, projected / baseline)
-                _memo[pid] = frac
-                return frac
-
+            # Per-hand MOVEMENT only (Step 1). Live-fill (Step 2) is now a
+            # single GLOBAL greedy pass after this loop
+            # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2), so the old per-table
+            # fill prep — fish-filtered idle pool, casino/whale ×2 boost +
+            # hungry/predator reorders, and the idle-recovery memo — is gone:
+            # `_process_global_greedy_fills` subsumes them via
+            # `attractiveness` + `hunger` + `W_CROWD` + the seek-rate and its
+            # own cooldown/recovery gates.
             per_hand = refresh_table_roster(
                 table,
-                idle_pool=_table_idle_pool,
-                eligible_candidates=eligible,
+                # Fill is global now (enable_live_fill=False) — idle/eligible
+                # pools feed the post-loop greedy pass, not Step 2 here.
+                idle_pool=[],
+                eligible_candidates=[],
+                enable_live_fill=False,
                 seated_globally=seated_globally,
                 bankroll_lookup=_bankroll_lookup,
                 buy_in_lookup=_buy_in_for,
@@ -1296,10 +1468,7 @@ def refresh_unseated_tables(
                 table_min_buy_in=table_min_buy_in,
                 table_max_buy_in=table_max_buy_in,
                 next_tier_min_buy_in=next_tier_min_buy_in,
-                live_fill_prob=_effective_live_fill_prob,
-                defer_freshly_vacated_live_fill=True,
                 psych_lookup=_psych_lookup_sim,
-                energy_lookup=_reseat_energy_lookup,
                 # Phase 4: intercept forced_leave with take_stake when
                 # peer AIs are willing to fund the busting borrower.
                 # Wired only when callers pass relationship_repo and
@@ -1351,15 +1520,10 @@ def refresh_unseated_tables(
             agg_decisions.update(per_hand.decisions)
             agg_idle_changes.extend(per_hand.idle_changes)
             agg_bankroll_changes.extend(per_hand.bankroll_changes)
+            # Step 1 never live-fills (enable_live_fill=False), so
+            # freshly_seated is empty here — the global greedy pass below
+            # owns fills and the reseat-recovery persistence for them.
             agg_freshly_seated.extend(per_hand.freshly_seated_personality_ids)
-            # Persist recovered energy for AIs that just returned from the idle
-            # pool, so their rebuilt controller starts rested (the gate already
-            # ensured they recovered past the floor before re-seating).
-            for _pid in per_hand.freshly_seated_personality_ids:
-                if _pid in _reseat_left_at:
-                    _persist_reseat_recovery(
-                        bankroll_repo, _pid, sandbox_id, _reseat_energy_lookup(_pid)
-                    )
             agg_rebuy_changes.extend(per_hand.rebuy_changes)
             agg_stake_creations.extend(per_hand.stake_creations)
             agg_leave_signals.update(per_hand.leave_signals)
@@ -1851,6 +2015,32 @@ def refresh_unseated_tables(
         idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
 
         out[table.table_id] = result
+        # Record pre-burst open seats so the global fill won't re-fill a
+        # seat that was vacated during THIS refresh (defer-freshly-vacated).
+        _preburst_open = frozenset(
+            i for i, s in enumerate(previous_table_snapshot.seats) if s.get("kind") == "open"
+        )
+        fill_ctx[result.new_table.table_id] = (result, _preburst_open)
+
+    # --- GLOBAL greedy fill (the loop inversion, spec §2) ---
+    # Step 1 above ran movement only; now seat idle/eligible AIs across ALL
+    # tables at once, each picking its most attractive affordable open table.
+    _process_global_greedy_fills(
+        fill_ctx=fill_ctx,
+        idle_pool=idle_pool,
+        eligible=eligible,
+        seated_globally=seated_globally,
+        fish_ids=_fish_ids,
+        bankroll_lookup=_bankroll_lookup,
+        bankroll_repo=bankroll_repo,
+        cash_table_repo=cash_table_repo,
+        chip_ledger_repo=chip_ledger_repo,
+        personality_repo=personality_repo,
+        sandbox_id=sandbox_id,
+        now=now,
+        rng=rng,
+        seek_rate=seek_rate,
+    )
 
     # Emit the last-stand predator signal for AIs newly committed since
     # the previous refresh. Dedup keeps a steadily-committed seat from

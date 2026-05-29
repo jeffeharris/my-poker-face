@@ -38,8 +38,8 @@ const CustomGameConfig = lazy(() =>
 const CareerStats = lazy(() =>
   import('./components/stats/CareerStats').then((m) => ({ default: m.CareerStats }))
 );
-const ProfilePage = lazy(() =>
-  import('./components/profile/ProfilePage').then((m) => ({ default: m.ProfilePage }))
+const SettingsPage = lazy(() =>
+  import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
 const InstallPrompt = lazy(() =>
   import('./components/pwa/InstallPrompt').then((m) => ({ default: m.InstallPrompt }))
@@ -76,9 +76,10 @@ const ROUTE_TITLES: Record<string, string> = {
   '/game/new/custom': 'Custom Game - My Poker Face',
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
-  '/cash': 'Career - My Poker Face',
+  '/cash': 'The Circuit - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
-  '/profile': 'Your Profile - My Poker Face',
+  '/settings': 'Settings - My Poker Face',
+  '/profile': 'Settings - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
   '/privacy': 'Privacy Policy - My Poker Face',
   '/terms': 'Terms of Service - My Poker Face',
@@ -549,13 +550,15 @@ function App() {
             />
 
             <Route
-              path="/profile"
+              path="/settings"
               element={
                 <ProtectedRoute>
-                  <ProfilePage onBack={() => navigate('/menu')} />
+                  <SettingsPage onBack={() => navigate('/menu')} />
                 </ProtectedRoute>
               }
             />
+            {/* Profile moved under Settings — keep the old path working. */}
+            <Route path="/profile" element={<Navigate to="/settings" replace />} />
 
             <Route
               path="/admin/*"

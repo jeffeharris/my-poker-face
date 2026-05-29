@@ -82,6 +82,8 @@ def get_profile():
             'success': True,
             'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
             'bio': extensions.user_prefs_repo.get_bio(user_id),
+            'game_speed': extensions.user_prefs_repo.get_game_speed(user_id),
+            'coach_default_mode': extensions.user_prefs_repo.get_coach_default_mode(user_id),
         }
     )
 
@@ -102,6 +104,37 @@ def set_bio():
 
     stored = extensions.user_prefs_repo.set_bio(g.profile_user['id'], bio)
     return jsonify({'success': True, 'bio': stored})
+
+
+@profile_bp.route('/api/profile/game-speed', methods=['PUT'])
+@_auth_required
+def set_game_speed():
+    """Set game speed: 'standard' / 'after_fold' / 'always' (sticky per-user).
+
+    'after_fold' fast-forwards the orbit once the human folds; 'always' fast-
+    forwards every AI turn. Fast-forward = no-LLM tiered decisions (no AI table
+    talk). See game_handler's _resolve_game_speed / handle_ai_action.
+    """
+    data = request.get_json(silent=True) or {}
+    speed = data.get('speed')
+    try:
+        stored = extensions.user_prefs_repo.set_game_speed(g.profile_user['id'], speed)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'game_speed': stored})
+
+
+@profile_bp.route('/api/profile/coach-default', methods=['PUT'])
+@_auth_required
+def set_coach_default_mode():
+    """Set the default coaching mode new games start in (off/reactive/proactive)."""
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode')
+    try:
+        stored = extensions.user_prefs_repo.set_coach_default_mode(g.profile_user['id'], mode)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'coach_default_mode': stored})
 
 
 @profile_bp.route('/api/profile/avatar/upload', methods=['POST'])

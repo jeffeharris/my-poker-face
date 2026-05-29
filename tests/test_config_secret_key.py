@@ -7,6 +7,25 @@ from unittest import mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _restore_config_after_reload():
+    """Reload flask_app.config back to the ambient (container) env after each test.
+
+    These tests `importlib.reload(flask_app.config)` under synthetic envs
+    (e.g. FLASK_ENV=production), which mutates the shared module in place — and
+    its constants derived from `is_development` (`CSRF_PROTECTION_ENABLED`,
+    `SOCKETIO_ASYNC_MODE`, `SECRET_KEY`) would otherwise leak into any other test
+    sharing this xdist worker (a route test would then hit the CSRF gate and 403
+    with `CSRF_FAILED`). Reloading under the real environment on teardown
+    restores the dev defaults.
+    """
+    yield
+    import flask_app.config as config_module
+
+    with mock.patch('dotenv.load_dotenv'):
+        importlib.reload(config_module)
+
+
 def _reload_config(env_overrides: dict):
     """Reload flask_app.config with the given environment variables.
 

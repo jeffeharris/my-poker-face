@@ -49,10 +49,19 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         with patch('flask_app.extensions.init_persistence', mock_init_persistence):
             self.app = create_app()
         self.app.testing = True
-        # The shared limiter accumulates state across tests in the suite;
-        # disable it here so the duplicate-name validation actually runs
-        # rather than 429-ing on the third invocation in a row.
-        self.app.config['RATELIMIT_ENABLED'] = False
+        # The rate limiter is a single module-global bound across every
+        # create_app(), and PRH-41 keys authenticated users per-id — so neither
+        # flipping RATELIMIT_ENABLED here nor a unique REMOTE_ADDR escapes the
+        # `user:test-user-1` bucket that sibling suites in the run already
+        # filled (→ 429 instead of the 400 we're asserting). Reset the shared
+        # storage so each test starts with an empty quota.
+        from flask_app.extensions import limiter
+
+        with self.app.app_context():
+            try:
+                limiter.reset()
+            except Exception:
+                pass
         self.client = self.app.test_client()
 
         # Patch game_routes module-level repo globals to this test's fresh repos.

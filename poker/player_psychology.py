@@ -389,6 +389,30 @@ class PlayerPsychology:
             return 'energized'
         return 'stoic'
 
+    # Flattery rides a different axis than teasing. Vanity (ego) makes
+    # flattery land even when transparent; opponent-reading (adaptation_bias)
+    # catches the ploy. Validated against the roster: proud -> vain (flattered),
+    # perceptive readers -> sees_through, the rest -> unmoved.
+    _FLATTERY_VAIN_EGO_FLOOR = 0.60
+    _FLATTERY_PERCEPTIVE_ADAPT_FLOOR = 0.50
+
+    def _classify_flattery_disposition(self) -> str:
+        """Map this character's anchors to how it takes flattery (insincere or
+        over-the-top praise).
+
+        Returns 'vain' | 'sees_through' | 'unmoved'. Independent of the
+        jab/praise disposition — the same character can be stung by a needle
+        yet eat up flattery (high ego), or shrug a needle yet resent a
+        transparent buttering-up (high adaptation_bias). Vanity is checked
+        first: a proud reader still wants to believe the praise.
+        """
+        a = self.anchors
+        if a.ego >= self._FLATTERY_VAIN_EGO_FLOOR:
+            return 'vain'
+        if a.adaptation_bias >= self._FLATTERY_PERCEPTIVE_ADAPT_FLOOR:
+            return 'sees_through'
+        return 'unmoved'
+
     def react_to_social_stimulus(
         self,
         stimulus: str,
@@ -400,21 +424,31 @@ class PlayerPsychology:
         `stimulus` is a coarse category, deliberately decoupled from the
         relationship layer's event vocabulary so this module stays free of
         memory-layer imports:
-          - 'jab'    : hostile needle / trash talk / taunt
-          - 'praise' : compliment / friendly banter
+          - 'jab'     : hostile needle / trash talk / taunt
+          - 'praise'  : sincere compliment / friendly banter
+          - 'flatter' : insincere / over-the-top praise (valence flips by vanity)
 
         The character's disposition (from its anchors) selects which pressure
         event fires, producing the valence split: the same jab stings a proud
-        hothead, fires up a charmer, and barely grazes a sage. Unknown stimuli
-        are a no-op.
+        hothead, fires up a charmer, and barely grazes a sage; flattery is
+        lapped up by the vain and seen through by the perceptive. Unknown
+        stimuli (and 'unmoved' flattery dispositions) are a no-op.
         """
-        disposition = self._classify_social_disposition()
         if stimulus == 'jab':
-            event_name = f'social_jab_{disposition}'
+            event_name = f'social_jab_{self._classify_social_disposition()}'
         elif stimulus == 'praise':
             # Anyone who'd react to a jab also warms to praise; the truly
             # detached ('stoic') just notes it.
+            disposition = self._classify_social_disposition()
             event_name = 'social_praise_stoic' if disposition == 'stoic' else 'social_praise_warmed'
+        elif stimulus == 'flatter':
+            vanity = self._classify_flattery_disposition()
+            if vanity == 'vain':
+                event_name = 'social_flattery_vain'
+            elif vanity == 'sees_through':
+                event_name = 'social_flattery_seen_through'
+            else:
+                return  # unmoved — flattery washes over them
         else:
             return
         self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)
@@ -489,6 +523,11 @@ class PlayerPsychology:
             'social_jab_stoic': {'composure': -0.02},
             'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
             'social_praise_stoic': {'energy': 0.02},
+            # Flattery (insincere/excessive praise). Valence flips by vanity:
+            # the vain eat it up (confidence/energy), the perceptive catch the
+            # ploy and bristle (composure dip). 'unmoved' never fires an event.
+            'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
+            'social_flattery_seen_through': {'composure': -0.03},
         }
 
         return pressure_events.get(event_name, {})
@@ -698,6 +737,59 @@ class PlayerPsychology:
             f"Quadrant={self.quadrant.value}, "
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}"
         )
+
+    def update_composure_only(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        was_bad_beat: bool = False,
+        was_bluff_called: bool = False,
+        big_blind: int = 100,
+    ) -> None:
+        """Synchronous half of on_hand_complete: composure + axes only, no LLM.
+
+        Split out so the post-hand pipeline can update the play-affecting state
+        (composure → zone effects → bounded-options window shift) inline while
+        deferring the slower emotional narration (prose only) to a background
+        task. See generate_narration and PsychologyPipeline._update_composure.
+        """
+        self.composure_state = self.composure_state.update_from_hand(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            was_bad_beat=was_bad_beat,
+            was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
+        )
+        self.hand_count += 1
+        self._mark_updated()
+
+    def generate_narration(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        key_moment: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+        big_blind: int = 100,
+    ) -> None:
+        """Async half of on_hand_complete: the LLM emotional narration only.
+
+        Produces narrative / inner_voice for the next decision prompt (chaos /
+        hybrid) and the heads-up opponent panel. Assumes composure was already
+        advanced via update_composure_only this hand, so it does NOT touch
+        composure or hand_count.
+        """
+        self._generate_emotional_state(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            key_moment=key_moment,
+            session_context=session_context or {},
+            big_blind=big_blind,
+        )
+        self._mark_updated()
 
     def recover(self, recovery_rate: Optional[float] = None) -> Dict[str, Any]:
         """

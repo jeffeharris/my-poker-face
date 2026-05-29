@@ -259,6 +259,8 @@ def _run_one_hand(
     mode='off',
     h1_streets=None,
     overbet=False,
+    disable_rules=None,
+    hero_spot_tendencies=None,
 ):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
@@ -278,6 +280,17 @@ def _run_one_hand(
     sm.current_hand_seed = hand_seed
     controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
     controllers[0].opponent_model_manager = None
+    # Per-arm rule ablation (mirrors the per-arm hero/mode/overbet flags): toggle
+    # a (layer, rule_id) on the hero so the gate can A/B a single layer-rule (e.g.
+    # a spot tendency) on the SAME chart. Empty = nothing disabled.
+    controllers[0].disable_rules = disable_rules or frozenset()
+    # Configure spot tendencies on the hero WITHOUT editing a deviation profile
+    # in source (the "carrier" hack): set the explicit override the controller's
+    # deviation_profile property merges. Same config on both arms; --a/--b-disable
+    # toggles the rule per arm so the paired delta isolates one tendency.
+    if hero_spot_tendencies:
+        controllers[0]._spot_tendencies_override = hero_spot_tendencies
+        controllers[0]._spot_tendencies_resolved = True
     _apply_mode(controllers[0], mode)
     controllers[0].multistreet_h1_classes = None
     controllers[0].multistreet_h1_streets = h1_streets
@@ -330,6 +343,9 @@ def _run_seed(args):
         adaptive_opp,
         a_hero,
         b_hero,
+        a_disable,
+        b_disable,
+        hero_spot,
     ) = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
@@ -376,6 +392,8 @@ def _run_seed(args):
             a_mode,
             h1_streets,
             a_overbet,
+            a_disable,
+            hero_spot,
         )
         db, tb = _run_one_hand(
             hero_name,
@@ -390,6 +408,8 @@ def _run_seed(args):
             b_mode,
             h1_streets,
             b_overbet,
+            b_disable,
+            hero_spot,
         )
         paired = db - da
         div = _first_divergence(ta, tb)
@@ -411,6 +431,38 @@ def _merge(into, src):
 
 def _bb(chips):
     return 100.0 * (chips / BIG_BLIND)
+
+
+def _parse_disables(spec):
+    """Parse 'layer:rule,layer:rule' into a frozenset of (layer, rule_id) tuples."""
+    if not spec:
+        return frozenset()
+    out = set()
+    for tok in spec.split(','):
+        tok = tok.strip()
+        if not tok:
+            continue
+        layer, _, rule = tok.partition(':')
+        out.add((layer.strip(), (rule.strip() or 'default')))
+    return frozenset(out)
+
+
+def _parse_hero_spot(spec):
+    """Parse 'name:strength,name:strength' into a ((name, strength), ...) tuple.
+
+    Configures spot tendencies on the hero without editing a deviation profile in
+    source. Requires a non-Baseline --hero (Baseline skips personality distortion,
+    so the spot layer never runs). Strength defaults to 1.0 if omitted."""
+    if not spec:
+        return None
+    out = []
+    for tok in spec.split(','):
+        tok = tok.strip()
+        if not tok:
+            continue
+        name, _, strength = tok.partition(':')
+        out.append((name.strip(), float(strength) if strength.strip() else 1.0))
+    return tuple(out) if out else None
 
 
 def main():
@@ -482,6 +534,28 @@ def main():
     )
     p.add_argument('--b-hero', default=None, help="hero ARCHETYPE for arm B (default = --hero).")
     p.add_argument(
+        '--a-disable',
+        default=None,
+        help="ablate rules on arm A's hero: comma-separated 'layer:rule_id' "
+        "(e.g. 'spot_tendencies:slowplay'). Price one layer-rule by disabling "
+        "it on arm A and leaving arm B on. Control: same value on both arms = "
+        "100%% NO_DIVERGENCE.",
+    )
+    p.add_argument(
+        '--b-disable',
+        default=None,
+        help="ablate rules on arm B's hero (same format as --a-disable).",
+    )
+    p.add_argument(
+        '--hero-spot-tendency',
+        default=None,
+        help="configure spot tendencies on the hero (BOTH arms) without editing a "
+        "deviation profile in source: comma-separated 'name:strength' (e.g. "
+        "'give_up_turn:0.8' or 'fit_or_fold:0.8,auto_cbet:0.8'). Price one by "
+        "pairing with --a-disable spot_tendencies:<name> (OFF) vs ON. Requires a "
+        "non-Baseline --hero (e.g. TAG); Baseline skips the personality layer.",
+    )
+    p.add_argument(
         '--adaptive-opp',
         action='store_true',
         help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
@@ -498,6 +572,9 @@ def main():
         if args.h1_streets == 'all'
         else frozenset(s.strip().upper() for s in args.h1_streets.split(','))
     )
+    a_disable = _parse_disables(args.a_disable)
+    b_disable = _parse_disables(args.b_disable)
+    hero_spot = _parse_hero_spot(args.hero_spot_tendency)
     work = [
         (
             args.roster,
@@ -516,6 +593,9 @@ def main():
             args.adaptive_opp,
             args.a_hero,
             args.b_hero,
+            a_disable,
+            b_disable,
+            hero_spot,
         )
         for s in seeds
     ]
@@ -543,9 +623,16 @@ def main():
     if args.overbet_b:
         b_label += "+overbet"
     roster_label = f"{args.roster}{'+oracle' if args.adaptive_opp else ''}"
+    if args.hero_spot_tendency:
+        a_label += f" spot[{args.hero_spot_tendency}]"
+        b_label += f" spot[{args.hero_spot_tendency}]"
     if args.a_hero or args.b_hero:
         a_label = f"hero={args.a_hero or args.hero}"
         b_label = f"hero={args.b_hero or args.hero}"
+    if args.a_disable:
+        a_label += f" -[{args.a_disable}]"
+    if args.b_disable:
+        b_label += f" -[{args.b_disable}]"
     print(
         f"\n=== PER-NODE ATTRIBUTION: B={b_label} vs A={a_label} | roster={roster_label}"
         f"{' HU' if args.heads_up else ''} | stack={args.stack_bb}bb | "

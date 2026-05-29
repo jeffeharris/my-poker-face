@@ -520,7 +520,7 @@ export function Lobby() {
     <>
       <MenuBar
         onBack={() => navigate('/menu')}
-        title="Career"
+        title="The Circuit"
         showUserInfo
         onMainMenu={() => navigate('/menu')}
         onAdminTools={() => navigate('/admin')}

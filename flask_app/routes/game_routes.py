@@ -50,9 +50,11 @@ from ..game_adapter import StateMachineAdapter
 from ..handlers.avatar_handler import start_background_avatar_generation
 from ..handlers.chat_relationship import dispatch_chat_relationship_event
 from ..handlers.game_handler import (
+    maybe_engage_fast_forward_on_fold,
     progress_game,
     recover_stuck_runout,
     restore_ai_controllers,
+    stamp_coach_default_mode,
     update_and_emit_game_state,
 )
 from ..handlers.message_handler import (
@@ -1802,6 +1804,8 @@ def api_new_game():
     )
     extensions.game_repo.save_tournament_tracker(game_id, tournament_tracker)
     extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    # New games adopt the owner's default coaching mode (sticky cross-device pref).
+    stamp_coach_default_mode(game_id, owner_id)
     if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names, owner_id=owner_id)
 
@@ -1915,6 +1919,11 @@ def api_player_action(game_id):
             extensions.game_repo.save_opponent_models(
                 game_id, current_game_data['memory_manager'].get_opponent_model_manager()
             )
+
+        # If the human just folded and opted into "speed through after I fold",
+        # fast-forward the rest of the orbit before progressing.
+        if current_player.is_human:
+            maybe_engage_fast_forward_on_fold(game_id, action)
 
         progress_game(game_id)
 
@@ -2400,6 +2409,10 @@ def register_socket_events(sio):
             extensions.game_repo.save_opponent_models(
                 game_id, current_game_data['memory_manager'].get_opponent_model_manager()
             )
+
+        # Human opted into "speed through after I fold" — fast-forward the orbit.
+        if current_player.is_human:
+            maybe_engage_fast_forward_on_fold(game_id, action)
 
         update_and_emit_game_state(game_id)
         progress_game(game_id)

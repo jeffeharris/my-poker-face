@@ -39,7 +39,7 @@ from poker.poker_state_machine import PokerPhase
 from poker.psychology_pipeline import PsychologyContext, PsychologyPipeline
 from poker.rule_based_controller import RuleBasedController, RuleConfig
 from poker.rule_bot_controller import RuleBotController
-from poker.runout_reactions import compute_runout_reactions
+from poker.runout_reactions import compute_runout_reactions, runout_schedule_payload
 
 from .. import config
 from ..extensions import (
@@ -57,7 +57,7 @@ from ..extensions import (
 from ..services import game_state_service
 from ..services.ai_debug_service import get_all_players_llm_stats
 from ..services.elasticity_service import format_elasticity_data
-from .avatar_handler import get_avatar_url_with_fallback
+from .avatar_handler import get_avatar_url_with_fallback, start_single_emotion_generation
 from .message_handler import (
     format_action_message,
     format_messages_for_api,
@@ -223,7 +223,14 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
-    """Emit avatar update for a run-out reaction."""
+    """Emit avatar update for a run-out reaction.
+
+    `is_reaction` marks this as an authoritative emotion change (a run-out
+    reaction the player should see *now*), distinct from a late-arriving
+    generated avatar image. The frontend applies the emotion immediately for
+    reactions but must not clobber the displayed emotion for generation
+    arrivals — see the `avatar_update` handler in usePokerGame.ts.
+    """
     avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
     socketio.emit(
         'avatar_update',
@@ -231,6 +238,7 @@ def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
             'player_name': player_name,
             'avatar_url': avatar_url,
             'avatar_emotion': emotion,
+            'is_reaction': True,
         },
         to=game_id,
     )
@@ -787,6 +795,11 @@ def update_and_emit_game_state(game_id: str) -> None:
     # with chat off, or pure rule bots). When true there's no deliberation to
     # skip, so the UI hides the fast-forward button.
     game_state_dict['ai_instant'] = _all_ai_no_llm(current_game_data.get('ai_controllers') or {})
+
+    # Always-fast-forward: the owner set game speed to 'always', so every AI turn
+    # resolves via the no-LLM path. Like ai_instant, this lets the UI hide the
+    # (now permanently-on) fast-forward button.
+    game_state_dict['always_fast_forward'] = _resolve_game_speed(current_game_data) == 'always'
 
     socketio.emit('update_game_state', {'game_state': game_state_dict}, to=game_id)
 
@@ -2667,6 +2680,35 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     return True
 
 
+def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
+    """Generate deferred emotional narration off the inter-hand critical path.
+
+    The post-hand psychology pipeline updates composure synchronously (it
+    affects play) and hands us the narration jobs for players who actually
+    consume the prose — the LLM table-talk bots, or any bot in heads-up (whose
+    narrative/inner_voice the opponent panel displays). Running the LLM calls
+    here keeps them off the next-hand gate; the prose lands in memory and the
+    next state emit carries it to the heads-up panel. We persist it ourselves
+    since the synchronous emotional-state save was removed with the deferral.
+    """
+    ai_controllers = game_data.get('ai_controllers', {})
+    for req in pending:
+        controller = ai_controllers.get(req.player_name)
+        if controller is None or getattr(controller, 'psychology', None) is None:
+            continue
+        try:
+            controller.psychology.generate_narration(**req.kwargs)
+            if controller.psychology.emotional:
+                game_repo.save_emotional_state(
+                    game_id, req.player_name, controller.psychology.emotional
+                )
+        except Exception as e:
+            logger.warning(
+                f"[Game {game_id}] Async narration failed for {req.player_name}: {e}",
+                exc_info=True,
+            )
+
+
 def _run_async_commentary(
     game_id: str, game_data: dict, completion_event: threading.Event = None
 ) -> None:
@@ -2989,6 +3031,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_repo=game_repo,
             hand_history_repo=hand_history_repo_for_pipeline,
             enable_emotional_narration=True,
+            # Composure updates inline (it affects play); the emotional narration
+            # LLM calls are returned as pending jobs and run in a background task
+            # so they don't gate the next hand. See _run_async_narration.
+            defer_narration=True,
             persist_controller_state=False,  # game handler saves per-decision instead
         )
 
@@ -3028,22 +3074,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         psych_result = pipeline.process_hand(psych_ctx, on_events_resolved=_on_events_resolved)
         game_data['short_stack_players'] = psych_result.current_short_stack
 
-        # Save emotional states (since persist_controller_state=False skips full save)
-        for player_name, controller in ai_controllers.items():
-            try:
-                if (
-                    hasattr(controller, 'psychology')
-                    and controller.psychology
-                    and controller.psychology.emotional
-                ):
-                    game_repo.save_emotional_state(
-                        game_id, player_name, controller.psychology.emotional
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[Game {game_id}] Failed to save emotional state for {player_name}: {e}",
-                    exc_info=True,
-                )
+        # Emotional narration (prose) is deferred off the inter-hand critical
+        # path: composure already updated synchronously above; the LLM calls run
+        # in the background (concurrent with commentary) and persist the prose
+        # themselves. Only the consumers (chaos/hybrid, or any bot in heads-up)
+        # produce pending jobs — see PsychologyPipeline._update_composure.
+        if psych_result.pending_narrations:
+            socketio.start_background_task(
+                _run_async_narration, game_id, game_data, psych_result.pending_narrations
+            )
 
     # Start async commentary (genuinely slow — multiple LLM calls)
     commentary_complete = threading.Event()
@@ -3475,24 +3514,49 @@ def progress_game(game_id: str) -> None:
                     )
                     current_game_data['runout_reaction_schedule'] = reaction_schedule
 
-                    # Emit initial reactions based on equity at moment of reveal
-                    # Build current emotions so we can skip no-ops
-                    ai_controllers = current_game_data.get('ai_controllers', {})
-                    current_emotions = {
-                        name: ctrl.psychology.get_display_emotion()
-                        for name, ctrl in ai_controllers.items()
-                    }
-                    overrides = {}
-                    for reaction in reaction_schedule.reactions_by_phase.get('INITIAL', []):
-                        if reaction.emotion == current_emotions.get(reaction.player_name):
-                            continue  # Already showing this emotion
-                        overrides[reaction.player_name] = reaction.emotion
-                        _emit_avatar_reaction(game_id, reaction.player_name, reaction.emotion)
-                    current_game_data['runout_emotion_overrides'] = overrides
+                    # Emit the per-card schedule once, for the mobile run-out
+                    # director (Phase 2). Carries reactions + per-card timing
+                    # only — no board cards — so future-street cards never reach
+                    # the client ahead of reveal. The director reads each
+                    # street's faces from the per-street state push it already
+                    # gets. Desktop ignores this event and stays on the
+                    # backend-paced per-street emits below (one backend path,
+                    # no mobile/desktop branching). Emitted alongside the reveal
+                    # so the client has the timeline before the board moves.
+                    if reaction_schedule.steps:
+                        socketio.emit(
+                            'runout_schedule',
+                            runout_schedule_payload(reaction_schedule),
+                            to=game_id,
+                        )
+                        # Pre-warm every emotion image the schedule will use, now,
+                        # at the reveal — generation takes ~5-7s, and the whole
+                        # run-out plays over a similar window, so an emotion first
+                        # requested at its beat (the old on-demand path) only
+                        # finishes after that beat has passed (it then pops in on
+                        # the winner screen). Firing here gives each the maximum
+                        # head start. Thread-safe + skips already-cached/in-flight
+                        # emotions, so this is a cheap fire-and-forget.
+                        prewarmed = {
+                            (r.player_name, r.emotion)
+                            for step in reaction_schedule.steps
+                            for r in step.reactions
+                        }
+                        for player_name, emotion in prewarmed:
+                            start_single_emotion_generation(game_id, player_name, emotion)
+
+                    # The INITIAL (hole-card) reactions are the players' read on
+                    # the matchup. We deliberately do NOT emit them here, at the
+                    # same instant as the reveal — they land as their own beat
+                    # AFTER the cards have settled (the PRE_FLOP per-street emit
+                    # below maps to the INITIAL schedule). Start with no overrides
+                    # so the reveal cascade plays on its own first.
+                    current_game_data['runout_emotion_overrides'] = {}
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Extra pause for players to see the cards
-                    delay = 4 * config.ANIMATION_SPEED
+                    # Brief pause for players to register the all-in matchup
+                    # before the board runs out (see config.RUNOUT_REVEAL_HOLD).
+                    delay = config.RUNOUT_REVEAL_HOLD * config.ANIMATION_SPEED
                     if delay > 0:
                         _ff_aware_sleep(game_id, delay)
 
@@ -3500,7 +3564,17 @@ def progress_game(game_id: str) -> None:
                 # then hold so the player can absorb before next street.
                 # Flop (3 cards): ~2.825s animation (2s stagger + 0.825s)
                 # Turn/River (1 card): ~0.825s animation
-                animation_sleep = 3 if current_phase == PokerPhase.FLOP else 1
+                # PRE_FLOP is the reveal step — no community card is dealt, so
+                # there's no animation to wait for. Skipping it removes a dead
+                # ~1s before the board ran out; the reveal cascade already plays
+                # during RUNOUT_REVEAL_HOLD above, and the reaction_hold below
+                # now shows the preflop (INITIAL) reactions.
+                if current_phase == PokerPhase.FLOP:
+                    animation_sleep = 3
+                elif current_phase in (PokerPhase.TURN, PokerPhase.RIVER):
+                    animation_sleep = 1
+                else:
+                    animation_sleep = 0
                 reaction_hold = 1.5
                 delay = animation_sleep * config.ANIMATION_SPEED
                 if delay > 0:
@@ -3514,7 +3588,12 @@ def progress_game(game_id: str) -> None:
                 # Emit pre-computed avatar reactions for this street
                 reaction_schedule = current_game_data.get('runout_reaction_schedule')
                 if reaction_schedule:
-                    phase_name = current_phase.name
+                    # The PRE_FLOP reveal step shows the INITIAL (hole-card)
+                    # reactions — the players' read on the matchup — now as their
+                    # own beat, after the reveal has settled.
+                    phase_name = (
+                        'INITIAL' if current_phase == PokerPhase.PRE_FLOP else current_phase.name
+                    )
                     overrides = current_game_data.get('runout_emotion_overrides', {})
                     for reaction in reaction_schedule.reactions_by_phase.get(phase_name, []):
                         current = overrides.get(reaction.player_name)
@@ -3744,6 +3823,73 @@ def _resolve_human_bio(current_game_data: dict) -> str:
     return bio
 
 
+def _resolve_game_speed(current_game_data: dict) -> str:
+    """Resolve the owner's game-speed preference, cached per game.
+
+    'standard' / 'after_fold' / 'always'. Read once per game (lazily) — it's a
+    set-and-forget user preference, so a mid-game change not taking effect until
+    the game reloads is acceptable, and this avoids a DB hit on every AI turn.
+    Mirrors `_resolve_human_bio`.
+    """
+    if 'game_speed' in current_game_data:
+        return current_game_data['game_speed']
+    owner_id = current_game_data.get('owner_id')
+    if not owner_id:
+        current_game_data['game_speed'] = 'standard'
+        return 'standard'
+    try:
+        from ..extensions import user_prefs_repo
+
+        value = user_prefs_repo.get_game_speed(owner_id) if user_prefs_repo else 'standard'
+    except Exception as e:
+        # Don't cache on failure — retry on the next turn.
+        logger.debug(f"Could not resolve game_speed for {owner_id}: {e}")
+        return 'standard'
+    current_game_data['game_speed'] = value
+    return value
+
+
+def maybe_engage_fast_forward_on_fold(game_id: str, action: str) -> None:
+    """If the human just folded and their speed is 'after_fold', fast-forward.
+
+    Sets the one-orbit `fast_forward` flag so `handle_ai_action` swaps the
+    remaining AIs to no-LLM tiered controllers; it auto-clears when action
+    returns to the human next hand. ('always' doesn't need this — handle_ai_action
+    fast-forwards every turn on its own.) Call after applying the human's action,
+    before progress_game.
+    """
+    if action != 'fold':
+        return
+    current_game_data = game_state_service.get_game(game_id)
+    if not current_game_data or current_game_data.get('fast_forward'):
+        return
+    if _resolve_game_speed(current_game_data) == 'after_fold':
+        current_game_data['fast_forward'] = True
+        game_state_service.set_game(game_id, current_game_data)
+        logger.info(f"[FF] game={game_id} fast-forward engaged after human fold")
+
+
+def stamp_coach_default_mode(game_id: str, owner_id: Optional[str]) -> None:
+    """Seed a new game's coach mode from the owner's default preference.
+
+    The user's "default coaching mode" is a sticky per-user pref; applying it to
+    each new game at creation is what makes it carry across devices (the games
+    table is the source of truth the in-game coach reads). The in-game coach
+    panel still overrides per game. No-op for guests, or when the default is the
+    column default ('off') so we don't write redundantly.
+    """
+    if not owner_id:
+        return
+    try:
+        from ..extensions import user_prefs_repo
+
+        mode = user_prefs_repo.get_coach_default_mode(owner_id) if user_prefs_repo else 'off'
+        if mode and mode != 'off':
+            game_repo.save_coach_mode(game_id, mode)
+    except Exception as e:
+        logger.debug(f"[Coach] failed to stamp default mode for game {game_id}: {e}")
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3760,11 +3906,11 @@ def handle_ai_action(game_id: str) -> None:
     logger.debug(f"[AI_ACTION] Current AI player: {current_player.name}")
 
     # Fast-forward dispatch: swap to a tiered controller (solver + personality,
-    # no LLM expression) so the rest of the orbit resolves quickly. The flag
-    # auto-resets in progress_game once action returns to the human. Per-game
-    # FF controllers are cached in `ff_controllers` to avoid rebuilding the
-    # strategy tables on every decision.
-    if current_game_data.get('fast_forward'):
+    # no LLM expression) so the turn resolves quickly. Engaged by the one-orbit
+    # `fast_forward` flag (manual FF button / after-fold trigger) OR permanently
+    # when the owner's game speed is 'always'. Per-game FF controllers are
+    # cached in `ff_controllers` to avoid rebuilding the strategy tables.
+    if current_game_data.get('fast_forward') or _resolve_game_speed(current_game_data) == 'always':
         controller = _get_or_build_ff_controller(
             current_game_data,
             current_player.name,

@@ -623,6 +623,15 @@ def summarize_messages(messages: List[Dict[str, str]], name: str) -> str:
 
 
 class AIPlayerController:
+    # Whether this controller's decision path consumes the LLM emotional
+    # narration (narrative / inner_voice) — it injects it into the decision
+    # prompt via psychology.get_prompt_section(). True for the LLM table-talk
+    # controllers (chaos base + hybrid). Solver/rule controllers override this
+    # to False: they never read the prose, so generating it for them at a full
+    # table is pure waste. The post-hand pipeline uses this to gate the
+    # (now async) narration call — see PsychologyPipeline._update_composure.
+    USES_EMOTIONAL_NARRATION = True
+
     def __init__(
         self,
         player_name,
