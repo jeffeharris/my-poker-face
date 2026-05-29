@@ -17,6 +17,7 @@ from .prompt_preset_routes import prompt_preset_bp
 from .range_explorer_routes import range_explorer_bp
 from .replay_experiment_routes import replay_experiment_bp
 from .stats_routes import stats_bp
+from .tournament_routes import tournament_bp
 from .user_routes import user_bp
 
 __all__ = [
@@ -38,5 +39,6 @@ __all__ = [
     'cash_bp',
     'chip_ledger_bp',
     'character_bp',
+    'tournament_bp',
     'register_socket_events',
 ]
