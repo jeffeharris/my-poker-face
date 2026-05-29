@@ -252,3 +252,37 @@ boundary coordinates correctly) — not a browser, which this project can't driv
 headlessly anyway. Wiring them blind into the production handler and hoping is how
 the ghost-seat bugs got written; the tested brain + the seat contract are the
 foundation that makes the wiring safe to add next.
+
+## 2026-05-29 (late night) — the wiring, and a codex no-show that paid off anyway
+
+Asked to run the wiring plan by codex-assist first. Codex **stalled for ~20
+minutes with zero output** (the `| tail` buffers until exit, so it was a silent
+hang, not slow streaming); killing it left only `SESSION: unknown`. Rather than
+gamble on another 20-minute stall I reviewed the plan myself — and being forced
+to be my own skeptic surfaced the best decision of the phase: **one game_id for
+the human's entire tournament.** I'd planned to build a fresh game (new game_id,
+client navigation) on relocation; but the game_id is just a key, so relocation is
+nothing more than a bigger roster change than a bust. Both `continue` and
+`relocated` now reconcile the live table in place and deal on; only `human_out` /
+`complete` stop. That deleted an entire class of work — new-game lifecycle,
+client-nav races, old-game cleanup — and shrank the production-handler footprint
+to one gated block.
+
+Other calls the self-review settled: AI seats on the human's live table use the
+**production** `build_tiered_controller` (expression layer off → no LLM), not the
+experiment `make_controller` that bypasses `__init__` and would lack attributes
+the handler touches. The multi-table game deliberately **omits** the single-table
+`tournament_tracker` and `cash_mode`, so `handle_eliminations`,
+`check_tournament_complete`, and the cash block all early-return — the session
+owns elimination/completion. Reconcile mirrors `_refill_cash_seats`' in-place
+swap because memory is name-keyed, so survivors keep their history.
+
+Verification without a browser: the `_drive` integration test runs the boundary
+end-to-end with a fake state-machine and stub controllers — simulate a hand,
+fold it in, pace the AI tables, settle, reconcile — asserting conservation and
+that the live roster matches the field every step, through relocation, to
+completion. Plus a `sit`-route smoke test that builds a *real* game (tiered
+controllers + memory, 12s). What's still only manually checkable: the gated hook
+firing through a full `progress_game` human hand (the 8-line glue calls
+already-tested code) and the frontend navigating register/sit → the live table.
+Left those honestly flagged rather than claimed.
