@@ -205,6 +205,9 @@ def _slowplay(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Slow-play handler. Returns (new_strategy, reason_code).
 
@@ -250,6 +253,9 @@ def _give_up_turn(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Give-up-turn handler. Returns (new_strategy, reason_code).
 
@@ -294,6 +300,9 @@ def _fit_or_fold(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Fit-or-fold handler. Over-fold the weak/air range to a flop c-bet.
 
@@ -337,6 +346,9 @@ def _auto_cbet(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Auto-c-bet handler. Pump flop bet frequency with initiative.
 
@@ -377,6 +389,9 @@ def _sticky(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Sticky/pays-off handler. Over-call weak made hands to a river bet.
 
@@ -416,6 +431,9 @@ def _over_bluff(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Over-bluff handler. Pump river bet frequency with air, as the bettor.
 
@@ -455,6 +473,9 @@ def _under_bluff(
     street: Optional[str],
     has_initiative: bool,
     max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
 ) -> Tuple[StrategyProfile, str]:
     """Under-bluff handler. Dampen river bet frequency with air, as the bettor.
 
@@ -473,7 +494,88 @@ def _under_bluff(
     return new, f'under_bluff_{hand_class}'
 
 
-# name -> handler. Add backlog tendencies (donk, open-limp, ...) here.
+# ── over-fold to 2nd barrel ──────────────────────────────────────────────────
+# Don't-pay-the-turn: facing a sustained value line (opp bet flop AND turn) with
+# a marginal made hand, over-fold instead of calling. Unlike fit-or-fold (flop,
+# cheap because marginal hands face later barrels), THIS is the turn commit where
+# folding a hand that's actually ahead is a real mistake — it's the leak the
+# double-barrel exploiter (multistreet H2) is built to punish. Gated on the
+# `facing_double_barrel` signal (opp bet flop + the prior street), marginal made
+# classes only (strong continues, air already folds).
+_FOLD2B_CLASSES = frozenset({'medium_made', 'weak_made'})
+_FOLD2B_STREETS = frozenset({'turn', 'river'})
+
+
+def _over_fold_2nd_barrel(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
+) -> Tuple[StrategyProfile, str]:
+    """Over-fold-to-2nd-barrel handler. Over-fold marginal made vs a sustained
+    value line. `new_strategy is strategy` (identity) signals no-op."""
+    applies = (
+        hand_class in _FOLD2B_CLASSES
+        and facing_double_barrel
+        and action_context in ('facing_bet', 'facing_raise')
+        and (street or '').lower() in _FOLD2B_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _pump_fold(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_fold_action_or_mass'
+    return new, f'over_fold_2nd_barrel_{hand_class}'
+
+
+# ── donk-when-weak / tiny donk ───────────────────────────────────────────────
+# Lead into the aggressor OOP with weak hands instead of checking: the OOP player
+# who, having NOT taken the prior aggression, bets out (donks) the part of the
+# range that should check-and-fold or check-call. A readable, exploitable spot —
+# the donk is face-up weak, and the counter is to raise it. Gated on OOP +
+# unopened (first to act OOP) + NOT the prior aggressor + weak/medium classes.
+_DONK_CLASSES = frozenset({'medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'})
+_DONK_STREETS = frozenset({'flop', 'turn'})
+
+
+def _donk_when_weak(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
+    **_,
+) -> Tuple[StrategyProfile, str]:
+    """Donk-when-weak handler. Pump bet (donk) OOP with weak hands into the
+    aggressor. `new_strategy is strategy` (identity) signals no-op."""
+    applies = (
+        hand_class in _DONK_CLASSES
+        and position == 'OOP'
+        and not has_initiative
+        and action_context == 'unopened'
+        and (street or '').lower() in _DONK_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _pump_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_action_or_passive_mass'
+    return new, f'donk_when_weak_{hand_class}'
+
+
+# name -> handler. Add backlog tendencies (open-limp, position-blindness, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
     'give_up_turn': _give_up_turn,
@@ -482,6 +584,8 @@ _TENDENCIES = {
     'sticky': _sticky,
     'over_bluff': _over_bluff,
     'under_bluff': _under_bluff,
+    'over_fold_2nd_barrel': _over_fold_2nd_barrel,
+    'donk_when_weak': _donk_when_weak,
 }
 
 
@@ -537,6 +641,8 @@ def apply_spot_tendencies(
     action_context: str,
     street: Optional[str],
     has_initiative: bool,
+    facing_double_barrel: bool = False,
+    position: Optional[str] = None,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, List[InterventionTrace]]:
     """Apply a profile's configured spot tendencies, in config order.
@@ -550,6 +656,9 @@ def apply_spot_tendencies(
         street: lowercase node street.
         has_initiative: hero was the aggressor on the previous betting round
             (multistreet's was_prev_street_aggressor).
+        facing_double_barrel: opp bet flop AND the prior street (multistreet's
+            facing_double_barrel) — drives over-fold-to-2nd-barrel.
+        position: 'IP'/'OOP' (node.position) — drives donk-when-weak.
         disable_rules: ablation set; (LAYER, name) suppresses a tendency.
 
     Returns `(new_strategy, traces)`; `new_strategy is strategy` when nothing fired.
@@ -574,6 +683,8 @@ def apply_spot_tendencies(
             street=street,
             has_initiative=has_initiative,
             max_shift=max_per_action_shift,
+            facing_double_barrel=facing_double_barrel,
+            position=position,
         )
         if new is not current:
             traces.append(

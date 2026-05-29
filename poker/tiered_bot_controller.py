@@ -1019,6 +1019,8 @@ class TieredBotController(AIPlayerController):
                 action_context=node.facing_action,
                 street=node.street,
                 has_initiative=spot_signals.was_prev_street_aggressor,
+                facing_double_barrel=spot_signals.facing_double_barrel,
+                position=node.position,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
             self._last_intervention_trace.extend(spot_traces)

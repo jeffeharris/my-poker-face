@@ -20,6 +20,8 @@ AUTOCBET = (('auto_cbet', 0.6),)
 STICKY = (('sticky', 0.6),)
 OVERBLUFF = (('over_bluff', 0.6),)
 UNDERBLUFF = (('under_bluff', 0.6),)
+FOLD2B = (('over_fold_2nd_barrel', 0.6),)
+DONK = (('donk_when_weak', 0.6),)
 # A flop spot facing a bet (fold + call + a little raise) — fit-or-fold input.
 FACING = StrategyProfile(
     action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15}
@@ -34,7 +36,8 @@ def _agg(strategy):
 
 
 def _apply(strategy=BASE, *, hand_class='nuts', action_context='unopened', street='flop',
-           has_initiative=True, tendencies=SLOWPLAY, max_shift=LOOSE_CAP, disable_rules=None):
+           has_initiative=True, tendencies=SLOWPLAY, max_shift=LOOSE_CAP, disable_rules=None,
+           facing_double_barrel=False, position=None):
     return apply_spot_tendencies(
         strategy,
         spot_tendencies=tendencies,
@@ -43,6 +46,8 @@ def _apply(strategy=BASE, *, hand_class='nuts', action_context='unopened', stree
         action_context=action_context,
         street=street,
         has_initiative=has_initiative,
+        facing_double_barrel=facing_double_barrel,
+        position=position,
         disable_rules=disable_rules,
     )
 
@@ -506,6 +511,78 @@ def test_under_bluff_cap_ablation_validate():
     )
     assert disabled[0].reason_code == 'disabled_by_ablation'
     for traces in (fired, disabled):
+        for t in traces:
+            validate_trace(t)
+
+
+# ── over-fold to 2nd barrel (needs facing_double_barrel signal) ──────────────
+
+def test_over_fold_2nd_barrel_fires_on_marginal_vs_double_barrel():
+    for hc in ('medium_made', 'weak_made'):
+        out, traces = _apply(
+            FACING, tendencies=FOLD2B, hand_class=hc,
+            action_context='facing_bet', street='turn', facing_double_barrel=True,
+        )
+        assert out.action_probabilities['fold'] > FACING.action_probabilities['fold'], hc
+        assert traces[0].fired and traces[0].rule_id == 'over_fold_2nd_barrel', hc
+
+
+def test_over_fold_2nd_barrel_no_op_without_double_barrel_signal():
+    # Same spot, but not a sustained value line → no leak.
+    out, traces = _apply(
+        FACING, tendencies=FOLD2B, hand_class='medium_made',
+        action_context='facing_bet', street='turn', facing_double_barrel=False,
+    )
+    assert out is FACING and not traces[0].fired
+
+
+def test_over_fold_2nd_barrel_no_op_on_strong_and_unopened():
+    out, traces = _apply(
+        FACING, tendencies=FOLD2B, hand_class='strong_made',
+        action_context='facing_bet', street='turn', facing_double_barrel=True,
+    )
+    assert out is FACING and not traces[0].fired
+    out, traces = _apply(
+        FACING, tendencies=FOLD2B, hand_class='medium_made',
+        action_context='unopened', street='turn', facing_double_barrel=True,
+    )
+    assert out is FACING and not traces[0].fired
+
+
+# ── donk-when-weak (needs position=OOP, not the aggressor) ───────────────────
+
+def test_donk_when_weak_fires_oop_no_initiative():
+    for hc in ('medium_made', 'weak_made', 'air_no_draw'):
+        out, traces = _apply(
+            tendencies=DONK, hand_class=hc, action_context='unopened', street='flop',
+            has_initiative=False, position='OOP',
+        )
+        assert _agg(out) > _agg(BASE), hc
+        assert traces[0].fired and traces[0].rule_id == 'donk_when_weak', hc
+
+
+def test_donk_when_weak_no_op_ip_or_with_initiative():
+    # IP isn't a donk; having initiative makes a bet a c-bet, not a donk.
+    out, traces = _apply(
+        tendencies=DONK, hand_class='weak_made', action_context='unopened', street='flop',
+        has_initiative=False, position='IP',
+    )
+    assert out is BASE and not traces[0].fired
+    out, traces = _apply(
+        tendencies=DONK, hand_class='weak_made', action_context='unopened', street='flop',
+        has_initiative=True, position='OOP',
+    )
+    assert out is BASE and not traces[0].fired
+
+
+def test_signal_gated_leaks_validate():
+    runs = [
+        _apply(FACING, tendencies=FOLD2B, hand_class='medium_made',
+               action_context='facing_bet', street='turn', facing_double_barrel=True),
+        _apply(tendencies=DONK, hand_class='weak_made', action_context='unopened',
+               street='flop', has_initiative=False, position='OOP'),
+    ]
+    for _, traces in runs:
         for t in traces:
             validate_trace(t)
 
