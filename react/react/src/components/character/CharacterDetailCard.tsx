@@ -575,7 +575,11 @@ export function CharacterDetailCard({
       emotion: fetched?.emotion ?? character.emotion,
       remark: character.remark ?? p?.signature_line ?? undefined,
       // Server-side observation wins; the static prop's `observed` is
-      // legacy and only fires for callers who pre-populate.
+      // legacy and only fires for callers who pre-populate. When the dossier
+      // was fetched in a gated (Circuit) context, the server's observation
+      // is authoritative — a null means "classified", so we must NOT fall
+      // back to the static prop (which carries live, ungated stats from the
+      // table/lobby click) or the scouting gate would leak.
       observed: obs
         ? {
             handsObserved: obs.hands_observed,
@@ -584,13 +588,15 @@ export function CharacterDetailCard({
             aggressionFactor: obs.aggression_factor,
             playStyleLabel: obs.play_style,
           }
-        : character.observed && {
-            handsObserved: character.observed.handsObserved,
-            vpip: character.observed.vpip,
-            pfr: character.observed.pfr,
-            aggressionFactor: character.observed.aggressionFactor,
-            playStyleLabel: undefined as string | undefined,
-          },
+        : fetched?.scouting
+          ? undefined
+          : character.observed && {
+              handsObserved: character.observed.handsObserved,
+              vpip: character.observed.vpip,
+              pfr: character.observed.pfr,
+              aggressionFactor: character.observed.aggressionFactor,
+              playStyleLabel: undefined as string | undefined,
+            },
     };
   }, [fetched, character]);
 

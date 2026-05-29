@@ -750,6 +750,26 @@ class GameRepository(BaseRepository):
             # migration window.
             opp_cols = {row[1] for row in conn.execute("PRAGMA table_info(opponent_models)")}
             has_id_cols = 'observer_id' in opp_cols and 'opponent_id' in opp_cols
+            has_applied_col = 'lifetime_applied_json' in opp_cols
+
+            # Preserve the lifetime-fold high-water mark across the
+            # delete+reinsert below. INSERT OR REPLACE drops any column not
+            # listed (lifetime_applied_json isn't), which would reset the
+            # mark to NULL and make the post-save fold re-add the full count
+            # every save (double-counting). Snapshot it here, restore it
+            # after the reinserts. Keyed by (observer_name, opponent_name) —
+            # the stable identity within a game's models.
+            applied_marks = {}
+            if has_applied_col:
+                applied_marks = {
+                    (r['observer_name'], r['opponent_name']): r['lifetime_applied_json']
+                    for r in conn.execute(
+                        "SELECT observer_name, opponent_name, lifetime_applied_json "
+                        "FROM opponent_models WHERE game_id = ? "
+                        "AND lifetime_applied_json IS NOT NULL",
+                        (game_id,),
+                    )
+                }
 
             # Clear existing models for this game
             conn.execute("DELETE FROM opponent_models WHERE game_id = ?", (game_id,))
@@ -852,6 +872,18 @@ class GameRepository(BaseRepository):
                                 hand.get('timestamp', datetime.now().isoformat()),
                             ),
                         )
+
+            # Restore the preserved lifetime-fold high-water marks onto the
+            # freshly-reinserted rows so the post-save fold computes a correct
+            # delta (current − already-applied) instead of re-adding the full
+            # count. Rows new this save have no mark and stay NULL (fold then
+            # treats the whole count as the first delta — correct).
+            for (obs_name, opp_name), applied_json in applied_marks.items():
+                conn.execute(
+                    "UPDATE opponent_models SET lifetime_applied_json = ? "
+                    "WHERE game_id = ? AND observer_name = ? AND opponent_name = ?",
+                    (applied_json, game_id, obs_name, opp_name),
+                )
 
             logger.debug(f"Saved opponent models for game {game_id}")
 

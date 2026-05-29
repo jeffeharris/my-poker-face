@@ -166,6 +166,42 @@ def test_load_missing_returns_none(repo):
     assert repo.load_observation_lifetime("sb1", "nope", "nada") is None
 
 
+def _models_dict(hands, vpip=1):
+    """Build the dict form save_opponent_models accepts (Jeff observes Greg)."""
+    counts = _counts(hands_dealt=hands, hands_observed=hands, _vpip_count=vpip)
+    return {
+        '__name_to_id__': {'Jeff': 'obs1', 'Greg': 'opp1'},
+        'Jeff': {
+            'Greg': {
+                'observer_id': 'obs1',
+                'opponent_id': 'opp1',
+                'tendencies': counts,
+            }
+        },
+    }
+
+
+def test_save_then_fold_repeatedly_does_not_double_count(repo):
+    """Regression: save_opponent_models delete+reinserts the row, dropping
+    lifetime_applied_json. If the mark isn't preserved, the post-save fold
+    re-adds the full count every save (over-counting). Mirrors the live
+    per-action save→fold cadence."""
+    # Two actions in a "hand" at hands_observed=2, each save followed by a fold.
+    repo.save_opponent_models("g1", _models_dict(2))
+    repo.fold_observations_into_lifetime("g1", "sb1")
+    repo.save_opponent_models("g1", _models_dict(2))  # next action, same count
+    repo.fold_observations_into_lifetime("g1", "sb1")
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['hands_observed'] == 2, "save+fold cycle double-counted"
+
+    # Hands advance to 5 → lifetime should track the real total, not inflate.
+    repo.save_opponent_models("g1", _models_dict(5))
+    repo.fold_observations_into_lifetime("g1", "sb1")
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['hands_observed'] == 5
+
+
 # --- Dossier rate derivation (reuses the canonical OpponentTendencies) ---
 
 def test_observation_from_lifetime_derives_canonical_rates():
