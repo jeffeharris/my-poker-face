@@ -940,6 +940,12 @@ def refresh_table_roster(
     table_max_buy_in: int,
     next_tier_min_buy_in: Optional[int] = None,
     live_fill_prob: float = DEFAULT_LIVE_FILL_PROB,
+    # When False, run Step 1 (per-AI movement) only and skip the per-seat
+    # live-fill (Step 2). Used by the table-attractiveness loop inversion
+    # (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): the lobby disables local fill
+    # here and runs a single GLOBAL greedy fill pass instead. Defaults True
+    # so existing callers / tests keep the per-table fill behavior.
+    enable_live_fill: bool = True,
     defer_freshly_vacated_live_fill: bool = True,
     psych_lookup: Optional[Callable[[str], Dict[str, Any]]] = None,
     # Idle-recovery gate: recovery fraction toward baseline for an idle AI
@@ -1332,13 +1338,22 @@ def refresh_table_roster(
         cooldown_seconds = compute_leave_cooldown_seconds(ctx, rng)
         record_leave_cooldown(table.table_id, pid, cooldown_seconds, now)
 
-    # Step 2: live-fill open seats.
+    # Step 2: live-fill open seats. Skipped entirely when
+    # `enable_live_fill=False` (the loop-inversion path fills globally in the
+    # lobby instead) — no open_indices ⇒ the fill loop below no-ops and
+    # `freshly_seated` stays empty, so no fill-side BankrollChange/idle
+    # changes are emitted here.
     freshly_seated: List[str] = []
-    open_indices = [
-        i
-        for i, s in enumerate(new_seats)
-        if s["kind"] == "open" and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
-    ]
+    open_indices = (
+        [
+            i
+            for i, s in enumerate(new_seats)
+            if s["kind"] == "open"
+            and not (defer_freshly_vacated_live_fill and i in freshly_vacated)
+        ]
+        if enable_live_fill
+        else []
+    )
 
     # Idle pool candidates (oldest first), filtered to those NOT
     # globally seated and whose `target_stake` allows this table, and

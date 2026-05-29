@@ -784,6 +784,34 @@ class TestRefreshLiveFill:
         # The constant exposed as the default must match the per-hand rate.
         assert DEFAULT_LIVE_FILL_PROB == 0.05
 
+    def test_enable_live_fill_false_skips_fill(self):
+        # Same setup as test_live_fill_at_per_hand_default (roll 0.0 WOULD
+        # fill), but enable_live_fill=False → Step 2 is skipped entirely:
+        # no fresh-seated, seat stays open, no bankroll/idle changes. (The
+        # loop-inversion path fills globally in the lobby instead.)
+        seats = [open_slot()] * 6
+        table = _make_table(seats)
+        rng = _force_rng([0.0] + [0.99] * 5)
+        result = refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[{"personality_id": "napoleon", "name": "Napoleon"}],
+            seated_globally=set(),
+            bankroll_lookup=_bankroll_lookup_factory({"napoleon": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 18, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,
+        )
+        assert result.freshly_seated_personality_ids == []
+        assert result.new_table.seats[0]["kind"] == "open"
+        assert result.bankroll_changes == []
+        assert result.idle_changes == []
+
     def test_cooldown_skips_recent_leaver_at_same_table(self):
         seats = [open_slot()] * 6
         table = _make_table(seats)
