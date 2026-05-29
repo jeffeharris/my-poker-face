@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from cash_mode.attractiveness import table_deadness
 from cash_mode.staker_history import StakerHistoryStats, candidate_weight
 from cash_mode.staker_profile import StakerProfile
 from cash_mode.stakes_ladder import STAKES_ORDER
@@ -1069,6 +1070,19 @@ def refresh_table_roster(
     # Fish are casino-only, so this is non-trivial only at casinos.
     table_has_fish = any(s.get("kind") == "ai" and s.get("archetype") == "fish" for s in new_seats)
 
+    # Dead-table push (CASH_MODE_TABLE_ATTRACTIVENESS.md §2): a casino that
+    # has lost its fish pushes its stuck grinders to go find action. Computed
+    # once per table from the current seats; fed to each seated AI's
+    # MovementContext below (fish ignore it — their movement is coerced).
+    _grinder_count = sum(
+        1 for s in new_seats if s.get("kind") == "ai" and s.get("archetype") != "fish"
+    )
+    _deadness = table_deadness(
+        is_casino=(table.table_type == "casino"),
+        has_fish=table_has_fish,
+        grinder_count=_grinder_count,
+    )
+
     # Step 1: process AI seats.
     for i, slot in enumerate(new_seats):
         if slot["kind"] != "ai":
@@ -1096,6 +1110,7 @@ def refresh_table_roster(
             zone=str(psych.get("zone", "")),
             hands_in_detached_zone=int(psych.get("hands_in_detached_zone", 0)),
             emotional_intensity=float(psych.get("emotional_intensity", 0.0)),
+            table_deadness=_deadness,
         )
         decision = evaluate_ai_movement(ctx, rng)
         # Fish are casino-bound chip donors: they reload from their

@@ -838,6 +838,57 @@ class TestRefreshLiveFill:
         assert result.freshly_seated_personality_ids == []
 
 
+class TestDeadTablePush:
+    """refresh_table_roster computes per-table deadness and feeds it into
+    each AI's MovementContext so the Phase B `dead` term fires — a casino
+    that's lost its fish pushes its grinders to go find action."""
+
+    def _grinder_seats(self):
+        # Two grinders (mid stack → no short / no seat stake_up), rest open.
+        return [ai_slot("g1", 600), ai_slot("g2", 600)] + [open_slot() for _ in range(4)]
+
+    def _run(self, table_type):
+        table = CashTableState(
+            table_id=f"cash-{table_type}",
+            stake_label="$10",
+            seats=self._grinder_seats(),
+            table_type=table_type,
+        )
+        # Per leaving grinder: a leave roll (0.05 < the dead-driven leave
+        # prob → leaves) then a cooldown roll. Two grinders → 4 values.
+        # Modest bankroll keeps the wealth climb silent (inside SLUM_DEADZONE)
+        # so `dead` is the only pressure. (Lobby control consumes none — its
+        # total pressure is 0, so evaluate returns stay before any roll.)
+        rng = _force_rng([0.05, 0.5, 0.05, 0.5])
+        return refresh_table_roster(
+            table,
+            idle_pool=[],
+            eligible_candidates=[],
+            seated_globally={"g1", "g2"},
+            bankroll_lookup=_bankroll_lookup_factory({"g1": 5000, "g2": 5000}),
+            buy_in_lookup=_buy_in_lookup_factory(400),
+            rng=rng,
+            now=datetime(2026, 5, 29, 12, 0, 0),
+            stake_idx=1,
+            table_min_buy_in=400,
+            table_max_buy_in=1000,
+            psych_lookup=_neutral_psych,
+            enable_live_fill=False,
+        )
+
+    def test_fishless_casino_pushes_grinders_off(self):
+        result = self._run("casino")
+        assert result.decisions["g1"] == "bored_move"
+        assert result.decisions["g2"] == "bored_move"
+
+    def test_fishless_lobby_does_not_push(self):
+        # A lobby table isn't "dead" — grinders playing each other is the
+        # game, so no dead pressure → they stay.
+        result = self._run("lobby")
+        assert result.decisions["g1"] == "stay"
+        assert result.decisions["g2"] == "stay"
+
+
 class TestRefreshHumanSeatPreserved:
     def test_human_seat_not_touched(self):
         seats = [

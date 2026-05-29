@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from cash_mode.attractiveness import (
+    CASINO_VENUE_APPEAL,
     DEFAULT_SEEK_RATE,
     FillableTable,
     SeatSeeker,
@@ -604,6 +605,10 @@ def _process_global_greedy_fills(
             grinder_count=grinders,
             fish_chips=fish_chips,
             whale_chips=whale_chips,
+            # Casino = the low-rent public grind room: less attractive
+            # baseline, but the fish draw rides over it and it stays a valid
+            # open-to-all fallback (CASINO_VENUE_APPEAL).
+            venue_appeal=CASINO_VENUE_APPEAL if tbl.table_type == "casino" else 1.0,
         )
         fill_indices[tid] = usable
     if not tables_state:

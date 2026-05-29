@@ -21,6 +21,7 @@ from cash_mode.attractiveness import (
     room_prestige,
     stake_fit,
     table_attractiveness,
+    table_deadness,
     wealth,
     wealth_over_tier,
 )
@@ -257,6 +258,46 @@ def test_broke_ai_not_pulled_to_prestige_room():
     pit = _attr(projected_bankroll=BROKE, comfort_zone="$10", stake_label="$1000")
     home = _attr(projected_bankroll=BROKE, comfort_zone="$10", stake_label="$10")
     assert home > pit
+
+
+# --- venue appeal (casino = the grindy public room) --------------------
+
+
+def test_casino_less_attractive_than_lobby_same_stake():
+    casino = _attr(stake_label="$2", comfort_zone="$2", venue_appeal=0.5)
+    lobby = _attr(stake_label="$2", comfort_zone="$2", venue_appeal=1.0)
+    assert 0 < casino < lobby  # less appealing, but still a valid fallback
+
+
+def test_fishy_casino_beats_dead_lobby():
+    # The fish draw rides over the venue penalty: a fishy casino out-pulls a
+    # dead (fishless) lobby table at the same stake.
+    casino_fish = _attr(stake_label="$2", comfort_zone="$2", venue_appeal=0.5, fish_chips=600)
+    dead_lobby = _attr(stake_label="$2", comfort_zone="$2", venue_appeal=1.0, fish_chips=0)
+    assert casino_fish > dead_lobby
+
+
+# --- table_deadness (the dead-table push) ------------------------------
+
+
+def test_deadness_zero_with_fish():
+    assert table_deadness(is_casino=True, has_fish=True, grinder_count=5) == 0.0
+
+
+def test_deadness_zero_for_lobby():
+    # Grinders playing each other at a lobby table IS the game, not "dead".
+    assert table_deadness(is_casino=False, has_fish=False, grinder_count=5) == 0.0
+
+
+def test_deadness_zero_when_empty():
+    assert table_deadness(is_casino=True, has_fish=False, grinder_count=0) == 0.0
+
+
+def test_deadness_rises_with_fishless_casino_crowd():
+    a = table_deadness(is_casino=True, has_fish=False, grinder_count=1)
+    b = table_deadness(is_casino=True, has_fish=False, grinder_count=2)
+    assert 0.0 < a < b <= 1.0
+    assert table_deadness(is_casino=True, has_fish=False, grinder_count=10) == 1.0
 
 
 # --- assign_seats_greedy (the loop inversion core) ---------------------

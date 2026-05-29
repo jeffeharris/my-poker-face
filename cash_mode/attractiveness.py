@@ -79,12 +79,32 @@ AFFORDABLE_BAND_BUYINS = 5.0
 # 0.5 = a flush nit drifts halfway up; a crushed grinder drifts down.
 ANCHOR_DRIFT = 0.5
 
+# --- venue appeal (baseline desirability by table flavor) ---
+# A multiplier on a table's *baseline* attractiveness, before the fish/whale
+# draw. Casino tables are the low-rent public grind room: less appealing in
+# general (< 1), so an AI prefers an equivalent lobby table when it has the
+# choice — BUT the fish draw rides on top of this (a fishy casino can still
+# out-pull a dead lobby table), and because the score stays positive a casino
+# remains a valid fallback the greedy pass picks when nothing else is open
+# (it's open to the public — anyone can always sit). Lobby/private tables sit
+# at 1.0. Sim-tunable.
+CASINO_VENUE_APPEAL = 0.5
+
 # --- hunger (continuous generalization of the binary hungry-grinder gate) ---
 # Today's gate is binary at bankroll < starting × 0.8
 # (`closed_economy.GRINDER_HUNGER_THRESHOLD`). Generalize to a continuous
 # pull: 0 at/above a full roll, ramping to 1 when desperate.
 HUNGER_FULL_ROLL_RATIO = 1.0  # bankroll ≥ starting → hunger 0
 HUNGER_DESPERATE_RATIO = 0.2  # bankroll ≤ 20% of starting → hunger 1
+
+# --- dead-table push (feeds the Phase B `dead` leave-pressure term) ---
+# A casino that's lost its fish is a "dead all-shark table": grinders came
+# to farm fish and there are none, so push them to go find action elsewhere
+# (routes to bored_move → idle → the attractiveness pull re-seats them at a
+# live table). A table WITH fish is not dead; a LOBBY table is never dead
+# (grinders playing each other IS the game there, not a failed feeding
+# ground). This many fishless grinders at a casino → fully dead.
+CASINO_DEAD_GRINDER_SCALE = 3.0
 
 
 def _clamp01(x: float) -> float:
@@ -234,6 +254,21 @@ def hunger(projected_bankroll: int, starting_bankroll: int) -> float:
     return _clamp01((HUNGER_FULL_ROLL_RATIO - ratio) / span)
 
 
+def table_deadness(*, is_casino: bool, has_fish: bool, grinder_count: int) -> float:
+    """How "dead" a table is for the grinders sitting there, in [0, 1].
+
+    Feeds `MovementContext.table_deadness` → the Phase B `dead` leave term.
+    0 unless the table is a casino that has lost its fish (an all-shark
+    feeding ground with nothing to feed on); then it rises with how many
+    grinders are stuck competing over nothing, saturating at
+    `CASINO_DEAD_GRINDER_SCALE`. Tables with fish, and all non-casino
+    tables, return 0 (not dead).
+    """
+    if has_fish or not is_casino or grinder_count <= 0:
+        return 0.0
+    return _clamp01(grinder_count / CASINO_DEAD_GRINDER_SCALE)
+
+
 def base_attractor(
     *,
     projected_bankroll: int,
@@ -273,6 +308,7 @@ def table_attractiveness(
     other_grinders: int,
     buy_in_multiplier: float = 1.0,
     prestige_override: float | None = None,
+    venue_appeal: float = 1.0,
 ) -> float:
     """Full attractiveness of a table for an AI (spec §1).
 
@@ -310,7 +346,11 @@ def table_attractiveness(
     whale_stacks = (whale_chips / max_bi) if max_bi > 0 else 0.0
     draw = W_FISH * fish_stacks + W_WHALE * whale_stacks + BASE_DRAW
     crowd = W_CROWD * max(0, other_grinders)
-    return base * hunger_mult * draw - crowd
+    # `venue_appeal` scales the baseline desirability (casino < lobby) but
+    # the fish/whale draw rides on top, so a fishy casino can still out-pull
+    # a dead lobby table; the score stays positive so a casino is a valid
+    # fallback when it's the only open seat.
+    return venue_appeal * base * hunger_mult * draw - crowd
 
 
 # --- Greedy seat selection (the loop inversion, spec §2) ----------------
@@ -364,6 +404,7 @@ class FillableTable:
     fish_chips: int = 0
     whale_chips: int = 0
     prestige_override: Optional[float] = None
+    venue_appeal: float = 1.0
 
 
 def seeker_buy_in(table: FillableTable, buy_in_multiplier: float) -> int:
@@ -408,6 +449,7 @@ def assign_seats_greedy(
                 other_grinders=table.grinder_count,
                 buy_in_multiplier=seeker.buy_in_multiplier,
                 prestige_override=table.prestige_override,
+                venue_appeal=table.venue_appeal,
             )
             if best_score is None or score > best_score:
                 best_score = score
