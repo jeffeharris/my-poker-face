@@ -29,8 +29,8 @@ from typing import Callable
 from .blinds import BlindLevel
 from .config import TournamentConfig
 from .director import RoundReport, build_initial_state
-from .field import attribute_eliminators
-from .seating import SeatingManager
+from .field import TournamentField, attribute_eliminators
+from .seating import Seating, SeatingManager
 
 # A jittered hand count per AI table per human hand. Weighted so the mean is
 # exactly 1.0 (0+1+1+2)/4 — the field tracks the human without drifting.
@@ -280,3 +280,38 @@ class TournamentSession:
                 f"hand resolver did not conserve chips: in={sum(before.values())} "
                 f"out={sum(after.values())}"
             )
+
+    # ── serialization (for tournament persistence) ──────────────────────────────
+
+    def to_dict(self) -> dict:
+        """Serialize the meta-layer state. The resolver, schedule, seating
+        manager and ephemeral round_reports are NOT stored — they are rebuilt
+        (the resolver is passed back in on `from_dict`, the rest are pure
+        functions of the config/field)."""
+        return {
+            'config': self.config.to_dict(),
+            'human_id': self.human_id,
+            'rounds': self.rounds,
+            'hand_counter': self._hand_counter,
+            'field': self.field.to_dict(),
+            'seating': self.seating.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict, ai_resolver) -> 'TournamentSession':
+        """Rebuild a session from `to_dict` output plus a freshly built resolver
+        (resolvers aren't serialized — the caller reconstructs one from the
+        stored `resolver_kind`). Asserts chip conservation, so a corrupt or
+        partial restore fails loudly instead of silently dropping chips."""
+        config = TournamentConfig.from_dict(d['config'])
+        # __init__ rebuilds genesis state (deterministic from config) and
+        # validates human_id; we then overwrite the mutable world with the
+        # restored field/seating/counters.
+        session = cls(config, ai_resolver, human_id=d['human_id'])
+        session.field = TournamentField.from_dict(d['field'])
+        session.seating = Seating.from_dict(d['seating'])
+        session.entries = dict(session.field.entries)
+        session.rounds = d['rounds']
+        session._hand_counter = d['hand_counter']
+        session.field.assert_conservation()
+        return session

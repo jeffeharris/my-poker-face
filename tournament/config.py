@@ -73,3 +73,32 @@ class TournamentConfig:
             growth=self.blind_growth,
             rounds_per_level=self.rounds_per_level,
         )
+
+    # ── serialization (for tournament persistence) ──────────────────────────────
+
+    def to_dict(self) -> dict:
+        return {
+            'field_size': self.field_size,
+            'table_size': self.table_size,
+            'starting_stack': self.starting_stack,
+            'seed': self.seed,
+            'starting_big_blind': self.starting_big_blind,
+            'blind_growth': self.blind_growth,
+            'rounds_per_level': self.rounds_per_level,
+            'field_archetypes': list(self.field_archetypes),
+            'max_rounds': self.max_rounds,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TournamentConfig':
+        return cls(
+            field_size=d['field_size'],
+            table_size=d['table_size'],
+            starting_stack=d['starting_stack'],
+            seed=d['seed'],
+            starting_big_blind=d['starting_big_blind'],
+            blind_growth=d['blind_growth'],
+            rounds_per_level=d['rounds_per_level'],
+            field_archetypes=tuple(d['field_archetypes']),
+            max_rounds=d['max_rounds'],
+        )

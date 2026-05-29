@@ -27,6 +27,23 @@ class Elimination:
     round_index: int
     eliminator: str | None = None
 
+    def to_dict(self) -> dict:
+        return {
+            'player_id': self.player_id,
+            'finishing_position': self.finishing_position,
+            'round_index': self.round_index,
+            'eliminator': self.eliminator,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Elimination':
+        return cls(
+            player_id=d['player_id'],
+            finishing_position=d['finishing_position'],
+            round_index=d['round_index'],
+            eliminator=d.get('eliminator'),
+        )
+
 
 def attribute_eliminators(
     busted: list[tuple[str, int]],
@@ -132,3 +149,22 @@ class TournamentField:
             position -= 1
             self.stacks.pop(player_id, None)
         return events
+
+    # ── serialization (for tournament persistence) ──────────────────────────────
+
+    def to_dict(self) -> dict:
+        return {
+            'starting_stack': self.starting_stack,
+            'entries': dict(self.entries),
+            'stacks': dict(self.stacks),
+            'eliminations': [e.to_dict() for e in self.eliminations],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TournamentField':
+        return cls(
+            starting_stack=d['starting_stack'],
+            entries=dict(d['entries']),
+            stacks=dict(d['stacks']),
+            eliminations=[Elimination.from_dict(e) for e in d['eliminations']],
+        )

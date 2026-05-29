@@ -224,7 +224,7 @@ function SeatRow({ seat }: { seat: TournamentSeat }) {
           {seat.is_human ? 'You' : seat.player_id}
           {seat.is_human && <span className="you">YOU</span>}
         </span>
-        {seat.archetype && <span className="seat__arch">{seat.archetype}</span>}
+        {seat.archetype && !seat.is_human && <span className="seat__arch">{seat.archetype}</span>}
       </span>
       <span className="seat__stack">{fmt(seat.stack)}</span>
     </div>

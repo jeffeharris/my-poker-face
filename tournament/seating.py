@@ -103,6 +103,13 @@ class Table:
                 return
         raise ValueError(f"{player_id} is not seated at table {self.table_id}")
 
+    def to_dict(self) -> dict:
+        return {'table_id': self.table_id, 'seats': list(self.seats), 'button': self.button}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Table':
+        return cls(table_id=d['table_id'], seats=list(d['seats']), button=d['button'])
+
 
 @dataclass
 class Seating:
@@ -123,6 +130,16 @@ class Seating:
             if player_id in t.players:
                 return t
         return None
+
+    def to_dict(self) -> dict:
+        return {'tables': [t.to_dict() for t in self.tables], 'table_size': self.table_size}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Seating':
+        return cls(
+            tables=[Table.from_dict(t) for t in d['tables']],
+            table_size=d['table_size'],
+        )
 
 
 def build_initial_seating(player_ids: list[str], table_size: int) -> Seating:
