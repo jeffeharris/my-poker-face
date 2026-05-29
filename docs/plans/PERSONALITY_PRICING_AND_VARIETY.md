@@ -203,10 +203,23 @@ runs in Docker: `docker compose exec -T backend python ...`.
 > counter: detect high AF → stop over-folding / call down), which is roadmap item 4.
 >
 > **Other open follow-ups:** (1) LAG VPIP (38) is ~4pts over the textbook ceiling — fine.
-> (2) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb only). (3) Close
-> the loop: re-judge the `hyper_aggressive` defense vs the NEW Maniac archetype (prior
-> EXP_004/005 found it ~inert vs the ManiacBot *caricature* — competent static defense
-> already handles aggression; untested vs the realistic table+distortion Maniac).
+> (2) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb only).
+>
+> **Loop-closing test — DONE (2026-05-29): variety makes the maniac DETECTABLE, but the
+> adaptive counter doesn't CONVERT.** `exploit_bb100 --archetype TAG --backdrop
+> Maniac,Maniac,Maniac,Maniac` (exploit-ON vs exploit-OFF TAG twins reading a 4×new-Maniac
+> field, 96k paired hands): the `hyper_aggressive` layer flipped **10.7%** of actions (vs
+> ~1% it managed against the `ManiacBot` caricature in EXP_004/005 — the realistic Maniac's
+> bounded, hand-shaped aggression reads as a confident signal where the caricature's
+> raise-everything noise didn't), **but the paired EV edge was −2.8 bb/100, CI [−13.5, +7.8],
+> per-seed sign-disagreeing → INCONCLUSIVE/null** (a 2k/1-seed smoke had misread +15 — noise).
+> Reconciles the combo-pricing + EXP_004/005 reads: the maniac's profit is fold-equity stolen
+> from an over-folder, and a competent bot already refuses to over-fold via the static
+> defense/math floors, so detecting the aggression and "calling more" adds little the floors
+> weren't already doing. **Takeaway: defense-vs-aggression is essentially STATIC (don't
+> over-fold), which the bot has; the adaptive layer's real value is the OTHER direction —
+> attacking passive/sticky leaks with thin value + the overbet.** So the leak↔exploiter loop
+> that closes on EV is the *station* (passive payer → overbet extracts), not the maniac.
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
