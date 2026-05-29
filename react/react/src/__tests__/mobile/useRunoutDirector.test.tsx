@@ -24,6 +24,8 @@ interface ScenarioState {
   applied: Array<[string, string]>;
   active: boolean[];
   rerenderWith: (patch: Partial<DirectorProps>) => void;
+  heroCommitted: () => boolean;
+  heroRetreating: () => boolean;
 }
 
 interface DirectorProps {
@@ -54,9 +56,10 @@ function scenario(overrides: Partial<DirectorProps> = {}): ScenarioState {
   };
   let props = base;
 
-  const { rerender } = renderHook((p: DirectorProps) => useRunoutDirector({ ...p, applyReaction, setActive }), {
-    initialProps: base,
-  });
+  const { rerender, result } = renderHook(
+    (p: DirectorProps) => useRunoutDirector({ ...p, applyReaction, setActive }),
+    { initialProps: base }
+  );
 
   return {
     applied,
@@ -65,6 +68,8 @@ function scenario(overrides: Partial<DirectorProps> = {}): ScenarioState {
       props = { ...props, ...patch };
       act(() => rerender(props));
     },
+    heroCommitted: () => result.current.heroCommitted,
+    heroRetreating: () => result.current.heroRetreating,
   };
 }
 
@@ -153,6 +158,24 @@ describe('useRunoutDirector', () => {
     // No cards ever arrive; the cap must still let go.
     act(() => vi.advanceTimersByTime(T.safetyCapMs));
     expect(s.active.at(-1)).toBe(false);
+  });
+
+  it('presents the hero cards on reveal, holds, retreats when the run-out deals, resets on resolve', () => {
+    const s = scenario();
+    // Not committed before the matchup is revealed.
+    expect(s.heroCommitted()).toBe(false);
+    expect(s.heroRetreating()).toBe(false);
+    // Revealed → hero cards present (held up), not yet retreating.
+    s.rerenderWith({ revealed: true });
+    expect(s.heroCommitted()).toBe(true);
+    expect(s.heroRetreating()).toBe(false);
+    // First run-out card deals → cards pull back down.
+    s.rerenderWith({ communityCardCount: 3 });
+    expect(s.heroRetreating()).toBe(true);
+    // Run-out resolves (run_it_out clears) → both reset.
+    s.rerenderWith({ runItOut: false });
+    expect(s.heroCommitted()).toBe(false);
+    expect(s.heroRetreating()).toBe(false);
   });
 
   it('ignores cards already on the board when the run-out starts post-flop', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RUNOUT_TIMING } from '../constants/runoutTiming';
 import type { RunoutSchedule, RunoutStep } from '../types/runout';
 
@@ -40,6 +40,11 @@ interface UseRunoutDirectorParams {
  *
  * It does NOT touch the board, the GATED card buffer, or the result beat — those
  * stay backend-paced under option B, so there's nothing here to flash or hang.
+ *
+ * It also exposes `heroCommitted`: true from the moment the all-in matchup is
+ * revealed until the run-out resolves. The table uses it to "present" the human's
+ * hole cards (lift them up) as the matchup lands — the same beat the opponents'
+ * INITIAL reactions fire on, so it reads as "you show your hand → they react."
  */
 export function useRunoutDirector({
   schedule,
@@ -50,7 +55,13 @@ export function useRunoutDirector({
   fastForward,
   applyReaction,
   setActive,
-}: UseRunoutDirectorParams): void {
+}: UseRunoutDirectorParams): { heroCommitted: boolean; heroRetreating: boolean } {
+  // The human's cards throw up to "present" at the matchup reveal (heroCommitted),
+  // hold over the board while the opponents read it, then pull back down the
+  // instant the run-out's first board card deals (heroRetreating) — so the board
+  // is clear for the run-out.
+  const [heroCommitted, setHeroCommitted] = useState(false);
+  const [heroRetreating, setHeroRetreating] = useState(false);
   // Index steps by phase so a run-out that starts post-flop (no FLOP steps) just
   // finds empty buckets for the streets it skipped.
   const stepsByPhase = useMemo(() => {
@@ -94,6 +105,7 @@ export function useRunoutDirector({
       // locked) are the baseline — don't re-react to them.
       prevCountRef.current = communityCardCount;
       directingScheduleRef.current = schedule;
+      setHeroRetreating(false); // fresh run-out — cards start down, then present
       setActive(true);
       // Safety net: release reaction ownership even if the board never finishes
       // (deleted/abandoned game), so backend reactions aren't muted forever. Not
@@ -105,6 +117,8 @@ export function useRunoutDirector({
       directingScheduleRef.current = null;
       prevCountRef.current = communityCardCount;
       setActive(false);
+      setHeroCommitted(false); // run-out resolved
+      setHeroRetreating(false);
     }
     // communityCardCount intentionally omitted — only (re)activation inputs drive this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,6 +128,9 @@ export function useRunoutDirector({
   // as the reveal cascade settles.
   useEffect(() => {
     if (!revealed || !schedule || directingScheduleRef.current !== schedule) return;
+    // Present the human's hand the instant the matchup reveals (the commit beat);
+    // the opponents' INITIAL read then lands a beat later, as the cards settle.
+    setHeroCommitted(true);
     if (playedRef.current.has('INITIAL:0')) return;
     playedRef.current.add('INITIAL:0');
     const step = stepsByPhase.INITIAL?.[0];
@@ -142,6 +159,10 @@ export function useRunoutDirector({
             ? 'RIVER'
             : null;
     if (!phase) return;
+
+    // The run-out has started dealing — pull the presented hero cards back down
+    // so they don't cover the board as it runs.
+    setHeroRetreating(true);
 
     const steps = stepsByPhase[phase] ?? [];
     let lastCardIndex = 0;
@@ -177,4 +198,6 @@ export function useRunoutDirector({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  return { heroCommitted, heroRetreating };
 }

@@ -977,6 +977,80 @@
   }
 }
 
+/* Run-out "commit": at the all-in matchup reveal, the hero throws their hole cards
+   up to PRESENT over the board — left first, right a beat later (staggered) — and
+   HOLDS them there (opponents read the matchup during the hold). They pull back
+   DOWN only when the run-out actually starts dealing (useRunoutDirector flips
+   heroRetreating on the first board card), so the board is clear as it runs. Same
+   easing as dealCardIn so it reads smooth. Driven per-card inline (so the two can
+   stagger): heroPresentUp* while held, heroPullDown* on retreat. This class raises
+   the stacking so the held cards sit over the felt. Tune the held reach via the
+   -Ndvh (height) and ±Nvw (spread) values in the keyframes below. */
+.hero-cards--committed {
+  position: relative;
+  z-index: 20; /* sit above the action bar AND the community cards on the felt */
+  overflow: visible;
+}
+
+/* Throw up to present over the board, then HOLD (forwards) — held until the
+   run-out starts dealing, at which point heroPullDown* takes over. Start and end
+   at the card's *original dealt placement* (the --deal-* vars, same as dealCardIn's
+   resting frame) rather than a flat 0,0 — so the cards return to their natural
+   slightly-tilted spot, not an "even" centered one. The held pose is a confident
+   "push": reaches well up (-20dvh), nearly straight (±2deg), slightly enlarged
+   (1.1). Consistent transform-function order across stops keeps interpolation
+   smooth. Left tilts left, Right right. Tune reach via the -Ndvh values. */
+@keyframes heroPresentUpLeft {
+  0% {
+    transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
+      translateY(var(--deal-offset-y)) scale(1);
+  }
+  70% {
+    /* Slight overshoot past the held position (mirrors dealCardIn's shape) */
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-21dvh) scale(1.11);
+  }
+  100% {
+    /* Held, presented over the board */
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-20dvh) scale(1.1);
+  }
+}
+
+@keyframes heroPresentUpRight {
+  0% {
+    transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
+      translateY(var(--deal-offset-y)) scale(1);
+  }
+  70% {
+    transform: rotate(2deg) translateX(2.5vw) translateY(-21dvh) scale(1.11);
+  }
+  100% {
+    transform: rotate(2deg) translateX(2.5vw) translateY(-20dvh) scale(1.1);
+  }
+}
+
+/* Pull back down to the original dealt placement when the run-out starts. 0%
+   matches the presented hold above so the handoff is seamless; 100% matches the
+   card's inline resting transform so it lands exactly where it began. */
+@keyframes heroPullDownLeft {
+  0% {
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-20dvh) scale(1.1);
+  }
+  100% {
+    transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
+      translateY(var(--deal-offset-y)) scale(1);
+  }
+}
+
+@keyframes heroPullDownRight {
+  0% {
+    transform: rotate(2deg) translateX(2.5vw) translateY(-20dvh) scale(1.1);
+  }
+  100% {
+    transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
+      translateY(var(--deal-offset-y)) scale(1);
+  }
+}
+
 /* Card exit animation - left card joins right card, both sweep off right
    Uses CSS variables set inline per card:
    --exit-start-x: Starting X position
@@ -1237,6 +1311,12 @@
   .opponent-revealed-cards .playing-card {
     animation: none;
     opacity: 1;
+  }
+  /* Hero commit: no slam under reduced motion — cards stay put (the matchup is
+     still conveyed by the opponents' reactions). !important overrides the inline
+     per-card animation. */
+  .hero-cards--committed > div {
+    animation: none !important;
   }
 }
 
