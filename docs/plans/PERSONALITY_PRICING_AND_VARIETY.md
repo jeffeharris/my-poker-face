@@ -3,6 +3,7 @@ purpose: Methodology + handoff for pricing the tiered bot's personality deviatio
 type: guide
 created: 2026-05-28
 last_updated: 2026-05-29
+status_note: "2026-05-29 — the variety-widening task is BUILT (hybrid width-tier tables + retuned distortion). See 'VARIETY WIDENING — BUILT' below; the older NEW-CONTEXT callout that posed it as open is left for narrative."
 ---
 
 # Personality pricing & variety — process + handoff
@@ -89,6 +90,92 @@ runs in Docker: `docker compose exec -T backend python ...`.
 > and field size (`hu_strategy_table`) only — **add an archetype→width-tier map** alongside those
 > (small change in the controller's table picker + `make_controller`). Then widen scales/caps for
 > the per-archetype flavor and iterate the VPIP/PFR/AF table.
+
+> **VARIETY WIDENING — BUILT (2026-05-29).** The hybrid architecture above is now
+> implemented and the acceptance test passes. **Answer to the framing question
+> ("a few tuned tables vs. the adjustment system"): BOTH — and they do different
+> jobs.** Width-tier preflop TABLES carry the coarse VPIP *envelope* (distortion
+> has a hard ceiling — it can't open hands the base chart folds ~100%); the
+> distortion layer carries the *flavor within* (aggression/passivity character +
+> the tight-end separation, which distortion CAN reach since it can always boost
+> fold). Confirmed empirically: table-only envelopes (Baseline hero, no distortion)
+> = tight 21% VPIP / std 25% / **loose 50%** / **station 43% VPIP, 19% PFR** —
+> distortion alone topped out ~32–43% and could not make a caller.
+>
+> **What shipped:**
+> - **3 new preflop tables** (`experiments/build_archetype_charts.py` →
+>   `_loose.json`, `_loose_mid.json`, `_station.json`). Loose = wide RFI at every
+>   position + wide continues (Maniac). Loose-mid = moderate RFI + continues,
+>   landing between TAG and Maniac (LAG — textbook LAG is *not* as loose as a
+>   maniac). Station = TIGHT RFI (opens few → low PFR, textbook ~8–12%) but heavy
+>   flat-CALLING vs_open (fold→call) → a real caller. Tight (`_tight_rfi`) predates
+>   this (Nit/Rock); TAG uses the standard base. **5 width tiers total:**
+>   tight→Nit/Rock, std→TAG, loose-mid→LAG, loose→Maniac, station→Calling Station.
+> - **Archetype→table wiring** (preflop-only; postflop stays on the base chart):
+>   `ARCHETYPE_WIDTH_TABLE` + `select_deviation_profile_key` (deviation_profiles.py),
+>   `load_archetype_preflop_tables` (strategy_table.py), `archetype_preflop_tables`
+>   param + `_archetype_base_table` / `_select_preflop_table` (tiered_bot_controller.py),
+>   wired in BOTH `flask_app/handlers/tiered_factory.py` (prod) and
+>   `experiments/simulate_bb100.make_controller` (sims; `--preflop-chart` still wins
+>   for Baseline-hero experiments — measure_passivity clears the hero's archetype
+>   tables when a chart is forced).
+> - **Retuned distortion** (deviation_profiles.py): tables now carry VPIP so the
+>   scales carry flavor. Nit's 0.20 cap (which had throttled it to byte-identical
+>   with Rock) → 0.30 + stronger looseness_scale so nit's tighter anchors express;
+>   TAG aggression bumped for AF separation from Rock; station aggression_scale up
+>   (raise→call) + high ego_fold_penalty (sticky/pays-off); maniac aggression_scale
+>   2.0→2.2 for top-of-field AF (cap held at the priced 0.35).
+>
+> **Acceptance-test result** (`measure_passivity --hero <arch>` vs a 5×Baseline
+> roster, 4500 hands; VPIP/PFR are ~opponent-independent so they anchor the spread).
+> Last column = textbook 6-max VPIP/PFR bands — **all six match** and the ordering
+> is textbook-correct (a station is looser than a LAG; clean passive/aggressive split):
+>
+> | arch | VPIP | PFR | gap | AF* | payoff | textbook VPIP/PFR |
+> |---|---|---|---|---|---|---|
+> | Nit | 15 | 10 | 5 | 0.36 | 60% | 12–16 / 8–13 ✅ |
+> | Rock | 19 | 12 | 7 | 0.34 | 69% | 15–20 / 8–14 ✅ |
+> | TAG | 24 | 20 | 4 | 0.70 | 80% | 18–24 / 15–20 ✅ (reg anchor, lower edge) |
+> | LAG | 38 | 30 | 8 | 0.80 | 74% | 26–34 / 20–28 ✅ (top edge) |
+> | Calling Station | 45 | 16 | **29** | 0.26 | 79% | 35–50 / 5–14 ✅ **the caller** |
+> | Maniac | 56 | 48 | 8 | 1.25 | 59% | 50–75 / 35–55 ✅ |
+>
+> \* **AF here is NOT standard tracker AF.** This metric = aggressive / (check+call);
+> PokerTracker AF = (bet+raise)/call (checks excluded), so these run lower and aren't
+> a like-for-like with "TAG AF ≈ 2.5–3." Use the *ordering* (passives Nit/Rock/Station
+> low, aggressives TAG/LAG/Maniac high) + the VPIP–PFR *gap* (the caller's 29 vs
+> everyone else's ~5–8), which ARE standard.
+>
+> vs the doc's problem-state audit (Nit 22 → Maniac 32, a 10-pt spread, PFR≈VPIP,
+> "station doesn't call"): now a **41-pt VPIP spread**, Nit≠Rock, a clean
+> passive/aggressive split, and **the station calls**. `test_strategy` +
+> `test_psychology_drift` green (1529 passed).
+>
+> **Tuning history (toward textbook):** v1 had LAG/Maniac both on the loose table
+> (54/44 vs 56/48 — LAG was a maniac clone) and the station opening too much (PFR 19).
+> Fixed by giving LAG its own **loose-mid** tier (→ 38/30, between TAG and Maniac) and
+> giving the station a **tight RFI** (opens few → PFR 19→16) while keeping its wide
+> flat-call vs_open. The hybrid lever (a better table) is what closed both gaps —
+> distortion couldn't. Finally pulled **TAG down to the lower edge** (26→24/20) by
+> raising its looseness_scale 0.6→1.6 (its negative looseness deviation boosts fold →
+> tightens entry; aggression_scale 1.6 stays for the AF flavor): TAG is the
+> competent-reg anchor, so it should sit at the bottom of its band, not over the top —
+> this sharpens the gradient (TAG = the standard the loose archetypes are measured
+> against) and widens the gap to LAG. **Design principle (the "upper vs lower bound"
+> call): push the spread — weak/characterful archetypes (Station/Maniac) lean to the
+> LOOSE edge (more exploitable, more action, the EV bleed is the intended handicap);
+> the competent reg (TAG) leans TIGHT (near-optimal, no un-intended leak). Looser also
+> means more multiway pots, which mute postflop skill — another reason not to loosen
+> the strong end.**
+>
+> **Caveats / open follow-ups (NOT done):** (1) The `measure_passivity` bb/100 vs a
+> 1-vs-5-Baseline table is a roster artifact (over-rewards aggression, punishes the
+> caller), NOT the canonical price — re-price the table+distortion combo with the
+> paired-CRN gate (`ab_node_attribution` would need archetype-table wiring like its
+> `--a-hero/--b-hero`). Variety is *expected* to cost EV (the bleed is the skill
+> gradient), so the station's bleed is by design, but it's unpriced. (2) LAG/Maniac
+> still separate partly on aggression; LAG VPIP (38) is ~4pts over the textbook
+> ceiling — fine. (3) Depth (50/25bb) + HU charts are still width-tier-agnostic (100bb).
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.

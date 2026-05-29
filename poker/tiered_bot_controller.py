@@ -235,6 +235,7 @@ class TieredBotController(AIPlayerController):
         expression_generator: Optional[ExpressionGenerator] = None,
         hu_strategy_table: Optional[StrategyTable] = None,
         depth_strategy_tables: Optional[Dict[int, StrategyTable]] = None,
+        archetype_preflop_tables: Optional[Dict[str, StrategyTable]] = None,
         **kwargs,
     ):
         super().__init__(
@@ -249,6 +250,14 @@ class TieredBotController(AIPlayerController):
         # Empty dict → no depth adjustment (the base table is used at every
         # depth, the pre-depth-aware behavior). See _select_preflop_table.
         self.depth_strategy_tables: Dict[int, StrategyTable] = depth_strategy_tables or {}
+        # Width-tier preflop charts keyed by deviation-profile key (e.g.
+        # {'lag': .., 'maniac': .., 'calling_station': ..}). The loose/station
+        # archetypes need a wider base TABLE than distortion can reach (it can't
+        # open hands the base chart folds ~100%); the tight archetypes get a
+        # tighter base. Empty dict → every archetype uses the base table (the
+        # pre-width-tier behavior). PREFLOP-ONLY — postflop stays on
+        # self.strategy_table. See _select_preflop_table + ARCHETYPE_WIDTH_TABLE.
+        self.archetype_preflop_tables: Dict[str, StrategyTable] = archetype_preflop_tables or {}
         self.debug_logging = debug_logging
         self.rng = random.Random(rng_seed)
         # Competitive feel: bet sizing jitter band. When > 0, the action
@@ -2075,26 +2084,51 @@ class TieredBotController(AIPlayerController):
         """Effective stack in big blinds — delegates to `stack_utils`."""
         return effective_stack_bb(game_state, game_state.players[player_idx])
 
+    def _archetype_base_table(self):
+        """The 100bb base preflop chart for this archetype. Returns (table, label).
+
+        The loose/station/tight archetypes select a width-tier chart (the table
+        carries the VPIP envelope distortion can't reach); everyone else uses
+        the shared base table. PREFLOP-only — postflop stays on
+        self.strategy_table. getattr guards controllers built via __new__
+        (sims/tests) that skipped __init__.
+        """
+        tables = getattr(self, 'archetype_preflop_tables', None) or {}
+        if tables:
+            key = self.archetype_name
+            tbl = tables.get(key)
+            if tbl is not None:
+                return tbl, f'6max:{key}'
+        return self.strategy_table, '6max'
+
     def _select_preflop_table(self, num_seated, effective_stack_bb):
         """Pick the preflop chart for this spot. Returns (table, label).
 
         - 2-handed: the HU chart (depth selection is 6-max-only for now —
           the HU chart has no shallow variants, and short stacks there are
           covered by the push/fold chart at the lookup step).
-        - 6-max/multiway: the shallow depth chart nearest the effective
-          stack (50/25bb) when available, else the 100bb base table. With no
-          depth tables loaded this is always the base table — the original,
-          depth-agnostic behavior.
+        - 6-max/multiway at ~100bb: the archetype width-tier chart (loose /
+          station / tight) when one is loaded, else the shared base table.
+        - 6-max/multiway short: the shallow depth chart nearest the effective
+          stack (50/25bb) when available. Depth charts are width-tier-agnostic
+          for now — short-stack play collapses toward push/fold so the coarse
+          archetype envelope matters less there.
         """
         if num_seated == 2 and self.hu_strategy_table is not None:
             return self.hu_strategy_table, 'HU'
+        base, base_label = self._archetype_base_table()
         # getattr default keeps controllers built by bypassing __init__
         # (test fixtures, factories) working with no depth adjustment.
         depth_tables = getattr(self, 'depth_strategy_tables', None) or {}
         if not depth_tables:
-            return self.strategy_table, '6max'
+            return base, base_label
         bucket = nearest_depth_bucket(effective_stack_bb)
-        table = depth_tables.get(bucket, self.strategy_table)
+        table = depth_tables.get(bucket)
+        if table is None:  # 100bb (base supplied by caller) or missing bucket
+            # Archetype width chart wins and keeps its label; otherwise annotate
+            # the deep bucket as before (depth-awareness active, deep stack).
+            label = base_label if base_label != '6max' else f'6max@{bucket}bb'
+            return base, label
         return table, f'6max@{bucket}bb'
 
     def _classify_postflop_hand_strength(self, node):

@@ -11,6 +11,7 @@ from typing import Optional
 from core.llm import CallType, LLMClient
 from poker.strategy.expression_generator import ExpressionGenerator
 from poker.strategy.strategy_table import (
+    load_archetype_preflop_tables,
     load_depth_strategy_tables,
     load_hu_strategy_table,
     load_strategy_table,
@@ -43,6 +44,10 @@ def build_tiered_controller(
     strategy_table = load_strategy_table()
     hu_strategy_table = load_hu_strategy_table()  # None if file missing
     depth_strategy_tables = load_depth_strategy_tables()  # {} if files missing
+    # Width-tier preflop charts (loose/station/tight) keyed by archetype; {} if
+    # files missing → every archetype uses the base table. BaselineSolverBot
+    # classifies as 'baseline' (not in the map) so it always uses the base.
+    archetype_preflop_tables = load_archetype_preflop_tables()
     controller_cls = BaselineSolverBot if baseline else TieredBotController
     controller = controller_cls(
         player_name=player_name,
@@ -50,6 +55,7 @@ def build_tiered_controller(
         strategy_table=strategy_table,
         hu_strategy_table=hu_strategy_table,
         depth_strategy_tables=depth_strategy_tables,
+        archetype_preflop_tables=archetype_preflop_tables,
         llm_config=llm_config,
         game_id=game_id,
         owner_id=owner_id,

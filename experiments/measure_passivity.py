@@ -542,6 +542,11 @@ def run_passivity_matchup(
     if len(opponents) < 1:
         raise ValueError(f"need >=1 opponent, got {len(opponents)}")
 
+    # When an explicit hero chart is forced (--preflop-chart or entry=isolate),
+    # it must win over the archetype width-tier auto-selection — so we clear the
+    # hero's archetype_preflop_tables below. A plain `--hero X` (no forced chart)
+    # keeps the auto-selected width table (the real acceptance-test path).
+    hero_chart_forced = hero_table is not None or entry == 'isolate'
     if hero_table is None:
         hero_table = strategy_table
     hero_table = build_isolation_table(hero_table) if entry == 'isolate' else hero_table
@@ -574,6 +579,11 @@ def run_passivity_matchup(
         sm.current_hand_seed = hand_seed
 
         controllers = [make_controller(hero_name, config_arch, hero_table, sm, rng_seed=hand_seed)]
+        if hero_chart_forced:
+            # The forced --preflop-chart / isolate table is the hero's
+            # strategy_table; drop archetype auto-selection so it isn't
+            # overridden by a width-tier chart.
+            controllers[0].archetype_preflop_tables = {}
         # No opponent_manager: Baseline (anchors=None) skips exploitation and
         # equity recording only writes to models, so omitting it is identical
         # for decisions/stacks and disables equity-MC (plan requirement).

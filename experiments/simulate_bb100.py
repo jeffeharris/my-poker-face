@@ -49,6 +49,7 @@ from poker.rule_based_controller import CHAOS_BOTS, RuleBasedController, RuleCon
 from poker.strategy.deviation_profiles import DEVIATION_PROFILES
 from poker.strategy.strategy_table import (
     StrategyTable,
+    load_archetype_preflop_tables,
     load_depth_strategy_tables,
     load_hu_strategy_table,
     load_strategy_table,
@@ -266,6 +267,21 @@ def _get_depth_tables() -> dict:
     return _DEPTH_TABLES_CACHE
 
 
+_ARCHETYPE_TABLES_CACHE: Optional[dict] = None
+
+
+def _get_archetype_tables() -> dict:
+    """Lazy-load + cache the width-tier preflop charts keyed by archetype
+    ({'loose':.., 'station':.., 'nit':..}). Empty dict if files are missing
+    (→ every archetype uses the base table). Mirrors production
+    (tiered_factory.build_tiered_controller) so sims and live agree.
+    """
+    global _ARCHETYPE_TABLES_CACHE
+    if _ARCHETYPE_TABLES_CACHE is None:
+        _ARCHETYPE_TABLES_CACHE = load_archetype_preflop_tables()
+    return _ARCHETYPE_TABLES_CACHE
+
+
 def make_controller(
     name: str,
     archetype_config: dict,
@@ -331,6 +347,11 @@ def make_controller(
     # Depth-aware shallow 6-max charts ({50:.., 25:..}); empty → no
     # depth adjustment. Cached module-wide like the HU table.
     controller.depth_strategy_tables = _get_depth_tables()
+    # Width-tier preflop charts keyed by archetype (loose/station/tight); empty
+    # → every archetype uses the base table. Mirrors production. The hero's
+    # explicit --preflop-chart (measure_passivity) clears this so the forced
+    # chart wins; Baseline classifies as 'baseline' (not in the map) regardless.
+    controller.archetype_preflop_tables = _get_archetype_tables()
     controller.debug_logging = False
     controller.rng = random.Random(rng_seed)
     controller.skip_personality_distortion = is_baseline
