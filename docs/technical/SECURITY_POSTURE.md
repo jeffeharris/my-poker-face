@@ -111,7 +111,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 | Fresh-guest minting rate-limited per IP (`RATE_LIMIT_GUEST_LOGIN`, returning guests exempt) | ✅ (PRH-26) | `poker/auth.py` `_guest_login_limit` |
 | Username/password login | ✅ disabled (501) — the stub used to mint limit-free sessions | `poker/auth.py` login |
 | Cookie hardening: `HttpOnly`, `SameSite=Lax`, `Secure` in prod | ✅ | `poker/auth.py` `init_app` |
-| Browser auth still also issues a `localStorage` bearer JWT (redundant with the session cookie; XSS blast-radius) | ❌ | PRH-37 |
+| Browser auth is **cookie-only** — no `localStorage` bearer JWT issued/stored/sent; session + signed guest cookies carry auth (sockets use `withCredentials`). Server still accepts a Bearer header for non-browser clients (dormant). | ✅ (PRH-37) | `poker/auth.py` login; `useAuth.tsx`, `UsageStatsProvider.tsx` |
 
 ## Authorization ✅
 
@@ -186,7 +186,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 
 Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE_HARDENING.md):
 
-- **Web-session hardening:** CSRF tokens (PRH-36), drop the `localStorage` bearer JWT (PRH-37).
+- **Web-session hardening:** CSRF tokens (PRH-36). *(Dropping the `localStorage` bearer JWT — PRH-37 — is done.)*
 - **Edge/deploy:** security headers + CSP (PRH-39); production-safe image default + non-root container (PRH-40); admin-bootstrap not via guest namespace (PRH-38); standardize the async model (PRH-24).
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
 - **Ops/data:** off-box WAL-safe backups (PRH-29); capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30); client-side cold-load self-heal (PRH-31).

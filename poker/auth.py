@@ -151,9 +151,12 @@ class AuthManager:
                 tracking_id = self.resolve_guest_tracking_id() or str(uuid.uuid4())
                 user_data['tracking_id'] = tracking_id
 
-                response = jsonify(
-                    {'success': True, 'user': user_data, 'token': self.generate_token(user_data)}
-                )
+                # Auth rides the HttpOnly session + signed guest cookies set
+                # below; we no longer hand the browser a bearer token to stash
+                # in localStorage (PRH-37 — shrinks the XSS blast radius). The
+                # server still *accepts* a Bearer header in get_current_user for
+                # any non-browser/API client, but browser flows are cookie-only.
+                response = jsonify({'success': True, 'user': user_data})
 
                 # Set a long-lived cookie for guest ID (30 days), signed
                 # with the app SECRET_KEY so the value can't be forged by
