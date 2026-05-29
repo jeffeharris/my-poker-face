@@ -7,6 +7,23 @@ last_updated: 2026-05-29
 
 # Run-Out Reveal Director (mobile)
 
+> **Status (2026-05-29) — Phase 1 shipped, Phase 2 not started.** Work lives on branch
+> `career-mode-v0_1`, **local and unpushed**, with `development` merged in. Relevant commits
+> (newest first):
+> - `39a1f060` — sequential reveal cascade (per-card + per-opponent) + pre-flop reactions as
+>   their own beat + the dead `animation_sleep` removed on the reveal step + this doc's §D/§E.
+> - `b06371d4` — Phase 1 staggered reveal + this design note.
+> - `f910026b` — merge of `development` (brings `useInterhandDirector` + `interhandTiming.ts`).
+> - `11f1e414` — run-out reaction-delivery fix (`is_reaction`) + reveal-hold tune
+>   (`config.RUNOUT_REVEAL_HOLD`) + `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`.
+>
+> **Phase 1 is street-granular** (reactions at FLOP/TURN/RIVER boundaries). **Phase 2** (this
+> doc) is the client-owned director: per-card reactions (§D) and the human hole-card "commit"
+> animation (§E). **Two calls to make before building Phase 2:** (1) reconnection — persist
+> the schedule for resync vs. accept a silent skip; (2) §E's animation-variant set and
+> equity→variant thresholds. Companion doc: `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`
+> (the three emotion tracks this fits into).
+
 > **Reviewed 2026-05-29** (feature-dev:code-reviewer, against the live code). The
 > review surfaced two **Critical** issues now folded in below: (a) the existing
 > `processStateUpdate` card-animation GATED buffer will fight the director unless the
@@ -90,6 +107,37 @@ emission, computed at the hole-card reveal:
   desktop flip** (`cardReveal` is desktop-only and broken). The reveal *is* the beat — no
   separate frozen hold.
 
+### C. The coordination seam (the crux)
+
+Two tensions, **resolved per review**:
+
+1. **Board-card source + the GATED buffer (Critical).** `MobilePokerTable` reads the board
+   from the Zustand store's `communityCards`, not from `revealedCards`. And
+   `processStateUpdate` (`usePokerGame.ts` ~336-413) already has a **card-animation gate**:
+   when an `update_game_state` carries `newly_dealt_count > 0` it opens a ~2825ms gate and
+   queues later updates, draining them on its own `REPLAY_DELAY_MS` clock. If the backend
+   settles immediately and emits per-street states, that buffer's replay clock and the
+   director's beat clock advance the board **independently** → the board flickers or shows
+   future cards.
+   **Decision:** during the run-out the backend emits the **schedule only** and **suppresses
+   per-street `update_game_state`**; it pushes **one** authoritative final state after
+   settling. The client **freezes `communityCards`** while `isRunningOut` (board sourced from
+   the director/schedule) and **reconciles to authoritative state on `done`**. The GATED
+   buffer must be bypassed while `isRunningOut`. (Withholding cards from authoritative state
+   on the backend is the wrong fix — it re-couples the backend to client timing.)
+2. **Don't let the result beat start early — but don't gate `hasWinner` (Critical).**
+   `useInterhandDirector` captures `endedHandRef` on the **rising edge of `hasWinner`**
+   (`useInterhandDirector.ts:52-57`). Under Phase 2 the backend deals the next hand right
+   after settling, so `handNumber` may already be N+1. If `hasWinner` is gated on the run-out
+   `done`, its rising edge fires *after* `handNumber` advanced → `endedHandRef` stamps the
+   new hand → the shuffle-exit condition is instantly true → the shuffle **flashes** (the
+   exact bug the director was built to prevent).
+   **Decision:** let `hasWinner` rise at `winner_announcement` as today (so `endedHandRef`
+   captures the just-ended hand), and instead gate the **`beginShuffle` call** (the
+   auto-dismiss / Continue path) until the run-out director reports `done`. Thin coordination
+   seam; keep the two directors as **siblings**, not unified (unifying forces one hook to
+   juggle two safety caps and two exit observables — harder to test).
+
 ### D. Per-card reactions (the Phase 2 payoff over Phase 1's street granularity)
 
 Phase 1 (and today's backend) reacts at **street** boundaries — the flop's three cards land
@@ -136,37 +184,6 @@ rather than leaving them parked.
   run-out "commit" state with the equity-picked variant.
 - **To refine:** the exact set of variants and the equity→variant thresholds; whether the
   commit also nudges the board/pot visually; reduced-motion fallback (static, as today).
-
-### C. The coordination seam (the crux)
-
-Two tensions, **resolved per review**:
-
-1. **Board-card source + the GATED buffer (Critical).** `MobilePokerTable` reads the board
-   from the Zustand store's `communityCards`, not from `revealedCards`. And
-   `processStateUpdate` (`usePokerGame.ts` ~336-413) already has a **card-animation gate**:
-   when an `update_game_state` carries `newly_dealt_count > 0` it opens a ~2825ms gate and
-   queues later updates, draining them on its own `REPLAY_DELAY_MS` clock. If the backend
-   settles immediately and emits per-street states, that buffer's replay clock and the
-   director's beat clock advance the board **independently** → the board flickers or shows
-   future cards.
-   **Decision:** during the run-out the backend emits the **schedule only** and **suppresses
-   per-street `update_game_state`**; it pushes **one** authoritative final state after
-   settling. The client **freezes `communityCards`** while `isRunningOut` (board sourced from
-   the director/schedule) and **reconciles to authoritative state on `done`**. The GATED
-   buffer must be bypassed while `isRunningOut`. (Withholding cards from authoritative state
-   on the backend is the wrong fix — it re-couples the backend to client timing.)
-2. **Don't let the result beat start early — but don't gate `hasWinner` (Critical).**
-   `useInterhandDirector` captures `endedHandRef` on the **rising edge of `hasWinner`**
-   (`useInterhandDirector.ts:52-57`). Under Phase 2 the backend deals the next hand right
-   after settling, so `handNumber` may already be N+1. If `hasWinner` is gated on the run-out
-   `done`, its rising edge fires *after* `handNumber` advanced → `endedHandRef` stamps the
-   new hand → the shuffle-exit condition is instantly true → the shuffle **flashes** (the
-   exact bug the director was built to prevent).
-   **Decision:** let `hasWinner` rise at `winner_announcement` as today (so `endedHandRef`
-   captures the just-ended hand), and instead gate the **`beginShuffle` call** (the
-   auto-dismiss / Continue path) until the run-out director reports `done`. Thin coordination
-   seam; keep the two directors as **siblings**, not unified (unifying forces one hook to
-   juggle two safety caps and two exit observables — harder to test).
 
 ## Alternative considered — hybrid (client holds, backend still deals per street)
 
