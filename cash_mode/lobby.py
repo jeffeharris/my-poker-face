@@ -4261,32 +4261,33 @@ def _process_aspiration_asks(
             continue
         staker_id, staker_profile = picked
 
-        # Commit. Vacate the seat, return seat chips to bankroll, add
-        # the stake principal to the asker's bankroll, debit the
-        # staker, create the Stake row, place asker in the idle pool
-        # targeting the new tier.
+        # Commit — financial operations FIRST, structural mutations LAST
+        # (Window A atomicity, CASH_SEAT_INVARIANT_HARDENING §3).
+        #
+        # Order: (1) debit the staker; (2) create the Stake row, refunding
+        # the staker if that write fails; (3) only after BOTH financial
+        # ops have committed, vacate the seat + queue the chip-return.
+        #
+        # Rationale: the seat vacate and `from_seat` chip-return credit
+        # the asker `seat_chips + principal`. If they ran before a failed
+        # staker debit (the historical order), nobody was debited the
+        # `principal` → minted chips. Reordering makes the structural
+        # mutations pure in-memory writes on `result` that only run on the
+        # fully-committed financial path — they have no independent
+        # failure of their own. The success end-state is identical: the
+        # same debit, the same stake row, the same seat vacate, the same
+        # single `from_seat` of `seat_chips + principal`.
         seat_chips = int(slot.get("chips", 0) or 0)
-        table.seats[seat_idx] = open_slot()
 
-        # Single BankrollChange combining the seat-chip return and the
-        # stake-principal credit. The post-burst code applies
-        # from_seat changes via credit_ai_cash_out, which writes one
-        # row + handles regen — combining the two amounts is a
-        # single write, cleaner than two separate calls.
-        result.bankroll_changes.append(
-            BankrollChange(
-                direction="from_seat",
-                personality_id=asker_pid,
-                amount=seat_chips + principal,
-            )
-        )
-
-        # Debit the staker inline (matches Phase 4's stake_creations
-        # post-loop debit pattern).
+        # (1) Debit the staker inline (matches Phase 4's stake_creations
+        # post-loop debit pattern). `debit_bankroll_for_seat` signals
+        # failure two ways: it RAISES, or it returns None (insufficient
+        # funds / missing row — the audit-safe refusal). BOTH must skip
+        # the ask cleanly without touching the seat, or chips mint.
         try:
             from cash_mode.bankroll import debit_bankroll_for_seat
 
-            debit_bankroll_for_seat(
+            debited = debit_bankroll_for_seat(
                 bankroll_repo,
                 staker_id,
                 principal,
@@ -4304,8 +4305,20 @@ def _process_aspiration_asks(
                 exc,
             )
             continue
+        if debited is None:
+            logger.warning(
+                "[CASH][LOBBY] aspiration: staker debit refused "
+                "staker=%r pid=%r principal=%d — skipping climb",
+                staker_id,
+                asker_pid,
+                principal,
+            )
+            continue
 
-        # Create the stake row.
+        # (2) Create the stake row. If the write fails AFTER the staker
+        # was debited, refund the staker the `principal` (reversing only
+        # the transfer portion — any regen the debit committed is real
+        # and stays) and skip the ask. The seat has NOT been touched yet.
         import uuid
 
         stake = Stake(
@@ -4334,7 +4347,65 @@ def _process_aspiration_asks(
                 staker_id,
                 exc,
             )
+            # Refund the staker so the committed debit isn't a silent
+            # loss. `debited` is the post-debit AIBankrollState; add the
+            # principal back to it (the transfer is reversed; the regen
+            # commit, if any, is preserved).
+            try:
+                from cash_mode.bankroll import AIBankrollState
+
+                bankroll_repo.save_ai_bankroll(
+                    AIBankrollState(
+                        personality_id=staker_id,
+                        chips=debited.chips + principal,
+                        last_regen_tick=debited.last_regen_tick,
+                    ),
+                    sandbox_id=sandbox_id,
+                )
+            except TypeError as te:
+                if "sandbox_id" not in str(te):
+                    logger.warning(
+                        "[CASH][LOBBY] aspiration: staker refund failed "
+                        "staker=%r principal=%d: %s",
+                        staker_id,
+                        principal,
+                        te,
+                    )
+                else:
+                    bankroll_repo.save_ai_bankroll(
+                        AIBankrollState(
+                            personality_id=staker_id,
+                            chips=debited.chips + principal,
+                            last_regen_tick=debited.last_regen_tick,
+                        )
+                    )
+            except Exception as refund_exc:
+                logger.warning(
+                    "[CASH][LOBBY] aspiration: staker refund failed "
+                    "staker=%r principal=%d: %s",
+                    staker_id,
+                    principal,
+                    refund_exc,
+                )
             continue
+
+        # (3) Both financial ops committed — now vacate the seat and queue
+        # the chip-return. Pure in-memory mutations on `result`; no
+        # independent failure path.
+        table.seats[seat_idx] = open_slot()
+
+        # Single BankrollChange combining the seat-chip return and the
+        # stake-principal credit. The post-burst code applies
+        # from_seat changes via credit_ai_cash_out, which writes one
+        # row + handles regen — combining the two amounts is a
+        # single write, cleaner than two separate calls.
+        result.bankroll_changes.append(
+            BankrollChange(
+                direction="from_seat",
+                personality_id=asker_pid,
+                amount=seat_chips + principal,
+            )
+        )
 
         # Relationship event — same shape as bust-stake.
         if relationship_repo is not None:
