@@ -27,6 +27,16 @@ class DeviationProfile:
     # reshape (then bounded by max_per_action_shift). Priced + budgeted before
     # a profile turns one on. See PERSONALITY_PRICING_AND_VARIETY.md.
     spot_tendencies: Tuple[Tuple[str, float], ...] = ()
+    # Dimensional-awareness leak: how position-BLIND the player is, in [0, 1].
+    # 0 = fully position-aware (reads its seat correctly). >0 = looks up the
+    # preflop chart at a LATER (looser) seat than it actually has — the classic
+    # recreational "doesn't respect position" mistake (opens BTN-wide from UTG).
+    # 1.0 shifts all the way to BTN; 0.33 ≈ one seat later. A −EV error on EVERY
+    # hand from every seat, so (unlike the multi-street pay-off leak) it is NOT
+    # capped by short stacks — the realistic answer to a 40bb bottom-tier trickle.
+    # Applied at the node-lookup level in TieredBotController (the chart cell it
+    # reads), so distortion + floors still layer on top. See FISH_AS_CALLING_STATION.md.
+    position_blind: float = 0.0
 
 
 # Predefined profiles from architecture doc:
@@ -119,6 +129,20 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=0.3,
         ego_fold_penalty=0.70,
         spot_tendencies=(('sticky', 0.85), ('over_bluff', 0.55)),
+        position_blind=0.8,
+    ),
+    # Isolation profile (measurement only): calling_station + position_blind, on
+    # the standard station table, to price the position-blindness lever ALONE
+    # (vs plain calling_station) and test its depth-independence. Not assigned in
+    # production. See FISH_AS_CALLING_STATION.md.
+    'calling_station_pblind': DeviationProfile(
+        max_kl=0.8,
+        max_per_action_shift=0.40,
+        aggression_scale=1.2,
+        looseness_scale=0.8,
+        risk_scale=0.4,
+        ego_fold_penalty=0.55,
+        position_blind=0.8,
     ),
     # Maniac: the wildest — loose table + the highest aggression so its AF tops
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
@@ -158,6 +182,7 @@ ARCHETYPE_WIDTH_TABLE: Dict[str, Optional[str]] = {
     # reachable via anchor classification (select_deviation_profile_key) — it's an
     # explicit loadout assigned to $2 fish. See FISH_AS_CALLING_STATION.md.
     'weak_fish': 'preflop_100bb_6max_weak_station.json',
+    'calling_station_pblind': 'preflop_100bb_6max_station.json',  # isolation: station table
 }
 
 

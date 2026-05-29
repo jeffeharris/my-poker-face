@@ -658,6 +658,7 @@ class TieredBotController(AIPlayerController):
             return self._postflop_fallback(valid_actions)
 
         node = build_preflop_node(game_state, player_idx, canonical_hand)
+        node = self._apply_position_blindness(node)
 
         # Phase 7: route to HU chart when the hand started 2-handed. Gate on
         # seated count (not non-folded count) so 6-max spots that collapse to
@@ -886,6 +887,7 @@ class TieredBotController(AIPlayerController):
         # 2. Build PostflopNode
         try:
             node = build_postflop_node(game_state, player_idx, hole_cards, community_cards)
+            node = self._apply_postflop_position_blindness(node)
         except Exception as e:
             logger.warning(
                 f"[TIERED_BOT] {self.player_name}: "
@@ -2100,6 +2102,61 @@ class TieredBotController(AIPlayerController):
             if tbl is not None:
                 return tbl, f'6max:{key}'
         return self.strategy_table, '6max'
+
+    # Preflop seat order, early→late (looser). Blinds excluded — a position-blind
+    # fish overplays by treating itself as a LATER opener; we don't reshuffle the
+    # blinds (they're already the widest defenders) or the opener's position.
+    _PBLIND_ORDER = ('UTG', 'HJ', 'CO', 'BTN')
+
+    def _apply_position_blindness(self, node):
+        """Shift the hero's preflop seat LATER (looser) by the profile's
+        position_blind strength — the recreational 'doesn't respect position'
+        leak (opens/defends a BTN-wide range from EP). Returns the node unchanged
+        when position_blind is 0 or the seat isn't in the shiftable order (blinds).
+
+        A node-LOOKUP-level reshape: it changes which (looser) chart cell the bot
+        reads; distortion + the math/defense floors still layer on top. −EV on
+        every hand from every seat → not capped by stack depth (the point).
+        """
+        strength = getattr(self.deviation_profile, 'position_blind', 0.0) or 0.0
+        if strength <= 0:
+            return node
+        # Skip RFI: shifting the opening seat later just opens a WIDER range,
+        # which is extra *stealing* (aggression) — +EV vs a foldy field, the
+        # opposite of a fish leak (measured: it HELPED at 100bb). The position
+        # leak we want is over-defending from bad position (facing scenarios) +
+        # the postflop OOP→IP overplay (_apply_postflop_position_blindness).
+        if getattr(node, 'scenario', '') == 'rfi':
+            return node
+        order = self._PBLIND_ORDER
+        try:
+            i = order.index(node.position)
+        except ValueError:
+            return node  # blind or unknown seat — leave it
+        shifted = min(i + round(strength * (len(order) - 1)), len(order) - 1)
+        if shifted == i:
+            return node
+        import dataclasses
+
+        return dataclasses.replace(node, position=order[shifted])
+
+    def _apply_postflop_position_blindness(self, node):
+        """Overplay out of position: look the postflop chart up as IP when
+        actually OOP — the clean −EV positional mistake (c-bet/barrel/float OOP
+        like you have position), with no stealing confound. Gated by the
+        profile's position_blind strength via the controller rng so it's graded
+        (strength = P(collapse this OOP decision to IP)). Node-lookup level, so
+        distortion + floors still layer on top. Returns node unchanged when not
+        position-blind or already IP.
+        """
+        strength = getattr(self.deviation_profile, 'position_blind', 0.0) or 0.0
+        if strength <= 0 or getattr(node, 'position', '') != 'OOP':
+            return node
+        if self.rng.random() >= strength:
+            return node
+        import dataclasses
+
+        return dataclasses.replace(node, position='IP')
 
     def _table_archetype_key(self) -> str:
         """The archetype key used to pick the width-tier table.
