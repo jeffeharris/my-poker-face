@@ -239,6 +239,24 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'enable_multistreet_context': False},
         challenger_flags=_multistreet_flags(h1=True, h2=True),
     ),
+    # ── Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md, attacker side):
+    # challenger scales the value-overbet by the live value-vs-station detection
+    # so it fires ONLY on a detected payer; champion is the static overbet (fires
+    # vs everyone). Needs --opponent-model + a non-Baseline --archetype + an
+    # exploitable --backdrop. vs a station backdrop the arms ~converge (both
+    # extract); vs a competent/sizing-reading backdrop the challenger no-ops,
+    # avoiding the static overbet's bloat (and the measured −24 vs a sizing-reader).
+    # The selectivity is the win, so read it as a backdrop contrast, not one number. ──
+    'adaptive_overbet': ChangeSpec(
+        description='adaptive overbet (scale by value-vs-station detection → fires '
+        'only on a detected payer) vs static overbet (fires vs everyone). Needs '
+        '--opponent-model + non-Baseline --archetype; selectivity shows as '
+        '~convergence vs a station backdrop and a no-op vs a competent one.',
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'enable_overbet_context': True, 'adaptive_overbet': False},
+        challenger_flags={'enable_overbet_context': True, 'adaptive_overbet': True},
+    ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is
     # unbiased (A == A → win-rate covers the null); the cripple pair proves it

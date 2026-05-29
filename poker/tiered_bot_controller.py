@@ -352,6 +352,15 @@ class TieredBotController(AIPlayerController):
         self.overbet_classes: Optional[frozenset] = None  # None = default {nuts, strong_made}
         self.overbet_streets: Optional[frozenset] = None  # None = default {TURN, RIVER}
         self.overbet_max_active: Optional[int] = None  # None = no multiway gate (matches measured 6-max +73)
+        # Adaptive overbet (PERSONALITY_PRICING_AND_VARIETY.md "Attacker side"):
+        # when True, scale the overbet's fraction by the live value-vs-station
+        # detection intensity (× sample confidence, already baked into the
+        # signal). The static overbet fires vs everyone (+42 vs payers but −24 vs
+        # a sizing-reader); the adaptive one fires ONLY on a detected payer and
+        # no-ops vs balanced/sizing-readers — the surgical attacker / dynamic
+        # clamp keyed on a confident read. Default OFF = static behavior preserved
+        # (byte-identical). Requires an attached opponent_model_manager to read.
+        self.adaptive_overbet: bool = False
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1168,7 +1177,13 @@ class TieredBotController(AIPlayerController):
             layer_order=layer_order_for('overbet_context'),
             reason_code='flag_disabled',
         )
-        if getattr(self, 'enable_overbet_context', False):
+        # Adaptive gate: scale the overbet fraction by the live station-detection
+        # intensity (set by _apply_exploitation above, which runs earlier this
+        # decision). 0.0 when no manager / no detected payer → the overbet
+        # no-ops, so we don't bloat the pot vs balanced or sizing-reading
+        # opponents. The static path (adaptive_overbet=False) is unchanged.
+        _overbet_fraction = self._effective_overbet_fraction()
+        if getattr(self, 'enable_overbet_context', False) and _overbet_fraction > 0.0:
             from .strategy.overbet_context import apply_overbet_context
 
             overbet_prior_fired = (
@@ -1184,7 +1199,7 @@ class TieredBotController(AIPlayerController):
                 street=node.street,
                 active_count=active_count,
                 overbet_size=getattr(self, 'overbet_size', 150),
-                overbet_fraction=getattr(self, 'overbet_fraction', 1.0),
+                overbet_fraction=_overbet_fraction,
                 overbet_classes=getattr(self, 'overbet_classes', None),
                 overbet_streets=getattr(self, 'overbet_streets', None),
                 overbet_max_active=getattr(self, 'overbet_max_active', None),
@@ -1324,6 +1339,22 @@ class TieredBotController(AIPlayerController):
         }
         self._attach_expression(decision, game_state, player_idx, phase=node.street)
         return decision
+
+    def _effective_overbet_fraction(self) -> float:
+        """Overbet fraction after the adaptive gate.
+
+        Static (default): the configured `overbet_fraction` unchanged. Adaptive
+        (`adaptive_overbet=True`): the configured fraction scaled by the live
+        value-vs-station detection intensity (`_last_value_vs_station_intensity_raw`,
+        set by `_apply_exploitation` earlier this decision; already
+        sample-confidence-weighted). Returns 0.0 vs a balanced/undetected
+        opponent → the overbet no-ops, so the bot only overbets a detected payer.
+        """
+        base = getattr(self, 'overbet_fraction', 1.0)
+        if not getattr(self, 'adaptive_overbet', False):
+            return base
+        intensity = getattr(self, '_last_value_vs_station_intensity_raw', 0.0)
+        return base * max(0.0, min(1.0, intensity))
 
     def _apply_exploitation(
         self,
