@@ -158,13 +158,13 @@ export function useRunoutDirector({
     if (phase === 'RIVER' && !playedRef.current.has('SHOWDOWN:0')) {
       playedRef.current.add('SHOWDOWN:0');
       const showdown = stepsByPhase.SHOWDOWN?.[0];
-      at(
-        lastCardIndex * RUNOUT_TIMING.perCardStaggerMs + RUNOUT_TIMING.showdownReactionDelayMs,
-        () => {
-          applyStep(showdown);
-          setActive(false); // hand off to the winner/interhand beat
-        }
-      );
+      const showdownAt =
+        lastCardIndex * RUNOUT_TIMING.perCardStaggerMs + RUNOUT_TIMING.showdownReactionDelayMs;
+      at(showdownAt, () => applyStep(showdown));
+      // Stay authoritative through the lock-up beat, THEN hand off — releasing
+      // in the same tick as the showdown face let the next state push revert it
+      // instantly ("changed then switched back").
+      at(showdownAt + RUNOUT_TIMING.showdownHoldMs, () => setActive(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schedule, communityCardCount, stepsByPhase]);

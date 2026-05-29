@@ -21,6 +21,10 @@ export const RUNOUT_TIMING = {
   reactionAfterCardMs: 600,
   /** After the river card settles: when the SHOWDOWN lock-up faces fire. */
   showdownReactionDelayMs: 900,
+  /** How long the showdown face is held (director stays authoritative) before
+   *  releasing ownership — so the next full state push, which carries the
+   *  cleared-override baseline emotion, can't instantly revert the lock-up face. */
+  showdownHoldMs: 2500,
   /** Fast-forward compresses every beat to ~10%, mirroring the backend `_ff_aware_sleep`. */
   ffMultiplier: 0.1,
   /** Safety cap: the director releases reaction ownership after this even if the

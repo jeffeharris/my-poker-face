@@ -164,9 +164,25 @@ export const useGameStore = create<GameStore>((set) => ({
       // Structural sharing: reuse Player references when data hasn't changed
       let players = state.players;
       if (prev.players && state.players) {
+        const directing = prev.runoutDirectorActive;
         players = state.players.map((incoming) => {
           const existing = prev.players!.find((p) => p.name === incoming.name);
-          return existing && arePlayersEqual(existing, incoming) ? existing : incoming;
+          // While the run-out director owns faces, keep the director-set
+          // emotion/avatar even as fresh game state arrives. A full state push
+          // carries the backend's display emotion (a street-level override, or
+          // the baseline once overrides clear at hand end) — applying it would
+          // clobber the per-card reaction, making the face flicker back a beat
+          // after it changed. Suppressing the avatar_update socket channel isn't
+          // enough; this is the full-push seam (RUNOUT_REVEAL_DIRECTOR.md §C.1).
+          const candidate =
+            directing && existing
+              ? {
+                  ...incoming,
+                  avatar_emotion: existing.avatar_emotion,
+                  avatar_url: existing.avatar_url,
+                }
+              : incoming;
+          return existing && arePlayersEqual(existing, candidate) ? existing : candidate;
         });
       }
 

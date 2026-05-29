@@ -98,3 +98,47 @@ imports verified. Not yet manually run in the app (next: an all-in to eyeball
 the per-card cascade timing — `runoutTiming.ts` offsets are educated guesses
 aligned to the 1.0s/card community cascade and will likely want a tuning pass).
 §E (human hole-card commit) untouched, as scoped.
+
+## 2026-05-29 (later) — "is there a reaction?" — live debugging, three real bugs/realities
+
+User watched live and saw no reactions. Unit tests were green, so I'd been
+about to claim victory — good reminder that green tests ≠ working feature. Drove
+it empirically with a live backend log capture (`docker compose logs` history
+retrieval was flaky — inconsistent tails — so I tee'd a `-f` follow to a file and
+had the user reproduce). Findings, in order:
+
+1. **Backend half works.** The capture confirmed the per-card schedule computes
+   and emits: `steps=7 phases=[INITIAL,FLOP,FLOP,FLOP,TURN,RIVER,SHOWDOWN]` and
+   `emitted runout_schedule`. Queen of Hearts: confident(72%) → angry on the flop
+   card that sank her (Δ-54%) → angry. So the director input is sound.
+
+2. **The clobber (real bug, fixed).** User: "she changed right at the end then
+   switched back immediately." I'd suppressed the `avatar_update` *socket* channel
+   but not the `avatar_emotion` field on the full `update_game_state` push — so the
+   next state push overwrote the director's face with the cleared-override
+   baseline. And the director released ownership in the *same tick* it set the
+   showdown face, so the very next push reverted it instantly. Fix: `applyGameState`
+   preserves director-owned `avatar_emotion`/`avatar_url` while `runoutDirectorActive`
+   (the §C.1 full-push seam, which option B doesn't avoid for the *emotion field*
+   even though it avoids it for the *board*); plus a `showdownHoldMs` so the
+   director stays authoritative through the lock-up beat before handing off.
+
+3. **The flash + "nothing during" (mostly environmental, one polish).** Reaction
+   emotions (elated/happy/frustrated/nervous, often smug/angry) are sparsely
+   pre-generated; most personalities only have confident/poker_face/thinking. A
+   reaction to a missing emotion serves the *priority fallback* (≈ the default
+   face) → "flash to default between emotions." Worse, the image provider
+   (Runware) was **out of credits**, so on-demand generation failed outright. User
+   refilled credits. But even with credits, first-time generation lags ~5-7s,
+   and the run-out plays over ~10s — so an emotion first requested *at its beat*
+   finishes *after* the beat (Bill Clinton's `elated` saved 11s post-reveal → only
+   showed on the winner screen). Also: a wire-to-wire favourite (Jon Stewart
+   82%→100%) genuinely has *no* mid-run-out swings, so "nothing during" can be
+   correct. **Polish shipped:** pre-warm — fire generation for every scheduled
+   emotion at the reveal, giving the maximum head start (thread-safe, skips
+   cached/in-flight). Coverage then self-heals as emotions cache.
+
+**Lesson reinforced:** the reaction *system* (compute + director timing) was
+right early; the failures were (a) a store-merge clobber the unit tests couldn't
+see, and (b) image availability/latency — an entire dependency the director sits
+on top of. Watching it live surfaced both; neither showed in tests.

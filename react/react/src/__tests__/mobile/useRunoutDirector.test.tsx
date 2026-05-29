@@ -124,11 +124,16 @@ describe('useRunoutDirector', () => {
     s.rerenderWith({ communityCardCount: 5 }); // river
     act(() => vi.advanceTimersByTime(T.reactionAfterCardMs));
     expect(s.applied.at(-1)).toEqual(['A', 'frustrated']);
-
-    // Showdown lock-up + release
     expect(s.active.at(-1)).toBe(true);
-    act(() => vi.advanceTimersByTime(T.showdownReactionDelayMs));
+
+    // Showdown lock-up fires, but ownership is HELD so the next state push can't
+    // revert the face instantly.
+    act(() => vi.advanceTimersByTime(T.showdownReactionDelayMs - T.reactionAfterCardMs));
     expect(s.applied.at(-1)).toEqual(['A', 'elated']);
+    expect(s.active.at(-1)).toBe(true);
+
+    // ...then released after the hold.
+    act(() => vi.advanceTimersByTime(T.showdownHoldMs));
     expect(s.active.at(-1)).toBe(false);
   });
 

@@ -57,7 +57,7 @@ from ..extensions import (
 from ..services import game_state_service
 from ..services.ai_debug_service import get_all_players_llm_stats
 from ..services.elasticity_service import format_elasticity_data
-from .avatar_handler import get_avatar_url_with_fallback
+from .avatar_handler import get_avatar_url_with_fallback, start_single_emotion_generation
 from .message_handler import (
     format_action_message,
     format_messages_for_api,
@@ -3416,6 +3416,21 @@ def progress_game(game_id: str) -> None:
                             runout_schedule_payload(reaction_schedule),
                             to=game_id,
                         )
+                        # Pre-warm every emotion image the schedule will use, now,
+                        # at the reveal — generation takes ~5-7s, and the whole
+                        # run-out plays over a similar window, so an emotion first
+                        # requested at its beat (the old on-demand path) only
+                        # finishes after that beat has passed (it then pops in on
+                        # the winner screen). Firing here gives each the maximum
+                        # head start. Thread-safe + skips already-cached/in-flight
+                        # emotions, so this is a cheap fire-and-forget.
+                        prewarmed = {
+                            (r.player_name, r.emotion)
+                            for step in reaction_schedule.steps
+                            for r in step.reactions
+                        }
+                        for player_name, emotion in prewarmed:
+                            start_single_emotion_generation(game_id, player_name, emotion)
 
                     # The INITIAL (hole-card) reactions are the players' read on
                     # the matchup. We deliberately do NOT emit them here, at the
