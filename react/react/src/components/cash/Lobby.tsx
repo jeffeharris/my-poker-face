@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play, FolderOpen, Eye } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Eye } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -35,8 +35,7 @@ import { feedEventKey } from './tickerEvents';
 import { CareerHero } from './CareerHero';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
-import { WhereaboutsDrawer } from './WhereaboutsDrawer';
-import { FileCabinetDrawer } from './FileCabinetDrawer';
+import { IntelHub } from './IntelHub';
 import type { FileCabinetPerson } from './types';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
@@ -209,9 +208,7 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
-  const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
-  const [fileCabinetOpen, setFileCabinetOpen] = useState(false);
-  const [intelMenuOpen, setIntelMenuOpen] = useState(false);
+  const [intelHubOpen, setIntelHubOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -576,66 +573,15 @@ export function Lobby() {
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
 
           <div className="cash-entry__whereabouts-row">
-            <div className="cash-entry__intel">
-              <button
-                type="button"
-                className="cash-entry__intel-trigger"
-                onClick={() => setIntelMenuOpen((o) => !o)}
-                aria-expanded={intelMenuOpen}
-                aria-haspopup="menu"
-              >
-                <Eye size={13} aria-hidden="true" />
-                Intel
-                <ChevronDown
-                  size={12}
-                  aria-hidden="true"
-                  className={
-                    'cash-entry__intel-caret' +
-                    (intelMenuOpen ? ' cash-entry__intel-caret--open' : '')
-                  }
-                />
-              </button>
-              {intelMenuOpen && (
-                <>
-                  <div
-                    className="cash-entry__intel-backdrop"
-                    onClick={() => setIntelMenuOpen(false)}
-                  />
-                  <div className="cash-entry__intel-menu" role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="cash-entry__intel-item"
-                      onClick={() => {
-                        setIntelMenuOpen(false);
-                        setWhereaboutsOpen(true);
-                      }}
-                    >
-                      <MapPin size={14} aria-hidden="true" />
-                      <span>
-                        <strong>Who's around</strong>
-                        <em>Where the players are right now</em>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="cash-entry__intel-item"
-                      onClick={() => {
-                        setIntelMenuOpen(false);
-                        setFileCabinetOpen(true);
-                      }}
-                    >
-                      <FolderOpen size={14} aria-hidden="true" />
-                      <span>
-                        <strong>Case files</strong>
-                        <em>Dossiers on everyone you've scouted</em>
-                      </span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              type="button"
+              className="cash-entry__intel-trigger"
+              onClick={() => setIntelHubOpen(true)}
+              title="Open the intel field office — dispatches, whereabouts & case files"
+            >
+              <Eye size={13} aria-hidden="true" />
+              Intel
+            </button>
           </div>
 
           {loadError && (
@@ -829,20 +775,16 @@ export function Lobby() {
             void reloadLobbyRef.current();
           }}
         />
-        <WhereaboutsDrawer
-          isOpen={whereaboutsOpen}
-          onClose={() => setWhereaboutsOpen(false)}
-          refreshTick={stakablePanelTick}
-        />
-        <FileCabinetDrawer
-          isOpen={fileCabinetOpen}
-          onClose={() => setFileCabinetOpen(false)}
+        <IntelHub
+          isOpen={intelHubOpen}
+          onClose={() => setIntelHubOpen(false)}
+          events={events}
           refreshTick={stakablePanelTick}
           onOpenDossier={(person: FileCabinetPerson) => {
             // Hand off to the existing dossier card (Circuit context, so the
-            // informant buy buttons show). Close the cabinet so the card
-            // isn't stacked behind it.
-            setFileCabinetOpen(false);
+            // informant buy buttons show). Close the hub so the card isn't
+            // stacked behind it.
+            setIntelHubOpen(false);
             setDossier({
               dossier: { name: person.name },
               origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 },

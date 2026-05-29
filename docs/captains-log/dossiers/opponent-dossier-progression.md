@@ -317,3 +317,42 @@ dark lobby.
 blank to headless tools — the known trick) rather than guessing. It looks
 like an artifact now, not a list. TS clean. Functionality unchanged (sorts,
 unlock progress, rival flag, PnL, tap-to-open-dossier, census header).
+
+---
+
+## 2026-05-29 (Intel hub) — folding the intel surfaces into one home
+
+**User's insight:** the activity feed, "who's around", and case files are one
+family — the intelligence layer — and were scattered (an inline ticker + a
+two-item dropdown). Fold them into a single home. The standalone manila "Case
+Files" tab had also felt out of place floating in the dark lobby.
+
+**Built `IntelHub` — "The Field Office":** one portal modal in the archive
+aesthetic with three tabs — **Dispatches** (the activity wire), **Whereabouts**
+(where met players are now), **Case Files** (the dossier roster). One coherent
+war-room artifact instead of three mismatched surfaces.
+
+**Reuse + new renderings.** Extracted the cabinet body into `FileCabinetPanel`
+(so the Case Files tab is the exact same roster, search/sort/folders). Built
+two new archive-styled renderings from existing data: a **dispatch wire**
+(reusing `dedupeFeed` + `renderEventIcon` + `event.message`, color-coded
+glyphs) and a **field roster** (from `getWhereabouts` — name, status tag,
+location/activity detail, PnL). Didn't try to replicate every micro-affordance
+of the old dark whereabouts drawer (collapsible sections, narration expand) —
+v1 surfaces the core data in the unified aesthetic; that's the deliberate
+scope line.
+
+**Lobby IA.** Dropped the Intel dropdown + the two separate drawer mounts;
+one lobby-native "Intel" text trigger opens the hub. Kept the inline activity
+ticker as the ambient teaser (the "widget" at the high level). The old
+`WhereaboutsDrawer.tsx` / `FileCabinetDrawer.tsx` are now unimported (tree-
+shaken) — left on disk as harmless dead files, flagged for later deletion;
+moved the one lobby rule they still provided (`.cash-entry__whereabouts-row`)
+into the bundled archive stylesheet so nothing depends on the dead CSS.
+
+**Verified** the hub shell + tabs + dispatch wire by static-preview screenshot.
+TS clean across the app.
+
+**Not done:** live eyeball of the hub with real data + the Whereabouts tab
+rendered; full feature parity with the old whereabouts drawer (intentional v1
+trim); deleting the dead drawer files.
