@@ -6,13 +6,19 @@
  * Watch to spectate after a bust, or Leave.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
+import { config } from '../../config';
 import { tournamentApi } from './api';
 import { TournamentLobby } from './TournamentLobby';
 import { TournamentStandings } from './TournamentStandings';
 import type { RegisterRequest, TournamentLobbyActive, TournamentStandings as Standings } from './types';
 import './tournament.css';
+
+// Match useSocket.ts: pin dev to long-polling (the Werkzeug + threading dev
+// server mishandles the WS upgrade); let socket.io negotiate in prod.
+const SOCKET_TRANSPORTS = import.meta.env.PROD ? undefined : ['polling'];
 
 type View = 'loading' | 'lobby' | 'standings';
 
@@ -84,6 +90,29 @@ export function TournamentPage() {
       /* keep last */
     }
   }, [tournamentId]);
+
+  // Keep the latest refresh in a ref so the socket effect can stay mount-only
+  // (re-subscribing on every tournamentId change would churn the connection).
+  const refreshStandingsRef = useRef(refreshStandings);
+  refreshStandingsRef.current = refreshStandings;
+
+  // Realtime: the backend pushes `mtt_update` to the owner's lobby room on each
+  // field advance. The field is player-gated (it only moves during the human's
+  // hands at the live table), so on the hub this mainly keeps standings fresh
+  // while spectating a play-out. Mirrors the cash Lobby socket pattern; no-op if
+  // the socket can't connect (backing out re-fetches on view change anyway).
+  useEffect(() => {
+    const socket = io(config.SOCKET_URL, {
+      withCredentials: true,
+      ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
+    });
+    const onUpdate = () => void refreshStandingsRef.current();
+    socket.on('mtt_update', onUpdate);
+    return () => {
+      socket.off('mtt_update', onUpdate);
+      socket.disconnect();
+    };
+  }, []);
 
   const handleWatch = async () => {
     if (!tournamentId) return;

@@ -5,6 +5,9 @@ created: 2026-05-29
 last_updated: 2026-05-29
 ---
 
+> **Update 2026-05-29:** P1 #2 (frontend live tournament events) is now done —
+> see that item below. Persistence (P1 #1) remains the next piece.
+
 # Multi-Table Tournament — Persistence Handoff + Remaining Work
 
 Handoff for a fresh context. The multi-table tournament feature is built and works
@@ -189,13 +192,18 @@ boundary + a `rehydrate_tournament_session(game_data, game_id)` helper) ·
 
 ### P1 — durability + live UX (finish the live experience)
 1. **Persistence** (this doc).
-2. **Frontend live tournament events**: the backend already emits
-   `tournament_update` / `tournament_relocated` / `tournament_eliminated` /
-   `tournament_complete` to the `lobby:{owner_id}` room, but the React side
-   doesn't consume them. Wire socket listeners so: the standings hub updates live;
-   a "You've been moved to Table N" toast fires on relocate; an elimination/
-   champion screen shows on out/complete. (`usePokerGame` or a small tournament
-   socket hook; `TournamentPage`/`TournamentStandings`.)
+2. **Frontend live tournament events** — **DONE (2026-05-29).** The MTT events
+   were renamed to the `mtt_` namespace (`mtt_update` / `mtt_relocated` /
+   `mtt_eliminated` / `mtt_complete`) to avoid colliding with the legacy
+   single-table `tournament_complete` (different payload, feeds the
+   `TournamentResult` overlay). New `react/.../hooks/useTournamentEvents.ts`
+   consumes them on the game-page socket (joined to the lobby room on connect):
+   relocation toast, and a delayed route to the standings hub on bust/complete
+   (the `TournamentStandings` hub already renders the busted rank + champion
+   band — that *is* the end screen). Wired in `PokerTable` + `MobilePokerTable`.
+   `TournamentPage` also subscribes to `mtt_update` to keep the hub fresh during
+   a play-out (cash `Lobby.tsx` socket pattern). Backend emit sites:
+   `tournament_game_builder._emit_tournament` + `tournament_routes._emit_update`.
 3. **Human seat display polish**: the live table seat is the field id (e.g.
    `P01`); the human is identified by `is_human` (works), but show "You" and hide
    the archetype label for the human at both the table and standings.

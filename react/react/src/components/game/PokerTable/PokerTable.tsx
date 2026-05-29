@@ -22,6 +22,7 @@ import { logger } from '../../../utils/logger';
 import { gameAPI } from '../../../utils/api';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
+import { useTournamentEvents } from '../../../hooks/useTournamentEvents';
 import { isBettingPhase } from '../../../constants/gamePhases';
 import type { Player } from '../../../types/player';
 import '../../../styles/action-badges.css';
@@ -72,8 +73,8 @@ export function PokerTable({
     aiThinking,
     winnerInfo,
     tournamentResult,
-    socketRef: _socketRef,
-    isConnected: _isConnected,
+    socketRef,
+    isConnected,
     showActionButtons,
     handlePlayerAction,
     handleSendMessage,
@@ -87,6 +88,10 @@ export function PokerTable({
     onGameCreated,
     onGameLoadFailed,
   });
+
+  // Multi-table tournament felt: relocation toasts + bust/win routing to the
+  // standings hub (no-op for non-tournament games). See useTournamentEvents.
+  useTournamentEvents({ socketRef, connected: isConnected, gameId });
 
   // Desktop chat is free-text only (no quick-chat panel), so it's gated by the
   // guest free-chat lock rather than the per-turn quick-chat limit.

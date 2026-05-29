@@ -169,8 +169,15 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
 
 
 def _emit_tournament(game_data, outcome, *, RELOCATED, HUMAN_OUT, COMPLETE) -> None:
-    """Push tournament events to the owner's lobby room (already joined). Always
-    a standings update; plus a relocation / elimination / complete beat."""
+    """Push multi-table-tournament (MTT) events to the owner's lobby room (the
+    game-page socket is already joined to it on connect). Always a standings
+    update; plus a relocation / elimination / complete beat.
+
+    Events use the `mtt_` namespace, deliberately distinct from the legacy
+    single-table `tournament_complete` (emitted to the *game* room and consumed
+    by usePokerGame into the `TournamentResult` end screen). The two payload
+    shapes are incompatible — keeping the namespaces separate stops the MTT
+    standings payload from being coerced into the single-table screen."""
     try:
         from flask_app.extensions import socketio
         from flask_app.services import presence
@@ -181,16 +188,16 @@ def _emit_tournament(game_data, outcome, *, RELOCATED, HUMAN_OUT, COMPLETE) -> N
         tournament_id = game_data.get("tournament_id")
         room = presence.lobby_room_name(owner_id)
         payload = {"tournament_id": tournament_id, "standings": outcome.standings}
-        socketio.emit("tournament_update", payload, to=room)
+        socketio.emit("mtt_update", payload, to=room)
         if outcome.kind == RELOCATED:
             socketio.emit(
-                "tournament_relocated",
+                "mtt_relocated",
                 {"tournament_id": tournament_id, "table_id": outcome.table_id},
                 to=room,
             )
         elif outcome.kind == HUMAN_OUT:
             socketio.emit(
-                "tournament_eliminated",
+                "mtt_eliminated",
                 {
                     "tournament_id": tournament_id,
                     "finishing_position": outcome.standings["human"]["rank"],
@@ -199,7 +206,7 @@ def _emit_tournament(game_data, outcome, *, RELOCATED, HUMAN_OUT, COMPLETE) -> N
             )
         elif outcome.kind == COMPLETE:
             socketio.emit(
-                "tournament_complete",
+                "mtt_complete",
                 {"tournament_id": tournament_id, "standings": outcome.standings},
                 to=room,
             )

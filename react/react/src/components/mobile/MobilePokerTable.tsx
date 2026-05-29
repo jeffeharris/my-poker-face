@@ -29,6 +29,7 @@ import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay, ActionBadge } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
+import { useTournamentEvents } from '../../hooks/useTournamentEvents';
 import { useGameStore } from '../../stores/gameStore';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
@@ -176,6 +177,7 @@ export function MobilePokerTable({
     winnerInfo,
     revealedCards,
     tournamentResult,
+    socketRef,
     isConnected,
     showActionButtons,
     queuedAction,
@@ -194,6 +196,10 @@ export function MobilePokerTable({
     onNewAiMessage: handleNewAiMessage,
     onGameLoadFailed,
   });
+
+  // Multi-table tournament felt: relocation toasts + bust/win routing to the
+  // standings hub (no-op for non-tournament games). See useTournamentEvents.
+  useTournamentEvents({ socketRef, connected: isConnected, gameId });
 
   const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } =
     useGuestChatLimit(awaitingAction, handleSendMessage);

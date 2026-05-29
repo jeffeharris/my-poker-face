@@ -69,12 +69,12 @@ def _emit_update(owner_id: str, tournament_id: str, standings: dict) -> None:
 
         if socketio is not None:
             socketio.emit(
-                'tournament_update',
+                'mtt_update',
                 {'tournament_id': tournament_id, 'standings': standings},
                 to=presence.lobby_room_name(owner_id),
             )
     except Exception as exc:  # noqa: BLE001 — emit is best-effort observability
-        logger.debug("tournament_update emit failed: %s", exc)
+        logger.debug("mtt_update emit failed: %s", exc)
 
 
 def _owned_record(tournament_id: str):

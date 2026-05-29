@@ -76,3 +76,31 @@ export interface RegisterResponse {
   tournament_id: string;
   standings: TournamentStandings;
 }
+
+/**
+ * Multi-table tournament (MTT) realtime events, pushed by the backend to the
+ * owner's lobby room (`mtt_*` namespace — deliberately distinct from the legacy
+ * single-table `tournament_complete`, which has a different payload and feeds
+ * the `TournamentResult` end screen). The game-page socket is joined to the
+ * lobby room on connect, so these arrive while the human is at the live table.
+ * See flask_app/handlers/tournament_game_builder.py `_emit_tournament`.
+ */
+export interface MttUpdateEvent {
+  tournament_id: string;
+  standings: TournamentStandings;
+}
+
+export interface MttRelocatedEvent {
+  tournament_id: string;
+  table_id: number;
+}
+
+export interface MttEliminatedEvent {
+  tournament_id: string;
+  finishing_position: number | null;
+}
+
+export interface MttCompleteEvent {
+  tournament_id: string;
+  standings: TournamentStandings;
+}
