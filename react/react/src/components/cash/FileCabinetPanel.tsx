@@ -12,9 +12,10 @@ import { getFileCabinet } from './api';
 import type { FileCabinetPerson } from './types';
 import { logger } from '../../utils/logger';
 
-type SortKey = 'most_played' | 'rivals' | 'winners' | 'losers' | 'recent' | 'progress';
+type SortKey = 'name' | 'most_played' | 'rivals' | 'winners' | 'losers' | 'recent' | 'progress';
 
 const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'name', label: 'Name' },
   { key: 'most_played', label: 'Most studied' },
   { key: 'progress', label: 'Declassified' },
   { key: 'rivals', label: 'Rivals' },
@@ -23,9 +24,12 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'recent', label: 'Recent' },
 ];
 
+/** Natural order for each sort (click again to reverse it). */
 function sortPeople(people: FileCabinetPerson[], key: SortKey): FileCabinetPerson[] {
   const c = [...people];
   switch (key) {
+    case 'name':
+      return c.sort((a, b) => a.name.localeCompare(b.name));
     case 'rivals':
       return c.sort((a, b) => b.heat - a.heat);
     case 'winners':
@@ -120,7 +124,23 @@ export function FileCabinetPanel({
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [sort, setSort] = useState<SortKey>('most_played');
+  const [reversed, setReversed] = useState(false);
   const [search, setSearch] = useState('');
+
+  // Click a sort to select it; click the active one again to reverse it.
+  const chooseSort = useCallback(
+    (key: SortKey) => {
+      setSort((cur) => {
+        if (cur === key) {
+          setReversed((r) => !r);
+          return cur;
+        }
+        setReversed(false);
+        return key;
+      });
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,8 +164,9 @@ export function FileCabinetPanel({
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
     const matched = q ? people.filter((p) => p.name.toLowerCase().includes(q)) : people;
-    return sortPeople(matched, sort);
-  }, [people, sort, search]);
+    const ordered = sortPeople(matched, sort);
+    return reversed ? ordered.reverse() : ordered;
+  }, [people, sort, search, reversed]);
 
   return (
     <>
@@ -192,9 +213,15 @@ export function FileCabinetPanel({
                   'archive__index-tab' +
                   (sort === s.key ? ' archive__index-tab--active' : '')
                 }
-                onClick={() => setSort(s.key)}
+                onClick={() => chooseSort(s.key)}
+                title={sort === s.key ? 'Click to reverse' : undefined}
               >
                 {s.label}
+                {sort === s.key && (
+                  <span className="archive__index-caret" aria-hidden="true">
+                    {reversed ? ' ▴' : ' ▾'}
+                  </span>
+                )}
               </button>
             ))}
           </div>

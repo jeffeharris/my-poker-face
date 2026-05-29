@@ -150,6 +150,9 @@ export interface DossierResponse {
   /** Scouting gate state (Phase 2). Null/absent when the dossier is
    *  ungated (no Circuit sandbox context). */
   scouting?: DossierScouting | null;
+  /** The viewer's own bankroll (chips) — lets the informant UI disable
+   *  unlocks they can't afford. Null when no bankroll row / no observer. */
+  player_bankroll?: number | null;
 }
 
 /**

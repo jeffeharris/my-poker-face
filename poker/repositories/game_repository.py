@@ -943,7 +943,9 @@ class GameRepository(BaseRepository):
                 opponent_id = row['opponent_id']
                 # Only id'd pairs accumulate lifetime intel; human/ad-hoc
                 # rows without stable ids are skipped (nothing reads them).
-                if not observer_id or not opponent_id:
+                # Self-pairs (observer == opponent) are noise — you don't
+                # scout yourself — so they're skipped too.
+                if not observer_id or not opponent_id or observer_id == opponent_id:
                     continue
 
                 try:
@@ -1064,6 +1066,7 @@ class GameRepository(BaseRepository):
                        last_updated
                 FROM opponent_observation_lifetime
                 WHERE sandbox_id = ? AND observer_id = ?
+                  AND opponent_id != observer_id
                 ORDER BY hands_observed DESC
                 """,
                 (sandbox_id, observer_id),

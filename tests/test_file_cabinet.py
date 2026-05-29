@@ -106,6 +106,20 @@ def test_roster_sorted_most_observed_first(repos):
     assert [p['personality_id'] for p in out['people']] == ['high', 'low']
 
 
+def test_observer_self_row_is_excluded(repos):
+    gr, rr, db_path = repos
+    _seed_lifetime(db_path, "greg", 100)
+    _seed_lifetime(db_path, OBS, 80)  # observer observing themselves — noise
+    out = build_file_cabinet(
+        sandbox_id=SB, observer_id=OBS,
+        game_repo=gr, relationship_repo=rr, personality_repo=_NamesRepo({}),
+    )
+    ids = {p['personality_id'] for p in out['people']}
+    assert OBS not in ids
+    assert ids == {"greg"}
+    assert out['people_met'] == 1
+
+
 def test_informant_purchase_counts_toward_unlocked(repos):
     gr, rr, db_path = repos
     _seed_lifetime(db_path, "greg", 10)  # below floor by grind alone

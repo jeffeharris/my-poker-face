@@ -191,11 +191,13 @@ function ScoutingStrip({
   onBuy,
   buyingSection,
   buyError,
+  bankroll,
 }: {
   scouting: DossierScouting;
   onBuy?: (sectionId: string) => void;
   buyingSection?: string | null;
   buyError?: string | null;
+  bankroll?: number | null;
 }) {
   const { hands_observed, floor, floor_met, locked } = scouting;
   const offers = scouting.informant_offers ?? [];
@@ -261,23 +263,45 @@ function ScoutingStrip({
       {offers.length > 0 &&
         (onBuy ? (
           <div className="dossier__informant">
-            <p className="dossier__informant-pitch">
-              Or pay an informant to declassify a section now:
-            </p>
+            <div className="dossier__informant-head">
+              <p className="dossier__informant-pitch">
+                Or pay an informant to declassify a section:
+              </p>
+              {bankroll != null && (
+                <span className="dossier__informant-stack">
+                  Your stack {bankroll.toLocaleString()}
+                </span>
+              )}
+            </div>
             <div className="dossier__informant-offers">
-              {offers.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className="dossier__informant-buy"
-                  disabled={!!buyingSection}
-                  onClick={() => onBuy(o.id)}
-                >
-                  {buyingSection === o.id
-                    ? 'Paying…'
-                    : `${o.label} · ${o.price.toLocaleString()} chips`}
-                </button>
-              ))}
+              {offers.map((o) => {
+                const busy = buyingSection === o.id;
+                // Unknown bankroll → allow (the server still guards with 402).
+                const canAfford = bankroll == null || bankroll >= o.price;
+                const short = bankroll != null ? o.price - bankroll : 0;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={
+                      'dossier__informant-buy' +
+                      (canAfford ? '' : ' dossier__informant-buy--cant')
+                    }
+                    disabled={busy || !!buyingSection || !canAfford}
+                    onClick={() => onBuy(o.id)}
+                    title={
+                      canAfford
+                        ? `Reveal ${o.label} for ${o.price.toLocaleString()} chips`
+                        : `Need ${short.toLocaleString()} more chips`
+                    }
+                  >
+                    <span className="dossier__informant-buy-label">{o.label}</span>
+                    <span className="dossier__informant-buy-price">
+                      {busy ? 'Paying…' : canAfford ? o.price.toLocaleString() : `−${short.toLocaleString()}`}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             {buyError && <p className="dossier__informant-error">{buyError}</p>}
           </div>
@@ -905,6 +929,7 @@ export function CharacterDetailCard({
                 onBuy={circuitContext && identifier ? handleBuyInformant : undefined}
                 buyingSection={buyingSection}
                 buyError={buyError}
+                bankroll={fetched.player_bankroll}
               />
             )}
 

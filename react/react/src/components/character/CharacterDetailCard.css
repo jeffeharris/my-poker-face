@@ -1310,11 +1310,28 @@
   padding-top: 0.5rem;
   border-top: 1px dashed var(--paper-shadow);
 }
+.dossier__informant-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
 .dossier__informant-pitch {
-  margin: 0 0 0.4rem;
+  margin: 0;
   font-size: 0.74rem;
   font-style: italic;
   color: var(--ink-soft);
+}
+.dossier__informant-stack {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
 }
 .dossier__informant-offers {
   display: flex;
@@ -1322,6 +1339,9 @@
   gap: 0.35rem;
 }
 .dossier__informant-buy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-family: inherit;
   font-size: 0.72rem;
   font-weight: 600;
@@ -1334,6 +1354,11 @@
   cursor: pointer;
   transition: background 0.15s ease, transform 0.05s ease;
 }
+.dossier__informant-buy-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
 .dossier__informant-buy:hover:not(:disabled) {
   background: var(--gold-bright);
 }
@@ -1341,8 +1366,17 @@
   transform: translateY(1px);
 }
 .dossier__informant-buy:disabled {
-  opacity: 0.55;
-  cursor: default;
+  cursor: not-allowed;
+}
+/* Can't afford it: muted, struck price, clearly inert (vs. the gold CTA). */
+.dossier__informant-buy--cant {
+  color: var(--ink-faint);
+  background: transparent;
+  border-color: var(--paper-shadow);
+  border-style: dashed;
+}
+.dossier__informant-buy--cant .dossier__informant-buy-price {
+  color: var(--crimson);
 }
 .dossier__informant-error {
   margin: 0.4rem 0 0;

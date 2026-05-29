@@ -670,6 +670,19 @@ def get_dossier(identifier: str):
     except Exception as e:
         logger.debug("[CHARACTER] note load failed: %s", e)
 
+    # The viewer's own bankroll — lets the informant UI know what they can
+    # afford up front (disable unaffordable unlocks instead of failing the
+    # click with a 402). None when no bankroll row yet.
+    response['player_bankroll'] = None
+    try:
+        from flask_app.extensions import bankroll_repo
+
+        player_bankroll = bankroll_repo.load_player_bankroll(observer_id)
+        if player_bankroll is not None:
+            response['player_bankroll'] = player_bankroll.chips
+    except Exception as e:
+        logger.debug("[CHARACTER] player_bankroll load failed: %s", e)
+
     # Scouting gate (Phase 2 — the grind). Circuit-only: applies when a
     # sandbox is in play, gating the earnable reads behind hands observed
     # against this opponent. Outside the Circuit (no sandbox) the dossier is
