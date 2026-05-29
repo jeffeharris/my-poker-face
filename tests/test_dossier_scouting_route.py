@@ -1,0 +1,143 @@
+"""Live HTTP integration test for the dossier scouting gate.
+
+Exercises the real `/api/character/<id>/dossier` route end to end — request
+context, extensions wiring, the kill-switch read, the real lifetime fold +
+load, and the gate — against a real (temp) schema. Complements the pure unit
+tests in test_dossier_scouting.py by proving the wiring, not just the logic.
+
+This is the integration check standing in for a 25-hand human playthrough:
+it seeds an opponent's observed-hand count via the real fold path, then hits
+the actual endpoint and asserts the gate declassifies reads as the count
+crosses thresholds.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+pytestmark = pytest.mark.integration
+
+from flask_app import create_app
+from poker.repositories import create_repos
+from poker.repositories.schema_manager import SchemaManager
+from flask_app.services import sandbox_resolver
+
+OBSERVER = "obs_jeff"
+PERSONALITY = "greg"
+
+
+def _seed_opponent_model(db_path, game_id, observer_id, opponent_id, hands):
+    """Insert a per-game opponent_models row with `hands` observed."""
+    counts = {
+        'hands_dealt': hands, 'hands_observed': hands,
+        '_vpip_count': max(1, hands // 3), '_pfr_count': max(1, hands // 5),
+        '_bet_raise_count': max(1, hands // 4), '_call_count': max(1, hands // 6),
+        '_showdowns': max(1, hands // 10), '_showdowns_won': max(0, hands // 20),
+    }
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO opponent_models
+                (game_id, observer_name, opponent_name, observer_id,
+                 opponent_id, hands_observed, tendencies_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (game_id, "Jeff", "Greg", observer_id, opponent_id, hands,
+             json.dumps(counts)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestDossierScoutingRoute(unittest.TestCase):
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        SchemaManager(self.test_db.name).ensure_schema()
+        self.repos = create_repos(self.test_db.name)
+
+        def mock_init_persistence():
+            import flask_app.extensions as ext
+            for key, repo in self.repos.items():
+                if key == 'db_path':
+                    ext.persistence_db_path = repo
+                    continue
+                setattr(ext, key, repo)
+
+        with patch('flask_app.extensions.init_persistence', mock_init_persistence):
+            self.app = create_app()
+        self.app.testing = True
+        self.client = self.app.test_client()
+
+        # Fresh resolver cache so the sandbox we seed under matches the one
+        # the route resolves for this observer.
+        sandbox_resolver.clear_cache()
+        self.sandbox_id = sandbox_resolver.resolve_default_sandbox_for(
+            OBSERVER, sandbox_repo=self.repos['sandbox_repo']
+        )
+
+        # Authenticated observer + a resolvable personality id.
+        self._auth = patch(
+            'flask_app.extensions.auth_manager',
+            MagicMock(get_current_user=MagicMock(return_value={'id': OBSERVER})),
+        )
+        self._auth.start()
+        self._pid = patch(
+            'flask_app.routes.character_routes._resolve_personality_id',
+            return_value=PERSONALITY,
+        )
+        self._pid.start()
+
+    def tearDown(self):
+        self._auth.stop()
+        self._pid.stop()
+        sandbox_resolver.clear_cache()
+
+    def _fold(self, hands):
+        _seed_opponent_model(
+            self.test_db.name, "g1", OBSERVER, PERSONALITY, hands
+        )
+        self.repos['game_repo'].fold_observations_into_lifetime(
+            "g1", self.sandbox_id
+        )
+
+    def _dossier(self):
+        resp = self.client.get(f'/api/character/{PERSONALITY}/dossier')
+        self.assertEqual(resp.status_code, 200)
+        return resp.get_json()
+
+    def test_below_floor_classified(self):
+        self._fold(10)
+        body = self._dossier()
+        scouting = body.get('scouting')
+        self.assertIsNotNone(scouting)
+        self.assertEqual(scouting['hands_observed'], 10)
+        self.assertFalse(scouting['floor_met'])
+        # Earnable reads stripped from the live payload.
+        self.assertIsNone(body['observation'])
+
+    def test_partial_unlock_reveals_basic_read(self):
+        self._fold(50)  # >= floor(25), pfr(40); < aggression(60)
+        body = self._dossier()
+        scouting = body['scouting']
+        self.assertTrue(scouting['floor_met'])
+        self.assertIn('pfr', scouting['unlocked'])
+        self.assertNotIn('aggression_factor', scouting['unlocked'])
+        # Observation present with the unlocked bits, AF redacted.
+        self.assertIsNotNone(body['observation'])
+        self.assertIsNotNone(body['observation']['vpip'])
+        self.assertIsNone(body['observation']['aggression_factor'])
+
+    def test_full_unlock(self):
+        self._fold(500)
+        body = self._dossier()
+        self.assertEqual(body['scouting']['locked'], [])
+        self.assertIsNotNone(body['observation']['aggression_factor'])

@@ -117,5 +117,16 @@ def apply_scouting_gate(
     locked_ids = {entry['id'] for entry in scouting['locked']}
     for item_id in locked_ids:
         _redact_item(response, item_id)
+
+    # Collapse a fully-redacted observation block to None so the client
+    # renders nothing rather than an empty stat panel — the scouting strip
+    # already surfaces the hand count below the floor.
+    obs = response.get('observation')
+    if isinstance(obs, dict) and all(
+        obs.get(f) is None
+        for f in ('play_style', 'vpip', 'pfr', 'aggression_factor')
+    ):
+        response['observation'] = None
+
     response['scouting'] = scouting
     return scouting

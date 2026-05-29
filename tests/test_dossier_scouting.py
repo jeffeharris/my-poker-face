@@ -75,9 +75,8 @@ def test_gate_below_floor_redacts_all_earnable():
     resp = _full_response()
     apply_scouting_gate(resp, hands_observed=5)
 
-    # Earnable reads gone.
-    assert resp['observation']['vpip'] is None
-    assert resp['observation']['play_style'] is None
+    # Earnable reads gone — observation collapses to None when fully redacted.
+    assert resp['observation'] is None
     assert all(v is None for v in resp['personality']['anchors'].values())
     assert resp['cash_pair_stats'] is None
     assert resp['pressure_summary'] is None
