@@ -171,6 +171,31 @@ def _pump_aggression(
     return _bound_to_cap(strategy, StrategyProfile(action_probabilities=new), max_shift)
 
 
+def _dampen_fold(
+    strategy: StrategyProfile,
+    strength: float,
+    max_shift: float,
+) -> StrategyProfile:
+    """Move a `strength` fraction of fold mass onto call (the can't-fold reshape).
+
+    The sticky/pays-off station: instead of folding a beat hand to a bet, call.
+    Returns `strategy` unchanged when fold or call isn't legal, or there's no
+    fold mass to move. The downstream floors only ever *add* calls (pot-odds), so
+    this pumped-call survives — it's the leak the value overbet punishes.
+    """
+    probs = dict(strategy.action_probabilities)
+    if 'fold' not in probs or 'call' not in probs:
+        return strategy
+    current = probs['fold']
+    if current <= 0.0 or strength <= 0.0:
+        return strategy
+    moved = current * min(1.0, strength)
+    new = dict(probs)
+    new['fold'] = current - moved
+    new['call'] = probs['call'] + moved
+    return _bound_to_cap(strategy, StrategyProfile(action_probabilities=new), max_shift)
+
+
 def _slowplay(
     strategy: StrategyProfile,
     strength: float,
@@ -328,12 +353,94 @@ def _auto_cbet(
     return new, f'auto_cbet_{hand_class}'
 
 
+# ── sticky / pays-off ────────────────────────────────────────────────────────
+# The calling-station leak, spot-localized: facing a river bet/raise with a weak
+# made hand, call instead of folding — "can't fold a pair." Unlike the global
+# calling_station deviation profile (which loosens everywhere), this fires only
+# on the river bluff-catch spot, the one the value overbet (built, +42 bb/100 vs
+# payers) is designed to punish. A genuine −EV leak: paying off value bets with
+# beat hands bleeds chips. Its exploiter is "value-bet thin + overbet, never
+# bluff."
+_STICKY_CLASSES = frozenset({'weak_made', 'medium_made'})
+_STICKY_STREETS = frozenset({'river'})
+
+
+def _sticky(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Sticky/pays-off handler. Over-call weak made hands to a river bet.
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    """
+    applies = (
+        hand_class in _STICKY_CLASSES
+        and action_context in ('facing_bet', 'facing_raise')
+        and (street or '').lower() in _STICKY_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _dampen_fold(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_fold_mass_or_call'
+    return new, f'sticky_{hand_class}'
+
+
+# ── over-bluff river ─────────────────────────────────────────────────────────
+# Fire too many river bluffs: as the bettor on the river with air, bet at a
+# higher frequency than the balanced chart (which the river bluff guardrail caps
+# to an unexploitable rate). The *dual of the guardrail* — the guardrail is the
+# defense that keeps a balanced bot from over-bluffing; this tendency is the leak
+# of a player who bluffs anyway. NOTE the pipeline runs the guardrail (step 6)
+# *before* this layer (step 6.b), so the pumped bluff is not re-capped — the two
+# are mutually exclusive by intent. Its exploiter is "over-call bluff-catchers."
+_OVERBLUFF_CLASSES = frozenset({'air_no_draw', 'air_strong_draw'})
+_OVERBLUFF_STREETS = frozenset({'river'})
+
+
+def _over_bluff(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Over-bluff handler. Pump river bet frequency with air, as the bettor.
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    Captures both the triple-barrel bluff and the river stab (no initiative
+    required — `unopened` means hero can bet).
+    """
+    applies = (
+        hand_class in _OVERBLUFF_CLASSES
+        and action_context == 'unopened'
+        and (street or '').lower() in _OVERBLUFF_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _pump_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_action_or_passive_mass'
+    return new, f'over_bluff_{hand_class}'
+
+
 # name -> handler. Add backlog tendencies (donk, open-limp, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
     'give_up_turn': _give_up_turn,
     'fit_or_fold': _fit_or_fold,
     'auto_cbet': _auto_cbet,
+    'sticky': _sticky,
+    'over_bluff': _over_bluff,
 }
 
 

@@ -17,6 +17,8 @@ SLOWPLAY = (('slowplay', 0.6),)
 GIVEUP = (('give_up_turn', 0.6),)
 FITFOLD = (('fit_or_fold', 0.6),)
 AUTOCBET = (('auto_cbet', 0.6),)
+STICKY = (('sticky', 0.6),)
+OVERBLUFF = (('over_bluff', 0.6),)
 # A flop spot facing a bet (fold + call + a little raise) — fit-or-fold input.
 FACING = StrategyProfile(
     action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15}
@@ -330,6 +332,128 @@ def test_new_leaks_traces_validate():
         _apply(tendencies=AUTOCBET, hand_class='nuts', street='flop'),  # no-op
     ]
     for _, traces in runs:
+        for t in traces:
+            validate_trace(t)
+
+
+# ── sticky / pays-off ────────────────────────────────────────────────────────
+# Moves fold mass onto call for weak made facing a river bet. Uses FACING (has a
+# fold action).
+
+def test_sticky_pumps_call_on_weak_made_river():
+    for hc in ('weak_made', 'medium_made'):
+        out, traces = _apply(
+            FACING, tendencies=STICKY, hand_class=hc,
+            action_context='facing_bet', street='river',
+        )
+        assert out.action_probabilities['fold'] < FACING.action_probabilities['fold'], hc
+        assert out.action_probabilities['call'] > FACING.action_probabilities['call'], hc
+        assert traces[0].fired and traces[0].rule_id == 'sticky', hc
+        assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, hc
+
+
+def test_sticky_fires_facing_raise_too():
+    out, traces = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='facing_raise', street='river',
+    )
+    assert traces[0].fired and out.action_probabilities['fold'] < FACING.action_probabilities['fold']
+
+
+def test_sticky_no_op_off_river():
+    out, traces = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='facing_bet', street='turn',
+    )
+    assert out is FACING and not traces[0].fired
+
+
+def test_sticky_no_op_when_unopened():
+    # Not facing a bet → nothing to call.
+    out, traces = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='unopened', street='river',
+    )
+    assert out is FACING and not traces[0].fired
+
+
+def test_sticky_no_op_on_strong_hands():
+    # Strong hands aren't a pay-off spot (they'd raise, not crying-call).
+    for hc in ('nuts', 'strong_made'):
+        out, traces = _apply(
+            FACING, tendencies=STICKY, hand_class=hc,
+            action_context='facing_bet', street='river',
+        )
+        assert out is FACING and not traces[0].fired, hc
+
+
+def test_sticky_respects_cap_and_ablation_and_validates():
+    cap = 0.10
+    out, _ = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='facing_bet', street='river', max_shift=cap,
+    )
+    for action, base_p in FACING.action_probabilities.items():
+        assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
+    _, fired = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='facing_bet', street='river',
+    )
+    _, disabled = _apply(
+        FACING, tendencies=STICKY, hand_class='weak_made',
+        action_context='facing_bet', street='river',
+        disable_rules=frozenset({(LAYER, 'sticky')}),
+    )
+    assert disabled[0].reason_code == 'disabled_by_ablation'
+    for traces in (fired, disabled):
+        for t in traces:
+            validate_trace(t)
+
+
+# ── over-bluff river ─────────────────────────────────────────────────────────
+# Pumps river bet frequency for air as the bettor. Uses BASE (check + bet mass).
+
+def test_over_bluff_pumps_river_bet_with_air():
+    for hc in ('air_no_draw', 'air_strong_draw'):
+        out, traces = _apply(tendencies=OVERBLUFF, hand_class=hc, street='river')
+        assert _agg(out) > _agg(BASE), hc
+        assert out.action_probabilities['check'] < BASE.action_probabilities['check'], hc
+        assert traces[0].fired and traces[0].rule_id == 'over_bluff', hc
+        assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, hc
+
+
+def test_over_bluff_no_op_with_made_hands():
+    # A made hand betting the river is value, not an over-bluff.
+    for hc in ('nuts', 'strong_made', 'medium_made', 'weak_made'):
+        out, traces = _apply(tendencies=OVERBLUFF, hand_class=hc, street='river')
+        assert out is BASE and not traces[0].fired, hc
+
+
+def test_over_bluff_no_op_off_river():
+    out, traces = _apply(tendencies=OVERBLUFF, hand_class='air_no_draw', street='turn')
+    assert out is BASE and not traces[0].fired
+
+
+def test_over_bluff_no_op_facing_a_bet():
+    # As the bettor only (unopened); facing a bet with air is a fold/call spot.
+    out, traces = _apply(
+        tendencies=OVERBLUFF, hand_class='air_no_draw', street='river', action_context='facing_bet'
+    )
+    assert out is BASE and not traces[0].fired
+
+
+def test_over_bluff_respects_cap_and_ablation_and_validates():
+    cap = 0.10
+    out, _ = _apply(tendencies=OVERBLUFF, hand_class='air_no_draw', street='river', max_shift=cap)
+    for action, base_p in BASE.action_probabilities.items():
+        assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
+    _, fired = _apply(tendencies=OVERBLUFF, hand_class='air_no_draw', street='river')
+    _, disabled = _apply(
+        tendencies=OVERBLUFF, hand_class='air_no_draw', street='river',
+        disable_rules=frozenset({(LAYER, 'over_bluff')}),
+    )
+    assert disabled[0].reason_code == 'disabled_by_ablation'
+    for traces in (fired, disabled):
         for t in traces:
             validate_trace(t)
 
