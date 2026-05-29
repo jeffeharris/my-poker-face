@@ -29,6 +29,9 @@ interface PlayerCommandCenterProps {
   /** When true, every AI resolves with zero LLM calls (Solver + AI Chat off),
    *  so there's nothing to fast-forward — the FF button is hidden. */
   aiInstant?: boolean;
+  /** When true, game speed is 'always' — FF is permanently on, so hide the
+   *  (now redundant) FF button. */
+  alwaysFastForward?: boolean;
 }
 
 export function PlayerCommandCenter({
@@ -48,6 +51,7 @@ export function PlayerCommandCenter({
   fastForward = false,
   onFastForward,
   aiInstant = false,
+  alwaysFastForward = false,
 }: PlayerCommandCenterProps) {
   const costToCall = Math.max(0, highestBet - player.bet);
 
@@ -140,7 +144,7 @@ export function PlayerCommandCenter({
           while folded, since waiting out the orbit is exactly when FF
           matters most. Tap to toggle; the auto-reset also fires when
           action returns to the human on the next street/hand. */}
-      {!showActions && !isCurrentPlayer && onFastForward && !aiInstant && (
+      {!showActions && !isCurrentPlayer && onFastForward && !aiInstant && !alwaysFastForward && (
         <div className="command-center__ff">
           <button
             type="button"

@@ -62,7 +62,7 @@ def get_profile():
             'success': True,
             'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
             'bio': extensions.user_prefs_repo.get_bio(user_id),
-            'auto_fast_fold': extensions.user_prefs_repo.get_auto_fast_fold(user_id),
+            'game_speed': extensions.user_prefs_repo.get_game_speed(user_id),
             'coach_default_mode': extensions.user_prefs_repo.get_coach_default_mode(user_id),
         }
     )
@@ -82,22 +82,22 @@ def set_bio():
     return jsonify({'success': True, 'bio': stored})
 
 
-@profile_bp.route('/api/profile/auto-fast-fold', methods=['PUT'])
+@profile_bp.route('/api/profile/game-speed', methods=['PUT'])
 @_auth_required
-def set_auto_fast_fold():
-    """Toggle 'speed through the hand after I fold' (sticky per-user preference).
+def set_game_speed():
+    """Set game speed: 'standard' / 'after_fold' / 'always' (sticky per-user).
 
-    When on, folding kicks the rest of the orbit into fast-forward (no-LLM
-    tiered decisions) so the next hand arrives quickly. See game_handler's
-    fold path and _resolve_auto_fast_fold.
+    'after_fold' fast-forwards the orbit once the human folds; 'always' fast-
+    forwards every AI turn. Fast-forward = no-LLM tiered decisions (no AI table
+    talk). See game_handler's _resolve_game_speed / handle_ai_action.
     """
     data = request.get_json(silent=True) or {}
-    enabled = data.get('enabled')
-    if not isinstance(enabled, bool):
-        return jsonify({'success': False, 'error': 'enabled must be a boolean'}), 400
-
-    stored = extensions.user_prefs_repo.set_auto_fast_fold(g.profile_user['id'], enabled)
-    return jsonify({'success': True, 'auto_fast_fold': stored})
+    speed = data.get('speed')
+    try:
+        stored = extensions.user_prefs_repo.set_game_speed(g.profile_user['id'], speed)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'game_speed': stored})
 
 
 @profile_bp.route('/api/profile/coach-default', methods=['PUT'])

@@ -3,16 +3,35 @@ import { adminFetch } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import './SettingsPage.css';
 
+type GameSpeed = 'standard' | 'after_fold' | 'always';
+
+const OPTIONS: { value: GameSpeed; label: string; desc: string }[] = [
+  { value: 'standard', label: 'Standard', desc: 'Full AI deliberation on every turn.' },
+  {
+    value: 'after_fold',
+    label: 'After I fold',
+    desc: 'Once you fold, the rest of the hand resolves fast so the next deal comes quickly.',
+  },
+  {
+    value: 'always',
+    label: 'Always',
+    desc: 'Every AI turn resolves fast. Fastest play, but you skip the AIs’ turn-by-turn table talk.',
+  },
+];
+
+function isSpeed(v: unknown): v is GameSpeed {
+  return v === 'standard' || v === 'after_fold' || v === 'always';
+}
+
 /**
- * GameplaySettings — sticky per-user gameplay preferences.
+ * GameplaySettings — sticky per-user game-speed preference.
  *
- * First setting: "Speed through the hand after I fold" (auto_fast_fold). When
- * on, folding fast-forwards the rest of the orbit (no-LLM AI decisions) so the
- * next hand arrives quickly — at the cost of the AIs' turn-by-turn table talk
- * for that hand. Reads/writes the profile preference API.
+ * Standard / After I fold / Always. "Fast" turns use no-LLM tiered controllers
+ * (the same path the in-game fast-forward button uses), so they resolve in
+ * sub-100ms at the cost of the AIs' table talk. Server-backed (cross-device).
  */
 export function GameplaySettings() {
-  const [autoFastFold, setAutoFastFold] = useState<boolean | null>(null);
+  const [speed, setSpeed] = useState<GameSpeed | null>(null); // null = loading
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,11 +41,11 @@ export function GameplaySettings() {
       try {
         const res = await adminFetch('/api/profile');
         const data = await res.json();
-        if (!cancelled && data.success) setAutoFastFold(!!data.auto_fast_fold);
+        if (!cancelled) setSpeed(data.success && isSpeed(data.game_speed) ? data.game_speed : 'standard');
       } catch (err) {
         if (!cancelled) {
-          logger.warn('[Settings] failed to load gameplay prefs', err);
-          setAutoFastFold(false);
+          logger.warn('[Settings] failed to load game speed', err);
+          setSpeed('standard');
         }
       }
     })();
@@ -35,55 +54,63 @@ export function GameplaySettings() {
     };
   }, []);
 
-  const toggleAutoFastFold = useCallback(async () => {
-    if (autoFastFold === null || saving) return;
-    const next = !autoFastFold;
-    setAutoFastFold(next); // optimistic
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await adminFetch('/api/profile/auto-fast-fold', {
-        method: 'PUT',
-        body: JSON.stringify({ enabled: next }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        setAutoFastFold(!next); // revert
-        setError(data.error || 'Could not save setting');
-      } else {
-        setAutoFastFold(!!data.auto_fast_fold);
+  const choose = useCallback(
+    async (next: GameSpeed) => {
+      if (speed === null || saving || next === speed) return;
+      const prev = speed;
+      setSpeed(next); // optimistic
+      setSaving(true);
+      setError(null);
+      try {
+        const res = await adminFetch('/api/profile/game-speed', {
+          method: 'PUT',
+          body: JSON.stringify({ speed: next }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setSpeed(prev);
+          setError(data.error || 'Could not save setting');
+          return;
+        }
+        setSpeed(isSpeed(data.game_speed) ? data.game_speed : next);
+      } catch (err) {
+        setSpeed(prev);
+        setError(err instanceof Error ? err.message : 'Could not save setting');
+      } finally {
+        setSaving(false);
       }
-    } catch (err) {
-      setAutoFastFold(!next); // revert
-      setError(err instanceof Error ? err.message : 'Could not save setting');
-    } finally {
-      setSaving(false);
-    }
-  }, [autoFastFold, saving]);
+    },
+    [speed, saving]
+  );
+
+  const active = OPTIONS.find((o) => o.value === speed) ?? OPTIONS[0];
+  const disabled = speed === null || saving;
 
   return (
     <div className="settings-section-body">
       {error && <div className="profile-error">{error}</div>}
 
-      <div className="settings-toggle-row">
-        <div className="settings-toggle-text">
-          <span className="settings-toggle-label">Speed through the hand after I fold</span>
-          <span className="settings-toggle-desc">
-            Once you fold, the remaining players finish the hand fast so the next deal arrives
-            quickly. You'll skip their turn-by-turn table talk for that hand.
-          </span>
+      <div className="settings-field">
+        <span className="settings-toggle-label">Game speed</span>
+        <span className="settings-toggle-desc">
+          How fast hands resolve when it isn’t your turn.
+        </span>
+        <div className="settings-segment" role="radiogroup" aria-label="Game speed">
+          {OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={speed === o.value}
+              className={`settings-segment-btn ${speed === o.value ? 'is-on' : ''}`}
+              disabled={disabled}
+              onClick={() => choose(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={autoFastFold === true}
-          aria-label="Speed through the hand after I fold"
-          className={`settings-switch ${autoFastFold ? 'is-on' : ''}`}
-          disabled={autoFastFold === null || saving}
-          onClick={toggleAutoFastFold}
-        >
-          <span className="settings-switch-knob" />
-        </button>
+        <span className="settings-segment-hint">{speed === null ? 'Loading…' : active.desc}</span>
       </div>
     </div>
   );

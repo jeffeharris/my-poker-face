@@ -47,6 +47,8 @@ interface GameStore {
   worldEvents: BufferedWorldEvent[];
   /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
   aiInstant: boolean;
+  /** Owner's game speed is 'always' (fast-forward every turn) → FF button hidden. */
+  alwaysFastForward: boolean;
 
   // Actions
   applyGameState: (state: GameState) => void;
@@ -79,6 +81,7 @@ const initialState = {
   fastForward: false,
   worldEvents: [] as BufferedWorldEvent[],
   aiInstant: false,
+  alwaysFastForward: false,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -178,6 +181,7 @@ export const useGameStore = create<GameStore>((set) => ({
         cashMode: state.cash_mode ?? null,
         fastForward: state.fast_forward ?? false,
         aiInstant: state.ai_instant ?? false,
+        alwaysFastForward: state.always_fast_forward ?? false,
       };
     });
   },

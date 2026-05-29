@@ -35,6 +35,14 @@ MAX_BIO_LENGTH = 500
 COACH_MODES = ("off", "reactive", "proactive")
 DEFAULT_COACH_MODE = "off"
 
+# How fast the game resolves for this user:
+#   standard    — full AI deliberation every turn
+#   after_fold  — fast-forward the rest of the orbit once the human folds
+#   always      — fast-forward every AI turn (no LLM deliberation)
+# Fast-forward = no-LLM tiered controllers; trade-off is no AI table talk.
+GAME_SPEEDS = ("standard", "after_fold", "always")
+DEFAULT_GAME_SPEED = "standard"
+
 
 class UserPreferencesRepository(BaseRepository):
     """CRUD for `user_preferences`."""
@@ -155,20 +163,29 @@ class UserPreferencesRepository(BaseRepository):
                 (user_id, json.dumps(prefs)),
             )
 
-    def get_auto_fast_fold(self, user_id: str) -> bool:
-        """Whether to auto-fast-forward the rest of the hand once the human folds.
+    def get_game_speed(self, user_id: str) -> str:
+        """Game speed: 'standard' / 'after_fold' / 'always' (default 'standard').
 
-        Default False (opt-in). When on, the game handler flips the existing
-        `fast_forward` flag the moment the human folds, so the remaining AIs
-        resolve the orbit with no-LLM tiered controllers instead of multi-second
-        LLM decisions. Trade-off: no per-turn AI table talk for that orbit.
+        Falls back to the legacy boolean `auto_fast_fold` (True → 'after_fold')
+        for users who set the preference before it became a 3-way choice. An
+        unrecognized stored value degrades to the default.
         """
-        return bool(self._get_preferences_json(user_id).get('auto_fast_fold', False))
+        prefs = self._get_preferences_json(user_id)
+        speed = prefs.get('game_speed')
+        if speed is None:
+            # Legacy pre-3-way value.
+            return 'after_fold' if prefs.get('auto_fast_fold') else DEFAULT_GAME_SPEED
+        return speed if speed in GAME_SPEEDS else DEFAULT_GAME_SPEED
 
-    def set_auto_fast_fold(self, user_id: str, enabled: bool) -> bool:
-        """Persist the auto-fast-fold preference; return the stored value."""
-        self._set_preference_scalar(user_id, 'auto_fast_fold', bool(enabled))
-        return bool(enabled)
+    def set_game_speed(self, user_id: str, speed: str) -> str:
+        """Persist the game speed; return the stored value.
+
+        Raises ValueError for an invalid speed so the route can 400.
+        """
+        if speed not in GAME_SPEEDS:
+            raise ValueError(f"invalid game_speed {speed!r}; expected one of {GAME_SPEEDS}")
+        self._set_preference_scalar(user_id, 'game_speed', speed)
+        return speed
 
     def get_coach_default_mode(self, user_id: str) -> str:
         """The coaching mode new games start in (off / reactive / proactive).
