@@ -128,6 +128,40 @@ def test_assign_guest_to_admin_raises(repo):
         repo.assign_user_to_group("guest_123", "admin")
 
 
+# --- PRH-38: guest can't be admin in production, even as INITIAL_ADMIN_EMAIL ---
+
+
+def test_guest_initial_admin_allowed_in_dev(repo, monkeypatch):
+    """The guest-namespace admin exception is a dev convenience."""
+    monkeypatch.delenv("FLASK_ENV", raising=False)
+    monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "guest_devadmin")
+    assert repo.assign_user_to_group("guest_devadmin", "admin", assigned_by="test") is True
+    assert "admin" in repo.get_user_groups("guest_devadmin")
+
+
+def test_guest_initial_admin_rejected_in_production(repo, monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+    monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "guest_prodadmin")
+    # Even the configured initial-admin guest id is refused in prod.
+    with pytest.raises(ValueError, match="Guest users cannot"):
+        repo.assign_user_to_group("guest_prodadmin", "admin")
+
+
+def test_initialize_admin_from_env_refuses_guest_in_production(repo, monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+    monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "guest_prodadmin")
+    assert repo.initialize_admin_from_env() is None
+    assert "admin" not in repo.get_user_groups("guest_prodadmin")
+
+
+def test_initialize_admin_from_env_allows_oauth_email_in_production(repo, monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+    repo.create_google_user("padm", "prod-admin@e.com", "ProdAdmin")
+    monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "prod-admin@e.com")
+    assert repo.initialize_admin_from_env() == "google_padm"
+    assert "admin" in repo.get_user_groups("google_padm")
+
+
 def test_assign_to_nonexistent_group(repo):
     repo.create_google_user("ng1", "ng@e.com", "NoGroup")
     assert repo.assign_user_to_group("google_ng1", "nonexistent_group") is False
