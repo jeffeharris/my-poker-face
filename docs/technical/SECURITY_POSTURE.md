@@ -1,14 +1,17 @@
 ---
-purpose: Standing reference for the application's security posture — controls in place, by domain, plus known gaps and the operator checklist
+purpose: Standing reference for the application's security stance and policy — the principles we commit to, the controls in place by domain, known gaps, and the operator checklist
 type: reference
 created: 2026-05-29
 last_updated: 2026-05-29
 ---
 
-# Security Posture
+# Security Posture & Policy
 
-The standing "where do we stand on security" reference for My Poker Face. It
-describes the controls **in place today** by domain and the **known gaps**.
+The standing "where do we stand on security" reference for My Poker Face. It has
+two halves: the **policy** (the rules we commit to — the yardstick) and the
+**posture** (the controls actually in place today, by domain, plus known gaps).
+Where the posture falls short of a policy, that's listed under **Known gaps** as
+a deliberate, tracked *exception* — not an oversight.
 
 - This is a *posture* doc (current state). The **severity-tiered remediation
   tracker** is [`docs/PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE_HARDENING.md)
@@ -34,6 +37,70 @@ Legend: ✅ in place · ◑ partial · ❌ known gap.
   no email; the anonymous population is the abuse surface for spend and content.
 - **Single self-hosted box** (Hetzner) behind a reverse proxy — no horizontal
   redundancy; availability and backups matter.
+
+## Security policy (the rules we commit to)
+
+Normative principles — the yardstick the posture below is measured against.
+Stated out loud so decisions are explicit and gaps are visible. Where current
+state falls short, it's a tracked *exception* in **Known gaps**, not an accident.
+
+1. **Moderate all non-admin user input that reaches an LLM or another user.**
+   Any user-supplied **free text** that is fed into an LLM prompt **or** shown to
+   other users MUST pass server-side moderation (`moderate_text`) before it is
+   persisted or used, whenever the field is reachable by a **non-admin**.
+   Bounded enums (e.g. quick-chat tones) and server-generated text are exempt.
+   **Admins are exempt for now** — a deliberate, time-boxed trust decision (low
+   volume, trusted accounts); revisit if admin accounts proliferate or once
+   step-up admin auth exists.
+
+2. **Server is authoritative; never trust the client for security or cost.**
+   Ownership, gating, rate limits, and length caps are enforced server-side;
+   client-side validation is UX only. Every user-supplied field that is persisted
+   or sent to an LLM has a server-side length cap.
+
+3. **Default-deny authorization.** Every state-changing route and socket event
+   verifies authentication + ownership/permission server-side. New
+   admin/debug/experiment blueprints register the admin guard. Read paths may be
+   open; mutations never are.
+
+4. **Anonymous users get the most-restricted defaults.** Guests: LLM-free bots,
+   no free-text chat, no publishing, and quotas keyed on a signed / IP-derived id
+   — never a resettable client value. Expensive or cross-user actions require a
+   real (Google) account.
+
+5. **No paid LLM/image call without the budget gate.** Every paid call routes
+   through the spend kill-switch and threads `owner_id` for the per-owner cap.
+   Default to the cheapest tier; expensive paths are opt-in for authenticated
+   users only.
+
+6. **Cross-user / public content is held to a higher bar.** Content shown to
+   other users (public personalities, multiplayer chat, table-visible bios) is
+   moderated, and publishing to a shared surface requires **admin** action.
+   Default-private.
+
+7. **Fail in the safe direction — deliberately, per control.**
+   - Best-effort gates (moderation, the spend read) **fail open** on a
+     *dependency outage* so a hiccup never blocks a legitimate user — but a
+     *positive signal* **fails closed** (flagged → reject; over budget → block).
+   - Required infrastructure (Redis in prod) **fails closed at startup** —
+     refuse to boot misconfigured rather than silently degrade.
+
+8. **Secrets stay server-side.** Secrets come only from env or admin DB settings
+   (masked on read); never logged, never returned to clients; production refuses
+   to start without a required secret; debug verbosity is off in prod.
+
+9. **Safety-critical signals must be alertable, not just logged.** Ledger drift,
+   budget trips, and lifecycle breakage carry an alert prefix and reach a wired
+   sink — silence is not success.
+
+10. **Retain user content minimally.** Verbatim user content (chat captures,
+    bios) has a finite retention; store the minimum; keep an off-box backup.
+
+> **Current policy exceptions** (see Known gaps for the fix + tracking ID):
+> the AI-personality `avatar_description` / `visual_identity` image inputs are
+> not yet moderated (policy 1); prompt capture is retained indefinitely in prod
+> and backups are on-box only (policy 10); there's no first-class CSRF token
+> (policy 3, for cookie-authed mutations).
 
 ## Authentication & identity ✅ (mostly)
 
