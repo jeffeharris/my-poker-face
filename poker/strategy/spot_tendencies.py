@@ -433,6 +433,43 @@ def _over_bluff(
     return new, f'over_bluff_{hand_class}'
 
 
+# ── under-bluff river ────────────────────────────────────────────────────────
+# The inverse of over-bluff: as the river bettor with air, *never* pull the
+# trigger — check back the busted hands a balanced range would bluff. The "honest"
+# / face-up bettor: when they bet the river it's always value. Recognizable, and
+# the human-learnable counter is "over-fold to their river bets, call their turn
+# bets." Reuses the slow-play dampen (bet mass → check), gated on river air.
+_UNDERBLUFF_CLASSES = frozenset({'air_no_draw', 'air_strong_draw'})
+_UNDERBLUFF_STREETS = frozenset({'river'})
+
+
+def _under_bluff(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Under-bluff handler. Dampen river bet frequency with air, as the bettor.
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    """
+    applies = (
+        hand_class in _UNDERBLUFF_CLASSES
+        and action_context == 'unopened'
+        and (street or '').lower() in _UNDERBLUFF_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _dampen_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_mass_or_sink'
+    return new, f'under_bluff_{hand_class}'
+
+
 # name -> handler. Add backlog tendencies (donk, open-limp, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
@@ -441,6 +478,7 @@ _TENDENCIES = {
     'auto_cbet': _auto_cbet,
     'sticky': _sticky,
     'over_bluff': _over_bluff,
+    'under_bluff': _under_bluff,
 }
 
 
