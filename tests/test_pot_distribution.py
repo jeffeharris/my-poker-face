@@ -447,6 +447,65 @@ class TestSidePots(unittest.TestCase):
         # Medium's excess $40 is returned silently (no pot for single player)
         self.assertEqual(result['returned_chips'], {'Medium': 40})
 
+    def test_lone_eligible_side_tier_wins_folded_dead_money(self):
+        """Regression: a lone live player in a side tier wins folded dead money.
+
+        Surfaced by the multi-table tournament conservation invariant. An all-in
+        short stack creates a main pot; above it only ONE live player remains,
+        but several FOLDED players left chips in that tier. Those chips are dead
+        money the lone live player wins — they must not be stranded.
+
+        Setup: P0 all-in 300 (loser). P1 live 2287 (winner). P2-P5 folded after
+        contributing 200/400/1000/1000. Every chip must be distributed.
+        """
+        p0 = Player(
+            name='P0', stack=0, is_human=False, bet=300, is_all_in=True,
+            hand=(Card('2', 'spades'), Card('3', 'hearts')), is_folded=False,
+        )
+        p1 = Player(
+            name='P1', stack=0, is_human=False, bet=2287,
+            hand=(Card('A', 'spades'), Card('A', 'hearts')), is_folded=False,
+        )
+        p2 = Player(name='P2', stack=0, is_human=False, bet=200,
+                    hand=(Card('5', 'clubs'), Card('6', 'clubs')), is_folded=True)
+        p3 = Player(name='P3', stack=0, is_human=False, bet=400,
+                    hand=(Card('7', 'clubs'), Card('8', 'clubs')), is_folded=True)
+        p4 = Player(name='P4', stack=0, is_human=False, bet=1000,
+                    hand=(Card('9', 'clubs'), Card('10', 'clubs')), is_folded=True)
+        p5 = Player(name='P5', stack=0, is_human=False, bet=1000,
+                    hand=(Card('J', 'clubs'), Card('Q', 'clubs')), is_folded=True)
+        community_cards = (
+            Card('7', 'diamonds'), Card('8', 'spades'), Card('9', 'hearts'),
+            Card('2', 'diamonds'), Card('4', 'spades'),
+        )
+        total_contributed = 300 + 2287 + 200 + 400 + 1000 + 1000  # 5187
+        game_state = PokerGameState(
+            deck=(),
+            players=(p0, p1, p2, p3, p4, p5),
+            community_cards=community_cards,
+            pot={'total': total_contributed},
+            current_dealer_idx=0,
+        )
+
+        result = determine_winner(game_state)
+
+        total_from_pots = sum(
+            w['amount'] for pot in result['pot_breakdown'] for w in pot['winners']
+        )
+        total_returned = sum(result.get('returned_chips', {}).values())
+        # Every contributed chip is accounted for — none stranded.
+        self.assertEqual(total_from_pots + total_returned, total_contributed)
+
+        # The folded dead money goes to the lone live player P1, never the
+        # folded contributors.
+        returned = result.get('returned_chips', {})
+        for folded in ('P2', 'P3', 'P4', 'P5'):
+            self.assertEqual(returned.get(folded, 0), 0)
+
+        # And it survives award_pot_winnings end-to-end with conservation.
+        new_state = award_pot_winnings(game_state, result)
+        self.assertEqual(sum(p.stack for p in new_state.players), total_contributed)
+
     def test_side_pot_with_split(self):
         """Side pot is split between two players with identical hands."""
         # ShortStack: $50 all-in with weak hand

@@ -873,20 +873,63 @@ def determine_winner(game_state: PokerGameState) -> Dict:
             p for p in active_players_sorted if remaining_contributions[p.name] >= tier_contribution
         ]
 
-        # If only one player is eligible AND this is a side pot situation (not the main pot),
-        # silently return their excess chips (no opponents to contest this tier)
-        # Note: pot_index > 0 means we've already processed at least one pot
+        # If only one ACTIVE (non-folded) player is eligible for this side tier,
+        # no live opponent can contest it. By this point every other active
+        # player has been consumed to zero, so any contributor still holding
+        # chips here is necessarily a folded player — dead money the lone live
+        # player wins. The lone player's own contribution above the largest
+        # other contribution is genuinely uncalled and is returned to them.
+        # (pot_index > 0 means the main pot is already settled.)
         if len(eligible_players) == 1 and pot_index > 0:
-            single_player = eligible_players[0]
-            excess_amount = remaining_contributions[single_player.name]
-            returned_chips[single_player.name] = (
-                returned_chips.get(single_player.name, 0) + excess_amount
-            )
-            remaining_contributions[single_player.name] = 0
+            lone = eligible_players[0]
+            lone_rem = remaining_contributions[lone.name]
+            other_rems = {
+                name: rem
+                for name, rem in remaining_contributions.items()
+                if name != lone.name and rem > 0
+            }
+            dead_money = sum(min(rem, lone_rem) for rem in other_rems.values())
+
+            if dead_money == 0:
+                # Truly uncontested — return the lone player's excess (no pot).
+                returned_chips[lone.name] = returned_chips.get(lone.name, 0) + lone_rem
+                remaining_contributions[lone.name] = 0
+            else:
+                # The lone player covers up to `lone_rem` of each dead stack and
+                # wins it; their own chips above the largest covered contribution
+                # are uncalled and returned.
+                max_other = max(min(rem, lone_rem) for rem in other_rems.values())
+                uncalled = lone_rem - max_other
+                if uncalled > 0:
+                    returned_chips[lone.name] = returned_chips.get(lone.name, 0) + uncalled
+                tier_pot = (lone_rem - uncalled) + dead_money
+                lone_hand_cards = [
+                    card if isinstance(card, Card) else Card(card['rank'], card['suit'])
+                    for card in lone.hand
+                ]
+                lone_hand = HandEvaluator(lone_hand_cards + community_cards).evaluate_hand()
+                evaluated_hands.append((lone.name, lone_hand))
+                pot_breakdown.append(
+                    {
+                        'pot_name': f'Side Pot {pot_index}',
+                        'total_amount': tier_pot,
+                        'winners': [{'name': lone.name, 'amount': tier_pot}],
+                        'hand_name': lone_hand['hand_name'],
+                    }
+                )
+                pot_index += 1
+                # Consume the lone player fully; reduce each dead contributor by
+                # the amount the lone player covered (residual above lone_rem is
+                # uncalled and returned in the post-loop sweep below).
+                remaining_contributions[lone.name] = 0
+                for name in other_rems:
+                    remaining_contributions[name] -= min(
+                        remaining_contributions[name], lone_rem
+                    )
             active_players_sorted = [
                 p for p in active_players_sorted if remaining_contributions[p.name] > 0
             ]
-            continue  # Skip to next tier - no pot entry created
+            continue  # Tier handled (return-only, or single-winner pot)
 
         # Calculate the pot for this tier by adding all the player's actual contributions up to the tier_contribution
         tier_pot = sum(
@@ -967,6 +1010,15 @@ def determine_winner(game_state: PokerGameState) -> Dict:
         active_players_sorted = [
             p for p in active_players_sorted if remaining_contributions[p.name] > 0
         ]
+
+    # Safety sweep: any chips still unconsumed belong to folded players who put
+    # in more than any live player could match (uncalled money above the highest
+    # live contribution). Return them to their contributors so chips are always
+    # conserved — no tier can strand them now that the loop has ended.
+    for name, rem in remaining_contributions.items():
+        if rem > 0:
+            returned_chips[name] = returned_chips.get(name, 0) + rem
+            remaining_contributions[name] = 0
 
     # Determine the best hand among all evaluated hands
     evaluated_hands.sort(key=lambda x: x[1]["kicker_values"], reverse=True)
