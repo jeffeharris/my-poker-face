@@ -110,6 +110,67 @@ def _dampen_aggression(
     return _bound_to_cap(strategy, StrategyProfile(action_probabilities=new), max_shift)
 
 
+def _pump_fold(
+    strategy: StrategyProfile,
+    strength: float,
+    max_shift: float,
+) -> StrategyProfile:
+    """Move a `strength` fraction of all non-fold mass onto fold.
+
+    The over-fold reshape (fit-or-fold, fold-to-barrel): scale every non-fold
+    action down and pile the freed mass onto fold, then bound by the per-action
+    cap. Returns `strategy` unchanged when fold isn't legal or there's nothing
+    to move. The downstream math/defense floors keep final say on
+    pot-odds-mandated calls, so this can't fold a hand the odds force.
+    """
+    probs = dict(strategy.action_probabilities)
+    if 'fold' not in probs:
+        return strategy
+    sources = [a for a in probs if a != 'fold']
+    current = sum(probs[a] for a in sources)
+    if not sources or current <= 0.0 or strength <= 0.0:
+        return strategy
+
+    moved = current * min(1.0, strength)
+    src_scale = (current - moved) / current
+    new = {a: (probs['fold'] + moved if a == 'fold' else p * src_scale) for a, p in probs.items()}
+    return _bound_to_cap(strategy, StrategyProfile(action_probabilities=new), max_shift)
+
+
+def _pump_aggression(
+    strategy: StrategyProfile,
+    strength: float,
+    max_shift: float,
+) -> StrategyProfile:
+    """Move a `strength` fraction of passive (check/call) mass onto bet/raise.
+
+    The over-bet reshape (auto-c-bet): the inverse of `_dampen_aggression`.
+    Redistribute the freed mass across the existing bet/raise actions
+    (proportional to chart weight, or evenly when the chart zeroed them), then
+    bound by the per-action cap. Returns `strategy` unchanged when there are no
+    bet actions or no passive mass to convert.
+    """
+    probs = dict(strategy.action_probabilities)
+    bets = _aggressive_keys(probs)
+    sources = [a for a in probs if a in ('check', 'call')]
+    current = sum(probs[a] for a in sources)
+    if not bets or not sources or current <= 0.0 or strength <= 0.0:
+        return strategy
+
+    moved = current * min(1.0, strength)
+    src_scale = (current - moved) / current
+    bet_total = sum(probs[a] for a in bets)
+    new = {}
+    for a, p in probs.items():
+        if a in sources:
+            new[a] = p * src_scale
+        elif a in bets:
+            new[a] = p + (moved * (p / bet_total) if bet_total > 0 else moved / len(bets))
+        else:
+            new[a] = p
+    return _bound_to_cap(strategy, StrategyProfile(action_probabilities=new), max_shift)
+
+
 def _slowplay(
     strategy: StrategyProfile,
     strength: float,
@@ -185,10 +246,94 @@ def _give_up_turn(
     return new, f'give_up_turn_{hand_class}'
 
 
+# ── fit-or-fold / over-fold to c-bet ─────────────────────────────────────────
+# The classic "no-pair-no-play" leak: facing a flop c-bet, fold everything that
+# didn't connect (air, weak pairs) instead of floating/bluff-catching at a
+# defensible frequency. Its exploiter is "barrel relentlessly" (any two cards
+# print vs a player who only continues with a made hand). Draws are excluded
+# (air_strong_draw has the equity/initiative to continue — a fit-or-fold player
+# folds dry air, not flush draws).
+_FITFOLD_CLASSES = frozenset({'weak_made', 'air_no_draw'})
+_FITFOLD_STREETS = frozenset({'flop'})
+
+
+def _fit_or_fold(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Fit-or-fold handler. Over-fold the weak/air range to a flop c-bet.
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    Initiative is intentionally not gated: the spot is facing a bet (the bettor
+    holds initiative), and over-folding to it is the leak whether or not hero
+    raised preflop.
+    """
+    applies = (
+        hand_class in _FITFOLD_CLASSES
+        and action_context == 'facing_bet'
+        and (street or '').lower() in _FITFOLD_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _pump_fold(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_fold_action_or_mass'
+    return new, f'fit_or_fold_{hand_class}'
+
+
+# ── auto-c-bet / c-bets-100% ─────────────────────────────────────────────────
+# The over-aggressive flop leak: c-bet with initiative regardless of holding,
+# firing the hands a balanced range would check back. Pumps bet frequency for
+# the checking part of the range (the thin/bluff classes; strong value already
+# bets). Strong value (nuts/strong_made) is excluded — pumping it is a no-op
+# (already bets) and conceptually it isn't the leak. Its exploiter is
+# float/raise their c-bets. Note the duality with give-up-turn: an auto-c-bet +
+# give-up-turn personality is the textbook "one-and-done" — fires every flop,
+# folds the turn.
+_AUTOCBET_CLASSES = frozenset({'medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'})
+_AUTOCBET_STREETS = frozenset({'flop'})
+
+
+def _auto_cbet(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Auto-c-bet handler. Pump flop bet frequency with initiative.
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    """
+    applies = (
+        hand_class in _AUTOCBET_CLASSES
+        and has_initiative
+        and action_context == 'unopened'
+        and (street or '').lower() in _AUTOCBET_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _pump_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_action_or_passive_mass'
+    return new, f'auto_cbet_{hand_class}'
+
+
 # name -> handler. Add backlog tendencies (donk, open-limp, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
     'give_up_turn': _give_up_turn,
+    'fit_or_fold': _fit_or_fold,
+    'auto_cbet': _auto_cbet,
 }
 
 

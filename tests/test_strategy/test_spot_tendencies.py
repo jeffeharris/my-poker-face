@@ -15,6 +15,12 @@ BASE = StrategyProfile(
 )
 SLOWPLAY = (('slowplay', 0.6),)
 GIVEUP = (('give_up_turn', 0.6),)
+FITFOLD = (('fit_or_fold', 0.6),)
+AUTOCBET = (('auto_cbet', 0.6),)
+# A flop spot facing a bet (fold + call + a little raise) — fit-or-fold input.
+FACING = StrategyProfile(
+    action_probabilities={'fold': 0.40, 'call': 0.45, 'raise_67': 0.15}
+)
 # Loose cap so the reshape isn't clipped (isolates the slow-play effect).
 LOOSE_CAP = 0.60
 
@@ -210,6 +216,120 @@ def test_give_up_turn_emitted_traces_validate():
     )
     _, noop = _apply(tendencies=GIVEUP, hand_class='nuts', street='turn')
     for traces in (fired, disabled, noop):
+        for t in traces:
+            validate_trace(t)
+
+
+# ── fit-or-fold / over-fold to c-bet ─────────────────────────────────────────
+# Pumps fold for weak/air facing a flop bet. Input distribution must contain a
+# fold action (facing a bet), so these use FACING, not BASE.
+
+def test_fit_or_fold_pumps_fold_on_weak_air():
+    for hc in ('weak_made', 'air_no_draw'):
+        out, traces = _apply(
+            FACING, tendencies=FITFOLD, hand_class=hc,
+            action_context='facing_bet', street='flop',
+        )
+        assert out.action_probabilities['fold'] > FACING.action_probabilities['fold'], hc
+        assert traces[0].fired and traces[0].rule_id == 'fit_or_fold', hc
+        assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, hc
+
+
+def test_fit_or_fold_no_op_on_made_hands():
+    # A connected hand isn't a fit-or-fold candidate.
+    for hc in ('nuts', 'strong_made', 'medium_made', 'air_strong_draw'):
+        out, traces = _apply(
+            FACING, tendencies=FITFOLD, hand_class=hc,
+            action_context='facing_bet', street='flop',
+        )
+        assert out is FACING, hc
+        assert not traces[0].fired, hc
+
+
+def test_fit_or_fold_no_op_when_unopened():
+    # No bet to fold to.
+    out, traces = _apply(
+        FACING, tendencies=FITFOLD, hand_class='air_no_draw',
+        action_context='unopened', street='flop',
+    )
+    assert out is FACING and not traces[0].fired
+
+
+def test_fit_or_fold_no_op_off_flop():
+    out, traces = _apply(
+        FACING, tendencies=FITFOLD, hand_class='air_no_draw',
+        action_context='facing_bet', street='turn',
+    )
+    assert out is FACING and not traces[0].fired
+
+
+def test_fit_or_fold_respects_cap_and_ablation():
+    cap = 0.10
+    out, _ = _apply(
+        FACING, tendencies=FITFOLD, hand_class='weak_made',
+        action_context='facing_bet', street='flop', max_shift=cap,
+    )
+    for action, base_p in FACING.action_probabilities.items():
+        assert abs(out.action_probabilities[action] - base_p) <= cap + 1e-6, action
+    out, traces = _apply(
+        FACING, tendencies=FITFOLD, hand_class='weak_made',
+        action_context='facing_bet', street='flop',
+        disable_rules=frozenset({(LAYER, 'fit_or_fold')}),
+    )
+    assert out is FACING and traces[0].reason_code == 'disabled_by_ablation'
+
+
+# ── auto-c-bet / c-bets-100% ─────────────────────────────────────────────────
+# Pumps bet for the checking part of the range with initiative on the flop.
+
+def test_auto_cbet_pumps_bet_on_thin_hands():
+    for hc in ('medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'):
+        out, traces = _apply(tendencies=AUTOCBET, hand_class=hc, street='flop')
+        assert _agg(out) > _agg(BASE), hc  # bet frequency up
+        assert out.action_probabilities['check'] < BASE.action_probabilities['check'], hc
+        assert traces[0].fired and traces[0].rule_id == 'auto_cbet', hc
+        assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9, hc
+
+
+def test_auto_cbet_no_op_on_strong_value():
+    for hc in ('nuts', 'strong_made'):
+        out, traces = _apply(tendencies=AUTOCBET, hand_class=hc, street='flop')
+        assert out is BASE and not traces[0].fired, hc
+
+
+def test_auto_cbet_no_op_without_initiative_or_facing_bet():
+    out, traces = _apply(
+        tendencies=AUTOCBET, hand_class='medium_made', street='flop', has_initiative=False
+    )
+    assert out is BASE and not traces[0].fired
+    out, traces = _apply(
+        tendencies=AUTOCBET, hand_class='medium_made', street='flop', action_context='facing_bet'
+    )
+    assert out is BASE and not traces[0].fired
+
+
+def test_auto_cbet_no_op_off_flop():
+    out, traces = _apply(tendencies=AUTOCBET, hand_class='medium_made', street='turn')
+    assert out is BASE and not traces[0].fired
+
+
+def test_auto_cbet_is_the_dual_of_give_up_turn():
+    # Same thin classes, opposite direction: auto-c-bet pumps the flop, give-up
+    # dampens the turn — both fire, neither no-ops, on their own street.
+    flop_out, _ = _apply(tendencies=AUTOCBET, hand_class='medium_made', street='flop')
+    turn_out, _ = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn')
+    assert _agg(flop_out) > _agg(BASE)
+    assert _agg(turn_out) < _agg(BASE)
+
+
+def test_new_leaks_traces_validate():
+    runs = [
+        _apply(FACING, tendencies=FITFOLD, hand_class='weak_made',
+               action_context='facing_bet', street='flop'),
+        _apply(tendencies=AUTOCBET, hand_class='air_no_draw', street='flop'),
+        _apply(tendencies=AUTOCBET, hand_class='nuts', street='flop'),  # no-op
+    ]
+    for _, traces in runs:
         for t in traces:
             validate_trace(t)
 

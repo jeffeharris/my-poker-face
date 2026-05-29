@@ -83,7 +83,7 @@ _LAYER_NAMES = frozenset(
 
 _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'personality': frozenset({'default'}),
-    'spot_tendencies': frozenset({'default', 'slowplay', 'give_up_turn'}),
+    'spot_tendencies': frozenset({'default', 'slowplay', 'give_up_turn', 'fit_or_fold', 'auto_cbet'}),
     'exploitation': frozenset(
         {
             'hyper_aggressive',
