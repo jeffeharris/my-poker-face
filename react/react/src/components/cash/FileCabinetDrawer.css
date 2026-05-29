@@ -1,173 +1,491 @@
-/* FileCabinetDrawer — centered modal, portal-to-body (mirrors
- * WhereaboutsDrawer so it clears the fixed PageLayout header). */
+/*
+ * FileCabinetDrawer — "The Archive"
+ *
+ * The dossier index, in the same noir case-file world as CharacterDetailCard:
+ * aged paper on a smoky overlay, gold-leaf rules, JetBrains Mono classification
+ * type, a wet-ink CONFIDENTIAL stamp, manila folders with colored tabs. All
+ * pure CSS — no image assets. Palette + fonts mirror the dossier card so the
+ * index and the files it opens read as one artifact.
+ */
 
-.filecab-overlay {
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,700;0,6..96,900;1,6..96,400&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+.archive-overlay {
+  --paper: #ece1c8;
+  --paper-hi: #f5ecd5;
+  --paper-lo: #d8cbab;
+  --paper-shadow: #a89878;
+  --manila: #d9c79a;
+  --manila-lo: #c9b681;
+  --ink: #1a1410;
+  --ink-soft: #4a3d31;
+  --ink-faint: #7a6a55;
+  --gold-leaf: #b08433;
+  --gold-bright: #e2bf6f;
+  --emerald: #1d4a3c;
+  --emerald-bright: #3c7d63;
+  --crimson: #8a1d22;
+  --crimson-wet: #b22a2f;
+
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 4vw, 44px);
+  background:
+    radial-gradient(ellipse at center, rgba(20, 16, 12, 0.6) 0%, rgba(6, 4, 2, 0.94) 70%),
+    linear-gradient(135deg, #0c0805 0%, #1a120a 100%);
+  font-family: 'Fraunces', Georgia, serif;
+  cursor: pointer;
+  isolation: isolate;
+  animation: archive-fade 0.25s ease-out;
 }
 
-.filecab-drawer {
-  width: 100%;
-  max-width: 480px;
-  max-height: 85vh;
+@keyframes archive-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.archive-overlay__grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+
+/* ── The drawer / archive sheet ────────────────────────────────── */
+.archive {
+  position: relative;
+  width: min(540px, 96vw);
+  max-height: min(90vh, 860px);
   display: flex;
   flex-direction: column;
-  background: var(--surface-1, #1c1f25);
-  color: var(--text-primary, #f5f5f5);
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
+  cursor: default;
+  padding: clamp(22px, 4vw, 34px) clamp(18px, 3.5vw, 30px) clamp(14px, 2.5vw, 22px);
+  color: var(--ink);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 23px,
+      rgba(120, 95, 60, 0.05) 24px
+    ),
+    radial-gradient(ellipse at 30% 0%, var(--paper-hi) 0%, var(--paper) 55%, var(--paper-lo) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 240, 200, 0.4) inset,
+    0 -1px 0 rgba(80, 60, 30, 0.18) inset,
+    0 24px 60px -12px rgba(0, 0, 0, 0.7),
+    0 60px 120px -30px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(80, 60, 30, 0.25);
+  outline: 1px solid var(--gold-leaf);
+  outline-offset: -10px;
+  animation: archive-rise 0.42s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.filecab-drawer__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+@keyframes archive-rise {
+  from { transform: translateY(26px) scale(0.985); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
 }
-.filecab-drawer__title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+
+/* paper grain over the sheet */
+.archive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.32;
+  mix-blend-mode: multiply;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='1.7' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.27  0 0 0 0 0.17  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+  background-size: 220px 220px;
 }
-.filecab-drawer__close {
-  background: none;
+
+/* ── Close: ink dot with a thick × (mirrors dossier) ───────────── */
+.archive__close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
   border: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper-hi);
   cursor: pointer;
-  color: var(--text-secondary, #aaa);
-  padding: 0.3rem;
-  border-radius: 8px;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  padding: 0 0 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 246, 220, 0.5);
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
 }
-.filecab-drawer__close:hover {
-  color: var(--text-primary, #f5f5f5);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.filecab-drawer__stats {
-  padding: 0.6rem 1rem;
-  font-size: 0.82rem;
-  color: var(--text-secondary, #9aa0aa);
-}
-.filecab-drawer__stats strong {
-  color: var(--text-primary, #f5f5f5);
+.archive__close:hover {
+  background: var(--crimson-wet);
+  transform: rotate(90deg);
 }
 
-.filecab-drawer__sorts {
+/* ── Wet-ink CONFIDENTIAL stamp ────────────────────────────────── */
+.archive__stamp {
+  position: absolute;
+  top: clamp(20px, 5vw, 38px);
+  right: clamp(40px, 8vw, 70px);
+  z-index: 4;
+  padding: 6px 16px 4px;
+  border: 3px double var(--crimson);
+  color: var(--crimson);
+  text-align: center;
+  pointer-events: none;
+  transform: rotate(-8deg);
+  background:
+    radial-gradient(ellipse at 30% 50%, rgba(178, 42, 47, 0.07), transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(178, 42, 47, 0.05), transparent 50%);
+  text-shadow: 0 0 1px rgba(138, 29, 34, 0.4), 0.5px 0 0 rgba(138, 29, 34, 0.35);
+  filter: contrast(1.05);
+  opacity: 0.9;
+}
+.archive__stamp-inner {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  line-height: 1;
+}
+.archive__stamp-sub {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  margin-top: 3px;
+  letter-spacing: 0.3em;
+  opacity: 0.85;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.archive__header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(60, 45, 25, 0.25);
+}
+.archive__classification {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: var(--ink-soft);
+}
+.archive__class-tag {
+  padding: 3px 8px;
+  background: var(--ink);
+  color: var(--paper-hi);
+  letter-spacing: 0.32em;
+}
+.archive__class-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--gold-leaf);
+  transform: rotate(45deg);
+}
+.archive__title {
+  margin: 10px 0 6px;
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 900;
+  font-size: clamp(26px, 6vw, 36px);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.archive__census {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.archive__census strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+.archive__census-sep {
+  color: var(--gold-leaf);
+  margin: 0 8px;
+  font-size: 7px;
+  vertical-align: middle;
+}
+
+/* ── Sort index (file dividers) ─────────────────────────────────── */
+.archive__index {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.archive__index-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--ink-faint);
+}
+.archive__index-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  padding: 0 1rem 0.6rem;
+  gap: 4px;
 }
-.filecab-drawer__sort {
-  font-size: 0.72rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-secondary, #aaa);
-  border-radius: 999px;
-  padding: 0.22rem 0.6rem;
+.archive__index-tab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 3px 9px 4px;
+  border: none;
   cursor: pointer;
+  color: var(--ink-soft);
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.filecab-drawer__sort--active {
-  background: rgba(226, 191, 111, 0.18);
-  border-color: rgba(226, 191, 111, 0.5);
-  color: #e2bf6f;
+.archive__index-tab:hover {
+  color: var(--ink);
+}
+.archive__index-tab--active {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--gold-leaf);
 }
 
-.filecab-drawer__list {
+/* ── The drawer of folders ──────────────────────────────────────── */
+.archive__drawer {
+  position: relative;
+  z-index: 2;
   overflow-y: auto;
-  padding: 0.25rem 0.6rem 0.8rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 7px;
+  padding-right: 4px;
+  margin-right: -4px;
 }
 
-.filecab-row {
-  text-align: left;
-  width: 100%;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 0.6rem 0.7rem;
-  cursor: pointer;
-  color: inherit;
-  transition: background 0.12s ease;
-}
-.filecab-row:hover {
-  background: rgba(255, 255, 255, 0.07);
-}
-.filecab-row__head {
+/* ── A manila folder ────────────────────────────────────────────── */
+.folder {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: stretch;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  border: 1px solid var(--paper-shadow);
+  border-left: none;
+  border-radius: 2px 4px 4px 2px;
+  background:
+    linear-gradient(135deg, var(--manila) 0%, var(--manila-lo) 100%);
+  box-shadow: 0 1px 2px rgba(60, 45, 25, 0.25), 0 1px 0 rgba(255, 244, 214, 0.4) inset;
+  overflow: hidden;
+  transform-origin: left center;
+  animation: folder-slide 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 0.16s ease-out, box-shadow 0.16s ease-out;
 }
-.filecab-row__name {
-  font-weight: 600;
+.folder:hover {
+  transform: translateX(5px);
+  box-shadow: 0 4px 12px rgba(40, 28, 12, 0.35), 0 1px 0 rgba(255, 244, 214, 0.5) inset;
+}
+.folder:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 2px;
+}
+
+@keyframes folder-slide {
+  from { transform: translateX(-14px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* the colored file tab on the left edge */
+.folder__tab {
+  flex: 0 0 7px;
+  background: var(--gold-leaf);
+}
+.folder--complete .folder__tab {
+  background: var(--emerald-bright);
+}
+.folder--classified .folder__tab {
+  background: var(--paper-shadow);
+}
+.folder--partial .folder__tab {
+  background: var(--gold-leaf);
+}
+
+.folder__body {
   flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px 10px;
 }
-.filecab-row__rival {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: 0.68rem;
-  color: #e69a9a;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.folder__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
-.filecab-row__pnl {
+.folder__no {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.folder__rival {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--crimson);
+  border: 1px solid var(--crimson);
+  padding: 1px 4px;
+  transform: rotate(-3deg);
+}
+.folder__pnl {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
-  font-weight: 600;
 }
-.filecab-row__pnl--pos {
-  color: #6fcf97;
+.folder__pnl--pos { color: var(--emerald); }
+.folder__pnl--neg { color: var(--crimson); }
+.folder__pnl--even { color: var(--ink-faint); }
+
+.folder__name {
+  font-family: 'Bodoni Moda', serif;
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.1;
+  margin: 1px 0 4px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.filecab-row__pnl--neg {
-  color: #e69a9a;
-}
-.filecab-row__pnl--even {
-  color: var(--text-secondary, #8a909a);
-}
-.filecab-row__meta {
+.folder__meta {
   display: flex;
   justify-content: space-between;
-  margin-top: 0.25rem;
-  font-size: 0.72rem;
-  color: var(--text-secondary, #9aa0aa);
+  align-items: baseline;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
 }
-.filecab-row__dossier {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+.folder__hands {
+  color: var(--ink-faint);
+  text-transform: uppercase;
 }
-.filecab-row__bar {
-  margin-top: 0.4rem;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+.folder__status {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.folder__status--complete { color: var(--emerald); }
+.folder__status--partial { color: var(--gold-leaf); }
+.folder__status--classified { color: var(--crimson); }
+
+.folder__progress {
+  margin-top: 7px;
+  height: 2px;
+  background: rgba(60, 45, 25, 0.18);
+  border-radius: 1px;
   overflow: hidden;
 }
-.filecab-row__bar-fill {
+.folder__progress-fill {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #b08433, #e2bf6f);
+  background: linear-gradient(90deg, var(--gold-leaf), var(--gold-bright));
 }
-.filecab-row__bar-fill--full {
-  background: linear-gradient(90deg, #2e8b57, #6fcf97);
+.folder--complete .folder__progress-fill {
+  background: linear-gradient(90deg, var(--emerald), var(--emerald-bright));
 }
 
-.filecab-drawer__empty {
-  padding: 1.5rem 1rem;
+/* ── Empty state ────────────────────────────────────────────────── */
+.archive__empty {
   text-align: center;
-  font-size: 0.84rem;
-  color: var(--text-secondary, #8a909a);
+  padding: 2.5rem 1.5rem 2rem;
+  color: var(--ink-soft);
+}
+.archive__empty-stamp {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  color: var(--crimson);
+  border: 3px double var(--crimson);
+  padding: 8px 18px 6px;
+  transform: rotate(-6deg);
+  opacity: 0.85;
+  margin-bottom: 1.1rem;
+}
+.archive__empty p {
+  margin: 0 auto;
+  max-width: 30ch;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
   line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archive-overlay,
+  .archive,
+  .folder {
+    animation: none;
+  }
+}
+
+/* ── Lobby entry: a manila file-tab, distinct from the "Who's around"
+ *    location link. Pushed to opposite ends of the row so they no longer
+ *    read as twin buttons. Previews the archive's paper-and-gold world. */
+.cash-entry__whereabouts-row {
+  justify-content: space-between !important;
+  align-items: center;
+}
+
+.cash-entry__archive-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 12px 5px 10px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #2a2014;
+  /* manila tab with a clipped top-right corner, like a folder tab */
+  background: linear-gradient(135deg, #e2bf6f 0%, #cda74e 100%);
+  border: none;
+  border-radius: 3px 3px 0 0;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+  box-shadow: 0 -1px 0 rgba(255, 244, 214, 0.6) inset, 0 2px 5px rgba(0, 0, 0, 0.35);
+  transform: translateY(2px);
+  transition: transform 0.16s ease-out, filter 0.16s ease-out;
+}
+.cash-entry__archive-tab:hover {
+  transform: translateY(0);
+  filter: brightness(1.06);
+}
+.cash-entry__archive-tab svg {
+  color: #6b4e1b;
 }

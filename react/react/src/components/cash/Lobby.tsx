@@ -585,11 +585,12 @@ export function Lobby() {
             </button>
             <button
               type="button"
-              className="cash-entry__whereabouts-trigger"
+              className="cash-entry__archive-tab"
               onClick={() => setFileCabinetOpen(true)}
+              title="Open the case-file archive"
             >
               <FolderOpen size={13} aria-hidden="true" />
-              File cabinet
+              <span>Case Files</span>
             </button>
           </div>
 

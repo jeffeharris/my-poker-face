@@ -284,3 +284,36 @@ across the dossier suites; TS clean; route registered (400 unauth).
 
 **Not done:** live UI eyeball; avatars on rows (skipped to dodge the
 zombie-persona avatar footgun); Tier 2 (still handed off).
+
+---
+
+## 2026-05-29 (file cabinet redesign) — "The Archive"
+
+**The user's note: serviceable but flat, and the two lobby buttons were
+twins.** The cabinet had a generic dark modal — disconnected from the rich
+case-file dossiers it indexes. Ran the frontend-design skill and committed to
+a concept: **the cabinet IS a case-file drawer**, in the exact noir world of
+`CharacterDetailCard` (Bodoni Moda / Fraunces / JetBrains Mono, aged-paper
+palette, gold-leaf, wet-ink crimson stamp). Reused the dossier's CSS
+vocabulary verbatim (same font import, same `--paper`/`--gold-leaf`/`--ink`
+vars, same grain/stamp recipes) so the index and the files read as one
+artifact.
+
+Each opponent became a **manila folder** with a colored tab (emerald = full
+dossier, gold = in progress, manila/grey = classified), a stamped `№` file
+number, a `RIVAL` stamp, color-coded PnL, and an `N/9 PAGES` progress rule.
+Folders stagger-slide in; hover pulls the file out to the right. Header is a
+classification block + Bodoni title + a mono "N subjects on file · M dossiers
+complete" census.
+
+**Access pattern.** Killed the twin buttons: "Who's around" stays a plain
+location text-link; the cabinet entry became a distinct **manila file-tab**
+(clipped corner, gold, mono "CASE FILES") pushed to the opposite end of the
+row — different shape, color, type, and position, so they no longer read as a
+pair. The tab also previews the archive's paper-and-gold world from inside the
+dark lobby.
+
+**Verified by screenshot** via a standalone static preview (dev server returns
+blank to headless tools — the known trick) rather than guessing. It looks
+like an artifact now, not a list. TS clean. Functionality unchanged (sorts,
+unlock progress, rival flag, PnL, tap-to-open-dossier, census header).

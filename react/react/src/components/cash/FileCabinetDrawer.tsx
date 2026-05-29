@@ -1,20 +1,20 @@
 /**
- * FileCabinetDrawer — "the file cabinet"
+ * FileCabinetDrawer — "The Archive"
  *
- * Browse everyone you've accumulated scouting on. The collection/retention
- * surface of the dossier meta-game: a row per opponent with their
- * dossier-unlock progress, your lifetime PnL vs them, and a rivalry flag,
- * tappable to pull the full dossier. Sortable (most-played, rivals, biggest
- * winners/losers vs you, recently seen, dossier progress).
+ * The browsable index of every opponent you've scouted, dressed as a physical
+ * case-file drawer in the same noir universe as CharacterDetailCard (aged
+ * paper, gold-leaf rules, JetBrains Mono classification type, a wet-ink
+ * CONFIDENTIAL stamp). Each opponent is a manila folder — colored tab (gold =
+ * intel in progress, emerald = full dossier, crimson = rival), a stamped file
+ * number, pages-declassified progress, and your lifetime take. Tap a folder to
+ * pull the full dossier. Folders stagger in on open.
  *
- * Centered modal, portal-to-body (mirrors WhereaboutsDrawer / NetWorthDrawer
- * so it clears the fixed PageLayout header). Refetches when `refreshTick`
- * changes to stay in lockstep with the lobby.
+ * Centered modal, portal-to-body (clears the fixed PageLayout header).
+ * Refetches when `refreshTick` changes to stay in lockstep with the lobby.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, FolderOpen, Flame, Lock, CheckCircle2 } from 'lucide-react';
 import { getFileCabinet } from './api';
 import type { FileCabinetPerson } from './types';
 import { logger } from '../../utils/logger';
@@ -23,12 +23,12 @@ import './FileCabinetDrawer.css';
 type SortKey = 'most_played' | 'rivals' | 'winners' | 'losers' | 'recent' | 'progress';
 
 const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'most_played', label: 'Most played' },
-  { key: 'progress', label: 'Dossier progress' },
+  { key: 'most_played', label: 'Most studied' },
+  { key: 'progress', label: 'Declassified' },
   { key: 'rivals', label: 'Rivals' },
   { key: 'winners', label: 'You beat' },
   { key: 'losers', label: 'Beat you' },
-  { key: 'recent', label: 'Recently seen' },
+  { key: 'recent', label: 'Recent' },
 ];
 
 function sortPeople(people: FileCabinetPerson[], key: SortKey): FileCabinetPerson[] {
@@ -52,64 +52,68 @@ function sortPeople(people: FileCabinetPerson[], key: SortKey): FileCabinetPerso
   }
 }
 
-function PnlChip({ value }: { value: number }) {
-  if (value === 0) {
-    return <span className="filecab-row__pnl filecab-row__pnl--even">even</span>;
-  }
-  const up = value > 0;
-  return (
-    <span className={`filecab-row__pnl filecab-row__pnl--${up ? 'pos' : 'neg'}`}>
-      {up ? '+' : '−'}${Math.abs(value).toLocaleString()}
-    </span>
-  );
+/** Stable 4-digit case number from the personality id — flavor only, mirrors
+ *  the dossier card's deriveFileNumber so the same subject reads consistently. */
+function caseNumber(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return String(1000 + (h % 9000));
 }
 
-function CabinetRow({
+function FileFolder({
   person,
+  index,
   onOpen,
 }: {
   person: FileCabinetPerson;
+  index: number;
   onOpen: (p: FileCabinetPerson) => void;
 }) {
   const pct = Math.round((person.reads_unlocked / person.reads_total) * 100);
   const isRival = person.heat >= 0.5;
+  const status = person.fully_unlocked
+    ? 'complete'
+    : person.floor_met
+      ? 'partial'
+      : 'classified';
+
+  const statusLabel = person.fully_unlocked
+    ? 'FILE COMPLETE'
+    : person.floor_met
+      ? `${person.reads_unlocked}/${person.reads_total} PAGES`
+      : 'CLASSIFIED';
+
+  const pnlText =
+    person.net_pnl === 0
+      ? 'EVEN'
+      : `${person.net_pnl > 0 ? '+' : '−'}$${Math.abs(person.net_pnl).toLocaleString()}`;
+  const pnlClass =
+    person.net_pnl === 0 ? 'even' : person.net_pnl > 0 ? 'pos' : 'neg';
+
   return (
-    <button type="button" className="filecab-row" onClick={() => onOpen(person)}>
-      <div className="filecab-row__head">
-        <span className="filecab-row__name">{person.name}</span>
-        {isRival && (
-          <span className="filecab-row__rival" title="rivalry">
-            <Flame size={12} aria-hidden="true" /> rival
+    <button
+      type="button"
+      className={`folder folder--${status}`}
+      style={{ animationDelay: `${Math.min(index, 12) * 34}ms` }}
+      onClick={() => onOpen(person)}
+    >
+      <span className="folder__tab" aria-hidden="true" />
+      <div className="folder__body">
+        <div className="folder__head">
+          <span className="folder__no">№ {caseNumber(person.personality_id)}</span>
+          {isRival && <span className="folder__rival">RIVAL</span>}
+          <span className={`folder__pnl folder__pnl--${pnlClass}`}>{pnlText}</span>
+        </div>
+        <div className="folder__name">{person.name}</div>
+        <div className="folder__meta">
+          <span className="folder__hands">
+            {person.hands_observed.toLocaleString()} hands studied
           </span>
-        )}
-        <PnlChip value={person.net_pnl} />
-      </div>
-      <div className="filecab-row__meta">
-        <span className="filecab-row__hands">
-          {person.hands_observed.toLocaleString()} hands observed
-        </span>
-        <span className="filecab-row__dossier">
-          {person.fully_unlocked ? (
-            <>
-              <CheckCircle2 size={12} aria-hidden="true" /> Full dossier
-            </>
-          ) : person.floor_met ? (
-            `Dossier ${person.reads_unlocked}/${person.reads_total}`
-          ) : (
-            <>
-              <Lock size={11} aria-hidden="true" /> Classified
-            </>
-          )}
-        </span>
-      </div>
-      <div className="filecab-row__bar" aria-hidden="true">
-        <span
-          className={
-            'filecab-row__bar-fill' +
-            (person.fully_unlocked ? ' filecab-row__bar-fill--full' : '')
-          }
-          style={{ width: `${pct}%` }}
-        />
+          <span className={`folder__status folder__status--${status}`}>{statusLabel}</span>
+        </div>
+        <div className="folder__progress" aria-hidden="true">
+          <span className="folder__progress-fill" style={{ width: `${pct}%` }} />
+        </div>
       </div>
     </button>
   );
@@ -159,60 +163,85 @@ export function FileCabinetDrawer({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="filecab-overlay" onClick={onClose}>
+    <div className="archive-overlay" onClick={onClose}>
+      <div className="archive-overlay__grain" aria-hidden="true" />
       <div
-        className="filecab-drawer"
+        className="archive"
         role="dialog"
-        aria-label="File cabinet"
+        aria-label="Case file archive"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="filecab-drawer__header">
-          <div className="filecab-drawer__title">
-            <FolderOpen size={16} aria-hidden="true" />
-            <span>The File Cabinet</span>
-          </div>
-          <button
-            type="button"
-            className="filecab-drawer__close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-        </header>
+        <button
+          type="button"
+          className="archive__close"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
 
-        <div className="filecab-drawer__stats">
-          People met: <strong>{peopleMet}</strong> · Dossiers unlocked:{' '}
-          <strong>{dossiersUnlocked}</strong>
+        <div className="archive__stamp" aria-hidden="true">
+          <span className="archive__stamp-inner">CONFIDENTIAL</span>
+          <span className="archive__stamp-sub">EYES ONLY</span>
         </div>
 
+        <header className="archive__header">
+          <div className="archive__classification">
+            <span className="archive__class-tag">ARCHIVE</span>
+            <span className="archive__class-dot" aria-hidden="true" />
+            <span>CASE FILES</span>
+          </div>
+          <h2 className="archive__title">The File Cabinet</h2>
+          <div className="archive__census">
+            <strong>{peopleMet}</strong> subject{peopleMet === 1 ? '' : 's'} on file
+            <span className="archive__census-sep" aria-hidden="true">
+              ◆
+            </span>
+            <strong>{dossiersUnlocked}</strong> dossier
+            {dossiersUnlocked === 1 ? '' : 's'} complete
+          </div>
+        </header>
+
         {people.length > 0 && (
-          <div className="filecab-drawer__sorts">
-            {SORTS.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className={
-                  'filecab-drawer__sort' +
-                  (sort === s.key ? ' filecab-drawer__sort--active' : '')
-                }
-                onClick={() => setSort(s.key)}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div className="archive__index">
+            <span className="archive__index-label">FILED BY</span>
+            <div className="archive__index-tabs">
+              {SORTS.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  className={
+                    'archive__index-tab' +
+                    (sort === s.key ? ' archive__index-tab--active' : '')
+                  }
+                  onClick={() => setSort(s.key)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        <div className="filecab-drawer__list">
-          {sorted.map((p) => (
-            <CabinetRow key={p.personality_id} person={p} onOpen={onOpenDossier} />
+        <div className="archive__drawer">
+          {sorted.map((p, i) => (
+            <FileFolder
+              key={p.personality_id}
+              person={p}
+              index={i}
+              onOpen={onOpenDossier}
+            />
           ))}
           {!loading && people.length === 0 && (
-            <p className="filecab-drawer__empty">
-              No files yet. Play a few hands at the Circuit and your dossiers will
-              start filling in.
-            </p>
+            <div className="archive__empty">
+              <div className="archive__empty-stamp" aria-hidden="true">
+                NO FILES
+              </div>
+              <p>
+                The cabinet is empty. Sit down at the Circuit — every hand you
+                share builds a file on the table.
+              </p>
+            </div>
           )}
         </div>
       </div>
