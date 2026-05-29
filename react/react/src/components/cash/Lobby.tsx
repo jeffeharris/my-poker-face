@@ -774,10 +774,11 @@ export function Lobby() {
           events={events}
           refreshTick={stakablePanelTick}
           onOpenDossier={(person: FileCabinetPerson) => {
-            // Hand off to the existing dossier card (Circuit context, so the
-            // informant buy buttons show). Close the hub so the card isn't
-            // stacked behind it.
-            setIntelHubOpen(false);
+            // Open the dossier ON TOP of the hub (it has a higher z-index) and
+            // leave the hub open behind it — so closing the dossier returns
+            // you to the file cabinet you came from, on the same tab, rather
+            // than dropping you back to the lobby. Circuit context, so the
+            // informant buy buttons show.
             setDossier({
               dossier: { name: person.name },
               origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 },

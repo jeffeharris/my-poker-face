@@ -29,7 +29,9 @@
 
   position: fixed;
   inset: 0;
-  z-index: 1500;
+  /* Above the Intel hub (1500) so a dossier opened from The Files drills in
+     on top and closing it returns to the cabinet underneath. */
+  z-index: 1600;
   display: grid;
   place-items: center;
   padding: clamp(16px, 4vw, 48px);
