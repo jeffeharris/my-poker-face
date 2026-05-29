@@ -43,6 +43,11 @@ class RuleBotController(AIPlayerController):
     Overrides only the decision-making method to use rules instead of LLM.
     """
 
+    # Rule decision (_get_ai_decision) ignores the prompt, so the emotional
+    # narration prose is unused for play — only generated in heads-up for the
+    # opponent panel. See PsychologyPipeline._update_composure.
+    USES_EMOTIONAL_NARRATION = False
+
     def __init__(
         self,
         player_name: str,

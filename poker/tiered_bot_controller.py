@@ -223,6 +223,11 @@ class TieredBotController(AIPlayerController):
     Layer 3: Expression (LLM narrates - not implemented in Phase 1)
     """
 
+    # Solver path: decisions never inject psychology.get_prompt_section(), so the
+    # post-hand emotional narration is only worth generating in heads-up (where
+    # the opponent panel displays it). See PsychologyPipeline._update_composure.
+    USES_EMOTIONAL_NARRATION = False
+
     def __init__(
         self,
         player_name: str,

@@ -57,6 +57,10 @@ class LeanBoundedController(HybridAIController):
 
     LEAN_BOUNDED: bool = True
 
+    # Lean path sends only cards + options — never the emotional narration. So
+    # like the solver/rule bots, only narrate in heads-up (for the panel).
+    USES_EMOTIONAL_NARRATION = False
+
     LEAN_SYSTEM_PROMPT = (
         'You are a poker player. Pick one option. '
         'Return JSON: {"reasoning": "1-2 sentences explaining your choice", "choice": <number>}'

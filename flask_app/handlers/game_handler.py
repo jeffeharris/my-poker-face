@@ -2560,6 +2560,35 @@ def check_tournament_complete(game_id: str, game_data: dict, final_hand_data: di
     return True
 
 
+def _run_async_narration(game_id: str, game_data: dict, pending: list) -> None:
+    """Generate deferred emotional narration off the inter-hand critical path.
+
+    The post-hand psychology pipeline updates composure synchronously (it
+    affects play) and hands us the narration jobs for players who actually
+    consume the prose — the LLM table-talk bots, or any bot in heads-up (whose
+    narrative/inner_voice the opponent panel displays). Running the LLM calls
+    here keeps them off the next-hand gate; the prose lands in memory and the
+    next state emit carries it to the heads-up panel. We persist it ourselves
+    since the synchronous emotional-state save was removed with the deferral.
+    """
+    ai_controllers = game_data.get('ai_controllers', {})
+    for req in pending:
+        controller = ai_controllers.get(req.player_name)
+        if controller is None or getattr(controller, 'psychology', None) is None:
+            continue
+        try:
+            controller.psychology.generate_narration(**req.kwargs)
+            if controller.psychology.emotional:
+                game_repo.save_emotional_state(
+                    game_id, req.player_name, controller.psychology.emotional
+                )
+        except Exception as e:
+            logger.warning(
+                f"[Game {game_id}] Async narration failed for {req.player_name}: {e}",
+                exc_info=True,
+            )
+
+
 def _run_async_commentary(
     game_id: str, game_data: dict, completion_event: threading.Event = None
 ) -> None:
@@ -2882,6 +2911,10 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
             game_repo=game_repo,
             hand_history_repo=hand_history_repo_for_pipeline,
             enable_emotional_narration=True,
+            # Composure updates inline (it affects play); the emotional narration
+            # LLM calls are returned as pending jobs and run in a background task
+            # so they don't gate the next hand. See _run_async_narration.
+            defer_narration=True,
             persist_controller_state=False,  # game handler saves per-decision instead
         )
 
@@ -2921,22 +2954,15 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         psych_result = pipeline.process_hand(psych_ctx, on_events_resolved=_on_events_resolved)
         game_data['short_stack_players'] = psych_result.current_short_stack
 
-        # Save emotional states (since persist_controller_state=False skips full save)
-        for player_name, controller in ai_controllers.items():
-            try:
-                if (
-                    hasattr(controller, 'psychology')
-                    and controller.psychology
-                    and controller.psychology.emotional
-                ):
-                    game_repo.save_emotional_state(
-                        game_id, player_name, controller.psychology.emotional
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[Game {game_id}] Failed to save emotional state for {player_name}: {e}",
-                    exc_info=True,
-                )
+        # Emotional narration (prose) is deferred off the inter-hand critical
+        # path: composure already updated synchronously above; the LLM calls run
+        # in the background (concurrent with commentary) and persist the prose
+        # themselves. Only the consumers (chaos/hybrid, or any bot in heads-up)
+        # produce pending jobs — see PsychologyPipeline._update_composure.
+        if psych_result.pending_narrations:
+            socketio.start_background_task(
+                _run_async_narration, game_id, game_data, psych_result.pending_narrations
+            )
 
     # Start async commentary (genuinely slow — multiple LLM calls)
     commentary_complete = threading.Event()

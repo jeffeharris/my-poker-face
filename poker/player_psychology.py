@@ -699,6 +699,59 @@ class PlayerPsychology:
             f"Confidence={self.confidence:.2f}, Composure={self.composure:.2f}"
         )
 
+    def update_composure_only(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        was_bad_beat: bool = False,
+        was_bluff_called: bool = False,
+        big_blind: int = 100,
+    ) -> None:
+        """Synchronous half of on_hand_complete: composure + axes only, no LLM.
+
+        Split out so the post-hand pipeline can update the play-affecting state
+        (composure → zone effects → bounded-options window shift) inline while
+        deferring the slower emotional narration (prose only) to a background
+        task. See generate_narration and PsychologyPipeline._update_composure.
+        """
+        self.composure_state = self.composure_state.update_from_hand(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            was_bad_beat=was_bad_beat,
+            was_bluff_called=was_bluff_called,
+            big_blind=big_blind,
+        )
+        self.hand_count += 1
+        self._mark_updated()
+
+    def generate_narration(
+        self,
+        outcome: str,
+        amount: int,
+        opponent: Optional[str] = None,
+        key_moment: Optional[str] = None,
+        session_context: Optional[Dict[str, Any]] = None,
+        big_blind: int = 100,
+    ) -> None:
+        """Async half of on_hand_complete: the LLM emotional narration only.
+
+        Produces narrative / inner_voice for the next decision prompt (chaos /
+        hybrid) and the heads-up opponent panel. Assumes composure was already
+        advanced via update_composure_only this hand, so it does NOT touch
+        composure or hand_count.
+        """
+        self._generate_emotional_state(
+            outcome=outcome,
+            amount=amount,
+            opponent=opponent,
+            key_moment=key_moment,
+            session_context=session_context or {},
+            big_blind=big_blind,
+        )
+        self._mark_updated()
+
     def recover(self, recovery_rate: Optional[float] = None) -> Dict[str, Any]:
         """
         Apply recovery between hands.

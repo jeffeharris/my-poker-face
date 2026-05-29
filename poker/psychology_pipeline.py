@@ -9,7 +9,7 @@ UI concerns (socket emissions, animation delays) stay in callers via callbacks.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from .controllers import AIPlayerController
@@ -39,6 +39,20 @@ class PsychologyContext:
 
 
 @dataclass
+class NarrationRequest:
+    """A deferred emotional-narration job for one player.
+
+    The pipeline updates composure synchronously and emits one of these per
+    player who consumes the prose; the caller runs them off the critical path
+    (see game_handler._run_async_narration) by calling
+    controller.psychology.generate_narration(**kwargs).
+    """
+
+    player_name: str
+    kwargs: Dict[str, object]
+
+
+@dataclass
 class PsychologyResult:
     """Output from pipeline processing."""
 
@@ -46,6 +60,7 @@ class PsychologyResult:
     detected_events: List[Tuple[str, List[str]]]
     resolved_results: Dict[str, dict]
     recovery_infos: Dict[str, dict]
+    pending_narrations: List[NarrationRequest] = field(default_factory=list)
 
 
 class PsychologyPipeline:
@@ -58,8 +73,15 @@ class PsychologyPipeline:
         pressure_event_repo: Optional repository for persisting events.
         game_repo: Optional repository for saving controller/emotional state.
         hand_history_repo: Optional repository for session stats lookups.
-        enable_emotional_narration: If True, call on_hand_complete (LLM call).
-            If False, use lightweight composure_state.update_from_hand.
+        enable_emotional_narration: If True, generate LLM emotional narration
+            (prose). If False, only the lightweight composure update runs.
+            Narration is additionally gated per-player on whether the bot
+            actually consumes the prose (USES_EMOTIONAL_NARRATION) or the table
+            is heads-up (the opponent panel shows it).
+        defer_narration: If True, the pipeline does NOT make the narration LLM
+            call inline — composure updates synchronously and the narration jobs
+            are returned in PsychologyResult.pending_narrations for the caller to
+            run off the critical path. If False (default), narration runs inline.
         persist_controller_state: If True, save psychology/emotional state to DB
             after recovery.
     """
@@ -72,6 +94,7 @@ class PsychologyPipeline:
         hand_history_repo=None,
         *,
         enable_emotional_narration: bool = True,
+        defer_narration: bool = False,
         persist_controller_state: bool = True,
     ):
         self.pressure_detector = pressure_detector
@@ -79,6 +102,7 @@ class PsychologyPipeline:
         self.game_repo = game_repo
         self.hand_history_repo = hand_history_repo
         self.enable_emotional_narration = enable_emotional_narration
+        self.defer_narration = defer_narration
         self.persist_controller_state = persist_controller_state
 
     def process_hand(
@@ -190,7 +214,7 @@ class PsychologyPipeline:
                     logger.warning(f"on_events_resolved callback failed: {e}", exc_info=True)
 
         # === 5. UPDATE COMPOSURE / EMOTIONAL STATE === (always runs)
-        self._update_composure(ctx, winner_names)
+        pending_narrations = self._update_composure(ctx, winner_names)
 
         # === 6. APPLY RECOVERY === (always runs)
         recovery_infos = self._apply_recovery(ctx)
@@ -204,6 +228,7 @@ class PsychologyPipeline:
             detected_events=all_events,
             resolved_results=resolved_results,
             recovery_infos=recovery_infos,
+            pending_narrations=pending_narrations,
         )
 
     # === PRIVATE: DETECTION ===
@@ -324,10 +349,24 @@ class PsychologyPipeline:
         self,
         ctx: PsychologyContext,
         winner_names: List[str],
-    ) -> None:
-        """Update composure tracking and emotional state for all AI players."""
+    ) -> List[NarrationRequest]:
+        """Update composure for all AI players; gate + collect emotional narration.
+
+        Composure (the play-affecting half) always updates synchronously. The
+        emotional narration (prose) is generated only for players who consume it
+        — bots whose decision path injects it (USES_EMOTIONAL_NARRATION) or any
+        bot in a heads-up table (the opponent panel displays it). When
+        defer_narration is set the narration jobs are returned for the caller to
+        run off the critical path instead of being called inline.
+        """
         game_state = ctx.game_state
         controllers = ctx.controllers
+        pending: List[NarrationRequest] = []
+
+        # Heads-up = exactly one AI opponent (the mobile opponent panel shows the
+        # narration for that lone AI regardless of its bot type).
+        ai_seat_count = sum(1 for p in game_state.players if p.name in controllers)
+        heads_up = ai_seat_count <= 1
 
         # Calculate winnings per player from pot_breakdown (split-pot support)
         winnings_by_player = {}
@@ -380,31 +419,49 @@ class PsychologyPipeline:
                     }
 
             try:
-                if self.enable_emotional_narration:
-                    controller.psychology.on_hand_complete(
-                        outcome=outcome,
-                        amount=amount,
-                        opponent=nemesis,
-                        was_bad_beat=was_bad_beat,
-                        was_bluff_called=False,
-                        session_context=session_context,
-                        key_moment=key_moment,
-                        big_blind=ctx.big_blind,
-                    )
-                else:
-                    # Lightweight: composure tracking only (no LLM call)
-                    controller.psychology.composure_state.update_from_hand(
-                        outcome=outcome,
-                        amount=amount,
-                        opponent=nemesis,
-                        was_bad_beat=was_bad_beat,
-                        was_bluff_called=False,
-                    )
+                # Play-affecting half always runs synchronously.
+                controller.psychology.update_composure_only(
+                    outcome=outcome,
+                    amount=amount,
+                    opponent=nemesis,
+                    was_bad_beat=was_bad_beat,
+                    was_bluff_called=False,
+                    big_blind=ctx.big_blind,
+                )
             except Exception as e:
                 logger.warning(
-                    f"Psychology state update failed for {player.name}: {e}",
+                    f"Composure update failed for {player.name}: {e}",
                     exc_info=True,
                 )
+
+            # Narration (prose) is gated on actual consumers: bots that inject it
+            # into their decision prompt, or any bot in heads-up (panel display).
+            if not self.enable_emotional_narration:
+                continue
+            consumes = getattr(controller, 'USES_EMOTIONAL_NARRATION', True)
+            if not (consumes or heads_up):
+                continue
+
+            narration_kwargs = {
+                'outcome': outcome,
+                'amount': amount,
+                'opponent': nemesis,
+                'key_moment': key_moment,
+                'session_context': session_context,
+                'big_blind': ctx.big_blind,
+            }
+            if self.defer_narration:
+                pending.append(NarrationRequest(player_name=player.name, kwargs=narration_kwargs))
+            else:
+                try:
+                    controller.psychology.generate_narration(**narration_kwargs)
+                except Exception as e:
+                    logger.warning(
+                        f"Emotional narration failed for {player.name}: {e}",
+                        exc_info=True,
+                    )
+
+        return pending
 
     # === PRIVATE: RECOVERY ===
 
