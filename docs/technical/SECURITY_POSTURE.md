@@ -167,8 +167,8 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 
 ## Data handling & persistence ◑
 
-- SQLite with WAL + `busy_timeout=5000` + retry-on-lock (sound baseline). — `poker/repositories/base_repository.py`
-- ❌ **Backups are WAL-unsafe and on-box only** (deploy-time `cp`); no off-box copy (PRH-29).
+- SQLite with WAL + `busy_timeout=5000` + retry-on-lock (sound baseline); per-thread connections are released at request/socket-event teardown so they don't leak fds over uptime (PRH-34). — `poker/repositories/base_repository.py`
+- ◑ **Backups WAL-safe** (`scripts/backup_db.py` — online backup API + integrity_check + retention; `deploy.sh` wired), but the off-box cron is an operator step not yet activated (PRH-29).
 - ❌ **Unbounded growth + verbatim retention:** prod runs `LLM_PROMPT_CAPTURE=all` with `LLM_PROMPT_RETENTION_DAYS=0` (full prompts incl. user chat kept forever); `api_usage` has no retention (PRH-32). Disk-fill + a privacy footprint.
 - In-memory game state is reconstructable from per-action DB saves via cold-load; loss on restart is bounded to sub-second in-flight progress.
 

@@ -119,6 +119,56 @@ class TestBaseRepository(unittest.TestCase):
         self.repo.close()
 
 
+class TestThreadConnectionTeardown(unittest.TestCase):
+    """PRH-34: per-thread connections are released by close_all_thread_connections,
+    which the Flask teardown hook calls so they don't leak fds over uptime."""
+
+    def setUp(self):
+        self.test_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        self.test_db.close()
+        SchemaManager(self.test_db.name).ensure_schema()
+
+    def tearDown(self):
+        os.unlink(self.test_db.name)
+
+    def test_close_all_thread_connections_closes_open_conn(self):
+        from poker.repositories.base_repository import close_all_thread_connections
+
+        repo = BaseRepository(self.test_db.name)
+        with repo._get_connection() as conn:
+            conn.execute("SELECT 1")
+        self.assertIsNotNone(getattr(repo._local, 'connection', None))
+
+        closed = close_all_thread_connections()
+        self.assertGreaterEqual(closed, 1)
+        self.assertIsNone(getattr(repo._local, 'connection', None))
+
+        # Reopens lazily — closing is release, not disable.
+        with repo._get_connection() as conn:
+            self.assertEqual(conn.execute("SELECT 1").fetchone()[0], 1)
+
+    def test_teardown_appcontext_releases_connection(self):
+        """Mirrors the create_app wiring on a minimal app: the connection opened
+        during a request/event is gone once the app context tears down."""
+        from flask import Flask
+
+        from poker.repositories.base_repository import close_all_thread_connections
+
+        app = Flask(__name__)
+
+        @app.teardown_appcontext
+        def _close(_exc):
+            close_all_thread_connections()
+
+        repo = BaseRepository(self.test_db.name)
+        with app.app_context():
+            with repo._get_connection() as conn:
+                conn.execute("SELECT 1")
+            self.assertIsNotNone(getattr(repo._local, 'connection', None))
+        # app context exited → teardown ran → connection released
+        self.assertIsNone(getattr(repo._local, 'connection', None))
+
+
 class TestRetryOnLockDecorator(unittest.TestCase):
     """T1-32: @retry_on_lock retries on lock errors and propagates others."""
 

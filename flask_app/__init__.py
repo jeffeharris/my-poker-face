@@ -84,6 +84,15 @@ def create_app():
 
     init_csrf(app)
 
+    # PRH-34: release per-thread SQLite connections at the end of each request /
+    # socket event (flask-socketio pushes an app context per event), so the
+    # thread-local connection cache doesn't leak WAL readers + fds over uptime.
+    @app.teardown_appcontext
+    def _close_thread_db_connections(_exc):
+        from poker.repositories.base_repository import close_all_thread_connections
+
+        close_all_thread_connections()
+
     # PRH-28: attach the webhook alert handler (no-op unless ALERT_WEBHOOK_URL
     # is set) before the budget/pricing startup checks, so a "[LLM BUDGET]
     # DISABLED" or NULL-pricing warning on boot also pages.
