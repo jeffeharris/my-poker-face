@@ -84,6 +84,59 @@
   line-height: 1.4;
 }
 
+/* A stacked field (label, description, control) — e.g. the coach mode picker */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Segmented control (Off / Ask / Auto) */
+.settings-segment {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.settings-segment-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #9aa4b6;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.settings-segment-btn:hover:not(.is-on) {
+  color: #e8ecf4;
+}
+
+.settings-segment-btn.is-on {
+  background: rgba(120, 160, 255, 0.85);
+  color: #fff;
+}
+
+.settings-segment-hint {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #9aa4b6;
+  line-height: 1.4;
+}
+
 /* iOS-style switch */
 .settings-switch {
   flex: 0 0 auto;

@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { UserCircle, Gamepad2, ChevronRight, type LucideIcon } from 'lucide-react';
+import { UserCircle, Gamepad2, GraduationCap, ChevronRight, type LucideIcon } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { ProfileSettings } from './ProfileSettings';
 import { GameplaySettings } from './GameplaySettings';
+import { CoachSettings } from './CoachSettings';
 import '../menus/HomeMenu.css'; // reuse the .mode-card menu system
 import './SettingsPage.css';
 
-type SectionId = 'profile' | 'gameplay';
+type SectionId = 'profile' | 'gameplay' | 'coach';
 
 interface Section {
   id: SectionId;
@@ -32,6 +33,13 @@ const SECTIONS: Section[] = [
     blurb: 'How hands play out for you',
     subtitle: 'How hands play out for you',
     icon: Gamepad2,
+  },
+  {
+    id: 'coach',
+    label: 'Coach',
+    blurb: 'Your default coaching mode for new games',
+    subtitle: 'Your default coaching mode for new games',
+    icon: GraduationCap,
   },
 ];
 
@@ -84,6 +92,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
             <div className="settings-content">
               {active === 'profile' && <ProfileSettings />}
               {active === 'gameplay' && <GameplaySettings />}
+              {active === 'coach' && <CoachSettings />}
             </div>
           </>
         )}

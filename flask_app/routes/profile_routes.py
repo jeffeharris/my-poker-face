@@ -63,6 +63,7 @@ def get_profile():
             'avatar_url': extensions.user_avatar_service.get_avatar_url(user_id),
             'bio': extensions.user_prefs_repo.get_bio(user_id),
             'auto_fast_fold': extensions.user_prefs_repo.get_auto_fast_fold(user_id),
+            'coach_default_mode': extensions.user_prefs_repo.get_coach_default_mode(user_id),
         }
     )
 
@@ -97,6 +98,19 @@ def set_auto_fast_fold():
 
     stored = extensions.user_prefs_repo.set_auto_fast_fold(g.profile_user['id'], enabled)
     return jsonify({'success': True, 'auto_fast_fold': stored})
+
+
+@profile_bp.route('/api/profile/coach-default', methods=['PUT'])
+@_auth_required
+def set_coach_default_mode():
+    """Set the default coaching mode new games start in (off/reactive/proactive)."""
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode')
+    try:
+        stored = extensions.user_prefs_repo.set_coach_default_mode(g.profile_user['id'], mode)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'coach_default_mode': stored})
 
 
 @profile_bp.route('/api/profile/avatar/upload', methods=['POST'])

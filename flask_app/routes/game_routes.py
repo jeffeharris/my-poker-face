@@ -50,6 +50,7 @@ from ..handlers.game_handler import (
     progress_game,
     recover_stuck_runout,
     restore_ai_controllers,
+    stamp_coach_default_mode,
     update_and_emit_game_state,
 )
 from ..handlers.message_handler import (
@@ -1688,6 +1689,8 @@ def api_new_game():
     )
     extensions.game_repo.save_tournament_tracker(game_id, tournament_tracker)
     extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    # New games adopt the owner's default coaching mode (sticky cross-device pref).
+    stamp_coach_default_mode(game_id, owner_id)
     if config.ENABLE_AVATAR_GENERATION:
         start_background_avatar_generation(game_id, ai_player_names)
 

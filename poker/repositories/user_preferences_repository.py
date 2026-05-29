@@ -29,6 +29,12 @@ DEFAULT_WORLD_PACE = "lively"
 # flavor the AIs can riff on, short enough to keep it out of token budgets.
 MAX_BIO_LENGTH = 500
 
+# Valid coach modes + the default. New games are stamped with the user's
+# default (so it applies cross-device); the in-game panel still overrides
+# per game. Mirrors the frontend's CoachMode union.
+COACH_MODES = ("off", "reactive", "proactive")
+DEFAULT_COACH_MODE = "off"
+
 
 class UserPreferencesRepository(BaseRepository):
     """CRUD for `user_preferences`."""
@@ -163,3 +169,24 @@ class UserPreferencesRepository(BaseRepository):
         """Persist the auto-fast-fold preference; return the stored value."""
         self._set_preference_scalar(user_id, 'auto_fast_fold', bool(enabled))
         return bool(enabled)
+
+    def get_coach_default_mode(self, user_id: str) -> str:
+        """The coaching mode new games start in (off / reactive / proactive).
+
+        Default 'off'. New games are stamped with this so it carries across
+        devices; the in-game coach panel still changes the mode per game. An
+        unrecognized stored value degrades to the default.
+        """
+        mode = self._get_preferences_json(user_id).get('coach_default_mode', DEFAULT_COACH_MODE)
+        return mode if mode in COACH_MODES else DEFAULT_COACH_MODE
+
+    def set_coach_default_mode(self, user_id: str, mode: str) -> str:
+        """Persist the default coaching mode; return the stored value.
+
+        Raises ValueError for an invalid mode so the route can 400 rather than
+        store garbage.
+        """
+        if mode not in COACH_MODES:
+            raise ValueError(f"invalid coach mode {mode!r}; expected one of {COACH_MODES}")
+        self._set_preference_scalar(user_id, 'coach_default_mode', mode)
+        return mode

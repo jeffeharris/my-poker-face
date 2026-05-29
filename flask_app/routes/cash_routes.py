@@ -1065,6 +1065,11 @@ def _build_cash_game(
         },
     )
 
+    # New games adopt the owner's default coaching mode (sticky cross-device pref).
+    from flask_app.handlers.game_handler import stamp_coach_default_mode
+
+    stamp_coach_default_mode(game_id, owner_id)
+
     logger.info(
         "[CASH] Created game_id=%r owner=%r stake=%r player_stack=%d ai=%r bot_types=%r",
         game_id,

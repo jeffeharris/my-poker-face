@@ -3707,6 +3707,27 @@ def maybe_engage_auto_fast_fold(game_id: str, action: str) -> None:
         logger.info(f"[FF] game={game_id} auto fast-forward engaged after human fold")
 
 
+def stamp_coach_default_mode(game_id: str, owner_id: Optional[str]) -> None:
+    """Seed a new game's coach mode from the owner's default preference.
+
+    The user's "default coaching mode" is a sticky per-user pref; applying it to
+    each new game at creation is what makes it carry across devices (the games
+    table is the source of truth the in-game coach reads). The in-game coach
+    panel still overrides per game. No-op for guests, or when the default is the
+    column default ('off') so we don't write redundantly.
+    """
+    if not owner_id:
+        return
+    try:
+        from ..extensions import user_prefs_repo
+
+        mode = user_prefs_repo.get_coach_default_mode(owner_id) if user_prefs_repo else 'off'
+        if mode and mode != 'off':
+            game_repo.save_coach_mode(game_id, mode)
+    except Exception as e:
+        logger.debug(f"[Coach] failed to stamp default mode for game {game_id}: {e}")
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
