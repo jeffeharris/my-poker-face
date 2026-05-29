@@ -34,14 +34,15 @@ except ImportError:
         return it
 
 
+from experiments._hand_loop import drive_hand
 from poker.memory.cbet_detector import CbetDetector
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_game import (
     Player,
     PokerGameState,
-    advance_to_next_active_player,
+    advance_to_next_active_player,  # noqa: F401 — re-exported for casebot_breakdown
     create_deck,
-    play_turn,
+    play_turn,  # noqa: F401 — re-exported for sibling sim scripts
 )
 from poker.poker_state_machine import PokerPhase, PokerStateMachine
 from poker.psychology_model import PersonalityAnchors
@@ -592,24 +593,11 @@ def run_hand(
     determinism.
     """
     controller_map = {c.player_name: c for c in controllers}
-    action_count = 0
 
-    # Phase 6.6/6.7a: reset sim-path aggressor state on hero's controller
-    # at hand start. Production paths get this via MemoryManager.on_hand_start;
-    # the sim bypasses MM, so we drive it directly here.
+    # Phase 6.6/6.7a: reset of sim-path aggressor state on hero's controller
+    # is handled by drive_hand (production paths get it via
+    # MemoryManager.on_hand_start; the sim bypasses MM).
     hero_controller = controller_map.get(hero_name) if hero_name else None
-    if hero_controller is not None:
-        hero_controller._sim_last_preflop_aggressor = None
-        hero_controller._sim_recent_aggressor = None
-        # Multi-street context layer (STRUCTURAL_PASSIVITY_PLAN.md): per-hand
-        # split of hero's own line vs opponents' line, by street. Drives the
-        # layer's sim-path signal derivation (production uses MemoryManager).
-        # Reset each hand alongside the existing _sim_* aggressor fields.
-        hero_controller._sim_hero_bet_by_street = {}
-        hero_controller._sim_opp_bet_by_street = {}
-    # Phase 6.7a: track current street so we can reset _sim_recent_aggressor
-    # on each street transition.
-    sim_current_street: Optional[str] = None
     # C-bet detector drives the production state machine. Without this
     # the sim never feeds fold_to_cbet observations into opponent
     # models, leaving the c-bet exploit silently inert.
@@ -621,41 +609,16 @@ def run_hand(
     # sees the same board the actor saw. See `_record_sim_equity_at_actions`.
     action_log: List[Tuple[str, str, str, Tuple[str, ...]]] = []
 
-    while sm.phase not in TERMINAL_PHASES:
-        sm.run_until(list(TERMINAL_PHASES))
-
-        if sm.phase in TERMINAL_PHASES:
-            break
-
-        gs = sm.game_state
-
-        # Handle all-in runout: advance past the betting round so the SM
-        # deals remaining community cards. Simply clearing the flags would
-        # cause run_betting_round_transition to re-set them (infinite loop).
-        if gs.run_it_out:
-            sm.game_state = gs.update(run_it_out=False, awaiting_action=False)
-            next_phase = {
-                PokerPhase.PRE_FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.FLOP: PokerPhase.DEALING_CARDS,
-                PokerPhase.TURN: PokerPhase.DEALING_CARDS,
-                PokerPhase.RIVER: PokerPhase.EVALUATING_HAND,
-            }.get(sm.phase, PokerPhase.EVALUATING_HAND)
-            sm.phase = next_phase
-            continue
-
-        # Normal action required
-        current_player = gs.current_player
-        controller = controller_map[current_player.name]
-        controller.state_machine = sm
-
-        # Both TieredBotController and RuleBasedController expose decide_action()
-        # as their public interface — uniform call across controller types.
-        decision = controller.decide_action()
-
-        action = decision['action']
-        raise_to = decision.get('raise_to', 0) or 0
-        phase_name = sm.phase.name
-
+    def _on_decision(
+        current_player,
+        controller,
+        action,
+        raise_to,
+        phase_name,
+        gs,
+        sim_current_street,
+        decision,
+    ):
         # Phase 7.6 Step 7: persist hero's decision trace + snapshot when
         # the controller is configured for it. Tiered controllers only —
         # rule_bots don't produce traces. No-op when not configured.
@@ -694,8 +657,12 @@ def run_hand(
             action_log.append((current_player.name, action, phase_name, board_snapshot))
 
         # Snapshot active players BEFORE play_turn — CbetDetector needs
-        # the pre-fold view to seed its facing-set on flop c-bets.
-        active_players_snapshot = [p.name for p in gs.players if not getattr(p, 'is_folded', False)]
+        # the pre-fold view to seed its facing-set on flop c-bets. Stashed on
+        # the closure so the post_action hook (which drives the detector after
+        # play_turn) sees the same pre-fold view the original inline code did.
+        _on_decision.active_players_snapshot = [
+            p.name for p in gs.players if not getattr(p, 'is_folded', False)
+        ]
 
         # Compute was_facing_bet BEFORE cbet_detector updates (mirror
         # AIMemoryManager.on_action). Required for opportunity-normalized
@@ -741,9 +708,7 @@ def run_hand(
                 was_facing_bet=was_facing_bet_snapshot,
             )
 
-        # play_turn expects raise_to as absolute amount for 'raise' action
-        new_gs = play_turn(gs, action, raise_to)
-
+    def _post_action(current_player, action, raise_to, phase_name, gs, new_gs):
         # Drive the c-bet detector and apply any fold_to_cbet
         # observations to the hero's opponent model. Hero's own actions
         # still feed the state machine (e.g. hero's preflop raise sets
@@ -753,7 +718,7 @@ def run_hand(
                 player_name=current_player.name,
                 action=action,
                 phase=phase_name,
-                active_players=active_players_snapshot,
+                active_players=_on_decision.active_players_snapshot,
             )
             for opp_name, folded in cbet_responses:
                 if opp_name == hero_name:
@@ -761,37 +726,15 @@ def run_hand(
                 model = opponent_manager.get_model(hero_name, opp_name)
                 model.tendencies.update_fold_to_cbet(folded)
 
-        # Phase 6.6: track last accepted preflop aggressor on hero's
-        # controller. Set after play_turn() so we mirror MemoryManager
-        # .on_action's "accepted action" semantics — controller intent
-        # that the engine rejects should not change the c-bet aggressor.
-        if (
-            phase_name == 'PRE_FLOP'
-            and action in ('raise', 'all_in')
-            and hero_controller is not None
-        ):
-            hero_controller._sim_last_preflop_aggressor = current_player.name
-
-        # Phase 6.7a: per-street postflop live aggressor. Reset on street
-        # change; update on accepted postflop bet/raise/all_in.
-        if hero_controller is not None:
-            if sim_current_street != phase_name:
-                hero_controller._sim_recent_aggressor = None
-                sim_current_street = phase_name
-            if phase_name in ('FLOP', 'TURN', 'RIVER') and action in ('bet', 'raise', 'all_in'):
-                hero_controller._sim_recent_aggressor = current_player.name
-                # Multi-street layer: split hero's own line from opponents'.
-                if current_player.name == hero_name:
-                    hero_controller._sim_hero_bet_by_street[phase_name] = True
-                else:
-                    hero_controller._sim_opp_bet_by_street[phase_name] = True
-        advanced = advance_to_next_active_player(new_gs)
-        sm.game_state = advanced if advanced is not None else new_gs
-
-        action_count += 1
-        if action_count >= MAX_ACTIONS_PER_HAND:
-            logger.warning("Max actions reached — terminating hand")
-            break
+    drive_hand(
+        sm,
+        controllers,
+        hero_name=hero_name,
+        hero_controller=hero_controller,
+        on_decision=_on_decision,
+        post_action=_post_action,
+        on_max_actions=lambda: logger.warning("Max actions reached — terminating hand"),
+    )
 
     # Polarization Phase A: end-of-hand equity-at-action recording.
     # Walks the per-action log and credits equity into hero's models of
