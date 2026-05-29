@@ -296,8 +296,10 @@ def table_attractiveness(
         buy_in_multiplier=buy_in_multiplier,
         prestige_override=prestige_override,
     )
-    fish_present = 1.0 if fish_chips > 0 else 0.0
-    hunger_mult = 1.0 + W_HUNGER * hunger(projected_bankroll, starting_bankroll) * fish_present
+    # A hungry grinder is pulled harder toward *any* live bait — a fish OR
+    # a whale (both are chips to be farmed). Gate on either being present.
+    bait_present = 1.0 if (fish_chips > 0 or whale_chips > 0) else 0.0
+    hunger_mult = 1.0 + W_HUNGER * hunger(projected_bankroll, starting_bankroll) * bait_present
     try:
         _, _, max_bi = table_buy_in_window(stake_label)
     except KeyError:

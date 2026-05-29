@@ -120,14 +120,15 @@ def test_dominant_dead_routes_to_bored_move():
 # --- prestige retention override ---------------------------------------
 
 
-def test_retention_override_releases_the_rich():
+def test_retention_override_graduates_the_rich_upward():
     fresh = CASINO_PREDATOR_FATIGUE_FLOOR + 0.5  # not worn down
-    # Rich enough to be slumming → released (bored_move stands → cycles out).
+    # Rich enough to be slumming → a boredom drift is converted to a
+    # stake_up (graduate UP, not sideways), not left as bored_move.
     assert (
         _coerce_predator_retention(
             "bored_move", True, fresh, wealth_excess=PRESTIGE_RETENTION_OVERRIDE
         )
-        == "bored_move"
+        == "stake_up"
     )
     # Just below the threshold → still pinned to farm the fish.
     assert (
@@ -135,6 +136,20 @@ def test_retention_override_releases_the_rich():
             "bored_move", True, fresh, wealth_excess=PRESTIGE_RETENTION_OVERRIDE - 0.01
         )
         == "stay"
+    )
+    # The override only redirects boredom — a real stake_up / leave still
+    # passes through unchanged.
+    assert (
+        _coerce_predator_retention(
+            "stake_up", True, fresh, wealth_excess=PRESTIGE_RETENTION_OVERRIDE
+        )
+        == "stake_up"
+    )
+    assert (
+        _coerce_predator_retention(
+            "take_break", True, fresh, wealth_excess=PRESTIGE_RETENTION_OVERRIDE
+        )
+        == "take_break"
     )
 
 

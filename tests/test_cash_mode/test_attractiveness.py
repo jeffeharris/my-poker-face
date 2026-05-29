@@ -229,6 +229,18 @@ def test_hungry_grinder_pulled_harder_to_fish():
     assert hungry_gain > flush_gain
 
 
+def test_hunger_amplifies_whale_only_tables_too():
+    # A whale (no fish) is also bait — a hungry grinder gets the hunger
+    # multiplier on a whale-only table, not just a fish one.
+    hungry_gain = _attr(projected_bankroll=2_000, whale_chips=5_000) - _attr(
+        projected_bankroll=2_000, whale_chips=0
+    )
+    flush_gain = _attr(projected_bankroll=START, whale_chips=5_000) - _attr(
+        projected_bankroll=START, whale_chips=0
+    )
+    assert hungry_gain > flush_gain
+
+
 def test_rich_ai_prefers_prestige_room_without_fish():
     # No fish anywhere: a rich AI still finds the Pit more attractive than
     # a dead low table, purely via the climb term.

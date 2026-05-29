@@ -409,7 +409,17 @@ def _coerce_predator_retention(
     if energy < CASINO_PREDATOR_FATIGUE_FLOOR:
         return decision  # worn down — let it cycle out
     if wealth_excess >= PRESTIGE_RETENTION_OVERRIDE:
-        return decision  # too rich to farm this stake — let it graduate
+        # Too rich to farm this stake — graduate UPWARD, not sideways. A
+        # boredom drift becomes a `stake_up`: a grinder this far over the
+        # tier max (≥ PRESTIGE_RETENTION_OVERRIDE × max buy-in) is
+        # comfortably rolled for the next tier, so it climbs rather than
+        # wandering to another same-stake table. The conversion (not just a
+        # release) is what guarantees "up, not sideways" — the wealth
+        # stake_up pressure only begins to ramp at SLUM_DEADZONE, so at the
+        # release threshold it isn't yet dominant on its own. Other
+        # decisions (stake_up / take_break / forced_leave) already route up
+        # or out correctly.
+        return "stake_up" if decision == "bored_move" else decision
     if decision == "bored_move":
         return "stay"
     return decision
