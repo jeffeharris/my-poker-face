@@ -59,11 +59,44 @@ class PlayerReaction:
     delta: float
 
 
+@dataclass(frozen=True)
+class RunoutStep:
+    """One reveal step on the run-out timeline (the unit the client director walks).
+
+    A step is finer-grained than a street: the flop is three steps (one per
+    card), so a player can light up on the card that hit them and stay flat on
+    the others. ``card_index`` is the 0-based position of this card within its
+    street (always 0 for the single-card INITIAL/TURN/RIVER/SHOWDOWN steps; 0/1/2
+    for the flop). ``reactions`` are the AI faces triggered by *this* card's
+    equity delta.
+
+    The step intentionally carries **no board cards** — the client sources each
+    street's faces from the per-street game-state push it already receives, so
+    future-street cards never ship in this payload (no spoiler/cheat surface).
+    """
+
+    phase: str
+    card_index: int
+    reactions: List[PlayerReaction]
+
+
 @dataclass
 class ReactionSchedule:
-    """Pre-computed schedule of avatar reactions for each run-out street."""
+    """Pre-computed schedule of avatar reactions for an all-in run-out.
+
+    Two views of the same underlying equity walk:
+
+    - ``reactions_by_phase`` — street-granular (FLOP's three cards collapsed into
+      one reaction from the start→end-of-flop delta). This is the legacy view the
+      backend per-street emit and the desktop path consume; its semantics are
+      unchanged.
+    - ``steps`` — per-card granular, ordered (INITIAL → flop₁ → flop₂ → flop₃ →
+      TURN → RIVER → SHOWDOWN). This is what the mobile ``useRunoutDirector``
+      walks to drive per-card reactions on a client-owned clock.
+    """
 
     reactions_by_phase: Dict[str, List[PlayerReaction]] = field(default_factory=dict)
+    steps: List[RunoutStep] = field(default_factory=list)
 
 
 def compute_runout_reactions(
@@ -148,29 +181,76 @@ def compute_runout_reactions(
             logger.info(f"[RunOut] {name} initial reaction: {emotion} (equity {equity:.0%})")
     if initial_reactions:
         schedule.reactions_by_phase['INITIAL'] = initial_reactions
+    # The hole-card reveal is always the first step on the timeline, even with no
+    # reaction — the director needs it as the matchup beat. (A per-*card* hole
+    # reaction isn't poker-meaningful; you need both cards to read the matchup.)
+    schedule.steps.append(RunoutStep(phase='INITIAL', card_index=0, reactions=initial_reactions))
 
     board_so_far = list(current_board)
 
     for phase_name, new_cards in streets:
-        board_so_far = board_so_far + [card_to_string(c) for c in new_cards]
+        # Walk this street card-by-card so each card gets its own reaction step
+        # (the per-card payoff over street granularity). Equity is computed after
+        # each card added to the board; eval7 handles 1- and 2-card boards fine,
+        # just at higher variance. `street_start_equities` anchors the legacy
+        # whole-street reaction (initial-of-street → end-of-street), unchanged.
+        street_start_equities = prev_equities
+        per_card_prev = prev_equities
 
-        current_equities = _safe_calculate_equity(calculator, players_hands, board_so_far)
-        if current_equities is None:
-            continue
+        for card_index, card in enumerate(new_cards):
+            board_so_far = board_so_far + [card_to_string(card)]
 
-        reactions = []
-        for player in active_ai_players:
-            name = player.name
-            if name not in prev_equities or name not in current_equities:
+            current_equities = _safe_calculate_equity(calculator, players_hands, board_so_far)
+            if current_equities is None:
                 continue
 
-            before = prev_equities[name]
-            after = current_equities[name]
+            step_reactions = []
+            for player in active_ai_players:
+                name = player.name
+                if name not in per_card_prev or name not in current_equities:
+                    continue
+
+                before = per_card_prev[name]
+                after = current_equities[name]
+                delta = after - before
+
+                if abs(delta) >= thresholds[name]:
+                    emotion = _equity_to_emotion(delta, after)
+                    step_reactions.append(
+                        PlayerReaction(
+                            player_name=name,
+                            emotion=emotion,
+                            equity_before=before,
+                            equity_after=after,
+                            delta=delta,
+                        )
+                    )
+                    logger.info(
+                        f"[RunOut] {name} reaction at {phase_name}[{card_index}]: {emotion} "
+                        f"(equity {before:.0%} → {after:.0%}, Δ{delta:+.0%})"
+                    )
+
+            schedule.steps.append(
+                RunoutStep(phase=phase_name, card_index=card_index, reactions=step_reactions)
+            )
+            per_card_prev = current_equities
+
+        # Legacy street-granular reaction: the start→end-of-street delta, so the
+        # backend per-street emit and the desktop path are byte-for-byte unchanged.
+        street_end_equities = per_card_prev
+        street_reactions = []
+        for player in active_ai_players:
+            name = player.name
+            if name not in street_start_equities or name not in street_end_equities:
+                continue
+
+            before = street_start_equities[name]
+            after = street_end_equities[name]
             delta = after - before
 
             if abs(delta) >= thresholds[name]:
                 emotion = _equity_to_emotion(delta, after)
-                reactions.append(
+                street_reactions.append(
                     PlayerReaction(
                         player_name=name,
                         emotion=emotion,
@@ -179,15 +259,11 @@ def compute_runout_reactions(
                         delta=delta,
                     )
                 )
-                logger.info(
-                    f"[RunOut] {name} reaction at {phase_name}: {emotion} "
-                    f"(equity {before:.0%} → {after:.0%}, Δ{delta:+.0%})"
-                )
 
-        if reactions:
-            schedule.reactions_by_phase[phase_name] = reactions
+        if street_reactions:
+            schedule.reactions_by_phase[phase_name] = street_reactions
 
-        prev_equities = current_equities
+        prev_equities = street_end_equities
 
     # Showdown reactions: based on final equity after all cards are dealt
     # With all 5 community cards out, equity is ~1.0 (winner) or ~0.0 (loser)
@@ -214,8 +290,34 @@ def compute_runout_reactions(
             )
     if showdown_reactions:
         schedule.reactions_by_phase['SHOWDOWN'] = showdown_reactions
+    schedule.steps.append(
+        RunoutStep(phase='SHOWDOWN', card_index=0, reactions=showdown_reactions)
+    )
 
     return schedule
+
+
+def runout_schedule_payload(schedule: ReactionSchedule) -> dict:
+    """Serialize a schedule's per-card steps for the ``runout_schedule`` socket event.
+
+    Carries **reactions + timing structure only** — the ordered steps and, per
+    step, the AI faces this card triggers. Deliberately omits every board card so
+    no future-street card ever reaches the client ahead of its reveal (the
+    director sources faces from the per-street game-state push it already gets).
+    """
+    return {
+        'steps': [
+            {
+                'phase': step.phase,
+                'card_index': step.card_index,
+                'reactions': [
+                    {'player_name': r.player_name, 'emotion': r.emotion}
+                    for r in step.reactions
+                ],
+            }
+            for step in schedule.steps
+        ],
+    }
 
 
 def _remaining_streets(
