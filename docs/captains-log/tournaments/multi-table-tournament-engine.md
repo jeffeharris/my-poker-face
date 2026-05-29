@@ -173,3 +173,54 @@ persistence schema can be shaped against real, tested output rather than a guess
 the human callback and the AI tables go through `EngineHandResolver`: an 8-player
 event ran 48 human hands, the human actually won, and conservation held every
 round. Good enough confidence that the seam is sound before any wiring.
+
+## 2026-05-29 (evening) — API, then UI; recon first, reuse always
+
+**Reconnaissance before the API, on the user's nudge.** The user reframed the
+scope crisply: the single-table game is already built and reused by cash + the
+old single-table tournaments; the director/session is *only* the meta-layer
+(seating, chip movement, standings, clock). "Use the same patterns unless
+something's wrong." So before writing a line of API code I sent an explorer to
+map exactly how cash mode coordinates the human's live table with the rest of
+the world. The payoff was precise: the hook point is the *same*
+`handle_evaluating_hand_phase` hand-boundary seam cash uses; my `EngineHandResolver`
+is architecturally identical to `cash_mode/full_sim.py` (so: keep it, don't
+reinvent); and relocating the human means *building a fresh game* at the new
+table (the player set is per-`game_id`), with the seating model only telling you
+*where*. That last point retired a worry — no risky mutation of a live game's
+roster.
+
+**API layer (2a).** Mirrored cash's shape: an in-memory `tournament_registry`
+(twin of `game_state_service`) and `tournament_routes` (register / lobby /
+standings / advance / play-out / leave). The director/session stays pure; the
+routes are a thin shell over `standings_view()`. Deferred the deep game-handler
+bridge to 2c per the agreed ordering — until then advance/play-out auto-resolve
+the human's table so the UI has live data.
+
+**A dead fixture, found the honest way.** The route tests tripped on the shared
+`flask_app`/`flask_client` conftest fixtures — they patch a
+`flask_app.extensions.persistence` attribute that doesn't exist, so they've been
+quietly unusable. Rather than resurrect them, I did what the cash route tests do:
+build the app via `create_app()` in a local fixture. My routes are DB-free so
+that's clean. Noted the dead fixtures in the commit rather than pretending they
+worked.
+
+**UI (2b) via the frontend-design skill.** Committed to a single bold direction:
+a *broadcast tournament clock / leaderboard* — deep felt-charcoal, championship
+gold, knockout crimson, condensed Bebas Neue for the clock and tabular JetBrains
+Mono for chip counts. The "field paused" pulse makes player-gated time visible
+in the chrome itself. Mobile-first, two-up tables on desktop.
+
+**Seeing it, since the dev server won't show it.** `/tournament` is auth-gated
+and this project's dev server returns blank docs to headless browsers — a
+documented gotcha. So I verified the design the reliable way: a standalone static
+preview of the real CSS, served over `http.server`, screenshotted at phone and
+desktop widths. It looked the part on the first pass — the clock band, the
+"3rd / 28,450" hero, the gold-bordered YOUR TABLE with dealer-button discs and
+the highlighted YOU seat, the crimson KO feed. tsc + eslint clean; preview
+artifacts removed, not committed.
+
+**Naming collision caught in passing.** The home menu already calls cash mode
+"The Circuit," so I renamed the multi-table lobby to "The Main Event" and hung a
+"Main Event (Beta)" entry off the existing single-table tournament menu rather
+than inventing a new top-level card — least-surprise wiring.
