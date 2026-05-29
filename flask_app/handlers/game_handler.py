@@ -20,14 +20,12 @@ from poker.ai_resilience import (
 from poker.betting_context import BettingContext
 from poker.card_utils import card_to_string
 from poker.config import AI_MESSAGE_CONTEXT_LIMIT, MIN_RAISE
-from poker.controllers import AIPlayerController
 from poker.emotional_state import EmotionalState
 from poker.equity_snapshot import HandEquityHistory
 from poker.equity_tracker import EquityTracker
 from poker.game_helpers import should_clear_player_options
 from poker.guest_limits import GUEST_LIMITS_ENABLED, GUEST_MAX_HANDS
 from poker.hand_evaluator import HandEvaluator
-from poker.hybrid_ai_controller import HybridAIController
 from poker.player_psychology import ComposureState
 from poker.poker_game import (
     advance_to_next_active_player,
@@ -381,126 +379,44 @@ def restore_ai_controllers(
     for player in state_machine.game_state.players:
         if not player.is_human:
             # Check if this player should use a special controller type
+            from flask_app.handlers.tiered_factory import build_controller
+
             if player.name in bot_types:
                 raw_strategy = bot_types[player.name]
                 strategy = _BOT_TYPE_ALIASES.get(raw_strategy, raw_strategy)
                 # Get player-specific llm_config or fall back to default (for personality loading)
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
 
-                if strategy == 'standard':
-                    # Standard: HybridAIController (full prompt pipeline + bounded options)
-                    controller = HybridAIController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created HybridAIController for {player.name}")
-                elif strategy == 'sharp':
-                    # Sharp: solver baselines + personality distortion + LLM expression
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        expression_enabled=ai_chat,
-                        debug_logging=True,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created TieredBotController for {player.name} "
-                        f"(expression={'on' if ai_chat else 'off'})"
-                    )
-                elif strategy == 'baseline_solver':
-                    # Pure solver, no personality distortion, no expression layer
-                    from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                    controller = build_tiered_controller(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                        baseline=True,
-                    )
-                    logger.info(f"[RESTORE] Created BaselineSolverBot for {player.name}")
-                elif strategy in ('casebot', 'gto_lite'):
-                    # Rule bots exposed in Custom Game for training/practice
-                    strategy_for_type = {
-                        'casebot': 'case_based',
-                        'gto_lite': 'pot_odds_robot',
-                    }[strategy]
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy_for_type,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} ({strategy} → {strategy_for_type})"
-                    )
-                elif strategy == 'chaos':
-                    # Chaos: full LLM, full personality, no bounded options
-                    controller = AIPlayerController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created AIPlayerController (chaos) for {player.name}")
-                elif strategy == 'lean':
-                    # Lean: minimal LLM prompt, options-bounded
-                    from poker.lean_bounded_controller import LeanBoundedController
-
-                    controller = LeanBoundedController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
-                else:
-                    # Rule-based controller with psychology (e.g., case_based, abc, always_fold)
-                    controller = RuleBotController(
-                        player_name=player.name,
-                        state_machine=state_machine,
-                        strategy=strategy,
-                        llm_config=llm_config,
-                        game_id=game_id,
-                        owner_id=owner_id,
-                        capture_label_repo=capture_label_repo,
-                        decision_analysis_repo=decision_analysis_repo,
-                    )
-                    logger.info(
-                        f"[RESTORE] Created RuleBotController for {player.name} with strategy '{strategy}'"
-                    )
+                # Unified dispatch. `default_strategy` flips the unknown-bot_type
+                # fallback to RuleBotController(strategy=strategy) — the restore
+                # path treats unrecognised strategies (e.g. 'abc', 'always_fold',
+                # 'case_based') as rule-bot names rather than Hybrid. 'standard'
+                # (the `hybrid` alias) still resolves to HybridAIController.
+                # `debug_logging=True` is honored on the tiered (sharp /
+                # baseline_solver) branches only.
+                controller = build_controller(
+                    bot_type=strategy,
+                    player_name=player.name,
+                    state_machine=state_machine,
+                    llm_config=llm_config,
+                    game_id=game_id,
+                    owner_id=owner_id,
+                    capture_label_repo=capture_label_repo,
+                    decision_analysis_repo=decision_analysis_repo,
+                    expression_enabled=ai_chat,
+                    debug_logging=True,
+                    default_strategy=strategy,
+                )
+                logger.info(
+                    f"[RESTORE] Created controller for {player.name} (bot_type={strategy})"
+                )
             else:
                 # No bot_types entry — match the new-game route's default of
                 # 'sharp' (the tiered solver bot, the core engine). Legacy
                 # saves with no bot_types stamp fall through here.
-                from flask_app.handlers.tiered_factory import build_tiered_controller
-
                 llm_config = player_llm_configs.get(player.name, default_llm_config)
-                controller = build_tiered_controller(
+                controller = build_controller(
+                    bot_type='sharp',
                     player_name=player.name,
                     state_machine=state_machine,
                     llm_config=llm_config,
@@ -2344,13 +2260,14 @@ def _seat_freshly_filled_ais(
         rule_strategy_override = (
             (personality or {}).get("rule_strategy") if isinstance(personality, dict) else None
         )
+        from flask_app.handlers.tiered_factory import build_controller
+
         if rule_strategy_override == "fish":
             fish_leak = (personality or {}).get("fish_leak")
-            controller = RuleBotController(
+            controller = build_controller(
+                bot_type="fish",
                 player_name=name,
                 state_machine=state_machine,
-                strategy="fish",
-                llm_config={},
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
@@ -2358,9 +2275,8 @@ def _seat_freshly_filled_ais(
                 fish_leak=fish_leak,
             )
         else:
-            from flask_app.handlers.tiered_factory import build_tiered_controller
-
-            controller = build_tiered_controller(
+            controller = build_controller(
+                bot_type="sharp",
                 player_name=name,
                 state_machine=state_machine,
                 llm_config=game_data.get('llm_config', {}),

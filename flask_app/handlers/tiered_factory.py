@@ -77,3 +77,174 @@ def build_tiered_controller(
         controller._expression_call_type = CallType.COMMENTARY
 
     return controller
+
+
+# Map of the rule-based "training" bot types exposed in Custom Game to their
+# underlying RuleBotController strategy name.
+_RULE_BOT_STRATEGY_MAP = {
+    'casebot': 'case_based',
+    'gto_lite': 'pot_odds_robot',
+}
+
+
+def build_controller(
+    *,
+    bot_type: Optional[str],
+    player_name: str,
+    state_machine,
+    llm_config: Optional[dict] = None,
+    prompt_config=None,
+    game_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
+    capture_label_repo=None,
+    decision_analysis_repo=None,
+    expression_enabled: bool = True,
+    debug_logging: bool = False,
+    fish_leak=None,
+    default_strategy: Optional[str] = None,
+):
+    """Construct the AI controller for a given ``bot_type``.
+
+    This is the single, canonical dispatch over bot type — the union of the
+    branch-sets that were previously copy-pasted across the new-game route,
+    the cash sit route, and the restore/refill paths. It ONLY constructs and
+    returns the controller object; all call-site bookkeeping (registering the
+    controller, stamping ``bot_types`` / ``llm_configs``, ``assign_bot``,
+    fish detection, memory wiring, logging) stays at the call site.
+
+    Dispatch:
+        - ``'fish'``        → RuleBotController(strategy='fish', fish_leak=...)
+        - ``'sharp'``       → build_tiered_controller(...)
+        - ``'baseline_solver'`` → build_tiered_controller(..., baseline=True)
+        - ``'casebot'`` / ``'gto_lite'`` → RuleBotController with the mapped
+                              rule strategy (case_based / pot_odds_robot)
+        - ``'chaos'``       → AIPlayerController (full LLM, full personality)
+        - ``'lean'``        → LeanBoundedController
+        - default/else      → HybridAIController, UNLESS ``default_strategy`` is
+                              set, in which case RuleBotController(strategy=bot_type)
+                              — this mirrors the restore path, which treats an
+                              unknown bot_type as a rule-bot strategy name.
+
+    Args:
+        default_strategy: When provided (any truthy marker), unknown bot types
+            are routed to ``RuleBotController(strategy=bot_type)`` rather than
+            ``HybridAIController``. Used by the restore path. Defaults to None
+            (new-game / cash semantics: unknown → Hybrid).
+        fish_leak: Passed through only on the ``'fish'`` branch.
+        debug_logging: Forwarded to ``build_tiered_controller`` (sharp /
+            baseline_solver branches).
+    """
+    llm_config = llm_config or {}
+
+    if bot_type == 'fish':
+        from poker.rule_bot_controller import RuleBotController
+
+        return RuleBotController(
+            player_name=player_name,
+            state_machine=state_machine,
+            strategy="fish",
+            llm_config={},
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            fish_leak=fish_leak,
+        )
+
+    if bot_type == 'sharp':
+        return build_tiered_controller(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            expression_enabled=expression_enabled,
+            debug_logging=debug_logging,
+        )
+
+    if bot_type == 'baseline_solver':
+        return build_tiered_controller(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            baseline=True,
+        )
+
+    if bot_type in _RULE_BOT_STRATEGY_MAP:
+        from poker.rule_bot_controller import RuleBotController
+
+        return RuleBotController(
+            player_name=player_name,
+            state_machine=state_machine,
+            strategy=_RULE_BOT_STRATEGY_MAP[bot_type],
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if bot_type == 'chaos':
+        from poker.controllers import AIPlayerController
+
+        return AIPlayerController(
+            player_name=player_name,
+            state_machine=state_machine,
+            llm_config=llm_config,
+            prompt_config=prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if bot_type == 'lean':
+        from poker.lean_bounded_controller import LeanBoundedController
+
+        return LeanBoundedController(
+            player_name,
+            state_machine,
+            llm_config=llm_config,
+            prompt_config=prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    if default_strategy is not None and bot_type != 'standard':
+        # Restore-path semantics: an unrecognised bot_type is a rule-bot
+        # strategy name (e.g. 'abc', 'always_fold', 'case_based'). The explicit
+        # 'standard' key is excluded — it maps to HybridAIController below.
+        from poker.rule_bot_controller import RuleBotController
+
+        return RuleBotController(
+            player_name=player_name,
+            state_machine=state_machine,
+            strategy=bot_type,
+            llm_config=llm_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+        )
+
+    # Default: HybridAIController (full prompt pipeline + bounded options).
+    from poker.hybrid_ai_controller import HybridAIController
+
+    return HybridAIController(
+        player_name,
+        state_machine,
+        llm_config=llm_config,
+        prompt_config=prompt_config,
+        game_id=game_id,
+        owner_id=owner_id,
+        capture_label_repo=capture_label_repo,
+        decision_analysis_repo=decision_analysis_repo,
+    )

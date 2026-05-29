@@ -291,7 +291,6 @@ class TestGameRouteAuth(unittest.TestCase):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
         with (
             patch('flask_app.extensions.auth_manager', self._auth_manager(guest_user)),
-            patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
             patch(
                 'flask_app.routes.game_routes.AIMemoryManager',
                 return_value=self._memory_manager_mock(),
@@ -316,7 +315,6 @@ class TestGameRouteAuth(unittest.TestCase):
         guest_user = {'id': 'guest_tester', 'name': 'Tester', 'is_guest': True}
         with (
             patch('flask_app.extensions.auth_manager', self._auth_manager(guest_user)),
-            patch('flask_app.routes.game_routes.AIPlayerController', side_effect=_AIControllerStub),
             patch(
                 'flask_app.routes.game_routes.AIMemoryManager',
                 return_value=self._memory_manager_mock(),

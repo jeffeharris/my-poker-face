@@ -15,7 +15,6 @@ from core.moderation import moderate_text
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 from poker.authorization import get_authorization_service, require_permission
 from poker.betting_context import BettingContext
-from poker.controllers import AIPlayerController
 
 # TiltState removed - now using ComposureState from player_psychology
 from poker.emotional_state import EmotionalState
@@ -32,7 +31,6 @@ from poker.guest_limits import (
     is_guest,
     validate_guest_opponent_count,
 )
-from poker.hybrid_ai_controller import HybridAIController
 from poker.memory import AIMemoryManager
 from poker.memory.chat_intent import map_tone
 from poker.memory.opponent_model import OpponentModelManager
@@ -1616,90 +1614,20 @@ def api_new_game():
                 )
             bot_type = bot_types.get(player.name, 'sharp')
 
-            if bot_type == 'sharp':
-                from flask_app.handlers.tiered_factory import build_tiered_controller
+            from flask_app.handlers.tiered_factory import build_controller
 
-                new_controller = build_tiered_controller(
-                    player_name=player.name,
-                    state_machine=state_machine,
-                    llm_config=player_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                    expression_enabled=ai_chat,
-                )
-            elif bot_type == 'baseline_solver':
-                from flask_app.handlers.tiered_factory import build_tiered_controller
-
-                new_controller = build_tiered_controller(
-                    player_name=player.name,
-                    state_machine=state_machine,
-                    llm_config=player_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                    baseline=True,
-                )
-            elif bot_type in ('casebot', 'gto_lite'):
-                # Rule-based bots exposed in Custom Game for training/practice
-                from poker.rule_bot_controller import RuleBotController
-
-                strategy_for_type = {
-                    'casebot': 'case_based',
-                    'gto_lite': 'pot_odds_robot',
-                }[bot_type]
-                new_controller = RuleBotController(
-                    player_name=player.name,
-                    state_machine=state_machine,
-                    strategy=strategy_for_type,
-                    llm_config=player_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                )
-            elif bot_type == 'chaos':
-                # Full LLM, full personality — no bounded options
-                from poker.controllers import AIPlayerController
-
-                new_controller = AIPlayerController(
-                    player_name=player.name,
-                    state_machine=state_machine,
-                    llm_config=player_config,
-                    prompt_config=player_prompt_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                )
-            elif bot_type == 'lean':
-                # Minimal LLM prompt, options-bounded — cheap path
-                from poker.lean_bounded_controller import LeanBoundedController
-
-                new_controller = LeanBoundedController(
-                    player.name,
-                    state_machine,
-                    llm_config=player_config,
-                    prompt_config=player_prompt_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                )
-            else:
-                # Standard: HybridAIController (full prompt pipeline + bounded options)
-                new_controller = HybridAIController(
-                    player.name,
-                    state_machine,
-                    llm_config=player_config,
-                    prompt_config=player_prompt_config,
-                    game_id=game_id,
-                    owner_id=owner_id,
-                    capture_label_repo=extensions.capture_label_repo,
-                    decision_analysis_repo=extensions.decision_analysis_repo,
-                )
+            new_controller = build_controller(
+                bot_type=bot_type,
+                player_name=player.name,
+                state_machine=state_machine,
+                llm_config=player_config,
+                prompt_config=player_prompt_config,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=extensions.capture_label_repo,
+                decision_analysis_repo=extensions.decision_analysis_repo,
+                expression_enabled=ai_chat,
+            )
             ai_controllers[player.name] = new_controller
 
     from poker.repositories.sqlite_repositories import PressureEventRepository

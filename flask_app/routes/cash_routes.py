@@ -793,11 +793,9 @@ def _build_cash_game(
 
     # 2. Build the game state.
     from flask_app.game_adapter import StateMachineAdapter
-    from flask_app.handlers.tiered_factory import build_tiered_controller
+    from flask_app.handlers.tiered_factory import build_controller
     from flask_app.routes.game_routes import generate_game_id, load_game_mode_preset
     from poker.cash_bot_assignment import assign_bot
-    from poker.controllers import AIPlayerController
-    from poker.hybrid_ai_controller import HybridAIController
     from poker.memory import AIMemoryManager
     from poker.poker_game import initialize_game_state
     from poker.poker_state_machine import PokerStateMachine
@@ -869,16 +867,13 @@ def _build_cash_game(
             else None
         )
         if rule_strategy_override == "fish":
-            from poker.rule_bot_controller import RuleBotController
-
             fish_leak = (personality_config or {}).get("fish_leak")
             bot_types[player.name] = "fish"
             player_llm_configs[player.name] = {}
-            controller = RuleBotController(
+            controller = build_controller(
+                bot_type="fish",
                 player_name=player.name,
                 state_machine=state_machine,
-                strategy="fish",
-                llm_config={},
                 game_id=game_id,
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
@@ -891,39 +886,18 @@ def _build_cash_game(
         bot_types[player.name] = assignment.bot_type
         player_llm_configs[player.name] = assignment.llm_config
 
-        if assignment.bot_type == "chaos":
-            controller = AIPlayerController(
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=assignment.llm_config,
-                prompt_config=default_prompt_config,
-                game_id=game_id,
-                owner_id=owner_id,
-                capture_label_repo=capture_label_repo,
-                decision_analysis_repo=decision_analysis_repo,
-            )
-        elif assignment.bot_type == "sharp":
-            controller = build_tiered_controller(
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=assignment.llm_config,
-                game_id=game_id,
-                owner_id=owner_id,
-                capture_label_repo=capture_label_repo,
-                decision_analysis_repo=decision_analysis_repo,
-                expression_enabled=True,
-            )
-        else:
-            controller = HybridAIController(
-                player.name,
-                state_machine,
-                llm_config=assignment.llm_config,
-                prompt_config=default_prompt_config,
-                game_id=game_id,
-                owner_id=owner_id,
-                capture_label_repo=capture_label_repo,
-                decision_analysis_repo=decision_analysis_repo,
-            )
+        controller = build_controller(
+            bot_type=assignment.bot_type,
+            player_name=player.name,
+            state_machine=state_machine,
+            llm_config=assignment.llm_config,
+            prompt_config=default_prompt_config,
+            game_id=game_id,
+            owner_id=owner_id,
+            capture_label_repo=capture_label_repo,
+            decision_analysis_repo=decision_analysis_repo,
+            expression_enabled=True,
+        )
         ai_controllers[player.name] = controller
 
     # 4. Memory manager (cash_mode=True wires Phase 3 cash_pair_stats).
