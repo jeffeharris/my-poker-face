@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import type { ChatMessage, GameState, WinnerInfo, BackendChatMessage } from '../types';
 import type { TournamentResult, EliminationEvent, BackendCard } from '../types/tournament';
 import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
+import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
@@ -95,6 +96,7 @@ export function usePokerGame({
   const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const updateStorePlayerOptions = useGameStore((state) => state.updatePlayerOptions);
   const pushWorldEvent = useGameStore((state) => state.pushWorldEvent);
+  const setRunoutSchedule = useGameStore((state) => state.setRunoutSchedule);
   const gameState = useGameStore(useShallow(selectGameState));
 
   const [loading, setLoading] = useState(true);
@@ -522,6 +524,13 @@ export function usePokerGame({
         setRevealedCards(data);
       });
 
+      // Per-card run-out reaction schedule (mobile director, Phase 2). Emitted
+      // once at the all-in hole-card reveal; carries reactions + timing only (no
+      // board cards). The mobile `useRunoutDirector` walks it; desktop ignores it.
+      socket.on('runout_schedule', (data: RunoutSchedule) => {
+        setRunoutSchedule(data);
+      });
+
       socket.on('player_eliminated', (data: EliminationEvent) => {
         setEliminationEvents((prev) => [...prev, data]);
       });
@@ -590,6 +599,14 @@ export function usePokerGame({
           is_reaction?: boolean;
         }) => {
           logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
+          // While the mobile run-out director owns reactions, drop the backend's
+          // street-level reaction emits — the director plays finer per-card faces
+          // and a late street-level emit would clobber them. Generation arrivals
+          // (no is_reaction flag) still pass through. Desktop never sets the flag,
+          // so it keeps the backend reactions (it has no director).
+          if (data.is_reaction && useGameStore.getState().runoutDirectorActive) {
+            return;
+          }
           // Always cache — prevents losing URLs when emotions change during generation
           if (!avatarCacheRef.current[data.player_name]) {
             avatarCacheRef.current[data.player_name] = {};
@@ -643,6 +660,7 @@ export function usePokerGame({
       updateStorePlayers,
       updateStorePlayerOptions,
       pushWorldEvent,
+      setRunoutSchedule,
       resetBuffer,
       processStateUpdate,
     ]

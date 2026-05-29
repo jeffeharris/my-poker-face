@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Player } from '../types/player';
 import type { GameState, BettingContext, CashModeInfo } from '../types/game';
 import type { LobbyEvent } from '../components/cash/types';
+import type { RunoutSchedule } from '../types/runout';
 
 // Stable references to avoid creating new objects on every selectGameState call
 const EMPTY_MESSAGES: never[] = [];
@@ -47,12 +48,23 @@ interface GameStore {
   worldEvents: BufferedWorldEvent[];
   /** Every AI seat resolves with zero LLM calls → nothing to fast-forward. */
   aiInstant: boolean;
+  // Run-out reveal director (mobile, all-in run-outs). The backend emits the
+  // per-card reaction schedule once at reveal; `useRunoutDirector` walks it to
+  // play per-card avatar reactions on a client-owned beat. `runoutDirectorActive`
+  // marks that the director owns reactions right now — the socket layer drops
+  // the backend's street-level `is_reaction` avatar updates while it's true so
+  // they don't clobber the finer per-card faces (desktop, which has no director,
+  // leaves it false and keeps the backend reactions).
+  runoutSchedule: RunoutSchedule | null;
+  runoutDirectorActive: boolean;
 
   // Actions
   applyGameState: (state: GameState) => void;
   updatePlayers: (updater: (prev: Player[] | null) => Player[] | null) => void;
   updatePlayerOptions: (options: string[]) => void;
   pushWorldEvent: (event: LobbyEvent) => void;
+  setRunoutSchedule: (schedule: RunoutSchedule | null) => void;
+  setRunoutDirectorActive: (active: boolean) => void;
   reset: () => void;
 }
 
@@ -79,6 +91,8 @@ const initialState = {
   fastForward: false,
   worldEvents: [] as BufferedWorldEvent[],
   aiInstant: false,
+  runoutSchedule: null as RunoutSchedule | null,
+  runoutDirectorActive: false,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -190,6 +204,14 @@ export const useGameStore = create<GameStore>((set) => ({
 
   updatePlayerOptions: (options) => {
     set({ playerOptions: options });
+  },
+
+  setRunoutSchedule: (schedule) => {
+    set({ runoutSchedule: schedule });
+  },
+
+  setRunoutDirectorActive: (active) => {
+    set({ runoutDirectorActive: active });
   },
 
   pushWorldEvent: (event: LobbyEvent) => {

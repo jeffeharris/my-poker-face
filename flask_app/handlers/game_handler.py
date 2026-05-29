@@ -39,7 +39,7 @@ from poker.poker_state_machine import PokerPhase
 from poker.psychology_pipeline import PsychologyContext, PsychologyPipeline
 from poker.rule_based_controller import RuleBasedController, RuleConfig
 from poker.rule_bot_controller import RuleBotController
-from poker.runout_reactions import compute_runout_reactions
+from poker.runout_reactions import compute_runout_reactions, runout_schedule_payload
 
 from .. import config
 from ..extensions import (
@@ -3400,6 +3400,22 @@ def progress_game(game_id: str) -> None:
                         game_state, current_game_data.get('ai_controllers', {})
                     )
                     current_game_data['runout_reaction_schedule'] = reaction_schedule
+
+                    # Emit the per-card schedule once, for the mobile run-out
+                    # director (Phase 2). Carries reactions + per-card timing
+                    # only — no board cards — so future-street cards never reach
+                    # the client ahead of reveal. The director reads each
+                    # street's faces from the per-street state push it already
+                    # gets. Desktop ignores this event and stays on the
+                    # backend-paced per-street emits below (one backend path,
+                    # no mobile/desktop branching). Emitted alongside the reveal
+                    # so the client has the timeline before the board moves.
+                    if reaction_schedule.steps:
+                        socketio.emit(
+                            'runout_schedule',
+                            runout_schedule_payload(reaction_schedule),
+                            to=game_id,
+                        )
 
                     # The INITIAL (hole-card) reactions are the players' read on
                     # the matchup. We deliberately do NOT emit them here, at the
