@@ -747,7 +747,11 @@ def _process_global_greedy_fills(
             continue
         seat_idx = idxs.pop(0)
         result.new_table.seats[seat_idx] = ai_slot(pid, buy_in)
-        seated_globally.add(pid)  # immediately — next pick can't reuse pid
+        # Keep the global occupancy set accurate (within-batch double-seating
+        # is already prevented by the one-seeker-per-pid candidate dedup; this
+        # keeps `seated_globally` correct for the returned state and any
+        # post-fill consumer that reads it).
+        seated_globally.add(pid)
         result.freshly_seated_personality_ids.append(pid)
         if pid in idle_sourced:
             cash_table_repo.delete_idle(pid, sandbox_id=sandbox_id)
