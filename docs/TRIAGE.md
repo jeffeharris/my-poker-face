@@ -2,7 +2,7 @@
 purpose: Pre-release tech debt and code quality review findings triaged by release-blocking severity
 type: reference
 created: 2025-06-15
-last_updated: 2026-05-15
+last_updated: 2026-05-29
 ---
 
 > **Pre-main batch status (2026-05-15):** All 50+ items in T1-28..T1-39,
@@ -90,6 +90,7 @@ Issues that won't crash but indicate quality problems that could bite early user
 | ID | Issue | Location | Description | Status |
 |----|-------|----------|-------------|--------|
 | T2-35 | Psychology system too complex | `poker/player_psychology.py`, `poker/elasticity_manager.py`, `poker/emotional_state.py`, `poker/tilt_modifier.py` | Current system has 4 elastic traits → 4 emotional dimensions → avatar emotion, plus separate tilt tracking. Hard to understand and maintain. **Proposal**: Replace with 5 poker-native traits (tightness, aggression, confidence, composure, table_talk) that directly map to behavior. Emotion derived from confidence × composure. Tilt = low composure. See [POKER_NATIVE_PSYCHOLOGY.md](/docs/plans/POKER_NATIVE_PSYCHOLOGY.md). | |
+| T2-75 | `refresh_unseated_tables` god-function (~1,715 lines) | `cash_mode/lobby.py:518` | Single function with a ~890-line per-table loop body of inline, ordering-coupled side-effect stages (burst → aspiration → stake settlement → bankroll transfers → stake creations → events) + ~380 lines of post-loop passes. Extract the per-table stages into named functions so the body reads as a pipeline; preserve the settlement→`from_seat`-index ordering contract. Drive with the `tests/test_cash_mode/` bucket + a chip-conservation drift check. See [`REFRESH_UNSEATED_TABLES_GOD_FUNCTION.md`](/docs/triage/REFRESH_UNSEATED_TABLES_GOD_FUNCTION.md). | **OPEN — P1 (owner-elevated 2026-05-29)** — above the usual big-refactor→Tier-3 demotion: it's the active seam for in-flight cash-mode work AND freshly lifecycle-hardened (high churn + high regression risk). Dedicated work, NOT entangled with feature changes. |
 | T2-01 | ~~Immutable/mutable confusion~~ | `poker/poker_state_machine.py` | **Demoted to Tier 3** — see T3-35. Inner core is genuinely immutable; mutable wrapper is a thin convenience layer. Cognitive overhead only, no bug risk. | |
 | T2-02 | Adapter reimplements core logic | `flask_app/game_adapter.py:20-44` | `current_player_options` duplicated with incomplete version (missing raise caps, heads-up rules, BB special case). Should delegate to core. | **FIXED** — adapter already delegated; moved `awaiting_action`/`run_it_out` guards to `validation.py` where they belong |
 | T2-03 | Global mutable game state | `flask_app/services/game_state_service.py:14-17` | **Consolidated into T2-29 (multi-worker scaling).** Per-game locks already in place. Remaining gaps only matter with multiple workers. | **DISMISSED** — consolidated into T2-29 (now T3-40) |
@@ -301,9 +302,11 @@ Issues to address once live, during ongoing development.
 | Tier | Total | Fixed | Dismissed | Open |
 |------|-------|-------|-----------|------|
 | **Tier 1: Must-Fix** | 32 | 27 | 6 | 0 (T1-34 demoted+gated, T1-26/T1-27 open) |
-| **Tier 2: Should-Fix** | 57 | 49 | 6 | 2 |
+| **Tier 2: Should-Fix** | 58 | 49 | 6 | 3 |
 | **Tier 3: Post-Release** | 74 | 37 | 1 | 36 |
-| **Total** | **163** | **113** | **13** | **38** |
+| **Total** | **164** | **113** | **13** | **39** |
+
+*2026-05-29: added T2-75 (`refresh_unseated_tables` god-function, owner-elevated P1) — see Architecture & Design.*
 
 *Note: T1-34 demoted to T2 on 2026-05-15 after round-2 calibration check (gated implementation shipped). T1-26 and T1-27 (guest identity / chat session leak) were not in scope of the pre-main batch and remain open. The pre-main batch (T1-28..T1-39, T2-36..T2-64, T3-61..T3-73 minus deferred) shipped 50+ items in commits c450a359..9f585182 (2026-05-15).*
 
