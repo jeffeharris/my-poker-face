@@ -75,6 +75,7 @@ llm_repo = None
 guest_tracking_repo = None
 hand_history_repo = None
 tournament_repo = None
+tournament_session_repo = None  # durable backing for the MTT registry (v123)
 coach_repo = None
 relationship_repo = None
 bankroll_repo = None
@@ -218,6 +219,7 @@ def init_persistence() -> None:
     global \
         hand_history_repo, \
         tournament_repo, \
+        tournament_session_repo, \
         coach_repo, \
         relationship_repo, \
         bankroll_repo, \
@@ -271,6 +273,15 @@ def init_persistence() -> None:
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)
+
+    # Durable backing for the multi-table tournament registry (MTT meta-state,
+    # schema v123). Not part of create_repos; constructed directly like
+    # event_repository.
+    from poker.repositories.tournament_session_repository import (
+        TournamentSessionRepository,
+    )
+
+    tournament_session_repo = TournamentSessionRepository(db_path)
 
     from poker.user_avatar_service import UserAvatarService
 

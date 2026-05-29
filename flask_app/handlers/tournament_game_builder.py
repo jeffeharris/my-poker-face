@@ -15,11 +15,14 @@ flagged `is_human` (the frontend renders it as "You").
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from tournament.session import TournamentSession
 
 from .tournament_handler import human_table_seat_specs
+
+logger = logging.getLogger(__name__)
 
 # One game id per human-tournament; relocation reconciles in place rather than
 # spawning a new game (the id is just a key).
@@ -43,7 +46,12 @@ def make_tournament_ai_controller(name: str, state_machine, *, game_id: str, own
 
 
 def build_tournament_game(
-    session: TournamentSession, *, tournament_id: str, owner_id: str, owner_name: str
+    session: TournamentSession,
+    *,
+    tournament_id: str,
+    owner_id: str,
+    owner_name: str,
+    resolver_kind: str = 'fake',
 ) -> str:
     """Create + register the human's live game for their current table. Returns
     the game_id. Advances to the first human action (hole cards dealt)."""
@@ -165,7 +173,27 @@ def tournament_hand_boundary(game_id: str, game_data: dict, state_machine) -> bo
 
     outcome = advance_tournament_after_hand(game_data, state_machine, make_controller=_make)
     _emit_tournament(game_data, outcome, RELOCATED=RELOCATED, HUMAN_OUT=HUMAN_OUT, COMPLETE=COMPLETE)
+    _persist_boundary(game_id, game_data)
     return outcome.kind in (HUMAN_OUT, COMPLETE)
+
+
+def _persist_boundary(game_id: str, game_data: dict) -> None:
+    """Persist the field after a live hand boundary — the critical save point
+    (captures field/seating/standings after every advance). Runs inside
+    progress_game's game lock. Best-effort: the in-memory session stays
+    authoritative for the live process if the write fails."""
+    try:
+        from flask_app.services import tournament_registry as registry
+
+        registry.persist_session(
+            tournament_id=game_data.get("tournament_id"),
+            owner_id=game_data.get("owner_id"),
+            session=game_data.get("tournament_session"),
+            resolver_kind=game_data.get("tournament_resolver_kind", 'fake'),
+            game_id=game_id,
+        )
+    except Exception:  # noqa: BLE001 — durability layer, never break the game
+        logger.exception("tournament boundary persist failed for %s", game_id)
 
 
 def _emit_tournament(game_data, outcome, *, RELOCATED, HUMAN_OUT, COMPLETE) -> None:

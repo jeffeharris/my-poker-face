@@ -167,8 +167,10 @@ def register_tournament():
             'created_at': datetime.utcnow().isoformat(),
             'resolver': resolver,
             'resolver_kind': resolver_kind,
+            'game_id': None,
         },
     )
+    registry.persist(tournament_id)  # durable from the moment it's registered
     return jsonify({'tournament_id': tournament_id, 'standings': session.standings_view()}), 201
 
 
@@ -210,9 +212,14 @@ def sit_tournament(tournament_id):
     owner_name = _resolve_player_name()
     with registry.get_lock(tournament_id):
         game_id = build_tournament_game(
-            session, tournament_id=tournament_id, owner_id=owner_id, owner_name=owner_name
+            session,
+            tournament_id=tournament_id,
+            owner_id=owner_id,
+            owner_name=owner_name,
+            resolver_kind=rec.get('resolver_kind', 'fake'),
         )
         rec['game_id'] = game_id
+        registry.persist(tournament_id)  # record the live game_id
     return jsonify({'game_id': game_id}), 201
 
 
@@ -235,6 +242,7 @@ def advance(tournament_id):
             else:
                 session.play_round(rec['resolver'].resolve)
         standings = session.standings_view()
+        registry.persist(tournament_id)
     _emit_update(owner_id, tournament_id, standings)
     return jsonify(standings)
 
@@ -254,6 +262,7 @@ def play_out(tournament_id):
     with registry.get_lock(tournament_id):
         session.play_out()
         standings = session.standings_view()
+        registry.persist(tournament_id)
     _emit_update(owner_id, tournament_id, standings)
     return jsonify(standings)
 

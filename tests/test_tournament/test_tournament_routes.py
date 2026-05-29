@@ -1,7 +1,9 @@
 """Route tests for the tournament API.
 
-The routes are pure in-memory (no DB), so these use the shared flask_client
-fixture plus an auth-manager patch — no tournament-specific DB scaffolding.
+These exercise route logic against the in-memory registry. The autouse
+fixture forces the registry memory-only (tournament_session_repo = None), so
+no tournament-specific DB scaffolding is needed; durable write-through is
+covered separately by test_registry_persistence.py.
 """
 
 from __future__ import annotations
@@ -18,7 +20,13 @@ OWNER = {'id': 'tourney-user-1', 'name': 'Tester'}
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry():
+def _clean_registry(monkeypatch):
+    # These tests exercise route logic against the in-memory registry. Layer C
+    # made the registry write-through (get / find_active_for_owner fall back to
+    # the persisted repo), so without this an active tournament would leak
+    # across tests via the DB. Force memory-only here — write-through itself is
+    # covered by test_registry_persistence.py.
+    monkeypatch.setattr('flask_app.extensions.tournament_session_repo', None)
     registry.clear()
     yield
     registry.clear()
