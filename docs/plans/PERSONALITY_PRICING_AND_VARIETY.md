@@ -622,6 +622,45 @@ its core. To tighten the *static* attribution without the detector, add an oppon
 **Status:** static loop demonstrated (attacker profits vs the leak). Adaptive detector + clean
 leak-attribution = next, when picked up.
 
+### Adaptive detector (adaptive overbet) — BUILT, MEASURED, two findings (2026-05-29)
+
+Built the surgical attacker: `adaptive_overbet` flag (default OFF, byte-identical) →
+`_effective_overbet_fraction()` gates the overbet on the live `value_vs_station` detection
+(`_last_value_vs_station_intensity_raw`, set by `_apply_exploitation`); fires only on a detected
+payer. Per-personality via a `"adaptive_overbet": true` key (read in `__init__`). 6 unit tests on
+the gate logic. Measured via `exploit_bb100 --change adaptive_overbet` (CRN, adaptive ON vs static
+OFF, shared opponent model). **Two findings, both negative — keep the build, but it is NOT a
+current win:**
+
+1. **It doesn't fire in the multiway harness — root-caused.** vs a CallStation+FoldyBot backdrop
+   the adaptive arm makes **+347 bb/100 vs the static arm's +667 → −320 CI-clear** (and the
+   threshold-gate variant was *byte-identical*, proving both collapse to ~0 overbet). Cause: the
+   gate reads `compute_value_vs_station_intensity`, which applies a **safety dampener**
+   (`safety = 1 − weight·tightness`) keyed on tight players in the field. The two **FoldyBots**
+   (maximally tight) drive tightness→1 → safety→0 → **intensity→0**, so the overbet never fires.
+   That dampener is correct for *thin* value-betting (a nit may have you beat) but **wrong for a
+   nutted overbet** (you don't fear the nit). **The bug is the signal, not the gate shape.**
+   **Real fix:** gate the overbet on **raw payer-presence** (the un-dampened station `upside`, or a
+   "≥1 confidently-detected hyper-passive station in the continuing field" boolean), not the
+   thin-value intensity — combined with a **threshold** (fire full once detected, don't
+   linear-scale). Needs exposing that un-dampened signal from `_apply_exploitation`.
+2. **Even fixed, it has no target in the current field — the deeper finding.** Every available
+   backdrop **pays** the overbet: static makes **+667 vs CallStation, +373 vs GTO-Lite/ABCBot**
+   ("competent" rule bots are not sizing-readers — they call overbets too). The adaptive overbet's
+   only edge is dodging the static's **−24 vs a sizing-reader** (D1 oracle, `ab_node_attribution`),
+   and **no sizing-reader exists in the live field**. So a perfectly-calibrated adaptive overbet
+   converges to **≈ static** here — selectivity can only *match* (best case) or *lose* (mis-gated).
+   Its value is **prospective**: it materializes when sizing-reading opponents exist (the revived
+   sizing-aware program, or a future skilled bot). Same homogeneous-field lesson that parked the
+   original sizing-aware work.
+
+**Disposition:** kept (default OFF, byte-identical, unit-tested; the mechanism + the dynamic-clamp
+pattern are the deliverable). **Sherlock Holmes' wired `adaptive_overbet:true` is currently inert**
+(the signal reads ~0 → he plays as a normal TAG, no overbet) — harmless, not negative, pending the
+signal fix. The static overbet remains the right default for the current payer-heavy field. Do NOT
+ship adaptive-as-default until (a) the un-dampened payer signal is wired AND (b) the field actually
+contains sizing-readers to make selectivity pay.
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
