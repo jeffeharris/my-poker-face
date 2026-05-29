@@ -1921,9 +1921,23 @@ def api_player_action(game_id):
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
+            _mm = current_game_data['memory_manager']
             extensions.game_repo.save_opponent_models(
-                game_id, current_game_data['memory_manager'].get_opponent_model_manager()
+                game_id, _mm.get_opponent_model_manager()
             )
+            # Circuit scouting memory: fold this game's observation counts
+            # into the durable per-sandbox lifetime rows. No-op for
+            # non-sandbox games (sandbox_id is None). Isolated + guarded so a
+            # fold hiccup can never break the hand flow.
+            try:
+                extensions.game_repo.fold_observations_into_lifetime(
+                    game_id, _mm.sandbox_id
+                )
+            except Exception as _fold_exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "[DOSSIER] observation lifetime fold failed for game %s: %s",
+                    game_id, _fold_exc,
+                )
 
         # If the human just folded and opted into "speed through after I fold",
         # fast-forward the rest of the orbit before progressing.
@@ -2411,9 +2425,23 @@ def register_socket_events(sio):
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
         if 'memory_manager' in current_game_data:
+            _mm = current_game_data['memory_manager']
             extensions.game_repo.save_opponent_models(
-                game_id, current_game_data['memory_manager'].get_opponent_model_manager()
+                game_id, _mm.get_opponent_model_manager()
             )
+            # Circuit scouting memory: fold this game's observation counts
+            # into the durable per-sandbox lifetime rows. No-op for
+            # non-sandbox games (sandbox_id is None). Isolated + guarded so a
+            # fold hiccup can never break the hand flow.
+            try:
+                extensions.game_repo.fold_observations_into_lifetime(
+                    game_id, _mm.sandbox_id
+                )
+            except Exception as _fold_exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "[DOSSIER] observation lifetime fold failed for game %s: %s",
+                    game_id, _fold_exc,
+                )
 
         # Human opted into "speed through after I fold" — fast-forward the orbit.
         if current_player.is_human:

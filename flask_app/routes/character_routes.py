@@ -277,6 +277,42 @@ def _build_observation(game_data: dict, player_name: str) -> Optional[dict]:
     }
 
 
+def _observation_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
+    """Shape the durable lifetime observation counts into the dossier's
+    `observation` block, deriving rates through the canonical
+    `OpponentTendencies` formula so VPIP/PFR/AF/play-style match the live
+    path exactly (no duplicated thresholds, no drift).
+
+    Returns None when there's no lifetime row or no hands yet.
+    """
+    if not counts or not counts.get('hands_observed'):
+        return None
+
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+    t.hands_dealt = counts['hands_dealt']
+    t.hands_observed = counts['hands_observed']
+    t._vpip_count = counts['vpip_count']
+    t._pfr_count = counts['pfr_count']
+    t._bet_raise_count = counts['bet_raise_count']
+    t._call_count = counts['call_count']
+    t._showdowns = counts['showdowns_seen']
+    t._showdowns_won = counts['showdowns_won']
+    t._recalculate_stats()
+
+    return {
+        'hands_observed': t.hands_observed,
+        'vpip': round(t.vpip, 2),
+        'pfr': round(t.pfr, 2),
+        'aggression_factor': round(t.aggression_factor, 2),
+        'play_style': t.get_play_style_label(),
+        # Marks this as the cross-game scouting read (vs. a live in-game one)
+        # so the dossier can label it "lifetime".
+        'lifetime': True,
+    }
+
+
 def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]:
     """Pull pressure_stats.get_summary() for this player, if available."""
     pstats = (game_data or {}).get('pressure_stats')
@@ -424,6 +460,11 @@ def get_dossier(identifier: str):
     # in the bankroll repo keyed on (personality_id, sandbox_id) since
     # the v102 per-sandbox scoping; the dossier is per-viewer so we
     # resolve the observer's default sandbox.
+    # Resolved once and reused for both the AI bankroll lookup and the
+    # per-sandbox cash_pair_stats read below. Stays None if resolution
+    # fails — load_cash_pair_stats(sandbox_id=None) then falls back to the
+    # cross-sandbox sum (identical under v1's 1:1 ownership).
+    sandbox_id: Optional[str] = None
     ai_bankroll_chips: Optional[int] = None
     try:
         from flask_app.extensions import bankroll_repo, sandbox_repo
@@ -511,9 +552,13 @@ def get_dossier(identifier: str):
             ),
         }
 
-    # Cash pair stats (lifetime cash-mode PnL with this personality).
+    # Cash pair stats (per-sandbox cash-mode PnL with this personality).
+    # Scoped to the observer's active sandbox per the dossier per-sandbox
+    # principle; falls back to the cross-sandbox sum when sandbox_id is None.
     try:
-        cps = relationship_repo.load_cash_pair_stats(observer_id, personality_id)
+        cps = relationship_repo.load_cash_pair_stats(
+            observer_id, personality_id, sandbox_id=sandbox_id
+        )
     except Exception as e:
         logger.debug("[CHARACTER] cash_pair_stats load failed: %s", e)
         cps = None
@@ -522,6 +567,26 @@ def get_dossier(identifier: str):
             'cumulative_pnl': cps.cumulative_pnl,
             'hands_played_cash': cps.hands_played_cash,
         }
+
+    # Durable cross-game observation (Phase 1 scouting memory). Prefer it
+    # over the live in-game read when a lifetime row exists: it accumulates
+    # across every game in this sandbox (folded each hand), so it's the more
+    # complete read, and it survives game-end — the whole point of the
+    # dossier becoming persistent. Falls back to the live `observation`
+    # (already set above) when there's no lifetime row yet.
+    if sandbox_id:
+        try:
+            from flask_app.extensions import game_repo
+
+            life_obs = _observation_from_lifetime(
+                game_repo.load_observation_lifetime(
+                    sandbox_id, observer_id, personality_id
+                )
+            )
+            if life_obs is not None:
+                response['observation'] = life_obs
+        except Exception as e:
+            logger.debug("[CHARACTER] lifetime observation load failed: %s", e)
 
     # Player-authored note (v95). None when no row OR row has NULL note.
     try:

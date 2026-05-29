@@ -121,6 +121,16 @@ class AIMemoryManager:
         # Persistence layer (set externally to avoid circular imports)
         self._persistence = None
 
+    @property
+    def sandbox_id(self) -> Optional[str]:
+        """The sandbox this game is bound to, or None for non-sandbox games.
+
+        Set by `set_relationship_repo(cash_mode=True, sandbox_id=...)` for
+        Circuit games. Read by the dossier observation fold to gate
+        per-sandbox lifetime accrual (non-Circuit games stay None → no fold).
+        """
+        return self._sandbox_id
+
     def set_hand_history_repo(self, hand_history_repo) -> None:
         """Set the hand history repository for saving hand history.
 

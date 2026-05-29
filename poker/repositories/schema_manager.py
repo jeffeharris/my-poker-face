@@ -213,7 +213,17 @@ _test_schema_template_path = None
 #       Read-only scoreboard — never injected into core AI thresholds. See
 #       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 #       Renumbered from v121 on the prestige→prep-for-main merge (collision).
-SCHEMA_VERSION = 122
+# v123: Create `opponent_observation_lifetime` — the Circuit's durable,
+#       per-sandbox scouting memory: cumulative behavioral COUNTS (not rates)
+#       per (sandbox_id, observer_id, opponent_id), summed across every game
+#       in that sandbox. Rates (VPIP/PFR/AF/showdown) derive on read. Filled
+#       only from sandbox-bound games (legacy per-game `opponent_models` stays
+#       unchanged and serves live in-game AI as before). Also add
+#       `opponent_models.lifetime_applied_json` — the per-game high-water mark
+#       of counts already folded in, so the continuous delta-fold is
+#       resume-safe and never double-counts. Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+SCHEMA_VERSION = 123
 
 
 class SchemaManager:
@@ -2007,6 +2017,10 @@ class SchemaManager:
             122: (
                 self._migrate_v122_create_prestige_snapshots,
                 "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
+            ),
+            123: (
+                self._migrate_v123_create_opponent_observation_lifetime,
+                "Create opponent_observation_lifetime — per-sandbox cumulative behavioral counts (the Circuit's scouting memory); add opponent_models.lifetime_applied_json high-water mark for the resume-safe delta-fold",
             ),
         }
 
@@ -6401,3 +6415,74 @@ class SchemaManager:
                 ON relationship_states(opponent_id)
         """)
         logger.info("Migration v122 complete: prestige_snapshots table created")
+
+    def _migrate_v123_create_opponent_observation_lifetime(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v123: create `opponent_observation_lifetime` + add the
+        `opponent_models.lifetime_applied_json` high-water mark.
+
+        The Circuit's durable scouting memory. One row per
+        (sandbox_id, observer_id, opponent_id) holding cumulative behavioral
+        COUNTS summed across every game in that sandbox; rates (VPIP, PFR,
+        aggression factor, showdown win-rate) are derived on read. Storing
+        counts (not rates) is what lets games merge losslessly — a new game's
+        tallies simply add to the running totals.
+
+        Filled ONLY from sandbox-bound games (Circuit cash + Circuit
+        tournaments). The legacy per-game `opponent_models` table is
+        unchanged and keeps serving the live in-game AI as before — this is a
+        Circuit-only feature layered on top, not a change to how any mode
+        models opponents.
+
+        `opponent_models.lifetime_applied_json` is the per-(game, observer,
+        opponent) high-water mark of counts already folded into the lifetime
+        row. The fold is a continuous delta-fold at each hand-boundary save
+        (`delta = current − applied; lifetime += delta; applied = current`),
+        which is resume-safe (cold-load reuses game_id) and never
+        double-counts. The ALTER is guarded by a PRAGMA check so the
+        migration is safe on a partially-applied DB.
+
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS, guarded ALTER).
+        See `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opponent_observation_lifetime (
+                sandbox_id      TEXT NOT NULL,
+                observer_id     TEXT NOT NULL,
+                opponent_id     TEXT NOT NULL,
+                hands_dealt     INTEGER NOT NULL DEFAULT 0,
+                hands_observed  INTEGER NOT NULL DEFAULT 0,
+                vpip_count      INTEGER NOT NULL DEFAULT 0,
+                pfr_count       INTEGER NOT NULL DEFAULT 0,
+                bet_raise_count INTEGER NOT NULL DEFAULT 0,
+                call_count      INTEGER NOT NULL DEFAULT 0,
+                showdowns_seen  INTEGER NOT NULL DEFAULT 0,
+                showdowns_won   INTEGER NOT NULL DEFAULT 0,
+                first_seen      TIMESTAMP,
+                last_updated    TIMESTAMP,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_obs_lifetime_observer
+                ON opponent_observation_lifetime(sandbox_id, observer_id)
+        """)
+
+        # Add the high-water mark column to opponent_models, guarded so the
+        # migration is safe whether or not the column already exists (fresh
+        # installs create opponent_models in _init_db without it; a
+        # partially-applied DB may already have it).
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(opponent_models)").fetchall()
+        }
+        if "lifetime_applied_json" not in cols:
+            conn.execute(
+                "ALTER TABLE opponent_models ADD COLUMN lifetime_applied_json TEXT"
+            )
+
+        logger.info(
+            "Migration v123 complete: opponent_observation_lifetime created + "
+            "opponent_models.lifetime_applied_json added"
+        )

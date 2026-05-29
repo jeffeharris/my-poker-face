@@ -1,0 +1,96 @@
+---
+purpose: Grounded narrative log of shaping the dossier scouting plan and shipping the Phase 1 persistence foundation on the dossiers branch
+type: reference
+created: 2026-05-29
+last_updated: 2026-05-29
+---
+
+# Captain's log — opponent dossier & scouting progression (dossiers worktree)
+
+Honest record of reviewing `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md` via the
+feature-dev workflow and building Phase 1 (the persistent, per-sandbox
+behavioral observation store). Newest at the bottom. Wrong turns kept in.
+
+---
+
+## 2026-05-29 — plan review, then Phase 1 foundation built end-to-end
+
+**Started as a doc review, became a build.** Jeff asked to "shape up" the
+existing vision doc. Three code-explorer agents grounded its claims against the
+live code, and the doc had drifted in ways worth catching before building:
+
+- It cited `character_routes.py:463-470` for the live dossier sections — those
+  lines are now `stake_summary`. The real assembly is `:476-488`.
+- It called the behavioral reads "live-only, lost on restart." More precise:
+  the per-game `opponent_models`/`pressure_events` rows *do* persist and
+  cold-load back; the real gap is they **never accumulate across games**. That
+  reframing matters — Phase 1 is *cross-game aggregation*, not crash-safety.
+- The gating units "Basic read / Pattern / Pressure / Exploit" never existed in
+  the UI. Real sections are PROFILE / BEHAVIORAL INDEX / STANDING / TRACK
+  RECORD / etc. The gate has to map onto those.
+- Two durable sections the doc omitted (`ai_bankroll`, `stake_summary`) had
+  been added since.
+
+**Decisions Jeff locked (not my defaults):** hybrid granularity (grind drips
+items, informant buys a section); hands-observed as the grind metric (his
+reasoning: a nit shouldn't take forever to scout — observed counts folds too);
+materialized lifetime table; Circuit-only scope; achievements tracked globally.
+
+**The wrong turn I avoided (the useful one).** The doc said "migrate
+`relationship_states` to per-sandbox (v123) + backfill" as if it were a
+one-liner, and I'd written it up that way. Digging into the repo before
+touching it: `relationship_states` is **bidirectional**, and its inbound
+edges (AI→human / AI→AI) feed the **prestige "regard"** computation that
+*just shipped* (commits `105017b5` / `eb9bc354`, two days prior). The code is
+explicit that those edges are global *by design*. Adding `sandbox_id` to the
+PK would have forced a scoping decision on them and risked breaking prestige.
+So I **deferred** that migration (it only blocks Phase 4 anyway) instead of
+barrelling into a destructive schema change on a premise I hadn't verified.
+Lesson reinforced: verify the premise in the code, not the plan's prose.
+
+**The cash wrinkle that reshaped the fold.** First instinct (and the doc's
+words) was "roll up at game-end." But cash sessions don't end — they're
+long-lived and *resumable* (cold-load reuses `game_id`). A fold-once-per-game
+would lose post-resume hands. Landed on a **continuous delta-fold** with a
+per-game high-water mark (`opponent_models.lifetime_applied_json`):
+`delta = current − applied; lifetime += delta; applied = current`. Idempotent,
+resume-safe, and re-folding an unchanged game writes nothing.
+
+**Then a second pivot, off the minefield.** I'd planned to hook the fold into
+the cash leave/settle path. That path has a long bug history (double-settle,
+orphan seats — it's all over the memory notes). Because the fold is idempotent,
+I moved it to the existing **hand-boundary save points** (`game_routes.py`,
+right beside `save_opponent_models`) instead — normal action-processing hooks,
+not the settlement code. Bonus: crash-safe (folded every hand) and the lifetime
+row is always current, so the dossier reads it directly with no live-overlay
+machinery. Cost: dropped the "this session vs. lifetime" split-display for v1
+(eye-candy, deferred).
+
+**Reused the canonical rate formula instead of duplicating it.** The lifetime
+store holds *counts*; rates (VPIP/PFR/AF/play-style) derive on read. Rather than
+re-implement the thresholds (and the AF cap that imports strategy config), the
+dossier reconstructs an `OpponentTendencies` from the counts and calls its own
+`_recalculate_stats()`. Caught a real bug doing this: my first read divided VPIP
+by `hands_observed`, but the app defines it over `hands_dealt` — reusing the
+canonical method made the discrepancy impossible.
+
+**Shipped (branch `dossiers`, uncommitted at time of writing):**
+- v123 migration: `opponent_observation_lifetime` + `opponent_models.
+  lifetime_applied_json`. Verified applied to the live DB.
+- `GameRepository.fold_observations_into_lifetime` + `load_observation_lifetime`.
+- `MemoryManager.sandbox_id` accessor; fold wired + guarded at both
+  hand-boundary saves.
+- Dossier prefers the lifetime observation (`character_routes.py`).
+- Cheap `cash_pair_stats` dossier read now sandbox-scoped.
+- 12 new tests; 54 game-repo/dispatch regression tests green.
+
+**Process scar (minor):** mid-edit, the Flask reloader caught a transient state
+where the migrations dict referenced `_migrate_v123` before the method body had
+landed — backend crash-looped until both edits were in. Harmless (restart fixed
+it) but a reminder that two-part edits to an auto-reloaded module want the
+referenced symbol defined first.
+
+**Not done:** backfill of existing `opponent_models` history into lifetime
+(needs a `game_id → sandbox_id` map; the fold method itself doubles as the
+backfill since it's idempotent); live end-to-end verification in a real cash
+session; the deferred `relationship_states` migration; Phases 2–4.

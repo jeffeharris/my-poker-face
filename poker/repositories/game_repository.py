@@ -855,6 +855,167 @@ class GameRepository(BaseRepository):
 
             logger.debug(f"Saved opponent models for game {game_id}")
 
+    # Maps the count keys serialized in opponent_models.tendencies_json
+    # (OpponentTendencies.to_dict) → the cumulative columns on
+    # opponent_observation_lifetime. Counts only — rates derive on read.
+    _LIFETIME_COUNT_FIELDS = {
+        'hands_dealt': 'hands_dealt',
+        'hands_observed': 'hands_observed',
+        '_vpip_count': 'vpip_count',
+        '_pfr_count': 'pfr_count',
+        '_bet_raise_count': 'bet_raise_count',
+        '_call_count': 'call_count',
+        '_showdowns': 'showdowns_seen',
+        '_showdowns_won': 'showdowns_won',
+    }
+
+    def fold_observations_into_lifetime(
+        self, game_id: str, sandbox_id: Optional[str]
+    ) -> int:
+        """Fold this game's per-opponent observation counts into the durable
+        per-sandbox `opponent_observation_lifetime` rows (Phase 1).
+
+        The Circuit's scouting memory. Called right after
+        `save_opponent_models` at each hand-boundary save, but ONLY for
+        sandbox-bound games (Circuit cash + Circuit tournaments) — a falsy
+        `sandbox_id` makes this a no-op, so other modes never contribute.
+
+        Continuous **delta-fold**: for each (observer_id, opponent_id) pair
+        with both ids present, `delta = current_counts − applied`, the
+        lifetime row is incremented by `delta`, and the per-game high-water
+        mark `opponent_models.lifetime_applied_json` is set to the current
+        counts. This is resume-safe (cold-load reuses game_id) and never
+        double-counts: re-folding an unchanged game writes nothing.
+
+        Reads what `save_opponent_models` just persisted (counts live in
+        `tendencies_json`); kept as a separate method + transaction so the
+        hot save path stays untouched. Returns the number of pairs folded.
+        """
+        if not sandbox_id:
+            return 0
+
+        folded = 0
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT observer_id, opponent_id, tendencies_json,
+                       lifetime_applied_json
+                FROM opponent_models
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+
+            for row in rows:
+                observer_id = row['observer_id']
+                opponent_id = row['opponent_id']
+                # Only id'd pairs accumulate lifetime intel; human/ad-hoc
+                # rows without stable ids are skipped (nothing reads them).
+                if not observer_id or not opponent_id:
+                    continue
+
+                try:
+                    current_raw = json.loads(row['tendencies_json'] or '{}')
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    applied = json.loads(row['lifetime_applied_json'] or '{}')
+                except (TypeError, ValueError):
+                    applied = {}
+
+                current = {
+                    src: int(current_raw.get(src, 0) or 0)
+                    for src in self._LIFETIME_COUNT_FIELDS
+                }
+                deltas = {
+                    col: current[src] - int(applied.get(src, 0) or 0)
+                    for src, col in self._LIFETIME_COUNT_FIELDS.items()
+                }
+                if not any(deltas.values()):
+                    continue  # nothing new since last fold
+
+                conn.execute(
+                    """
+                    INSERT INTO opponent_observation_lifetime
+                        (sandbox_id, observer_id, opponent_id,
+                         hands_dealt, hands_observed, vpip_count, pfr_count,
+                         bet_raise_count, call_count, showdowns_seen,
+                         showdowns_won, first_seen, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(sandbox_id, observer_id, opponent_id) DO UPDATE SET
+                        hands_dealt     = hands_dealt + excluded.hands_dealt,
+                        hands_observed  = hands_observed + excluded.hands_observed,
+                        vpip_count      = vpip_count + excluded.vpip_count,
+                        pfr_count       = pfr_count + excluded.pfr_count,
+                        bet_raise_count = bet_raise_count + excluded.bet_raise_count,
+                        call_count      = call_count + excluded.call_count,
+                        showdowns_seen  = showdowns_seen + excluded.showdowns_seen,
+                        showdowns_won   = showdowns_won + excluded.showdowns_won,
+                        last_updated    = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        sandbox_id, observer_id, opponent_id,
+                        deltas['hands_dealt'], deltas['hands_observed'],
+                        deltas['vpip_count'], deltas['pfr_count'],
+                        deltas['bet_raise_count'], deltas['call_count'],
+                        deltas['showdowns_seen'], deltas['showdowns_won'],
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE opponent_models SET lifetime_applied_json = ?
+                    WHERE game_id = ? AND observer_id = ? AND opponent_id = ?
+                    """,
+                    (json.dumps(current), game_id, observer_id, opponent_id),
+                )
+                folded += 1
+
+        if folded:
+            logger.debug(
+                "Folded %d opponent observation(s) into lifetime for game %s "
+                "(sandbox %s)", folded, game_id, sandbox_id
+            )
+        return folded
+
+    def load_observation_lifetime(
+        self, sandbox_id: str, observer_id: str, opponent_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Load the durable lifetime observation COUNTS for a pair in one
+        sandbox, or None when no lifetime row exists yet.
+
+        Returns raw cumulative counts only — rates (VPIP/PFR/AF/showdown) are
+        derived by the caller through the canonical `OpponentTendencies`
+        formula so this repository stays free of strategy-config coupling and
+        the rate definitions never drift from the live path.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT hands_dealt, hands_observed, vpip_count, pfr_count,
+                       bet_raise_count, call_count, showdowns_seen,
+                       showdowns_won, first_seen, last_updated
+                FROM opponent_observation_lifetime
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
+                """,
+                (sandbox_id, observer_id, opponent_id),
+            ).fetchone()
+
+        if row is None:
+            return None
+        return {
+            'hands_dealt': row['hands_dealt'] or 0,
+            'hands_observed': row['hands_observed'] or 0,
+            'vpip_count': row['vpip_count'] or 0,
+            'pfr_count': row['pfr_count'] or 0,
+            'bet_raise_count': row['bet_raise_count'] or 0,
+            'call_count': row['call_count'] or 0,
+            'showdowns_seen': row['showdowns_seen'] or 0,
+            'showdowns_won': row['showdowns_won'] or 0,
+            'first_seen': row['first_seen'],
+            'last_updated': row['last_updated'],
+        }
+
     def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
         """Load opponent models for a game.
 
