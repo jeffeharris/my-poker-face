@@ -596,6 +596,32 @@ survives uncapped — the asymmetry is pure layer order.
   justifies it." Same mechanism serves the attacker side (exploit harder on a confident read) and the
   leak side (a deliberately deeper weakness).
 
+### Attacker side — static loop (sticky ↔ value-overbet), measured 2026-05-29
+
+First half of the attacker program ("matrix first, then one attacker" → static loop first). Added
+`--opp-spot-tendency` (put the leak on the opponent) + a balanced `tag` opponent roster, and A/B'd
+the **built value-overbet** (hero layer, `--a base --b base --overbet-b`, so the only hero
+difference is the overbet) against a **sticky opponent** vs a plain one, 24k HU:
+
+| Attacker (overbet) vs … | extraction (bb/100) | CI |
+|---|---|---|
+| **sticky-TAG opponent** | **+16.46** | [+6.02, +26.91] — CI-clear |
+| plain-TAG opponent (control) | +10.81 | [+0.56, +21.06] — CI-clear |
+| **selective (sticky − plain)** | **+5.65** | overlapping CIs — directional, NOT resolved at 24k |
+
+**Read:** the loop **closes** — the built overbet extracts CI-clear +16.46 from the constructed
+sticky leak. But the honest nuance: the overbet is a **broad** exploit (+10.81 even vs a balanced
+TAG, because TAG pays overbets — it isn't a sizing-reader), so its edge is **not specific** to the
+sticky leak; the leak-attributable margin (~+5.6) is directional, not CI-clear. This is the matrix
+lesson restated: a *clean leak-specific* attacker must be **surgical** — i.e. the **adaptive
+detector** that enables the overbet **only** on a detected-sticky opponent (and no-ops vs balanced).
+That's the deferred part 3; the dynamic/`floor_exempt`-style clamp keyed on detection confidence is
+its core. To tighten the *static* attribution without the detector, add an opponent-side A/B
+(`--opp-disable`, not yet built) so the leak can be toggled per arm under CRN.
+
+**Status:** static loop demonstrated (attacker profits vs the leak). Adaptive detector + clean
+leak-attribution = next, when picked up.
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
