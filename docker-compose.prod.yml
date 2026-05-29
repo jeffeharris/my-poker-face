@@ -32,7 +32,17 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - CORS_ORIGINS=https://mypokerfacegame.com,https://www.mypokerfacegame.com
       - LLM_PROMPT_CAPTURE=${LLM_PROMPT_CAPTURE:-all}
-      - LLM_PROMPT_RETENTION_DAYS=${LLM_PROMPT_RETENTION_DAYS:-0}
+      # PRH-32: finite retention for the verbatim prompt captures (full prompts
+      # incl. user chat). Was 0 (kept forever) — default to 30 days; override
+      # via host env. The scheduled cleanup enforces it.
+      - LLM_PROMPT_RETENTION_DAYS=${LLM_PROMPT_RETENTION_DAYS:-30}
+      # PRH-32: finite retention for api_usage cost rows (aggregates are kept
+      # via the rollup; raw rows past this are purged on a schedule).
+      - API_USAGE_RETENTION_DAYS=${API_USAGE_RETENTION_DAYS:-90}
+      # PRH-30: per-decision equity Monte Carlo iterations (analytics only, not
+      # the bot's actual decision). Lower than the 2000 default to raise the
+      # single-worker concurrent-hands ceiling; override via host env.
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-500}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - FRONTEND_URL=https://mypokerfacegame.com

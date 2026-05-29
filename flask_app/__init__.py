@@ -136,6 +136,13 @@ def create_app():
 
     start_cleanup_timer()
 
+    # PRH-32: daily retention sweep — purges prompt_captures + api_usage past
+    # their configured windows. No-op until LLM_PROMPT_RETENTION_DAYS /
+    # API_USAGE_RETENTION_DAYS are set (so inert in dev/tests).
+    from .services.retention_service import start_retention_sweep
+
+    start_retention_sweep()
+
     # Start the realtime cash-mode world ticker (advances unseated tables
     # for active sandboxes; pushes lobby_tick / world_event over socket).
     # Idempotent across create_app() calls; no-op when disabled.

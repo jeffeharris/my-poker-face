@@ -169,7 +169,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 
 - SQLite with WAL + `busy_timeout=5000` + retry-on-lock (sound baseline); per-thread connections are released at request/socket-event teardown so they don't leak fds over uptime (PRH-34). — `poker/repositories/base_repository.py`
 - ◑ **Backups WAL-safe** (`scripts/backup_db.py` — online backup API + integrity_check + retention; `deploy.sh` wired), but the off-box cron is an operator step not yet activated (PRH-29).
-- ❌ **Unbounded growth + verbatim retention:** prod runs `LLM_PROMPT_CAPTURE=all` with `LLM_PROMPT_RETENTION_DAYS=0` (full prompts incl. user chat kept forever); `api_usage` has no retention (PRH-32). Disk-fill + a privacy footprint.
+- ✅ **Retention enforced (PRH-32):** a daily sweep (`retention_service.py`) purges `prompt_captures` (`LLM_PROMPT_RETENTION_DAYS`, prod 30d) and `api_usage` (`API_USAGE_RETENTION_DAYS`, prod 90d). 0/unset = keep-all (inert in dev/tests).
 - In-memory game state is reconstructable from per-action DB saves via cold-load; loss on restart is bounded to sub-second in-flight progress.
 
 ## Deployment ◑
@@ -189,7 +189,7 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 - **Web-session hardening:** ✅ done — CSRF tokens (PRH-36) and dropping the `localStorage` bearer JWT (PRH-37) both landed.
 - **Edge/deploy:** ✅ security headers + CSP (PRH-39 — `script-src` tightening is the residual), production-safe image default + non-root container (PRH-40), admin-bootstrap not via guest namespace (PRH-38) all landed; standardize the async model (PRH-24) remains.
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
-- **Ops/data:** ✅ WAL-safe backup script landed (PRH-29 — `scripts/backup_db.py`; cron + off-box are operator steps); ✅ client-side cold-load self-heal (PRH-31). Remaining: capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30).
+- **Ops/data:** ✅ WAL-safe backup script (PRH-29 — `scripts/backup_db.py`; cron + off-box are operator steps); ✅ client-side cold-load self-heal (PRH-31); ✅ capture/`api_usage` retention (PRH-32); ◑ single-worker CPU ceiling (PRH-30 — per-decision MC lowered in prod; per-action save-coalescing deferred as a durability tradeoff).
 - **Content (optional):** prompt-delimiting of user content (defense-in-depth) + server-forced chat `sender` (PRH-33). *AI-personality image-input moderation is now landed — PRH-27 is fully closed.*
 
 ## Operator checklist (to *activate* shipped controls)
@@ -198,7 +198,7 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 2. **Budget ceilings** — confirm `LLM_GLOBAL_DAILY_BUDGET_USD` / `LLM_PER_OWNER_DAILY_BUDGET_USD` suit launch traffic; keep the provider's own billing cap low for launch week.
 3. **`REDIS_URL`** — required in prod (startup fails if set-but-unreachable). Keep `-w 1` until presence/ticker have a shared store.
 4. **`IMAGE_PROVIDER`** — `openai` (dall-e-2) is the default; avatar-description / `visual_identity` inputs are now text-moderated, so `pollinations` no longer reopens an unmoderated input hole (output still leans on the provider, so prefer `openai`).
-5. **Prompt capture** — set a finite `LLM_PROMPT_RETENTION_DAYS` for prod (PRH-32).
+5. **Retention (PRH-32)** — prod defaults to `LLM_PROMPT_RETENTION_DAYS=30` / `API_USAGE_RETENTION_DAYS=90`; the daily sweep enforces them. Tune via host env if a different window is wanted.
 6. **`SECRET_KEY` / `JWT_SECRET_KEY`** — set strong values (startup enforces `SECRET_KEY`).
 7. **CSRF (PRH-36)** — armed automatically when `FLASK_ENV=production`; override with `CSRF_PROTECTION_ENABLED`. Requires the SPA to be served **same-origin** as the API (it is, via nginx) so the frontend can read the `csrf_token` cookie. If a cross-origin frontend is ever introduced, switch to delivering the token in a response body instead of relying on `document.cookie`.
 8. **Backups (PRH-29)** — add the daily cron running `scripts/backup_db.py data/poker_games.db --keep 7 --remote-cmd '<rclone/rsync/aws to off-box>'` and provision the remote target. Deploy-time backup is on-box only; the cron is what makes it survive a disk failure. Wire the script's non-zero exit to the PRH-28 webhook.

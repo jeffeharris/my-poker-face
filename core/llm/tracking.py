@@ -354,6 +354,32 @@ class UsageTracker:
             logger.debug(f"Could not query NULL-cost api_usage rows: {e}")
             return []
 
+    def prune_old_usage(self, retention_days: int) -> int:
+        """Delete api_usage rows older than ``retention_days`` (PRH-32).
+
+        0 or negative = keep everything (no-op). Compares against an ISO cutoff
+        string, matching how ``created_at`` is written (UTC isoformat) and how
+        ``find_recent_null_cost_combos`` reads it. Fails open (logs, returns 0)
+        — this is housekeeping, never gameplay-critical.
+        """
+        if retention_days <= 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("DELETE FROM api_usage WHERE created_at < ?", (cutoff,))
+                deleted = cursor.rowcount
+            if deleted:
+                logger.info(
+                    "[RETENTION] purged %d api_usage row(s) older than %d days",
+                    deleted,
+                    retention_days,
+                )
+            return deleted
+        except Exception as e:
+            logger.warning("[RETENTION] api_usage purge failed: %s", e)
+            return 0
+
     def _bump_spend_cache(self, owner_id: Optional[str], cost: Optional[float]) -> None:
         """Add ``cost`` to any warm cached spend totals this call counts toward.
 
