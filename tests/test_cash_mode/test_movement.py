@@ -123,20 +123,26 @@ class TestForcedLeave:
 
 class TestPressureFormula:
     def test_neutral_no_pressure(self):
-        ctx = _neutral_ctx(energy=0.7)
+        # Genuinely neutral: bankroll == max buy-in, so the wealth-driven
+        # stake_up climb (wealth_over_tier) reads 0 too. (The default
+        # _neutral_ctx is 2× over-rolled, which now carries a tiny climb
+        # signal — covered separately below.)
+        ctx = _neutral_ctx(energy=0.7, projected_bankroll=2500, max_buy_in=2500)
         p = compute_leave_pressure(ctx)
         assert p["stake_up"] == 0.0
         assert p["short"] == 0.0
         assert p["detached"] == 0.0
         assert p["tenure"] == 0.0
+        assert p["dead"] == 0.0
 
     def test_stake_up_pressure_scales_with_max_buy_in(self):
-        # stack = 2x max → stake_up_raw = 1.0
-        ctx = _neutral_ctx(ai_chips=5000, max_buy_in=2500)
+        # Isolate the SEAT-stack stake_up source (bankroll == max so the
+        # wealth climb term contributes 0). stack = 2x max → stake_up_raw = 1.0
+        ctx = _neutral_ctx(ai_chips=5000, max_buy_in=2500, projected_bankroll=2500)
         p = compute_leave_pressure(ctx)
         assert p["stake_up"] == W_STAKE_UP * 1.0
         # At exactly max, no stake_up pressure.
-        ctx2 = _neutral_ctx(ai_chips=2500, max_buy_in=2500)
+        ctx2 = _neutral_ctx(ai_chips=2500, max_buy_in=2500, projected_bankroll=2500)
         assert compute_leave_pressure(ctx2)["stake_up"] == 0.0
 
     def test_short_pressure_scales_with_min_buy_in(self):
@@ -1032,7 +1038,12 @@ def _run_leave(vice_prob):
         idle_pool=[],
         eligible_candidates=[],
         seated_globally={"whale"},
-        bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+        # Bankroll kept inside the slum deadzone (≤ ~21× the 1000 max
+        # buy-in) so the wealth-driven stake_up climb stays silent and the
+        # leave is the pure tenure→bored_move this test exercises for vice
+        # interception. A genuinely slumming bankroll would (correctly)
+        # route to stake_up instead, which vice does not intercept.
+        bankroll_lookup=_bankroll_lookup_factory({"whale": 20_000}),
         buy_in_lookup=_buy_in_lookup_factory(400),
         rng=rng,
         now=datetime(2026, 5, 27, 12, 0, 0),
@@ -1079,7 +1090,9 @@ class TestViceOnLeave:
             idle_pool=[],
             eligible_candidates=[],
             seated_globally={"whale"},
-            bankroll_lookup=_bankroll_lookup_factory({"whale": 900_000}),
+            # Inside the slum deadzone so the leave is pure tenure→bored_move
+            # (see _run_leave note); a slumming bankroll would route to stake_up.
+            bankroll_lookup=_bankroll_lookup_factory({"whale": 20_000}),
             buy_in_lookup=_buy_in_lookup_factory(400),
             rng=rng,
             now=datetime(2026, 5, 27, 12, 0, 0),
