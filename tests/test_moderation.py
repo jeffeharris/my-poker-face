@@ -118,3 +118,49 @@ def test_player_chat_rejection_clean(monkeypatch):
 
     monkeypatch.setattr(gr, "moderate_text", lambda t: mod.ModerationResult(flagged=False))
     assert gr._player_chat_rejection("nice hand, well played") is None
+
+
+# --- personality image-input screening (avatar_description / visual_identity) --
+
+def test_personality_image_text_collects_all_fields():
+    from flask_app.routes import personality_routes as pr
+
+    text = pr._personality_image_text(
+        {
+            "avatar_description": "a weathered gambler",
+            "visual_identity": {
+                "identity": "Doc Holliday",
+                "appearance": "gaunt, pale, mustache",
+                "apparel": "black frock coat",
+            },
+        }
+    )
+    for fragment in ("weathered gambler", "Doc Holliday", "gaunt", "frock coat"):
+        assert fragment in text
+
+
+def test_personality_image_text_ignores_missing_and_nonstring():
+    from flask_app.routes import personality_routes as pr
+
+    # Non-dict config, empty config, and non-string subfields are all tolerated.
+    assert pr._personality_image_text(None) == ""
+    assert pr._personality_image_text({}) == ""
+    assert (
+        pr._personality_image_text(
+            {"avatar_description": "  ", "visual_identity": {"identity": 123, "appearance": None}}
+        )
+        == ""
+    )
+
+
+def test_personality_image_text_feeds_moderation(monkeypatch):
+    """The collected image text is what reaches the filter — a flagged
+    appearance must surface as a MODERATION_REJECTED rejection (PRH-27)."""
+    from flask_app.routes import personality_routes as pr
+
+    monkeypatch.setattr(
+        pr, "moderate_text", lambda t: mod.ModerationResult(flagged=True, categories=["hate"])
+    )
+    text = pr._personality_image_text({"visual_identity": {"appearance": "something nasty"}})
+    assert text  # non-empty → actually screened
+    assert pr.moderate_text(text).flagged is True

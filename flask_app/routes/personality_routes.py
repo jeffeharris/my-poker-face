@@ -40,6 +40,24 @@ def _moderation_error(text: str):
     return None
 
 
+def _personality_image_text(config) -> str:
+    """Collect the user-supplied image-input free text from a personality config.
+
+    ``avatar_description`` and the ``visual_identity`` subfields
+    (identity/appearance/apparel) are interpolated into the image-generation
+    prompt (see ``poker/image_prompt_config.py``), so they are user UGC that
+    reaches a paid generation pipeline — screen them like names (PRH-27).
+    Returns a space-joined string of the present fields (empty if none).
+    """
+    if not isinstance(config, dict):
+        return ''
+    parts = [config.get('avatar_description')]
+    vi = config.get('visual_identity')
+    if isinstance(vi, dict):
+        parts.extend(vi.get(k) for k in ('identity', 'appearance', 'apparel'))
+    return ' '.join(p.strip() for p in parts if isinstance(p, str) and p.strip())
+
+
 @personality_bp.route('/personalities')
 def personalities_page():
     """Deprecated: Personality manager page now in React."""
@@ -167,7 +185,9 @@ def create_personality():
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'})
 
-        flagged = _moderation_error(name)
+        # Screen the name + image-input free text (avatar_description /
+        # visual_identity) before it reaches the paid image pipeline (PRH-27).
+        flagged = _moderation_error(' '.join(filter(None, [name, _personality_image_text(data)])))
         if flagged:
             return flagged
 
@@ -239,6 +259,12 @@ def update_personality(name):
 
         personality_config = request.json
 
+        # Screen edited image-input free text (avatar_description /
+        # visual_identity) before it reaches the paid image pipeline (PRH-27).
+        flagged = _moderation_error(_personality_image_text(personality_config))
+        if flagged:
+            return flagged
+
         # Use update method that preserves owner_id and visibility
         updated = extensions.personality_repo.update_personality_config(
             name, personality_config, source='user_edited'
@@ -293,6 +319,11 @@ def update_avatar_description(name):
 
         if not avatar_description:
             return jsonify({'success': False, 'error': 'avatar_description is required'}), 400
+
+        # Screen the description before it reaches the paid image pipeline (PRH-27).
+        flagged = _moderation_error(avatar_description)
+        if flagged:
+            return flagged
 
         # Check if personality exists
         personality_config = extensions.personality_generator.get_personality(name)

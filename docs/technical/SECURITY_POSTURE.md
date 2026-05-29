@@ -97,10 +97,9 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
     bios) has a finite retention; store the minimum; keep an off-box backup.
 
 > **Current policy exceptions** (see Known gaps for the fix + tracking ID):
-> the AI-personality `avatar_description` / `visual_identity` image inputs are
-> not yet moderated (policy 1); prompt capture is retained indefinitely in prod
-> and backups are on-box only (policy 10); there's no first-class CSRF token
-> (policy 3, for cookie-authed mutations).
+> prompt capture is retained indefinitely in prod and backups are on-box only
+> (policy 10); there's no first-class CSRF token (policy 3, for cookie-authed
+> mutations).
 
 ## Authentication & identity ✅ (mostly)
 
@@ -152,13 +151,14 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
   - profile **bio** + human **avatar prompt** — `flask_app/routes/profile_routes.py`
   - authed **in-game chat** (+ a 500-char length cap, `CHAT_TOO_LONG`) — `game_routes.py` `_player_chat_rejection`
   - personality / theme **name + description** generation — `personality_routes.py` `_moderation_error`
+  - AI-personality **image inputs** — `avatar_description` + `visual_identity` (identity/appearance/apparel), on all three write paths (`create_personality`, `update_personality`, `update_avatar_description`) — `personality_routes.py` `_personality_image_text` + `_moderation_error`
   - Policy: **fail-closed** on a positive hit (→ `400 MODERATION_REJECTED`), **fail-open** on outage (8s timeout, `max_retries=0` — never hangs the request), no-op without `OPENAI_API_KEY` / `MODERATION_ENABLED=false`. — `core/moderation.py`
-- ◑ **Remaining:** explicit prompt-*delimiting* of user content (defense-in-depth on top of moderation) and forcing chat `sender` server-side (PRH-33).
+- ◑ **Remaining (optional):** explicit prompt-*delimiting* of user content (defense-in-depth on top of moderation) and forcing chat `sender` server-side (PRH-33).
 
 ## Image-generation safety ◑
 
 - **Output:** the default `IMAGE_PROVIDER=openai` (dall-e-2) does its own server-side content moderation (`content_policy_violation` is caught + retried with a safe archetype identity), and a `NEGATIVE_PROMPT` (nsfw/anime/etc. blocklist) is appended to every generation. — `poker/character_images.py`
-- **Input:** the human avatar prompt **is** text-moderated (above). The **AI-personality `avatar_description` / `visual_identity`** inputs are **not** text-moderated (`PUT /api/personality/<name>/avatar-description`, `create_personality` config) — they're owner/admin-gated and the text isn't displayed, so they lean on the provider's own moderation. ❌ gap, larger if `IMAGE_PROVIDER=pollinations` (weak moderation) is ever configured. Fix = the same `moderate_text` call on those inputs.
+- **Input:** the human avatar prompt **is** text-moderated, and so now are the **AI-personality `avatar_description` / `visual_identity`** inputs (`PUT /api/personality/<name>/avatar-description`, `create_personality` / `update_personality` config) — screened by `_personality_image_text` + `_moderation_error` before they reach the (paid) image pipeline. This closes the last PRH-27 moderation gap and removes the prior dependence on the provider's own moderation, so a future `IMAGE_PROVIDER=pollinations` (weak moderation) switch no longer reopens an input hole. ✅
 
 ## Observability & alerting ✅ (handler) / ◑ (broader)
 
@@ -190,13 +190,13 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 - **Edge/deploy:** security headers + CSP (PRH-39); production-safe image default + non-root container (PRH-40); admin-bootstrap not via guest namespace (PRH-38); standardize the async model (PRH-24).
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
 - **Ops/data:** off-box WAL-safe backups (PRH-29); capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30); client-side cold-load self-heal (PRH-31).
-- **Content:** moderate the AI-personality `avatar_description`/`visual_identity` image inputs; prompt-delimiting + server-forced chat `sender` (PRH-33).
+- **Content (optional):** prompt-delimiting of user content (defense-in-depth) + server-forced chat `sender` (PRH-33). *AI-personality image-input moderation is now landed — PRH-27 is fully closed.*
 
 ## Operator checklist (to *activate* shipped controls)
 
 1. **`ALERT_WEBHOOK_URL`** — set it (Admin → Settings → Alerting, or env). PRH-28 is a no-op until then.
 2. **Budget ceilings** — confirm `LLM_GLOBAL_DAILY_BUDGET_USD` / `LLM_PER_OWNER_DAILY_BUDGET_USD` suit launch traffic; keep the provider's own billing cap low for launch week.
 3. **`REDIS_URL`** — required in prod (startup fails if set-but-unreachable). Keep `-w 1` until presence/ticker have a shared store.
-4. **`IMAGE_PROVIDER`** — keep `openai` (dall-e-2 moderates) rather than `pollinations` until the avatar-description input is moderated.
+4. **`IMAGE_PROVIDER`** — `openai` (dall-e-2) is the default; avatar-description / `visual_identity` inputs are now text-moderated, so `pollinations` no longer reopens an unmoderated input hole (output still leans on the provider, so prefer `openai`).
 5. **Prompt capture** — set a finite `LLM_PROMPT_RETENTION_DAYS` for prod (PRH-32).
 6. **`SECRET_KEY` / `JWT_SECRET_KEY`** — set strong values (startup enforces `SECRET_KEY`).
