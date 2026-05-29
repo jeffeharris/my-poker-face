@@ -195,6 +195,10 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 
 ## Operator checklist (to *activate* shipped controls)
 
+> Full operational procedures (deploy/rollback, backups, monitoring, incident
+> playbook) live in the [Ops Runbook](../guides/OPS_RUNBOOK.md). This list is the
+> security-control activation summary.
+
 1. **`ALERT_WEBHOOK_URL`** — set it (Admin → Settings → Alerting, or env). PRH-28 is a no-op until then.
 2. **Budget ceilings** — confirm `LLM_GLOBAL_DAILY_BUDGET_USD` / `LLM_PER_OWNER_DAILY_BUDGET_USD` suit launch traffic; keep the provider's own billing cap low for launch week.
 3. **`REDIS_URL`** — required in prod (startup fails if set-but-unreachable). Keep `-w 1` until presence/ticker have a shared store.

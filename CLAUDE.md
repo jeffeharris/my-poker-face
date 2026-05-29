@@ -380,6 +380,8 @@ codex-assist resume <tag> "Follow-up question about the changes" -C /home/jeffh/
 
 ## DevOps & Production
 
+Ops runbook (deploy/rollback, launch activation checklist, env knobs, backups,
+monitoring, incident playbook): `docs/guides/OPS_RUNBOOK.md`.
 Server infrastructure docs: `~/projects/hetzner-infra/README.md`
 
 ### Quick Commands
