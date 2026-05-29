@@ -77,6 +77,15 @@
   cursor: not-allowed;
 }
 
+.training-menu__size-hint {
+  margin: 0.6rem 0 0;
+  min-height: 1.1rem;
+  text-align: center;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, #9ca3af);
+}
+
 /* --- Difficulty cards --- */
 .training-menu__difficulties {
   display: flex;

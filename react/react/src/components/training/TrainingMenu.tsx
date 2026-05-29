@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sprout, Target, Flame, ChevronRight, GraduationCap } from 'lucide-react';
 import { PageLayout, PageHeader, MenuBar, BackButton } from '../shared';
+import { config } from '../../config';
+import { logger } from '../../utils/logger';
 import './TrainingMenu.css';
 
 export type TrainingDifficulty = 'easy' | 'medium' | 'hard';
@@ -39,26 +41,52 @@ const DIFFICULTIES: DifficultyOption[] = [
   },
 ];
 
-// Table-size presets (opponent_count). Heads-up is a single opponent; full
-// ring tops out at the 8-opponent backend cap. Table *presets* (short/deep
-// stacks) arrive in a later phase — this is just seat count for now.
-const TABLE_SIZES: { id: string; label: string; opponents: number }[] = [
-  { id: 'hu', label: 'Heads-up', opponents: 1 },
-  { id: 'short', label: '3-handed', opponents: 2 },
-  { id: 'full', label: '6-max', opponents: 5 },
+interface TablePreset {
+  id: string;
+  title: string;
+  description: string;
+  opponents: number;
+  big_blind: number;
+  starting_stack_bb: number;
+}
+
+// Fallback if the presets endpoint is unreachable — the backend default is
+// 'standard', which is always a safe choice to send.
+const FALLBACK_PRESETS: TablePreset[] = [
+  { id: 'standard', title: '6-Max', description: 'Five opponents, 100bb deep.', opponents: 5, big_blind: 100, starting_stack_bb: 100 },
 ];
 
 interface TrainingMenuProps {
   playerName: string;
-  onStart: (difficulty: TrainingDifficulty, opponentCount: number) => void;
+  onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
   onBack: () => void;
   isCreating?: boolean;
 }
 
 export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }: TrainingMenuProps) {
-  const [tableSizeId, setTableSizeId] = useState('full');
-  const opponentCount =
-    TABLE_SIZES.find((t) => t.id === tableSizeId)?.opponents ?? 5;
+  const [presets, setPresets] = useState<TablePreset[]>(FALLBACK_PRESETS);
+  const [presetId, setPresetId] = useState('standard');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(`${config.API_URL}/api/training/scenarios`, {
+          credentials: 'include',
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (cancelled || !Array.isArray(data.presets) || data.presets.length === 0) return;
+        setPresets(data.presets);
+        setPresetId(data.default_preset_id ?? data.presets[0].id);
+      } catch (err) {
+        logger.error('Failed to load training presets:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -76,30 +104,34 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
         />
 
         <div className="training-menu__intro">
-          Pick how tough the table should be, {playerName}. Your coach is on the
-          whole time, and nothing here touches your bankroll, reputation, or
+          Pick a table and how tough you want it, {playerName}. Your coach is on
+          the whole time, and nothing here touches your bankroll, reputation, or
           stats.
         </div>
 
         <fieldset className="training-menu__sizes" disabled={isCreating}>
-          <legend className="training-menu__sizes-label">Table size</legend>
-          <div className="training-menu__size-row" role="radiogroup" aria-label="Table size">
-            {TABLE_SIZES.map((t) => (
+          <legend className="training-menu__sizes-label">Table</legend>
+          <div className="training-menu__size-row" role="radiogroup" aria-label="Table">
+            {presets.map((p) => (
               <button
-                key={t.id}
+                key={p.id}
                 type="button"
                 role="radio"
-                aria-checked={tableSizeId === t.id}
+                aria-checked={presetId === p.id}
+                title={p.description}
                 className={
                   'training-menu__size' +
-                  (tableSizeId === t.id ? ' training-menu__size--active' : '')
+                  (presetId === p.id ? ' training-menu__size--active' : '')
                 }
-                onClick={() => setTableSizeId(t.id)}
+                onClick={() => setPresetId(p.id)}
               >
-                {t.label}
+                {p.title}
               </button>
             ))}
           </div>
+          <p className="training-menu__size-hint">
+            {presets.find((p) => p.id === presetId)?.description ?? ''}
+          </p>
         </fieldset>
 
         <div className="training-menu__difficulties">
@@ -110,7 +142,7 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
                 key={d.id}
                 type="button"
                 className={`training-card ${d.variant}`}
-                onClick={() => onStart(d.id, opponentCount)}
+                onClick={() => onStart(d.id, presetId)}
                 disabled={isCreating}
               >
                 <div className="training-card__icon-wrap">

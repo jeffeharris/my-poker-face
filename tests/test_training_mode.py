@@ -28,6 +28,7 @@ from training.opponent_roster import (
     DIFFICULTY_ROSTERS,
     resolve_opponents,
 )
+from training.scenario import DEFAULT_PRESET_ID, TABLE_PRESETS, get_table_preset
 
 pytestmark = [pytest.mark.flask, pytest.mark.integration]
 
@@ -60,6 +61,28 @@ class TestOpponentRoster(unittest.TestCase):
     def test_zero_or_negative_seats_is_empty(self):
         self.assertEqual(resolve_opponents('medium', 0), [])
         self.assertEqual(resolve_opponents('medium', -1), [])
+
+
+class TestTablePresets(unittest.TestCase):
+    """Pure unit tests for table-preset resolution (no DB/app)."""
+
+    def test_default_preset_exists_and_is_six_max(self):
+        p = get_table_preset(DEFAULT_PRESET_ID)
+        self.assertEqual(p.id, 'standard')
+        self.assertEqual(p.opponents, 5)
+        self.assertEqual(p.starting_stack_bb, 100)
+
+    def test_unknown_and_none_fall_back_to_default(self):
+        self.assertEqual(get_table_preset('nope').id, DEFAULT_PRESET_ID)
+        self.assertEqual(get_table_preset(None).id, DEFAULT_PRESET_ID)
+
+    def test_starting_stack_is_depth_times_bb(self):
+        p = TABLE_PRESETS['short_stack']
+        self.assertEqual(p.starting_stack, p.starting_stack_bb * p.big_blind)
+        self.assertEqual(p.starting_stack, 2500)
+
+    def test_heads_up_has_one_opponent(self):
+        self.assertEqual(TABLE_PRESETS['heads_up'].opponents, 1)
 
 
 class TestTrainingStartRoute(unittest.TestCase):
@@ -152,10 +175,26 @@ class TestTrainingStartRoute(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn('valid_difficulties', resp.get_json())
 
+    def test_invalid_preset_returns_400(self):
+        resp = self._start(difficulty='easy', preset_id='moon')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('valid_presets', resp.get_json())
+
+    def test_lists_table_presets(self):
+        with self._mock_auth():
+            resp = self.client.get(
+                '/api/training/scenarios', environ_overrides={'REMOTE_ADDR': '10.77.0.1'}
+            )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        ids = {p['id'] for p in body['presets']}
+        self.assertEqual(ids, {'standard', 'heads_up', 'short_stack', 'deep', 'full_ring'})
+        self.assertEqual(body['default_preset_id'], 'standard')
+
     def test_creates_non_counting_training_game(self):
         from flask_app.services import game_state_service
 
-        resp = self._start(difficulty='easy', opponent_count=3)
+        resp = self._start(difficulty='easy', preset_id='standard')
         self.assertEqual(resp.status_code, 200, resp.get_json())
         data = resp.get_json()
         gid = data['game_id']
@@ -163,10 +202,12 @@ class TestTrainingStartRoute(unittest.TestCase):
         # Identified by the train- prefix, flagged training, auto-coach on.
         self.assertTrue(gid.startswith('train-'))
         self.assertTrue(data['training_mode'])
+        self.assertEqual(data['preset_id'], 'standard')
 
         gd = game_state_service.get_game(gid)
         self.assertIsNotNone(gd)
         self.assertTrue(gd['training_mode'])
+        self.assertEqual(gd['training_preset'], 'standard')
 
         # Non-counting via wiring-absence: no tournament tracker, no
         # relationship repo (relationship_states is NOT cash_mode-gated).
@@ -180,22 +221,42 @@ class TestTrainingStartRoute(unittest.TestCase):
         # Coach is forced on (persisted on the games row → survives cold-load).
         self.assertEqual(self._repos['game_repo'].load_coach_mode(gid), 'proactive')
 
-        # Easy roster → loose-passive rule bots.
+        # standard = 5 opponents; easy roster → loose-passive rule bots.
         from poker.rule_bot_controller import RuleBotController
 
         ctrls = gd['ai_controllers']
-        self.assertEqual(len(ctrls), 3)
+        self.assertEqual(len(ctrls), 5)
         for c in ctrls.values():
             self.assertIsInstance(c, RuleBotController)
+
+    def test_short_stack_preset_sets_stack_depth(self):
+        from flask_app.services import game_state_service
+
+        resp = self._start(difficulty='medium', preset_id='short_stack')
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        gid = resp.get_json()['game_id']
+        gs = game_state_service.get_game(gid)['state_machine'].game_state
+        # 25bb at bb=100 → 2500-chip stacks (human exact; AIs minus posted blinds).
+        self.assertEqual(gs.current_ante, 100)
+        human = next(p for p in gs.players if p.is_human)
+        self.assertEqual(human.stack, 2500)
+
+    def test_heads_up_preset_is_two_handed(self):
+        from flask_app.services import game_state_service
+
+        resp = self._start(difficulty='hard', preset_id='heads_up')
+        gid = resp.get_json()['game_id']
+        gs = game_state_service.get_game(gid)['state_machine'].game_state
+        self.assertEqual(len(gs.players), 2)
 
     def test_saved_bot_types_roundtrip_for_coldload(self):
         # Cold-load rebuilds controllers from the persisted bot_types via
         # restore_ai_controllers; assert they were saved.
-        resp = self._start(difficulty='easy', opponent_count=2)
+        resp = self._start(difficulty='easy', preset_id='heads_up')
         gid = resp.get_json()['game_id']
         cfgs = self._repos['game_repo'].load_llm_configs(gid) or {}
         bot_types = cfgs.get('bot_types', {})
-        self.assertEqual(len(bot_types), 2)
+        self.assertEqual(len(bot_types), 1)
         self.assertTrue(set(bot_types.values()) <= {'fish', 'foldy'})
 
     def test_elimination_flow_suppressed_without_tracker(self):
@@ -204,7 +265,7 @@ class TestTrainingStartRoute(unittest.TestCase):
         # (mirrors the cash-mode contract).
         from flask_app.handlers.game_handler import handle_eliminations
 
-        resp = self._start(difficulty='easy', opponent_count=2)
+        resp = self._start(difficulty='easy', preset_id='heads_up')
         gid = resp.get_json()['game_id']
         from flask_app.services import game_state_service
 
@@ -214,7 +275,7 @@ class TestTrainingStartRoute(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_excluded_from_continue_games_list(self):
-        start = self._start(difficulty='medium', opponent_count=3)
+        start = self._start(difficulty='medium', preset_id='standard')
         gid = start.get_json()['game_id']
         with self._mock_auth():
             resp = self.client.get(

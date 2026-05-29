@@ -34,19 +34,18 @@ from flask import Blueprint, jsonify, request
 from flask_app import config
 from flask_app.extensions import limiter
 from training.opponent_roster import VALID_DIFFICULTIES, resolve_opponents
+from training.scenario import (
+    DEFAULT_PRESET_ID,
+    VALID_PRESET_IDS,
+    TablePreset,
+    get_table_preset,
+    list_table_presets,
+)
+from training.state_builder import build_table_preset_state_machine
 
 logger = logging.getLogger(__name__)
 
 training_bp = Blueprint("training", __name__)
-
-
-# Fixed table shape for Phase 1 free-play. 100bb deep, flat blinds — a clean
-# cash-game-style sandbox. Table presets (HU / short / deep) arrive in Phase 2.
-TRAINING_BIG_BLIND = 100
-TRAINING_STARTING_STACK = 100 * TRAINING_BIG_BLIND  # 100bb
-DEFAULT_OPPONENT_COUNT = 5
-MIN_OPPONENT_COUNT = 1
-MAX_OPPONENT_COUNT = 8
 
 
 def _make_controller(
@@ -145,7 +144,7 @@ def _build_training_game(
     owner_name: Optional[str],
     player_name: str,
     difficulty: str,
-    opponent_count: int,
+    preset: TablePreset,
 ) -> str:
     """Create + register a training game; return its `train-` game_id.
 
@@ -155,12 +154,9 @@ def _build_training_game(
     auto-engaged. See module docstring.
     """
     from flask_app import extensions
-    from flask_app.game_adapter import StateMachineAdapter
     from flask_app.routes.game_routes import generate_game_id
     from flask_app.services import game_state_service
     from poker.memory import AIMemoryManager
-    from poker.poker_game import initialize_game_state
-    from poker.poker_state_machine import PokerStateMachine
     from poker.pressure_detector import PressureEventDetector
     from poker.pressure_stats import PressureStatsTracker
     from poker.repositories.sqlite_repositories import PressureEventRepository
@@ -171,22 +167,11 @@ def _build_training_game(
     # drives how they play. Anonymized opponents arrive with the Phase 5
     # read-the-player drill.
     pool = [n for n in get_celebrities(shuffled=True) if n.lower() != player_name.lower()]
-    ai_names = pool[:opponent_count]
+    ai_names = pool[: preset.opponents]
     bot_types_list = resolve_opponents(difficulty, len(ai_names))
     bot_types: Dict[str, str] = {name: bt for name, bt in zip(ai_names, bot_types_list)}
 
-    game_state = initialize_game_state(
-        player_names=ai_names,
-        human_name=player_name,
-        starting_stack=TRAINING_STARTING_STACK,
-        big_blind=TRAINING_BIG_BLIND,
-    )
-    base_state_machine = PokerStateMachine(
-        game_state=game_state,
-        # Flat blinds — a stable practice table (mirrors cash).
-        blind_config={"growth": 1.0, "hands_per_level": 999999, "max_blind": TRAINING_BIG_BLIND},
-    )
-    state_machine = StateMachineAdapter(base_state_machine)
+    state_machine = build_table_preset_state_machine(preset, player_name, ai_names)
     game_id = f"train-{generate_game_id()}"
 
     # Rule bots make zero LLM calls; the tiered "sharp" bot's narration is off
@@ -253,6 +238,7 @@ def _build_training_game(
         # placement flow (handle_eliminations keys off its presence).
         "training_mode": True,
         "training_difficulty": difficulty,
+        "training_preset": preset.id,
         "owner_id": owner_id,
         "owner_name": owner_name,
         "llm_config": default_llm_config,
@@ -297,10 +283,11 @@ def _build_training_game(
     extensions.game_repo.save_coach_mode(game_id, "proactive")
 
     logger.info(
-        "[TRAINING] Created game_id=%r owner=%r difficulty=%r opponents=%r bot_types=%r",
+        "[TRAINING] Created game_id=%r owner=%r difficulty=%r preset=%r opponents=%r bot_types=%r",
         game_id,
         owner_id,
         difficulty,
+        preset.id,
         ai_names,
         bot_types,
     )
@@ -337,11 +324,12 @@ def start_training_session():
             }
         ), 400
 
-    try:
-        opponent_count = int(data.get("opponent_count", DEFAULT_OPPONENT_COUNT))
-    except (TypeError, ValueError):
-        return jsonify({"error": "opponent_count must be an integer"}), 400
-    opponent_count = max(MIN_OPPONENT_COUNT, min(MAX_OPPONENT_COUNT, opponent_count))
+    preset_id = data.get("preset_id", DEFAULT_PRESET_ID)
+    if preset_id not in VALID_PRESET_IDS:
+        return jsonify(
+            {"error": f"Invalid preset_id: {preset_id}", "valid_presets": sorted(VALID_PRESET_IDS)}
+        ), 400
+    preset = get_table_preset(preset_id)
 
     # One training session per owner — clear any prior one so practice games
     # don't accumulate or count against the saved-game limit.
@@ -353,10 +341,44 @@ def start_training_session():
             owner_name=owner_name,
             player_name=player_name,
             difficulty=difficulty,
-            opponent_count=opponent_count,
+            preset=preset,
         )
     except Exception as e:
         logger.error("[TRAINING] failed to build training game: %s", e, exc_info=True)
         return jsonify({"error": "Failed to create training game"}), 500
 
-    return jsonify({"game_id": game_id, "training_mode": True, "difficulty": difficulty})
+    return jsonify(
+        {
+            "game_id": game_id,
+            "training_mode": True,
+            "difficulty": difficulty,
+            "preset_id": preset.id,
+        }
+    )
+
+
+@training_bp.route("/api/training/scenarios", methods=["GET"])
+def list_training_scenarios():
+    """List the table presets a practice game can be set up with.
+
+    Difficulty (who you face) is chosen separately; presets describe the table
+    shape (seats, stack depth, blinds). Auth-gated to match /start.
+    """
+    from flask_app import extensions
+
+    current_user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
+    if not current_user or not current_user.get("id"):
+        return jsonify({"error": "Authentication required", "code": "AUTH_REQUIRED"}), 401
+
+    presets = [
+        {
+            "id": p.id,
+            "title": p.title,
+            "description": p.description,
+            "opponents": p.opponents,
+            "big_blind": p.big_blind,
+            "starting_stack_bb": p.starting_stack_bb,
+        }
+        for p in list_table_presets()
+    ]
+    return jsonify({"presets": presets, "default_preset_id": DEFAULT_PRESET_ID})
