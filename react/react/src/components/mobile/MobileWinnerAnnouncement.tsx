@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Card } from '../cards';
+import { INTERHAND_TIMING } from '../../constants/interhandTiming';
 import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -236,7 +237,7 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
 
       const cardTimer = setTimeout(() => {
         setShowCards(true);
-      }, 800);
+      }, INTERHAND_TIMING.showdownCardRevealMs);
 
       return () => {
         clearTimeout(cardTimer);
@@ -254,7 +255,9 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
         setShowCards(false);
         onComplete();
       },
-      winnerInfo.showdown ? 12000 : 8000
+      winnerInfo.showdown
+        ? INTERHAND_TIMING.showdownResultMs
+        : INTERHAND_TIMING.foldoutResultMs
     );
 
     return () => {
