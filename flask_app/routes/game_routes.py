@@ -454,7 +454,9 @@ def get_usage_stats():
     if guest:
         # PRH-26: resolve via the signed-cookie / IP-derived path (same as the
         # quota writer) so a forged cookie can't report a fresh 0-hand bucket.
-        tracking_id = extensions.auth_manager.resolve_guest_tracking_id() if extensions.auth_manager else None
+        tracking_id = (
+            extensions.auth_manager.resolve_guest_tracking_id() if extensions.auth_manager else None
+        )
         if tracking_id:
             hands_played = extensions.guest_tracking_repo.get_hands_played(tracking_id)
 
@@ -1377,6 +1379,24 @@ def _player_chat_rejection(content: str) -> Optional[dict]:
     return None
 
 
+def _human_seat_name(game_data) -> Optional[str]:
+    """Return the human player's seat name in this game (PRH-33).
+
+    `sender` is otherwise client-supplied and trusted — a spoofed value enters
+    the AI prompt as if another player said it. Callers force `sender` to this
+    so the chat line is always attributed to the actual human seat. Returns None
+    if it can't be determined (caller keeps its fallback).
+    """
+    try:
+        state_machine = game_data.get('state_machine')
+        for player in state_machine.game_state.players:
+            if getattr(player, 'is_human', False):
+                return player.name
+    except Exception:
+        return None
+    return None
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -1983,6 +2003,11 @@ def api_send_message(game_id):
             {'success': False, 'error': 'Game not found in memory. Try refreshing the page first.'}
         ), 404
 
+    # PRH-33: never trust the client-supplied `sender` — force it to the human's
+    # actual seat so a spoofed name can't be injected into the AI prompt or the
+    # relationship-event attribution.
+    sender = _human_seat_name(current_game_data) or sender
+
     is_guest_user = current_user and is_guest(current_user) and GUEST_LIMITS_ENABLED
 
     if is_guest_user:
@@ -2410,6 +2435,11 @@ def register_socket_events(sio):
             logger.debug(f"[SOCKET] send_message unauthorized: user={user_id}, owner={owner_id}")
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
+
+        # PRH-33: force sender to the human seat for authored chat (don't trust
+        # the client value, which could spoof another player into the AI prompt).
+        if message_type in ('player', 'user'):
+            sender = _human_seat_name(game_data) or sender
 
         # PRH-27: gate free-text chat for guests (mirror of api_send_message).
         # This socket path otherwise bypasses every guest chat check.

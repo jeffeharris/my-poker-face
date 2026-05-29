@@ -1283,6 +1283,10 @@ class AIPlayerController:
         response_dict = None
         error_type = None
         original_response_json = None
+        # PRH-19: set when the first call failed at the transport layer (timeout /
+        # connection / budget block, status=="error") — used to skip the recovery
+        # LLM call (a second hit on the same down provider) and go to fallback.
+        transport_failed = False
 
         try:
             try:
@@ -1297,11 +1301,26 @@ class AIPlayerController:
                 parent_capture_id[0] = final_capture_id[0]
                 self._last_llm_response = llm_response
 
-                response_dict = parse_json_response(original_response_json)
-                response_dict = self._normalize_response(response_dict)
+                # PRH-19: a transport-level failure returns status=="error" with
+                # empty content. Parsing it would mislabel it as malformed JSON
+                # AND trip the recovery branch into a SECOND chat_full against the
+                # same down provider — doubling the hang for zero benefit. Detect
+                # it and route straight to the deterministic fallback.
+                if getattr(llm_response, 'status', 'ok') == 'error':
+                    logger.warning(
+                        f"[RESILIENCE] {self.player_name}: LLM transport error "
+                        f"(code={getattr(llm_response, 'error_code', None)}) — "
+                        f"skipping recovery, using fallback"
+                    )
+                    error_type = DecisionErrorType.MALFORMED_JSON
+                    response_dict = {}
+                    transport_failed = True
+                else:
+                    response_dict = parse_json_response(original_response_json)
+                    response_dict = self._normalize_response(response_dict)
 
-                # Classify any errors
-                error_type = classify_response_error(response_dict, valid_actions)
+                    # Classify any errors
+                    error_type = classify_response_error(response_dict, valid_actions)
 
             except AIResponseError as e:
                 # JSON parse failure
@@ -1321,7 +1340,13 @@ class AIPlayerController:
                 )
 
                 # Generate error description for logging and correction prompt
-                if error_type == DecisionErrorType.MALFORMED_JSON:
+                if transport_failed:
+                    error_description = (
+                        "LLM transport error (timeout/connection/budget; "
+                        f"code={getattr(self._last_llm_response, 'error_code', None)}); "
+                        "used deterministic fallback."
+                    )
+                elif error_type == DecisionErrorType.MALFORMED_JSON:
                     error_description = (
                         "Could not parse JSON response. Please respond with valid JSON."
                     )
@@ -1338,75 +1363,87 @@ class AIPlayerController:
                         error_description=error_description,
                     )
 
-                try:
-                    # Determine recovery prompt
-                    if error_type == DecisionErrorType.MALFORMED_JSON:
-                        # Full retry with same prompt
-                        recovery_prompt = decision_prompt
-                        logger.info(
-                            f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON"
-                        )
-                    else:
-                        # Targeted correction prompt
-                        recovery_prompt = self.prompt_manager.render_correction_prompt(
-                            original_response=original_response_json or str(response_dict),
-                            error_description=error_description,
-                            valid_actions=valid_actions,
-                            context=context,
-                        )
-                        logger.info(
-                            f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}"
-                        )
-
-                    # Make recovery call
-                    correction_response = self.assistant.chat_full(
-                        recovery_prompt,
-                        json_format=True,
-                        hand_number=self.current_hand_number,
-                        prompt_template='decision_correction',
-                        capture_enricher=make_enricher(
-                            parent_id=parent_capture_id[0],
-                            error_type=error_type.value,
-                            correction_attempt=1,
-                            drama_context=drama_context,
-                        ),
+                if transport_failed:
+                    # PRH-19: the provider just failed at the transport layer —
+                    # a recovery call would only hit the same down provider again
+                    # (doubling the hang). Skip it; the deterministic fallback
+                    # below handles the decision.
+                    logger.info(
+                        f"[RESILIENCE] {self.player_name}: transport error — "
+                        f"deterministic fallback, no recovery LLM call"
                     )
-                    self._last_llm_response = correction_response
-
-                    corrected_dict = parse_json_response(correction_response.content)
-                    corrected_dict = self._normalize_response(corrected_dict)
-
-                    # Check if correction succeeded
-                    correction_error = classify_response_error(corrected_dict, valid_actions)
-                    if correction_error is None:
-                        logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
-                        response_dict = corrected_dict
-                        error_type = None
-                        # Clear error from parent since recovery succeeded
-                        if parent_capture_id[0]:
-                            update_prompt_capture(
-                                parent_capture_id[0], error_type=None, error_description=None
+                else:
+                    try:
+                        # Determine recovery prompt
+                        if error_type == DecisionErrorType.MALFORMED_JSON:
+                            # Full retry with same prompt
+                            recovery_prompt = decision_prompt
+                            logger.info(
+                                f"[RESILIENCE] {self.player_name}: Full retry for malformed JSON"
                             )
-                    else:
-                        logger.warning(
-                            f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})"
+                        else:
+                            # Targeted correction prompt
+                            recovery_prompt = self.prompt_manager.render_correction_prompt(
+                                original_response=original_response_json or str(response_dict),
+                                error_description=error_description,
+                                valid_actions=valid_actions,
+                                context=context,
+                            )
+                            logger.info(
+                                f"[RESILIENCE] {self.player_name}: Targeted correction for {error_type.value}"
+                            )
+
+                        # Make recovery call
+                        correction_response = self.assistant.chat_full(
+                            recovery_prompt,
+                            json_format=True,
+                            hand_number=self.current_hand_number,
+                            prompt_template='decision_correction',
+                            capture_enricher=make_enricher(
+                                parent_id=parent_capture_id[0],
+                                error_type=error_type.value,
+                                correction_attempt=1,
+                                drama_context=drama_context,
+                            ),
                         )
-                        # Record the correction's actual error details
-                        if final_capture_id[0]:
-                            if correction_error == DecisionErrorType.MALFORMED_JSON:
-                                correction_error_description = "Could not parse JSON response."
-                            else:
-                                correction_error_description = describe_response_error(
-                                    correction_error, corrected_dict, valid_actions
-                                )
-                            update_prompt_capture(
-                                final_capture_id[0],
-                                error_type=correction_error.value,
-                                error_description=correction_error_description,
-                            )
+                        self._last_llm_response = correction_response
 
-                except Exception as e:
-                    logger.error(f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}")
+                        corrected_dict = parse_json_response(correction_response.content)
+                        corrected_dict = self._normalize_response(corrected_dict)
+
+                        # Check if correction succeeded
+                        correction_error = classify_response_error(corrected_dict, valid_actions)
+                        if correction_error is None:
+                            logger.info(f"[RESILIENCE] {self.player_name}: Recovery successful!")
+                            response_dict = corrected_dict
+                            error_type = None
+                            # Clear error from parent since recovery succeeded
+                            if parent_capture_id[0]:
+                                update_prompt_capture(
+                                    parent_capture_id[0], error_type=None, error_description=None
+                                )
+                        else:
+                            logger.warning(
+                                f"[RESILIENCE] {self.player_name}: Recovery still has error ({correction_error.value})"
+                            )
+                            # Record the correction's actual error details
+                            if final_capture_id[0]:
+                                if correction_error == DecisionErrorType.MALFORMED_JSON:
+                                    correction_error_description = "Could not parse JSON response."
+                                else:
+                                    correction_error_description = describe_response_error(
+                                        correction_error, corrected_dict, valid_actions
+                                    )
+                                update_prompt_capture(
+                                    final_capture_id[0],
+                                    error_type=correction_error.value,
+                                    error_description=correction_error_description,
+                                )
+
+                    except Exception as e:
+                        logger.error(
+                            f"[RESILIENCE] {self.player_name}: Recovery attempt failed - {e}"
+                        )
 
             # ========== FALLBACK if still invalid ==========
             if error_type is not None:

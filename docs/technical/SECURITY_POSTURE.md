@@ -153,7 +153,8 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
   - personality / theme **name + description** generation — `personality_routes.py` `_moderation_error`
   - AI-personality **image inputs** — `avatar_description` + `visual_identity` (identity/appearance/apparel), on all three write paths (`create_personality`, `update_personality`, `update_avatar_description`) — `personality_routes.py` `_personality_image_text` + `_moderation_error`
   - Policy: **fail-closed** on a positive hit (→ `400 MODERATION_REJECTED`), **fail-open** on outage (8s timeout, `max_retries=0` — never hangs the request), no-op without `OPENAI_API_KEY` / `MODERATION_ENABLED=false`. — `core/moderation.py`
-- ◑ **Remaining (optional):** explicit prompt-*delimiting* of user content (defense-in-depth on top of moderation) and forcing chat `sender` server-side (PRH-33).
+- **Chat `sender` is forced server-side** to the human's actual seat (PRH-33) on both the HTTP + socket paths, so a spoofed name can't enter the AI prompt; chat is length-capped (500) + moderated.
+- ◑ **Remaining (optional):** explicit prompt-*delimiting* of user content (defense-in-depth on top of moderation).
 
 ## Image-generation safety ◑
 
