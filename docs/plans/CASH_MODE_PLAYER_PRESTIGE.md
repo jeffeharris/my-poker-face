@@ -93,6 +93,93 @@ emits**, plus a few career/achievement signals — no new gameplay telemetry.
 > `regard = Σ_o w(o) · [ (likability_o − 0.5) + α·(respect_o − 0.5) − β·heat_o ]`
 > Exact weights/decay are open questions below.
 
+## Renown v2 — uncapped, continuous, achievement-aligned
+
+> **Status (2026-05-29):** v1 shipped renown as a **capped [0,1] score** built
+> from five placeholder drivers (breadth, tenure, stake-tier, beat-respected,
+> high-stakes), each with a flat saturation cap. Playtesting exposed the caps
+> as far too low and binary — breadth maxed at **12 AIs** (~11% of a 106-AI
+> field); a single profitable high-stakes session maxed the "high-stakes" slice
+> outright. This section is the agreed redesign. **Not yet built**; the capped
+> v1 model is what currently runs.
+
+Three decisions reframe the axis:
+
+1. **Uncap renown.** Renown becomes a **lifetime points ledger** (the spec's
+   original "uncapped scoreboard"), not a 0–100 bar. There is always more fame
+   to earn. *Cascade:* the 0–100 renown gauge UI and the `renown ≥ 0.40`
+   "high-renown" quadrant gate both have to change — "high renown" should be
+   **relative to the field** (e.g. top-N or above a percentile of all entities'
+   renown, which is self-scaling and AI-symmetric) rather than an absolute
+   constant. The four world-response hooks gate on the quadrant, so they keep
+   working once the quadrant is redefined.
+2. **Continuous, not gated.** *Every hand moves the needle.* No "play 100 hands
+   with an AI and you suddenly count" cliffs — each driver accrues smoothly
+   (saturating per-unit functions), with impactful/rare actions weighing more
+   per hand than grinding low.
+3. **AI-symmetric where possible.** Renown should compute for AIs too (the
+   deferred occupant-prestige layer in `CASH_MODE_TABLE_ATTRACTIVENESS.md`), so
+   prefer drivers fed by **symmetric** data (`cash_pair_stats`,
+   `holdings_snapshots`, stakes, `memorable_hands`) over human-only surfaces.
+
+### The renown-source catalog
+
+Tags: **data** ✅ exists / ⚠️ needs new tracking / 🔮 future; **sym** = AI-symmetric;
+**ach** = the matching entry in `ACHIEVEMENTS_SYSTEM.md` (discrete cousin).
+
+| Source | Continuous measure | data | sym | ach |
+|---|---|---|---|---|
+| ★ **Renown-weighted scalps** | players busted, **weighted by the victim's own renown** (busting a legend ≫ a nobody) | ⚠️ port | ⚠️ | `bounty`, `double_knockout` |
+| ★ **Time at #1 net worth** | ticks spent atop the field's net-worth rank (+ peak net worth ever) — ratchets | ✅ | ✅ | `richest_in_room` |
+| ★ **Kingmaker / backing** | volume + profit of stakes you've *backed* (a patron path; AI-to-AI staking already exists) | ✅ | ✅ | `backer`, `loan_shark`, `creditor` |
+| ★ **Legendary hands** | rare/marquee hands (royal, quads, monster pots, coolers, hero calls) mint one-off renown nuggets | ✅ | ✅ | `royal_flush`, `monster_pot`, `hero`, `stone_cold_bluff` |
+| **Recognition (breadth)** | per-opponent **hands-played volume**, summed across the field (not "met once") | ✅ | ✅ | `socialite` |
+| **Stakes mastery** | hands played **per stake tier** (depth — e.g. credit for living at a level, big credit for volume at the top) | ✅ (human) | ⚠️ | `low_stakes_regular`, `stepping_up` |
+| **Apex** | net-positive vs the whole roster | ✅ | ✅ | `apex_predator` |
+| **Tenure** | total hands played (slow background floor) | ✅ | ✅ | `grinder`, `table_captain` |
+| **Wealth milestones** | bankroll / lifetime-chips-won thresholds crossed | ✅ | ✅ | `high_roller` |
+| **Comebacks / all-in survivals** | recover from the brink; survive shoves | ✅ | partial | — |
+| 🔮 **Lineage** | a protégé you coached earning their *own* renown feeds back to you (mentor's cut) | 🔮 | n/a | — |
+| 🔮 **Create-a-table / venue** | founding a room you host | 🔮 | n/a | — |
+
+The four ★ are the agreed v2 core (a grinder, a whale, a patron, and a villain
+each get a distinct route up). The rest are documented so the catalog is
+complete and the registry can grow.
+
+### How this aligns with the achievements system
+
+Renown and `ACHIEVEMENTS_SYSTEM.md` **draw from the same fact surfaces and
+trigger points** — `HAND` (busts, pots, rare hands), `STAKE_SETTLE` (backing),
+and `CASH_STANDING` (net-worth rank, met/beaten counts). Achievements are the
+**discrete milestone** view; renown is the **continuous score** the same events
+feed. Don't build two parallel event pipelines — share them.
+
+Bridge options (decide when building):
+- **(A) Achievements grant renown** — each unlock awards renown points (tiered
+  ones award more). Simple, punctuated bumps; rides the existing engine.
+- **(B) Renown accrues continuously** over the same facts (each hand adds), with
+  achievements as milestone markers on top. Matches "each hand moves the needle."
+- **(Hybrid, recommended)** — continuous accrual for the core drivers (scalps,
+  net-worth-time, backing, volume) **+** achievement unlocks mint one-off
+  renown nuggets for *legendary* moments (royal flush, first $1000 seat). Smooth
+  needle **and** punctuated spikes.
+
+**AI-symmetry caveat:** the achievement engine is keyed by `owner_id` (human-only
+today). The achievement→renown bridge is therefore human-only; **AI renown must
+be computed directly from the symmetric fact sources** (as `compute_prestige`
+already does), not via the achievement engine. So the continuous-accrual path is
+the load-bearing one for symmetry; the achievement bridge is a human-side bonus.
+
+### Known telemetry gaps (call-outs, not blockers)
+
+- **Scalps need porting + an AI side.** Eliminations are recorded in tournaments
+  (`tournament_tracker.EliminationEvent` carries the *eliminator*) and per-game
+  in `pressure_stats` — but there's no durable **cash** "who busted whom"
+  counter, and **AI busts aren't tracked at all** yet. Porting the tracker to
+  the circuit serves both renown (scalps) and the `bounty`/`double_knockout`
+  achievements; the AI side is required before AI renown can use scalps. Lower
+  priority than shipping the metric, per the product call.
+
 ## Storage & the legibility guardrail
 
 The hard-won lesson from the attractiveness work (Codex-confirmed): **do not
