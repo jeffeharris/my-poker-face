@@ -3636,6 +3636,49 @@ def _resolve_human_bio(current_game_data: dict) -> str:
     return bio
 
 
+def _resolve_human_reputation_tone(current_game_data: dict) -> str:
+    """Resolve a table-talk tone hint from the human's reputation, cached per game.
+
+    Hook 3 of the prestige system: the human's room-level reputation quadrant
+    colors how AIs address them in their table talk — warm/deferential for a
+    Beloved Legend, needling/hostile for an Infamous Villain, and silent for
+    low-renown players the room doesn't react to yet (see
+    `cash_mode.prestige.reputation_chat_tone`). Read-only FLAVOR: the hint only
+    reaches the ExpressionGenerator's prompt suffix, never the action math.
+
+    Cached on `game_data` like `human_bio`: reputation drifts slowly (the world
+    ticker recomputes it on the order of minutes, and renown ratchets), so a
+    per-game read is fresh enough and avoids a DB hit on every AI decision. A
+    quadrant change mid-session won't reflect until the game reloads — an
+    accepted tradeoff matching the bio precedent. Tournament games (no
+    sandbox/owner) and pre-first-capture sessions resolve to "".
+    """
+    if 'human_reputation_tone' in current_game_data:
+        return current_game_data['human_reputation_tone']
+    owner_id = current_game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(current_game_data)
+    if not owner_id or not sandbox_id:
+        current_game_data['human_reputation_tone'] = ""
+        return ""
+    try:
+        from cash_mode.prestige import reputation_chat_tone
+
+        from ..extensions import prestige_snapshots_repo
+
+        tone = ""
+        if prestige_snapshots_repo is not None:
+            snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+            if snap is not None:
+                tone = reputation_chat_tone(snap['quadrant'])
+    except Exception as e:
+        # Don't cache on failure — a transient DB error shouldn't suppress the
+        # tone for the rest of the session; retry on the next decision.
+        logger.debug(f"Could not resolve human reputation tone for {owner_id}: {e}")
+        return ""
+    current_game_data['human_reputation_tone'] = tone
+    return tone
+
+
 def handle_ai_action(game_id: str) -> None:
     """Handle an AI player's action in the game."""
     logger.debug(f"[AI_ACTION] Starting AI action for game {game_id}")
@@ -3673,6 +3716,10 @@ def handle_ai_action(game_id: str) -> None:
     # Surface the human's self-description so the AI can needle them about it in
     # its table talk (dramatic_sequence). Runtime context, not config.
     controller.human_bio = _resolve_human_bio(current_game_data)
+    # Surface the human's room-level reputation so the AI's table talk skews by
+    # it (warm for a Beloved Legend, needling for an Infamous Villain). Flavor
+    # only — it reaches the narration prompt, never the action math.
+    controller.human_reputation_tone = _resolve_human_reputation_tone(current_game_data)
 
     response_addressing = []  # Default for fallback / exception paths
     try:

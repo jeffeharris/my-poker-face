@@ -646,6 +646,12 @@ class AIPlayerController:
         # wrote one. Runtime context (not config) set per-decision by the game
         # handler so the AI can trash-talk / comment on it. Empty = no bio.
         self.human_bio = ""
+        # The human's room-level reputation tone hint (hook 3 of the prestige
+        # system), set per-decision by the game handler. A one-line nudge to how
+        # the AI's table talk should address the human, keyed to their
+        # reputation quadrant. Empty = no hook (low-renown / tournament). Flavor
+        # only — surfaced to the narration prompt, never action selection.
+        self.human_reputation_tone = ""
         self._capture_label_repo = capture_label_repo
         self._decision_analysis_repo = decision_analysis_repo
         self.ai_player = AIPokerPlayer(

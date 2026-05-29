@@ -370,6 +370,14 @@ class ExpressionGenerator:
         if bio_block.strip():
             user_text = f"{user_text}\n\n{bio_block.strip()}"
 
+        # Append the table-reputation tone hint (hook 3 of the prestige system)
+        # when present — colors how the AI's table talk addresses the human by
+        # their room-level reputation. Like the bio block, it only reaches the
+        # user prompt, never action selection.
+        rep_block = getattr(ctx, 'human_reputation_tone', '') or ''
+        if rep_block.strip():
+            user_text = f"{user_text}\n\n{rep_block.strip()}"
+
         return system_text, user_text
 
     def _render_opponent_observations_block(self, ctx: ExpressionContext) -> str:

@@ -148,6 +148,39 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+# Hook 3 (chat tone): one-line table-talk tone hints, keyed by quadrant.
+# Only the HIGH-renown quadrants get a hint — a low-renown player isn't yet a
+# figure the room reacts to, so we stay silent there (matches the
+# relationship-prompt "skip neutral opponents" philosophy and keeps the prompt
+# clean). These strings are pure prompt FLAVOR: they only ever reach the
+# ExpressionGenerator's user-prompt suffix, never action selection.
+_REPUTATION_CHAT_TONE = {
+    QUADRANT_BELOVED_LEGEND: (
+        "TABLE REPUTATION: This player is a celebrated figure at these stakes — "
+        "widely known, respected, and well-liked. Let genuine warmth or a note "
+        "of deference color how you address them in your table talk."
+    ),
+    QUADRANT_INFAMOUS_VILLAIN: (
+        "TABLE REPUTATION: This player is notorious here — a big name the room "
+        "fears and resents. Players love to take shots at them. Let an edge of "
+        "needling, wariness, or open hostility color how you address them in "
+        "your table talk."
+    ),
+}
+
+
+def reputation_chat_tone(quadrant: str) -> str:
+    """One-line table-talk tone hint for the human's reputation quadrant.
+
+    Hook 3 of the prestige system. Only the high-renown quadrants (Beloved
+    Legend, Infamous Villain) return a hint — a low-renown player isn't a
+    figure the room reacts to yet, so the up-and-comer / disliked-nobody
+    quadrants (and any unknown label) return "". Flavor only: the string is
+    appended to the AI's narration prompt, never the action math.
+    """
+    return _REPUTATION_CHAT_TONE.get(quadrant, "")
+
+
 # ---------------------------------------------------------------------------
 # Compute
 # ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ from cash_mode.prestige import (
     W_TENURE,
     compute_prestige,
     quadrant_label,
+    reputation_chat_tone,
 )
 
 NOW = datetime(2026, 5, 29, 12, 0, 0)
@@ -96,6 +97,17 @@ def test_quadrant_classifier_all_four():
     assert quadrant_label(0.9, -0.5) == QUADRANT_INFAMOUS_VILLAIN
     assert quadrant_label(0.1, 0.5) == QUADRANT_UP_AND_COMER
     assert quadrant_label(0.1, -0.5) == QUADRANT_DISLIKED_NOBODY
+
+
+def test_reputation_chat_tone_only_for_high_renown_quadrants():
+    # High-renown quadrants get a tone hint...
+    assert "warmth" in reputation_chat_tone(QUADRANT_BELOVED_LEGEND).lower()
+    assert "notorious" in reputation_chat_tone(QUADRANT_INFAMOUS_VILLAIN).lower()
+    # ...low-renown quadrants (and unknowns) stay silent — the room doesn't
+    # react to a player who isn't a figure yet.
+    assert reputation_chat_tone(QUADRANT_UP_AND_COMER) == ""
+    assert reputation_chat_tone(QUADRANT_DISLIKED_NOBODY) == ""
+    assert reputation_chat_tone("Nonsense") == ""
 
 
 def test_zero_state_is_disliked_nobody():
