@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, redirect, request
 
 from cash_mode.bankroll import BANKROLL_KNOB_DEFAULTS, BankrollKnobs
 from core.llm import CallType, LLMClient
+from core.moderation import moderate_text
 from poker.authorization import get_authorization_service, require_permission
 from poker.guest_limits import is_guest
 from poker.utils import get_celebrities
@@ -19,6 +20,24 @@ from ..extensions import limiter
 logger = logging.getLogger(__name__)
 
 personality_bp = Blueprint('personality', __name__)
+
+
+def _moderation_error(text: str):
+    """Return a (response, 400) tuple if user-supplied `text` is flagged (PRH-27).
+
+    Personality/theme names + descriptions are interpolated into generation
+    prompts and shown back; screen them. Fail-open on outage (see
+    core.moderation). Returns None when allowed.
+    """
+    if text and moderate_text(text).flagged:
+        return jsonify(
+            {
+                'success': False,
+                'error': 'That text was flagged by our content filter. Please rephrase.',
+                'code': 'MODERATION_REJECTED',
+            }
+        ), 400
+    return None
 
 
 @personality_bp.route('/personalities')
@@ -147,6 +166,10 @@ def create_personality():
 
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'})
+
+        flagged = _moderation_error(name)
+        if flagged:
+            return flagged
 
         # Check for name collision
         existing = extensions.personality_repo.load_personality(name)
@@ -495,6 +518,12 @@ def generate_theme():
         if not theme:
             return jsonify({'error': 'Theme is required'}), 400
 
+        # PRH-27: all three are user free text fed into the ASSISTANT-tier
+        # generation prompt — moderate the combined input.
+        flagged = _moderation_error(' '.join(filter(None, [theme, theme_name, description])))
+        if flagged:
+            return flagged
+
         # Load personality names from database filtered by user visibility
         current_user = extensions.auth_manager.get_current_user()
         user_id = current_user.get('id') if current_user else None
@@ -685,6 +714,10 @@ def generate_personality():
 
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'})
+
+        flagged = _moderation_error(name)
+        if flagged:
+            return flagged
 
         force_generate = data.get('force', False)
 

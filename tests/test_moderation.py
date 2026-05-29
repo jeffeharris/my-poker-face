@@ -69,3 +69,29 @@ def test_fail_open_on_api_error(monkeypatch):
     r = mod.moderate_text("anything")
     # Outage must not block the save.
     assert r.flagged is False and r.checked is False
+
+
+# --- player chat screening (length cap + moderation) ------------------------
+
+def test_player_chat_rejection_too_long():
+    from flask_app.routes import game_routes as gr
+
+    rejection = gr._player_chat_rejection("x" * (gr.MAX_PLAYER_CHAT_LEN + 1))
+    assert rejection and rejection["code"] == "CHAT_TOO_LONG"
+
+
+def test_player_chat_rejection_flagged(monkeypatch):
+    from flask_app.routes import game_routes as gr
+
+    monkeypatch.setattr(
+        gr, "moderate_text", lambda t: mod.ModerationResult(flagged=True, categories=["hate"])
+    )
+    rejection = gr._player_chat_rejection("something nasty")
+    assert rejection and rejection["code"] == "MODERATION_REJECTED"
+
+
+def test_player_chat_rejection_clean(monkeypatch):
+    from flask_app.routes import game_routes as gr
+
+    monkeypatch.setattr(gr, "moderate_text", lambda t: mod.ModerationResult(flagged=False))
+    assert gr._player_chat_rejection("nice hand, well played") is None

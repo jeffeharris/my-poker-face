@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, redirect, request, send_from_directory
 from flask_socketio import emit, join_room
 
 from core.llm import AVAILABLE_PROVIDERS, PROVIDER_MODELS
+from core.moderation import moderate_text
 from flask_app.handlers.avatar_handler import get_avatar_url_with_fallback
 from poker.authorization import get_authorization_service
 from poker.betting_context import BettingContext
@@ -1351,6 +1352,31 @@ def _guest_safe_bot_types(bot_types: dict, enforce_guest: bool) -> dict:
     return bot_types
 
 
+# Server-side cap on player chat (the client input caps lower; this is the
+# anti-bloat backstop — every message rides along in subsequent AI prompts).
+MAX_PLAYER_CHAT_LEN = 500
+
+
+def _player_chat_rejection(content: str) -> Optional[dict]:
+    """PRH-27: screen authed player chat before it reaches the AI prompt.
+
+    Returns an error payload ({'error', 'code'}) to reject, or None to allow.
+    Length-cap first (cheap), then moderation (free OpenAI omni-moderation;
+    fail-open on outage — see core.moderation).
+    """
+    if len(content) > MAX_PLAYER_CHAT_LEN:
+        return {
+            'error': f'Message too long (max {MAX_PLAYER_CHAT_LEN} characters).',
+            'code': 'CHAT_TOO_LONG',
+        }
+    if moderate_text(content).flagged:
+        return {
+            'error': 'That message was flagged by our content filter. Please rephrase.',
+            'code': 'MODERATION_REJECTED',
+        }
+    return None
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -1979,8 +2005,12 @@ def api_send_message(game_id):
         current_game_data['guest_messages_this_action'] = msgs_this_action + 1
         game_state_service.set_game(game_id, current_game_data)
 
-    if message.strip():
-        send_message(game_id, sender, message.strip(), 'player', addressing=addressing)
+    content = message.strip()
+    if content:
+        rejection = _player_chat_rejection(content)
+        if rejection:
+            return jsonify({'success': False, **rejection}), 400
+        send_message(game_id, sender, content, 'player', addressing=addressing)
         dispatch_chat_relationship_event(
             current_game_data,
             sender,
@@ -2388,6 +2418,15 @@ def register_socket_events(sio):
             allowed, error_msg = check_guest_free_chat(user, has_structured_tone)
             if not allowed:
                 emit('auth_error', {'error': error_msg, 'code': 'GUEST_FREE_CHAT_LOCKED'})
+                return
+
+        # PRH-27: length-cap + moderate authored chat before it reaches the AI
+        # prompt (mirror of api_send_message). Table/system messages are server-
+        # generated, so only screen player free text.
+        if message_type in ('player', 'user') and (content or '').strip():
+            rejection = _player_chat_rejection(content.strip())
+            if rejection:
+                emit('chat_rejected', rejection)
                 return
 
         send_message(game_id, sender, content, message_type, addressing=addressing)
