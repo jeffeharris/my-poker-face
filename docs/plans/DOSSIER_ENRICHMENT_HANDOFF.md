@@ -7,11 +7,18 @@ last_updated: 2026-05-29
 
 # Dossier Enrichment Handoff (file cabinet + Tier 2)
 
-Picks up where the scouting meta-game left off. **Phases 1–3 are shipped and
-committed on branch `dossiers`** (pushed to `origin/dossiers`); this doc is
-the next context's worklist. Parent vision + decisions:
+Picks up where the scouting meta-game left off. **Phases 1–4 + durable
+pressure/memorable + the Intel hub are shipped and pushed to
+`origin/dossiers`** (as of 2026-05-29); the next phase is **Part B — Tier 2
+new stats**, below. Parent vision + decisions:
 `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`. Narrative log (incl. the
-wrong-turns):`docs/captains-log/dossiers/opponent-dossier-progression.md`.
+wrong-turns): `docs/captains-log/dossiers/opponent-dossier-progression.md`.
+
+> **NOTE for the next context:** Part A (the file cabinet) is **DONE** — it
+> shipped as the **Intel hub** ("The Field Office": `IntelHub.tsx` with three
+> tabs — **The Wire** / **The Floor** / **The Files**). Skip Part A; start at
+> **Part B / B1**. The file-cabinet roster you'll touch for B1 is
+> `flask_app/services/file_cabinet.py` + `FileCabinetPanel.tsx`.
 
 ## What already exists (read this first)
 
@@ -37,9 +44,20 @@ The dossier is a **persistent, per-sandbox scouting meta-game**:
   → bank pool via `informant_unlock` ledger reason). Purchasing is gated to a
   Circuit context via the `circuitContext` prop on `CharacterDetailCard`.
 - **Dossier endpoint** — `GET /api/character/<id>/dossier`
-  (`flask_app/routes/character_routes.py:get_dossier`). **UI** —
+  (`flask_app/routes/character_routes.py:get_dossier`). Returns `scouting`
+  (gate state + `informant_offers`) and `player_bankroll` (so the informant
+  UI disables unaffordable unlocks). **UI** —
   `react/react/src/components/character/CharacterDetailCard.tsx` (+ `api.ts`,
   `CharacterDetailCard.css`); the scouting/informant UI is `ScoutingStrip`.
+- **Intel hub (Part A, DONE)** — `IntelHub.tsx` ("The Field Office", archive
+  aesthetic): **The Wire** (activity feed), **The Floor** (whereabouts),
+  **The Files** (the dossier roster). Roster aggregator
+  `flask_app/services/file_cabinet.py` (`build_file_cabinet`) →
+  `GET /api/cash/file-cabinet`; rendered by `FileCabinetPanel.tsx` (search +
+  reversible sorts incl. Name; excludes the viewer's own account). Opened
+  from the lobby's "Intel" trigger folded into the wire's title bar; a dossier
+  opens on top (z-index 1600) and the cabinet refreshes on purchase via
+  `onIntelChanged`.
 
 ### Conventions to follow (learned the hard way)
 - **Migrations**: bump `SCHEMA_VERSION` in `schema_manager.py`, add a
@@ -63,65 +81,70 @@ The dossier is a **persistent, per-sandbox scouting meta-game**:
 
 ---
 
-## Part A — The File Cabinet (Phase 4)
+## Part A — The File Cabinet ✅ DONE
 
-A browsable index of **everyone you've met in the sandbox**, each row opening
-their dossier. The retention/collection surface. Cash-mode (Circuit) scope.
-
-**Backend**
-- New endpoint, e.g. `GET /api/cash/met-opponents` (cash_routes), returns the
-  observer's roster: for each opponent met, their personality basics +
-  current emotion + a few headline stats for sorting (hands observed, lifetime
-  PnL, heat, dossier-unlocked %).
-- Data source: `relationship_repo.load_all_relationships(observer_id)` is the
-  "everyone I've met" spine (global today; becomes per-sandbox if/when the
-  deferred `relationship_states` migration lands). Cross-reference
-  `cash_pair_stats` (`list_cash_pair_stats_for_observer`) and the lifetime
-  observation store for sort keys. The whereabouts feature
-  (`cash_mode/whereabouts.py`, `WhereaboutsDrawer.tsx`) is the closest
-  existing met-filtered aggregator — mirror its scoping.
-- "Dossiers unlocked: M" = count opponents whose `compute_scouting(...)` has
-  empty `locked` (full) — reuse `dossier_scouting`.
-
-**Frontend**
-- New React view (a drawer or page) listing tappable cards, each opening
-  `CharacterDetailCard` (pass `circuitContext` true — the cabinet is a Circuit
-  surface). `WhereaboutsDrawer.tsx` is the scaffold to copy.
-- Sort/filter: most-played · rivals (heat) · biggest winners/losers vs you ·
-  recently seen · locked vs unlocked. Header: "People met: N · Dossiers
-  unlocked: M."
-- Remember the portal-to-body convention for overlays (PageLayout traps
-  z-index).
-
-**Achievement tie-in** (when the achievements system ships): the "dossiers
-fully unlocked" count is the natural badge counter — see the parent doc.
+Shipped as the **Intel hub** (see "What already exists" above). Don't rebuild;
+the next context starts at Part B.
 
 ---
 
-## Part B — Tier 2 intel enrichments
+## Part B — Tier 2 intel enrichments  ← **START HERE**
 
 The dossier already has the data for most of these — it's mostly surfacing
 work. Each becomes new grind tiers / reads.
 
-### B1. Deep postflop reads as new grind tiers (highest leverage)
-`OpponentTendencies` already computes and serializes far more than the
-lifetime store keeps — see `to_dict` in `poker/memory/opponent_model.py`:
-`_fold_to_cbet_count`/`_cbet_faced_count`, `_cbet_attempt_count`,
-`_barrel_count`/`_barrel_opportunity_count`, `_third_barrel_*`,
-`_all_in_count`, postflop aggression counters, equity-at-action
-(polarization) sums/counts, opportunity-normalized preflop counters.
+### B1. Deep postflop reads as new grind tiers (the next phase — highest leverage)
 
-- **Extend the lifetime store**: add these counts to
-  `opponent_observation_lifetime` (migration) + the fold's
-  `_LIFETIME_COUNT_FIELDS` map (`game_repository.py`) + the read
-  (`load_observation_lifetime`) + the dossier derivation
-  (`_observation_from_lifetime` / a new deeper-reads builder, reusing
-  `_recalculate_stats` so fold-to-cbet/cbet/barrel rates match live).
-- **Add grind tiers** past 180 in `SCOUTING_SCHEDULE` (e.g. fold-to-cbet @
-  120, cbet @ 150, barrel @ 220, polarization @ 300) and informant sections
-  for them. This gives the 100–500-hand range something to unlock and makes a
-  maxed dossier genuinely deep.
-- The gate's `_redact_item` needs cases for the new item ids.
+**The idea:** the lifetime store currently keeps only the headline counts
+(VPIP/PFR/AF/showdown). `OpponentTendencies` computes far more and already
+serializes it to `opponent_models.tendencies_json` (see `to_dict` in
+`poker/memory/opponent_model.py`). Promote those into the lifetime store so
+they accumulate cross-game, then expose them as new grind tiers — fold-to-cbet,
+c-bet %, barrel/double-barrel, all-in frequency, postflop aggression, and the
+polarization (equity-at-action) reads. This is what gives the 100–500-hand
+range something to unlock and makes a maxed dossier genuinely deep.
+
+**The build (in order):**
+
+1. **Schema migration (v125):** add the new count columns to
+   `opponent_observation_lifetime`. ⚠ For each derived *rate* you must store
+   **both numerator AND denominator** counts, because the read reconstructs an
+   `OpponentTendencies` and calls `_recalculate_stats()` to derive the rate
+   (this is how we avoid duplicating formulas). The pairs:
+   - fold-to-cbet → `_fold_to_cbet_count` / `_cbet_faced_count`
+   - c-bet attempt → `_cbet_attempt_count` / `_postflop_seen_as_pfr_count`
+   - barrel → `_barrel_count` / `_barrel_opportunity_count`
+   - 3rd barrel → `_third_barrel_count` / `_third_barrel_opportunity_count`
+   - all-in freq → `_all_in_count` (denominator already there: hands_dealt)
+   - postflop AF → `_postflop_bet_raise_count` / `_postflop_call_count`
+   - polarization → `_equity_betting_sum`/`_count`,
+     `_equity_raising_sum`/`_count`, `_equity_calling_sum`/`_count`
+   (Confirm the exact key names against the current `to_dict` before writing
+   the migration — they're the source of truth.)
+2. **Fold:** add every new key to `_LIFETIME_COUNT_FIELDS`
+   (`game_repository.py`) — it's a flat `{tendencies_key: column}` map, so the
+   delta-fold picks them up automatically. (Sums work for all of these,
+   including the equity `_sum` accumulators.)
+3. **Read:** add the columns to `load_observation_lifetime`'s SELECT + return.
+4. **Derive:** in `character_routes._observation_from_lifetime`, set the new
+   `_*` fields on the reconstructed `OpponentTendencies` before
+   `_recalculate_stats()` — then `t.fold_to_cbet`, `t.cbet_attempt_rate`,
+   `t.barrel_frequency`, etc. come out correct, matching the live path.
+   Surface them in the response (extend the observation block or add a
+   `deeper_reads` block).
+5. **Gate + grind tiers:** add new item ids to `SCOUTING_SCHEDULE`
+   (`dossier_scouting.py`) past 180 (e.g. fold-to-cbet @120, c-bet @150,
+   barrel @220, polarization @300) and a `_redact_item` case for each. Note:
+   `reads_total` is `len(SCOUTING_SCHEDULE)`, so the gate progress, the
+   dossier "X/N pages", and the cabinet unlock % **all auto-scale** when you
+   add tiers — no other change needed there.
+6. **Informant:** optionally add an `INFORMANT_SECTIONS` entry bundling the
+   new deep reads (so they're buyable).
+7. **Frontend:** render the new reads in `ScoutingStrip` / the dossier's
+   observation/TABLE-POSTURE section (gated rows; null when locked).
+8. **Tests:** mirror `tests/test_repositories/test_observation_lifetime.py`
+   (fold lossless-merge for the new counts) + `tests/test_dossier_scouting*`
+   (gate redaction for the new item ids).
 
 ### B2. Exploit hints ("the read")
 Turn stats into one-line advice: *"folds to c-bets 62% — barrel relentlessly"*,
@@ -154,9 +177,10 @@ opponent's standing. Contextualizes the raw numbers.
 ---
 
 ## Suggested order
-1. **File cabinet** (Part A) — the retention payoff; self-contained.
-2. **B1 deep reads** — extends the grind + enriches the max dossier from data
-   we already collect (do the lifetime-store extension first, then tiers).
+1. ~~File cabinet (Part A)~~ — ✅ done (the Intel hub).
+2. **B1 deep reads** ← **next** — extends the grind + enriches the max dossier
+   from data we already collect (do the lifetime-store extension first, then
+   the grind tiers).
 3. **B2 exploit hints** — high flavor, small.
 4. **B3 / B4** — polish.
 
