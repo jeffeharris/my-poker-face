@@ -121,7 +121,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 | Socket events verify owner/admin before acting | ✅ | `game_routes.py` socket handlers |
 | Paid image-generation POST routes admin-gated | ✅ (PRH-1) | `image_routes.py` `_admin_only` |
 | Publishing a personality (cross-user content) is **admin-only**; non-admin owners may only set `private`; `save_personality` preserves visibility/owner on re-save | ✅ (PRH-27) | `personality_routes.py` visibility route; `personality_repository.save_personality` |
-| Admin bootstrap (`INITIAL_ADMIN_EMAIL`) still accepts a `guest_`-namespaced id in prod | ❌ | PRH-38 |
+| Admin bootstrap: a `guest_`-namespaced `INITIAL_ADMIN_EMAIL` is **refused in production** (bootstrap returns None; group-assign raises) — prod admin must be a verified OAuth email. Guest-namespace admin stays a dev-only convenience. | ✅ (PRH-38) | `poker/repositories/user_repository.py` |
 | First-class CSRF: double-submit `csrf_token` cookie + required `X-CSRF-Token` on mutating `/api/*` (constant-time compare → `403 CSRF_FAILED`); frontend attaches it via one global `fetch` wrapper. Armed in prod (same-origin), off in dev (cross-origin) + tests via `CSRF_PROTECTION_ENABLED`. On top of `SameSite=Lax`. | ✅ (PRH-36) | `flask_app/csrf.py`; `flask_app/config.py`; `react/.../utils/csrf.ts` |
 
 ## Secrets handling ✅
@@ -178,15 +178,15 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 | `gunicorn -k geventwebsocket…GeventWebSocketWorker -w 1 --timeout 120`; `ProxyFix` + forced HTTPS in prod | ✅ |
 | CORS: explicit origin allowlist; wildcard refused in production | ✅ |
 | `async_mode='threading'` under a gevent worker — non-standard pairing; confirm prod monkey-patch + standardize | ◑ PRH-24 |
-| Base `Dockerfile` still defaults to `flask run` and the module entrypoint runs Werkzeug with `debug=True`/`allow_unsafe_werkzeug=True`; container runs as root | ❌ PRH-40 |
-| No security headers / CSP at the edge (frontend nginx sets none; `index.html` has inline scripts) | ❌ PRH-39 |
+| Image is production-safe by default: `Dockerfile` `CMD` is gunicorn (not `flask run`); `ui_web.py` refuses the Werkzeug dev server when `FLASK_ENV != development`; container runs **non-root** (`appuser`/`gosu`, entrypoint drops privileges under `DROP_PRIVILEGES=1`, dev stays root) | ✅ PRH-40 |
+| Security headers at the frontend nginx: `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, and a `default-src 'self'` CSP. `script-src`/`style-src` still allow `'unsafe-inline'` (inline `index.html` scripts + Vite/Tailwind styles) — tightening `script-src` is the residual | ◑ PRH-39 |
 
 ## Known gaps — roadmap
 
 Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE_HARDENING.md):
 
 - **Web-session hardening:** ✅ done — CSRF tokens (PRH-36) and dropping the `localStorage` bearer JWT (PRH-37) both landed.
-- **Edge/deploy:** security headers + CSP (PRH-39); production-safe image default + non-root container (PRH-40); admin-bootstrap not via guest namespace (PRH-38); standardize the async model (PRH-24).
+- **Edge/deploy:** ✅ security headers + CSP (PRH-39 — `script-src` tightening is the residual), production-safe image default + non-root container (PRH-40), admin-bootstrap not via guest namespace (PRH-38) all landed; standardize the async model (PRH-24) remains.
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
 - **Ops/data:** off-box WAL-safe backups (PRH-29); capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30); client-side cold-load self-heal (PRH-31).
 - **Content (optional):** prompt-delimiting of user content (defense-in-depth) + server-forced chat `sender` (PRH-33). *AI-personality image-input moderation is now landed — PRH-27 is fully closed.*

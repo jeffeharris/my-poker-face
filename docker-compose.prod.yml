@@ -14,6 +14,9 @@ services:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
+      # PRH-40: run the container as the non-root appuser. The entrypoint
+      # chowns the bind-mounted data volume then drops privileges via gosu.
+      - DROP_PRIVILEGES=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
