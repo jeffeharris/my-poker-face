@@ -132,6 +132,22 @@ ARCHETYPES = {
             recovery_rate=0.1,
         ),
     },
+    # Weakest realistic fish (the $2-tier trickle): loose-passive anchors + the
+    # weak_fish profile (weak_station table + can't-fold + sticky/over_bluff).
+    'WeakFish': {
+        'profile': 'weak_fish',
+        'anchors': PersonalityAnchors(
+            baseline_aggression=0.2,
+            baseline_looseness=0.9,
+            ego=0.4,
+            poise=0.5,
+            expressiveness=0.5,
+            risk_identity=0.3,
+            adaptation_bias=0.3,
+            baseline_energy=0.5,
+            recovery_rate=0.15,
+        ),
+    },
     'Nit': {
         'profile': 'nit',
         'anchors': PersonalityAnchors(

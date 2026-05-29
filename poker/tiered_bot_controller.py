@@ -2220,11 +2220,30 @@ class TieredBotController(AIPlayerController):
         """
         tables = getattr(self, 'archetype_preflop_tables', None) or {}
         if tables:
-            key = self.archetype_name
+            key = self._table_archetype_key()
             tbl = tables.get(key)
             if tbl is not None:
                 return tbl, f'6max:{key}'
         return self.strategy_table, '6max'
+
+    def _table_archetype_key(self) -> str:
+        """The archetype key used to pick the width-tier table.
+
+        Prefers the explicit deviation-profile key (reverse-looked-up from the
+        bound `_deviation_profile`), which is what handles loadouts like
+        `weak_fish` that are NOT reachable via anchor classification
+        (`archetype_name` would mis-classify a weak_fish's loose-passive anchors
+        as `calling_station`). Falls back to `archetype_name` when no profile is
+        bound yet (the 6 anchor-derived archetypes, where the two agree).
+        """
+        prof = getattr(self, '_deviation_profile', None)
+        if prof is not None:
+            from .strategy.deviation_profiles import DEVIATION_PROFILES
+
+            for k, v in DEVIATION_PROFILES.items():
+                if v is prof:
+                    return k
+        return self.archetype_name
 
     def _select_preflop_table(self, num_seated, effective_stack_bb):
         """Pick the preflop chart for this spot. Returns (table, label).
@@ -2232,16 +2251,24 @@ class TieredBotController(AIPlayerController):
         - 2-handed: the HU chart (depth selection is 6-max-only for now —
           the HU chart has no shallow variants, and short stacks there are
           covered by the push/fold chart at the lookup step).
-        - 6-max/multiway at ~100bb: the archetype width-tier chart (loose /
-          station / tight) when one is loaded, else the shared base table.
-        - 6-max/multiway short: the shallow depth chart nearest the effective
-          stack (50/25bb) when available. Depth charts are width-tier-agnostic
-          for now — short-stack play collapses toward push/fold so the coarse
-          archetype envelope matters less there.
+        - 6-max/multiway, archetype WITH a width-tier chart (loose / station /
+          weak / tight): that chart, at EVERY depth. The archetype's looseness is
+          its identity — a fish/maniac must not collapse to the standard depth
+          chart at the shallow casino buy-in (~40bb), and the math/defense floors
+          handle pot-commitment shallow. (This is why the width table wins over
+          the depth chart — casino fish sit at ~40bb.)
+        - 6-max/multiway, archetype WITHOUT a width chart (tag / baseline — the
+          depth-aware competent bot): the shallow depth chart nearest the
+          effective stack (50/25bb) when available, else the base table.
         """
         if num_seated == 2 and self.hu_strategy_table is not None:
             return self.hu_strategy_table, 'HU'
         base, base_label = self._archetype_base_table()
+        # A width-tier archetype chart takes precedence at every depth (label is
+        # '6max:<key>'); only archetypes with NO width chart ('6max') fall through
+        # to the depth charts.
+        if base_label != '6max':
+            return base, base_label
         # getattr default keeps controllers built by bypassing __init__
         # (test fixtures, factories) working with no depth adjustment.
         depth_tables = getattr(self, 'depth_strategy_tables', None) or {}
@@ -2250,10 +2277,7 @@ class TieredBotController(AIPlayerController):
         bucket = nearest_depth_bucket(effective_stack_bb)
         table = depth_tables.get(bucket)
         if table is None:  # 100bb (base supplied by caller) or missing bucket
-            # Archetype width chart wins and keeps its label; otherwise annotate
-            # the deep bucket as before (depth-awareness active, deep stack).
-            label = base_label if base_label != '6max' else f'6max@{bucket}bb'
-            return base, label
+            return base, f'6max@{bucket}bb'
         return table, f'6max@{bucket}bb'
 
     def _classify_postflop_hand_strength(self, node):
