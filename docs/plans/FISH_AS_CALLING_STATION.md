@@ -358,3 +358,18 @@ The station switch stands (more realistic, unified engine, better exploit target
 economy-cycling knob is **stakes/bankroll placement (the whale), not the fish's decision
 engine.** A proper closed-economy A/B (fish_net_to_players, tiered vs rulebot) on a
 fish-dense small sandbox is the confirmation step if precise aggregate numbers are wanted.
+
+### Whale validation (2026-05-29)
+
+Ran the lobby economy sim with an 800k initial pool seed (to clear the whale thresholds),
+250 ticks. A **$200 whale spawned** (Cruise Carl, archetype='fish' → now a tiered
+calling_station): drew 205,822 from the pool, and over 250 ticks `fish_net_to_players` rose to
+**+40,183** with **168k still in its bankroll to bleed** — a sustained mid-tier cycler, feeding
+the $200 grinders (NOT the $1k top; casinos cap at $50 and whales gate to $50/$200).
+Conservation clean (`audit_drift=0`) — the tiered whale doesn't break accounting. Notes: only
+the $200 whale spawned, not the $50 (the release logic appears to pick the single biggest
+eligible whale — getting one per stake likely needs pool headroom / per-stake gating); and the
+whale's absolute cycling already dwarfs the small calling-station fish (40k+ climbing vs a
+−68 bb/100 small fish), confirming stakes×rate is the lever. Complementary future channel:
+tournament buy-ins (tourists pad low-tier prize pools → cycle to winners) on the tournaments
+branch — see [[project_casino_economy_cycling]] in memory.
