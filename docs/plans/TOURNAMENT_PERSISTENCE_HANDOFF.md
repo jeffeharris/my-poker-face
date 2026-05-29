@@ -5,8 +5,16 @@ created: 2026-05-29
 last_updated: 2026-05-29
 ---
 
-> **Update 2026-05-29:** P1 #2 (frontend live tournament events) is now done —
-> see that item below. Persistence (P1 #1) remains the next piece.
+> **Update 2026-05-29:** All of P1 is now DONE. Persistence (P1 #1) shipped in
+> three layers — A (engine serialization + conservation assert) `a367217c`,
+> B (schema v123 + `TournamentSessionRepository`) `ff89ab88`, C (write-through
+> registry + save points + hand-boundary persist) `fa8926eb`; full tournament
+> suite green (86 passed + the live-play integration). P1 #2 (live events) and
+> #3 (standings) are likewise done — see those items below. The implementation
+> spec below is kept for reference; the one deferred slice is §5 in-place HTTP
+> cold-load — not required, GamePage routes a cold `tourney-` 404 to the
+> standings hub's Resume, which rebuilds the live table from the rehydrated
+> session.
 
 # Multi-Table Tournament — Persistence Handoff + Remaining Work
 
@@ -129,7 +137,13 @@ persist at each:
 Make `tournament_registry` **write-through**: `get`/`find_active_for_owner` fall
 back to the repo on a memory miss and rehydrate into memory.
 
-### 5. Cold-load rehydration (the wiring that reconnects an opened game)
+### 5. Cold-load rehydration (the wiring that reconnects an opened game) — DEFERRED
+
+> **Deferred (not required for P1).** GamePage already routes a 404 on a cold
+> `tourney-` id to `/tournament` (the standings hub), where Resume calls `sit`
+> and rebuilds the live table from the rehydrated session. Only wire this
+> in-place HTTP path if deep-linking straight to a cold `tourney-` URL becomes a
+> real need.
 
 Find the cold-load path (GET `/api/game-state` / `_authorize_game_access` /
 wherever cash games cold-load — `game_routes.py`, search the `is_cash_game`
@@ -191,7 +205,14 @@ boundary + a `rehydrate_tournament_session(game_data, game_id)` helper) ·
 ## Everything else still left (prioritized)
 
 ### P1 — durability + live UX (finish the live experience)
-1. **Persistence** (this doc).
+1. **Persistence** — **DONE (2026-05-29).** Layers A `a367217c` / B `ff89ab88` /
+   C `fa8926eb`. Durable + re-enterable across navigation / 2h TTL eviction /
+   restart via the write-through `tournament_registry` +
+   `tournament_session_repository` (schema v123). Re-entry works through the
+   lobby/standings/sit routes; the §5 in-place HTTP cold-load is deferred (cold
+   `tourney-` 404s route to the standings hub's Resume). Tests:
+   `test_persistence.py` (8) + `test_session_repository.py` (8) +
+   `test_registry_persistence.py` (7), all green.
 2. **Frontend live tournament events** — **DONE (2026-05-29).** The MTT events
    were renamed to the `mtt_` namespace (`mtt_update` / `mtt_relocated` /
    `mtt_eliminated` / `mtt_complete`) to avoid colliding with the legacy
