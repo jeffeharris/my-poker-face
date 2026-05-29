@@ -200,3 +200,45 @@ clean.
 section still costs full price (noted); the random-vs-chosen lever resolved to
 player-chosen; archetype badge; Phase 4 (file cabinet); live UI eyeball of the
 buy flow + the deferred `relationship_states` migration.
+
+---
+
+## 2026-05-29 (Tier 1 follow-up) — durable pressure + memorable hands
+
+**The gap the user found.** A "fully unlocked" dossier between games was
+missing pressure (signature move, biggest pots, HU record, bluffs) and
+memorable hands — Phase 1 only made *observation* durable; these stayed
+live-only and vanished when the game left memory.
+
+**Chose aggregate-on-read over a fold.** For observation I built a
+materialized lifetime table + delta-fold. For pressure/memorable I went the
+other way: re-aggregate on read. Why — the source tables (`pressure_events`,
+`memorable_hands`) already hold every event, the live aggregator
+(`PlayerPressureStats.get_summary`) already derives the exact summary, and a
+*fresh* re-aggregation each read structurally can't double-count (the bug
+that bit the observation fold). One repo query + replay vs. a new
+table+migration+fold+high-water-mark. Much less surface, and it reuses the
+canonical derivation so lifetime and live stats can't drift.
+
+**Scope compromise, surfaced.** Scoped by `owner_id` (the game owner) rather
+than strictly per-sandbox, because `pressure_events`/`memorable_hands` carry
+no `sandbox_id` and no game→sandbox map exists without the backfill work.
+Under v1's 1:1 ownership owner == sandbox, so it's identical today; noted as
+a divergence from observation's true per-sandbox keying for the multi-sandbox
+future. A neat trick fell out: filtering memorable to `observer_name =
+games.owner_name` pins it to the human-as-observer across their games without
+needing to know their display name up front.
+
+**Scope call on the file cabinet.** Folded it into the Tier-2 handoff instead
+of building it here. It's a self-contained new surface (endpoint + React
+list) ideal for a fresh context, and three Phase-sized builds in one session
+would have meant rushing the sensitive lifetime-adjacent code. Told the user.
+
+**Shipped:** `get_player_events_for_owner` (PressureEventRepository),
+`load_lifetime_memorable_hands` (GameRepository), `_build_lifetime_pressure_summary`
++ dossier preference wiring (character_routes). 5 new route/integration tests
+(durable survival between games + still-gated-below-threshold); 34 dossier +
+36 repo/pressure regression green.
+
+**Not done:** true per-sandbox scoping for pressure/memorable (owner-scoped
+for now); the file cabinet + all of Tier 2 (handed off).

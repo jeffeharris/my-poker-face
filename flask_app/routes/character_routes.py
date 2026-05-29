@@ -327,6 +327,59 @@ def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]
         return None
 
 
+def _build_lifetime_pressure_summary(
+    owner_id: Optional[str], player_name: Optional[str]
+) -> Optional[dict]:
+    """Durable cross-game pressure summary for `player_name`, replaying every
+    pressure event across the owner's games through the canonical
+    `PlayerPressureStats` aggregation (same get_summary() the live path uses,
+    so signature move / biggest pots / HU record / bluff tallies are derived
+    identically — just over a lifetime instead of one game).
+
+    Owner-scoped (≈ sandbox under v1's 1:1 ownership). Returns None when there
+    are no events. Reusing the live aggregator means a fresh re-aggregation
+    each read — it can't double-count.
+    """
+    if not owner_id or not player_name:
+        return None
+    try:
+        from datetime import datetime
+
+        from flask_app.extensions import persistence_db_path
+        from poker.pressure_stats import PlayerPressureStats, PressureEvent
+        from poker.repositories.sqlite_repositories import PressureEventRepository
+
+        if not persistence_db_path:
+            return None
+        repo = PressureEventRepository(persistence_db_path)
+        events = repo.get_player_events_for_owner(player_name, owner_id)
+        if not events:
+            return None
+
+        stats = PlayerPressureStats(player_name)
+        for e in events:
+            raw_ts = e.get('timestamp')
+            if isinstance(raw_ts, datetime):
+                ts = raw_ts
+            else:
+                try:
+                    ts = datetime.fromisoformat(str(raw_ts))
+                except (TypeError, ValueError):
+                    ts = datetime.now()
+            stats.add_event(
+                PressureEvent(
+                    timestamp=ts,
+                    event_type=e['event_type'],
+                    player_name=player_name,
+                    details=e.get('details') or {},
+                )
+            )
+        return stats.get_summary()
+    except Exception as exc:
+        logger.debug("[CHARACTER] lifetime pressure load failed: %s", exc)
+        return None
+
+
 def _build_memorable_hands(game_data: dict, player_name: str) -> list:
     """Top-impact memorable hands the human observer has against `player_name`.
 
@@ -588,6 +641,28 @@ def get_dossier(identifier: str):
                 response['observation'] = life_obs
         except Exception as e:
             logger.debug("[CHARACTER] lifetime observation load failed: %s", e)
+
+    # Durable cross-game pressure + memorable hands. Like observation, these
+    # were live-only (lost between games); prefer the lifetime version so a
+    # signature move / biggest pots / HU record / memorable hands survive
+    # game-end. Owner-scoped (≈ sandbox under 1:1 ownership). Falls back to
+    # the live builders (already set above) when there's no durable history.
+    try:
+        lifetime_pressure = _build_lifetime_pressure_summary(observer_id, player_name)
+        if lifetime_pressure is not None:
+            response['pressure_summary'] = lifetime_pressure
+    except Exception as e:
+        logger.debug("[CHARACTER] lifetime pressure merge failed: %s", e)
+    try:
+        from flask_app.extensions import game_repo
+
+        lifetime_memorable = game_repo.load_lifetime_memorable_hands(
+            observer_id, player_name
+        )
+        if lifetime_memorable:
+            response['memorable_hands'] = lifetime_memorable
+    except Exception as e:
+        logger.debug("[CHARACTER] lifetime memorable merge failed: %s", e)
 
     # Player-authored note (v95). None when no row OR row has NULL note.
     try:

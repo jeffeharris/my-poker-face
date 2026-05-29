@@ -1048,6 +1048,46 @@ class GameRepository(BaseRepository):
             'last_updated': row['last_updated'],
         }
 
+    def load_lifetime_memorable_hands(
+        self, owner_id: str, opponent_name: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Top memorable hands the human (game owner) has logged against
+        `opponent_name` across ALL of their games — the durable, cross-game
+        view for the dossier (the live builder only sees the active game).
+
+        Scoped by game owner (≈ sandbox under v1's 1:1 ownership). Filters to
+        the human-as-observer by matching observer_name to the game's
+        owner_name, so AI-observer memories don't leak in. `hand_summary` is
+        not persisted (game_repository known gap), so it comes back empty —
+        the narrative + impact carry the entry.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.hand_id, m.memory_type, m.impact_score, m.narrative,
+                       m.created_at
+                FROM memorable_hands m
+                JOIN games g ON m.game_id = g.game_id
+                WHERE g.owner_id = ?
+                  AND m.opponent_name = ?
+                  AND m.observer_name = g.owner_name
+                ORDER BY m.impact_score DESC
+                LIMIT ?
+                """,
+                (owner_id, opponent_name, limit),
+            ).fetchall()
+        return [
+            {
+                'hand_id': r['hand_id'],
+                'event': r['memory_type'],
+                'impact_score': r['impact_score'] or 0.0,
+                'narrative': r['narrative'] or '',
+                'hand_summary': '',  # not persisted (known gap)
+                'timestamp': r['created_at'],
+            }
+            for r in rows
+        ]
+
     def load_informant_unlocks(
         self, sandbox_id: str, observer_id: str, opponent_id: str
     ) -> set:

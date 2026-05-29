@@ -206,3 +206,58 @@ class TestDossierScoutingRoute(unittest.TestCase):
     def test_informant_unknown_section_400(self):
         self._seed_bankroll(5000)
         self.assertEqual(self._buy('not_a_section').status_code, 400)
+
+    # --- Durable pressure + memorable (Tier 1) -----------------------------
+
+    def _seed_pressure_and_memorable(self):
+        """Seed a finished game (owner-stamped) with pressure events and a
+        memorable hand for PERSONALITY — the cross-game history the durable
+        dossier should surface even with no live game in memory."""
+        conn = sqlite3.connect(self.test_db.name)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO games "
+                "(game_id, phase, num_players, pot_size, game_state_json, "
+                " owner_id, owner_name) "
+                "VALUES ('g1', 'PRE_FLOP', 2, 0, '{}', ?, 'Jeff')",
+                (OBSERVER,),
+            )
+            for et, pot in [('successful_bluff', 0), ('big_win', 1800), ('headsup_win', 0)]:
+                conn.execute(
+                    "INSERT INTO pressure_events (game_id, player_name, event_type, details_json) "
+                    "VALUES ('g1', ?, ?, ?)",
+                    (PERSONALITY, et, json.dumps({'pot_size': pot})),
+                )
+            conn.execute(
+                "INSERT INTO memorable_hands "
+                "(observer_name, opponent_name, hand_id, game_id, memory_type, "
+                " impact_score, narrative) "
+                "VALUES ('Jeff', ?, 1, 'g1', 'cooler', 0.9, 'Rivered a boat on me')",
+                (PERSONALITY,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_durable_pressure_and_memorable_survive_between_games(self):
+        # No live game in memory — everything must come from durable history.
+        self._seed_pressure_and_memorable()
+        self._fold(200)  # unlock everything (pressure@100, memorable@140)
+
+        body = self._dossier()
+        ps = body['pressure_summary']
+        self.assertIsNotNone(ps, "lifetime pressure should populate from history")
+        self.assertEqual(ps['successful_bluffs'], 1)
+        self.assertEqual(ps['biggest_pot_won'], 1800)
+        self.assertEqual(ps['headsup_wins'], 1)
+
+        mem = body['memorable_hands']
+        self.assertTrue(mem)
+        self.assertEqual(mem[0]['narrative'], 'Rivered a boat on me')
+
+    def test_durable_pressure_still_gated_below_threshold(self):
+        self._seed_pressure_and_memorable()
+        self._fold(30)  # past floor(25) but below pressure(100)/memorable(140)
+        body = self._dossier()
+        self.assertIsNone(body['pressure_summary'])
+        self.assertEqual(body['memorable_hands'], [])

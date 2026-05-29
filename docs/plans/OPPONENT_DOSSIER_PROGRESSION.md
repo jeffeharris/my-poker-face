@@ -207,9 +207,18 @@ tournament can write to them without disturbing the shared behavioral row.
 > hand-boundary saves (`game_routes.py`); dossier prefers the lifetime
 > observation (`character_routes.py`, canonical rate derivation). Plus the
 > cheap `cash_pair_stats` sandbox-scoping fix. 12 new tests green; 54
-> game-repo/dispatch regression tests green. **Remaining:** backfill script
-> for existing `opponent_models` history; live end-to-end verification in a
-> real cash session.
+> game-repo/dispatch regression tests green.
+>
+> **Pressure & memorable now durable too (2026-05-29 follow-up):** both were
+> live-only (vanished between games). Made durable via *aggregate-on-read
+> scoped by owner* (≈ sandbox under 1:1): `PressureEventRepository.get_player_events_for_owner`
+> replays the opponent's pressure events across the owner's games through the
+> canonical `PlayerPressureStats` (reuses get_summary — no double-count);
+> `GameRepository.load_lifetime_memorable_hands` pulls the human's top-impact
+> hands vs that opponent across games. Dossier prefers both, falls back to
+> the live builders. Still gated by the scouting tiers. **Remaining:**
+> backfill (skipped by decision); live end-to-end verification; the file
+> cabinet (Phase 4).
 
 Everything else depends on this. Goal: **lifetime tendencies per
 `(sandbox, observer, opponent)`, aggregated across every game within that
