@@ -337,14 +337,20 @@ def analyze_player_decision(
 
 def _evaluate_coach_progression(
     game_id: str, player_name: str, action: str, amount: int, game_data: dict, pre_action_state
-) -> None:
+) -> Optional[dict]:
     """Post-action hook: evaluate the human player's action against skill targets.
 
     Uses a broad try/except intentionally: this entire function is a non-critical
     post-action hook. Any failure must not disrupt the game flow. The phases
     (data loading, classification/evaluation, feedback prompt generation) are kept
     in one block to avoid partial state from early failures.
+
+    Returns a serialized "inline feedback" dict for the primary evaluated skill
+    ({skill_id, skill_name, verdict, reasoning, confidence}) when there's a
+    coachable verdict, else None. Training mode surfaces this in the action
+    response; other modes ignore the return value. Never raises.
     """
+    feedback: Optional[dict] = None
     try:
         from flask_app.services.coach_engine import compute_coaching_data
         from flask_app.services.coach_progression import (
@@ -421,6 +427,24 @@ def _evaluate_coach_progression(
                 for ev in evaluations:
                     session_memory.record_hand_evaluation(hand_number, ev)
 
+                # Build inline feedback for the primary skill (the one the
+                # classifier prioritized), falling back to the first eval.
+                # Only surface a coachable verdict — skip not_applicable so the
+                # training UI doesn't flash a badge on every irrelevant action.
+                from flask_app.services.skill_definitions import get_skill_by_id
+
+                primary = classification.primary_skill
+                chosen = next((e for e in evaluations if e.skill_id == primary), evaluations[0])
+                if chosen.evaluation in ('correct', 'incorrect', 'marginal'):
+                    sd = get_skill_by_id(chosen.skill_id)
+                    feedback = {
+                        'skill_id': chosen.skill_id,
+                        'skill_name': sd.name if sd else chosen.skill_id,
+                        'verdict': chosen.evaluation,
+                        'reasoning': chosen.reasoning,
+                        'confidence': chosen.confidence,
+                    }
+
                 # PRH-15: persist the per-hand evaluations so the review
                 # history survives a restart / TTL-eviction. Best-effort —
                 # a persistence hiccup must never break the action path.
@@ -439,6 +463,7 @@ def _evaluate_coach_progression(
             f"[COACH_PROGRESSION] Failed for game={game_id} player={player_name}: {e}",
             exc_info=True,
         )
+    return feedback
 
 
 def generate_game_id() -> str:
@@ -1909,9 +1934,11 @@ def api_player_action(game_id):
             ai_controllers=current_game_data.get('ai_controllers'),
         )
 
-        # Coach progression: evaluate human player actions against skill targets
+        # Coach progression: evaluate human player actions against skill targets.
+        # In training mode the verdict is surfaced inline (see the response below).
+        skill_feedback = None
         if current_player.is_human:
-            _evaluate_coach_progression(
+            skill_feedback = _evaluate_coach_progression(
                 game_id, current_player.name, action, amount, current_game_data, pre_action_state
             )
 
@@ -1955,7 +1982,12 @@ def api_player_action(game_id):
 
         progress_game(game_id)
 
-        return jsonify({'success': True})
+        # Training mode surfaces the coach's per-action skill verdict inline so
+        # every decision gets immediate feedback (other modes evaluate silently).
+        response_body = {'success': True}
+        if current_game_data.get('training_mode') and skill_feedback:
+            response_body['skill_evaluation'] = skill_feedback
+        return jsonify(response_body)
     except Exception as e:
         logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to process action'}), 500

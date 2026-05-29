@@ -285,6 +285,61 @@ class TestTrainingStartRoute(unittest.TestCase):
         listed = {g['game_id'] for g in resp.get_json()['games']}
         self.assertNotIn(gid, listed)
 
+    def test_inline_skill_feedback_in_action_response(self):
+        """Training action responses carry the coach's per-action verdict.
+
+        Locks the FE/BE contract: the field is named `skill_evaluation` and is
+        only emitted in training mode. The coach evaluation itself is the coach
+        system's concern, so we patch it to a canned verdict and assert the
+        route threads it into the response.
+        """
+        from flask_app.services import game_state_service
+
+        canned = {
+            'skill_id': 'raise_or_fold',
+            'skill_name': 'Raise or Fold',
+            'verdict': 'correct',
+            'reasoning': 'Folding a weak hand to a raise is the disciplined play.',
+            'confidence': 0.9,
+        }
+
+        start = self._start(difficulty='easy', preset_id='heads_up')
+        gid = start.get_json()['game_id']
+
+        # In heads-up the human (button/SB) acts first preflop, so no AI driving
+        # is needed. We patch the post-action `progress_game` to a no-op so the
+        # action route doesn't reach engine paths that touch repos this test's
+        # setUp didn't patch (the documented extensions-globals trap — see
+        # tests/CLAUDE.md). The contract under test is purely the response
+        # assembly: training mode threads the eval into `skill_evaluation`.
+        gs = game_state_service.get_game(gid)['state_machine'].game_state
+        self.assertTrue(
+            gs.awaiting_action and gs.current_player.is_human,
+            'heads-up human should be first to act preflop',
+        )
+
+        with patch(
+            'flask_app.routes.game_routes._evaluate_coach_progression', return_value=canned
+        ), patch('flask_app.routes.game_routes.progress_game'), patch(
+            'flask_app.routes.game_routes.send_message'
+        ):
+            body = None
+            for act in ('fold', 'check', 'call'):
+                with self._mock_auth():
+                    act_resp = self.client.post(
+                        f'/api/game/{gid}/action',
+                        json={'action': act, 'amount': 0},
+                        environ_overrides={'REMOTE_ADDR': '10.77.0.1'},
+                    )
+                if act_resp.status_code == 200:
+                    body = act_resp.get_json()
+                    break
+
+            self.assertIsNotNone(body, 'no legal human action succeeded')
+            self.assertEqual(body.get('skill_evaluation'), canned)
+
+        game_state_service.delete_game(gid)
+
 
 if __name__ == '__main__':
     unittest.main()

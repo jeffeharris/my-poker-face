@@ -9,6 +9,31 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
+
+interface SkillEvaluationFeedback {
+  skill_id: string;
+  skill_name: string;
+  verdict: 'correct' | 'incorrect' | 'marginal';
+  reasoning: string;
+  confidence: number;
+}
+
+// Training mode returns a per-action coach verdict in the action response.
+// Surface it as a brief, calm toast (single id so rapid actions replace rather
+// than stack). Other modes never include this field.
+function showCoachFeedback(ev: SkillEvaluationFeedback): void {
+  const mark = ev.verdict === 'correct' ? '✓' : ev.verdict === 'incorrect' ? '✗' : '•';
+  const message = `${mark} ${ev.skill_name} — ${ev.reasoning}`;
+  const opts = { id: 'coach-feedback', duration: 4500 } as const;
+  if (ev.verdict === 'correct') {
+    toast.success(message, opts);
+  } else if (ev.verdict === 'incorrect') {
+    toast.error(message, opts);
+  } else {
+    toast(message, { ...opts, icon: '🧐' });
+  }
+}
+
 interface UsePokerGameOptions {
   gameId: string | null;
   playerName?: string;
@@ -968,6 +993,16 @@ export function usePokerGame({
 
         if (!response.ok) {
           throw new Error('Action failed');
+        }
+
+        // Training mode includes a per-action coach verdict — show it inline.
+        try {
+          const body = await response.json();
+          if (body?.skill_evaluation) {
+            showCoachFeedback(body.skill_evaluation as SkillEvaluationFeedback);
+          }
+        } catch {
+          // Non-JSON / empty body (non-training games) — nothing to surface.
         }
       } catch (error) {
         logger.error('Failed to send action:', error);
