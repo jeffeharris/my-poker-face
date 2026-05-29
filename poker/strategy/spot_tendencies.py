@@ -138,9 +138,57 @@ def _slowplay(
     return new, f'slowplay_{hand_class}'
 
 
+# ── give-up turn / one-and-done ──────────────────────────────────────────────
+# The "no second barrel" leak: a player c-bets the flop (takes initiative) with
+# a wide range, then on the turn — when checked to — gives up everything that
+# isn't strong value, checking back instead of firing the second barrel. It is
+# the **dual of the multistreet H1 barrel** (which *pumps* turn bet frequency
+# for these same thin/semi-bluff classes); float-flop-steal-turn is its
+# exploiter. Slow-play dampens the strong end (trap); give-up-turn dampens the
+# *thin/bluff* end (no follow-through) — the two are disjoint by hand class.
+#
+# Turn only: the flop c-bet is the first barrel (initiative is taken there, so a
+# flop give-up isn't "one-and-done"), and a river give-up is a distinct read.
+# Strong value (nuts/strong_made) is intentionally excluded — a give-up player
+# still bets those for value; abandoning them would be a (different) slow-play.
+_GIVEUP_CLASSES = frozenset({'medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'})
+_GIVEUP_STREETS = frozenset({'turn'})
+
+
+def _give_up_turn(
+    strategy: StrategyProfile,
+    strength: float,
+    *,
+    hand_class: str,
+    action_context: str,
+    street: Optional[str],
+    has_initiative: bool,
+    max_shift: float,
+) -> Tuple[StrategyProfile, str]:
+    """Give-up-turn handler. Returns (new_strategy, reason_code).
+
+    `new_strategy is strategy` (identity) signals "gate not met / no-op".
+    Reuses `_dampen_aggression` (the slow-play reshape) — same mechanism (move
+    bet mass to check), different gate (thin/bluff classes on the turn).
+    """
+    applies = (
+        hand_class in _GIVEUP_CLASSES
+        and has_initiative
+        and action_context == 'unopened'
+        and (street or '').lower() in _GIVEUP_STREETS
+    )
+    if not applies:
+        return strategy, 'gate_not_met'
+    new = _dampen_aggression(strategy, strength, max_shift)
+    if new is strategy:
+        return strategy, 'no_bet_mass_or_sink'
+    return new, f'give_up_turn_{hand_class}'
+
+
 # name -> handler. Add backlog tendencies (donk, open-limp, ...) here.
 _TENDENCIES = {
     'slowplay': _slowplay,
+    'give_up_turn': _give_up_turn,
 }
 
 

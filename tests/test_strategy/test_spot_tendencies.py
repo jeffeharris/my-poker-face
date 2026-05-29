@@ -14,6 +14,7 @@ BASE = StrategyProfile(
     action_probabilities={'check': 0.30, 'bet_67': 0.50, 'bet_100': 0.20}
 )
 SLOWPLAY = (('slowplay', 0.6),)
+GIVEUP = (('give_up_turn', 0.6),)
 # Loose cap so the reshape isn't clipped (isolates the slow-play effect).
 LOOSE_CAP = 0.60
 
@@ -109,6 +110,105 @@ def test_emitted_traces_validate():
     _, fired = _apply()
     _, disabled = _apply(disable_rules=frozenset({(LAYER, 'slowplay')}))
     _, noop = _apply(hand_class='air_no_draw')
+    for traces in (fired, disabled, noop):
+        for t in traces:
+            validate_trace(t)
+
+
+# ── give-up turn / one-and-done ──────────────────────────────────────────────
+# Dual of the multistreet H1 barrel: dampens turn bet mass for the thin/bluff
+# classes when hero has initiative and is checked to. Turn-only; disjoint from
+# slow-play (which targets nuts/strong_made).
+
+def test_give_up_turn_fires_on_thin_hand_with_initiative():
+    out, traces = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn')
+    assert _agg(out) < _agg(BASE)  # barrel abandoned → aggression dampened
+    assert out.action_probabilities['check'] > BASE.action_probabilities['check']
+    assert len(traces) == 1 and traces[0].fired
+    assert traces[0].layer == LAYER and traces[0].rule_id == 'give_up_turn'
+    assert abs(sum(out.action_probabilities.values()) - 1.0) < 1e-9
+
+
+def test_give_up_turn_fires_on_each_thin_class():
+    for hc in ('medium_made', 'weak_made', 'air_strong_draw', 'air_no_draw'):
+        out, traces = _apply(tendencies=GIVEUP, hand_class=hc, street='turn')
+        assert _agg(out) < _agg(BASE), hc
+        assert traces[0].fired, hc
+
+
+def test_give_up_turn_no_op_on_strong_value():
+    # Strong hands keep betting (that's slow-play's domain, not give-up's).
+    for hc in ('nuts', 'strong_made'):
+        out, traces = _apply(tendencies=GIVEUP, hand_class=hc, street='turn')
+        assert out is BASE, hc
+        assert len(traces) == 1 and not traces[0].fired, hc
+
+
+def test_give_up_turn_no_op_on_flop():
+    # Turn-only: the flop c-bet is the first barrel, not a give-up.
+    out, traces = _apply(tendencies=GIVEUP, hand_class='medium_made', street='flop')
+    assert out is BASE and not traces[0].fired
+
+
+def test_give_up_turn_no_op_on_river():
+    out, traces = _apply(tendencies=GIVEUP, hand_class='medium_made', street='river')
+    assert out is BASE and not traces[0].fired
+
+
+def test_give_up_turn_no_op_without_initiative():
+    out, traces = _apply(
+        tendencies=GIVEUP, hand_class='medium_made', street='turn', has_initiative=False
+    )
+    assert out is BASE and not traces[0].fired
+
+
+def test_give_up_turn_no_op_facing_a_bet():
+    out, traces = _apply(
+        tendencies=GIVEUP, hand_class='medium_made', street='turn', action_context='facing_bet'
+    )
+    assert out is BASE and not traces[0].fired
+
+
+def test_give_up_turn_is_ablatable():
+    out, traces = _apply(
+        tendencies=GIVEUP, hand_class='medium_made', street='turn',
+        disable_rules=frozenset({(LAYER, 'give_up_turn')}),
+    )
+    assert out is BASE
+    assert len(traces) == 1 and not traces[0].fired
+    assert traces[0].reason_code == 'disabled_by_ablation'
+
+
+def test_give_up_turn_respects_per_action_cap():
+    cap = 0.10
+    out, traces = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn', max_shift=cap)
+    for action, base_p in BASE.action_probabilities.items():
+        shift = abs(out.action_probabilities[action] - base_p)
+        assert shift <= cap + 1e-6, f"{action} moved {shift:.4f} > cap {cap}"
+    assert traces[0].fired
+
+
+def test_give_up_turn_and_slowplay_are_disjoint():
+    # Both configured: a turn medium_made fires give-up but not slow-play; a turn
+    # nuts fires slow-play but not give-up. Exactly one reshape per spot.
+    out, traces = _apply(
+        tendencies=SLOWPLAY + GIVEUP, hand_class='medium_made', street='turn'
+    )
+    fired = [t for t in traces if t.fired]
+    assert len(fired) == 1 and fired[0].rule_id == 'give_up_turn'
+
+    out, traces = _apply(tendencies=SLOWPLAY + GIVEUP, hand_class='nuts', street='turn')
+    fired = [t for t in traces if t.fired]
+    assert len(fired) == 1 and fired[0].rule_id == 'slowplay'
+
+
+def test_give_up_turn_emitted_traces_validate():
+    _, fired = _apply(tendencies=GIVEUP, hand_class='medium_made', street='turn')
+    _, disabled = _apply(
+        tendencies=GIVEUP, hand_class='medium_made', street='turn',
+        disable_rules=frozenset({(LAYER, 'give_up_turn')}),
+    )
+    _, noop = _apply(tendencies=GIVEUP, hand_class='nuts', street='turn')
     for traces in (fired, disabled, noop):
         for t in traces:
             validate_trace(t)
