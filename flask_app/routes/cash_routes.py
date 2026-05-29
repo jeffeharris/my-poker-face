@@ -809,12 +809,12 @@ def _build_cash_game(
         )
         if rule_strategy_override == "fish":
             # Fish now run through the unified tiered engine as a true
-            # calling_station (the station width-tier table), with the legacy
-            # fish_leak re-expressed as a spot tendency. archetype='fish' is
+            # calling_station (the station width-tier table). archetype='fish' is
             # untouched (the economy/seating key); bot_type stays 'fish' so the
-            # restore path rebuilds the same fish controller. See
+            # restore path rebuilds the same fish controller. The fish's tell is a
+            # `spot_tendencies` entry in its personality config, read natively on
+            # every build path (sit/live-fill/restore). See
             # docs/plans/FISH_AS_CALLING_STATION.md.
-            fish_leak = (personality_config or {}).get("fish_leak")
             bot_types[player.name] = "fish"
             player_llm_configs[player.name] = {}
             controller = build_fish_controller(
@@ -824,7 +824,6 @@ def _build_cash_game(
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
-                fish_leak=fish_leak,
             )
             ai_controllers[player.name] = controller
             continue

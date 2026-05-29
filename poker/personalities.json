@@ -2250,7 +2250,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "calls_down_top_pair"
+      "fish_leak": "calls_down_top_pair",
+      "spot_tendencies": [["sticky", 0.65]]
     },
     "Bachelorette Brenda": {
       "archetype": "fish",
@@ -2299,7 +2300,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "chases_any_draw"
+      "fish_leak": "chases_any_draw",
+      "spot_tendencies": [["sticky", 0.55]]
     },
     "Cruise Carl": {
       "archetype": "fish",
@@ -2397,7 +2399,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "pot_committed_early"
+      "fish_leak": "pot_committed_early",
+      "spot_tendencies": [["sticky", 0.65]]
     },
     "After Hours Trent": {
       "archetype": "fish",
@@ -2446,7 +2449,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "spite_raises_when_losing"
+      "fish_leak": "spite_raises_when_losing",
+      "spot_tendencies": [["over_bluff", 0.6]]
     },
     "Lucky Mona": {
       "archetype": "fish",
@@ -2495,7 +2499,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "overvalues_face_cards"
+      "fish_leak": "overvalues_face_cards",
+      "spot_tendencies": [["sticky", 0.55]]
     },
     "Slots Linda": {
       "archetype": "fish",
@@ -2544,7 +2549,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "sticky_then_pops"
+      "fish_leak": "sticky_then_pops",
+      "spot_tendencies": [["sticky", 0.85]]
     },
     "Golf Trip Brad": {
       "archetype": "fish",
@@ -2642,7 +2648,8 @@
         "willing": false
       },
       "rule_strategy": "fish",
-      "fish_leak": "spews_bluffs"
+      "fish_leak": "spews_bluffs",
+      "spot_tendencies": [["over_bluff", 0.8]]
     }
   }
 }

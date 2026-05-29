@@ -462,13 +462,12 @@ def restore_ai_controllers(
                     )
                     logger.info(f"[RESTORE] Created LeanBoundedController for {player.name}")
                 elif strategy == 'fish':
-                    # Fish now restore as a tiered calling_station (unified engine).
-                    # Anchors → calling_station + station width-tier table. The
-                    # specific fish_leak spot-tendency strength is not re-applied
-                    # here (the restore loop doesn't load persona configs) — the
-                    # bare station is still a loose-passive caller; full leak
-                    # fidelity on cold-load is a follow-up (store spot_tendencies
-                    # in the persona). See docs/plans/FISH_AS_CALLING_STATION.md.
+                    # Fish restore as a tiered calling_station (unified engine):
+                    # anchors → calling_station + station width-tier table, and the
+                    # fish's tell rides along as a `spot_tendencies` entry in its
+                    # personality config (build_tiered_controller loads the persona
+                    # by name; _effective_spot_tendencies reads it), so the leak
+                    # survives cold-load. See docs/plans/FISH_AS_CALLING_STATION.md.
                     from flask_app.handlers.tiered_factory import build_fish_controller
 
                     controller = build_fish_controller(
@@ -1992,16 +1991,16 @@ def _seat_freshly_filled_ais(
         occupied_names.add(name)
 
         # Route fish-archetype personalities to the unified tiered engine as a
-        # calling_station (station width-tier table), with the legacy fish_leak
-        # re-expressed as a spot tendency. Mirrors the sit-route in cash_routes.py.
-        # See docs/plans/FISH_AS_CALLING_STATION.md.
+        # calling_station (station width-tier table). The fish's tell is a
+        # `spot_tendencies` entry in its personality config (read natively on every
+        # build path). Mirrors the sit-route in cash_routes.py. See
+        # docs/plans/FISH_AS_CALLING_STATION.md.
         rule_strategy_override = (
             (personality or {}).get("rule_strategy") if isinstance(personality, dict) else None
         )
         if rule_strategy_override == "fish":
             from flask_app.handlers.tiered_factory import build_fish_controller
 
-            fish_leak = (personality or {}).get("fish_leak")
             controller = build_fish_controller(
                 player_name=name,
                 state_machine=state_machine,
@@ -2009,7 +2008,6 @@ def _seat_freshly_filled_ais(
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
-                fish_leak=fish_leak,
             )
         else:
             from flask_app.handlers.tiered_factory import build_tiered_controller
