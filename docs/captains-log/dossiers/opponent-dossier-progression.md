@@ -143,3 +143,60 @@ clean.
 **Not done:** live declassification check in a real 25+-hand session (gate is
 unit-tracked but not human-played); archetype badge (no detection source);
 Phases 3–4.
+
+---
+
+## 2026-05-29 (later still) — live verification + Phase 3 (the informant)
+
+**Verify-live, pragmatically.** A true 25-hand human playthrough wasn't worth
+it in this loop (LLM latency/cost), so I wrote an HTTP-level integration test
+that drives the real `/api/character/<id>/dossier` route — real request
+context, extensions, kill switch, the actual fold+load+gate — with a seeded
+observed-hand count. It immediately earned its keep: it caught that below the
+floor the observation block came back as a dict of nulls instead of absent,
+so the client could render an empty stat panel. Fixed by collapsing a
+fully-redacted observation to None. That's the value of testing the wire, not
+just the function. Still not done: watching the fold fire during *actual*
+gameplay (the hand-boundary hook) — confident by inspection, unproven live.
+
+**Phase 3: the informant.** The pay-to-unlock chip sink. Sections (not items)
+are the purchase unit — matches the hybrid decision (grind drips items, the
+informant buys a section). Buying unions into the unlock set and **bypasses
+the grind floor**, so you can buy intel on someone you've barely played — the
+intended "I don't know this guy, so I pay to find out" fantasy.
+
+**Chip path, handled with care (it's a minefield per the memory notes).**
+Mirrored the vice-spending sink exactly: player bankroll → recyclable bank
+pool via a new `informant_unlock` ledger reason (added to both
+`LEDGER_REASONS` and `BANK_POOL_DEPOSIT_REASONS` so scouting fees recycle into
+the AI-funding pool — the doc's "feeds the bank pool"). The ordering decision
+that mattered: **store the unlock first (idempotent), then debit.** A retry
+after a mid-flight failure then hits the already-owned 409 and never
+double-charges; the worst case is a free unlock if the debit fails, which
+favors the player over charging twice. Reverse order would risk the
+double-charge that the cash-mode bug history is littered with.
+
+**Frontend stayed minimal.** Buy buttons live inside the existing
+`ScoutingStrip` ("Track record · 1,000 chips"); on success it refetches the
+whole dossier so every newly-declassified read populates (the gate reveals
+data, the refetch pulls it). Inline error for insufficient bankroll. Reused
+the gold-leaf button styling.
+
+**A test that lied, briefly.** My first route test asserted `cash_pair_stats`
+was populated after buying `track_record` — but I'd never seeded a cash-PnL
+row, and the gate *reveals* data, it doesn't fabricate it. Rewrote the
+assertion to check the unlock persists across requests (the section drops out
+of `informant_offers`, the item joins `unlocked`). Good reminder to assert on
+what the code actually does, not what I hoped.
+
+**Shipped:** v124 `dossier_informant_unlocks`; `INFORMANT_SECTIONS` + purchase
+threading in `dossier_scouting.py`; `game_repo.load/record_informant_unlocks`;
+`informant_unlock` ledger reason + `record_informant_unlock`;
+`POST /api/character/<id>/informant`; `ScoutingStrip` buy buttons +
+`buyInformantUnlock`. 12 new tests; 85 green across dossier/ledger/flags; TS
+clean.
+
+**Not done:** pricing is a flat first-pass (tuning); a partially grind-unlocked
+section still costs full price (noted); the random-vs-chosen lever resolved to
+player-chosen; archetype badge; Phase 4 (file cabinet); live UI eyeball of the
+buy flow + the deferred `relationship_states` migration.

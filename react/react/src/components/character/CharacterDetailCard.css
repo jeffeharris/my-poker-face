@@ -1303,3 +1303,49 @@
   background: linear-gradient(90deg, var(--gold-leaf), var(--gold-bright));
   transition: width 0.4s ease;
 }
+
+/* --- Informant offers (Phase 3: pay to unlock) ------------------------ */
+.dossier__informant {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--paper-shadow);
+}
+.dossier__informant-pitch {
+  margin: 0 0 0.4rem;
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.dossier__informant-offers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.dossier__informant-buy {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--gold-bright) 55%, var(--paper-hi));
+  border: 1px solid var(--gold-leaf);
+  border-radius: 3px;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+.dossier__informant-buy:hover:not(:disabled) {
+  background: var(--gold-bright);
+}
+.dossier__informant-buy:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.dossier__informant-buy:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.dossier__informant-error {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  color: var(--crimson);
+}

@@ -46,29 +46,82 @@ SCOUTING_SCHEDULE: List[Tuple[str, str, int]] = [
 
 _LABELS = {item_id: label for item_id, label, _ in SCOUTING_SCHEDULE}
 
+# Informant sections (Phase 3): the chunkier units the informant sells. Each
+# bundles one or more grind item-ids; buying a section unlocks all of them at
+# once (hybrid: grind drips items, the informant buys a section). `price` is a
+# flat per-section chip cost for v1 — a tunable lever (scale by section depth
+# or opponent stakes later). The informant also bypasses the grind floor.
+INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
+    'read': {
+        'label': 'Behavioral read',
+        'price': 750,
+        'items': ['play_style', 'vpip', 'pfr', 'aggression_factor'],
+    },
+    'behavioral_index': {
+        'label': 'Behavioral index',
+        'price': 500,
+        'items': ['behavioral_index'],
+    },
+    'track_record': {
+        'label': 'Track record',
+        'price': 1000,
+        'items': ['track_record', 'pressure', 'memorable'],
+    },
+    'table_posture': {
+        'label': 'Table posture',
+        'price': 500,
+        'items': ['table_posture'],
+    },
+}
 
-def compute_scouting(hands_observed: int) -> Dict[str, Any]:
-    """Derive the unlock state for a given observed-hand count.
 
-    Returns the descriptor the dossier surfaces to the client:
+def _purchased_item_ids(purchased_sections) -> set:
+    """Flatten purchased section ids into the item-ids they unlock."""
+    items: set = set()
+    for section_id in purchased_sections or ():
+        cfg = INFORMANT_SECTIONS.get(section_id)
+        if cfg:
+            items.update(cfg['items'])
+    return items
+
+
+def compute_scouting(hands_observed: int, purchased_sections=None) -> Dict[str, Any]:
+    """Derive the unlock state for a given observed-hand count, accounting
+    for any informant-purchased sections.
+
+    Effective unlock = grind unlocks (hands ≥ threshold) ∪ purchased-section
+    items. Returns the descriptor the dossier surfaces to the client:
       - `hands_observed`, `floor`, `floor_met`
       - `unlocked`: list of unlocked item_ids
-      - `locked`: list of {id, label, unlocks_at} still to earn
+      - `locked`: list of {id, label, unlocks_at} still to earn by grinding
+      - `informant_offers`: still-buyable sections {id, label, price}
     """
     hands = max(0, int(hands_observed or 0))
+    bought = _purchased_item_ids(purchased_sections)
+
     unlocked: List[str] = []
     locked: List[Dict[str, Any]] = []
     for item_id, label, threshold in SCOUTING_SCHEDULE:
-        if hands >= threshold:
+        if hands >= threshold or item_id in bought:
             unlocked.append(item_id)
         else:
             locked.append({'id': item_id, 'label': label, 'unlocks_at': threshold})
+
+    unlocked_set = set(unlocked)
+    # A section is still buyable when any of its items remain locked.
+    offers = [
+        {'id': sid, 'label': cfg['label'], 'price': cfg['price']}
+        for sid, cfg in INFORMANT_SECTIONS.items()
+        if any(item not in unlocked_set for item in cfg['items'])
+    ]
+
     return {
         'hands_observed': hands,
         'floor': FLOOR_HANDS,
         'floor_met': hands >= FLOOR_HANDS,
         'unlocked': unlocked,
         'locked': locked,
+        'informant_offers': offers,
     }
 
 
@@ -103,17 +156,20 @@ def _redact_item(response: Dict[str, Any], item_id: str) -> None:
 
 
 def apply_scouting_gate(
-    response: Dict[str, Any], hands_observed: Optional[int]
+    response: Dict[str, Any],
+    hands_observed: Optional[int],
+    purchased_sections=None,
 ) -> Dict[str, Any]:
     """Gate a dossier `response` in place and return the scouting descriptor.
 
     Strips the values of every still-locked earnable read so locked intel is
     never sent to the client, then returns the descriptor (also attached as
-    `response['scouting']`). When the floor isn't met, every earnable read is
-    redacted. Always-free sections (PROFILE, STANDING, FIELD NOTES, emotion)
-    are untouched.
+    `response['scouting']`). Informant-purchased sections count as unlocked
+    (they bypass the grind floor). When nothing is unlocked, every earnable
+    read is redacted. Always-free sections (PROFILE, STANDING, FIELD NOTES,
+    emotion) are untouched.
     """
-    scouting = compute_scouting(hands_observed or 0)
+    scouting = compute_scouting(hands_observed or 0, purchased_sections)
     locked_ids = {entry['id'] for entry in scouting['locked']}
     for item_id in locked_ids:
         _redact_item(response, item_id)

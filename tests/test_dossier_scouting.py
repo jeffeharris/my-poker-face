@@ -7,6 +7,7 @@ cross their thresholds; always-free sections are never touched.
 
 from flask_app.services.dossier_scouting import (
     FLOOR_HANDS,
+    INFORMANT_SECTIONS,
     SCOUTING_SCHEDULE,
     apply_scouting_gate,
     compute_scouting,
@@ -121,3 +122,36 @@ def test_gate_full_unlock_keeps_everything():
     assert resp['memorable_hands']
     assert resp['ai_bankroll'] == 5000
     assert resp['scouting']['locked'] == []
+
+
+# --- Informant (Phase 3) ----------------------------------------------------
+
+def test_informant_section_unlocks_items_bypassing_floor():
+    # 0 hands (below floor), but bought the 'read' section.
+    s = compute_scouting(0, purchased_sections={'read'})
+    for item in INFORMANT_SECTIONS['read']['items']:
+        assert item in s['unlocked']
+    # The bought section is no longer offered; others still are.
+    offer_ids = {o['id'] for o in s['informant_offers']}
+    assert 'read' not in offer_ids
+    assert 'track_record' in offer_ids
+
+
+def test_informant_offers_exclude_grind_unlocked_sections():
+    # Enough hands to grind-unlock the whole 'read' section (max threshold 60).
+    s = compute_scouting(60)
+    offer_ids = {o['id'] for o in s['informant_offers']}
+    assert 'read' not in offer_ids  # fully unlocked by grind, nothing to sell
+    assert 'track_record' in offer_ids  # still locked (needs 100+)
+
+
+def test_gate_respects_purchased_section():
+    resp = _full_response()
+    # Below floor, but bought 'track_record' — its reads survive the gate.
+    apply_scouting_gate(resp, hands_observed=5, purchased_sections={'track_record'})
+    assert resp['cash_pair_stats'] is not None
+    assert resp['pressure_summary'] is not None
+    assert resp['memorable_hands']
+    # Un-bought, un-grinded reads still redacted.
+    assert resp['observation'] is None
+    assert resp['ai_bankroll'] is None

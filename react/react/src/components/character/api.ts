@@ -114,12 +114,21 @@ export interface DossierScoutingLock {
   unlocks_at: number;
 }
 
+/** A still-buyable informant section (Phase 3): pay `price` chips to
+ *  reveal it. */
+export interface DossierInformantOffer {
+  id: string;
+  label: string;
+  price: number;
+}
+
 export interface DossierScouting {
   hands_observed: number;
   floor: number;
   floor_met: boolean;
   unlocked: string[];
   locked: DossierScoutingLock[];
+  informant_offers?: DossierInformantOffer[];
 }
 
 export interface DossierResponse {
@@ -162,6 +171,26 @@ export async function fetchNicknameOverrides(): Promise<Record<string, string>> 
 export async function fetchCharacterDossier(identifier: string): Promise<DossierResponse> {
   const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/dossier`, {
     credentials: 'include',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Pay the informant to reveal a still-locked dossier section (Phase 3).
+ *  Returns the updated scouting state + the player's new bankroll. Throws
+ *  with the server's error message on 4xx (e.g. insufficient bankroll). */
+export async function buyInformantUnlock(
+  identifier: string,
+  sectionId: string
+): Promise<{ scouting: DossierScouting; bankroll: number; section_id: string; price: number }> {
+  const res = await fetch(`${BASE}/${encodeURIComponent(identifier)}/informant`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ section_id: sectionId }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

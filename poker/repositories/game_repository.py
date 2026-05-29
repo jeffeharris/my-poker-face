@@ -1016,6 +1016,40 @@ class GameRepository(BaseRepository):
             'last_updated': row['last_updated'],
         }
 
+    def load_informant_unlocks(
+        self, sandbox_id: str, observer_id: str, opponent_id: str
+    ) -> set:
+        """Return the set of dossier section_ids the observer has bought from
+        the informant for this opponent in this sandbox (Phase 3)."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT section_id FROM dossier_informant_unlocks
+                WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
+                """,
+                (sandbox_id, observer_id, opponent_id),
+            ).fetchall()
+        return {row['section_id'] for row in rows}
+
+    def record_informant_unlock(
+        self, sandbox_id: str, observer_id: str, opponent_id: str,
+        section_id: str, price_paid: int,
+    ) -> bool:
+        """Persist an informant section purchase. Idempotent: a section
+        already owned is left as-is (INSERT OR IGNORE) and returns False so
+        the caller can avoid charging twice; a new row returns True."""
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO dossier_informant_unlocks
+                    (sandbox_id, observer_id, opponent_id, section_id,
+                     price_paid, purchased_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (sandbox_id, observer_id, opponent_id, section_id, int(price_paid)),
+            )
+            return cur.rowcount > 0
+
     def load_opponent_models(self, game_id: str) -> Dict[str, Any]:
         """Load opponent models for a game.
 

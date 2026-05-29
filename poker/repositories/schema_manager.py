@@ -223,7 +223,12 @@ _test_schema_template_path = None
 #       of counts already folded in, so the continuous delta-fold is
 #       resume-safe and never double-counts. Additive/idempotent. See
 #       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
-SCHEMA_VERSION = 123
+# v124: Create `dossier_informant_unlocks` — sections the player paid the
+#       informant (chip sink) to reveal on an opponent's dossier, per
+#       (sandbox_id, observer_id, opponent_id, section_id). Unioned with the
+#       grind unlocks (bypasses the floor). Additive/idempotent. See
+#       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+SCHEMA_VERSION = 124
 
 
 class SchemaManager:
@@ -2021,6 +2026,10 @@ class SchemaManager:
             123: (
                 self._migrate_v123_create_opponent_observation_lifetime,
                 "Create opponent_observation_lifetime — per-sandbox cumulative behavioral counts (the Circuit's scouting memory); add opponent_models.lifetime_applied_json high-water mark for the resume-safe delta-fold",
+            ),
+            124: (
+                self._migrate_v124_create_dossier_informant_unlocks,
+                "Create dossier_informant_unlocks — sections the player paid the informant to reveal per (sandbox, observer, opponent); unioned with grind unlocks to bypass the floor",
             ),
         }
 
@@ -6485,4 +6494,39 @@ class SchemaManager:
         logger.info(
             "Migration v123 complete: opponent_observation_lifetime created + "
             "opponent_models.lifetime_applied_json added"
+        )
+
+    def _migrate_v124_create_dossier_informant_unlocks(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v124: create `dossier_informant_unlocks` (Phase 3).
+
+        Records sections the player has paid the informant to reveal on an
+        opponent's dossier, per (sandbox_id, observer_id, opponent_id,
+        section_id). The dossier's effective unlock state is the grind
+        unlocks (derived from observed hands) UNION these purchased sections,
+        so a purchase bypasses the grind floor and persists.
+
+        `price_paid` is stored per row so the audit / future pricing tweaks
+        can see what was actually charged. Non-destructive, idempotent
+        (CREATE ... IF NOT EXISTS). See
+        `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dossier_informant_unlocks (
+                sandbox_id   TEXT NOT NULL,
+                observer_id  TEXT NOT NULL,
+                opponent_id  TEXT NOT NULL,
+                section_id   TEXT NOT NULL,
+                price_paid   INTEGER NOT NULL DEFAULT 0,
+                purchased_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (sandbox_id, observer_id, opponent_id, section_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_informant_unlocks_pair
+                ON dossier_informant_unlocks(sandbox_id, observer_id, opponent_id)
+        """)
+        logger.info(
+            "Migration v124 complete: dossier_informant_unlocks table created"
         )

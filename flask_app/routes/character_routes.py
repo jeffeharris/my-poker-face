@@ -605,10 +605,14 @@ def get_dossier(identifier: str):
             from cash_mode import economy_flags
 
             if economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+                from flask_app.extensions import game_repo
                 from flask_app.services.dossier_scouting import apply_scouting_gate
 
                 hands_observed = (life_counts or {}).get('hands_observed', 0)
-                apply_scouting_gate(response, hands_observed)
+                purchased = game_repo.load_informant_unlocks(
+                    sandbox_id, observer_id, personality_id
+                )
+                apply_scouting_gate(response, hands_observed, purchased)
         except Exception as e:
             logger.debug("[CHARACTER] scouting gate failed: %s", e)
 
@@ -710,6 +714,106 @@ def put_note(identifier: str):
 
     saved = relationship_repo.load_note(observer_id, personality_id)
     return jsonify({'note': saved})
+
+
+@character_bp.route('/api/character/<identifier>/informant', methods=['POST'])
+def post_informant_unlock(identifier: str):
+    """POST /api/character/<identifier>/informant  body: {"section_id": str}
+
+    Pay the informant to reveal a still-locked dossier section (Phase 3 —
+    the chip sink). Debits the player's bankroll into the recyclable bank
+    pool and records the purchase so the section stays unlocked. The
+    informant bypasses the grind floor — you can buy intel on someone you've
+    barely played.
+
+    Returns 401 (no observer), 404 (unknown personality), 400 (unknown
+    section / scouting disabled), 409 (section already unlocked), 402
+    (insufficient bankroll), or 200 with the updated scouting + bankroll.
+    """
+    observer_id = _resolve_observer_id()
+    if not observer_id:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    personality_id = _resolve_personality_id(identifier)
+    if not personality_id:
+        return jsonify({'error': 'Personality not found'}), 404
+
+    from cash_mode import economy_flags
+    from flask_app.services.dossier_scouting import INFORMANT_SECTIONS, compute_scouting
+
+    if not economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+        return jsonify({'error': 'Scouting is disabled'}), 400
+
+    payload = request.get_json(silent=True) or {}
+    section_id = payload.get('section_id')
+    section = INFORMANT_SECTIONS.get(section_id)
+    if not section:
+        return jsonify({'error': 'Unknown section'}), 400
+
+    from flask_app.extensions import (
+        bankroll_repo,
+        chip_ledger_repo,
+        game_repo,
+        sandbox_repo,
+    )
+    from flask_app.services.sandbox_resolver import resolve_default_sandbox_for
+
+    sandbox_id = resolve_default_sandbox_for(observer_id, sandbox_repo=sandbox_repo)
+
+    # Only sections with still-locked items are buyable (a payment always
+    # makes progress — never "you paid for what you already had").
+    life = game_repo.load_observation_lifetime(sandbox_id, observer_id, personality_id)
+    hands_observed = (life or {}).get('hands_observed', 0)
+    purchased = game_repo.load_informant_unlocks(sandbox_id, observer_id, personality_id)
+    offers = {o['id'] for o in compute_scouting(hands_observed, purchased)['informant_offers']}
+    if section_id not in offers:
+        return jsonify({'error': 'Section already unlocked'}), 409
+
+    price = int(section['price'])
+
+    bankroll = bankroll_repo.load_player_bankroll(observer_id)
+    if bankroll is None or bankroll.chips < price:
+        return jsonify({
+            'error': 'Insufficient bankroll',
+            'price': price,
+            'bankroll': bankroll.chips if bankroll else 0,
+        }), 402
+
+    # Record the unlock first (idempotent). If it was already owned (a race),
+    # bail before charging — never double-charge on a retry. The reverse
+    # order would risk charging twice; storing first at worst grants a free
+    # unlock if the debit then fails, which favors the player.
+    newly = game_repo.record_informant_unlock(
+        sandbox_id, observer_id, personality_id, section_id, price
+    )
+    if not newly:
+        return jsonify({'error': 'Section already unlocked'}), 409
+
+    # Debit bankroll → recyclable bank pool (mirrors the vice-spending sink).
+    from cash_mode.bankroll import PlayerBankrollState
+    from core.economy import ledger
+
+    new_bankroll = PlayerBankrollState(
+        player_id=bankroll.player_id,
+        chips=bankroll.chips - price,
+        starting_bankroll=bankroll.starting_bankroll,
+    )
+    bankroll_repo.save_player_bankroll(new_bankroll)
+    ledger.record_informant_unlock(
+        chip_ledger_repo,
+        owner_id=observer_id,
+        amount=price,
+        sandbox_id=sandbox_id,
+        context={'opponent_id': personality_id, 'section_id': section_id},
+    )
+
+    updated = compute_scouting(hands_observed, purchased | {section_id})
+    return jsonify({
+        'scouting': updated,
+        'bankroll': new_bankroll.chips,
+        'section_id': section_id,
+        'price': price,
+    })
 
 
 # Nicknames are displayed prominently and are mostly short cues —

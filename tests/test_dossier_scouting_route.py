@@ -141,3 +141,68 @@ class TestDossierScoutingRoute(unittest.TestCase):
         body = self._dossier()
         self.assertEqual(body['scouting']['locked'], [])
         self.assertIsNotNone(body['observation']['aggression_factor'])
+
+    # --- Informant purchase flow (Phase 3) ---------------------------------
+
+    def _seed_bankroll(self, chips):
+        from cash_mode.bankroll import PlayerBankrollState
+        self.repos['bankroll_repo'].save_player_bankroll(
+            PlayerBankrollState(player_id=OBSERVER, chips=chips, starting_bankroll=chips)
+        )
+
+    def _buy(self, section_id):
+        return self.client.post(
+            f'/api/character/{PERSONALITY}/informant',
+            json={'section_id': section_id},
+        )
+
+    def test_informant_buy_debits_and_unlocks(self):
+        self._fold(5)            # below floor — track_record locked by grind
+        self._seed_bankroll(5000)
+
+        resp = self._buy('track_record')   # price 1000
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        body = resp.get_json()
+        self.assertEqual(body['bankroll'], 4000)        # 5000 - 1000 debited
+        self.assertNotIn(
+            'track_record', {o['id'] for o in body['scouting']['informant_offers']}
+        )
+        # The purchase persists across requests: the dossier no longer offers
+        # the bought section, and its items count as unlocked despite < floor.
+        dossier = self._dossier()
+        self.assertNotIn(
+            'track_record',
+            {o['id'] for o in dossier['scouting']['informant_offers']},
+        )
+        self.assertIn('track_record', dossier['scouting']['unlocked'])
+
+    def test_informant_double_buy_does_not_double_charge(self):
+        self._fold(5)
+        self._seed_bankroll(5000)
+        self.assertEqual(self._buy('track_record').status_code, 200)
+        again = self._buy('track_record')
+        self.assertEqual(again.status_code, 409)        # already owned
+        # Bankroll only debited once.
+        self.assertEqual(
+            self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 4000
+        )
+
+    def test_informant_insufficient_bankroll(self):
+        self._fold(5)
+        self._seed_bankroll(100)                        # < 1000
+        resp = self._buy('track_record')
+        self.assertEqual(resp.status_code, 402)
+        # Nothing charged, nothing unlocked.
+        self.assertEqual(
+            self.repos['bankroll_repo'].load_player_bankroll(OBSERVER).chips, 100
+        )
+        self.assertEqual(
+            self.repos['game_repo'].load_informant_unlocks(
+                self.sandbox_id, OBSERVER, PERSONALITY
+            ),
+            set(),
+        )
+
+    def test_informant_unknown_section_400(self):
+        self._seed_bankroll(5000)
+        self.assertEqual(self._buy('not_a_section').status_code, 400)

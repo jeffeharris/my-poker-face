@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   fetchCharacterDossier,
+  buyInformantUnlock,
   saveCharacterNote,
   saveCharacterNicknameOverride,
   NICKNAME_OVERRIDE_MAX_LEN,
@@ -176,8 +177,19 @@ function SectionRule({ children }: { children: React.ReactNode }) {
  * past it, a progress bar toward the next unlock plus a list of reads still
  * to earn. Hidden entirely when the dossier is ungated (no scouting block).
  */
-function ScoutingStrip({ scouting }: { scouting: DossierScouting }) {
+function ScoutingStrip({
+  scouting,
+  onBuy,
+  buyingSection,
+  buyError,
+}: {
+  scouting: DossierScouting;
+  onBuy?: (sectionId: string) => void;
+  buyingSection?: string | null;
+  buyError?: string | null;
+}) {
   const { hands_observed, floor, floor_met, locked } = scouting;
+  const offers = scouting.informant_offers ?? [];
   // Next threshold to cross (floor when below it, else the nearest locked
   // item's threshold). Drives the progress bar toward the next reveal.
   const nextAt = !floor_met
@@ -236,6 +248,28 @@ function ScoutingStrip({ scouting }: { scouting: DossierScouting }) {
           <span className="dossier__scouting-bar-fill" style={{ width: `${pct}%` }} />
         </div>
       )}
+
+      {onBuy && offers.length > 0 && (
+        <div className="dossier__informant">
+          <p className="dossier__informant-pitch">
+            Or pay an informant to declassify a section now:
+          </p>
+          <div className="dossier__informant-offers">
+            {offers.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className="dossier__informant-buy"
+                disabled={!!buyingSection}
+                onClick={() => onBuy(o.id)}
+              >
+                {buyingSection === o.id ? 'Paying…' : `${o.label} · ${o.price.toLocaleString()} chips`}
+              </button>
+            ))}
+          </div>
+          {buyError && <p className="dossier__informant-error">{buyError}</p>}
+        </div>
+      )}
     </section>
   );
 }
@@ -265,6 +299,9 @@ export function CharacterDetailCard({
   // from this fall in below the prop-driven ones — the static prop
   // gives an instant render, the server fetch hydrates the rest.
   const [fetched, setFetched] = useState<DossierResponse | null>(null);
+  // Informant purchase (Phase 3): which section is in-flight + last error.
+  const [buyingSection, setBuyingSection] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteState, setNoteState] = useState<NoteSaveState>('idle');
   const lastSavedNote = useRef<string>('');
@@ -323,6 +360,27 @@ export function CharacterDetailCard({
       cancelled = true;
     };
   }, [isOpen, identifier]);
+
+  // Pay the informant to reveal a locked section, then refetch the dossier
+  // so every newly-declassified read populates (the gate reveals data, the
+  // refetch pulls it in). Errors (e.g. insufficient bankroll) surface inline.
+  const handleBuyInformant = useCallback(
+    async (sectionId: string) => {
+      if (!identifier || buyingSection) return;
+      setBuyingSection(sectionId);
+      setBuyError(null);
+      try {
+        await buyInformantUnlock(identifier, sectionId);
+        const refreshed = await fetchCharacterDossier(identifier);
+        setFetched(refreshed);
+      } catch (e) {
+        setBuyError(e instanceof Error ? e.message : 'Purchase failed');
+      } finally {
+        setBuyingSection(null);
+      }
+    },
+    [identifier, buyingSection]
+  );
 
   // Debounced autosave: 600ms after the last keystroke. Cancels any
   // pending save when a new keystroke comes in or the card closes.
@@ -814,7 +872,14 @@ export function CharacterDetailCard({
               {merged.confidence && <DataRow label="Confidence" value={merged.confidence} />}
             </section>
 
-            {fetched?.scouting && <ScoutingStrip scouting={fetched.scouting} />}
+            {fetched?.scouting && (
+              <ScoutingStrip
+                scouting={fetched.scouting}
+                onBuy={identifier ? handleBuyInformant : undefined}
+                buyingSection={buyingSection}
+                buyError={buyError}
+              />
+            )}
 
             {hasAnchors && anchors && (
               <>

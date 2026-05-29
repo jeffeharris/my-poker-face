@@ -192,3 +192,31 @@ def test_observation_from_lifetime_empty_is_none():
 
     assert _observation_from_lifetime(None) is None
     assert _observation_from_lifetime({'hands_observed': 0}) is None
+
+
+# --- Informant unlock store (Phase 3) ---------------------------------------
+
+def test_informant_unlock_record_and_load(repo):
+    assert repo.load_informant_unlocks("sb1", "obs1", "opp1") == set()
+    assert repo.record_informant_unlock("sb1", "obs1", "opp1", "read", 750) is True
+    assert repo.load_informant_unlocks("sb1", "obs1", "opp1") == {"read"}
+
+
+def test_informant_unlock_is_idempotent(repo):
+    assert repo.record_informant_unlock("sb1", "obs1", "opp1", "read", 750) is True
+    # Second buy of the same section is a no-op (so the route won't charge twice).
+    assert repo.record_informant_unlock("sb1", "obs1", "opp1", "read", 750) is False
+    assert repo.load_informant_unlocks("sb1", "obs1", "opp1") == {"read"}
+
+
+def test_informant_unlock_scoped_per_pair_and_sandbox(repo):
+    repo.record_informant_unlock("sb1", "obs1", "opp1", "read", 750)
+    assert repo.load_informant_unlocks("sb1", "obs1", "opp2") == set()
+    assert repo.load_informant_unlocks("sb2", "obs1", "opp1") == set()
+
+
+def test_informant_unlock_ledger_reason_registered():
+    from core.economy.ledger import BANK_POOL_DEPOSIT_REASONS, LEDGER_REASONS
+
+    assert 'informant_unlock' in LEDGER_REASONS
+    assert 'informant_unlock' in BANK_POOL_DEPOSIT_REASONS  # recyclable sink

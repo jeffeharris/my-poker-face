@@ -346,6 +346,18 @@ itself as your sample with that opponent grows, **in their sandbox**.
 
 ## Phase 3 — The informant (pay to unlock)
 
+> **STATUS (2026-05-29): SHIPPED on branch `dossiers`** (uncommitted). v124
+> migration `dossier_informant_unlocks` (purchased sections per (sandbox,
+> observer, opponent)); `INFORMANT_SECTIONS` in `dossier_scouting.py` (4
+> sections, flat prices 500–1000, unioned with grind unlocks, bypasses the
+> floor); `game_repo.load/record_informant_unlocks` (idempotent);
+> `POST /api/character/<id>/informant` (debits bankroll → recyclable bank
+> pool via new `informant_unlock` ledger reason, store-first to avoid
+> double-charge, 402/409 guards); frontend buy buttons in `ScoutingStrip` +
+> `buyInformantUnlock` API. 12 new tests (pure + repo + route); 85 green
+> across dossier/ledger/flags. **Pricing & random-vs-chosen** left as tuning
+> (chose player-chosen section for clean UX).
+
 The shortcut path, and a chip sink: **pay an informant** to reveal intel
 you haven't grinded out yet.
 
