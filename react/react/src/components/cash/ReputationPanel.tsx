@@ -220,26 +220,52 @@ function ReputationPanelInner({ reputation }: ReputationPanelProps) {
               >
                 <div className="rep-panel__ledger-inner">
                   {renownRows.length > 0 && (
-                    <div className="rep-panel__group">
-                      <span className="rep-panel__group-title">What makes you a figure</span>
-                      {renownRows.map((r) => (
-                        <div className="rep-panel__driver" key={r.key}>
-                          <span className="rep-panel__driver-label">{r.label}</span>
-                          <span className="rep-panel__driver-track" aria-hidden="true">
-                            <span
-                              className="rep-panel__driver-fill"
-                              style={{ width: `${Math.min(100, (r.value / r.max) * 100)}%` }}
-                            />
-                          </span>
-                          <span className="rep-panel__driver-value">{pts(r.value)}</span>
-                        </div>
-                      ))}
+                    <div className="rep-panel__group rep-panel__group--renown">
+                      <div className="rep-panel__group-head">
+                        <span className="rep-panel__group-tag">Renown</span>
+                        <span className="rep-panel__group-sub">what makes you a figure</span>
+                        <span className="rep-panel__group-total">{renownPct}</span>
+                      </div>
+                      {renownRows.map((r) => {
+                        const maxPts = pts(r.max);
+                        const maxed = r.value >= r.max - 1e-6;
+                        return (
+                          <div
+                            className={`rep-panel__driver${maxed ? ' is-maxed' : ''}`}
+                            key={r.key}
+                          >
+                            <span className="rep-panel__driver-label">
+                              {r.label}
+                              {maxed && <span className="rep-panel__driver-badge">MAX</span>}
+                            </span>
+                            <span className="rep-panel__driver-track" aria-hidden="true">
+                              <span
+                                className="rep-panel__driver-fill"
+                                style={{ width: `${Math.min(100, (r.value / r.max) * 100)}%` }}
+                              />
+                            </span>
+                            <span className="rep-panel__driver-value">
+                              {pts(r.value)}
+                              <span className="rep-panel__driver-cap">/{maxPts}</span>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
                   {regardRows.length > 0 && (
                     <div className="rep-panel__group rep-panel__group--regard">
-                      <span className="rep-panel__group-title">How the room feels</span>
+                      <div className="rep-panel__group-head">
+                        <span className="rep-panel__group-tag">Regard</span>
+                        <span className="rep-panel__group-sub">how the room feels</span>
+                        <span
+                          className={`rep-panel__group-total rep-panel__group-total--${regardWarm ? 'warm' : 'hostile'}`}
+                        >
+                          {regardWarm ? '+' : '−'}
+                          {regardPts}
+                        </span>
+                      </div>
                       {regardRows.map((r) => {
                         const warm = r.value >= 0;
                         return (

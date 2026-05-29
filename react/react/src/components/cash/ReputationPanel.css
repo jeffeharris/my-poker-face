@@ -367,35 +367,74 @@
   flex-direction: column;
   gap: var(--space-3);
   padding-top: var(--space-2);
-  border-top: 1px solid transparent;
-  border-image: linear-gradient(
-      90deg,
-      transparent,
-      var(--rep-accent-soft) 25%,
-      var(--rep-accent-soft) 75%,
-      transparent
-    )
-    1;
 }
 
+/* Each axis gets its own framed block so RENOWN and REGARD read as two
+   distinct calculations, each with a left accent rule and its axis total. */
 .rep-panel__group {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 10px);
+  background: rgba(255, 255, 255, 0.025);
+  border-left: 2px solid;
+}
+.rep-panel__group--renown {
+  border-left-color: var(--color-gold);
+}
+.rep-panel__group--regard {
+  border-left-color: rgba(148, 163, 184, 0.5);
 }
 
-.rep-panel__group-title {
+.rep-panel__group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+
+.rep-panel__group-tag {
   font-family: var(--font-display);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.13em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+.rep-panel__group--renown .rep-panel__group-tag {
+  color: var(--color-gold-bright, #f5d89a);
+}
+.rep-panel__group--regard .rep-panel__group-tag {
+  color: var(--color-text-secondary);
+}
+
+.rep-panel__group-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
   color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rep-panel__group-total {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-gold-bright, #f5d89a);
+}
+.rep-panel__group-total--warm {
+  color: var(--rep-warm);
+}
+.rep-panel__group-total--hostile {
+  color: var(--rep-hostile);
 }
 
 .rep-panel__driver {
   display: grid;
-  grid-template-columns: 1fr 80px 26px;
+  grid-template-columns: 1fr 64px 46px;
   align-items: center;
   gap: 9px;
   font-size: 0.8rem;
@@ -403,9 +442,26 @@
 }
 
 .rep-panel__driver-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* "MAX" badge — this driver is capped; can't contribute more. */
+.rep-panel__driver-badge {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-gold);
+  background: rgba(212, 165, 116, 0.14);
+  color: var(--color-gold-bright, #f5d89a);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
 }
 
 .rep-panel__driver-track {
@@ -420,12 +476,23 @@
   border-radius: var(--radius-full);
   background: linear-gradient(90deg, var(--color-gold-dark, #a67c4a), var(--color-gold));
 }
+/* Capped driver: brighter, glowing fill so a full bar reads as "maxed." */
+.rep-panel__driver.is-maxed .rep-panel__driver-fill {
+  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-bright, #f5d89a));
+  box-shadow: 0 0 8px rgba(245, 216, 154, 0.5);
+}
 
 .rep-panel__driver-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--color-text-primary);
+}
+/* Muted "/cap" so the headroom (or lack of it) is legible per row. */
+.rep-panel__driver-cap {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  font-size: 0.85em;
 }
 .rep-panel__driver-value--warm {
   color: var(--rep-warm);
@@ -434,9 +501,9 @@
   color: var(--rep-hostile);
 }
 
-/* Regard rows are label + signed value (no bar). */
+/* Regard rows are label + signed value (no bar / cap). */
 .rep-panel__group--regard .rep-panel__driver {
-  grid-template-columns: 1fr 32px;
+  grid-template-columns: 1fr 36px;
 }
 
 @keyframes repRise {
