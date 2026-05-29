@@ -254,6 +254,34 @@ class TestLoadAllRelationships:
             assert state.heat < 0.8  # all decayed
 
 
+class TestLoadInboundRelationships:
+    """The mirror of load_all_relationships — scans by opponent_id (every
+    observer's view OF the target). Feeds the prestige regard aggregate."""
+
+    def test_returns_every_observer_of_target(self, repo):
+        # Three AIs hold a view of the human; alice also views someone else.
+        repo.save_relationship_state("ai_a", "human", RelationshipState(likability=0.7))
+        repo.save_relationship_state("ai_b", "human", RelationshipState(likability=0.3))
+        repo.save_relationship_state("ai_c", "human", RelationshipState(heat=0.5))
+        repo.save_relationship_state("ai_a", "someone_else", RelationshipState(heat=0.9))
+
+        result = repo.load_inbound_relationships("human")
+        assert set(result.keys()) == {"ai_a", "ai_b", "ai_c"}
+        assert result["ai_a"].likability == 0.7
+
+    def test_empty_when_no_inbound_edges(self, repo):
+        assert repo.load_inbound_relationships("nobody") == {}
+
+    def test_projects_heat_on_read(self, repo):
+        tick = datetime(2026, 4, 17, 12, 0)
+        now = datetime(2026, 5, 17, 12, 0)
+        repo.save_relationship_state(
+            "ai_a", "human", RelationshipState(heat=0.8, last_decay_tick=tick)
+        )
+        result = repo.load_inbound_relationships("human", now=now)
+        assert result["ai_a"].heat < 0.8  # decayed via projection
+
+
 # --- cash_pair_stats repository ---
 
 

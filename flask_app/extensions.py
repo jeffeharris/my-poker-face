@@ -84,6 +84,7 @@ side_hustle_state_repo = None
 user_prefs_repo = None
 user_avatar_repo = None
 holdings_snapshots_repo = None
+prestige_snapshots_repo = None
 persistence_db_path = None  # for callers that need the raw path
 
 # Human-player avatar service (acquire/generate/process/persist user avatars)
@@ -196,6 +197,7 @@ def init_persistence() -> None:
         user_prefs_repo, \
         user_avatar_repo, \
         holdings_snapshots_repo, \
+        prestige_snapshots_repo, \
         persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
@@ -231,6 +233,7 @@ def init_persistence() -> None:
     user_prefs_repo = repos['user_prefs_repo']
     user_avatar_repo = repos['user_avatar_repo']
     holdings_snapshots_repo = repos['holdings_snapshots_repo']
+    prestige_snapshots_repo = repos['prestige_snapshots_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)

@@ -217,7 +217,10 @@ export interface LobbyEvent {
     | 'whale_arrival'
     | 'whale_departure'
     // AI asking the human staker to forgive an outstanding carry.
-    | 'ai_requests_forgiveness';
+    | 'ai_requests_forgiveness'
+    // v121 — the human's reputation quadrant changed (read-only scoreboard
+    // beat; `reason` carries the new quadrant label).
+    | 'reputation_shift';
   table_id: string;
   stake_label: string;
   personality_id: string;
@@ -273,6 +276,43 @@ export interface BankrollPoint {
   value: number;
 }
 
+/** The four reputation quadrants — kept in lockstep with the QUADRANT_*
+ *  constants in cash_mode/prestige.py. */
+export type ReputationQuadrant =
+  | 'Beloved Legend'
+  | 'Infamous Villain'
+  | 'Up-and-comer'
+  | 'Disliked Nobody';
+
+/** Per-axis component breakdown (already-weighted contributions) — surfaced
+ *  for the explain/debug affordance on the panel. renown_* sum to ~renown
+ *  (pre-ratchet); regard_* sum to ~regard (pre-clamp). */
+export interface ReputationComponents {
+  breadth: number;
+  tenure: number;
+  stake_tier: number;
+  beat_respected: number;
+  high_stakes: number;
+  likability: number;
+  respect: number;
+  heat: number;
+}
+
+/** The human player's reputation scoreboard. Absent (null) until the world
+ *  ticker has captured at least once (~minutes into a new sandbox). */
+export interface ReputationData {
+  /** [0, 1] — fame magnitude; ratchets up, behaviour-agnostic. */
+  renown: number;
+  /** [-1, 1] — how the room feels; swings, partially decays with heat. */
+  regard: number;
+  quadrant: ReputationQuadrant;
+  /** How many AIs have an opinion of you (inbound relationship edges). */
+  opponent_count: number;
+  /** ISO-8601 UTC of the capture. */
+  computed_at: string;
+  components: ReputationComponents;
+}
+
 export interface LobbyResponse {
   bankroll: number;
   tables: LobbyTable[];
@@ -322,6 +362,10 @@ export interface LobbyResponse {
    *  (`player_take_home − total_buy_in`). Signed; null until the first
    *  session is finalised. Drives the hero's up/down delta chip. */
   last_session_delta?: number | null;
+  /** v121 — the player's reputation scoreboard (renown + regard + quadrant).
+   *  Null until the world ticker's first prestige capture; the panel renders
+   *  nothing while absent. Read-only — no AI behaviour reads it (yet). */
+  reputation?: ReputationData | null;
 }
 
 /** How fast the background world ticks for unseated tables. */

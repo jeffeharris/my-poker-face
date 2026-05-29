@@ -194,7 +194,16 @@ _test_schema_template_path = None
 #       instead of the ledger-derived bank-flow curve. net_worth = chips +
 #       receivable - outstanding; components stored alongside. See
 #       `docs/plans/CASH_MODE_NET_WORTH_HOLDINGS.md`.
-SCHEMA_VERSION = 120
+# v121: Create `prestige_snapshots` — sandbox-scoped human-player reputation
+#       captures (renown + regard, two axes) written by the background
+#       ticker. Renown ratchets (stored as the running peak); regard swings
+#       and partially decays with heat. Component columns make the
+#       (illustrative, tunable) formula inspectable, and the row history
+#       gives a renown trajectory. Also add idx_relationship_states_opponent
+#       so the inbound-edge aggregate (all AIs' view OF the human) is cheap.
+#       Read-only scoreboard — never injected into core AI thresholds. See
+#       `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
+SCHEMA_VERSION = 121
 
 
 class SchemaManager:
@@ -1980,6 +1989,10 @@ class SchemaManager:
             120: (
                 self._migrate_v120_create_cash_session_events,
                 "Create cash_session_events table — persisted lifecycle telemetry (started/resumed/left_clean/left_ghost/swept/broken) for ops queries and the admin orphan-counter, separate from the cosmetic in-memory activity ring buffer",
+            ),
+            121: (
+                self._migrate_v121_create_prestige_snapshots,
+                "Create prestige_snapshots table — sandbox-scoped human-player reputation (renown ratchets, regard swings) captured by the ticker with component breakdown; add idx_relationship_states_opponent for the inbound-edge aggregate",
             ),
         }
 
@@ -6287,3 +6300,63 @@ class SchemaManager:
                 ON cash_session_events(sandbox_id, event, created_at)
         """)
         logger.info("Migration v120 complete: cash_session_events table created")
+
+    def _migrate_v121_create_prestige_snapshots(self, conn: sqlite3.Connection) -> None:
+        """Migration v121: create `prestige_snapshots` for human reputation.
+
+        One row per (sandbox, owner) per ticker capture. The background
+        world ticker writes a point every few minutes per active sandbox so
+        the cash lobby can surface the human's reputation as a scoreboard
+        and so renown has a visible trajectory over time.
+
+        Two axes:
+          - `renown`  [0,1] — fame magnitude; behaviour-agnostic; RATCHETS
+            (the recorder stores `max(computed, running peak)`), so it reads
+            as a career record that downswings can't erase.
+          - `regard`  [-1,1] — how the room feels (beloved ↔ reviled);
+            swings with behaviour and partially decays as `heat` decays.
+
+        The `renown_*` / `regard_*` component columns store the formula's
+        contributions so the panel and debugging can show WHY, and so the
+        (illustrative, not-locked) weights can be tuned against real history.
+        `captured_at` is written by the recorder as an explicit ISO-8601 UTC
+        string so the history read's lexical comparison is format-consistent.
+
+        Also adds an index on `relationship_states(opponent_id)` — the
+        inbound-edge direction (every AI's view OF the human) that regard
+        aggregates over; the table was previously only indexed by its
+        (observer_id, opponent_id) PK, so the inbound scan had no support.
+
+        Read-only scoreboard: nothing here feeds core AI decision thresholds.
+        Non-destructive. Idempotent (CREATE ... IF NOT EXISTS). See
+        `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prestige_snapshots (
+                snapshot_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at           TIMESTAMP NOT NULL,
+                sandbox_id            TEXT NOT NULL,
+                owner_id              TEXT NOT NULL,
+                renown                REAL NOT NULL,
+                regard                REAL NOT NULL,
+                quadrant              TEXT NOT NULL,
+                renown_breadth        REAL NOT NULL DEFAULT 0,
+                renown_tenure         REAL NOT NULL DEFAULT 0,
+                renown_stake_tier     REAL NOT NULL DEFAULT 0,
+                renown_beat_respected REAL NOT NULL DEFAULT 0,
+                renown_high_stakes    REAL NOT NULL DEFAULT 0,
+                regard_likability     REAL NOT NULL DEFAULT 0,
+                regard_respect        REAL NOT NULL DEFAULT 0,
+                regard_heat           REAL NOT NULL DEFAULT 0,
+                opponent_count        INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prestige_snap_scope
+                ON prestige_snapshots(sandbox_id, owner_id, captured_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_relationship_states_opponent
+                ON relationship_states(opponent_id)
+        """)
+        logger.info("Migration v121 complete: prestige_snapshots table created")

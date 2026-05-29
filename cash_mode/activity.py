@@ -173,6 +173,17 @@ or stormed off on tilt) surfaces as the usual EVENT_BUST / EVENT_LEAVE
 instead — this event is only the provisioning-driven recall."""
 
 
+EVENT_REPUTATION_SHIFT = "reputation_shift"
+"""The human player's reputation quadrant changed (v121). Emitted by the
+world ticker's prestige recompute when the cached quadrant flips (e.g.
+Up-and-comer → Beloved Legend, or a slide into Infamous Villain). The beat
+is keyed to the human, not an AI: `personality_id`/`name`/`table_id`/
+`stake_label` are empty and `reason` carries the new quadrant label. This is
+the read-only scoreboard's "the room sees you differently now" surface — it
+does not change any AI behaviour. See
+`docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`."""
+
+
 @dataclass(frozen=True)
 class LobbyEvent:
     """One movement event surfaced to the lobby UI.
@@ -596,6 +607,21 @@ def format_burst_summary_message(
         sign = "+" if top_net_delta >= 0 else "-"
         return f"{base} — {top_name} {sign}${abs(top_net_delta):,} net"
     return base
+
+
+# Reputation-quadrant → ticker phrasing for the human's prestige shift
+# (v121). Second-person — it's a beat about *you*, not a spectator line.
+_REPUTATION_SHIFT_PHRASES = {
+    "Beloved Legend": "The room has come to adore you — you're a Beloved Legend now",
+    "Infamous Villain": "Word's gotten around — you're an Infamous Villain now",
+    "Up-and-comer": "People are starting to notice you — you're an Up-and-comer",
+    "Disliked Nobody": "The room has soured on you",
+}
+
+
+def format_reputation_shift_message(quadrant: str) -> str:
+    """Human-readable phrasing for a player reputation-quadrant change."""
+    return _REPUTATION_SHIFT_PHRASES.get(quadrant, f"The room now sees you as a {quadrant}")
 
 
 def serialize_event(event: LobbyEvent) -> dict:

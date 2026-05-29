@@ -33,6 +33,7 @@ import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import { feedEventKey } from './tickerEvents';
 import { CareerHero } from './CareerHero';
+import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { WhereaboutsDrawer } from './WhereaboutsDrawer';
 import { StakeOfferModal } from './StakeOfferModal';
@@ -41,6 +42,7 @@ import type {
   BankrollPoint,
   LobbyEvent,
   LobbyTable,
+  ReputationData,
   StakableAiCandidate,
   StakeLabel,
   WorldEvent,
@@ -177,6 +179,7 @@ export function Lobby() {
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
+  const [reputation, setReputation] = useState<ReputationData | null>(null);
   const [tables, setTables] = useState<LobbyTable[]>([]);
   /** The table the player currently has a live session at, or null. Drives
    *  the "you're here" pin + Resume on the matching TableCard. Only ever
@@ -303,6 +306,7 @@ export function Lobby() {
         setBankroll(lobby.bankroll);
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
+        setReputation(lobby.reputation ?? null);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
@@ -536,6 +540,8 @@ export function Lobby() {
               onOpenNetWorth={() => setNetWorthOpen(true)}
             />
           )}
+
+          {reputation && <ReputationPanel reputation={reputation} />}
 
           {(hasActiveSession || seatedTableId) && (
             <div className="cash-entry__resume-row">

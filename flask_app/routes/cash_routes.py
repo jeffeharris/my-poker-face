@@ -4733,6 +4733,32 @@ def top_up():
 WHALE_BANKROLL_MULTIPLE = 20
 
 
+def _reputation_payload_from_snapshot(snap: Dict[str, Any]) -> Dict[str, Any]:
+    """Shape a `prestige_snapshots` row into the lobby `reputation` payload.
+
+    The only rename is `captured_at` → `computed_at`; the renown_*/regard_*
+    columns are nested under `components` for the panel's explain affordance.
+    Named so the DB-column → wire-format mapping is in one testable place.
+    """
+    return {
+        "renown": snap["renown"],
+        "regard": snap["regard"],
+        "quadrant": snap["quadrant"],
+        "opponent_count": snap["opponent_count"],
+        "computed_at": snap["captured_at"],
+        "components": {
+            "breadth": snap["renown_breadth"],
+            "tenure": snap["renown_tenure"],
+            "stake_tier": snap["renown_stake_tier"],
+            "beat_respected": snap["renown_beat_respected"],
+            "high_stakes": snap["renown_high_stakes"],
+            "likability": snap["regard_likability"],
+            "respect": snap["regard_respect"],
+            "heat": snap["regard_heat"],
+        },
+    }
+
+
 @cash_bp.route("/api/cash/lobby", methods=["GET"])
 @limiter.limit(config.RATE_LIMIT_POLLING)
 def get_lobby():
@@ -5361,6 +5387,22 @@ def get_lobby():
         bankroll_history = []
         last_session_delta = None
 
+    # Reputation scoreboard (v121). Read-only — the world ticker owns all
+    # writes; the route never triggers a recompute. Best-effort: a missing
+    # row (brand-new sandbox before the first tick) or any failure yields
+    # `reputation: None`, and the frontend renders no panel.
+    reputation_payload: Optional[Dict[str, Any]] = None
+    try:
+        from flask_app.extensions import prestige_snapshots_repo
+
+        if prestige_snapshots_repo is not None:
+            snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+            if snap is not None:
+                reputation_payload = _reputation_payload_from_snapshot(snap)
+    except Exception as exc:
+        logger.warning("[CASH][LOBBY] reputation load failed: %s", exc)
+        reputation_payload = None
+
     return jsonify(
         {
             "bankroll": bankroll.chips,
@@ -5377,6 +5419,7 @@ def get_lobby():
             "world_pace": world_pace,
             "bankroll_history": bankroll_history,
             "last_session_delta": last_session_delta,
+            "reputation": reputation_payload,
         }
     )
 

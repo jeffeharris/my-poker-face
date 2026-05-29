@@ -1,0 +1,189 @@
+/**
+ * ReputationPanel — the reputation scoreboard below CareerHero.
+ *
+ * Quieter than the hero (bankroll stays the headline): a compact card with
+ * a quadrant badge and two slim meters. Tone accents follow the quadrant —
+ * gold for beloved, ruby for villain, sky for up-and-comer, slate for the
+ * disliked nobody — reusing the design-tokens.css palette.
+ */
+
+.rep-panel {
+  --rep-accent: var(--color-gold);
+  --rep-accent-soft: rgba(212, 165, 116, 0.14);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-lg, 14px);
+  background: rgba(255, 255, 255, 0.02);
+  animation: repRise 0.45s var(--ease-out-expo, ease-out) both;
+}
+
+/* Per-quadrant accent. */
+.rep-panel--beloved {
+  --rep-accent: #f5d89a;
+  --rep-accent-soft: rgba(245, 216, 154, 0.16);
+}
+.rep-panel--villain {
+  --rep-accent: #fda4af;
+  --rep-accent-soft: rgba(244, 63, 94, 0.16);
+}
+.rep-panel--comer {
+  --rep-accent: #7dd3fc;
+  --rep-accent-soft: rgba(125, 211, 252, 0.14);
+}
+.rep-panel--nobody {
+  --rep-accent: #94a3b8;
+  --rep-accent-soft: rgba(148, 163, 184, 0.12);
+}
+
+/* ── Head: eyebrow + quadrant badge ──────────────────────────────── */
+.rep-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.rep-panel__eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.rep-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 5px 11px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--rep-accent);
+  background: var(--rep-accent-soft);
+  color: var(--rep-accent);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.rep-panel__badge-icon {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.rep-panel__blurb {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+}
+
+/* ── Axes ────────────────────────────────────────────────────────── */
+.rep-panel__axes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.rep-panel__axis-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.rep-panel__axis-name {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.rep-panel__axis-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
+.rep-panel__axis-value--warm {
+  color: #6ee7b7;
+}
+.rep-panel__axis-value--hostile {
+  color: #fda4af;
+}
+
+.rep-panel__track {
+  position: relative;
+  width: 100%;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.rep-panel__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-full);
+  transition: width 0.4s var(--ease-out-expo, ease-out);
+}
+
+.rep-panel__fill--renown {
+  left: 0;
+  background: linear-gradient(90deg, var(--rep-accent), var(--color-gold-bright, #f5d89a));
+}
+
+/* Centered regard dial: a center mark, fill grows out from 50%. */
+.rep-panel__track--centered {
+  overflow: visible;
+}
+
+.rep-panel__center-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.rep-panel__fill--regard-warm {
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.5), #6ee7b7);
+}
+
+.rep-panel__fill--regard-hostile {
+  background: linear-gradient(90deg, #fda4af, rgba(244, 63, 94, 0.5));
+}
+
+@keyframes repRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rep-panel {
+    animation: none;
+  }
+  .rep-panel__fill {
+    transition: none;
+  }
+}
