@@ -34,6 +34,7 @@ import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
+import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
@@ -214,7 +215,26 @@ export function MobilePokerTable({
   const currentPlayer = storePlayers?.[currentPlayerIdx];
   const humanPlayer = storePlayers?.find((p) => p.is_human);
   const isShowdown = phase?.toLowerCase() === 'showdown';
-  const isInterhandPhase = phase === 'EVALUATING_HAND' || phase === 'HAND_OVER';
+
+  // Client-owned between-hand timeline. The winner overlay owns the "result"
+  // beat (and calls handleResultComplete when its hold elapses or the player
+  // taps Continue); the director owns the "shuffle" beat that follows. The two
+  // are never on screen at once — shuffle starts only once the winner is
+  // cleared — which kills the old overlap/flash where both ran on independent
+  // clocks driven by the backend phase string.
+  const { isShuffling, beginShuffle } = useInterhandDirector({
+    hasWinner: !!winnerInfo,
+    handNumber,
+  });
+
+  const handleResultComplete = useCallback(() => {
+    // No shuffle beat on the tournament's final hand — there's no next hand to
+    // deal, and TournamentComplete takes over once the winner is cleared.
+    if (!winnerInfo?.is_final_hand) {
+      beginShuffle();
+    }
+    clearWinnerInfo();
+  }, [winnerInfo, beginShuffle, clearWinnerInfo]);
 
   // Pick a flavor quote for the interhand shuffle. Memoized by handNumber so
   // it stays stable across re-renders during a single shuffle and changes
@@ -344,9 +364,11 @@ export function MobilePokerTable({
   const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
   const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
 
-  // For non-showdown hands (walks/fold-outs), capture the winner line into local
-  // state and immediately dismiss winnerInfo so MobileWinnerAnnouncement never mounts.
-  // Split into message (name + verb) and submessage (amount) for better layout.
+  // Fold-out (walk) wins are intentionally uneventful: no winner overlay, just
+  // the shuffle screen with the winner line in place of "Shuffling". Capture
+  // that line, hand straight off to the director's shuffle beat (whose minimum
+  // floor keeps it from flashing), and clear winnerInfo so the showdown overlay
+  // never mounts for a walk.
   const [interhandMessage, setInterhandMessage] = useState<string | null>(null);
   const [interhandSubmessage, setInterhandSubmessage] = useState<string | undefined>(undefined);
 
@@ -376,10 +398,13 @@ export function MobilePokerTable({
       netProfit != null && netProfit > 0 ? `${verb} $${netProfit.toLocaleString()}` : verb
     );
 
+    if (!winnerInfo.is_final_hand) {
+      beginShuffle();
+    }
     clearWinnerInfo();
-  }, [winnerInfo, clearWinnerInfo]);
+  }, [winnerInfo, clearWinnerInfo, beginShuffle]);
 
-  // Clear when the next hand starts
+  // Clear the walk message once the next hand starts.
   useEffect(() => {
     setInterhandMessage(null);
     setInterhandSubmessage(undefined);
@@ -940,7 +965,7 @@ export function MobilePokerTable({
 
           {/* Action Buttons - Always visible area */}
           <div className="mobile-action-area">
-            {showActionButtons && currentPlayer ? (
+            {showActionButtons && currentPlayer && !winnerInfo && !isShuffling ? (
               <MobileActionButtons
                 playerOptions={playerOptions}
                 currentPlayerStack={currentPlayer.stack}
@@ -1036,12 +1061,15 @@ export function MobilePokerTable({
             )}
           </div>
 
-          {/* Winner Announcement — non-showdown wins are handled by the interhand
-          message inside ShuffleLoading, so only mount for showdown wins. */}
-          {!(winnerInfo && !winnerInfo.showdown) && (
+          {/* Winner Announcement — the "result" beat for showdown wins only.
+          Fold-out walks stay uneventful (their winner line shows in the shuffle
+          screen below). When the overlay's hold elapses or the player taps
+          Continue, handleResultComplete hands off to the shuffle beat and clears
+          the winner, so the overlay and shuffle never overlap. */}
+          {winnerInfo && winnerInfo.showdown && (
             <MobileWinnerAnnouncement
               winnerInfo={winnerInfo}
-              onComplete={clearWinnerInfo}
+              onComplete={handleResultComplete}
               gameId={gameId || ''}
               playerName={playerName || ''}
               onSendMessage={wrappedSendMessage}
@@ -1061,10 +1089,13 @@ export function MobilePokerTable({
             />
           )}
 
-          {/* Shuffle animation during end-of-hand phases. For non-showdown wins the
-          shuffle message shows who won instead of "Shuffling". */}
+          {/* Shuffle beat — owned by the director. For showdowns it follows the
+          winner overlay; for fold-out walks it IS the result (the winner line
+          shows in place of "Shuffling"). Either way it holds a client minimum so
+          it can't flash, and covers the wait for the backend to deal the next
+          hand. */}
           <ShuffleLoading
-            isVisible={isInterhandPhase}
+            isVisible={isShuffling}
             message={interhandMessage || 'Shuffling'}
             submessage={interhandSubmessage}
             handNumber={cashMode ? undefined : handNumber}

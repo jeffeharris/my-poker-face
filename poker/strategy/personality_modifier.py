@@ -188,13 +188,17 @@ def _clip_and_normalize(
     base_probs: np.ndarray,
     max_shift: float,
     eps: float = 1e-12,
-    max_iters: int = 10,
+    max_iters: int = 100,
 ) -> np.ndarray:
     """Iteratively clip per-action and renormalize until convergence.
 
     A single clip-renormalize pass can push values outside the cap when the
     total changes.  Iterating guarantees the final distribution satisfies
     both the per-action cap and sums to 1.
+
+    Convergence is linear, so a hard-binding tight cap with a large initial
+    distortion (e.g. the maniac profile's 0.35 cap) needs ~50 passes to
+    settle under 1e-6; 10 left a ~2e-6 residual that broke the cap invariant.
     """
     result = probs.copy()
     for _ in range(max_iters):

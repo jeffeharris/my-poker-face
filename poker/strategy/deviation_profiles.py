@@ -76,7 +76,11 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
     ),
     'maniac': DeviationProfile(
         max_kl=1.2,
-        max_per_action_shift=0.60,
+        # The binding lever for this profile: clamp_divergence applies the
+        # per-action clip BEFORE the KL check, and that clip already pulls
+        # realized KL under max_kl, so max_kl never engages. Priced re-cap
+        # 0.60 -> 0.35 brings intrinsic self-play cost -15.7 -> -11.3 bb/100.
+        max_per_action_shift=0.35,
         aggression_scale=2.0,
         looseness_scale=2.0,
         risk_scale=1.6,

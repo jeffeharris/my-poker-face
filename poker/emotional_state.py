@@ -219,17 +219,20 @@ EMOTIONAL_NARRATION_SCHEMA = CategorizationSchema(
         'narrative': {
             'type': 'string',
             'default': '',
-            'description': '1-2 sentences describing how the character is feeling, in third person',
+            'description': (
+                'One present-tense sentence, third person: a concrete physical tell an '
+                'opponent would catch (no feeling-words, no similes)'
+            ),
         },
         'inner_voice': {
             'type': 'string',
             'default': '',
-            'description': 'A short thought echoing in their head, in first person, in their voice',
+            'description': "One sharp first-person thought, in the character's own voice",
         },
     },
     example_output={
-        'narrative': 'Gordon is seething after Phil\'s lucky river card. His jaw is tight and his patience is wearing thin.',
-        'inner_voice': 'That idiot called with nothing and got rewarded. Unbelievable.',
+        'narrative': "Gordon's jaw sets hard and his stare locks on the dealer as Phil rakes the pot.",
+        'inner_voice': 'Called with nothing and hit his miracle card. Unbelievable.',
     },
 )
 
@@ -478,17 +481,14 @@ class EmotionalStateGenerator:
     back to generic text.
     """
 
-    SYSTEM_PROMPT = """You are narrating the emotional state of a poker player character.
+    SYSTEM_PROMPT = """Two lines that capture where this poker character's head is the instant a hand ends. Stay hard in their voice.
 
-The emotional dimensions have already been determined. Your job is to describe
-how this character FEELS and THINKS right now, authentically in their voice.
+The emotional dimensions below are already set — show them, don't name them.
 
-Write:
-- narrative: 1-2 sentences in THIRD PERSON describing how they're feeling
-- inner_voice: A SHORT thought in FIRST PERSON in their speaking style
+- narrative: one vivid present-tense sentence (third person) — a concrete tell an opponent would catch, not a feeling-word. State the literal tell; no similes or "like a…" comparisons. Vary the tell hand to hand — reach past hands and fingers (eyes, jaw, breath, posture, voice, stillness, how they handle their chips or cards).
+- inner_voice: one first-person thought, the way THEY'd actually say it — sharp, unfinished, alive.
 
-Be authentic to the character's personality and verbal tics. The emotional
-dimensions tell you the intensity — your job is to give it personality."""
+Write fresh phrasing every time. The listed voice reference is for TONE only — never repeat it word-for-word. No clichés, no preamble."""
 
     def __init__(self, timeout_seconds: float = 3.0):
         """Initialize the generator with a categorizer for narration."""
@@ -675,10 +675,11 @@ dimensions tell you the intensity — your job is to give it personality."""
         if play_style:
             lines.append(f"PERSONALITY: {play_style}")
 
-        # Verbal tics for voice reference
+        # Verbal tics for voice reference — labeled "do not quote" because the
+        # model otherwise lifts these lines verbatim as the inner_voice.
         verbal_tics = personality_config.get('verbal_tics', [])
         if verbal_tics and isinstance(verbal_tics, list):
-            lines.append(f"SPEAKING STYLE EXAMPLES: {', '.join(verbal_tics[:3])}")
+            lines.append(f"VOICE REFERENCE (do not quote): {', '.join(verbal_tics[:3])}")
 
         # Computed emotional dimensions with descriptors
         lines.append("")
@@ -744,9 +745,7 @@ dimensions tell you the intensity — your job is to give it personality."""
                 lines.append(f"  - Streak: {streak_count}-hand {streak_type} streak")
 
         lines.append("")
-        lines.append(
-            "Write a narrative and inner_voice that express this emotional state authentically for this character."
-        )
+        lines.append("Write the narrative and inner_voice for this character, right now.")
 
         return "\n".join(lines)
 

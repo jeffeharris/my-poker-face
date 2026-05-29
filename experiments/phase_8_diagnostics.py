@@ -41,10 +41,7 @@ from experiments.simulate_bb100 import (
 from poker.memory.opponent_model import OpponentModelManager
 from poker.poker_state_machine import PokerStateMachine
 
-PHASE_8_PREFIXES = (
-    'value_vs_station_',
-    'steal_pressure_',
-)
+PHASE_8_PREFIXES = ('value_vs_station_',)
 
 
 def run_diagnostic_matchup(
@@ -154,7 +151,7 @@ def summarize_phase_8_counters(counters: Counter) -> Dict[str, Dict[str, int]]:
         if not key.startswith(PHASE_8_PREFIXES):
             continue
         # Key shape: '<family>_<counter>_<archetype>'.
-        # Family is value_vs_station or steal_pressure; archetype is
+        # Family is value_vs_station; archetype is
         # always the last underscore-segment.
         parts = key.split('_')
         archetype = parts[-1]
@@ -219,7 +216,7 @@ def print_single_seed_report(
         print("    (no Phase 8 counters fired)")
     else:
         for arch, by_counter in grouped.items():
-            for fam in ('value_vs_station', 'steal_pressure'):
+            for fam in ('value_vs_station',):
                 fam_counters = {
                     k.replace(f'{fam}_', ''): v
                     for k, v in by_counter.items()
@@ -250,7 +247,7 @@ def print_single_seed_report(
     if grouped:
         print("\n  Identity checks:")
         for arch, by_counter in grouped.items():
-            for fam in ('value_vs_station', 'steal_pressure'):
+            for fam in ('value_vs_station',):
                 eligible = by_counter.get(f'{fam}_eligible', 0)
                 if eligible == 0:
                     continue
@@ -381,7 +378,6 @@ def main():
         import poker.strategy.exploitation as _exp
 
         _exp.VALUE_VS_STATION_PLAYSTYLES = frozenset()
-        _exp.STEAL_PRESSURE_PLAYSTYLES = frozenset()
         print("[control] Phase 8 disabled — VALUE_VS_STATION_PLAYSTYLES=frozenset()")
 
     opponents = [o.strip() for o in args.opponents.split(',')]

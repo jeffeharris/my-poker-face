@@ -164,6 +164,27 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'disable_rules': frozenset({('postflop_commit', 'default')})},
         challenger_flags={'disable_rules': frozenset()},
     ),
+    # ── Maniac-counter ablation: champion DISABLES value_override +
+    # bluff_catch_override (the strong-hand-push / marginal-call-down counters vs
+    # a detected aggressor); challenger keeps them ON. Paired edge = the bb/100
+    # those two steps add. NOTE: both are gated by classify==hyper_aggressive
+    # (global AF>3.5 / all-in>30%) — the same detection EXP_004/005 showed fires
+    # on ~nobody — so vs a non-extreme backdrop this reads ~0 (the counter is
+    # dormant, not firing). Run vs ManiacBot / Fish-Spew to confirm dormancy on
+    # the realistic field; a non-zero edge means the machinery is load-bearing
+    # and should NOT be cut. ──
+    'maniac_counter': ChangeSpec(
+        description='value_override + bluff_catch_override OFF (champion) vs ON '
+        '(challenger) — does the maniac-counter machinery add bb/100?',
+        champion_table=lambda: load_strategy_table(),
+        challenger_table=lambda: load_strategy_table(),
+        champion_flags={
+            'disable_rules': frozenset(
+                {('strong_hand_override', 'default'), ('bluff_catch_override', 'default')}
+            )
+        },
+        challenger_flags={'disable_rules': frozenset()},
+    ),
     # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
     # preflop table at every effective-stack depth — the original
     # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
@@ -253,14 +274,12 @@ CHANGES: Dict[str, ChangeSpec] = {
 # exploitation fully off (strength 0) — so the win-rate is the rule's STANDALONE
 # contribution vs no exploitation. Same prerequisites as `exploitation`:
 # SNG-runner, --opponent-model, a non-Baseline --archetype, exploitable
-# --backdrop. `steal_pressure` is excluded — STEAL_PRESSURE_PLAYSTYLES is empty,
-# so it's dormant for every archetype and would read a degenerate null.
-# `value_vs_station` / `bluff_reduction` additionally need a value_vs_station
-# archetype (nit/rock/tag).
+# --backdrop. (`steal_pressure` was removed entirely — it shipped dormant for
+# every archetype and never earned its keep; see EXP_005 / the exploitation
+# consolidation.) `value_vs_station` / `bluff_reduction` additionally need a
+# value_vs_station archetype (nit/rock/tag).
 _ALL_EXPLOIT_RULE_KEYS = frozenset(_EXPLOIT_RULE_ORDER)
-_ABLATABLE_EXPLOIT_RULES = tuple(
-    key for key in _EXPLOIT_RULE_ORDER if key != ('steal_pressure', 'default')
-)
+_ABLATABLE_EXPLOIT_RULES = tuple(_EXPLOIT_RULE_ORDER)
 for _layer, _rule in _ABLATABLE_EXPLOIT_RULES:
     # The five 'exploitation'-layer rules have distinct rule_ids; the Phase-8
     # rules share rule_id='default' and are distinguished by their layer.
