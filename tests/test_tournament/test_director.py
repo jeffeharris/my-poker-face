@@ -79,3 +79,48 @@ def test_three_and_four_table_targets():
         _c, result = _run(n)
         assert result.terminal_reason == TERMINAL_WINNER
         assert result.winner is not None
+
+
+def _director(field_size: int, table_size: int = 6, seed: int = 0):
+    config = TournamentConfig(
+        field_size=field_size, table_size=table_size, starting_stack=10_000,
+        seed=seed, rounds_per_level=3,
+    )
+    director = TournamentDirector(config, resolver=FakeHandResolver())
+    director.run()
+    return director
+
+
+def test_round_reports_cover_every_round():
+    director = _director(18)
+    assert len(director.round_reports) == director.rounds_played
+    assert [r.round_index for r in director.round_reports] == list(range(director.rounds_played))
+
+
+def test_seat_moves_are_recorded_when_tables_break():
+    # 18 entrants over 3 tables must break down to 1 final table — that requires
+    # moving players, so the event log must contain seat moves referencing real
+    # entrants and two distinct tables.
+    director = _director(18)
+    all_moves = [m for r in director.round_reports for m in r.seat_moves]
+    assert all_moves, "a 3-table field collapsing to a final table must move players"
+    entries = set(director.entries)
+    for m in all_moves:
+        assert m.player_id in entries
+        assert m.from_table != m.to_table
+
+
+def test_eliminations_have_valid_eliminators():
+    director = _director(18)
+    elims = [e for r in director.round_reports for e in r.eliminations]
+    assert len(elims) == director.config.field_size - 1  # everyone but the winner
+    entries = set(director.entries)
+    attributed = 0
+    for e in elims:
+        if e.eliminator is not None:
+            assert e.eliminator in entries
+            assert e.eliminator != e.player_id
+            attributed += 1
+    # The fake model awards every busting hand's pot to a live gainer, so the
+    # vast majority of knockouts should be attributed.
+    assert attributed >= len(elims) - 1

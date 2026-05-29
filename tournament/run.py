@@ -75,6 +75,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  rounds played: {result.rounds_played}   terminal: {result.terminal_reason}")
     print(f"  total chips:   {result.total_chips}")
     print("=" * 60)
+    total_moves = sum(len(r.seat_moves) for r in director.round_reports)
+    total_elims = sum(len(r.eliminations) for r in director.round_reports)
+    final_level = director.round_reports[-1].level if director.round_reports else None
+    print(
+        f"  seat moves: {total_moves}   eliminations: {total_elims}"
+        + (f"   final blinds: {final_level.small_blind}/{final_level.big_blind}" if final_level else "")
+    )
+    print("=" * 60)
     print(f"  {'pos':>4}  {'player':<6} {'archetype':<12}")
     for s in result.standings:
         marker = '  🏆' if s.finishing_position == 1 else ''
