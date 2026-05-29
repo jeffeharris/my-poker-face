@@ -528,6 +528,74 @@ over_bluff −EV vs callers) — the **skill tier**. Takeaway for future leaks: 
 early-street frequency tendency to be a skill leak in HU; build those for flavor, and look to the
 river / committed pots (or the floor-defeating path, under investigation) for −EV.*
 
+### Leak × counter matrix — a leak's cost is a property of the MATCHUP, not the leak (2026-05-29)
+
+Motivated by the question "are the *free* leaks actually exploitable if an opponent plays the
+counter-strategy?" Priced each leak vs the fixed opponent whose strategy should punish it (24k HU,
+`--hero-spot-tendency X --a-disable spot_tendencies:X`, opponent roster = the counter):
+
+| Leak | vs neutral field (self/jeff/punisher) | vs its counter-strategy | read |
+|---|---|---|---|
+| fit_or_fold | +1.71 / +0.28 / +1.89 | **maniac (barreler) +2.68** [−1.09,+6.46] | still free |
+| auto_cbet | +0.34 / +1.30 / +0.08 | **LAG (floater) +0.23** [−3.95,+4.41] | still free |
+| donk_when_weak | −0.58 / −0.87 / −0.31 | **maniac (raiser) +1.09** [−4.93,+7.12] | still free |
+| slowplay | ~0 / −5 / −2 | **maniac (aggressor) −1.62** [−6.70,+3.46] | still free |
+| over_bluff | +0.39 / −1.44 / −0.64 | **station (caller) −7.60** [−8.96,−6.24] | **CI-clear −EV** |
+| sticky | **−1.87** / −0.46 / −0.26 | **maniac (bluffer) +2.12** [+0.31,+3.93] | **CI-clear +EV** |
+
+**Three results that reframe the whole program:**
+
+1. **CORRECTION — the −10 was a mirage.** A 2-seed smoke read fit_or_fold at −10.14 vs the maniac
+   (CI [−20,−0.04], touching 0); the 24k says **+2.68, free**. Never trust a 2-seed number — the
+   project's load-bearing lesson, caught again. The early-street leaks (fit_or_fold, auto_cbet,
+   donk, slowplay) **stay free even vs the opponent built to punish them.**
+
+2. **Early-street leaks aren't extractable by a fixed counter** — two reasons, both confirmed by the
+   floor investigation (below): (a) the `defense_floor` runs *after* the leak and re-adds the
+   over-folded calls; (b) a caricature aggressor (ManiacBot/LAG) barrels its *whole* range, not
+   *surgically* the leak's spot, and the leak fires on only ~0.3–3.5% of hands. Loosening the
+   attacker (ManiacBot is ~unclamped) does nothing without surgical targeting.
+
+3. **River/commit leaks ARE matchup-sensitive — the sign flips with the opponent.** `over_bluff`
+   (the bluffer) is **−7.60 vs a caller**, free vs a reg. `sticky` (the caller) is **−1.87 vs a
+   value-bettor but +2.12 vs a bluffer** (it catches the bluffs). over_bluff and sticky are **duals
+   of the same caller-vs-bluffer matchup** — measured from both sides. This is the rock-paper-scissors
+   texture: a leak is a *weakness* vs one attacker and a *defense* vs another. **The skill gradient
+   isn't a scalar — it's a matchup graph.**
+
+**Implication for "make them exploitable":** a leak's exploitability lives in the *matchup*, and only
+the river/commit leaks have a *fixed* counter that bites. Early-street leaks need either (a) a
+**surgical/adaptive** attacker (a detector that targets the exact spot — `exploitation.py` +
+`OpponentModelManager`, the parked work this revives) AND/OR (b) the leak made deeper than the floor
+allows (next section). A blind clamp change on either side is insufficient; the deviation must be
+spot-targeted.
+
+### Floor-defeating leaks — INVESTIGATED (2026-05-29), see `docs/plans/FLOOR_DEFEATING_LEAKS.md`
+
+A delegated agent mapped the postflop pipeline and confirmed the structural cap: the **`defense_floor`
+runs AFTER the leak layer** (step 6.b → defense_floor) and *only ever raises `call`*, structurally
+re-adding any over-folded continue for made hands (air/bluff_catcher are no-floor rows — why the
+narrow over-fold was free even without it). `math_floor` is a secondary hard veto (short-stack /
+pot-committed). The **river bluff guardrail runs BEFORE** the leak layer, which is why `over_bluff`
+survives uncapped — the asymmetry is pure layer order.
+
+- **POC (monkeypatched both floors in-process, fit_or_fold, 6k/cell):** neutering the floors shifts
+  cost in the −EV direction in **every** roster (jeff +0.93, punisher +0.88, **maniac +6.22** toward
+  −EV — largest where the leak fires most), the predicted signature — but CIs straddle 0 at 6k.
+  **Second co-limiter found: the over-fold barely fires a divergent action (0.3–3.5%)**, and neutering
+  the floor *raised* divergence (direct evidence the floor was silently undoing fold mass).
+- **Minimal safe design:** a per-decision **`floor_exempt`** flag (defaults False, set only when a
+  floor-defeating tendency fires, threaded into `apply_defense_floor` like the `disable_rules` hook).
+  Decision-scoped, OFF = byte-identical, the leak's `max_per_action_shift` still bounds the bleed,
+  scope to the *defense* floor only (defeating the math veto would fold pot-committed hands = a bug).
+- **Go/No-Go: conditional GO, sequenced** — FIRST raise fire-rate / widen the gate (the exemption
+  can't matter at 0.3–3.5% divergence); if a leak can't fire materially more, No-Go and switch to a
+  higher-fire-rate turn-commit leak. THEN build the flag (~½ day, ~30–50 LOC + tests) and re-price at
+  a CI-clearing sample. **This `floor_exempt` flag IS the concrete form of the dynamic-clamp idea:**
+  "relax the EV-bound for this decision because something (a fired detector, or a configured leak)
+  justifies it." Same mechanism serves the attacker side (exploit harder on a confident read) and the
+  leak side (a deliberately deeper weakness).
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
@@ -553,8 +621,8 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | fit-or-fold / over-fold to c-bet | flop facing c-bet, non-strong (widened to 2nd pair+draws) | barrel relentlessly | **priced (free, STYLE — widening didn't make it −EV; floor-capped)** | partial (`exploitation.py`) |
 | auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | **priced (free*, see below)** | — |
 | under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | **priced (free/+EV, style/face-up)** | — |
-| sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | **priced (−EV ✓ real leak)** | **built✅** (overbet, +42 vs payers) |
-| over-bluff (too many bluffs) | river, air, as bettor | over-call bluff-catchers | **priced (mild leak vs callers)** | **built✅ as defense** (river guardrail) |
+| sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | **priced (−1.87 vs value, +2.12 vs bluffer — matchup-signed)** | **built✅** (overbet, +42 vs payers) |
+| over-bluff (too many bluffs) | river, air, as bettor | over-call bluff-catchers | **priced (−7.60 vs a pure caller — CI-clear exploitable)** | **built✅ as defense** (river guardrail) |
 | face-up sizing (big=strong, min-raise=nuts, overbet=nuts) | any bet node; strength→size | read size → call/fold | backlog (**strategic**) | parked (sizing-aware D1) |
 | over-fold to 3-bet | preflop facing 3-bet | 3-bet wide as a bluff | backlog | — |
 | face-up / nitty 3-bet (value only) | preflop 3-bet decision | fold to their 3-bets, stop paying | backlog | — |
