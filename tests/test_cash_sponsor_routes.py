@@ -649,9 +649,10 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         self.assertEqual(after.seats[1]['kind'], 'human')
         self.assertEqual(after.seats[1]['personality_id'], PLAYER_OWNER_ID)
 
-    def test_rejects_seat_reserved_by_another_player(self):
-        """A hold owned by a DIFFERENT player is a real conflict — the
-        sponsor accept must 409 rather than steal someone else's seat."""
+    def test_does_not_steal_seat_reserved_by_another_player(self):
+        """A hold owned by a DIFFERENT player must never be stolen. The
+        sponsor accept now falls back to another open seat instead of
+        409-ing, but the other player's reserved seat stays theirs."""
         from flask_app import extensions
 
         cash_table_repo = extensions.cash_table_repo
@@ -672,17 +673,32 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             ),
             sandbox_id=self.test_sandbox_id,
         )
-        response = self.client.post(
-            '/api/cash/sponsor-and-sit',
-            json={
-                'stake_label': '$10',
-                'archetype_id': 'friendly_boost',
-                'table_id': 'cash-table-10-001',
-                'seat_index': 1,
-                'opponents': 2,
-            },
-        )
-        self.assertEqual(response.status_code, 409, response.get_data(as_text=True))
+        with patch(
+            'flask_app.routes.cash_routes._build_cash_game',
+            side_effect=lambda **kwargs: ('cash-test-reserved-fallback', None),
+        ):
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'table_id': 'cash-table-10-001',
+                    'seat_index': 1,
+                    'opponents': 2,
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        after = cash_table_repo.load_table('cash-table-10-001', sandbox_id=self.test_sandbox_id)
+        # The other player's hold is untouched...
+        self.assertEqual(after.seats[1]['kind'], 'reserved')
+        self.assertEqual(after.seats[1]['personality_id'], 'a-different-player')
+        # ...and we sat in a different (previously open) seat.
+        human_seats = [
+            i for i, s in enumerate(after.seats)
+            if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
+        ]
+        self.assertEqual(len(human_seats), 1)
+        self.assertNotEqual(human_seats[0], 1)
 
     def test_table_aware_path_persists_cash_table_id(self):
         """Regression: the seat-tapped sponsor flow must persist
@@ -755,9 +771,10 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
         )
         self.assertEqual(session.cash_seat_index, 1)
 
-    def test_table_aware_rejects_taken_seat(self):
-        """Sponsor flow with table_id pointing at a non-open seat
-        must 409, not silently sample a different roster.
+    def test_table_aware_taken_seat_falls_back_to_open(self):
+        """Sponsor flow with table_id pointing at a seat that filled in
+        (live-fill race) falls back to another open seat on the SAME
+        table — same roster, not a fresh sample — rather than 409-ing.
         """
         from flask_app import extensions
 
@@ -778,17 +795,58 @@ class TestSponsorAndSitRoute(_CashSponsorRouteBase):
             ),
             sandbox_id=self.test_sandbox_id,
         )
+        with patch(
+            'flask_app.routes.cash_routes._build_cash_game',
+            side_effect=lambda **kwargs: ('cash-test-taken-fallback', None),
+        ):
+            response = self.client.post(
+                '/api/cash/sponsor-and-sit',
+                json={
+                    'stake_label': '$10',
+                    'archetype_id': 'friendly_boost',
+                    'table_id': 'cash-table-10-001',
+                    'seat_index': 0,  # napoleon's seat (taken)
+                    'opponents': 2,
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        after = cash_table_repo.load_table('cash-table-10-001', sandbox_id=self.test_sandbox_id)
+        # Napoleon's seat is untouched; we landed in a previously-open seat.
+        self.assertEqual(after.seats[0]['kind'], 'ai')
+        human_seats = [
+            i for i, s in enumerate(after.seats)
+            if s['kind'] == 'human' and s.get('personality_id') == PLAYER_OWNER_ID
+        ]
+        self.assertEqual(len(human_seats), 1)
+        self.assertGreaterEqual(human_seats[0], 2)
+
+    def test_full_table_still_409s(self):
+        """A genuinely full table (no open seat to fall back to) still
+        409s with a 'Table is full' message."""
+        from flask_app import extensions
+
+        cash_table_repo = extensions.cash_table_repo
+        seats = [ai_slot(self.napoleon_id, 400) for _ in range(6)]
+        cash_table_repo.save_table(
+            CashTableState(
+                table_id='cash-table-10-001',
+                stake_label='$10',
+                seats=seats,
+            ),
+            sandbox_id=self.test_sandbox_id,
+        )
         response = self.client.post(
             '/api/cash/sponsor-and-sit',
             json={
                 'stake_label': '$10',
                 'archetype_id': 'friendly_boost',
                 'table_id': 'cash-table-10-001',
-                'seat_index': 0,  # napoleon's seat
+                'seat_index': 0,
                 'opponents': 2,
             },
         )
         self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()['error'], 'Table is full')
 
     def test_table_aware_requires_both_table_id_and_seat_index(self):
         """Sending one without the other is ambiguous — reject with 400."""

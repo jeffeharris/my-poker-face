@@ -315,7 +315,11 @@ export async function sitAtTable(
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+    const err = new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+    // Attach status so the lobby can self-heal on a 409 (seat-race /
+    // full-table) by reloading rather than dead-ending the tap.
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
   return (await res.json()) as SitResponse;
 }

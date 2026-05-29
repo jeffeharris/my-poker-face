@@ -542,6 +542,7 @@ def _process_global_greedy_fills(
     now,
     rng,
     seek_rate: float = DEFAULT_SEEK_RATE,
+    human_headroom: int = 0,
 ) -> None:
     """The loop inversion (CASH_MODE_TABLE_ATTRACTIVENESS.md §2).
 
@@ -578,6 +579,15 @@ def _process_global_greedy_fills(
         usable = [
             i for i, s in enumerate(tbl.seats) if s.get("kind") == "open" and i in preburst_open
         ]
+        # Reserve `human_headroom` of the open seats for a human who taps
+        # Sit/Sponsor in the lobby — the fill leaves the highest-index
+        # open seats untouched so the ticker can't saturate a table and
+        # crowd the player out (the stale-snapshot 409 race). 0 = no
+        # reservation (sims/tests fill to full). We keep the LOW-index
+        # seats fillable so reserved seats are deterministic.
+        if human_headroom > 0 and usable:
+            reserve = min(len(usable), human_headroom)
+            usable = usable[: len(usable) - reserve]
         if not usable:
             continue
         is_lobby = tbl.table_type == "lobby"
@@ -844,6 +854,11 @@ def refresh_unseated_tables(
     # opponent at another table mid-hand. None → no live games to honor
     # (the default for sim/test callers, preserving their behavior).
     live_seated_pids: Optional[Set[str]] = None,
+    # Number of open seats the global greedy fill leaves untouched on each
+    # table, reserving them for a human who taps Sit/Sponsor in the lobby.
+    # 0 (default) = full saturation, which is what sims/tests want; the
+    # LIVE lobby + ticker pass `economy_flags.LIVE_FILL_HUMAN_HEADROOM`.
+    human_headroom: int = 0,
 ) -> Dict[str, RosterRefreshResult]:
     """Run a movement+live-fill refresh on every table without a human.
 
@@ -1756,6 +1771,7 @@ def refresh_unseated_tables(
         now=now,
         rng=rng,
         seek_rate=seek_rate,
+        human_headroom=human_headroom,
     )
 
     # Emit the last-stand predator signal for AIs newly committed since

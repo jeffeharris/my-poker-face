@@ -470,6 +470,24 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     return freed
 
 
+def _first_open_seat_index(table) -> Optional[int]:
+    """Return the lowest-index `"open"` seat on `table`, or None if full.
+
+    The lobby's Sit/Sponsor buttons auto-pick `firstOpenIndex` from a
+    poll snapshot that can be several seconds stale — by the time the tap
+    lands, the world ticker's live-fill may have seated an AI in that
+    exact seat. Rather than reject the whole tap with a 409 (which the
+    UI surfaced as a silently-disabled button), the sit/sponsor paths
+    fall back to whatever seat IS open on the same table via this helper.
+    Only a genuinely full table 409s. Part of the cash-seat-conflict
+    hardening — see `_free_ghost_human_seats` for the sibling sweep.
+    """
+    for idx, slot in enumerate(table.seats):
+        if slot.get("kind") == "open":
+            return idx
+    return None
+
+
 def _build_preselected_from_table(
     *,
     claimed_table,
@@ -1220,12 +1238,22 @@ def sit_at_table():
         return jsonify({"error": "seat_index out of range"}), 400
     target_slot = table.seats[seat_index]
     if target_slot["kind"] != "open":
-        return jsonify(
-            {
-                "error": "Seat is not open",
-                "seat_kind": target_slot["kind"],
-            }
-        ), 409
+        # The tapped seat filled in since the lobby snapshot. Fall back to
+        # any other open seat on this table rather than rejecting the tap
+        # (the stale-snapshot race that read as a dead button). Only a
+        # genuinely full table 409s. The authoritative re-resolve happens
+        # under the sandbox lock below; this is the pre-lock fast path so
+        # the affordability/sponsor branch sees a real open seat.
+        alt = _first_open_seat_index(table)
+        if alt is None:
+            return jsonify(
+                {
+                    "error": "Table is full",
+                    "seat_kind": target_slot["kind"],
+                }
+            ), 409
+        seat_index = alt
+        target_slot = table.seats[seat_index]
 
     stake_label = table.stake_label
     if stake_label not in STAKES_LADDER:
@@ -1298,15 +1326,18 @@ def sit_at_table():
                 )
                 if current_kind != "open" and not already_mine:
                     # An AI (or another claim) took the seat between the
-                    # tap and here. Surface a clean 409 so the frontend
-                    # can prompt a re-tap rather than opening a modal for
-                    # a seat the player can't actually take.
-                    return jsonify(
-                        {
-                            "error": "Seat is not open",
-                            "seat_kind": current_kind,
-                        }
-                    ), 409
+                    # tap and here. Fall back to any other open seat on
+                    # this table so the SponsorModal opens against a seat
+                    # the player can actually take; only a full table 409s.
+                    alt = _first_open_seat_index(fresh)
+                    if alt is None:
+                        return jsonify(
+                            {
+                                "error": "Table is full",
+                                "seat_kind": current_kind,
+                            }
+                        ), 409
+                    seat_index = alt
                 reserved_table = fresh.with_seat(
                     seat_index,
                     reserved_slot(owner_id, datetime.utcnow()),
@@ -1361,12 +1392,18 @@ def sit_at_table():
         if table is None:
             return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
         if table.seats[seat_index]["kind"] != "open":
-            return jsonify(
-                {
-                    "error": "Seat is not open",
-                    "seat_kind": table.seats[seat_index]["kind"],
-                }
-            ), 409
+            # Lost the seat to live-fill between the pre-lock resolve and
+            # acquiring the lock. Re-resolve to any open seat on the table;
+            # only a now-full table 409s.
+            alt = _first_open_seat_index(table)
+            if alt is None:
+                return jsonify(
+                    {
+                        "error": "Table is full",
+                        "seat_kind": table.seats[seat_index]["kind"],
+                    }
+                ), 409
+            seat_index = alt
         claimed_table = table.with_seat(seat_index, human_slot(owner_id, buy_in))
         cash_table_repo.save_table(claimed_table, sandbox_id=sandbox_id)
 
@@ -2061,12 +2098,19 @@ def sponsor_and_sit():
             and table.seats[seat_index].get("personality_id") == owner_id
         )
         if pre_kind != "open" and not held_by_me:
-            return jsonify(
-                {
-                    "error": "Seat is not open",
-                    "seat_kind": pre_kind,
-                }
-            ), 409
+            # The reservation lapsed (TTL) and the seat filled, or the
+            # client sent a seat that was never held. Fall back to any
+            # open seat on this table rather than dead-ending the sponsor
+            # flow; only a full table 409s.
+            alt = _first_open_seat_index(table)
+            if alt is None:
+                return jsonify(
+                    {
+                        "error": "Table is full",
+                        "seat_kind": pre_kind,
+                    }
+                ), 409
+            seat_index = alt
         # Sweep any orphan human / reserved seats for this owner BEFORE
         # claiming the new one — same defense sit_at_table uses, and it's
         # what converts this player's own hold back to "open" so the
@@ -2084,12 +2128,17 @@ def sponsor_and_sit():
             if table is None:
                 return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
             if table.seats[seat_index]["kind"] != "open":
-                return jsonify(
-                    {
-                        "error": "Seat is not open",
-                        "seat_kind": table.seats[seat_index]["kind"],
-                    }
-                ), 409
+                # Lost it to live-fill after the sweep re-opened our hold.
+                # Re-resolve to any open seat; only a full table 409s.
+                alt = _first_open_seat_index(table)
+                if alt is None:
+                    return jsonify(
+                        {
+                            "error": "Table is full",
+                            "seat_kind": table.seats[seat_index]["kind"],
+                        }
+                    ), 409
+                seat_index = alt
             pre_claim_table = table
             claimed_table = table.with_seat(
                 seat_index,
@@ -4739,6 +4788,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
             # game (the enclosing leave lock is the per-GAME lock); safe because
             # no sandbox-lock holder ever acquires a game lock (no inversion).
             try:
+                from cash_mode import economy_flags as _economy_flags
                 from cash_mode.lobby import refresh_unseated_tables
                 from flask_app.extensions import (
                     chip_ledger_repo,
@@ -4759,6 +4809,7 @@ def _leave_table_locked(owner_id: str, game_id: str):
                         relationship_repo=relationship_repo,
                         stake_repo=stake_repo,
                         live_seated_pids=live_cash_seated_pids(sandbox_id),
+                        human_headroom=_economy_flags.LIVE_FILL_HUMAN_HEADROOM,
                     )
             except Exception as e:
                 logger.warning(
@@ -5108,6 +5159,7 @@ def get_lobby():
     # read-driven refresh so the world still moves on read.
     if not _ticker_enabled():
         try:
+            from cash_mode import economy_flags as _economy_flags_lobby
             from flask_app.extensions import (
                 chip_ledger_repo,
                 relationship_repo,
@@ -5134,6 +5186,7 @@ def get_lobby():
                     vice_repo=vice_state_repo,
                     side_hustle_repo=side_hustle_state_repo,
                     live_seated_pids=live_cash_seated_pids(sandbox_id),
+                    human_headroom=_economy_flags_lobby.LIVE_FILL_HUMAN_HEADROOM,
                 )
         except Exception as e:
             logger.warning("[CASH][LOBBY] refresh_unseated_tables failed: %s", e)

@@ -307,8 +307,10 @@ class TestSitAll(_CashSitRouteBase):
         )
         assert resp.status_code == 400
 
-    def test_occupied_seat_409(self):
-        # Place napoleon at seat 0 and try to sit there.
+    def test_occupied_seat_falls_back_to_open(self):
+        # Tapping a seat that filled in since the lobby snapshot no longer
+        # 409s — the route falls back to another open seat on the table so
+        # the stale-snapshot race doesn't read as a dead Sit button.
         table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
         new_seats = list(table.seats)
         new_seats[0] = ai_slot(self.napoleon_id, 80)
@@ -327,7 +329,37 @@ class TestSitAll(_CashSitRouteBase):
                 "seat_index": 0,
             },
         )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Claimed a real open seat, not the taken one.
+        assert data["seat_index"] != 0
+        claimed = self.cash_table_repo.load_table(
+            "cash-table-2-001", sandbox_id="test-sandbox-1"
+        )
+        assert claimed.seats[data["seat_index"]]["kind"] == "human"
+
+    def test_full_table_409(self):
+        # A genuinely full table (no open seat to fall back to) still 409s,
+        # now with a "Table is full" message.
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        full_seats = [ai_slot(self.napoleon_id, 80) for _ in table.seats]
+        self.cash_table_repo.save_table(
+            CashTableState(
+                table_id=table.table_id,
+                stake_label=table.stake_label,
+                seats=full_seats,
+            ),
+            sandbox_id="test-sandbox-1",
+        )
+        resp = self.client.post(
+            "/api/cash/sit",
+            json={
+                "table_id": "cash-table-2-001",
+                "seat_index": 0,
+            },
+        )
         assert resp.status_code == 409
+        assert resp.get_json()["error"] == "Table is full"
 
     # --- Affordability tests (rolled into the same class to avoid
     # per-class setUpClass creating multiple tempdbs).

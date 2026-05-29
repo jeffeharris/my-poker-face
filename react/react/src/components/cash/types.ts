@@ -474,13 +474,19 @@ export interface SitResponse {
   seat_index: number;
 }
 
-/** 402 body when the player tapped a sponsor-required seat. */
+/** 402 body when the player tapped a sponsor-required seat. The
+ *  backend echoes the table_id + the seat it actually reserved — which
+ *  may differ from the tapped seat if live-fill took it and the server
+ *  fell back to another open seat — so the SponsorModal must target
+ *  these rather than the originally-tapped index. */
 export interface SitRequiresSponsor {
   requires_sponsor: true;
   stake_label: StakeLabel;
   bankroll: number;
   min_buy_in: number;
   max_buy_in: number;
+  table_id: string;
+  seat_index: number;
 }
 
 // --- Net Worth (Phase 3 Commit 1) ---

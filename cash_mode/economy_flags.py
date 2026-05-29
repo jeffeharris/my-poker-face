@@ -115,6 +115,17 @@ RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
 # `flask_app/handlers/game_handler.py` and `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
 REPUTATION_DEMEANOR_ENABLED: bool = True
 
+# Number of open seats the live-world greedy fill leaves untouched on
+# each table, so a human browsing the lobby always has a seat to sit/
+# sponsor into. The world ticker fills aggressively (tick≈2s) and a
+# lobby snapshot can be seconds stale, so without headroom the ticker
+# wins the race for the last open seat and the player's tap 409s (read
+# as a dead Sit/Sponsor button). Set 0 to restore full saturation.
+# Passed explicitly as `human_headroom` to `refresh_unseated_tables` by
+# the LIVE call sites only — sims default to 0 so closed-economy runs
+# still fill tables completely.
+LIVE_FILL_HUMAN_HEADROOM: int = 1
+
 
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
