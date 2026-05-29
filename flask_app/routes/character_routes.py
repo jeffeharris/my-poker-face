@@ -313,6 +313,89 @@ def _observation_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _deeper_reads_from_lifetime(counts: Optional[dict]) -> Optional[dict]:
+    """Shape the durable lifetime COUNTS into the dossier's `deeper_reads`
+    block — the Tier-2 postflop reads (fold-to-cbet, c-bet %, barreling,
+    all-in frequency, postflop aggression, polarization).
+
+    Like `_observation_from_lifetime`, rates derive through the canonical
+    `OpponentTendencies._recalculate_stats()` so they match the live path
+    exactly. Two wrinkles vs. that helper:
+
+    - A rate is `None` until at least one opportunity is observed (rather than
+      the model's neutral 0.5 prior), so the gated UI shows "—" not a
+      misleading default.
+    - The equity polarization means are NOT recomputed by `_recalculate_stats`
+      (the live path updates them incrementally in `record_equity_at_action`),
+      so we derive them here as sum / count.
+
+    Returns None when there's no lifetime row or no hands yet.
+    """
+    if not counts or not counts.get('hands_observed'):
+        return None
+
+    from poker.memory.opponent_model import OpponentTendencies
+
+    t = OpponentTendencies()
+    t.hands_dealt = counts.get('hands_dealt', 0)
+    t.hands_observed = counts.get('hands_observed', 0)
+    t._all_in_count = counts.get('all_in_count', 0)
+    t._fold_to_cbet_count = counts.get('fold_to_cbet_count', 0)
+    t._cbet_faced_count = counts.get('cbet_faced_count', 0)
+    t._cbet_attempt_count = counts.get('cbet_attempt_count', 0)
+    t._postflop_seen_as_pfr_count = counts.get('postflop_seen_as_pfr_count', 0)
+    t._barrel_count = counts.get('barrel_count', 0)
+    t._barrel_opportunity_count = counts.get('barrel_opportunity_count', 0)
+    t._third_barrel_count = counts.get('third_barrel_count', 0)
+    t._third_barrel_opportunity_count = counts.get('third_barrel_opportunity_count', 0)
+    t._postflop_bet_raise_count = counts.get('postflop_bet_raise_count', 0)
+    t._postflop_call_count = counts.get('postflop_call_count', 0)
+    t._recalculate_stats()
+
+    def _mean(total, n):
+        return round(total / n, 2) if n else None
+
+    return {
+        'fold_to_cbet': (
+            round(t.fold_to_cbet, 2) if counts.get('cbet_faced_count') else None
+        ),
+        'cbet_attempt_rate': (
+            round(t.cbet_attempt_rate, 2)
+            if counts.get('postflop_seen_as_pfr_count') else None
+        ),
+        'barrel_frequency': (
+            round(t.barrel_frequency, 2)
+            if counts.get('barrel_opportunity_count') else None
+        ),
+        'third_barrel_frequency': (
+            round(t.third_barrel_frequency, 2)
+            if counts.get('third_barrel_opportunity_count') else None
+        ),
+        # all-in freq uses hands_dealt as denominator (>0 here); 0% is a
+        # legitimate read, so it's never None once there are hands.
+        'all_in_frequency': round(t.all_in_frequency, 3),
+        'aggression_factor_postflop': (
+            round(t.aggression_factor_postflop, 2)
+            if (counts.get('postflop_bet_raise_count')
+                or counts.get('postflop_call_count')) else None
+        ),
+        # Polarization: mean equity the opponent held at each action type.
+        'equity_when_betting': _mean(
+            counts.get('equity_betting_sum', 0.0),
+            counts.get('equity_betting_count', 0),
+        ),
+        'equity_when_raising': _mean(
+            counts.get('equity_raising_sum', 0.0),
+            counts.get('equity_raising_count', 0),
+        ),
+        'equity_when_calling': _mean(
+            counts.get('equity_calling_sum', 0.0),
+            counts.get('equity_calling_count', 0),
+        ),
+        'lifetime': True,
+    }
+
+
 def _build_pressure_summary(game_data: dict, player_name: str) -> Optional[dict]:
     """Pull pressure_stats.get_summary() for this player, if available."""
     pstats = (game_data or {}).get('pressure_stats')
@@ -629,6 +712,7 @@ def get_dossier(identifier: str):
     # (already set above) when there's no lifetime row yet. `life_counts` is
     # also the source of the scouting gate's observed-hand count below.
     life_counts = None
+    response['deeper_reads'] = None
     if sandbox_id:
         try:
             from flask_app.extensions import game_repo
@@ -639,6 +723,10 @@ def get_dossier(identifier: str):
             life_obs = _observation_from_lifetime(life_counts)
             if life_obs is not None:
                 response['observation'] = life_obs
+            # Tier-2 deep postflop reads (gated past 180 hands below).
+            deeper = _deeper_reads_from_lifetime(life_counts)
+            if deeper is not None:
+                response['deeper_reads'] = deeper
         except Exception as e:
             logger.debug("[CHARACTER] lifetime observation load failed: %s", e)
 

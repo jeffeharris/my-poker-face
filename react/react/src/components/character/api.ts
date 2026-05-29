@@ -61,6 +61,24 @@ export interface DossierObservation {
   play_style: string;
 }
 
+/** Tier-2 deep postflop reads (B1) — the long-grind unlocks surfaced past
+ *  ~180 hands. Each field is null until its grind tier (or the informant's
+ *  "Deep postflop read" section) is unlocked, OR until enough of that
+ *  opportunity has been observed to compute it. Rates are 0–1; the equity
+ *  fields are mean win-prob (0–1) the opponent held at that action. */
+export interface DossierDeeperReads {
+  fold_to_cbet: number | null;
+  cbet_attempt_rate: number | null;
+  barrel_frequency: number | null;
+  third_barrel_frequency: number | null;
+  all_in_frequency: number | null;
+  aggression_factor_postflop: number | null;
+  equity_when_betting: number | null;
+  equity_when_raising: number | null;
+  equity_when_calling: number | null;
+  lifetime?: boolean;
+}
+
 export interface DossierPressureSummary {
   total_events?: number;
   wins?: number;
@@ -136,6 +154,9 @@ export interface DossierResponse {
   personality: DossierPersonality | null;
   emotion: string | null;
   observation: DossierObservation | null;
+  /** Tier-2 deep postflop reads. Null when ungated/no data; individual
+   *  fields null when their grind tier is still locked. */
+  deeper_reads?: DossierDeeperReads | null;
   pressure_summary: DossierPressureSummary | null;
   /** AI's off-table bankroll (chips), projected through regen.
    *  Null when no bankroll row exists yet (AI never sat down). */

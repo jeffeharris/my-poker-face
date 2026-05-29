@@ -42,9 +42,39 @@ SCOUTING_SCHEDULE: List[Tuple[str, str, int]] = [
     ('pressure', 'Pressure profile', 100),
     ('memorable', 'Memorable hands', 140),
     ('table_posture', 'Table posture', 180),
+    # Tier-2 deep postflop reads (B1) — the long-grind unlocks that give the
+    # 200–500-hand range something to earn. Each gates one or more fields of
+    # the `deeper_reads` block (see `_DEEPER_FIELDS`).
+    ('fold_to_cbet', 'Fold to c-bet', 220),
+    ('cbet_pct', 'C-bet frequency', 260),
+    ('postflop_aggression', 'Postflop aggression', 300),
+    ('all_in_freq', 'All-in frequency', 340),
+    ('barrel', 'Barreling', 400),
+    ('polarization', 'Polarization', 480),
 ]
 
 _LABELS = {item_id: label for item_id, label, _ in SCOUTING_SCHEDULE}
+
+# Maps each Tier-2 grind item to the `deeper_reads` field(s) it controls.
+# A locked item nulls its field(s) so the deep read never reaches the client.
+_DEEPER_FIELDS: Dict[str, Tuple[str, ...]] = {
+    'fold_to_cbet': ('fold_to_cbet',),
+    'cbet_pct': ('cbet_attempt_rate',),
+    'postflop_aggression': ('aggression_factor_postflop',),
+    'all_in_freq': ('all_in_frequency',),
+    'barrel': ('barrel_frequency', 'third_barrel_frequency'),
+    'polarization': (
+        'equity_when_betting',
+        'equity_when_raising',
+        'equity_when_calling',
+    ),
+}
+
+# Every gateable field in the deeper_reads block (used to collapse a fully
+# redacted block to None so the client renders nothing).
+_ALL_DEEPER_FIELDS: Tuple[str, ...] = tuple(
+    f for fields in _DEEPER_FIELDS.values() for f in fields
+)
 
 # Informant sections (Phase 3): the chunkier units the informant sells. Each
 # bundles one or more grind item-ids; buying a section unlocks all of them at
@@ -71,6 +101,14 @@ INFORMANT_SECTIONS: Dict[str, Dict[str, Any]] = {
         'label': 'Table posture',
         'price': 500,
         'items': ['table_posture'],
+    },
+    'deep_reads': {
+        'label': 'Deep postflop read',
+        'price': 1500,
+        'items': [
+            'fold_to_cbet', 'cbet_pct', 'postflop_aggression',
+            'all_in_freq', 'barrel', 'polarization',
+        ],
     },
 }
 
@@ -131,9 +169,18 @@ def _strip_observation_field(response: Dict[str, Any], field: str) -> None:
         obs[field] = None
 
 
+def _strip_deeper_field(response: Dict[str, Any], field: str) -> None:
+    deeper = response.get('deeper_reads')
+    if isinstance(deeper, dict) and deeper.get(field) is not None:
+        deeper[field] = None
+
+
 def _redact_item(response: Dict[str, Any], item_id: str) -> None:
     """Null out the response field(s) a locked item controls."""
-    if item_id in ('play_style', 'vpip', 'pfr', 'aggression_factor'):
+    if item_id in _DEEPER_FIELDS:
+        for field in _DEEPER_FIELDS[item_id]:
+            _strip_deeper_field(response, field)
+    elif item_id in ('play_style', 'vpip', 'pfr', 'aggression_factor'):
         _strip_observation_field(response, item_id)
     elif item_id == 'behavioral_index':
         personality = response.get('personality')
@@ -183,6 +230,14 @@ def apply_scouting_gate(
         for f in ('play_style', 'vpip', 'pfr', 'aggression_factor')
     ):
         response['observation'] = None
+
+    # Same collapse for the deep-reads block: when every gateable field is
+    # redacted the client renders nothing rather than an empty panel.
+    deeper = response.get('deeper_reads')
+    if isinstance(deeper, dict) and all(
+        deeper.get(f) is None for f in _ALL_DEEPER_FIELDS
+    ):
+        response['deeper_reads'] = None
 
     response['scouting'] = scouting
     return scouting

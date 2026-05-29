@@ -8,9 +8,9 @@ last_updated: 2026-05-29
 # Dossier Enrichment Handoff (file cabinet + Tier 2)
 
 Picks up where the scouting meta-game left off. **Phases 1–4 + durable
-pressure/memorable + the Intel hub are shipped and pushed to
-`origin/dossiers`** (as of 2026-05-29); the next phase is **Part B — Tier 2
-new stats**, below. Parent vision + decisions:
+pressure/memorable + the Intel hub + B1 (deep postflop reads) are shipped**
+(as of 2026-05-29); the next phase is **Part B2 — exploit hints**, below.
+Parent vision + decisions:
 `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`. Narrative log (incl. the
 wrong-turns): `docs/captains-log/dossiers/opponent-dossier-progression.md`.
 
@@ -93,7 +93,36 @@ the next context starts at Part B.
 The dossier already has the data for most of these — it's mostly surfacing
 work. Each becomes new grind tiers / reads.
 
-### B1. Deep postflop reads as new grind tiers (the next phase — highest leverage)
+### B1. Deep postflop reads as new grind tiers ✅ DONE (2026-05-29)
+
+Shipped: migration **v125** added the deep count/sum columns to
+`opponent_observation_lifetime`; the fold (`_LIFETIME_COUNT_FIELDS` +
+new `_LIFETIME_SUM_FIELDS`) and `load_observation_lifetime` now build their
+SQL from those maps so future fields are picked up automatically;
+`_deeper_reads_from_lifetime` in `character_routes.py` derives the reads and
+the route attaches a `deeper_reads` block; 6 new `SCOUTING_SCHEDULE` tiers
+(fold-to-cbet @220 → polarization @480) with `_DEEPER_FIELDS` redaction + a
+`deep_reads` informant section ($1500); a gated **DEEP READ** section renders
+in `CharacterDetailCard.tsx` (type `DossierDeeperReads` in `api.ts`). Tests in
+`test_observation_lifetime.py` + `test_dossier_scouting.py`.
+
+> **Gotcha the original plan missed:** the equity polarization MEANS
+> (`equity_when_betting/raising/calling`) are NOT recomputed by
+> `_recalculate_stats()` — the live path updates them incrementally in
+> `record_equity_at_action`. So `_deeper_reads_from_lifetime` derives them
+> manually as `sum / count` from the stored `_equity_*_sum`/`_count` pairs.
+> Everything else (fold-to-cbet, c-bet, barrel, all-in, postflop AF) DOES come
+> out of `_recalculate_stats()` as the plan described.
+
+> **Follow-up under investigation:** gating the deep tiers on *opportunity
+> counts* (e.g. fold-to-cbet unlocks at `cbet_faced_count >= K`) instead of
+> raw `hands_observed`, so the unlock is an honest 1:1 with what was actually
+> witnessed (a 300-hand nit may give only 3 c-bet samples). The opportunity
+> denominators are already stored as of v125. Hand-count gating shipped first.
+
+**ORIGINAL PLAN (kept for reference):**
+
+The idea: deep postflop reads as new grind tiers.
 
 **The idea:** the lifetime store currently keeps only the headline counts
 (VPIP/PFR/AF/showdown). `OpponentTendencies` computes far more and already
@@ -178,10 +207,8 @@ opponent's standing. Contextualizes the raw numbers.
 
 ## Suggested order
 1. ~~File cabinet (Part A)~~ — ✅ done (the Intel hub).
-2. **B1 deep reads** ← **next** — extends the grind + enriches the max dossier
-   from data we already collect (do the lifetime-store extension first, then
-   the grind tiers).
-3. **B2 exploit hints** — high flavor, small.
+2. ~~**B1 deep reads**~~ — ✅ done (2026-05-29, schema v125).
+3. **B2 exploit hints** ← **next** — high flavor, small.
 4. **B3 / B4** — polish.
 
 ## Open tuning knobs (not blocking)

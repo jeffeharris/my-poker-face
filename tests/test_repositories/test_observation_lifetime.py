@@ -230,6 +230,106 @@ def test_observation_from_lifetime_empty_is_none():
     assert _observation_from_lifetime({'hands_observed': 0}) is None
 
 
+# --- v125 deep postflop counts (the Tier-2 reads) ---------------------------
+
+def test_fold_stores_deep_postflop_counts(repo, db_path):
+    """The fold picks up the new count/sum fields automatically (they're in
+    the flat field maps), including the float equity sums."""
+    _insert_model(
+        db_path, "g1", "obs1", "opp1",
+        _counts(
+            hands_observed=30, hands_dealt=30,
+            _all_in_count=3,
+            _fold_to_cbet_count=6, _cbet_faced_count=10,
+            _barrel_count=3, _barrel_opportunity_count=8,
+            _postflop_bet_raise_count=9, _postflop_call_count=3,
+            _equity_betting_count=4, _equity_betting_sum=2.6,
+        ),
+    )
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['all_in_count'] == 3
+    assert life['fold_to_cbet_count'] == 6
+    assert life['cbet_faced_count'] == 10
+    assert life['barrel_count'] == 3
+    assert life['barrel_opportunity_count'] == 8
+    assert life['postflop_bet_raise_count'] == 9
+    assert life['postflop_call_count'] == 3
+    assert life['equity_betting_count'] == 4
+    assert life['equity_betting_sum'] == pytest.approx(2.6)
+
+
+def test_deep_counts_merge_lossless_incl_equity_sum(repo, db_path):
+    """Cross-game merge sums the new counts AND the float equity sums."""
+    _insert_model(db_path, "g1", "obs1", "opp1",
+                  _counts(hands_observed=10, _cbet_faced_count=5,
+                          _fold_to_cbet_count=2,
+                          _equity_calling_count=2, _equity_calling_sum=0.8))
+    repo.fold_observations_into_lifetime("g1", "sb1")
+
+    _insert_model(db_path, "g2", "obs1", "opp1",
+                  _counts(hands_observed=8, _cbet_faced_count=3,
+                          _fold_to_cbet_count=1,
+                          _equity_calling_count=1, _equity_calling_sum=0.5))
+    repo.fold_observations_into_lifetime("g2", "sb1")
+
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['cbet_faced_count'] == 8        # 5 + 3
+    assert life['fold_to_cbet_count'] == 3      # 2 + 1
+    assert life['equity_calling_count'] == 3    # 2 + 1
+    assert life['equity_calling_sum'] == pytest.approx(1.3)  # 0.8 + 0.5
+
+
+def test_deep_refold_unchanged_is_idempotent(repo, db_path):
+    """A re-fold with an unchanged equity sum writes nothing (no float drift,
+    no double-count)."""
+    _insert_model(db_path, "g1", "obs1", "opp1",
+                  _counts(hands_observed=10, _equity_betting_count=2,
+                          _equity_betting_sum=1.2))
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 1
+    assert repo.fold_observations_into_lifetime("g1", "sb1") == 0
+    life = repo.load_observation_lifetime("sb1", "obs1", "opp1")
+    assert life['equity_betting_sum'] == pytest.approx(1.2)
+
+
+def test_deeper_reads_from_lifetime_derives_rates():
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+
+    deep = _deeper_reads_from_lifetime({
+        'hands_observed': 30, 'hands_dealt': 30,
+        'all_in_count': 3,
+        'fold_to_cbet_count': 6, 'cbet_faced_count': 10,
+        'cbet_attempt_count': 7, 'postflop_seen_as_pfr_count': 10,
+        'barrel_count': 3, 'barrel_opportunity_count': 6,
+        'third_barrel_count': 0, 'third_barrel_opportunity_count': 0,
+        'postflop_bet_raise_count': 9, 'postflop_call_count': 3,
+        'equity_betting_count': 4, 'equity_betting_sum': 2.6,
+        'equity_raising_count': 0, 'equity_raising_sum': 0.0,
+        'equity_calling_count': 2, 'equity_calling_sum': 0.8,
+    })
+    assert deep is not None
+    assert deep['lifetime'] is True
+    assert deep['fold_to_cbet'] == pytest.approx(0.6)              # 6 / 10
+    assert deep['cbet_attempt_rate'] == pytest.approx(0.7)         # 7 / 10
+    assert deep['barrel_frequency'] == pytest.approx(0.5)          # 3 / 6
+    assert deep['all_in_frequency'] == pytest.approx(0.1)          # 3 / 30
+    assert deep['aggression_factor_postflop'] == pytest.approx(3.0)  # 9 / 3
+    # Equity means derive as sum / count (NOT via _recalculate_stats).
+    assert deep['equity_when_betting'] == pytest.approx(0.65)      # 2.6 / 4
+    assert deep['equity_when_calling'] == pytest.approx(0.4)       # 0.8 / 2
+    # No opportunities observed → None (not the model's neutral 0.5 prior).
+    assert deep['third_barrel_frequency'] is None
+    assert deep['equity_when_raising'] is None
+
+
+def test_deeper_reads_from_lifetime_empty_is_none():
+    from flask_app.routes.character_routes import _deeper_reads_from_lifetime
+
+    assert _deeper_reads_from_lifetime(None) is None
+    assert _deeper_reads_from_lifetime({'hands_observed': 0}) is None
+
+
 # --- Informant unlock store (Phase 3) ---------------------------------------
 
 def test_informant_unlock_record_and_load(repo):

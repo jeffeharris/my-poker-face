@@ -890,6 +890,7 @@ class GameRepository(BaseRepository):
     # Maps the count keys serialized in opponent_models.tendencies_json
     # (OpponentTendencies.to_dict) → the cumulative columns on
     # opponent_observation_lifetime. Counts only — rates derive on read.
+    # Integer accumulators: lifetime += delta each fold.
     _LIFETIME_COUNT_FIELDS = {
         'hands_dealt': 'hands_dealt',
         'hands_observed': 'hands_observed',
@@ -899,6 +900,31 @@ class GameRepository(BaseRepository):
         '_call_count': 'call_count',
         '_showdowns': 'showdowns_seen',
         '_showdowns_won': 'showdowns_won',
+        # v125 deep postflop counts — numerator/denominator pairs for the
+        # Tier-2 reads (rates derive on read via OpponentTendencies).
+        '_all_in_count': 'all_in_count',
+        '_fold_to_cbet_count': 'fold_to_cbet_count',
+        '_cbet_faced_count': 'cbet_faced_count',
+        '_cbet_attempt_count': 'cbet_attempt_count',
+        '_postflop_seen_as_pfr_count': 'postflop_seen_as_pfr_count',
+        '_barrel_count': 'barrel_count',
+        '_barrel_opportunity_count': 'barrel_opportunity_count',
+        '_third_barrel_count': 'third_barrel_count',
+        '_third_barrel_opportunity_count': 'third_barrel_opportunity_count',
+        '_postflop_bet_raise_count': 'postflop_bet_raise_count',
+        '_postflop_call_count': 'postflop_call_count',
+        '_equity_betting_count': 'equity_betting_count',
+        '_equity_raising_count': 'equity_raising_count',
+        '_equity_calling_count': 'equity_calling_count',
+    }
+
+    # Float accumulators (v125): the equity-at-action sums. Same delta-fold as
+    # the integer counts, but coerced as floats; the polarization means derive
+    # on read as sum / count.
+    _LIFETIME_SUM_FIELDS = {
+        '_equity_betting_sum': 'equity_betting_sum',
+        '_equity_raising_sum': 'equity_raising_sum',
+        '_equity_calling_sum': 'equity_calling_sum',
     }
 
     def fold_observations_into_lifetime(
@@ -957,43 +983,51 @@ class GameRepository(BaseRepository):
                 except (TypeError, ValueError):
                     applied = {}
 
+                # Current counts (int) + sums (float), keyed by tendencies key.
                 current = {
                     src: int(current_raw.get(src, 0) or 0)
                     for src in self._LIFETIME_COUNT_FIELDS
                 }
+                current.update({
+                    src: float(current_raw.get(src, 0.0) or 0.0)
+                    for src in self._LIFETIME_SUM_FIELDS
+                })
+                # Per-column deltas vs the high-water mark. Column order is
+                # taken from the field maps so the INSERT below stays in sync
+                # automatically as new fields are added.
+                int_cols = list(self._LIFETIME_COUNT_FIELDS.values())
+                sum_cols = list(self._LIFETIME_SUM_FIELDS.values())
+                all_cols = int_cols + sum_cols
                 deltas = {
                     col: current[src] - int(applied.get(src, 0) or 0)
                     for src, col in self._LIFETIME_COUNT_FIELDS.items()
                 }
+                deltas.update({
+                    col: current[src] - float(applied.get(src, 0.0) or 0.0)
+                    for src, col in self._LIFETIME_SUM_FIELDS.items()
+                })
                 if not any(deltas.values()):
                     continue  # nothing new since last fold
 
+                col_list = ", ".join(all_cols)
+                placeholders = ", ".join("?" for _ in all_cols)
+                update_set = ",\n                        ".join(
+                    f"{col} = {col} + excluded.{col}" for col in all_cols
+                )
                 conn.execute(
-                    """
+                    f"""
                     INSERT INTO opponent_observation_lifetime
                         (sandbox_id, observer_id, opponent_id,
-                         hands_dealt, hands_observed, vpip_count, pfr_count,
-                         bet_raise_count, call_count, showdowns_seen,
-                         showdowns_won, first_seen, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                         {col_list}, first_seen, last_updated)
+                    VALUES (?, ?, ?, {placeholders},
                             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT(sandbox_id, observer_id, opponent_id) DO UPDATE SET
-                        hands_dealt     = hands_dealt + excluded.hands_dealt,
-                        hands_observed  = hands_observed + excluded.hands_observed,
-                        vpip_count      = vpip_count + excluded.vpip_count,
-                        pfr_count       = pfr_count + excluded.pfr_count,
-                        bet_raise_count = bet_raise_count + excluded.bet_raise_count,
-                        call_count      = call_count + excluded.call_count,
-                        showdowns_seen  = showdowns_seen + excluded.showdowns_seen,
-                        showdowns_won   = showdowns_won + excluded.showdowns_won,
+                        {update_set},
                         last_updated    = CURRENT_TIMESTAMP
                     """,
                     (
                         sandbox_id, observer_id, opponent_id,
-                        deltas['hands_dealt'], deltas['hands_observed'],
-                        deltas['vpip_count'], deltas['pfr_count'],
-                        deltas['bet_raise_count'], deltas['call_count'],
-                        deltas['showdowns_seen'], deltas['showdowns_won'],
+                        *(deltas[col] for col in all_cols),
                     ),
                 )
                 conn.execute(
@@ -1023,12 +1057,14 @@ class GameRepository(BaseRepository):
         formula so this repository stays free of strategy-config coupling and
         the rate definitions never drift from the live path.
         """
+        # Count/sum columns are sourced from the fold field maps so the read
+        # stays in sync with what the fold writes (v125 deep reads included).
+        count_cols = list(self._LIFETIME_COUNT_FIELDS.values())
+        sum_cols = list(self._LIFETIME_SUM_FIELDS.values())
         with self._get_connection() as conn:
             row = conn.execute(
-                """
-                SELECT hands_dealt, hands_observed, vpip_count, pfr_count,
-                       bet_raise_count, call_count, showdowns_seen,
-                       showdowns_won, first_seen, last_updated
+                f"""
+                SELECT {", ".join(count_cols + sum_cols)}, first_seen, last_updated
                 FROM opponent_observation_lifetime
                 WHERE sandbox_id = ? AND observer_id = ? AND opponent_id = ?
                 """,
@@ -1037,18 +1073,11 @@ class GameRepository(BaseRepository):
 
         if row is None:
             return None
-        return {
-            'hands_dealt': row['hands_dealt'] or 0,
-            'hands_observed': row['hands_observed'] or 0,
-            'vpip_count': row['vpip_count'] or 0,
-            'pfr_count': row['pfr_count'] or 0,
-            'bet_raise_count': row['bet_raise_count'] or 0,
-            'call_count': row['call_count'] or 0,
-            'showdowns_seen': row['showdowns_seen'] or 0,
-            'showdowns_won': row['showdowns_won'] or 0,
-            'first_seen': row['first_seen'],
-            'last_updated': row['last_updated'],
-        }
+        result: Dict[str, Any] = {col: row[col] or 0 for col in count_cols}
+        result.update({col: row[col] or 0.0 for col in sum_cols})
+        result['first_seen'] = row['first_seen']
+        result['last_updated'] = row['last_updated']
+        return result
 
     def list_observation_lifetime_for_observer(
         self, sandbox_id: str, observer_id: str

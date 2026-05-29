@@ -673,6 +673,15 @@ export function CharacterDetailCard({
   const anchors = fetched?.personality?.anchors ?? null;
   const hasAnchors = !!anchors && Object.values(anchors).some((v) => v != null);
   const hasObserved = !!merged.observed && (merged.observed.handsObserved ?? 0) > 0;
+  // Tier-2 deep postflop reads. The server nulls each field when its grind
+  // tier is still locked (or there's no data yet); we render only the rows
+  // that survived, and the whole section only when at least one did.
+  const deeperReads = fetched?.deeper_reads ?? null;
+  const hasDeeperReads =
+    !!deeperReads &&
+    (Object.keys(deeperReads) as (keyof typeof deeperReads)[]).some(
+      (k) => k !== 'lifetime' && deeperReads[k] != null
+    );
   const hasChips =
     !!character.chips &&
     (character.chips.atTable !== undefined || character.chips.bankroll !== undefined);
@@ -1164,6 +1173,68 @@ export function CharacterDetailCard({
                   )}
                   {merged.observed?.playStyleLabel && (
                     <DataRow label="Read" value={merged.observed.playStyleLabel} />
+                  )}
+                </section>
+              </>
+            )}
+
+            {hasDeeperReads && deeperReads && (
+              <>
+                <SectionRule>DEEP READ</SectionRule>
+                <section className="dossier__posture">
+                  {deeperReads.fold_to_cbet != null && (
+                    <DataRow
+                      label="Fold to c-bet"
+                      value={`${Math.round(deeperReads.fold_to_cbet * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.cbet_attempt_rate != null && (
+                    <DataRow
+                      label="C-bet frequency"
+                      value={`${Math.round(deeperReads.cbet_attempt_rate * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.barrel_frequency != null && (
+                    <DataRow
+                      label="Barrel (turn)"
+                      value={`${Math.round(deeperReads.barrel_frequency * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.third_barrel_frequency != null && (
+                    <DataRow
+                      label="Barrel (river)"
+                      value={`${Math.round(deeperReads.third_barrel_frequency * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.aggression_factor_postflop != null && (
+                    <DataRow
+                      label="Postflop aggression"
+                      value={deeperReads.aggression_factor_postflop.toFixed(1)}
+                    />
+                  )}
+                  {deeperReads.all_in_frequency != null && (
+                    <DataRow
+                      label="All-in frequency"
+                      value={`${(deeperReads.all_in_frequency * 100).toFixed(1)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_betting != null && (
+                    <DataRow
+                      label="Equity when betting"
+                      value={`${Math.round(deeperReads.equity_when_betting * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_raising != null && (
+                    <DataRow
+                      label="Equity when raising"
+                      value={`${Math.round(deeperReads.equity_when_raising * 100)}%`}
+                    />
+                  )}
+                  {deeperReads.equity_when_calling != null && (
+                    <DataRow
+                      label="Equity when calling"
+                      value={`${Math.round(deeperReads.equity_when_calling * 100)}%`}
+                    />
                   )}
                 </section>
               </>

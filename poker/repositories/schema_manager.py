@@ -228,7 +228,12 @@ _test_schema_template_path = None
 #       (sandbox_id, observer_id, opponent_id, section_id). Unioned with the
 #       grind unlocks (bypasses the floor). Additive/idempotent. See
 #       `docs/plans/OPPONENT_DOSSIER_PROGRESSION.md`.
-SCHEMA_VERSION = 124
+# v125: Add deep postflop count/sum columns to `opponent_observation_lifetime`
+#       (Tier-2 dossier reads — fold-to-cbet, c-bet %, barreling, all-in freq,
+#       postflop aggression, polarization equity-at-action). Counts/sums only;
+#       rates derive on read through the canonical OpponentTendencies. Guarded
+#       ALTERs, additive/idempotent. See `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+SCHEMA_VERSION = 125
 
 
 class SchemaManager:
@@ -2030,6 +2035,10 @@ class SchemaManager:
             124: (
                 self._migrate_v124_create_dossier_informant_unlocks,
                 "Create dossier_informant_unlocks — sections the player paid the informant to reveal per (sandbox, observer, opponent); unioned with grind unlocks to bypass the floor",
+            ),
+            125: (
+                self._migrate_v125_add_deep_postflop_lifetime_counts,
+                "Add deep postflop count/sum columns to opponent_observation_lifetime (fold-to-cbet, c-bet %, barreling, all-in freq, postflop aggression, polarization equity sums) — Tier-2 dossier reads; rates derive on read",
             ),
         }
 
@@ -6529,4 +6538,67 @@ class SchemaManager:
         """)
         logger.info(
             "Migration v124 complete: dossier_informant_unlocks table created"
+        )
+
+    def _migrate_v125_add_deep_postflop_lifetime_counts(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """Migration v125: extend `opponent_observation_lifetime` with the deep
+        postflop count/sum columns (Tier-2 dossier reads).
+
+        v123 stored only the headline counts (VPIP/PFR/AF/showdown).
+        `OpponentTendencies` already tracks far more (fold-to-cbet, c-bet
+        attempt, barrel/3rd-barrel, all-in, postflop aggression, and the
+        equity-at-action polarization sums). This promotes those counters into
+        the durable per-sandbox store so they accumulate cross-game, feeding
+        the new grind tiers past 180 hands. Same principle as v123: store
+        COUNTS (and the equity SUMS), derive rates on read through the
+        canonical `OpponentTendencies` formula so definitions never drift.
+
+        Each derived rate needs both numerator AND denominator counts because
+        the read reconstructs an `OpponentTendencies` and re-derives the rate.
+        The equity polarization means are mean = sum / count, so we store the
+        REAL sum alongside its integer count.
+
+        Every ALTER is guarded by a PRAGMA check so the migration is safe on a
+        partially-applied DB. Additive, idempotent. See
+        `docs/plans/DOSSIER_ENRICHMENT_HANDOFF.md`.
+        """
+        # (column, sql_type) — integer counts, then the REAL equity sums.
+        new_columns = [
+            ('all_in_count', 'INTEGER'),
+            ('fold_to_cbet_count', 'INTEGER'),
+            ('cbet_faced_count', 'INTEGER'),
+            ('cbet_attempt_count', 'INTEGER'),
+            ('postflop_seen_as_pfr_count', 'INTEGER'),
+            ('barrel_count', 'INTEGER'),
+            ('barrel_opportunity_count', 'INTEGER'),
+            ('third_barrel_count', 'INTEGER'),
+            ('third_barrel_opportunity_count', 'INTEGER'),
+            ('postflop_bet_raise_count', 'INTEGER'),
+            ('postflop_call_count', 'INTEGER'),
+            ('equity_betting_count', 'INTEGER'),
+            ('equity_raising_count', 'INTEGER'),
+            ('equity_calling_count', 'INTEGER'),
+            ('equity_betting_sum', 'REAL'),
+            ('equity_raising_sum', 'REAL'),
+            ('equity_calling_sum', 'REAL'),
+        ]
+        existing = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(opponent_observation_lifetime)"
+            ).fetchall()
+        }
+        for col, sql_type in new_columns:
+            if col not in existing:
+                conn.execute(
+                    f"ALTER TABLE opponent_observation_lifetime "
+                    f"ADD COLUMN {col} {sql_type} NOT NULL DEFAULT 0"
+                )
+
+        logger.info(
+            "Migration v125 complete: %d deep postflop column(s) added to "
+            "opponent_observation_lifetime",
+            len(new_columns),
         )

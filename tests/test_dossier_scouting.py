@@ -41,6 +41,18 @@ def _full_response():
         'cash_pair_stats': {'cumulative_pnl': 1500, 'hands_played_cash': 80},
         'memorable_hands': [{'hand_id': 1, 'narrative': 'big bluff'}],
         'note': 'bluffs the river',
+        'deeper_reads': {
+            'fold_to_cbet': 0.6,
+            'cbet_attempt_rate': 0.7,
+            'barrel_frequency': 0.4,
+            'third_barrel_frequency': 0.3,
+            'all_in_frequency': 0.05,
+            'aggression_factor_postflop': 2.5,
+            'equity_when_betting': 0.65,
+            'equity_when_raising': 0.72,
+            'equity_when_calling': 0.55,
+            'lifetime': True,
+        },
     }
 
 
@@ -125,6 +137,56 @@ def test_gate_full_unlock_keeps_everything():
 
 
 # --- Informant (Phase 3) ----------------------------------------------------
+
+# --- Tier-2 deep reads (B1) -------------------------------------------------
+
+def test_deep_reads_locked_until_their_tiers():
+    resp = _full_response()
+    # 250 hands: fold_to_cbet (220) unlocked; c-bet (260) + the rest still not.
+    apply_scouting_gate(resp, hands_observed=250)
+    assert resp['deeper_reads']['fold_to_cbet'] == 0.6
+    assert resp['deeper_reads']['cbet_attempt_rate'] is None
+    assert resp['deeper_reads']['barrel_frequency'] is None
+    assert resp['deeper_reads']['equity_when_betting'] is None
+    s = resp['scouting']
+    assert 'fold_to_cbet' in s['unlocked']
+    assert 'cbet_pct' not in s['unlocked']
+
+
+def test_deep_reads_below_floor_collapse_to_none():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=5)
+    # Every deep field locked → the block collapses (client renders nothing).
+    assert resp['deeper_reads'] is None
+
+
+def test_deep_reads_full_unlock_keeps_everything():
+    resp = _full_response()
+    apply_scouting_gate(resp, hands_observed=10_000)
+    dr = resp['deeper_reads']
+    assert dr['fold_to_cbet'] == 0.6
+    assert dr['cbet_attempt_rate'] == 0.7
+    assert dr['barrel_frequency'] == 0.4
+    assert dr['third_barrel_frequency'] == 0.3
+    assert dr['aggression_factor_postflop'] == 2.5
+    assert dr['equity_when_betting'] == 0.65
+
+
+def test_barrel_tier_gates_both_barrel_fields():
+    resp = _full_response()
+    # 400 unlocks 'barrel' (both turn + river barrel); 480 polarization not yet.
+    apply_scouting_gate(resp, hands_observed=400)
+    assert resp['deeper_reads']['barrel_frequency'] == 0.4
+    assert resp['deeper_reads']['third_barrel_frequency'] == 0.3
+    assert resp['deeper_reads']['equity_when_betting'] is None
+
+
+def test_informant_deep_reads_section_unlocks_all_deep_items():
+    s = compute_scouting(0, purchased_sections={'deep_reads'})
+    for item in INFORMANT_SECTIONS['deep_reads']['items']:
+        assert item in s['unlocked']
+    assert 'deep_reads' not in {o['id'] for o in s['informant_offers']}
+
 
 def test_informant_section_unlocks_items_bypassing_floor():
     # 0 hands (below floor), but bought the 'read' section.
