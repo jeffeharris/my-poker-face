@@ -20,8 +20,10 @@ const ordinalSuffix = (n: number): string => {
 interface Props {
   standings: TournamentStandings;
   busy?: boolean;
-  onAdvance: () => void;
-  onPlayOut: () => void;
+  /** Drop into the live poker table to play the human's current table. */
+  onReturnToTable: () => void;
+  /** Spectate the rest of the field after busting (fast-forward to the end). */
+  onWatch: () => void;
   onLeave: () => void;
   onBack: () => void;
 }
@@ -29,8 +31,8 @@ interface Props {
 export function TournamentStandings({
   standings,
   busy,
-  onAdvance,
-  onPlayOut,
+  onReturnToTable,
+  onWatch,
   onLeave,
   onBack,
 }: Props) {
@@ -162,21 +164,23 @@ export function TournamentStandings({
 
       {/* ── control dock ── */}
       <div className="dock">
-        {!complete && (
-          <button className="dock__btn dock__btn--primary" onClick={onAdvance} disabled={busy}>
-            {busy ? '…' : human.out ? 'Resume Field' : 'Deal Next Hand'}
+        {!complete && !human.out && (
+          <button
+            className="dock__btn dock__btn--primary"
+            onClick={onReturnToTable}
+            disabled={busy}
+          >
+            {busy ? '…' : 'Return to Table'}
           </button>
         )}
-        {!complete && (
-          <button className="dock__btn dock__btn--ghost" onClick={onPlayOut} disabled={busy}>
-            Fast-Forward
+        {!complete && human.out && (
+          <button className="dock__btn dock__btn--primary" onClick={onWatch} disabled={busy}>
+            {busy ? '…' : 'Watch to the End'}
           </button>
         )}
-        {complete && (
-          <button className="dock__btn dock__btn--primary" onClick={onLeave} disabled={busy}>
-            Leave
-          </button>
-        )}
+        <button className="dock__btn dock__btn--ghost" onClick={onLeave} disabled={busy}>
+          Leave
+        </button>
       </div>
     </div>
   );

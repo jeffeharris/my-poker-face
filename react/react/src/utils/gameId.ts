@@ -9,3 +9,13 @@ export const CASH_GAME_ID_PREFIX = 'cash-';
 export function isCashGameId(gameId: string | null | undefined): boolean {
   return gameId?.startsWith(CASH_GAME_ID_PREFIX) ?? false;
 }
+
+/** Multi-table tournament live tables are prefixed `tourney-` by the backend
+ *  (tournament_game_builder). The human's seat plays as an ordinary game at
+ *  /game/:id; back-navigation routes to the tournament standings hub. */
+export const TOURNAMENT_GAME_ID_PREFIX = 'tourney-';
+
+/** True when `gameId` is a multi-table tournament live table. */
+export function isTournamentGameId(gameId: string | null | undefined): boolean {
+  return gameId?.startsWith(TOURNAMENT_GAME_ID_PREFIX) ?? false;
+}
