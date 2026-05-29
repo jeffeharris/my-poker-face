@@ -760,6 +760,9 @@ export function Lobby() {
           origin={dossier?.origin}
           identifier={dossier?.identifier}
           circuitContext  /* the lobby is always the Circuit */
+          // Refresh the lobby intel surfaces (incl. the file cabinet behind
+          // this card) after an informant purchase so unlock state updates.
+          onIntelChanged={() => setStakablePanelTick((t) => t + 1)}
         />
         <NetWorthDrawer
           isOpen={netWorthOpen}

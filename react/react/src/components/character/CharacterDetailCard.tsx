@@ -102,6 +102,12 @@ export interface CharacterDetailCardProps {
    */
   circuitContext?: boolean;
   /**
+   * Fired after a successful informant purchase, so a caller showing this
+   * dossier over another intel surface (e.g. the file cabinet) can refresh
+   * that surface to reflect the new unlock state.
+   */
+  onIntelChanged?: () => void;
+  /**
    * Optional handler for the "Send chat" affordance. Receives the
    * dossier subject's name so the caller can open the chat sheet
    * pre-targeted to that player. When omitted the button is hidden.
@@ -324,6 +330,7 @@ export function CharacterDetailCard({
   origin,
   identifier,
   circuitContext = false,
+  onIntelChanged,
   onSendChat,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
@@ -415,13 +422,16 @@ export function CharacterDetailCard({
         await buyInformantUnlock(identifier, sectionId);
         const refreshed = await fetchCharacterDossier(identifier);
         setFetched(refreshed);
+        // Let a host surface (the file cabinet behind this card) refresh so
+        // the opponent's unlock state updates without waiting for a poll.
+        onIntelChanged?.();
       } catch (e) {
         setBuyError(e instanceof Error ? e.message : 'Purchase failed');
       } finally {
         setBuyingSection(null);
       }
     },
-    [identifier, buyingSection]
+    [identifier, buyingSection, onIntelChanged]
   );
 
   // Debounced autosave: 600ms after the last keystroke. Cancels any
