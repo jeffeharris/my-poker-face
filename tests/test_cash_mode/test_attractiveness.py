@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from cash_mode.attractiveness import (
     AFFORDABLE_BAND_BUYINS,
+    FillableTable,
+    SeatSeeker,
     _affordable_tier_index,
+    assign_seats_greedy,
     base_attractor,
     hunger,
     room_prestige,
@@ -254,3 +257,84 @@ def test_broke_ai_not_pulled_to_prestige_room():
     pit = _attr(projected_bankroll=BROKE, comfort_zone="$10", stake_label="$1000")
     home = _attr(projected_bankroll=BROKE, comfort_zone="$10", stake_label="$10")
     assert home > pit
+
+
+# --- assign_seats_greedy (the loop inversion core) ---------------------
+
+
+def _table(tid, *, stake="$10", opens=1, grinders=0, fish=0, whale=0):
+    _, mn, mx = table_buy_in_window(stake)
+    return FillableTable(
+        table_id=tid,
+        stake_label=stake,
+        min_buy_in=mn,
+        max_buy_in=mx,
+        open_count=opens,
+        grinder_count=grinders,
+        fish_chips=fish,
+        whale_chips=whale,
+    )
+
+
+def _seeker(pid, allowed, *, bankroll=5_000, start=START, comfort="$10", mult=1.0):
+    return SeatSeeker(
+        personality_id=pid,
+        projected_bankroll=bankroll,
+        starting_bankroll=start,
+        comfort_zone=comfort,
+        allowed_table_ids=frozenset(allowed),
+        buy_in_multiplier=mult,
+    )
+
+
+def test_greedy_picks_juiciest_affordable():
+    tables = {"dead": _table("dead", fish=0), "fishy": _table("fishy", fish=900)}
+    out = assign_seats_greedy([_seeker("g", {"dead", "fishy"})], tables)
+    assert out == [("g", "fishy")]
+
+
+def test_greedy_respects_open_count():
+    tables = {"t": _table("t", opens=2)}
+    seekers = [_seeker(f"g{i}", {"t"}) for i in range(5)]
+    out = assign_seats_greedy(seekers, tables)
+    assert len(out) == 2
+    assert tables["t"].open_count == 0
+    assert tables["t"].grinder_count == 2  # occupancy mutated as sharks sit
+
+
+def test_greedy_respects_affordability():
+    # $200 table (min buy-in 8000) — a 5,000-bankroll grinder can't sit.
+    tables = {"hi": _table("hi", stake="$200", opens=2)}
+    out = assign_seats_greedy([_seeker("poor", {"hi"}, bankroll=5_000)], tables)
+    assert out == []
+    assert tables["hi"].open_count == 2  # untouched
+
+
+def test_greedy_respects_allowed_set():
+    # "a" is juicier but not in the allowed set (e.g. cooldown blocked it
+    # upstream) → seated at the allowed "b" instead.
+    tables = {"a": _table("a", fish=900), "b": _table("b", fish=0)}
+    out = assign_seats_greedy([_seeker("g", {"b"})], tables)
+    assert out == [("g", "b")]
+
+
+def test_greedy_spreads_across_equal_fish_via_crowd():
+    # Two identical fish tables, four grinders → sequential greedy +
+    # W_CROWD spreads them evenly rather than dogpiling one.
+    tables = {
+        "a": _table("a", opens=4, fish=900),
+        "b": _table("b", opens=4, fish=900),
+    }
+    out = assign_seats_greedy([_seeker(f"g{i}", {"a", "b"}) for i in range(4)], tables)
+    from collections import Counter
+
+    counts = Counter(tid for _, tid in out)
+    assert len(out) == 4
+    assert abs(counts["a"] - counts["b"]) <= 1
+
+
+def test_greedy_skips_seeker_with_no_candidate():
+    tables = {"t": _table("t")}
+    out = assign_seats_greedy([_seeker("g", set())], tables)  # empty allowed set
+    assert out == []
+    assert tables["t"].open_count == 1

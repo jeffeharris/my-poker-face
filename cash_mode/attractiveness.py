@@ -38,6 +38,8 @@ below are sim-tunable starting points, not calibrated values.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
 
@@ -309,3 +311,111 @@ def table_attractiveness(
     draw = W_FISH * fish_stacks + W_WHALE * whale_stacks + BASE_DRAW
     crowd = W_CROWD * max(0, other_grinders)
     return base * hunger_mult * draw - crowd
+
+
+# --- Greedy seat selection (the loop inversion, spec §2) ----------------
+#
+# The pure core of the AI-centric seating. Given the idle AIs that want a
+# seat this tick and the tables with open seats, each seeker (in priority
+# order) picks the single most attractive table it can afford and has an
+# open seat at; occupancy is recomputed BETWEEN picks so `W_CROWD` spreads
+# sharks across fish rather than dogpiling one table. No I/O, no rng, no
+# cooldown/recovery logic — the lobby owns those impure gates and feeds the
+# already-eligible candidates in via `allowed_table_ids`.
+
+# Per-refresh probability that an idle AI goes room-hunting (replaces the
+# per-seat-per-hand `live_fill_prob` Bernoulli). The lobby rolls this per
+# idle AI and may scale it with the catch-up gap; sim-tunable (Phase D).
+DEFAULT_SEEK_RATE = 0.35
+
+
+@dataclass(frozen=True)
+class SeatSeeker:
+    """An idle AI looking for a seat this tick (a pre-pass candidate).
+
+    `allowed_table_ids` is the set of tables the lobby has already cleared
+    for this AI through the impure gates (per-table leave cooldown, idle
+    recovery, target-stake stickiness). The greedy core adds only the pure
+    affordability check (bankroll ≥ this AI's buy-in) on top.
+    """
+
+    personality_id: str
+    projected_bankroll: int
+    starting_bankroll: int
+    comfort_zone: str
+    allowed_table_ids: frozenset
+    buy_in_multiplier: float = 1.0
+
+
+@dataclass
+class FillableTable:
+    """A table with at least one open seat, scored as sharks arrive.
+
+    `open_count` and `grinder_count` are MUTATED by `assign_seats_greedy`
+    as it seats AIs, so the next seeker ranks against current occupancy.
+    """
+
+    table_id: str
+    stake_label: str
+    min_buy_in: int
+    max_buy_in: int
+    open_count: int
+    grinder_count: int
+    fish_chips: int = 0
+    whale_chips: int = 0
+    prestige_override: Optional[float] = None
+
+
+def seeker_buy_in(table: FillableTable, buy_in_multiplier: float) -> int:
+    """This AI's buy-in at a table (mirrors lobby `_buy_in_for`).
+
+    `round(min_buy_in × buy_in_multiplier)`, capped at the table max.
+    """
+    return min(round(table.min_buy_in * buy_in_multiplier), table.max_buy_in)
+
+
+def assign_seats_greedy(
+    seekers: List[SeatSeeker],
+    tables: dict,
+) -> List[Tuple[str, str]]:
+    """Sequentially seat each seeker at its most attractive affordable table.
+
+    `seekers` is processed in order — **caller-chosen priority** (e.g. most
+    desperate first). `tables` maps `table_id -> FillableTable` and is
+    mutated in place (`open_count` down, `grinder_count` up) as seats fill,
+    so `W_CROWD` makes later seekers spread out. Candidate tables are sorted
+    by id for deterministic tie-breaking. Returns the `(personality_id,
+    table_id)` assignments in seating order; AIs with no affordable, open,
+    allowed table are simply omitted.
+    """
+    assignments: List[Tuple[str, str]] = []
+    for seeker in seekers:
+        best_id: Optional[str] = None
+        best_score: Optional[float] = None
+        for tid in sorted(seeker.allowed_table_ids):
+            table = tables.get(tid)
+            if table is None or table.open_count <= 0:
+                continue
+            if seeker.projected_bankroll < seeker_buy_in(table, seeker.buy_in_multiplier):
+                continue
+            score = table_attractiveness(
+                projected_bankroll=seeker.projected_bankroll,
+                starting_bankroll=seeker.starting_bankroll,
+                comfort_zone=seeker.comfort_zone,
+                stake_label=table.stake_label,
+                fish_chips=table.fish_chips,
+                whale_chips=table.whale_chips,
+                other_grinders=table.grinder_count,
+                buy_in_multiplier=seeker.buy_in_multiplier,
+                prestige_override=table.prestige_override,
+            )
+            if best_score is None or score > best_score:
+                best_score = score
+                best_id = tid
+        if best_id is None:
+            continue
+        chosen = tables[best_id]
+        chosen.open_count -= 1
+        chosen.grinder_count += 1
+        assignments.append((seeker.personality_id, best_id))
+    return assignments
