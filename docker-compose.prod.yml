@@ -14,6 +14,9 @@ services:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
+      # PRH-35: machine-parseable JSON logs (request_id on every line) for
+      # shipping to an aggregator. Set LOG_FORMAT= (empty) for human-readable.
+      - LOG_FORMAT=${LOG_FORMAT:-json}
       # PRH-40: run the container as the non-root appuser. The entrypoint
       # chowns the bind-mounted data volume then drops privileges via gosu.
       - DROP_PRIVILEGES=1

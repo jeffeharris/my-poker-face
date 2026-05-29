@@ -13,16 +13,12 @@ from . import extensions
 from .config import SECRET_KEY, is_development
 from .extensions import init_extensions, socketio
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper()),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-)
+# Configure logging (PRH-35): structured output + per-request correlation ids,
+# with a LogRecordFactory that stamps request_id on every record (so the alert
+# webhook carries it too). Quiets the noisy third-party loggers internally.
+from .logging_setup import configure_logging
 
-# Quiet noisy third-party loggers
-logging.getLogger("werkzeug").setLevel(logging.WARNING)
-logging.getLogger("socketio").setLevel(logging.WARNING)
-logging.getLogger("engineio").setLevel(logging.WARNING)
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +79,11 @@ def create_app():
     from .csrf import init_csrf
 
     init_csrf(app)
+
+    # PRH-35: per-request correlation id (X-Request-ID) on every HTTP request.
+    from .logging_setup import init_request_logging
+
+    init_request_logging(app)
 
     # PRH-34: release per-thread SQLite connections at the end of each request /
     # socket event (flask-socketio pushes an app context per event), so the

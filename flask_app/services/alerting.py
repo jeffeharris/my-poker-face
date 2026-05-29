@@ -176,7 +176,11 @@ class WebhookAlertHandler(logging.Handler):
         threading.Thread(target=self._post, args=(url, text), daemon=True).start()
 
     def _format_text(self, record: logging.LogRecord) -> str:
-        text = f"{self._tag} *{record.levelname}* `{record.name}`\n{record.getMessage()}"
+        # PRH-35: include the request correlation id (stamped on every record by
+        # the LogRecordFactory) so an alert can be tied back to its request log.
+        rid = getattr(record, "request_id", None)
+        rid_tag = f" `req={rid}`" if rid and rid != "-" else ""
+        text = f"{self._tag} *{record.levelname}* `{record.name}`{rid_tag}\n{record.getMessage()}"
         if record.exc_info:
             try:
                 tb = logging.Formatter().formatException(record.exc_info)

@@ -164,7 +164,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 ## Observability & alerting ✅ (handler) / ◑ (broader)
 
 - **Webhook alert handler** forwards ERROR-level logs + the `[LEDGER] DRIFT RISK`, `[LLM BUDGET]`, and `[CASH LIFECYCLE]` signals to a Slack-compatible webhook — non-blocking, throttled, recursion-safe. URL is **admin-configurable at runtime** (Admin → Settings → Alerting, DB setting over `ALERT_WEBHOOK_URL` env). No-op until a URL is set. — `flask_app/services/alerting.py` (PRH-28)
-- ◑ No structured logging / per-request correlation id / error dashboard (PRH-35). Spend-velocity early-warning lands via the gate (PRH-41); broader per-request abuse telemetry still thin.
+- ◑ Structured logging + per-request correlation ids landed (PRH-35: `request_id` on every record incl. alerts, `X-Request-ID` header, optional `LOG_FORMAT=json`); shipping stdout to an aggregator + an error dashboard remain ops follow-ups. Spend-velocity early-warning lands via the gate (PRH-41).
 
 ## Data handling & persistence ◑
 
