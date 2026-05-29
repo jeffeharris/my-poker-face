@@ -407,9 +407,9 @@ human-learnable counter). Why they came out free:
   correct play (your equity is low, you have no initiative, floating needs later barrels to
   pay) — vs the aggressive reg it's even CI-clear +EV (you stop paying off his barrels). The
   textbook fit-or-fold leak bites when you fold hands **with equity/playability** (2nd pair,
-  draws) or **multiway / vs a floatable player** — none of which my narrow `{weak_made,
-  air_no_draw}` HU gate captures. So "barrel relentlessly" has nothing to punish: the folds
-  are correct.
+  draws) — which my narrow `{weak_made, air_no_draw}` gate excludes. So "barrel relentlessly"
+  has nothing to punish: the folds are correct. (I'd initially guessed "or multiway" too — the
+  multiway gate **refuted** that; it's the gate, not the regime. See the RESOLVED note below.)
 - **auto-c-bet (free*):** HU c-bet ranges are already very wide, so betting the marginal
   checking range is ~EV-neutral. Its *exploitability* doesn't live in the flop bet (free) —
   it lives in the **follow-through**: an auto-c-bettor who then abandons the turn is the
@@ -419,9 +419,24 @@ human-learnable counter). Why they came out free:
 **Open design question (the reason to pause — see "Roadmap / decision" below):** the cheap,
 *correct-spot* version of a leak is recognizable flavor but creates **no exploitable tell**.
 Making these genuine loop-closing leaks means deliberately gating them onto **−EV spots**
-(fit-or-fold also folding `medium_made`/`air_strong_draw`; the HU-regime caveat; etc.). That
-is a philosophy call — "free recognizable flavor" vs "priced, exploitable, teachable leak" —
-and it recurs for every remaining catalog leak, so it's worth settling before building more.
+(fit-or-fold also folding `medium_made`/`air_strong_draw`; etc.). That is a philosophy call —
+"free recognizable flavor" vs "priced, exploitable, teachable leak" — and it recurs for every
+remaining catalog leak.
+
+**RESOLVED for the regime half (multiway gate, 2026-05-29):** the hypothesis that fit-or-fold/
+auto-c-bet are real leaks our HU instrument just can't see is **REFUTED**. A delegated agent
+built + validated a 6-max pricing path (just omit `--heads-up`; control = 100% NO_DIVERGENCE,
+residual exactly +0.000; full runbook in **`docs/plans/MULTIWAY_PRICING_GATE.md`**) and
+re-priced them: `fit_or_fold` is **+3.90** [+1.17, +6.63] self-play in 6-max (still free/+EV),
+`auto_cbet` **+3.18**. So the non-exploitability is the **gate's narrowness, not the regime** —
+the layer fires only on `{weak_made, air_no_draw}`, which are fold-profitable everywhere; the
+textbook leak needs folding hands *with equity* (draws/2nd pair), which the gate excludes. The
+multiway gate also characterized the **suppression interaction** (`multiway` step 4 runs before
+`spot_tendencies` step 6.b): slowplay exempt, give_up_turn partially eaten, auto_cbet
+antagonistic (undoes suppression), fit_or_fold orthogonal — and prices the composed behavior
+correctly. **Takeaway:** to make fit-or-fold exploitable, *widen its hand-class gate* (a 1-line
+change in `spot_tendencies.py`) — don't chase the regime. The remaining philosophy fork (ship
+free-flavor vs widen-to-exploitable) is still the user's call.
 
 ### Sticky/pays-off + over-bluff — BUILT + PRICED, the first real −EV leaks (2026-05-29)
 
