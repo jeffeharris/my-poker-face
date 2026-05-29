@@ -132,6 +132,68 @@ from .zone_effects import (  # noqa: F401
     _should_inject_thoughts,
 )
 
+# Axis impacts per pressure event. Hoisted to module level so the table is
+# built once at import time rather than rebuilt on every _get_pressure_impacts
+# call. Treat as read-only — callers only read via .get().
+_PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
+    # Outcomes (pick ONE via resolve_hand_events)
+    'win': {'confidence': 0.02, 'energy': 0.02},
+    'loss': {'confidence': -0.02, 'energy': -0.02},
+    'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
+    'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
+    'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
+    'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
+    # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
+    'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
+    'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
+    'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
+    'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
+    # Equity Shock (at most ONE, composure+energy only — no confidence)
+    'bad_beat': {'composure': -0.35, 'energy': -0.10},
+    'cooler': {'composure': -0.20, 'energy': -0.05},
+    'suckout': {'composure': 0.10, 'energy': 0.05},
+    'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
+    # Streaks (additive)
+    'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
+    'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
+    # Pressure/Fatigue (additive, no confidence)
+    'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
+    'all_in_moment': {'composure': -0.08, 'energy': -0.08},
+    'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
+    'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
+    'not_in_hand': {'energy': -0.02},
+    'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
+    'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
+    # Desperation (additive)
+    'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
+    'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
+    'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
+    # Social stimuli (human quick-chat -> target AI). Disposition is
+    # chosen in react_to_social_stimulus; these are the per-disposition
+    # outcomes. Composure/confidence still ride the ego/poise filter in
+    # apply_pressure_event, which reinforces the disposition (a low-poise
+    # "stung" char takes the hit hard; a high-poise "energized" char's
+    # composure nudge shrinks to noise while the energy bump lands full).
+    'social_jab_stung': {'composure': -0.10, 'confidence': -0.04},
+    'social_jab_energized': {'composure': 0.02, 'energy': 0.06},
+    'social_jab_stoic': {'composure': -0.02},
+    'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
+    'social_praise_stoic': {'energy': 0.02},
+    # Flattery (insincere/excessive praise). Valence flips by vanity:
+    # the vain eat it up (confidence/energy), the perceptive catch the
+    # ploy and bristle (composure dip). 'unmoved' never fires an event.
+    'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
+    'social_flattery_seen_through': {'composure': -0.03},
+    # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
+    # human's table, applied once per hand. The villain press is
+    # composure-led, so the (1-poise) filter in apply_pressure_event
+    # makes low-poise opponents rattle/tilt (the exploitable edge)
+    # while high-poise ones shrug it off; the legend lift is a light
+    # confidence/energy bump (looser, friendlier).
+    'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
+    'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
+}
+
 
 @dataclass
 class PlayerPsychology:
@@ -528,66 +590,7 @@ class PlayerPsychology:
 
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
-        pressure_events = {
-            # Outcomes (pick ONE via resolve_hand_events)
-            'win': {'confidence': 0.02, 'energy': 0.02},
-            'loss': {'confidence': -0.02, 'energy': -0.02},
-            'big_win': {'confidence': 0.12, 'composure': 0.02, 'energy': 0.08},
-            'big_loss': {'confidence': -0.15, 'composure': -0.05, 'energy': -0.08},
-            'headsup_win': {'confidence': 0.06, 'composure': 0.02, 'energy': 0.05},
-            'headsup_loss': {'confidence': -0.06, 'composure': -0.02, 'energy': -0.05},
-            # Ego/Agency (at most ONE, scaled 50% via resolve_hand_events)
-            'successful_bluff': {'confidence': 0.20, 'composure': 0.05, 'energy': 0.05},
-            'bluff_called': {'confidence': -0.25, 'composure': -0.10, 'energy': -0.05},
-            'nemesis_win': {'confidence': 0.18, 'composure': 0.05, 'energy': 0.05},
-            'nemesis_loss': {'confidence': -0.18, 'composure': -0.05, 'energy': -0.05},
-            # Equity Shock (at most ONE, composure+energy only — no confidence)
-            'bad_beat': {'composure': -0.35, 'energy': -0.10},
-            'cooler': {'composure': -0.20, 'energy': -0.05},
-            'suckout': {'composure': 0.10, 'energy': 0.05},
-            'got_sucked_out': {'composure': -0.30, 'energy': -0.15},
-            # Streaks (additive)
-            'winning_streak': {'confidence': 0.10, 'composure': -0.05, 'energy': 0.05},
-            'losing_streak': {'confidence': -0.12, 'composure': -0.20, 'energy': -0.10},
-            # Pressure/Fatigue (additive, no confidence)
-            'big_pot_involved': {'composure': -0.05, 'energy': -0.05},
-            'all_in_moment': {'composure': -0.08, 'energy': -0.08},
-            'card_dead_5': {'confidence': -0.03, 'composure': 0.03, 'energy': -0.10},
-            'consecutive_folds_3': {'composure': -0.05, 'energy': -0.08},
-            'not_in_hand': {'energy': -0.02},
-            'disciplined_fold': {'confidence': -0.06, 'composure': 0.12, 'energy': -0.02},
-            'short_stack_survival': {'confidence': -0.04, 'composure': 0.06, 'energy': -0.05},
-            # Desperation (additive)
-            'short_stack': {'confidence': -0.08, 'composure': -0.15, 'energy': -0.10},
-            'crippled': {'confidence': -0.20, 'composure': -0.25, 'energy': -0.15},
-            'fold_under_pressure': {'confidence': -0.10, 'composure': 0.05},
-            # Social stimuli (human quick-chat -> target AI). Disposition is
-            # chosen in react_to_social_stimulus; these are the per-disposition
-            # outcomes. Composure/confidence still ride the ego/poise filter in
-            # apply_pressure_event, which reinforces the disposition (a low-poise
-            # "stung" char takes the hit hard; a high-poise "energized" char's
-            # composure nudge shrinks to noise while the energy bump lands full).
-            'social_jab_stung': {'composure': -0.10, 'confidence': -0.04},
-            'social_jab_energized': {'composure': 0.02, 'energy': 0.06},
-            'social_jab_stoic': {'composure': -0.02},
-            'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
-            'social_praise_stoic': {'energy': 0.02},
-            # Flattery (insincere/excessive praise). Valence flips by vanity:
-            # the vain eat it up (confidence/energy), the perceptive catch the
-            # ploy and bristle (composure dip). 'unmoved' never fires an event.
-            'social_flattery_vain': {'confidence': 0.08, 'energy': 0.05},
-            'social_flattery_seen_through': {'composure': -0.03},
-            # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
-            # human's table, applied once per hand. The villain press is
-            # composure-led, so the (1-poise) filter in apply_pressure_event
-            # makes low-poise opponents rattle/tilt (the exploitable edge)
-            # while high-poise ones shrug it off; the legend lift is a light
-            # confidence/energy bump (looser, friendlier).
-            'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
-            'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
-        }
-
-        return pressure_events.get(event_name, {})
+        return _PRESSURE_IMPACTS.get(event_name, {})
 
     def resolve_hand_events(
         self,
