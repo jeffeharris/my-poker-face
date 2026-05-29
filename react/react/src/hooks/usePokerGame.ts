@@ -583,7 +583,12 @@ export function usePokerGame({
       // - The generated emotion matches what the player is currently showing
       socket.on(
         'avatar_update',
-        (data: { player_name: string; avatar_url: string; avatar_emotion: string }) => {
+        (data: {
+          player_name: string;
+          avatar_url: string;
+          avatar_emotion: string;
+          is_reaction?: boolean;
+        }) => {
           logger.debug(`[RunOut Reaction] ${data.player_name} → ${data.avatar_emotion}`, data);
           // Always cache — prevents losing URLs when emotions change during generation
           if (!avatarCacheRef.current[data.player_name]) {
@@ -594,6 +599,21 @@ export function usePokerGame({
             if (!prev) return prev;
             return prev.map((player) => {
               if (player.name !== data.player_name) return player;
+              // Run-out reactions are authoritative: apply the emotion AND url
+              // immediately so the face changes on its own beat. Without this the
+              // emotion would only arrive on the next full game-state push (one
+              // street later), which is what made reactions feel "off a beat" and
+              // let the showdown face get cut off by the hand-over screen.
+              // The branches below are for async avatar-image generation arriving
+              // after the displayed emotion may have moved on — there we must NOT
+              // clobber the current emotion.
+              if (data.is_reaction) {
+                return {
+                  ...player,
+                  avatar_url: data.avatar_url,
+                  avatar_emotion: data.avatar_emotion,
+                };
+              }
               // Always apply if player has no avatar yet
               if (!player.avatar_url) {
                 return {

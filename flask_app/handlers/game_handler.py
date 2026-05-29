@@ -223,7 +223,14 @@ def _track_guest_hand(game_id: str, game_data: dict) -> bool:
 
 
 def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
-    """Emit avatar update for a run-out reaction."""
+    """Emit avatar update for a run-out reaction.
+
+    `is_reaction` marks this as an authoritative emotion change (a run-out
+    reaction the player should see *now*), distinct from a late-arriving
+    generated avatar image. The frontend applies the emotion immediately for
+    reactions but must not clobber the displayed emotion for generation
+    arrivals — see the `avatar_update` handler in usePokerGame.ts.
+    """
     avatar_url = get_avatar_url_with_fallback(game_id, player_name, emotion)
     socketio.emit(
         'avatar_update',
@@ -231,6 +238,7 @@ def _emit_avatar_reaction(game_id: str, player_name: str, emotion: str) -> None:
             'player_name': player_name,
             'avatar_url': avatar_url,
             'avatar_emotion': emotion,
+            'is_reaction': True,
         },
         to=game_id,
     )
@@ -3383,8 +3391,9 @@ def progress_game(game_id: str) -> None:
                     current_game_data['runout_emotion_overrides'] = overrides
                     game_state_service.set_game(game_id, current_game_data)
 
-                    # Extra pause for players to see the cards
-                    delay = 4 * config.ANIMATION_SPEED
+                    # Brief pause for players to register the all-in matchup
+                    # before the board runs out (see config.RUNOUT_REVEAL_HOLD).
+                    delay = config.RUNOUT_REVEAL_HOLD * config.ANIMATION_SPEED
                     if delay > 0:
                         _ff_aware_sleep(game_id, delay)
 
