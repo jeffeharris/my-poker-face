@@ -98,8 +98,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 
 > **Current policy exceptions** (see Known gaps for the fix + tracking ID):
 > prompt capture is retained indefinitely in prod and backups are on-box only
-> (policy 10); there's no first-class CSRF token (policy 3, for cookie-authed
-> mutations).
+> (policy 10).
 
 ## Authentication & identity ✅ (mostly)
 
@@ -123,7 +122,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 | Paid image-generation POST routes admin-gated | ✅ (PRH-1) | `image_routes.py` `_admin_only` |
 | Publishing a personality (cross-user content) is **admin-only**; non-admin owners may only set `private`; `save_personality` preserves visibility/owner on re-save | ✅ (PRH-27) | `personality_routes.py` visibility route; `personality_repository.save_personality` |
 | Admin bootstrap (`INITIAL_ADMIN_EMAIL`) still accepts a `guest_`-namespaced id in prod | ❌ | PRH-38 |
-| No first-class CSRF token on cookie-authed state-changing routes (relies on `SameSite=Lax`) | ❌ | PRH-36 |
+| First-class CSRF: double-submit `csrf_token` cookie + required `X-CSRF-Token` on mutating `/api/*` (constant-time compare → `403 CSRF_FAILED`); frontend attaches it via one global `fetch` wrapper. Armed in prod (same-origin), off in dev (cross-origin) + tests via `CSRF_PROTECTION_ENABLED`. On top of `SameSite=Lax`. | ✅ (PRH-36) | `flask_app/csrf.py`; `flask_app/config.py`; `react/.../utils/csrf.ts` |
 
 ## Secrets handling ✅
 
@@ -186,7 +185,7 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
 
 Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE_HARDENING.md):
 
-- **Web-session hardening:** CSRF tokens (PRH-36). *(Dropping the `localStorage` bearer JWT — PRH-37 — is done.)*
+- **Web-session hardening:** ✅ done — CSRF tokens (PRH-36) and dropping the `localStorage` bearer JWT (PRH-37) both landed.
 - **Edge/deploy:** security headers + CSP (PRH-39); production-safe image default + non-root container (PRH-40); admin-bootstrap not via guest namespace (PRH-38); standardize the async model (PRH-24).
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
 - **Ops/data:** off-box WAL-safe backups (PRH-29); capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30); client-side cold-load self-heal (PRH-31).
@@ -200,3 +199,4 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 4. **`IMAGE_PROVIDER`** — `openai` (dall-e-2) is the default; avatar-description / `visual_identity` inputs are now text-moderated, so `pollinations` no longer reopens an unmoderated input hole (output still leans on the provider, so prefer `openai`).
 5. **Prompt capture** — set a finite `LLM_PROMPT_RETENTION_DAYS` for prod (PRH-32).
 6. **`SECRET_KEY` / `JWT_SECRET_KEY`** — set strong values (startup enforces `SECRET_KEY`).
+7. **CSRF (PRH-36)** — armed automatically when `FLASK_ENV=production`; override with `CSRF_PROTECTION_ENABLED`. Requires the SPA to be served **same-origin** as the API (it is, via nginx) so the frontend can read the `csrf_token` cookie. If a cross-origin frontend is ever introduced, switch to delivering the token in a response body instead of relying on `document.cookie`.

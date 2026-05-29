@@ -47,6 +47,19 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 # CORS configuration
 CORS_ORIGINS_ENV = os.environ.get('CORS_ORIGINS', '*')
 
+# CSRF protection (PRH-36) — double-submit cookie. Default ARMED in production
+# (the SPA and API are same-origin there, so the frontend JS can read the
+# non-HttpOnly csrf_token cookie and echo it in the X-CSRF-Token header). Default
+# OFF in development, where the SPA (:5173) and API (:5000) are cross-origin and
+# the cookie isn't JS-readable, and off under the test suite (FLASK_ENV is
+# development there). Override explicitly with CSRF_PROTECTION_ENABLED=true/false.
+CSRF_PROTECTION_ENABLED = os.environ.get(
+    'CSRF_PROTECTION_ENABLED',
+    'false' if is_development else 'true',
+).strip().lower() in ('1', 'true', 'yes', 'on')
+CSRF_COOKIE_NAME = 'csrf_token'
+CSRF_HEADER_NAME = 'X-CSRF-Token'
+
 # Rate limiting configuration (all env-var overridable)
 _rate_limit_default_env = os.environ.get('RATE_LIMIT_DEFAULT')
 if _rate_limit_default_env is not None:
