@@ -91,3 +91,46 @@ results persistence, and the live-human seam — all Step 2+ in the plan. Kept t
 first cut to: prove the orchestration, prove conservation, fix what conservation
 exposed. Nothing committed yet; the engine fix arguably wants its own commit given
 its blast radius.
+
+## 2026-05-29 (later) — commit, event log, then realism
+
+**Committed in three slices**, with the core engine fix on its own (`96d6f7d0`)
+ahead of the scaffold (`3223043d`) precisely because it touches every game mode,
+not just tournaments — a reviewer should see it isolated.
+
+**Event log + eliminator attribution (`ec99187c`).** Added a `RoundReport` per
+round (level, eliminations, seat moves). The seat moves were already computed by
+the rebalance and silently discarded — capturing them is the raw feed the ticker
+and the standings view will render. Eliminator attribution is a deliberate
+heuristic: the biggest live chip-gainer at the busted player's table that hand.
+It's not always the literal knockout in a multiway pot, but it's resolver-agnostic
+(works for fake and engine alike without reaching into either) and good enough for
+v1 prestige. Flagged the heuristic in the code rather than pretending it's exact.
+
+**The persistence fork — and a good user call.** I'd lined up results persistence
+as the next step. The user pumped the brakes: don't persist yet, because we don't
+yet know the *shape* of the data we'll want — and that shape will fall out of the
+standings UX (an in-game tournament menu you back out to). Correct instinct;
+building a schema before the read patterns exist is how you get a migration you
+regret. Logged it as deferred.
+
+**A real design decision surfaced: player-gated time.** The user added that when
+you back out to the standings menu, the **whole world pauses** — no other table
+advances, the blind clock stops, nobody busts. That's the *opposite* of the
+cash/career world ticker (which keeps ticking while your table waits). It's the
+right model for a tournament — your position is too consequential to move while
+you're reading — and it happens to be exactly what the director already is: a
+round only advances by an explicit step, no background thread. Recorded it in the
+plan so Phase 2 doesn't accidentally bolt a ticker onto tournaments.
+
+**Realism now, since persistence is on hold (`4e086536`).** Reworked the table
+model from an occupied-only list to **fixed seat positions** with a **seat-based
+button** that moves forward to the next occupied seat (snapping past a seat a
+player just vacated). Stopped short of full casino dead-button: the engine derives
+blinds from the dealer index over the seated players, so a button resting on an
+empty seat would fight it for no v1 benefit — documented the limit rather than
+half-implementing it. The one test that had asserted `button < size` was now wrong
+by construction (button is a seat index, not bounded by the occupied count); fixed
+it to assert the *resolved dealer index* is valid instead — a small reminder that
+when the model gets more realistic, the old invariants need re-reading, not just
+re-running.
