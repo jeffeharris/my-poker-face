@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play, FolderOpen, Eye } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
 import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
@@ -211,6 +211,7 @@ export function Lobby() {
   const [netWorthOpen, setNetWorthOpen] = useState(false);
   const [whereaboutsOpen, setWhereaboutsOpen] = useState(false);
   const [fileCabinetOpen, setFileCabinetOpen] = useState(false);
+  const [intelMenuOpen, setIntelMenuOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
    *  load resolves the server-stored preference. */
@@ -575,23 +576,66 @@ export function Lobby() {
           <ActivityTicker events={events} worldPace={worldPace} onPaceChange={handlePaceChange} />
 
           <div className="cash-entry__whereabouts-row">
-            <button
-              type="button"
-              className="cash-entry__whereabouts-trigger"
-              onClick={() => setWhereaboutsOpen(true)}
-            >
-              <MapPin size={13} aria-hidden="true" />
-              Who's around
-            </button>
-            <button
-              type="button"
-              className="cash-entry__archive-tab"
-              onClick={() => setFileCabinetOpen(true)}
-              title="Open the case-file archive"
-            >
-              <FolderOpen size={13} aria-hidden="true" />
-              <span>Case Files</span>
-            </button>
+            <div className="cash-entry__intel">
+              <button
+                type="button"
+                className="cash-entry__intel-trigger"
+                onClick={() => setIntelMenuOpen((o) => !o)}
+                aria-expanded={intelMenuOpen}
+                aria-haspopup="menu"
+              >
+                <Eye size={13} aria-hidden="true" />
+                Intel
+                <ChevronDown
+                  size={12}
+                  aria-hidden="true"
+                  className={
+                    'cash-entry__intel-caret' +
+                    (intelMenuOpen ? ' cash-entry__intel-caret--open' : '')
+                  }
+                />
+              </button>
+              {intelMenuOpen && (
+                <>
+                  <div
+                    className="cash-entry__intel-backdrop"
+                    onClick={() => setIntelMenuOpen(false)}
+                  />
+                  <div className="cash-entry__intel-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="cash-entry__intel-item"
+                      onClick={() => {
+                        setIntelMenuOpen(false);
+                        setWhereaboutsOpen(true);
+                      }}
+                    >
+                      <MapPin size={14} aria-hidden="true" />
+                      <span>
+                        <strong>Who's around</strong>
+                        <em>Where the players are right now</em>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="cash-entry__intel-item"
+                      onClick={() => {
+                        setIntelMenuOpen(false);
+                        setFileCabinetOpen(true);
+                      }}
+                    >
+                      <FolderOpen size={14} aria-hidden="true" />
+                      <span>
+                        <strong>Case files</strong>
+                        <em>Dossiers on everyone you've scouted</em>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {loadError && (
