@@ -172,13 +172,51 @@ the load-bearing one for symmetry; the achievement bridge is a human-side bonus.
 
 ### Known telemetry gaps (call-outs, not blockers)
 
-- **Scalps need porting + an AI side.** Eliminations are recorded in tournaments
-  (`tournament_tracker.EliminationEvent` carries the *eliminator*) and per-game
-  in `pressure_stats` — but there's no durable **cash** "who busted whom"
-  counter, and **AI busts aren't tracked at all** yet. Porting the tracker to
-  the circuit serves both renown (scalps) and the `bounty`/`double_knockout`
-  achievements; the AI side is required before AI renown can use scalps. Lower
-  priority than shipping the metric, per the product call.
+- **Scalps need a durable, attributed counter.** The world tick runs the **full
+  sim** (`cash_mode/full_sim.play_one_hand`, ~14 live tables), so real
+  eliminations already happen (`HAND_EVENT_BUST`) — busts are *derivable* in-sim
+  for AIs and humans alike. What's missing is **persisting "who busted whom"** as
+  a durable per-entity counter: tournaments record it (`tournament_tracker.
+  EliminationEvent` carries the *eliminator*) and `pressure_stats` counts it
+  per-game, but the cash/world-sim path doesn't persist eliminator attribution
+  yet. Wiring it serves both renown (scalps) and the `bounty`/`double_knockout`
+  achievements, for the human **and** AIs. Lower priority than shipping the
+  metric, per the product call.
+
+## Renown as a live competition — world speed & keeping pace
+
+Renown is competitive: the field (every AI) is on the same leaderboard, and the
+world runs a **full sim across ~14 tables** while the player is present, so AIs
+genuinely accrue renown. The design tension: **the sim plays hands far faster
+than a human can** (no LLM-deliberation latency), so any renown denominated in
+raw hand-count is a treadmill the human loses by construction. The resolution is
+in how the metric is denominated, not in slowing the world:
+
+- **Spine = relative/standing + conserved/rare renown** (net-worth **rank**,
+  time-at-#1, renown-weighted scalps, legendary hands). These are *out-perform*,
+  not *out-grind*: a fast sim scales the whole field together, so your **rank**
+  is the contest and the hands-per-second gap doesn't bury you.
+- **Denominate volume-ish renown in wall-clock, not hand-count** ("time at the
+  tables / at #1", not "hands played"). This matches the human's wall-clock
+  presence against the AIs' **wall-clock-throttled** presence and neutralizes the
+  sim's hand-rate edge.
+- **The off-grid economy is the natural governor.** Vices, side hustles, and
+  energy recovery pull AIs off the felt for **wall-clock-bounded** windows
+  (`DURATION_RANGES` are `timedelta`; `ends_at` is a datetime; idle energy
+  recovers on wall-clock). That caps each AI's hands/hour, so the field can't
+  infinitely out-accrue a present, performing human. Tuning these tunes how hard
+  the field competes.
+- **Away-time catch-up stays light.** The realtime ticker is presence-gated, with
+  a small catch-up so the world feels lived-in rather than frozen when you return
+  — intentionally *just a little*, so you never come back to a field that lapped
+  you while you were gone. (Tunable lever.)
+- **`world_pace` (subtle / lively / bustling) is then an honest difficulty dial**
+  for the renown race — faster = the field gains ground faster *while you watch*.
+
+Net: a player who shows up and **performs** (climbs rank, takes scalps, hits
+legendary moments) keeps pace regardless of the sim's volume; raw hand-count is
+deliberately *not* the spine, so the faster world doesn't make the race unwinnable
+— and the same denomination makes AI-vs-AI renown coherent in pure sim runs.
 
 ## Storage & the legibility guardrail
 
