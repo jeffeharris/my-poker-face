@@ -150,14 +150,14 @@ def chip_ledger_repo(db_path):
 @pytest.mark.integration
 class TestRefreshHonorsLiveSeated:
     """Set up one $2 world table with all seats open and `blackbeard` as the
-    only eligible candidate, then force live-fill (`live_fill_prob=1.0`; one
-    burst hand runs but it's a no-op on the empty table). Without the param
-    the world seats him (the corruption precondition); with the param it must
-    not."""
+    only eligible candidate, then force the global fill (`seek_rate=1.0`; one
+    burst hand runs but it's a no-op on the empty table). Without the
+    live_seated param the world seats him (the corruption precondition); with
+    it he's treated as occupied and must not be seated."""
 
     SANDBOX = "sb-live-seated"
 
-    def _setup(self, db_path, cash_table_repo):
+    def _setup(self, db_path, cash_table_repo, bankroll_repo):
         _insert_personality(
             db_path,
             "blackbeard",
@@ -168,6 +168,17 @@ class TestRefreshHonorsLiveSeated:
                 "buy_in_multiplier": 1.0,
                 "stake_comfort_zone": "$2",
             },
+        )
+        # Seed the bankroll row production writes at boot
+        # (ensure_ai_bankrolls_seeded). Without it the global greedy fill
+        # correctly refuses to seat — it can't fund the buy-in from a
+        # missing row (the inversion never mints chips onto an open seat,
+        # unlike the old per-seat fill which seated regardless).
+        from cash_mode.bankroll import AIBankrollState
+
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id="blackbeard", chips=100_000, last_regen_tick=None),
+            sandbox_id=self.SANDBOX,
         )
         table = CashTableState(
             table_id="cash-table-2-001",
@@ -185,11 +196,12 @@ class TestRefreshHonorsLiveSeated:
             sandbox_id=self.SANDBOX,
             now=datetime.utcnow(),
             rng=random.Random(0),
-            # >0 so one (no-op, empty-table) hand burst runs — live-fill
-            # only fires inside the burst loop. live_fill_prob=1.0 forces
-            # the open seat to fill.
+            # >0 so one (no-op, empty-table) hand burst runs, then the
+            # global greedy fill seats the candidate. seek_rate=1.0 forces
+            # every eligible AI to go room-hunting (the inversion replaced
+            # the per-seat live_fill_prob with a per-refresh seek-rate).
             hand_sim_prob=1.0,
-            live_fill_prob=1.0,
+            seek_rate=1.0,
             chip_ledger_repo=chip_ledger_repo,
             live_seated_pids=live,
         )
@@ -206,7 +218,7 @@ class TestRefreshHonorsLiveSeated:
         # Establishes the precondition: with the only eligible candidate and
         # a forced fill, the world DOES seat blackbeard. If this regresses,
         # the protection test below would pass vacuously.
-        self._setup(db_path, cash_table_repo)
+        self._setup(db_path, cash_table_repo, bankroll_repo)
         self._run(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
@@ -219,7 +231,7 @@ class TestRefreshHonorsLiveSeated:
     def test_live_seated_blackbeard_is_not_seated(
         self, db_path, cash_table_repo, personality_repo, bankroll_repo, chip_ledger_repo
     ):
-        self._setup(db_path, cash_table_repo)
+        self._setup(db_path, cash_table_repo, bankroll_repo)
         self._run(
             cash_table_repo=cash_table_repo,
             personality_repo=personality_repo,
