@@ -138,6 +138,16 @@ def coach_ask(game_id: str):
     if request_type != 'proactive_tip' and not question:
         return jsonify({'error': 'No question provided'}), 400
 
+    # Serve a prefetched proactive tip if one is ready/in-flight for this exact
+    # decision (fired at turn-start in handle_human_turn). Guarantees a single
+    # coach LLM call per decision and hides the round-trip + start latency.
+    if request_type == 'proactive_tip':
+        from ..services.coach_prefetch import take_cached_tip
+
+        cached = take_cached_tip(game_data)
+        if cached is not None:
+            return jsonify(cached)
+
     # Compute current stats with progression context
     user_id = _get_current_user_id()
     stats = compute_coaching_data_with_progression(

@@ -3554,6 +3554,17 @@ def handle_human_turn(game_id: str, game_data: dict, game_state) -> None:
         elasticity_data = format_elasticity_data(game_data['ai_controllers'])
         socketio.emit('elasticity_update', elasticity_data, to=game_id)
 
+    # Prefetch the proactive coach tip now, off the critical path, so the LLM
+    # call overlaps the player's thinking time instead of starting only after
+    # the client round-trips. No-op unless coach mode is 'proactive'; the /ask
+    # path serves this cached result (one LLM call per decision). Best-effort.
+    try:
+        from flask_app.services.coach_prefetch import prefetch_proactive_tip
+
+        socketio.start_background_task(prefetch_proactive_tip, game_id)
+    except Exception as e:
+        logger.debug(f"[COACH_PREFETCH] failed to schedule for {game_id}: {e}")
+
 
 def recover_stuck_runout(state_machine) -> bool:
     """Fast-forward a game persisted mid-all-in-runout to a stable state.
