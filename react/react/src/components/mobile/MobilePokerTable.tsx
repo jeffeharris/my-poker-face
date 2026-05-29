@@ -37,7 +37,7 @@ import { useCoach } from '../../hooks/useCoach';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { useRunoutDirector } from '../../hooks/useRunoutDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
-import { RUNOUT_TIMING } from '../../constants/runoutTiming';
+import { heroCardAnimation } from './heroCardAnimation';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
 import { config } from '../../config';
@@ -64,24 +64,6 @@ const MAX_INTERHAND_TICKER = 3;
 function avatarUrlForEmotion(url: string | undefined, emotion: string): string | undefined {
   if (!url) return url;
   return url.replace(/\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/, `/api/avatar/$1/${emotion}$2`);
-}
-
-// CSS `animation` shorthand for one hero hole card during the all-in run-out.
-// Priority: retreating (pull back down as the board deals) → committed (present
-// over the board, held) → dealing (the normal deal-in) → none. `side` only swaps
-// the keyframe direction (Left/Right); the right card trails the left by a stagger
-// on the present + deal-in beats (but not the retreat — both pull down together).
-// Durations/stagger/easing come from RUNOUT_TIMING.hero; keyframe shape is in CSS.
-function heroCardAnimation(
-  side: 'Left' | 'Right',
-  flags: { heroRetreating: boolean; heroCommitted: boolean; isDealing: boolean }
-): string {
-  const { presentSec, retreatSec, card2StaggerSec, easing } = RUNOUT_TIMING.hero;
-  const stagger = side === 'Right' ? ` ${card2StaggerSec}s` : '';
-  if (flags.heroRetreating) return `heroPullDown${side} ${retreatSec}s ${easing} forwards`;
-  if (flags.heroCommitted) return `heroPresentUp${side} ${presentSec}s ${easing}${stagger} forwards`;
-  if (flags.isDealing) return `dealCardIn ${presentSec}s ${easing}${stagger} both`;
-  return 'none';
 }
 
 export function MobilePokerTable({

@@ -180,6 +180,28 @@ eslint-disables. 9 tests + tsc + lint green.
 **Lesson:** animation feel can't be unit-tested — every improvement here came
 from the user watching it, not from green tests. And "hold the cards up" felt
 dramatic in isolation but fought the run-out's actual purpose (seeing the board);
-the up-and-back reframe came from that. Deferred: equity-picked gesture variants
-(push-when-ahead / toss-when-behind) — the schedule already has the human's
-equity, so it's a one-field surface when wanted.
+the up-and-back reframe came from that.
+
+## 2026-05-29 (later) — equity variants: built, didn't land, dropped
+
+Built the equity-picked gesture variants end-to-end: backend surfaces the human's
+matchup equity (`hero_equity`, already computed — one field), the director maps it
+to push/neutral/toss, and CSS `commit-*` classes set custom-prop poses
+(reach/tilt/scale) read by the keyframes (kept the two keyframes DRY via vars).
+Also built a dev sandbox (`/dev/runout-commit`) so the gesture is testable without
+a random all-in — and extracted `heroCardAnimation()` to its own module now that
+it had two consumers (table + sandbox).
+
+First spread was too timid (reach 19/16/13, tilt 4/7/13) → user: "all the same,
+just not as far." Widened hard (tilt 2° vs 22°, reach -20 vs -10dvh). User's call:
+drop the whole variant line for now and ship a single gesture = the push version.
+So: reverted the variant machinery (backend `hero_equity`, director variant, CSS
+`commit-*` classes/thresholds), baked the push pose straight into the keyframes
+(no var indirection needed for one gesture), kept the helper extraction + the
+sandbox (still useful for the single gesture).
+
+**Lesson:** a clean, fully-wired feature isn't automatically worth keeping —
+push/neutral/toss worked mechanically but didn't read as distinct *enough* to earn
+their complexity, and the right move was to cut it, not to keep tuning. The
+equity is still in the schedule, so it's revivable if a genuinely
+better-differentiated gesture set is ever designed.

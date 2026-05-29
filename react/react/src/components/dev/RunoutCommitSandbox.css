@@ -1,0 +1,73 @@
+/* Dev sandbox for the run-out hero card-commit gesture. Mimics just enough of
+   the mobile table (a felt with a community-card row mid-screen and the hero
+   cards pinned at the bottom) to judge the present/hold/retreat motion and
+   whether the cards reach/cover the board. */
+.runout-sandbox {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at center, #1f6e43 0%, #0c3a22 100%);
+  color: #fff;
+  font-family: system-ui, sans-serif;
+}
+
+.runout-sandbox__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 100;
+}
+
+.runout-sandbox__bar button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.runout-sandbox__bar button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+.runout-sandbox__bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.runout-sandbox__state {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+  font-size: 13px;
+  min-width: 150px;
+}
+.runout-sandbox__spacer {
+  width: 12px;
+}
+
+/* The "table": board row floats in the upper-middle; hero cards pin to the
+   bottom (matching the real layout's flex-end), so the commit travels up toward
+   the board the same way it does in game. */
+.runout-sandbox__felt {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.runout-sandbox__board {
+  position: absolute;
+  top: 32%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 6px;
+}

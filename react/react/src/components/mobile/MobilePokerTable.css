@@ -996,8 +996,10 @@
    run-out starts dealing, at which point heroPullDown* takes over. Start and end
    at the card's *original dealt placement* (the --deal-* vars, same as dealCardIn's
    resting frame) rather than a flat 0,0 — so the cards return to their natural
-   slightly-tilted spot, not an "even" centered one. Consistent transform-function
-   order across stops keeps interpolation smooth. */
+   slightly-tilted spot, not an "even" centered one. The held pose is a confident
+   "push": reaches well up (-20dvh), nearly straight (±2deg), slightly enlarged
+   (1.1). Consistent transform-function order across stops keeps interpolation
+   smooth. Left tilts left, Right right. Tune reach via the -Ndvh values. */
 @keyframes heroPresentUpLeft {
   0% {
     transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
@@ -1005,11 +1007,11 @@
   }
   70% {
     /* Slight overshoot past the held position (mirrors dealCardIn's shape) */
-    transform: rotate(-7deg) translateX(-2.5vw) translateY(-17dvh) scale(1.06);
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-21dvh) scale(1.11);
   }
   100% {
     /* Held, presented over the board */
-    transform: rotate(-7deg) translateX(-2.5vw) translateY(-16dvh) scale(1.05);
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-20dvh) scale(1.1);
   }
 }
 
@@ -1019,10 +1021,10 @@
       translateY(var(--deal-offset-y)) scale(1);
   }
   70% {
-    transform: rotate(7deg) translateX(2.5vw) translateY(-17dvh) scale(1.06);
+    transform: rotate(2deg) translateX(2.5vw) translateY(-21dvh) scale(1.11);
   }
   100% {
-    transform: rotate(7deg) translateX(2.5vw) translateY(-16dvh) scale(1.05);
+    transform: rotate(2deg) translateX(2.5vw) translateY(-20dvh) scale(1.1);
   }
 }
 
@@ -1031,7 +1033,7 @@
    card's inline resting transform so it lands exactly where it began. */
 @keyframes heroPullDownLeft {
   0% {
-    transform: rotate(-7deg) translateX(-2.5vw) translateY(-16dvh) scale(1.05);
+    transform: rotate(-2deg) translateX(-2.5vw) translateY(-20dvh) scale(1.1);
   }
   100% {
     transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
@@ -1041,7 +1043,7 @@
 
 @keyframes heroPullDownRight {
   0% {
-    transform: rotate(7deg) translateX(2.5vw) translateY(-16dvh) scale(1.05);
+    transform: rotate(2deg) translateX(2.5vw) translateY(-20dvh) scale(1.1);
   }
   100% {
     transform: rotate(var(--deal-rotation)) translateX(var(--deal-offset-x))
