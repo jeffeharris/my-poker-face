@@ -1369,6 +1369,92 @@ def _restore_cash_table_binding(game_id: str, game_data: dict) -> Optional[str]:
     return cs.cash_table_id
 
 
+def _ensure_cash_mode(game_id: str, game_data: dict) -> bool:
+    """Guarantee a cash game's memory-only cash metadata is present, and
+    report whether the hand-end cash flow should run for it.
+
+    ``cash_mode``, ``cash_table_id``, ``cash_seat_index``,
+    ``cash_stake_label``, ``cash_personality_ids`` and ``sandbox_id`` are
+    stamped at sit-down but are NOT part of the persisted
+    ``game_state_json``. The ``/api/game-state`` restore block rehydrates
+    them on a warm reload, but a *background* hand advance after the game was
+    evicted from memory (the world ticker / socket loop) bypasses that block,
+    so ``cash_mode`` comes back falsy. Every hand-end cash step is gated on
+    ``cash_mode`` — refill, human-bust detection, the lobby-table refresh, and
+    the table-binding self-heal (`_restore_cash_table_binding`) inside it — so
+    a dropped flag silently skips all of them: the human seat is never
+    re-stamped into ``cash_tables``, ``refresh_unseated_tables`` treats it as
+    empty and refills it, and the live game decays out of sync with the world
+    table. The cold-load ghost-seat split-brain (the binding self-heal was
+    unreachable because it lived behind the very flag the cold-load dropped).
+
+    ``game_id.startswith("cash-")`` is the durable, memory-free signal — it's
+    exactly how the restore block decides ``is_cash_game``. When it's a cash
+    game whose flag is missing, rebuild the dropped fields from the durable
+    ``cash_sessions`` row + the live players so the cash flow can run.
+    Idempotent: a no-op once ``cash_mode`` is set (the warm path).
+    """
+    if game_data.get('cash_mode'):
+        return True
+    if not game_id.startswith('cash-'):
+        return False
+
+    game_data['cash_mode'] = True
+    # Table + seat binding from the durable cash_sessions row (persists itself
+    # when it recovers one; legacy /api/cash/start games have none).
+    _restore_cash_table_binding(game_id, game_data)
+
+    state_machine = game_data.get('state_machine')
+    players = state_machine.game_state.players if state_machine is not None else ()
+
+    # Stake label + table buy-in cap, resolved from the big blind. Mirrors the
+    # /api/game-state restore block so refill's affordability math matches.
+    try:
+        from flask_app.routes.cash_routes import STAKES_LADDER
+
+        big_blind = (state_machine.game_state.current_ante or 100) if state_machine else 100
+        stake_label = next(
+            (label for label, cfg in STAKES_LADDER.items() if cfg["big_blind"] == big_blind),
+            None,
+        )
+        if game_data.get('cash_stake_label') is None:
+            game_data['cash_stake_label'] = stake_label
+        if stake_label is not None:
+            mm = game_data.get('memory_manager')
+            if mm is not None:
+                from cash_mode.stakes_ladder import table_buy_in_window
+
+                _, _, cold_load_max_buy_in = table_buy_in_window(stake_label)
+                mm.set_table_max_buy_in(cold_load_max_buy_in)
+    except Exception as e:
+        logger.warning("[CASH] stake-label rehydrate failed for %r: %s", game_id, e)
+
+    # cash_personality_ids feeds the lobby refresh's busted-slot reconciliation
+    # AND the world sim's live_cash_seated_pids (so the human's live opponents
+    # aren't double-booked at another table). Rebuild from current opponents.
+    if not game_data.get('cash_personality_ids'):
+        from flask_app.extensions import personality_repo
+
+        cash_personality_ids = {}
+        for player in players:
+            if player.is_human:
+                continue
+            try:
+                pid = personality_repo.resolve_name_to_personality_id(player.name)
+            except Exception:
+                pid = None
+            if pid:
+                cash_personality_ids[player.name] = pid
+        game_data['cash_personality_ids'] = cash_personality_ids
+
+    game_state_service.set_game(game_id, game_data)
+    logger.info(
+        "[CASH] rehydrated cash metadata for cold-loaded game %r (background advance)",
+        game_id,
+    )
+    return True
+
+
 def _refresh_lobby_table_for_session(game_id: str, game_data: dict, state_machine) -> None:
     """Hand-boundary lobby refresh for the player's active table.
 
@@ -3622,6 +3708,14 @@ def progress_game(game_id: str) -> None:
         current_game_data = game_state_service.get_game(game_id)
         if not current_game_data:
             return
+
+        # Rehydrate cash-mode metadata when a background hand advance (world
+        # ticker / socket) cold-loaded this game without passing through the
+        # /api/game-state restore block. Otherwise the hand-end cash flow
+        # (refill, bust-detect, lobby refresh + table-binding self-heal) is
+        # gated off by the dropped `cash_mode` flag and the human seat
+        # orphans — the cold-load ghost-seat split-brain.
+        _ensure_cash_mode(game_id, current_game_data)
 
         while True:
             # Refresh game data (may have been updated by handle_ai_action)

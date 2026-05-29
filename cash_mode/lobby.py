@@ -644,12 +644,26 @@ def _process_global_greedy_fills(
             projected = project_idle_energy(stored, baseline, idle_seconds)
         return 1.0 if baseline <= 0 else min(1.0, projected / baseline)
 
-    def _can_afford_target(target_stake: str, projected: int) -> bool:
+    def _can_afford_target(
+        target_stake: str, projected: int, buy_in_multiplier: float
+    ) -> bool:
+        """Whether `projected` covers this AI's ACTUAL buy-in at `target_stake`.
+
+        Must mirror the placement gate (`assign_seats_greedy` →
+        `seeker_buy_in`): `round(min_buy_in × buy_in_multiplier)` capped at the
+        tier max — NOT the raw min. Gating stickiness on the raw min while the
+        greedy seats on the multiplied amount opens a dead band
+        `[min, min × mult]`: an AI there is rich enough to refuse lower tables
+        (this gate) yet too poor to ever be placed at its target (greedy), so
+        it strands forever as "stale idle". Mirroring the formula here lets
+        such an AI relax down to a tier it can actually sit at.
+        """
         try:
-            _, t_min, _ = table_buy_in_window(target_stake)
+            _, t_min, t_max = table_buy_in_window(target_stake)
         except Exception:
             return True  # unknown tier — don't gate
-        return projected >= t_min
+        required = min(round(t_min * buy_in_multiplier), t_max)
+        return projected >= required
 
     # 2. Candidate pool: idle AIs first, then eligible-never-seated; exclude
     #    fish (casino-only) and the already-seated.
@@ -694,7 +708,9 @@ def _process_global_greedy_fills(
                 entry is not None
                 and entry.target_stake is not None
                 and entry.target_stake != ft.stake_label
-                and _can_afford_target(entry.target_stake, projected)
+                and _can_afford_target(
+                    entry.target_stake, projected, knobs.buy_in_multiplier
+                )
             ):
                 continue  # target-stake stickiness (relaxed if can't afford target)
             allowed.add(tid)
