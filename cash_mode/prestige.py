@@ -169,6 +169,38 @@ _REPUTATION_CHAT_TONE = {
 }
 
 
+def refill_affinity(quadrant: str, state: Any) -> float:
+    """How drawn a candidate AI is to sit at the human's table (hook 1).
+
+    Used by the hand-boundary seat refill to reorder the eligible pool so
+    *who sits with you* reflects your reputation — the human-keyed "table
+    pull." Higher = seated sooner.
+
+    Only the two high-renown quadrants reorder (the room reacts to a figure);
+    the low-renown quadrants and unknown labels return 0.0 (neutral — no
+    reordering, the existing deterministic order stands):
+
+      - Beloved Legend → warm admirers lead: ``(likability−0.5)+(respect−0.5)``,
+        so the legend's table fills with the AIs who like/respect them.
+      - Infamous Villain → the dethrone draw: ``heat``, so AIs with a score to
+        settle (a rival cohort) cycle in first while the cold/neutral room
+        hangs back. (Deprioritized, not refused — the table still fills so the
+        human always has opponents; the "avoidance" is relative ordering.)
+
+    `state` is the candidate's INBOUND relationship edge toward the human
+    (likability/respect/heat); None → neutral defaults (no edge yet).
+    """
+    if state is None:
+        likability, respect, heat = 0.5, 0.5, 0.0
+    else:
+        likability, respect, heat = state.likability, state.respect, state.heat
+    if quadrant == QUADRANT_BELOVED_LEGEND:
+        return (likability - 0.5) + (respect - 0.5)
+    if quadrant == QUADRANT_INFAMOUS_VILLAIN:
+        return heat
+    return 0.0
+
+
 def reputation_chat_tone(quadrant: str) -> str:
     """One-line table-talk tone hint for the human's reputation quadrant.
 

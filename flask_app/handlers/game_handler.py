@@ -898,6 +898,55 @@ def handle_phase_cards_dealt(
             memory_manager.hand_recorder.record_community_cards(phase_name, cards)
 
 
+def _reputation_order_refill_pool(eligible_pool, *, owner_id, sandbox_id, now):
+    """Reorder the cash refill candidate pool by the human's reputation.
+
+    Player-prestige hook 1 (table pull / rival-draw): *who* sits down with the
+    human reflects their room-level reputation. Returns the pool unchanged
+    unless the human is a high-renown figure, in which case candidates are
+    stable-sorted by `cash_mode.prestige.refill_affinity`:
+
+      - Beloved Legend → warm admirers (high inbound likability+respect) lead.
+      - Infamous Villain → a rival cohort (AIs with heat to settle) leads;
+        the cold/neutral room hangs back.
+
+    No candidate is removed — the table still fills, so the human always has
+    opponents (no wedge); the reputation effect is *ordering* only. Best-effort:
+    any failure (no snapshot, repo down, low-renown quadrant) returns the input
+    order, preserving the pre-hook behavior. Python's `sorted` is stable, so
+    equal-affinity candidates keep the pool's deterministic personality_id order.
+    """
+    if not eligible_pool or not owner_id or not sandbox_id:
+        return eligible_pool
+    try:
+        from cash_mode.prestige import (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+            refill_affinity,
+        )
+
+        from ..extensions import prestige_snapshots_repo, relationship_repo
+
+        if prestige_snapshots_repo is None or relationship_repo is None:
+            return eligible_pool
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None or snap["quadrant"] not in (
+            QUADRANT_BELOVED_LEGEND,
+            QUADRANT_INFAMOUS_VILLAIN,
+        ):
+            return eligible_pool  # no figure → the room doesn't reorder
+        quadrant = snap["quadrant"]
+        inbound = relationship_repo.load_inbound_relationships(owner_id, now=now)
+        return sorted(
+            eligible_pool,
+            key=lambda e: refill_affinity(quadrant, inbound.get(e["personality_id"])),
+            reverse=True,
+        )
+    except Exception as e:
+        logger.debug("Could not reputation-order refill pool: %s", e)
+        return eligible_pool
+
+
 def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     """Cash-mode helper: replace busted AI seats with fresh personalities.
 
@@ -954,6 +1003,14 @@ def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
         # query returns it twice).
         and e['name'] not in {game_state.players[i].name for i in busted_indices}
     ]
+
+    # Player-prestige hook 1 (table pull / rival-draw): bias WHO refills the
+    # human's table by their reputation — warm admirers lead a Beloved Legend's
+    # table, a rival cohort leads an Infamous Villain's. No-op for low-renown /
+    # no-snapshot. The affordability loop below then picks from the head.
+    eligible_pool = _reputation_order_refill_pool(
+        eligible_pool, owner_id=owner_id, sandbox_id=sandbox_id, now=now
+    )
 
     refilled_count = 0
 

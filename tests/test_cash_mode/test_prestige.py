@@ -20,6 +20,7 @@ from cash_mode.prestige import (
     W_TENURE,
     compute_prestige,
     quadrant_label,
+    refill_affinity,
     reputation_chat_tone,
 )
 
@@ -108,6 +109,50 @@ def test_reputation_chat_tone_only_for_high_renown_quadrants():
     assert reputation_chat_tone(QUADRANT_UP_AND_COMER) == ""
     assert reputation_chat_tone(QUADRANT_DISLIKED_NOBODY) == ""
     assert reputation_chat_tone("Nonsense") == ""
+
+
+def test_refill_affinity_only_reorders_high_renown_quadrants():
+    warm = _Edge(likability=1.0, respect=1.0, heat=0.0)
+    # Low-renown quadrants never reorder → 0 regardless of the edge.
+    assert refill_affinity(QUADRANT_UP_AND_COMER, warm) == 0.0
+    assert refill_affinity(QUADRANT_DISLIKED_NOBODY, warm) == 0.0
+    assert refill_affinity("Nonsense", warm) == 0.0
+
+
+def test_refill_affinity_beloved_legend_favors_warmth():
+    warm = _Edge(likability=1.0, respect=1.0, heat=0.0)
+    cold = _Edge(likability=0.0, respect=0.0, heat=0.0)
+    assert refill_affinity(QUADRANT_BELOVED_LEGEND, warm) > 0
+    assert refill_affinity(QUADRANT_BELOVED_LEGEND, cold) < 0
+    # No edge yet → neutral (0.0), between warm and cold.
+    assert refill_affinity(QUADRANT_BELOVED_LEGEND, None) == 0.0
+
+
+def test_refill_affinity_villain_favors_heat():
+    rival = _Edge(likability=0.2, respect=0.5, heat=0.9)  # heated → wants you
+    indifferent = _Edge(likability=0.5, respect=0.5, heat=0.0)
+    assert refill_affinity(QUADRANT_INFAMOUS_VILLAIN, rival) > refill_affinity(
+        QUADRANT_INFAMOUS_VILLAIN, indifferent
+    )
+    # Warmth doesn't draw a rival to a villain — only heat does.
+    warm_no_heat = _Edge(likability=1.0, respect=1.0, heat=0.0)
+    assert refill_affinity(QUADRANT_INFAMOUS_VILLAIN, warm_no_heat) == 0.0
+
+
+def test_refill_affinity_sorts_pool_rivals_first_for_villain():
+    # Demonstrates the seating reorder: heated rivals lead a villain's pool.
+    inbound = {
+        "rival": _Edge(heat=0.8),
+        "calm": _Edge(heat=0.0),
+        "mild": _Edge(heat=0.3),
+    }
+    pool = [{"personality_id": p} for p in ("calm", "mild", "rival")]
+    ordered = sorted(
+        pool,
+        key=lambda e: refill_affinity(QUADRANT_INFAMOUS_VILLAIN, inbound.get(e["personality_id"])),
+        reverse=True,
+    )
+    assert [e["personality_id"] for e in ordered] == ["rival", "mild", "calm"]
 
 
 def test_zero_state_is_disliked_nobody():
