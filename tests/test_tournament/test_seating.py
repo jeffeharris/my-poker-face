@@ -11,6 +11,14 @@ from tournament.seating import (
     build_initial_seating,
 )
 
+TABLE_SIZE = 6
+
+
+def mk_table(table_id: int, players: list[str], button: int = 0, size: int = TABLE_SIZE) -> Table:
+    """Build a fixed-seat Table: players occupy seats 0..n-1, rest are empty."""
+    seats: list[str | None] = list(players) + [None] * (size - len(players))
+    return Table(table_id=table_id, seats=seats, button=button)
+
 
 def _all_players(seating: Seating) -> list[str]:
     return sorted(seating.all_player_ids())
@@ -52,8 +60,8 @@ def test_initial_seating_uneven_field_within_one():
 def test_balance_evens_out_lopsided_tables():
     seating = Seating(
         tables=[
-            Table(1, ['a', 'b', 'c', 'd', 'e', 'f']),
-            Table(2, ['g', 'h']),
+            mk_table(1, ['a', 'b', 'c', 'd', 'e', 'f']),
+            mk_table(2, ['g', 'h']),
         ],
         table_size=6,
     )
@@ -65,7 +73,7 @@ def test_balance_evens_out_lopsided_tables():
 
 def test_balance_reports_moves():
     seating = Seating(
-        tables=[Table(1, ['a', 'b', 'c', 'd', 'e']), Table(2, ['f'])],
+        tables=[mk_table(1, ['a', 'b', 'c', 'd', 'e']), mk_table(2, ['f'])],
         table_size=6,
     )
     moves = SeatingManager().rebalance(seating)
@@ -82,10 +90,10 @@ def test_break_reduces_to_target_table_count():
     # 13 players over 4 tables → should collapse to ceil(13/6) = 3 tables
     seating = Seating(
         tables=[
-            Table(1, ['a', 'b', 'c', 'd']),
-            Table(2, ['e', 'f', 'g']),
-            Table(3, ['h', 'i', 'j']),
-            Table(4, ['k', 'l', 'm']),
+            mk_table(1, ['a', 'b', 'c', 'd']),
+            mk_table(2, ['e', 'f', 'g']),
+            mk_table(3, ['h', 'i', 'j']),
+            mk_table(4, ['k', 'l', 'm']),
         ],
         table_size=6,
     )
@@ -98,7 +106,7 @@ def test_break_reduces_to_target_table_count():
 
 def test_empty_tables_are_dropped():
     seating = Seating(
-        tables=[Table(1, ['a', 'b', 'c']), Table(2, []), Table(3, ['d', 'e', 'f', 'g'])],
+        tables=[mk_table(1, ['a', 'b', 'c']), mk_table(2, []), mk_table(3, ['d', 'e', 'f', 'g'])],
         table_size=6,
     )
     expected = _all_players(seating)
@@ -112,7 +120,7 @@ def test_empty_tables_are_dropped():
 
 def test_final_table_consolidation():
     seating = Seating(
-        tables=[Table(1, ['a', 'b', 'c']), Table(2, ['d', 'e', 'f'])],
+        tables=[mk_table(1, ['a', 'b', 'c']), mk_table(2, ['d', 'e', 'f'])],
         table_size=6,
     )
     expected = _all_players(seating)
@@ -124,20 +132,56 @@ def test_final_table_consolidation():
 
 
 def test_heads_up_stays_one_table():
-    seating = Seating(tables=[Table(1, ['a', 'b'])], table_size=6)
+    seating = Seating(tables=[mk_table(1, ['a', 'b'])], table_size=6)
     SeatingManager().rebalance(seating)
     assert len(seating.tables) == 1
     assert seating.tables[0].size == 2
 
 
-# ── button stays valid ──────────────────────────────────────────────────────
+# ── button / seat realism ────────────────────────────────────────────────────
 
 
-def test_button_index_stays_in_range_after_rebalance():
+def test_button_resolves_to_valid_dealer_after_rebalance():
     seating = Seating(
-        tables=[Table(1, ['a', 'b', 'c', 'd', 'e', 'f'], button=5), Table(2, ['g'])],
+        tables=[mk_table(1, ['a', 'b', 'c', 'd', 'e', 'f'], button=5), mk_table(2, ['g'])],
         table_size=6,
     )
     SeatingManager().rebalance(seating)
     for t in seating.tables:
-        assert 0 <= t.button < t.size
+        # button is a seat index within table capacity ...
+        assert 0 <= t.button < t.capacity
+        # ... and always resolves to a real seated player's position.
+        di = t.dealer_index_in_occupied()
+        assert 0 <= di < t.size
+
+
+def test_advance_button_skips_empty_seats():
+    # Seats: a(0) _ c(2) _ e(4) _ ; button starts on seat 0.
+    t = mk_table(1, [])
+    t.seats = ['a', None, 'c', None, 'e', None]
+    t.button = 0
+    t.advance_button()
+    assert t.button == 2  # skipped empty seat 1
+    t.advance_button()
+    assert t.button == 4
+    t.advance_button()
+    assert t.button == 0  # wrapped past empty seat 5
+
+
+def test_dealer_index_snaps_forward_when_button_seat_empty():
+    # Button rests on an empty seat (a player just left it); the dealer index
+    # used to build a hand must snap forward to the next occupied seat.
+    t = mk_table(1, [])
+    t.seats = ['a', None, 'c', 'd', None, None]  # players: a(0), c(2), d(3)
+    t.button = 1  # empty
+    # next occupied after seat 1 is seat 2 ('c'), which is players[1]
+    assert t.dealer_index_in_occupied() == 1
+    assert t.players == ['a', 'c', 'd']
+
+
+def test_incoming_player_takes_lowest_open_seat():
+    t = mk_table(1, [])
+    t.seats = ['a', None, 'c', None, None, None]
+    seat = t.add('x')
+    assert seat == 1
+    assert t.seats[1] == 'x'

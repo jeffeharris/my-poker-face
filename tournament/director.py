@@ -175,7 +175,7 @@ class TournamentDirector:
         gains_by_table: dict[int, dict[str, int]] = {}  # table_id -> {pid: chip gain}
 
         for table in self.seating.tables:
-            seat_order = [pid for pid in table.players if self.field.stacks.get(pid, 0) > 0]
+            seat_order = table.players  # occupied seats in seat order; all have chips
             for pid in seat_order:
                 table_of_player[pid] = table.table_id
             if len(seat_order) < 2:
@@ -186,7 +186,7 @@ class TournamentDirector:
                 seat_order=seat_order,
                 stacks=stacks,
                 level=level,
-                button=table.button % len(seat_order),
+                button=table.dealer_index_in_occupied(),
                 seed=seed,
             )
             self._apply_table_result(stacks, result)

@@ -1,19 +1,25 @@
 """Table seating, balancing, and breaking — the core of a multi-table tournament.
 
 This module is pure data: it has zero dependency on the poker engine. A `Seating`
-is a list of `Table`s, each an ordered list of seated player ids plus a button
-index. `SeatingManager.rebalance` applies the classic MTT rules — break tables as
-the field shrinks, keep table sizes within one of each other, and collapse to a
-single final table — returning the explicit `SeatMove`s it made (so they can be
-narrated on the activity ticker later).
+is a list of `Table`s; each table has **fixed seat positions** (a `seats` array of
+length `table_size`, `None` = empty) and a dealer **button** that is a seat index.
+`SeatingManager.rebalance` applies the classic MTT rules — break tables as the
+field shrinks, keep table sizes within one of each other, and collapse to a single
+final table — returning the explicit `SeatMove`s it made (so they can be narrated
+on the activity ticker and shown in the standings view).
 
-v1 simplification: a table is modelled as an ordered list of *occupied* seats
-(not a fixed-size seat array), so physical seat geometry and the "dead button"
-rule are not reproduced. Player counts and movements — the things that must be
-correct for balancing — are exact. Seat-geometry realism is a later refinement.
+Realism notes:
+  - Seats are physical positions, so a UI can render seat 1..N and a player keeps
+    their seat until moved. Incoming players take the lowest open seat.
+  - The button is a seat index and moves **forward to the next occupied seat** each
+    hand. This is faithful seat-based rotation; it is not the full casino
+    "dead button" rule (the button never rests on an empty seat here), which the
+    engine's blind model — small/big blind derived from the dealer index over the
+    seated players — does not need. Good enough for v1; revisit if exact dead-button
+    blind posting ever matters.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import ceil
 
 
@@ -28,33 +34,74 @@ class SeatMove:
 
 @dataclass
 class Table:
-    """One tournament table: occupied seats in order, plus the button index."""
+    """One tournament table: fixed seat positions + the dealer button seat."""
 
     table_id: int
-    players: list[str] = field(default_factory=list)
+    seats: list[str | None]
     button: int = 0
 
     @property
     def size(self) -> int:
-        return len(self.players)
+        return sum(1 for s in self.seats if s is not None)
 
-    def _clamp_button(self) -> None:
-        if self.players:
-            self.button %= len(self.players)
-        else:
-            self.button = 0
+    @property
+    def capacity(self) -> int:
+        return len(self.seats)
+
+    @property
+    def players(self) -> list[str]:
+        """Seated players in seat order (lowest seat index first)."""
+        return [s for s in self.seats if s is not None]
+
+    def occupied_indices(self) -> list[int]:
+        return [i for i, s in enumerate(self.seats) if s is not None]
+
+    def dealer_index_in_occupied(self) -> int:
+        """Position of the button within `players` (the index a poker hand built
+        from `players` should use as its dealer). If the button currently rests on
+        an empty seat (a player just left it), snap forward to the next occupied
+        seat."""
+        occupied = self.occupied_indices()
+        if not occupied:
+            return 0
+        if self.button in occupied:
+            return occupied.index(self.button)
+        n = len(self.seats)
+        for step in range(1, n + 1):
+            j = (self.button + step) % n
+            if self.seats[j] is not None:
+                return occupied.index(j)
+        return 0
 
     def advance_button(self) -> None:
-        """Move the button to the next seat (called after each hand)."""
-        if self.players:
-            self.button = (self.button + 1) % len(self.players)
+        """Move the button forward to the next occupied seat (after each hand)."""
+        n = len(self.seats)
+        for step in range(1, n + 1):
+            j = (self.button + step) % n
+            if self.seats[j] is not None:
+                self.button = j
+                return
+
+    def first_open_seat(self) -> int | None:
+        for i, s in enumerate(self.seats):
+            if s is None:
+                return i
+        return None
+
+    def add(self, player_id: str) -> int:
+        """Seat a player in the lowest open seat; returns the seat index."""
+        seat = self.first_open_seat()
+        if seat is None:
+            raise ValueError(f"table {self.table_id} is full")
+        self.seats[seat] = player_id
+        return seat
 
     def remove(self, player_id: str) -> None:
-        self.players.remove(player_id)
-        self._clamp_button()
-
-    def add(self, player_id: str) -> None:
-        self.players.append(player_id)
+        for i, s in enumerate(self.seats):
+            if s == player_id:
+                self.seats[i] = None
+                return
+        raise ValueError(f"{player_id} is not seated at table {self.table_id}")
 
 
 @dataclass
@@ -80,16 +127,22 @@ class Seating:
 
 def build_initial_seating(player_ids: list[str], table_size: int) -> Seating:
     """Distribute players across the minimum number of tables, as evenly as
-    possible (round-robin), so starting table sizes differ by at most one."""
+    possible (round-robin), so starting table sizes differ by at most one. The
+    button starts on each table's first occupied seat."""
     if table_size < 2:
         raise ValueError("table_size must be >= 2")
     n = len(player_ids)
     if n < 2:
         raise ValueError("need at least 2 players")
     num_tables = max(1, ceil(n / table_size))
-    tables = [Table(table_id=i + 1) for i in range(num_tables)]
+    tables = [
+        Table(table_id=i + 1, seats=[None] * table_size, button=0) for i in range(num_tables)
+    ]
     for idx, pid in enumerate(player_ids):
         tables[idx % num_tables].add(pid)
+    for t in tables:
+        occupied = t.occupied_indices()
+        t.button = occupied[0] if occupied else 0
     return Seating(tables=tables, table_size=table_size)
 
 
@@ -109,7 +162,7 @@ class SeatingManager:
         moves: list[SeatMove] = []
 
         # 1. Drop empty tables (their ids retire).
-        seating.tables = [t for t in seating.tables if t.players]
+        seating.tables = [t for t in seating.tables if t.size > 0]
         if not seating.tables:
             return moves
 
@@ -137,7 +190,6 @@ class SeatingManager:
         """Break the smallest table, redistributing its players onto the other
         tables (filling the emptiest table first to keep sizes even)."""
         moves: list[SeatMove] = []
-        # Smallest table; tie broken by highest id for determinism.
         break_table = min(seating.tables, key=lambda t: (t.size, -t.table_id))
         movers = list(break_table.players)
         seating.tables.remove(break_table)
@@ -157,7 +209,7 @@ class SeatingManager:
             smallest = min(seating.tables, key=lambda t: (t.size, t.table_id))
             if biggest.size - smallest.size <= 1:
                 break
-            # Move the player just behind the button (the last seat) — a simple,
+            # Move the player in the highest-index occupied seat — a simple,
             # deterministic choice for v1.
             pid = biggest.players[-1]
             biggest.remove(pid)
@@ -179,5 +231,4 @@ class SeatingManager:
                 dest.add(pid)
                 moves.append(SeatMove(pid, t.table_id, dest.table_id))
             seating.tables.remove(t)
-        dest._clamp_button()
         return moves

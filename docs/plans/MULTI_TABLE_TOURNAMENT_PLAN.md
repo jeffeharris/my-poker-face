@@ -174,6 +174,17 @@ the human a strict bottleneck or letting AI tables sprint to the finish. A human
 the clock tick; the 0/1/2 allowance is the elasticity around it. (Headless-only runs have
 no human, so every table simply plays one hand per round.)
 
+**Tournament time is player-gated — the whole world pauses (decided).** Unlike cash/career
+mode, where the world ticker keeps other tables moving while your table waits, a tournament
+**only advances when the human advances**. When the player steps away — backs out to the
+tournament standings menu, or simply isn't acting — the *entire* field freezes: no AI hands
+elsewhere, no blind-clock ticks, no eliminations. This is the opposite of the career world
+ticker, and it's deliberate: tournament position and chips are too consequential to move
+while the player is reading standings, and it keeps the engine simple (no background ticker
+for tournaments — the human's round tick *is* the clock). The `TournamentDirector`'s
+round-by-round model already embodies this: nothing advances except by an explicit round
+step, which the human's play drives.
+
 ### `TournamentField` (promote `TournamentTracker` to field-wide)
 
 Today's `TournamentTracker` tracks one table's `_active_players` set and assigns
@@ -321,7 +332,12 @@ added to `tests/test_pot_distribution.py`. This fix benefits **all** game modes.
 ## Future phases (designed-for, not built now)
 
 - **Phase 2 — Live human table + standalone UI.** Wire the live loop into one table; relocate
-  the human; build the tournament lobby/bracket/standings surface.
+  the human; build the tournament lobby/bracket/standings surface. Includes a **tournament
+  menu / standings view** (sibling to the sandbox/career menu) the player can back out to —
+  field-wide chip counts, players remaining, table-by-table standings, recent knockouts, the
+  blind clock — with the **whole world paused** while they're in it (see player-gated time
+  above). The per-round `RoundReport` log the engine already emits (seat moves + eliminations)
+  is the data this surface and the activity ticker render.
 - **Phase 3 — Cross-table drama.** Tournament event types in the ticker (chip leader, table
   break, pay jump, bubble, knockout); the "Meanwhile…" interhand surface; final-table ceremony.
 - **Phase 4 — Economy.** Buy-ins, prize structure, payouts to bankroll, staking-into-entries
