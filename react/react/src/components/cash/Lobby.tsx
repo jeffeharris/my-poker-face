@@ -27,7 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, MapPin, Play } from 'lucide-react';
 import { PageLayout, MenuBar } from '../shared';
-import { getLobby, getState, leaveTable, sitAtTable, setWorldPace } from './api';
+import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
 import { SponsorModal } from './SponsorModal';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -443,6 +443,21 @@ export function Lobby() {
     [busy, navigate]
   );
 
+  /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
+   *  placed so an AI can't be cut out of taking it (and so the player
+   *  isn't shown as parked there). Fire-and-forget + idempotent
+   *  server-side: a successful sponsor-and-sit already converted the
+   *  hold to a human seat, so release is a harmless no-op there. */
+  const handleSponsorClose = useCallback(() => {
+    const held = sponsorState;
+    setSponsorState(null);
+    if (held) {
+      releaseSeat(held.tableId, held.seatIndex).catch((e) => {
+        logger.warn('Failed to release sponsorship seat-hold:', e instanceof Error ? e.message : String(e));
+      });
+    }
+  }, [sponsorState]);
+
   /** Resume the player's in-progress game. The lobby knows the seated
    *  table_id but not the game_id, so we resolve it via /api/cash/state
    *  (same source the mount redirect uses) and navigate. */
@@ -756,7 +771,7 @@ export function Lobby() {
               ? (tables.find((t) => t.table_id === sponsorState.tableId)?.table_name ?? null)
               : null
           }
-          onClose={() => setSponsorState(null)}
+          onClose={handleSponsorClose}
         />
         <CharacterDetailCard
           isOpen={dossier !== null}

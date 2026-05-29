@@ -856,6 +856,37 @@ def refresh_unseated_tables(
         vice_mode = _economy_flags.VICE_MODE
 
     tables = cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+
+    # Sponsorship seat-hold expiry — runs BEFORE seated_globally / the
+    # per-table loop so a hold whose TTL lapsed this refresh frees its
+    # seat back to "open" and becomes fillable in the same tick. The
+    # frontend releases holds explicitly on SponsorModal-close; this is
+    # the safety net for the abandoned-modal case (closed tab, dropped
+    # network) so a stale hold can't strand a seat against live-fill.
+    # Mutates the loaded `tables` in place so the rest of the refresh
+    # sees the freed seats.
+    from cash_mode.tables import is_reservation_expired, open_slot
+
+    for table in tables:
+        freed_any = False
+        for idx, slot in enumerate(table.seats):
+            if is_reservation_expired(slot, now):
+                table.seats[idx] = open_slot()
+                freed_any = True
+        if freed_any:
+            try:
+                cash_table_repo.save_table(table, sandbox_id=sandbox_id, now=now)
+                logger.info(
+                    "[CASH][LOBBY] expired sponsorship seat-hold(s) on table=%r",
+                    table.table_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[CASH][LOBBY] failed to free expired seat-hold on %r: %s",
+                    table.table_id,
+                    exc,
+                )
+
     idle_pool = cash_table_repo.list_idle(sandbox_id=sandbox_id)
     seated_globally = _global_seated_set(tables)
     eligible = personality_repo.list_eligible_for_cash_mode(user_id=user_id)

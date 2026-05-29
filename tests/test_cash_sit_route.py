@@ -359,6 +359,92 @@ class TestSitAll(_CashSitRouteBase):
         assert data.get("requires_sponsor") is True
         assert data.get("stake_label") == "$2"
         assert data.get("bankroll") == 0
+        # The seat must now be held so the world ticker's live-fill can't
+        # seat an AI in it while the SponsorModal is open (the "cut by the
+        # AI" race). Response echoes the held seat for release/accept.
+        assert data.get("table_id") == "cash-table-2-001"
+        assert data.get("seat_index") == open_idx
+        held = self.cash_table_repo.load_table(
+            "cash-table-2-001", sandbox_id="test-sandbox-1"
+        )
+        assert held.seats[open_idx]["kind"] == "reserved"
+        assert held.seats[open_idx]["personality_id"] == PLAYER_OWNER_ID
+
+    def test_release_seat_frees_reservation_and_is_idempotent(self):
+        # A 402 places a hold; releasing it returns the seat to "open"
+        # and a second release is a harmless no-op.
+        self._set_bankroll(0)
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        open_idx = next(i for i, s in enumerate(table.seats) if s["kind"] == "open")
+        resp = self.client.post(
+            "/api/cash/sit",
+            json={"table_id": "cash-table-2-001", "seat_index": open_idx},
+        )
+        assert resp.status_code == 402
+        held = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        assert held.seats[open_idx]["kind"] == "reserved"
+
+        rel = self.client.post(
+            "/api/cash/release-seat",
+            json={"table_id": "cash-table-2-001", "seat_index": open_idx},
+        )
+        assert rel.status_code == 200
+        assert rel.get_json().get("released") is True
+        freed = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        assert freed.seats[open_idx]["kind"] == "open"
+
+        # Idempotent: releasing an already-open seat is a no-op, not an error.
+        rel2 = self.client.post(
+            "/api/cash/release-seat",
+            json={"table_id": "cash-table-2-001", "seat_index": open_idx},
+        )
+        assert rel2.status_code == 200
+        assert rel2.get_json().get("released") is False
+
+    def test_release_seat_leaves_other_players_seat_untouched(self):
+        # release-seat only frees the caller's own hold. A reserved seat
+        # owned by someone else (or an AI seat) is left alone.
+        from cash_mode.tables import reserved_slot
+
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        open_idx = next(i for i, s in enumerate(table.seats) if s["kind"] == "open")
+        other_hold = reserved_slot("someone-else", datetime.utcnow())
+        self.cash_table_repo.save_table(
+            table.with_seat(open_idx, other_hold), sandbox_id="test-sandbox-1"
+        )
+        rel = self.client.post(
+            "/api/cash/release-seat",
+            json={"table_id": "cash-table-2-001", "seat_index": open_idx},
+        )
+        assert rel.status_code == 200
+        assert rel.get_json().get("released") is False
+        after = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        assert after.seats[open_idx]["kind"] == "reserved"
+        assert after.seats[open_idx]["personality_id"] == "someone-else"
+
+    def test_retap_other_seat_frees_prior_hold(self):
+        # Tap seat A (402 → hold), then tap seat B: the prior hold on A
+        # must be swept so the player never strands two seats.
+        self._set_bankroll(0)
+        table = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        open_seats = [i for i, s in enumerate(table.seats) if s["kind"] == "open"]
+        seat_a, seat_b = open_seats[0], open_seats[1]
+
+        r_a = self.client.post(
+            "/api/cash/sit",
+            json={"table_id": "cash-table-2-001", "seat_index": seat_a},
+        )
+        assert r_a.status_code == 402
+        r_b = self.client.post(
+            "/api/cash/sit",
+            json={"table_id": "cash-table-2-001", "seat_index": seat_b},
+        )
+        assert r_b.status_code == 402
+
+        after = self.cash_table_repo.load_table("cash-table-2-001", sandbox_id="test-sandbox-1")
+        assert after.seats[seat_a]["kind"] == "open", "prior hold on seat A should be freed"
+        assert after.seats[seat_b]["kind"] == "reserved"
+        assert after.seats[seat_b]["personality_id"] == PLAYER_OWNER_ID
 
     def test_unaffordable_at_high_tier_400(self):
         # Bankroll 0; $1000 table is locked (not sponsor-eligible).

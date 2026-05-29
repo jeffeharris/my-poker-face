@@ -409,13 +409,19 @@ def _purge_other_cash_rows(owner_id: str, except_game_id: Optional[str] = None) 
 
 
 def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
-    """Reset any cash_tables human seat owned by `owner_id` to open.
+    """Reset any cash_tables human OR reserved seat owned by `owner_id` to open.
 
     Used by the memory-miss leave path and the boot reconcile to catch
     the case where the cash-* game row is gone (purged or deleted) but
     the persisted seat survives. Without this, the lobby renders the
     player as still seated at a vanished table and won't let them
     actually enter the (deleted) game.
+
+    Also clears the player's own `"reserved"` sponsorship seat-holds:
+    the sit/sponsor paths call this before claiming a new seat, so a
+    leftover hold from a previously-tapped seat (player tapped seat A,
+    opened the SponsorModal, then tapped seat B instead) is freed
+    rather than stranding seat A against live-fill.
 
     No chip refund — the persisted seat's `chips` field is the last
     hand-boundary sync, not the true exit stack. The bankroll already
@@ -438,7 +444,7 @@ def _free_ghost_human_seats(owner_id: str, *, sandbox_id: str) -> int:
     freed = 0
     for table in tables:
         for idx, slot in enumerate(table.seats):
-            if slot.get("kind") != "human":
+            if slot.get("kind") not in ("human", "reserved"):
                 continue
             if slot.get("personality_id") != owner_id:
                 continue
@@ -1293,6 +1299,46 @@ def sit_at_table():
     player_bankroll = _load_or_seed_player_bankroll(owner_id)
     if player_bankroll.chips < buy_in:
         if is_sponsor_eligible(player_bankroll.chips, stake_label):
+            # Reserve the seat for the duration of the SponsorModal so the
+            # world ticker's live-fill can't seat an AI in it while the
+            # player picks a lender (the "cut by the AI" race). The
+            # reservation is a `"reserved"` hold owned by this player; it
+            # resolves to `"human"` on /sponsor-and-sit, back to `"open"`
+            # on /release-seat (modal close) or TTL expiry (lobby sweep).
+            #
+            # Hold the per-sandbox seat lock for the read-check-reserve-save
+            # — same race window as the self-funded claim below. The
+            # `_free_ghost_human_seats` sweep above already cleared any
+            # prior hold this player left on another seat.
+            from cash_mode.tables import reserved_slot
+            from flask_app.services import game_state_service
+
+            with game_state_service.get_sandbox_lock(sandbox_id):
+                fresh = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+                if fresh is None:
+                    return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+                current_kind = fresh.seats[seat_index].get("kind")
+                already_mine = (
+                    current_kind == "reserved"
+                    and fresh.seats[seat_index].get("personality_id") == owner_id
+                )
+                if current_kind != "open" and not already_mine:
+                    # An AI (or another claim) took the seat between the
+                    # tap and here. Surface a clean 409 so the frontend
+                    # can prompt a re-tap rather than opening a modal for
+                    # a seat the player can't actually take.
+                    return jsonify(
+                        {
+                            "error": "Seat is not open",
+                            "seat_kind": current_kind,
+                        }
+                    ), 409
+                reserved_table = fresh.with_seat(
+                    seat_index,
+                    reserved_slot(owner_id, datetime.utcnow()),
+                )
+                cash_table_repo.save_table(reserved_table, sandbox_id=sandbox_id)
+
             return jsonify(
                 {
                     "requires_sponsor": True,
@@ -1300,6 +1346,10 @@ def sit_at_table():
                     "bankroll": player_bankroll.chips,
                     "min_buy_in": min_buy_in,
                     "max_buy_in": max_buy_in,
+                    # Echo the held seat so the frontend can release it on
+                    # modal-close and resend it on accept.
+                    "table_id": table_id,
+                    "seat_index": seat_index,
                 }
             ), 402
         return jsonify(
@@ -1421,6 +1471,73 @@ def sit_at_table():
             "game_id": game_id,
             "table_id": table_id,
             "seat_index": seat_index,
+        }
+    )
+
+
+@cash_bp.route("/api/cash/release-seat", methods=["POST"])
+def release_seat():
+    """POST /api/cash/release-seat  body: {table_id, seat_index}
+
+    Release a sponsorship seat-hold the player placed via the
+    `/api/cash/sit` 402 path. Called by the frontend when the
+    SponsorModal is dismissed without sitting, so the held seat returns
+    to the live-fill pool immediately rather than waiting out the TTL.
+
+    Only frees a `"reserved"` seat owned by the caller — never touches
+    `"open"`, `"ai"`, or `"human"` seats. Idempotent: a hold that's
+    already gone (expired, released, or claimed) returns 200 with
+    `released: False` so a double-fire from the client is harmless.
+    """
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    sandbox_id = _resolve_sandbox_id(owner_id)
+
+    payload = request.get_json(silent=True) or {}
+    table_id = payload.get("table_id")
+    seat_index = payload.get("seat_index")
+
+    if not isinstance(table_id, str) or not table_id:
+        return jsonify({"error": "table_id is required"}), 400
+    if not isinstance(seat_index, int) or seat_index < 0:
+        return jsonify({"error": "seat_index must be a non-negative integer"}), 400
+
+    from cash_mode.tables import open_slot
+    from flask_app.extensions import cash_table_repo
+    from flask_app.services import game_state_service
+
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        table = cash_table_repo.load_table(table_id, sandbox_id=sandbox_id)
+        if table is None:
+            return jsonify({"error": f"Unknown table_id {table_id!r}"}), 404
+        if seat_index >= len(table.seats):
+            return jsonify({"error": "seat_index out of range"}), 400
+        slot = table.seats[seat_index]
+        # Only the caller's own hold is releasable here. Anything else
+        # (an AI that already took it, the player's own claimed human
+        # seat, a fresh open seat) is left untouched and reported as a
+        # no-op so the client can move on without a hard error.
+        if slot.get("kind") == "reserved" and slot.get("personality_id") == owner_id:
+            cash_table_repo.save_table(
+                table.with_seat(seat_index, open_slot()),
+                sandbox_id=sandbox_id,
+            )
+            logger.info(
+                "[CASH] release_seat: freed hold table=%r seat=%d owner=%r",
+                table_id,
+                seat_index,
+                owner_id,
+            )
+            return jsonify({"released": True, "table_id": table_id, "seat_index": seat_index})
+
+    return jsonify(
+        {
+            "released": False,
+            "table_id": table_id,
+            "seat_index": seat_index,
+            "seat_kind": slot.get("kind"),
         }
     )
 
@@ -1958,20 +2075,33 @@ def sponsor_and_sit():
             ), 400
         if seat_index >= len(table.seats):
             return jsonify({"error": "seat_index out of range"}), 400
-        if table.seats[seat_index]["kind"] != "open":
+        # Accept the player's own sponsorship hold as claimable: the
+        # /api/cash/sit 402 path reserved this seat for them while the
+        # SponsorModal was open, so it'll read `"reserved"` (theirs)
+        # rather than `"open"` here. Any other non-open kind is a real
+        # conflict. The `_free_ghost_human_seats` sweep inside the lock
+        # below converts that hold back to "open" before we claim it.
+        pre_kind = table.seats[seat_index]["kind"]
+        held_by_me = (
+            pre_kind == "reserved"
+            and table.seats[seat_index].get("personality_id") == owner_id
+        )
+        if pre_kind != "open" and not held_by_me:
             return jsonify(
                 {
                     "error": "Seat is not open",
-                    "seat_kind": table.seats[seat_index]["kind"],
+                    "seat_kind": pre_kind,
                 }
             ), 409
-        # Sweep any orphan human seats for this owner BEFORE claiming
-        # the new one — same defense sit_at_table uses. Reload after
-        # the sweep because the sweep may have rewritten this table's
-        # row; building `with_seat` from a stale snapshot would
-        # resurrect the orphan (the regression we just fixed in sit).
-        # Hold the per-sandbox seat lock around the whole claim so the
-        # world ticker's live-fill can't clobber it (same race as sit).
+        # Sweep any orphan human / reserved seats for this owner BEFORE
+        # claiming the new one — same defense sit_at_table uses, and it's
+        # what converts this player's own hold back to "open" so the
+        # claim below succeeds. Reload after the sweep because it may
+        # have rewritten this table's row; building `with_seat` from a
+        # stale snapshot would resurrect the orphan (the regression we
+        # just fixed in sit). Hold the per-sandbox seat lock around the
+        # whole claim so the world ticker's live-fill can't clobber it
+        # (same race as sit).
         from flask_app.services import game_state_service
 
         with game_state_service.get_sandbox_lock(sandbox_id):
@@ -5229,6 +5359,18 @@ def get_lobby():
         serialized_seats = []
         for idx, slot in enumerate(table.seats):
             entry = {"index": idx, "kind": slot["kind"]}
+            # A `"reserved"` hold is the player's own transient sponsorship
+            # seat-lock (cash tables are per-sandbox, so the only viewer is
+            # the player who placed it). Render it as the player's `"human"`
+            # seat — they're parked there with the SponsorModal open — so
+            # the frontend's open/ai/human seat union renders it as "you're
+            # holding this seat" instead of failing to match an unknown kind.
+            if slot["kind"] == "reserved":
+                entry["kind"] = "human"
+                entry["personality_id"] = slot.get("personality_id")
+                entry["chips"] = 0
+                serialized_seats.append(entry)
+                continue
             if slot["kind"] == "ai":
                 pid = slot["personality_id"]
                 # `personality_for_seat` catches DB/decode failures and logs
