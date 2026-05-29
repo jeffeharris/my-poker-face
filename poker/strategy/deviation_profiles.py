@@ -95,6 +95,20 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
 }
 
 
+def parse_spot_tendencies(raw) -> Tuple[Tuple[str, float], ...]:
+    """Normalize a personality config's `spot_tendencies` to the canonical form.
+
+    Accepts a list/tuple of ``[name, strength]`` pairs (JSON arrays from
+    personalities.json) or ``((name, strength), ...)``; ``None``/empty -> ``()``.
+    Strength is coerced to float. Used by the per-personality override hook so a
+    specific character can carry its own tendencies independent of its archetype
+    profile (see TieredBotController.deviation_profile).
+    """
+    if not raw:
+        return ()
+    return tuple((str(name), float(strength)) for name, strength in raw)
+
+
 def select_deviation_profile(anchors) -> DeviationProfile:
     """Select deviation profile from personality anchors.
 

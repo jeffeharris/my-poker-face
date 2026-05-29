@@ -278,6 +278,15 @@ class TieredBotController(AIPlayerController):
         self._last_relationship_modifier = None
         self._last_relationship_target_id: Optional[str] = None
         self._deviation_profile: Optional[DeviationProfile] = None
+        # Per-personality spot-tendency override (item 3,
+        # PERSONALITY_PRICING_AND_VARIETY.md): a specific character can carry its
+        # own ((name, strength), ...) tendencies independent of the shared
+        # archetype profile. None = inherit the archetype profile's
+        # spot_tendencies. Set explicitly (sim/tests), else resolved once from
+        # the personality config's 'spot_tendencies' key. `_resolved` guards the
+        # one-time config read (and lets an explicit () mean "override to none").
+        self._spot_tendencies_override: Optional[Tuple[Tuple[str, float], ...]] = None
+        self._spot_tendencies_resolved: bool = False
         self.skip_personality_distortion = skip_personality_distortion
         self.expression_generator = expression_generator
         # Phase 7.6: per-decision intervention trace accumulator. Reset
@@ -494,7 +503,14 @@ class TieredBotController(AIPlayerController):
 
     @property
     def deviation_profile(self) -> DeviationProfile:
-        """Lazy-init deviation profile from personality anchors."""
+        """Deviation profile for this player.
+
+        The base profile is lazy-resolved from personality anchors (one of the
+        six shared archetype profiles). A per-personality spot-tendency override
+        (item 3) is then merged on top so a specific character can carry its own
+        ((name, strength), ...) tendencies independent of its archetype. With no
+        override the archetype profile is returned unchanged (byte-identical).
+        """
         if self._deviation_profile is None:
             if self.psychology and self.psychology.anchors:
                 self._deviation_profile = select_deviation_profile(self.psychology.anchors)
@@ -503,7 +519,36 @@ class TieredBotController(AIPlayerController):
                 from .strategy.deviation_profiles import DEVIATION_PROFILES
 
                 self._deviation_profile = DEVIATION_PROFILES['tag']
-        return self._deviation_profile
+        base = self._deviation_profile
+        override = self._effective_spot_tendencies()
+        if override is not None and override != base.spot_tendencies:
+            return dataclasses.replace(base, spot_tendencies=override)
+        return base
+
+    def _effective_spot_tendencies(self) -> Optional[Tuple[Tuple[str, float], ...]]:
+        """Per-personality spot-tendency override, or None to inherit the profile's.
+
+        An explicit `_spot_tendencies_override` (set by sims/tests) wins;
+        otherwise the personality config's `spot_tendencies` key is read once and
+        cached. A character's non-empty config replaces the archetype profile's
+        spot_tendencies for that player; absent/empty config inherits.
+        """
+        # getattr defaults mirror the disable_rules idiom: controllers built via
+        # __new__ in tests/sims may not have run __init__.
+        override = getattr(self, '_spot_tendencies_override', None)
+        if override is not None:
+            return override
+        if getattr(self, '_spot_tendencies_resolved', False):
+            return None
+        self._spot_tendencies_resolved = True
+        config = getattr(self.psychology, 'personality_config', None)
+        raw = config.get('spot_tendencies') if isinstance(config, dict) else None
+        if raw:
+            from .strategy.deviation_profiles import parse_spot_tendencies
+
+            self._spot_tendencies_override = parse_spot_tendencies(raw)
+            return self._spot_tendencies_override
+        return None
 
     @property
     def archetype_name(self) -> str:

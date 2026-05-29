@@ -2,7 +2,7 @@
 purpose: Methodology + handoff for pricing the tiered bot's personality deviations (EV cost of non-max-EV play) and using that to add bounded, characterful variety to the AI field
 type: guide
 created: 2026-05-28
-last_updated: 2026-05-28
+last_updated: 2026-05-29
 ---
 
 # Personality pricing & variety — process + handoff
@@ -268,6 +268,26 @@ they're just not passed into the deviation layer.
 - **Signals plumbing:** assemble a small `SpotSignals` from the same fields the multistreet
   layer already reads (initiative, preflop-aggressor==hero, spr_bucket, is-first-in) so sim
   and live agree; the harness already drives the `_sim_*` shadow fields.
+
+### Attaching tendencies — profile-level vs per-personality (BUILT 2026-05-29)
+Two attach points, both shipping:
+- **Profile-level** — `DeviationProfile.spot_tendencies = (('slowplay', 0.8), ...)`. Affects
+  **every** personality that classifies into that archetype (`select_deviation_profile`
+  maps anchors → one of the 6 shared profiles). Use for archetype-wide flavor.
+- **Per-personality override** — a specific character carries its own tendencies independent
+  of its archetype, via a `spot_tendencies` key in its **personalities.json** entry:
+  ```json
+  "spot_tendencies": [["slowplay", 0.8]]
+  ```
+  Resolution lives in `TieredBotController.deviation_profile`: it lazy-resolves the archetype
+  profile, then merges the override (`dataclasses.replace`). Precedence: an explicit
+  `controller._spot_tendencies_override` (sims/tests) > the personality-config key > the
+  archetype profile's own `spot_tendencies`. A **non-empty** character config *replaces* the
+  archetype's; **absent/empty** inherits; an explicit `()` opts a character *out*. Strength is
+  still bounded by the profile's `max_per_action_shift`. Parser: `parse_spot_tendencies`.
+  Tests: `test_spot_tendencies.py` (parse + the 5 resolution/precedence cases). Defaults: no
+  personality ships a tendency yet — that's a per-character content call (slow-play is priced
+  free, so it's safe to attach when desired).
 
 ### First tendency — slow-play / trap (mechanism validation)
 - **Spot predicate:** `made_tier ∈ {nuts, strong_made}` AND hero has initiative

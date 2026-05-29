@@ -1,8 +1,13 @@
 """Tests for the spot/line-specific personality tendency layer (item 3)."""
 
+import dataclasses
+from types import SimpleNamespace
+
+from poker.strategy.deviation_profiles import DEVIATION_PROFILES, parse_spot_tendencies
 from poker.strategy.intervention_trace import validate_trace
 from poker.strategy.spot_tendencies import LAYER, apply_spot_tendencies
 from poker.strategy.strategy_profile import StrategyProfile
+from poker.tiered_bot_controller import TieredBotController
 
 # A flop spot with mass split between checking and betting.
 BASE = StrategyProfile(
@@ -107,3 +112,73 @@ def test_emitted_traces_validate():
     for traces in (fired, disabled, noop):
         for t in traces:
             validate_trace(t)
+
+
+# ── per-personality override hook ────────────────────────────────────────────
+
+def test_parse_spot_tendencies_normalizes():
+    assert parse_spot_tendencies(None) == ()
+    assert parse_spot_tendencies([]) == ()
+    assert parse_spot_tendencies([['slowplay', 0.8]]) == (('slowplay', 0.8),)
+    # float coercion + order preserved + accepts tuples
+    assert parse_spot_tendencies((('slowplay', 1), ('donk', 0.5))) == (
+        ('slowplay', 1.0), ('donk', 0.5),
+    )
+
+
+def _mk_controller(base=None, override=None, resolved=False, config=None):
+    """Minimal controller (parent __init__ bypassed) exercising deviation_profile."""
+    c = TieredBotController.__new__(TieredBotController)
+    c._deviation_profile = base
+    c._spot_tendencies_override = override
+    c._spot_tendencies_resolved = resolved
+    c.psychology = SimpleNamespace(personality_config=config) if config is not None else None
+    return c
+
+
+def test_no_override_returns_archetype_profile_unchanged():
+    c = _mk_controller(base=DEVIATION_PROFILES['tag'])
+    assert c.deviation_profile is DEVIATION_PROFILES['tag']
+    assert c.deviation_profile.spot_tendencies == ()
+
+
+def test_explicit_override_merges_onto_profile():
+    c = _mk_controller(base=DEVIATION_PROFILES['tag'], override=(('slowplay', 0.8),))
+    prof = c.deviation_profile
+    assert prof.spot_tendencies == (('slowplay', 0.8),)
+    # only spot_tendencies changed; the rest of TAG is intact
+    assert prof.max_kl == DEVIATION_PROFILES['tag'].max_kl
+    assert prof.aggression_scale == DEVIATION_PROFILES['tag'].aggression_scale
+
+
+def test_override_resolved_from_personality_config():
+    c = _mk_controller(
+        base=DEVIATION_PROFILES['tag'],
+        config={'spot_tendencies': [['slowplay', 0.6]]},
+    )
+    assert c.deviation_profile.spot_tendencies == (('slowplay', 0.6),)
+
+
+def test_explicit_override_wins_over_config():
+    c = _mk_controller(
+        base=DEVIATION_PROFILES['tag'],
+        override=(('slowplay', 0.9),),
+        config={'spot_tendencies': [['slowplay', 0.1]]},
+    )
+    assert c.deviation_profile.spot_tendencies == (('slowplay', 0.9),)
+
+
+def test_explicit_empty_override_turns_off_profile_tendencies():
+    base = dataclasses.replace(
+        DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),)
+    )
+    c = _mk_controller(base=base, override=())  # explicit () = opt out
+    assert c.deviation_profile.spot_tendencies == ()
+
+
+def test_absent_config_inherits_profile_tendencies():
+    base = dataclasses.replace(
+        DEVIATION_PROFILES['tag'], spot_tendencies=(('slowplay', 0.5),)
+    )
+    c = _mk_controller(base=base, config={})  # no 'spot_tendencies' key
+    assert c.deviation_profile.spot_tendencies == (('slowplay', 0.5),)
