@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import threading
 from dataclasses import dataclass, field
@@ -364,13 +365,18 @@ def _build_controller(
     `RuleBotController`. See docs/plans/FISH_AS_CALLING_STATION.md.
     """
     is_fish = archetype == 'fish' or rule_strategy == 'fish'
-    if rule_strategy and not is_fish:
+    # Sim-only A/B knob: POKER_SIM_FISH_ENGINE=rulebot reverts fish to the legacy
+    # RuleBotController('fish') path so the closed-economy sim can compare
+    # fish->field drain (fish_net_to_players) of the old caricature fish vs the
+    # new tiered calling_station. Default ('tiered') = production behavior.
+    legacy_fish = is_fish and os.environ.get('POKER_SIM_FISH_ENGINE') == 'rulebot'
+    if (rule_strategy and not is_fish) or legacy_fish:
         from poker.rule_bot_controller import RuleBotController
 
         controller = RuleBotController(
             player_name=display_name,
             state_machine=state_machine,
-            strategy=rule_strategy,
+            strategy='fish' if legacy_fish else rule_strategy,
             llm_config={},
             fish_leak=fish_leak,
         )

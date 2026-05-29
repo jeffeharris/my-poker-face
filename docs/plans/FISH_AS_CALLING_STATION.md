@@ -311,3 +311,50 @@ is part of why it was chosen originally.
   migration points; the cold-load leak-drop bug; the equity-MC latency delta; the
   lost size=strength sizing tell. The **40bb-depth calibration risk is
   explicitly unmeasured** and is the gating item before any cutover.
+
+---
+
+## Economy validation — drain rate (2026-05-29, post-switchover)
+
+**Question (Jeff):** does the gentler tiered station still feed the casino economy enough,
+or do we need another chip-cycling mechanism?
+
+**Instrument.** The full closed-economy lobby sim (`fish_net_to_players`) is the wrong tool
+here: only **4 fish personas** exist in a ~66-AI population, and at hands-every-tick the
+tiered lobby runs **~0.1 tick/s** (1000 ticks ≈ hours) — too sparse and too slow. The
+fish→field transfer reduces to **drain rate × fish-hands**, so the rate is the right,
+fast, paired measurement. Added a sim-only env toggle `POKER_SIM_FISH_ENGINE=rulebot`
+(in `full_sim._build_controller`) so the same harness builds either fish engine.
+
+**Result** (`measure_passivity` hero vs a TAG-grinder field, 4500 hands):
+
+| fish engine | VPIP | PFR | AF | payoff | bb/100 (drain rate) |
+|---|---|---|---|---|---|
+| old RuleFish (baseline) | 99% | 0% | 0.00\* | 67% | **−119.5** |
+| old RuleFish-Sticky | 99% | 0% | 0.00\* | 75% | **−231.7** |
+| new tiered Calling Station | 45% | 16% | 0.27 | 62% | **−68.0** |
+
+(\*rule-bot AF=0.00 is the snapshot artifact noted above; bb/100 is the reliable chip delta.)
+
+**Read.** The tiered station drains **~57%** of the baseline fishbot's rate and **~29%** of the
+sticky variant's — so the switch **does** cycle fewer chips per hand. BUT the old −119/−231
+was *unrealistically* high: a 99/0 always-call caricature that pays off literally everything.
+A real calling station loses ~−50 to −100 bb/100, so **−68 is the realistic number** — the
+casino economy was calibrated around an over-feeding caricature.
+
+**Recommendation for the cycling shortfall (Jeff's whale intuition is right):**
+1. **The whale — best lever.** Absolute chips cycled = bb/100 × big-blind. A loose/sticky
+   archetype seated at HIGH stakes with a big bankroll cycles *far* more absolute chips per
+   hand than a small-stakes fish at the same (or higher) rate — a $1000 whale at −68 bb/100
+   moves ~25× the chips of a $40 fish at −119. A few whales replace a swarm of tourists, are
+   cheaper to populate (we only have 4 fish personas), and make a better character. We already
+   have the levers: stake/bankroll placement + the calling_station (or a spewier) archetype.
+2. **Crank the station's `sticky` tendency** — bleeds more (pays off the value the overbet
+   targets), but won't reach −231 (that needs the caricature; not worth chasing).
+3. **More fish volume** — compensate lower per-fish rate with more seats; limited by the
+   4-persona pool (would need more fish personas).
+
+The station switch stands (more realistic, unified engine, better exploit target). The
+economy-cycling knob is **stakes/bankroll placement (the whale), not the fish's decision
+engine.** A proper closed-economy A/B (fish_net_to_players, tiered vs rulebot) on a
+fish-dense small sandbox is the confirmation step if precise aggregate numbers are wanted.
