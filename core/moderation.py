@@ -24,6 +24,12 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 _MODEL = os.environ.get("MODERATION_MODEL", "omni-moderation-latest")
+# Short per-call timeout: moderation gates user-facing request paths (chat send,
+# bio/avatar/name saves), and the shared OpenAI http client otherwise carries a
+# 600s read timeout. Bound it so a stalled endpoint fails OPEN fast (~seconds)
+# instead of hanging the request (the PRH-18 class). Best-effort gate → no
+# retry-stacking either (max_retries=0 on the client below).
+_TIMEOUT_SECONDS = float(os.environ.get("MODERATION_TIMEOUT_SECONDS", "8.0"))
 _client = None
 _client_lock = threading.Lock()
 
@@ -58,7 +64,13 @@ def _get_client():
 
             from core.llm.providers.http_client import shared_http_client
 
-            _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], http_client=shared_http_client)
+            _client = OpenAI(
+                api_key=os.environ["OPENAI_API_KEY"],
+                http_client=shared_http_client,
+                # Fail open fast; a moderation blip isn't worth retry latency on
+                # a user-facing path (per-call timeout below is the hard bound).
+                max_retries=0,
+            )
         return _client
 
 
@@ -68,7 +80,7 @@ def moderate_text(text: str) -> ModerationResult:
     if not text or not is_enabled():
         return ModerationResult(flagged=False, checked=False)
     try:
-        resp = _get_client().moderations.create(model=_MODEL, input=text)
+        resp = _get_client().moderations.create(model=_MODEL, input=text, timeout=_TIMEOUT_SECONDS)
         result = resp.results[0]
         try:
             categories = [name for name, on in result.categories.model_dump().items() if on]

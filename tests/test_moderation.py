@@ -59,6 +59,29 @@ def test_clean_content(monkeypatch):
     assert r.flagged is False and r.checked is True
 
 
+def test_short_timeout_is_passed_and_bounded(monkeypatch):
+    """The per-call timeout must be short (not the shared 600s read timeout),
+    so a stalled moderation endpoint fails open fast instead of hanging the
+    request (PRH-18 class)."""
+    _enable(monkeypatch)
+    captured = {}
+
+    def _create(**kwargs):
+        captured.update(kwargs)
+        result = MagicMock()
+        result.flagged = False
+        result.categories.model_dump.return_value = {}
+        return MagicMock(results=[result])
+
+    client = MagicMock()
+    client.moderations.create.side_effect = _create
+    monkeypatch.setattr(mod, "_get_client", lambda: client)
+
+    mod.moderate_text("hello there")
+    assert captured.get("timeout") == mod._TIMEOUT_SECONDS
+    assert 0 < mod._TIMEOUT_SECONDS <= 15  # bounded, not the 600s default
+
+
 def test_fail_open_on_api_error(monkeypatch):
     _enable(monkeypatch)
 
