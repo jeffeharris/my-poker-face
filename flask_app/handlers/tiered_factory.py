@@ -172,18 +172,19 @@ def build_controller(
     llm_config = llm_config or {}
 
     if bot_type == 'fish':
-        from poker.rule_bot_controller import RuleBotController
-
-        return RuleBotController(
+        # Fish run through the unified tiered engine as a `calling_station`
+        # (see build_fish_controller / docs/plans/FISH_AS_CALLING_STATION.md),
+        # NOT a RuleBotController. The fish's tell now rides on its persona's
+        # `spot_tendencies` (read natively on every build path), so `fish_leak`
+        # is no longer threaded here — the kwarg stays on the signature for
+        # back-compat with existing callers but is ignored on this branch.
+        return build_fish_controller(
             player_name=player_name,
             state_machine=state_machine,
-            strategy="fish",
-            llm_config={},
             game_id=game_id,
             owner_id=owner_id,
             capture_label_repo=capture_label_repo,
             decision_analysis_repo=decision_analysis_repo,
-            fish_leak=fish_leak,
         )
 
     if bot_type == 'sharp':
@@ -283,3 +284,43 @@ def build_controller(
         capture_label_repo=capture_label_repo,
         decision_analysis_repo=decision_analysis_repo,
     )
+
+
+def build_fish_controller(
+    *,
+    player_name: str,
+    state_machine,
+    game_id=None,
+    owner_id=None,
+    capture_label_repo=None,
+    decision_analysis_repo=None,
+) -> TieredBotController:
+    """Build a casino fish as a tiered `calling_station` (the unified engine).
+
+    Fish used to be RuleBotController(`fish`) bots; they now run through the
+    tiered engine, where their loose-passive anchors classify as `calling_station`
+    and pick up the station width-tier table (a true caller: VPIP ~45 / PFR ~16 /
+    pays off). Expression (LLM) is OFF — fish make no LLM calls, exactly like the
+    rule bot — and the per-decision equity Monte Carlo is skipped (analyzer-only,
+    not the table decision), so the fish stay table-lookup fast.
+
+    A fish's deliberate tell is carried as a `spot_tendencies` entry in its
+    PERSONALITY CONFIG (e.g. `"spot_tendencies": [["sticky", 0.85]]`), which the
+    controller reads natively via `_effective_spot_tendencies` on EVERY build path
+    — sit, live-fill, and cold-load restore alike — so the leak survives a restart
+    (no sit-only override). To convert a legacy `fish_leak` name to its tendency,
+    see `poker.strategy.fish_loadout.fish_spot_tendencies` (the authoring helper).
+    See docs/plans/FISH_AS_CALLING_STATION.md.
+    """
+    controller = build_tiered_controller(
+        player_name=player_name,
+        state_machine=state_machine,
+        llm_config={},
+        game_id=game_id,
+        owner_id=owner_id,
+        capture_label_repo=capture_label_repo,
+        decision_analysis_repo=decision_analysis_repo,
+        expression_enabled=False,
+    )
+    controller.skip_equity_in_analysis = True
+    return controller

@@ -81,17 +81,25 @@ def test_standard_is_hybrid_on_both_paths(mock_hybrid):
     assert mock_hybrid.call_count == 2
 
 
-@patch('poker.rule_bot_controller.RuleBotController')
-def test_fish_is_rulebot_fish_on_both_paths(mock_rulebot):
-    """'fish' resolves to RuleBot(strategy='fish') regardless of default_strategy."""
-    mock_rulebot.return_value = MagicMock()
+@patch('flask_app.handlers.tiered_factory.build_fish_controller')
+def test_fish_is_tiered_calling_station_on_both_paths(mock_fish):
+    """'fish' resolves to a tiered calling_station (via build_fish_controller),
+    NOT a RuleBotController, regardless of default_strategy.
 
-    _build('fish')  # create
-    _build('fish', default_strategy='fish')  # restore (a persisted cash fish)
+    Fish were unified off the rule bot onto the tiered engine: their loose-passive
+    anchors classify as `calling_station` and pick up the station width-tier table,
+    and the fish's deliberate tell rides on its persona `spot_tendencies` (read on
+    every build path) rather than the old `fish_leak` kwarg. The dispatch must agree
+    on create and restore so a persisted cash fish rebuilds identically.
+    See docs/plans/FISH_AS_CALLING_STATION.md."""
+    sentinel = MagicMock(name='fish')
+    mock_fish.return_value = sentinel
 
-    assert mock_rulebot.call_count == 2
-    for call in mock_rulebot.call_args_list:
-        assert call.kwargs['strategy'] == 'fish'
+    r1 = _build('fish')  # create
+    r2 = _build('fish', default_strategy='fish')  # restore (a persisted cash fish)
+
+    assert r1 is sentinel and r2 is sentinel
+    assert mock_fish.call_count == 2
 
 
 @patch('poker.rule_bot_controller.RuleBotController')

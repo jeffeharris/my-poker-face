@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import threading
 from dataclasses import dataclass, field
@@ -295,6 +296,7 @@ def _get_default_controller_cache() -> LruControllerCache:
 # we pay it once per process. `None` until first call.
 _strategy_table = None
 _hu_strategy_table = None
+_archetype_preflop_tables = None
 _strategy_lock = threading.Lock()
 
 
@@ -320,6 +322,19 @@ def _get_strategy_tables() -> Tuple[object, object]:
     return _strategy_table, _hu_strategy_table
 
 
+def _get_archetype_preflop_tables() -> dict:
+    """Lazy-load + memoize the width-tier preflop charts keyed by archetype
+    (loose/loose_mid/station/tight). Needed for the fish (calling_station →
+    station table) and consistent with prod (tiered_factory loads these too)."""
+    global _archetype_preflop_tables
+    with _strategy_lock:
+        if _archetype_preflop_tables is None:
+            from poker.strategy.strategy_table import load_archetype_preflop_tables
+
+            _archetype_preflop_tables = load_archetype_preflop_tables()
+    return _archetype_preflop_tables
+
+
 def _copy_seats(seats: List[dict]) -> List[dict]:
     """Deep-copy the seats list. Callers never see in-place mutation."""
     return [dict(s) for s in seats]
@@ -343,20 +358,25 @@ def _build_controller(
     the LLM. Spike measured 77 ms per controller; the cache keeps
     this off the hot path after warm-up.
 
-    Fish path: when `archetype == 'fish'` (or `rule_strategy` names a
-    built-in strategy), dispatches to `RuleBotController` with the
-    named strategy. Fish are the casino tier's chip donors; they
-    play a deterministic loose-passive script and don't need the
-    solver/personality stack.
+    Fish path: fish now run through the tiered engine as a `calling_station`
+    (the station width-tier table — a true loose-passive caller), with the
+    legacy `fish_leak` re-expressed as a spot tendency. A NON-fish
+    `rule_strategy` (e.g. a casebot grinder) still dispatches to
+    `RuleBotController`. See docs/plans/FISH_AS_CALLING_STATION.md.
     """
-    if archetype == 'fish' or rule_strategy:
+    is_fish = archetype == 'fish' or rule_strategy == 'fish'
+    # Sim-only A/B knob: POKER_SIM_FISH_ENGINE=rulebot reverts fish to the legacy
+    # RuleBotController('fish') path so the closed-economy sim can compare
+    # fish->field drain (fish_net_to_players) of the old caricature fish vs the
+    # new tiered calling_station. Default ('tiered') = production behavior.
+    legacy_fish = is_fish and os.environ.get('POKER_SIM_FISH_ENGINE') == 'rulebot'
+    if (rule_strategy and not is_fish) or legacy_fish:
         from poker.rule_bot_controller import RuleBotController
 
-        strategy = rule_strategy or ('fish' if archetype == 'fish' else 'case_based')
         controller = RuleBotController(
             player_name=display_name,
             state_machine=state_machine,
-            strategy=strategy,
+            strategy='fish' if legacy_fish else rule_strategy,
             llm_config={},
             fish_leak=fish_leak,
         )
@@ -366,13 +386,22 @@ def _build_controller(
     from poker.tiered_bot_controller import TieredBotController
 
     strategy_table, hu_table = _get_strategy_tables()
+    archetype_tables = _get_archetype_preflop_tables()
     controller = TieredBotController(
         player_name=display_name,
         state_machine=state_machine,
         strategy_table=strategy_table,
         hu_strategy_table=hu_table,
+        archetype_preflop_tables=archetype_tables,
         llm_config={},  # no LLM for sim
     )
+    if is_fish:
+        from poker.strategy.fish_loadout import fish_spot_tendencies
+
+        tendencies = fish_spot_tendencies(fish_leak)
+        if tendencies:
+            controller._spot_tendencies_override = tendencies
+            controller._spot_tendencies_resolved = True
     # Skip the per-decision Monte Carlo equity calc (~200-500ms) in
     # sim runs. The controller still builds the pipeline snapshot +
     # intervention trace; only decision_analyzer's equity field is
