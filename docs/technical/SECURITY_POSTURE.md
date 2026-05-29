@@ -97,8 +97,9 @@ state falls short, it's a tracked *exception* in **Known gaps**, not an accident
     bios) has a finite retention; store the minimum; keep an off-box backup.
 
 > **Current policy exceptions** (see Known gaps for the fix + tracking ID):
-> prompt capture is retained indefinitely in prod and backups are on-box only
-> (policy 10).
+> prompt capture is retained indefinitely in prod (policy 10). Backups are now
+> WAL-safe (`scripts/backup_db.py`, PRH-29) but off-box shipping + the daily
+> cron are operator steps not yet activated (policy 10).
 
 ## Authentication & identity ✅ (mostly)
 
@@ -188,7 +189,7 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 - **Web-session hardening:** ✅ done — CSRF tokens (PRH-36) and dropping the `localStorage` bearer JWT (PRH-37) both landed.
 - **Edge/deploy:** ✅ security headers + CSP (PRH-39 — `script-src` tightening is the residual), production-safe image default + non-root container (PRH-40), admin-bootstrap not via guest namespace (PRH-38) all landed; standardize the async model (PRH-24) remains.
 - **Abuse depth:** per-user/per-feature quotas + abuse telemetry on top of the global budget (PRH-41).
-- **Ops/data:** off-box WAL-safe backups (PRH-29); capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30); client-side cold-load self-heal (PRH-31).
+- **Ops/data:** ✅ WAL-safe backup script landed (PRH-29 — `scripts/backup_db.py`; cron + off-box are operator steps); ✅ client-side cold-load self-heal (PRH-31). Remaining: capture/`api_usage` retention (PRH-32); the single-worker CPU ceiling (PRH-30).
 - **Content (optional):** prompt-delimiting of user content (defense-in-depth) + server-forced chat `sender` (PRH-33). *AI-personality image-input moderation is now landed — PRH-27 is fully closed.*
 
 ## Operator checklist (to *activate* shipped controls)
@@ -200,3 +201,4 @@ Tracked with detail + fixes in [`PUBLIC_RELEASE_HARDENING.md`](../PUBLIC_RELEASE
 5. **Prompt capture** — set a finite `LLM_PROMPT_RETENTION_DAYS` for prod (PRH-32).
 6. **`SECRET_KEY` / `JWT_SECRET_KEY`** — set strong values (startup enforces `SECRET_KEY`).
 7. **CSRF (PRH-36)** — armed automatically when `FLASK_ENV=production`; override with `CSRF_PROTECTION_ENABLED`. Requires the SPA to be served **same-origin** as the API (it is, via nginx) so the frontend can read the `csrf_token` cookie. If a cross-origin frontend is ever introduced, switch to delivering the token in a response body instead of relying on `document.cookie`.
+8. **Backups (PRH-29)** — add the daily cron running `scripts/backup_db.py data/poker_games.db --keep 7 --remote-cmd '<rclone/rsync/aws to off-box>'` and provision the remote target. Deploy-time backup is on-box only; the cron is what makes it survive a disk failure. Wire the script's non-zero exit to the PRH-28 webhook.
