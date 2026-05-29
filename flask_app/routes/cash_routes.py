@@ -824,6 +824,7 @@ def _build_cash_game(
                 owner_id=owner_id,
                 capture_label_repo=capture_label_repo,
                 decision_analysis_repo=decision_analysis_repo,
+                stake_label=stake_label,
             )
             ai_controllers[player.name] = controller
             continue

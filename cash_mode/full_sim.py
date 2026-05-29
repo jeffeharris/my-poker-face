@@ -396,12 +396,25 @@ def _build_controller(
         llm_config={},  # no LLM for sim
     )
     if is_fish:
-        from poker.strategy.fish_loadout import fish_spot_tendencies
+        # Bottom-tier ($2) fish get the weak_fish loadout (weak_station table +
+        # sticky/over_bluff + position_blind); higher tiers stay calling_station
+        # with the persona's own spot tendencies. Mirrors prod
+        # (tiered_factory.build_fish_controller). See FISH_AS_CALLING_STATION.md.
+        from cash_mode.stakes_ladder import WEAK_FISH_STAKES, stake_label_for_big_blind
 
-        tendencies = fish_spot_tendencies(fish_leak)
-        if tendencies:
-            controller._spot_tendencies_override = tendencies
-            controller._spot_tendencies_resolved = True
+        _gs = getattr(state_machine, 'game_state', None)
+        bb = getattr(_gs, 'current_ante', None) or getattr(_gs, 'big_blind', None)
+        if stake_label_for_big_blind(bb) in WEAK_FISH_STAKES:
+            from poker.strategy.deviation_profiles import DEVIATION_PROFILES
+
+            controller._deviation_profile = DEVIATION_PROFILES['weak_fish']
+        else:
+            from poker.strategy.fish_loadout import fish_spot_tendencies
+
+            tendencies = fish_spot_tendencies(fish_leak)
+            if tendencies:
+                controller._spot_tendencies_override = tendencies
+                controller._spot_tendencies_resolved = True
     # Skip the per-decision Monte Carlo equity calc (~200-500ms) in
     # sim runs. The controller still builds the pipeline snapshot +
     # intervention trace; only decision_analyzer's equity field is
