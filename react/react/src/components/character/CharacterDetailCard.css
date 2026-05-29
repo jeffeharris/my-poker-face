@@ -1221,3 +1221,85 @@
     animation: none !important;
   }
 }
+
+/* --- Scouting strip (Phase 2: the grind) ------------------------------- */
+.dossier__scouting {
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--paper-shadow);
+  border-left: 3px solid var(--gold-leaf);
+  background: color-mix(in srgb, var(--paper-hi) 70%, transparent);
+}
+.dossier__scouting--classified {
+  border-left-color: var(--crimson);
+}
+.dossier__scouting-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.dossier__scouting-stamp {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+  color: var(--emerald);
+}
+.dossier__scouting--classified .dossier__scouting-stamp {
+  color: var(--crimson-wet);
+}
+.dossier__scouting-count {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dossier__scouting-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+.dossier__scouting-note--complete {
+  color: var(--emerald);
+  font-weight: 600;
+}
+.dossier__scouting-locked {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+.dossier__scouting-lock {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+.dossier__scouting-lock-icon {
+  font-size: 0.68rem;
+  filter: grayscale(0.4);
+}
+.dossier__scouting-lock-label {
+  flex: 1 1 auto;
+}
+.dossier__scouting-lock-at {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.dossier__scouting-bar {
+  margin-top: 0.5rem;
+  height: 3px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.dossier__scouting-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-leaf), var(--gold-bright));
+  transition: width 0.4s ease;
+}

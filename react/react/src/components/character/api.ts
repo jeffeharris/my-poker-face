@@ -104,6 +104,24 @@ export interface DossierStakeSummary {
   };
 }
 
+/** Phase 2 scouting gate state. Present only in a Circuit context (a
+ *  sandbox + observer); absent when the dossier is ungated. Earnable reads
+ *  are stripped from the payload until unlocked — this descriptor tells the
+ *  client what's locked and the progress toward each unlock. */
+export interface DossierScoutingLock {
+  id: string;
+  label: string;
+  unlocks_at: number;
+}
+
+export interface DossierScouting {
+  hands_observed: number;
+  floor: number;
+  floor_met: boolean;
+  unlocked: string[];
+  locked: DossierScoutingLock[];
+}
+
 export interface DossierResponse {
   personality_id: string;
   personality: DossierPersonality | null;
@@ -120,6 +138,9 @@ export interface DossierResponse {
   cash_pair_stats: DossierCashPairStats | null;
   memorable_hands: DossierMemorableHand[];
   note: string | null;
+  /** Scouting gate state (Phase 2). Null/absent when the dossier is
+   *  ungated (no Circuit sandbox context). */
+  scouting?: DossierScouting | null;
 }
 
 /**

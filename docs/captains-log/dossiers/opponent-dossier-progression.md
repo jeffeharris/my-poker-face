@@ -94,3 +94,52 @@ referenced symbol defined first.
 (needs a `game_id → sandbox_id` map; the fold method itself doubles as the
 backfill since it's idempotent); live end-to-end verification in a real cash
 session; the deferred `relationship_states` migration; Phases 2–4.
+
+---
+
+## 2026-05-29 (later) — Phase 2: the grind gate
+
+**Built the server-side gate, not a client one.** The dossier's earnable
+reads (behavioral tendencies, track record, table posture) now strip out of
+the payload until earned — locked intel never reaches the client, so there's
+nothing to peek at in devtools. The server returns a `scouting` descriptor
+(hands observed, floor, unlocked ids, locked ids + thresholds) and the client
+renders the case-file from it. Chose this over client-side hiding because the
+whole pitch is "earn the read."
+
+**Confined to the Circuit.** The gate only fires when there's a sandbox +
+observer + lifetime row. The dossier endpoint is used in lots of contexts
+(lobby, mid-game, anonymous); outside the Circuit it stays ungated exactly as
+before. So the meta-game doesn't leak into places it doesn't belong, and I
+didn't risk regressing the existing dossier everywhere.
+
+**Kill switch, because this hides previously-shown data.** Unlike a purely
+additive feature, Phase 2 *removes* reads players used to see for free.
+`DOSSIER_SCOUTING_GATE_ENABLED` flips it all off with zero residual effect
+(the gate is a pure read-time transform) — same discipline as the prestige
+demeanor switch.
+
+**A leak I checked and cleared.** The portrait shows `merged.playStyle`, which
+falls back to `personality.play_style`. For a second I worried that leaked the
+gated read — but that's the *declared* style (identity, free, like attitude),
+while the gated field is the *scouted* play_style derived from observed
+VPIP/AF. Different fields; no leak. Left declared style free (it's identity,
+not something you scout).
+
+**Schedule is one tunable constant.** Floor 25, then a drip 25→180 hands.
+"Tuning, not design" per the plan, so it's a flat list — reorder/retime
+freely without touching the gate logic.
+
+**Frontend leaned on the existing case-file aesthetic.** The dossier already
+had wax-seal/gold-rule/aged-paper styling, so the gate reads as a CLASSIFIED →
+CLEARANCE clearance strip with a "still to scout" list. Reused the theme
+tokens; no new visual language invented.
+
+**Shipped:** `flask_app/services/dossier_scouting.py` (pure), wired into
+`get_dossier`; `economy_flags.DOSSIER_SCOUTING_GATE_ENABLED`; `ScoutingStrip`
++ CSS in `CharacterDetailCard`; `DossierScouting` types. 7 gate tests; TS
+clean.
+
+**Not done:** live declassification check in a real 25+-hand session (gate is
+unit-tracked but not human-played); archetype badge (no detection source);
+Phases 3–4.

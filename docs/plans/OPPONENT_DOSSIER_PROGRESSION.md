@@ -313,6 +313,19 @@ it every hand is safe and cheap:
 
 ## Phase 2 — Earning intel by playing (the grind)
 
+> **STATUS (2026-05-29): SHIPPED on branch `dossiers`** (uncommitted). Server
+> gates the dossier's earnable reads behind hands observed: pure
+> `flask_app/services/dossier_scouting.py` (`SCOUTING_SCHEDULE`,
+> `compute_scouting`, `apply_scouting_gate` — strips locked values + returns a
+> `scouting` descriptor), wired into `get_dossier` (Circuit-only: only when a
+> sandbox+observer+lifetime row exists; ungated elsewhere) behind kill switch
+> `economy_flags.DOSSIER_SCOUTING_GATE_ENABLED`. Frontend `ScoutingStrip` in
+> `CharacterDetailCard` renders the case-file CLASSIFIED/CLEARANCE treatment +
+> progress bar + "still to scout" list; locked reads are absent from the
+> payload. Floor 25; item drip 25→180 (tunable). 7 new gate tests; TS clean.
+> **Deferred:** archetype badge (no detection source wired); live end-to-end
+> declassification check in a real session.
+
 The default path: you learn about someone by playing them. Intel reveals
 itself as your sample with that opponent grows, **in their sandbox**.
 

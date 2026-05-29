@@ -573,16 +573,17 @@ def get_dossier(identifier: str):
     # across every game in this sandbox (folded each hand), so it's the more
     # complete read, and it survives game-end — the whole point of the
     # dossier becoming persistent. Falls back to the live `observation`
-    # (already set above) when there's no lifetime row yet.
+    # (already set above) when there's no lifetime row yet. `life_counts` is
+    # also the source of the scouting gate's observed-hand count below.
+    life_counts = None
     if sandbox_id:
         try:
             from flask_app.extensions import game_repo
 
-            life_obs = _observation_from_lifetime(
-                game_repo.load_observation_lifetime(
-                    sandbox_id, observer_id, personality_id
-                )
+            life_counts = game_repo.load_observation_lifetime(
+                sandbox_id, observer_id, personality_id
             )
+            life_obs = _observation_from_lifetime(life_counts)
             if life_obs is not None:
                 response['observation'] = life_obs
         except Exception as e:
@@ -593,6 +594,23 @@ def get_dossier(identifier: str):
         response['note'] = relationship_repo.load_note(observer_id, personality_id)
     except Exception as e:
         logger.debug("[CHARACTER] note load failed: %s", e)
+
+    # Scouting gate (Phase 2 — the grind). Circuit-only: applies when a
+    # sandbox is in play, gating the earnable reads behind hands observed
+    # against this opponent. Outside the Circuit (no sandbox) the dossier is
+    # ungated, as before. Behind a kill switch. Strips locked values + adds
+    # the `scouting` descriptor the client renders the locked file from.
+    if sandbox_id:
+        try:
+            from cash_mode import economy_flags
+
+            if economy_flags.DOSSIER_SCOUTING_GATE_ENABLED:
+                from flask_app.services.dossier_scouting import apply_scouting_gate
+
+                hands_observed = (life_counts or {}).get('hands_observed', 0)
+                apply_scouting_gate(response, hands_observed)
+        except Exception as e:
+            logger.debug("[CHARACTER] scouting gate failed: %s", e)
 
     return jsonify(response)
 

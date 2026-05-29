@@ -20,6 +20,7 @@ import {
   saveCharacterNicknameOverride,
   NICKNAME_OVERRIDE_MAX_LEN,
   type DossierResponse,
+  type DossierScouting,
 } from './api';
 import { useNicknameOverridesStore } from '../../stores/nicknameOverridesStore';
 import './CharacterDetailCard.css';
@@ -166,6 +167,76 @@ function SectionRule({ children }: { children: React.ReactNode }) {
       <span className="dossier__rule-label">{children}</span>
       <span className="dossier__rule-line" />
     </div>
+  );
+}
+
+/**
+ * ScoutingStrip — the grind's progress, framed as the case file's clearance
+ * level. Below the floor the file reads CLASSIFIED with a hands-to-go count;
+ * past it, a progress bar toward the next unlock plus a list of reads still
+ * to earn. Hidden entirely when the dossier is ungated (no scouting block).
+ */
+function ScoutingStrip({ scouting }: { scouting: DossierScouting }) {
+  const { hands_observed, floor, floor_met, locked } = scouting;
+  // Next threshold to cross (floor when below it, else the nearest locked
+  // item's threshold). Drives the progress bar toward the next reveal.
+  const nextAt = !floor_met
+    ? floor
+    : locked.reduce<number | null>(
+        (min, l) => (min == null || l.unlocks_at < min ? l.unlocks_at : min),
+        null
+      );
+  const pct = nextAt ? Math.min(100, Math.round((hands_observed / nextAt) * 100)) : 100;
+
+  return (
+    <section
+      className={
+        'dossier__scouting' + (floor_met ? '' : ' dossier__scouting--classified')
+      }
+    >
+      <div className="dossier__scouting-head">
+        <span className="dossier__scouting-stamp">
+          {floor_met ? 'CLEARANCE' : 'CLASSIFIED'}
+        </span>
+        <span className="dossier__scouting-count">
+          {hands_observed.toLocaleString()} {hands_observed === 1 ? 'hand' : 'hands'} observed
+        </span>
+      </div>
+
+      {!floor_met ? (
+        <p className="dossier__scouting-note">
+          Insufficient observation. Play <strong>{Math.max(0, floor - hands_observed)}</strong>{' '}
+          more {floor - hands_observed === 1 ? 'hand' : 'hands'} to open this file.
+        </p>
+      ) : locked.length > 0 ? (
+        <>
+          <p className="dossier__scouting-note">
+            Still to scout — keep playing them to declassify:
+          </p>
+          <ul className="dossier__scouting-locked">
+            {locked.map((l) => (
+              <li key={l.id} className="dossier__scouting-lock">
+                <span className="dossier__scouting-lock-icon" aria-hidden="true">
+                  🔒
+                </span>
+                <span className="dossier__scouting-lock-label">{l.label}</span>
+                <span className="dossier__scouting-lock-at">{l.unlocks_at} hands</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="dossier__scouting-note dossier__scouting-note--complete">
+          Full dossier declassified ✓
+        </p>
+      )}
+
+      {nextAt != null && (
+        <div className="dossier__scouting-bar" aria-hidden="true">
+          <span className="dossier__scouting-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -742,6 +813,8 @@ export function CharacterDetailCard({
               {merged.attitude && <DataRow label="Attitude" value={merged.attitude} />}
               {merged.confidence && <DataRow label="Confidence" value={merged.confidence} />}
             </section>
+
+            {fetched?.scouting && <ScoutingStrip scouting={fetched.scouting} />}
 
             {hasAnchors && anchors && (
               <>
