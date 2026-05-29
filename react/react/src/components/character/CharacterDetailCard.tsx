@@ -93,6 +93,15 @@ export interface CharacterDetailCardProps {
    */
   identifier?: string;
   /**
+   * Whether the dossier is being viewed from a Circuit (cash) context.
+   * The scouting unlock state shows everywhere (your Circuit-earned reads
+   * carry over), but the informant's pay-to-unlock buttons only appear in
+   * the Circuit — that's where the bankroll lives. Elsewhere (e.g. a
+   * tournament table) locked sections show an "unlock in the Circuit" hint
+   * instead of chip-cost buttons. Defaults to false.
+   */
+  circuitContext?: boolean;
+  /**
    * Optional handler for the "Send chat" affordance. Receives the
    * dossier subject's name so the caller can open the chat sheet
    * pre-targeted to that player. When omitted the button is hidden.
@@ -249,27 +258,35 @@ function ScoutingStrip({
         </div>
       )}
 
-      {onBuy && offers.length > 0 && (
-        <div className="dossier__informant">
-          <p className="dossier__informant-pitch">
-            Or pay an informant to declassify a section now:
-          </p>
-          <div className="dossier__informant-offers">
-            {offers.map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                className="dossier__informant-buy"
-                disabled={!!buyingSection}
-                onClick={() => onBuy(o.id)}
-              >
-                {buyingSection === o.id ? 'Paying…' : `${o.label} · ${o.price.toLocaleString()} chips`}
-              </button>
-            ))}
+      {offers.length > 0 &&
+        (onBuy ? (
+          <div className="dossier__informant">
+            <p className="dossier__informant-pitch">
+              Or pay an informant to declassify a section now:
+            </p>
+            <div className="dossier__informant-offers">
+              {offers.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="dossier__informant-buy"
+                  disabled={!!buyingSection}
+                  onClick={() => onBuy(o.id)}
+                >
+                  {buyingSection === o.id
+                    ? 'Paying…'
+                    : `${o.label} · ${o.price.toLocaleString()} chips`}
+                </button>
+              ))}
+            </div>
+            {buyError && <p className="dossier__informant-error">{buyError}</p>}
           </div>
-          {buyError && <p className="dossier__informant-error">{buyError}</p>}
-        </div>
-      )}
+        ) : (
+          // Off in a tournament etc. — the informant only works the Circuit.
+          <p className="dossier__informant-elsewhere">
+            Visit the Circuit to pay an informant for the rest.
+          </p>
+        ))}
     </section>
   );
 }
@@ -282,6 +299,7 @@ export function CharacterDetailCard({
   character,
   origin,
   identifier,
+  circuitContext = false,
   onSendChat,
 }: CharacterDetailCardProps) {
   // ESC to close — felt-tabletop UX expects it.
@@ -881,7 +899,10 @@ export function CharacterDetailCard({
             {fetched?.scouting && (
               <ScoutingStrip
                 scouting={fetched.scouting}
-                onBuy={identifier ? handleBuyInformant : undefined}
+                // Informant purchasing is a Circuit fixture (that's where the
+                // bankroll is). Elsewhere the unlock state still shows, but
+                // the buy buttons give way to an "unlock in the Circuit" hint.
+                onBuy={circuitContext && identifier ? handleBuyInformant : undefined}
                 buyingSection={buyingSection}
                 buyError={buyError}
               />

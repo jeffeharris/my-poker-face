@@ -1349,3 +1349,12 @@
   font-size: 0.72rem;
   color: var(--crimson);
 }
+
+.dossier__informant-elsewhere {
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--paper-shadow);
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--ink-faint);
+}

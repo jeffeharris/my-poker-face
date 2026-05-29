@@ -357,6 +357,14 @@ itself as your sample with that opponent grows, **in their sandbox**.
 > `buyInformantUnlock` API. 12 new tests (pure + repo + route); 85 green
 > across dossier/ledger/flags. **Pricing & random-vs-chosen** left as tuning
 > (chose player-chosen section for clean UX).
+>
+> **Mode-context (DECIDED):** the scouting unlock *state* shows wherever you
+> view a dossier (your Circuit-earned reads carry over — consistent
+> everywhere), but the informant's pay-to-unlock buttons appear **only in a
+> Circuit context** (cash lobby/table), since that's where the bankroll
+> lives. In a tournament the locked sections show an "unlock in the Circuit"
+> hint instead of chip costs. Threaded via a `circuitContext` prop on
+> `CharacterDetailCard` (Lobby = true, PokerTable = `gameState.cash_mode`).
 
 The shortcut path, and a chip sink: **pay an informant** to reveal intel
 you haven't grinded out yet.

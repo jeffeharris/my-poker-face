@@ -764,6 +764,7 @@ export function Lobby() {
           character={dossier?.dossier ?? { name: '' }}
           origin={dossier?.origin}
           identifier={dossier?.identifier}
+          circuitContext  /* the lobby is always the Circuit */
         />
         <NetWorthDrawer
           isOpen={netWorthOpen}
