@@ -41,13 +41,6 @@ interface TablePreset {
   title: string;
   description: string;
 }
-interface Drill {
-  id: string;
-  name: string;
-  description: string;
-  tags: string[];
-  phase: string;
-}
 
 const FALLBACK_PRESETS: TablePreset[] = [
   { id: 'standard', title: '6-Max', description: 'Five opponents, 100bb deep.' },
@@ -55,10 +48,7 @@ const FALLBACK_PRESETS: TablePreset[] = [
 
 interface TrainingMenuProps {
   playerName: string;
-  onStart: (
-    difficulty: TrainingDifficulty,
-    opts: { presetId?: string; scenarioId?: string }
-  ) => void;
+  onStart: (difficulty: TrainingDifficulty, presetId: string) => void;
   onBack: () => void;
   isCreating?: boolean;
 }
@@ -67,7 +57,6 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>('medium');
   const [presets, setPresets] = useState<TablePreset[]>(FALLBACK_PRESETS);
   const [presetId, setPresetId] = useState('standard');
-  const [drills, setDrills] = useState<Drill[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +72,6 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
           setPresets(data.presets);
           setPresetId(data.default_preset_id ?? data.presets[0].id);
         }
-        if (Array.isArray(data.drills)) setDrills(data.drills);
       } catch (err) {
         logger.error('Failed to load training scenarios:', err);
       }
@@ -171,35 +159,11 @@ export function TrainingMenu({ playerName, onStart, onBack, isCreating = false }
             type="button"
             className="training-menu__primary"
             disabled={isCreating}
-            onClick={() => onStart(difficulty, { presetId })}
+            onClick={() => onStart(difficulty, presetId)}
           >
             <Play size={18} /> Deal me in
           </button>
         </fieldset>
-
-        {/* Drills — fixed teaching spots */}
-        {drills.length > 0 && (
-          <fieldset className="training-menu__group" disabled={isCreating}>
-            <legend className="training-menu__group-label">Drills</legend>
-            <div className="training-menu__drills">
-              {drills.map((dr) => (
-                <button
-                  key={dr.id}
-                  type="button"
-                  className="training-drill"
-                  disabled={isCreating}
-                  onClick={() => onStart(difficulty, { scenarioId: dr.id })}
-                >
-                  <span className="training-drill__phase">{dr.phase.replace('_', ' ')}</span>
-                  <span className="training-drill__body">
-                    <span className="training-drill__name">{dr.name}</span>
-                    <span className="training-drill__desc">{dr.description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        )}
       </PageLayout>
     </>
   );

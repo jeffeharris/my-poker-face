@@ -416,10 +416,7 @@ function App() {
 
   // Training mode: create a non-counting practice game vs difficulty-tiered
   // opponents and drop into it. Reuses the standard /game/:id view.
-  const handleStartTraining = async (
-    difficulty: string,
-    opts: { presetId?: string; scenarioId?: string }
-  ) => {
+  const handleStartTraining = async (difficulty: string, presetId: string) => {
     if (isCreatingGame) return;
     setIsCreatingGame(true);
     try {
@@ -427,11 +424,7 @@ function App() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerName,
-          difficulty,
-          ...(opts.scenarioId ? { scenario_id: opts.scenarioId } : { preset_id: opts.presetId }),
-        }),
+        body: JSON.stringify({ playerName, difficulty, preset_id: presetId }),
       });
       const data = await response.json();
       if (response.ok) {

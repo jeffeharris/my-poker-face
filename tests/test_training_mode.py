@@ -368,37 +368,6 @@ class TestTrainingStartRoute(unittest.TestCase):
         listed = {g['game_id'] for g in resp.get_json()['games']}
         self.assertNotIn(gid, listed)
 
-    def test_scenarios_endpoint_lists_drills(self):
-        with self._mock_auth():
-            resp = self.client.get(
-                '/api/training/scenarios', environ_overrides={'REMOTE_ADDR': '10.77.0.1'}
-            )
-        self.assertEqual(resp.status_code, 200)
-        body = resp.get_json()
-        drill_ids = {d['id'] for d in body.get('drills', [])}
-        # The authored catalog ships these (config/training_scenarios/*.json).
-        self.assertIn('defend_cbet_tptk', drill_ids)
-
-    def test_unknown_scenario_returns_404(self):
-        resp = self._start(difficulty='easy', scenario_id='no_such_drill')
-        self.assertEqual(resp.status_code, 404)
-
-    def test_scripted_drill_drops_human_into_the_spot(self):
-        from flask_app.services import game_state_service
-
-        resp = self._start(difficulty='easy', scenario_id='defend_cbet_tptk')
-        self.assertEqual(resp.status_code, 200, resp.get_json())
-        data = resp.get_json()
-        self.assertEqual(data['scenario_id'], 'defend_cbet_tptk')
-        self.assertIsNone(data['preset_id'])
-
-        gd = game_state_service.get_game(data['game_id'])
-        self.assertEqual(gd['training_scenario_id'], 'defend_cbet_tptk')
-        gs = gd['state_machine'].game_state
-        # Dropped in at the human's decision on a 3-card flop.
-        self.assertTrue(gs.awaiting_action and gs.current_player.is_human)
-        self.assertEqual(len(gs.community_cards), 3)
-
     def test_inline_skill_feedback_in_action_response(self):
         """Training action responses carry the coach's per-action verdict.
 

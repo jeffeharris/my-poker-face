@@ -526,13 +526,19 @@ just default to `proactive`.
 - [x] `training/state_builder.py` `build_table_preset_state_machine` (the seam Phase 3 extends); `/api/training/start` takes `preset_id`; new `GET /api/training/scenarios`.
 - [x] Inline feedback: `_evaluate_coach_progression` returns the primary verdict; action response carries `skill_evaluation` in training mode; FE shows a verdict toast (chose a toast over a dedicated `InlineSkillFeedback` component to avoid destabilizing the action render tree — revisit if a richer surface is wanted).
 
-### Phase 3 — Scripted spots
-- [ ] Extend `training/scenario.py` with `ScriptedSpot` + `TrainingScenario` wrapper; add `training/scenario_library.py` (JSON loader) + `config/training_scenarios/*.json`.
-- [ ] `state_builder.py` `build_scripted_spot_state_machine` (`from_saved_state` + card parser `"Ah"→Card('A','Hearts')`, note rank `'10'` not `'T'`; deck = full deck minus pre-placed; ghost-seat + legality asserts) and its unit test. **Verified engine shapes:** `Player(name,stack,is_human,bet,hand=(card,..))`, `PokerGameState(players,deck,pot={'total':N},current_player_idx,current_dealer_idx,community_cards,current_ante,last_raise_amount,raises_this_round,awaiting_action)`, `from_saved_state(game_state, PokerPhase, blind_config, hand_count)`; `highest_bet` is derived from player bets (not stored).
-- [ ] `/api/training/start` accepts `scenario_id` (scripted) distinct from `preset_id`; `GET /api/training/scenarios` lists spots too.
-- [ ] Initial drill catalog: one spot per coach skill (11) + extras for the hard ones; **validate at library-load time**.
-- [ ] `ScenarioSelector` (spots by skill/tag) + replay (same cards/board, fresh seed/villains) + "Play again" on game-over.
-- [ ] Design fork (ship simple first): scripted spot sets up the *first* hand, then the table continues normally; auto-reset-each-hand drill is a follow-on (needs pausing the `HAND_OVER` auto-deal).
+### Phase 3 — Scripted spots ⚠️ CUT as a feature (2026-05-29) — engine kept
+**Hand-authored drill catalogs were cut.** Reason: curating spots that stay
+interesting doesn't scale, and dropping a player into a *stranger's* situation
+isn't teaching *their* game — the value is reviewing your OWN hands (Phase 3.5).
+What was built then removed: `training/scenario_library.py` (JSON loader),
+`config/training_scenarios/*.json` (5 authored drills), the `scenario_id` path
+on `/api/training/start`, the `drills` list on `/scenarios`, and the menu Drills
+section (commit history: built `e6006a9b`+`5223771e`, cut later same day).
+**KEPT (the reusable engine):** `training/scenario.py` `ScriptedSpot` +
+`training/state_builder.py` `build_scripted_spot_state_machine` (+ its 6 factory
+unit tests) — the `from_saved_state` injection that **Phase 3.5 reuses** to
+rebuild captured real hands. Verified engine shapes recorded below for 3.5.
+- **Verified engine shapes:** `Player(name,stack,is_human,bet,hand=(card,..))`, `PokerGameState(players,deck,pot={'total':N},current_player_idx,current_dealer_idx,community_cards,current_ante,last_raise_amount,raises_this_round,awaiting_action)`, `from_saved_state(game_state, PokerPhase, blind_config, hand_count)`; `highest_bet` derived from player bets; cards via `Card.from_short` ("Ah"/"10c"/"A♥"); `Card` is unhashable → filter deck with list `not in`.
 
 ### Phase 3.5 — Hand replay from history (review real hands)
 *Builds on the Phase 3 factory: a captured real hand is a scripted spot with the cards already filled in.* See the design section "Hand replay from history" above.

@@ -1,15 +1,16 @@
-"""Training scenarios — table presets (Phase 2).
+"""Training scenarios — free-play table presets + the scripted-spot model.
 
-A scenario describes the *table shape* a practice game is set up with. Phase 2
-ships **table presets**: named seat-count + stack-depth + blind combinations
-(heads-up, short-stack, deep, full-ring). They're orthogonal to difficulty —
-the player picks a preset (who/how-deep) AND a difficulty tier (how the
-opponents play); the two compose.
+`TablePreset` describes the *table shape* a free-play practice game is set up
+with: named seat-count + stack-depth + blind combinations (heads-up,
+short-stack, deep, full-ring). Orthogonal to difficulty — the player picks a
+preset (who/how-deep) AND a difficulty tier (how the opponents play).
 
-Presets are code constants here, not a JSON library: there are a handful of
-them and they're pure config. The JSON-backed `ScriptedSpot` catalog (fixed
-hole cards + board) arrives in Phase 3, where file authoring actually pays off.
-See docs/plans/TRAINING_MODE.md.
+`ScriptedSpot` describes a fixed mid-hand state (specific hole cards, board,
+stacks, line). NOTE: hand-authored drill *catalogs* were cut — curating spots
+that stay interesting doesn't scale. `ScriptedSpot` survives as the
+reconstruction model the **hand-replay** feature uses (Phase 3.5): a captured
+real hand from `hand_history` becomes a `ScriptedSpot` and is rebuilt via
+`state_builder.build_scripted_spot_state_machine`. See docs/plans/TRAINING_MODE.md.
 """
 
 from __future__ import annotations
@@ -117,23 +118,6 @@ class ScriptedSpot:
 
     def chips(self, bb_amount: float) -> int:
         return round(bb_amount * self.big_blind)
-
-
-@dataclass(frozen=True)
-class TrainingScenario:
-    """A named, tagged drill wrapping one config variant.
-
-    The wrapper carries catalog metadata (id/name/tags/coach focus) shared by
-    every variant; `config` is the variant payload. New variants (e.g. a
-    captured-hand replay in Phase 3.5) slot in as additional `config` types.
-    """
-
-    id: str
-    name: str
-    description: str
-    config: ScriptedSpot  # widen to a Union as more variants land
-    tags: list[str] = field(default_factory=list)
-    coach_focus_skills: list[str] = field(default_factory=list)
 
 
 DEFAULT_PRESET_ID = "standard"
