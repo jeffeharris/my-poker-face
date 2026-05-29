@@ -947,6 +947,57 @@ def _reputation_order_refill_pool(eligible_pool, *, owner_id, sandbox_id, now):
         return eligible_pool
 
 
+def _apply_reputation_demeanor(game_data: dict, state_machine) -> None:
+    """Player-prestige hook 4 (AI demeanor): once-per-hand reputation nudge.
+
+    Nudges the psychology of the AIs seated with the human by the human's
+    room-level reputation quadrant: a feared **Infamous Villain** rattles
+    low-poise opponents (a composure press → scared / tilt-prone, the
+    exploitable edge), while a **Beloved Legend** loosens them up (a confidence
+    / energy lift). The poise/ego filter inside `apply_pressure_event` does the
+    "low-poise rattle, composed shrug" split for free. The nudge drives both
+    decisions (the emotional-window shift on bounded options) AND table-talk
+    demeanor (the expression generator reflects the axes), so one mechanism
+    delivers both.
+
+    This is the ONE prestige hook that touches the decision path, so it's
+    behind a dedicated kill switch (`economy_flags.REPUTATION_DEMEANOR_ENABLED`):
+    flip that to False to disable it completely with zero residual effect.
+    Best-effort and called once at the hand boundary (not per action, which
+    would compound) — never blocks the hand.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.REPUTATION_DEMEANOR_ENABLED:
+        return
+    owner_id = game_data.get('owner_id')
+    sandbox_id = _sandbox_id_for(game_data)
+    if not owner_id or not sandbox_id:
+        return
+    try:
+        from cash_mode.prestige import reputation_demeanor_stimulus
+
+        from ..extensions import prestige_snapshots_repo
+
+        if prestige_snapshots_repo is None:
+            return
+        snap = prestige_snapshots_repo.load_latest(sandbox_id, owner_id)
+        if snap is None:
+            return
+        stimulus = reputation_demeanor_stimulus(snap['quadrant'])
+        if stimulus is None:
+            return  # low-renown human — the room doesn't react
+        ai_controllers = game_data.get('ai_controllers', {})
+        for player in state_machine.game_state.players:
+            if getattr(player, 'is_human', False):
+                continue
+            ctrl = ai_controllers.get(player.name)
+            if ctrl is not None and getattr(ctrl, 'psychology', None) is not None:
+                ctrl.psychology.react_to_table_reputation(stimulus)
+    except Exception as e:
+        logger.debug("Could not apply reputation demeanor: %s", e)
+
+
 def _refill_cash_seats(game_id: str, game_data: dict, state_machine) -> None:
     """Cash-mode helper: replace busted AI seats with fresh personalities.
 
@@ -3116,6 +3167,11 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
                 f"[CASH] Failed to refill seats for {game_id}: {e}",
                 exc_info=True,
             )
+        # Player-prestige hook 4: nudge seated AIs' demeanor by the human's
+        # reputation (kill-switched via REPUTATION_DEMEANOR_ENABLED). After
+        # refill so fresh arrivals feel it too. Self-protecting (best-effort
+        # internally) — never raises into the hand flow.
+        _apply_reputation_demeanor(game_data, state_machine)
         # Symmetric check for the human seat: emit a bust event so
         # the frontend can open the rebuy/sponsor modal. Wrapped
         # separately so a bust-emit failure doesn't taint the

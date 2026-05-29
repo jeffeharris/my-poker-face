@@ -99,6 +99,23 @@ RAKE_CAP_BB: int = 4
 RAKE_STAKE_BIG_BLINDS: frozenset[int] = frozenset({1000})
 
 
+# --- Player-prestige hook 4: AI demeanor ----------------------------------
+
+# Kill switch for the reputation-driven AI demeanor (player-prestige hook 4).
+# When True (default), AIs seated with a HIGH-renown human get a small,
+# poise-filtered psychology nudge once per hand: a feared **Infamous Villain**
+# rattles low-poise opponents (composure pressure → scared / tilt-prone, an
+# exploitable edge), while a **Beloved Legend** loosens them up (a confidence /
+# energy lift). The nudge drives both decisions (via the emotional-window
+# shift on bounded options) and table-talk demeanor (the expression generator
+# reflects the axes), so it's the one prestige hook that touches the decision
+# path — hence the dedicated switch. Flip to False to fully disable it with
+# zero residual effect (the other prestige hooks — chat tone, backing gating,
+# table pull — are unaffected). See `_apply_reputation_demeanor` in
+# `flask_app/handlers/game_handler.py` and `docs/plans/CASH_MODE_PLAYER_PRESTIGE.md`.
+REPUTATION_DEMEANOR_ENABLED: bool = True
+
+
 def compute_rake(pot: int, big_blind: int) -> int:
     """Pure helper — returns the rake amount for a given pot.
 

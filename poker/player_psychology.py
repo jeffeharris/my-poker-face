@@ -419,6 +419,31 @@ class PlayerPsychology:
             return
         self.apply_pressure_event(event_name, opponent=opponent, multiplier=multiplier)
 
+    def react_to_table_reputation(self, stimulus: str, multiplier: float = 1.0) -> None:
+        """Move the axes for sitting at a high-renown human's table (hook 4).
+
+        `stimulus` is a coarse category, deliberately decoupled from the
+        prestige layer's quadrant vocabulary (mirrors `react_to_social_stimulus`
+        so this module stays free of cash-mode imports):
+          - 'intimidating' : a feared Infamous Villain's table → a composure
+            press. The (1−poise) sensitivity filter in `apply_pressure_event`
+            makes low-poise opponents rattle/tilt (the exploitable edge) while
+            the composed shrug it off.
+          - 'reassuring'   : a Beloved Legend's table → a light confidence /
+            energy lift (looser, friendlier play).
+
+        Unknown stimuli are a no-op. Gated upstream by
+        `economy_flags.REPUTATION_DEMEANOR_ENABLED`; this method itself is the
+        pure axis-application and stays callable for tests regardless.
+        """
+        if stimulus == 'intimidating':
+            event_name = 'reputation_villain_intimidation'
+        elif stimulus == 'reassuring':
+            event_name = 'reputation_legend_warmth'
+        else:
+            return
+        self.apply_pressure_event(event_name, multiplier=multiplier)
+
     # === EVENT RESOLUTION CONSTANTS ===
 
     # Event categories for resolve_hand_events()
@@ -489,6 +514,14 @@ class PlayerPsychology:
             'social_jab_stoic': {'composure': -0.02},
             'social_praise_warmed': {'confidence': 0.06, 'energy': 0.04},
             'social_praise_stoic': {'energy': 0.02},
+            # Player-prestige hook 4 (AI demeanor): sitting at a high-renown
+            # human's table, applied once per hand. The villain press is
+            # composure-led, so the (1-poise) filter in apply_pressure_event
+            # makes low-poise opponents rattle/tilt (the exploitable edge)
+            # while high-poise ones shrug it off; the legend lift is a light
+            # confidence/energy bump (looser, friendlier).
+            'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
+            'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
         }
 
         return pressure_events.get(event_name, {})

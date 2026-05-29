@@ -201,6 +201,24 @@ def refill_affinity(quadrant: str, state: Any) -> float:
     return 0.0
 
 
+def reputation_demeanor_stimulus(quadrant: str):
+    """Coarse table-demeanor stimulus for the human's reputation quadrant.
+
+    Hook 4 (AI demeanor). Maps the quadrant to the coarse stimulus
+    `PlayerPsychology.react_to_table_reputation` understands — only the two
+    high-renown quadrants move the room:
+      - Infamous Villain → ``'intimidating'`` (rattles low-poise opponents).
+      - Beloved Legend   → ``'reassuring'`` (loosens them up).
+    Returns ``None`` for the low-renown quadrants and unknown labels (no
+    demeanor effect).
+    """
+    if quadrant == QUADRANT_INFAMOUS_VILLAIN:
+        return "intimidating"
+    if quadrant == QUADRANT_BELOVED_LEGEND:
+        return "reassuring"
+    return None
+
+
 def reputation_chat_tone(quadrant: str) -> str:
     """One-line table-talk tone hint for the human's reputation quadrant.
 
