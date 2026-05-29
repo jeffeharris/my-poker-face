@@ -163,23 +163,43 @@ class TournamentSession:
         or to fast-forward). Blinds keep rising on the round clock."""
         reports: list[RoundReport] = []
         while not self.is_complete() and self.rounds < self.config.max_rounds:
-            reports.append(self._round(None))
+            reports.append(self._round())
         return reports
 
-    def _round(self, human_hand: HandFn | None) -> RoundReport:
+    def apply_live_round(self, human_result: dict[str, int]) -> RoundReport:
+        """Fold a hand played LIVE at the human's table into the field, then pace
+        the AI tables and settle.
+
+        `human_result` is `{player_id: stack}` for every seat at the human's
+        table after the live hand (the live game engine already conserved chips
+        on that table). This is the entry point the Flask game-handler bridge
+        calls at each hand boundary instead of `play_round` — the human's hand
+        was driven by the real game, not a resolver callback."""
+        if self.is_complete():
+            raise RuntimeError("tournament is already complete")
+        if self.human_out:
+            raise RuntimeError("human is out — use play_out() to finish the field")
+        return self._round(human_result=human_result)
+
+    def _round(
+        self, human_hand: HandFn | None = None, human_result: dict[str, int] | None = None
+    ) -> RoundReport:
         level = self.current_level()
         pre = dict(self.field.stacks)
         table_of_player = {pid: t.table_id for t in self.seating.tables for pid in t.players}
 
         human_table_id = None
-        if human_hand is not None and not self.human_out:
+        if not self.human_out and (human_hand is not None or human_result is not None):
             ht = self.human_table
             human_table_id = ht.table_id if ht else None
 
         rng = random.Random(self.config.seed * 7_001 + self.rounds)
         for table in self.seating.tables:
             if human_table_id is not None and table.table_id == human_table_id:
-                self._play_hands(table, level, 1, human_hand)
+                if human_result is not None:
+                    self._apply_result(table, human_result)
+                else:
+                    self._play_hands(table, level, 1, human_hand)
             else:
                 count = PACING_CHOICES[rng.randrange(len(PACING_CHOICES))]
                 self._play_hands(table, level, count, self._ai_resolve)
@@ -213,6 +233,16 @@ class TournamentSession:
         self.round_reports.append(report)
         self.rounds += 1
         return report
+
+    def _apply_result(self, table, result: dict[str, int]) -> None:
+        """Fold an externally-played hand result for one table into the field
+        (used for the human's live table). Validates the resolver contract."""
+        seat_order = table.players
+        stacks = {pid: self.field.stacks[pid] for pid in seat_order}
+        self._guard_table_result(stacks, result)
+        for pid, new_stack in result.items():
+            self.field.stacks[pid] = new_stack
+        table.advance_button()
 
     def _play_hands(self, table, level: BlindLevel, num_hands: int, resolve: HandFn) -> None:
         """Play up to `num_hands` at one table. Stops early if the table drops

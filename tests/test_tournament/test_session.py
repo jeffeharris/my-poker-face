@@ -155,6 +155,61 @@ def test_standings_view_is_wellformed_and_conserves():
     assert len(human_seats) == 1
 
 
+# ── live bridge entry point ──────────────────────────────────────────────────
+
+
+def _live_human_result(session: TournamentSession) -> dict:
+    """Simulate the live game engine playing one hand at the human's table:
+    resolve it with the fake resolver and return {pid: stack}."""
+    table = session.human_table
+    seat_order = table.players
+    stacks = {pid: session.field.stacks[pid] for pid in seat_order}
+    return FakeHandResolver().resolve(
+        seat_order=seat_order,
+        stacks=stacks,
+        level=session.current_level(),
+        button=table.dealer_index_in_occupied(),
+        seed=session.rounds * 31 + 7,
+    )
+
+
+def test_apply_live_round_advances_and_conserves():
+    session = _session(18)
+    before = session.rounds
+    result = _live_human_result(session)
+    session.apply_live_round(result)
+    assert session.rounds == before + 1
+    assert session.field.chip_sum() == session.config.total_chips
+    # the AI tables advanced too — more hands than just the human's one
+    assert session._hand_counter >= 1
+
+
+def test_apply_live_round_runs_to_completion():
+    session = _session(18)
+    guard = 0
+    while not session.is_complete() and not session.human_out:
+        session.apply_live_round(_live_human_result(session))
+        guard += 1
+        assert guard < 100_000
+        assert session.field.chip_sum() == session.config.total_chips
+    if not session.is_complete():
+        session.play_out()
+    assert session.is_complete()
+
+
+def test_apply_live_round_rejects_when_human_out():
+    # drive to human-out, then apply_live_round must refuse.
+    for seed in range(12):
+        session = _session(18, seed=seed)
+        while not session.is_complete() and not session.human_out:
+            session.apply_live_round(_live_human_result(session))
+        if session.human_out:
+            with pytest.raises(RuntimeError):
+                session.apply_live_round({})
+            return
+    pytest.skip("human won every sampled seed")
+
+
 def test_reproducible_from_seed():
     s1 = _session(18, seed=9)
     s2 = _session(18, seed=9)
