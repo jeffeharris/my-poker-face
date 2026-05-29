@@ -103,6 +103,7 @@ def _narrate_inner(
 ) -> Tuple[str, str]:
     """The real LLM call. Raises on failure; the outer wrapper catches."""
     from core.llm import LLMClient, settings
+    from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
     from core.llm.tracking import CallType
 
     user_prompt = _build_user_prompt(
@@ -115,6 +116,9 @@ def _narrate_inner(
     client = LLMClient(
         provider=settings.get_fast_provider(),
         model=settings.get_fast_model(),
+        # PRH-18/21: ticker narration runs synchronously under the per-sandbox
+        # lock; bound it so a stalled provider can't freeze the world ticker.
+        default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
     )
     response = client.complete(
         messages=[

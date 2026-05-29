@@ -61,9 +61,14 @@ def build_tiered_controller(
     # Baseline solver intentionally skips the expression layer — it's the
     # "pure GTO, no personality" option.
     if expression_enabled and not baseline:
+        from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
+
         llm_client = LLMClient(
             provider=llm_config.get('provider', 'openai'),
             model=llm_config.get('model'),
+            # PRH-18: in-game narration — bound it so a stalled provider can't
+            # hang the hand under the per-game lock.
+            default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
         )
         controller.expression_generator = ExpressionGenerator(
             llm_client=llm_client,

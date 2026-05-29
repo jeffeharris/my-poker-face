@@ -5,6 +5,15 @@ Single source of truth for model settings.
 
 import os
 
+# PRH-18: short per-call HTTP timeout (seconds) for in-game / ticker LLM calls
+# (player decision + narration), distinct from the long LLM_HTTP_TIMEOUT (600s)
+# used for batch/experiment work. These calls run synchronously inside a hand,
+# often under a per-game or per-sandbox lock, so a stalled provider would
+# otherwise hang the hand (and freeze the world ticker for everyone). Bounding
+# it makes a stall fail fast into the deterministic fallback. Override with
+# LLM_INGAME_TIMEOUT.
+INGAME_LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_INGAME_TIMEOUT", "30.0"))
+
 # =============================================================================
 # OpenAI Configuration
 # =============================================================================

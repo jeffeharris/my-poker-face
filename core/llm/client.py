@@ -36,6 +36,7 @@ class LLMClient:
         model: Optional[str] = None,
         reasoning_effort: str = "low",
         tracker: Optional[UsageTracker] = None,
+        default_timeout: Optional[float] = None,
     ):
         """Initialize LLM client.
 
@@ -44,9 +45,14 @@ class LLMClient:
             model: Model to use (provider-specific default if None)
             reasoning_effort: Reasoning effort for models that support it
             tracker: Usage tracker (uses default singleton if None)
+            default_timeout: Optional per-call HTTP timeout (seconds) applied to
+                every complete() on this client unless overridden per call. Set a
+                short value for in-game/ticker clients (PRH-18); leave None for
+                batch/experiment clients to keep the long shared-client default.
         """
         self._provider = self._create_provider(provider, model, reasoning_effort)
         self._tracker = tracker or UsageTracker.get_default()
+        self._default_timeout = default_timeout
 
     def _create_provider(
         self,
@@ -106,6 +112,7 @@ class LLMClient:
         message_count: Optional[int] = None,
         system_prompt_tokens: Optional[int] = None,
         capture_enricher: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse:
         """Make a completion request.
 
@@ -165,6 +172,12 @@ class LLMClient:
         total_cached_tokens = 0
         total_reasoning_tokens = 0
 
+        # PRH-18: resolve the per-call timeout (explicit arg wins over the
+        # client's default). Passed through to the provider only when set, so
+        # batch/experiment callers keep the shared client's long default.
+        resolved_timeout = timeout if timeout is not None else self._default_timeout
+        timeout_kwargs = {"timeout": resolved_timeout} if resolved_timeout is not None else {}
+
         # Make a mutable copy of messages for tool loop
         working_messages = list(messages)
         iteration = 0
@@ -187,6 +200,7 @@ class LLMClient:
                             max_tokens=max_tokens,
                             tools=tools,
                             tool_choice=tool_choice,
+                            **timeout_kwargs,
                         )
                         break  # success
                     except Exception as retry_err:

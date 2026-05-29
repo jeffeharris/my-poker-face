@@ -39,6 +39,7 @@ class LLMProvider(ABC):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a completion request.
 
@@ -48,6 +49,11 @@ class LLMProvider(ABC):
             max_tokens: Maximum tokens in response
             tools: Optional list of tool definitions for function calling
             tool_choice: Optional tool choice mode ("auto", "required", "none")
+            timeout: Optional per-call timeout (seconds) overriding the shared
+                HTTP client's default (PRH-18). In-game/ticker callers pass a
+                short value so a stalled provider fails fast instead of hanging
+                a hand under a lock; batch/experiment callers leave it None to
+                keep the long default. Providers honor it best-effort.
 
         Returns:
             Raw provider response object

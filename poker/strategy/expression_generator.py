@@ -85,11 +85,15 @@ class ExpressionGenerator:
             return self._cleanup_client
         try:
             from core.llm import LLMClient
+            from core.llm.config import INGAME_LLM_TIMEOUT_SECONDS
             from core.llm.settings import get_fast_model, get_fast_provider
 
             self._cleanup_client = LLMClient(
                 provider=get_fast_provider(),
                 model=get_fast_model(),
+                # PRH-18: in-game (sharp-bot Layer-3) narration — bound it so a
+                # stalled provider can't hang the hand under the per-game lock.
+                default_timeout=INGAME_LLM_TIMEOUT_SECONDS,
             )
         except Exception as e:
             logger.warning(

@@ -73,6 +73,7 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a chat completion request."""
         kwargs = {
@@ -96,6 +97,11 @@ class OpenAIProvider(LLMProvider):
         else:
             # Legacy models (shouldn't be used, but handle gracefully)
             kwargs["temperature"] = 1.0
+
+        # PRH-18: per-call timeout override (the OpenAI SDK accepts it on
+        # create()); short for in-game/ticker calls so a stall fails fast.
+        if timeout is not None:
+            kwargs["timeout"] = timeout
 
         return self._client.chat.completions.create(**kwargs)
 

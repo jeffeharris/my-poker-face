@@ -129,6 +129,7 @@ class GoogleProvider(LLMProvider):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         """Make a chat completion request.
 
