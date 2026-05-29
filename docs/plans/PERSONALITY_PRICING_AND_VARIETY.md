@@ -498,6 +498,36 @@ tendency's *EV sign flips with the field* (over-bluff −EV vs the caller, under
 same caller) while its *recognizability* is constant — the two axes (priced vs readable) made
 concrete.
 
+### over-fold-2nd-barrel + donk-when-weak — BUILT + PRICED (2026-05-29, signal-plumbed)
+
+Required threading two signals into the spot layer (`facing_double_barrel` from `derive_signals`;
+`position` from `node.position`). Both priced free, 24k HU:
+
+| Tendency | self-play | jeff | punisher | note |
+|---|---|---|---|---|
+| donk_when_weak | −0.58 [−5.55,+4.38] | −0.87 [−2.00,+0.26] | −0.31 [−1.70,+1.09] | free; fires ~5–7% (OOP lead) |
+| over_fold_2nd_barrel | (too rare) | +0.03 [−0.01,+0.07] | +0.29 [−0.54,+1.11] | **near-zero fire rate even vs barrelers** |
+
+- **donk-when-weak** is a clean **style** leak: leading weak OOP into the aggressor is ~EV-neutral
+  in HU (you have fold equity; the checked line often faces a bet anyway), but it's *recognizable*
+  (a face-up weak donk) and the human counter is "raise it."
+- **over-fold-2nd-barrel can't be priced in HU** — the spot (opp bets flop AND turn, hero holding
+  exactly marginal made facing it) fires on ~0% of HU hands even vs the aggressive reg (≈25 hands
+  in 24k). What little fires is free. It's an over-fold leak (so cheap + floor-capped like
+  fit-or-fold) AND too rare for the HU instrument; it may matter in full-ring, but we can't measure
+  it here. Kept (built, OFF) but flagged unmeasurable-in-HU.
+
+### Working principle (LOCKED 2026-05-29): early-street = style, river/commit = skill
+
+Across nine priced leaks a clean pattern holds: **fold-frequency and bet-frequency leaks on the
+flop/turn price free** (auto_cbet, fit_or_fold even widened, donk, under_bluff, over_fold_2nd_barrel,
+give_up_turn) — HU ranges are wide, marginal hands face later barrels, and the math/defense floors
+re-add odds-mandated calls — so they are the **style tier** (recognizable, not −EV, not strongly
+exploitable). The leaks that price **CI-clear −EV are all river / chip-commit spots** (sticky −1.87;
+over_bluff −EV vs callers) — the **skill tier**. Takeaway for future leaks: *don't expect an
+early-street frequency tendency to be a skill leak in HU; build those for flavor, and look to the
+river / committed pots (or the floor-defeating path, under investigation) for −EV.*
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
@@ -519,7 +549,7 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 |---|---|---|---|---|
 | slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
 | give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | **priced (free)** | **built✅** (multistreet H1) |
-| over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | backlog | partial (multistreet H2, off) |
+| over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | **priced (unmeasurable in HU — spot too rare; ~free)** | partial (multistreet H2, off) |
 | fit-or-fold / over-fold to c-bet | flop facing c-bet, non-strong (widened to 2nd pair+draws) | barrel relentlessly | **priced (free, STYLE — widening didn't make it −EV; floor-capped)** | partial (`exploitation.py`) |
 | auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | **priced (free*, see below)** | — |
 | under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | **priced (free/+EV, style/face-up)** | — |
@@ -529,7 +559,7 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | over-fold to 3-bet | preflop facing 3-bet | 3-bet wide as a bluff | backlog | — |
 | face-up / nitty 3-bet (value only) | preflop 3-bet decision | fold to their 3-bets, stop paying | backlog | — |
 | open-limp | preflop RFI | iso-raise wide | backlog | — |
-| donk-when-weak / tiny donk | OOP lead, weak | raise it | backlog | — |
+| donk-when-weak / tiny donk | OOP lead, weak | raise it | **priced (free, STYLE/face-up)** | — |
 | position-blindness (plays OOP like IP) | OOP nodes | attack the overplays | backlog | — |
 
 **Priority:** the leaks whose exploiter is already `built✅` close a full loop immediately
