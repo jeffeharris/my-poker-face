@@ -76,7 +76,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/game/new/custom': 'Custom Game - My Poker Face',
   '/game/new/themed': 'Themed Game - My Poker Face',
   '/personalities': 'Manage Personalities - My Poker Face',
-  '/cash': 'Career - My Poker Face',
+  '/cash': 'The Circuit - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
   '/settings': 'Settings - My Poker Face',
   '/profile': 'Settings - My Poker Face',

@@ -47,7 +47,7 @@ export function HomeMenu({
               <Coins className="mode-card__icon" size={64} strokeWidth={1.5} />
             </div>
             <div className="mode-card__content">
-              <h2 className="mode-card__title">Career</h2>
+              <h2 className="mode-card__title">The Circuit</h2>
               <p className="mode-card__description">
                 Pick a stake, sit at a table, build a bankroll
               </p>
