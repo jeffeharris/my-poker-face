@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, TypedDict
 
 from core.llm.assistant import Assistant
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import get_assistant_model, get_assistant_provider
 from core.llm.tracking import CallType
 from poker.hand_narrator import abbreviate_position, format_action_phrase
 
@@ -196,10 +196,17 @@ class CoachAssistant:
             system_prompt += f"\n\n{_MODE_PROMPTS[mode]}"
         if skill_context:
             system_prompt += f"\n\n{skill_context}"
+        # Coaching runs on the Assistant tier, not the Default tier. The Default
+        # tier is a cheap, fast model (8B-class) tuned for in-game flavor/
+        # commentary — fine for chatter, but it hallucinates hand facts and
+        # gives incoherent strategy when asked to coach (observed: "play your
+        # set of fives" on a hand that never saw a flop). Coaching needs a model
+        # that can actually reason about the spot, so it uses the Assistant
+        # endpoint (the same tier as experiment design/analysis).
         self._assistant = Assistant(
             system_prompt=system_prompt,
-            provider=get_default_provider(),
-            model=get_default_model(),
+            provider=get_assistant_provider(),
+            model=get_assistant_model(),
             call_type=CallType.COACHING,
             game_id=game_id,
             owner_id=owner_id,
