@@ -67,6 +67,29 @@ runs in Docker: `docker compose exec -T backend python ...`.
 >
 > The strength-side gameplay layers (1–3 below) are done — don't re-open them.
 
+> **ARCHITECTURE for the widening task — read before you crank caps.** Don't try to
+> reach the loose archetypes by distortion alone: it has a **hard ceiling**. A bounded
+> logit offset **cannot open a hand the base chart folds ~100%** (no raise/call mass to
+> amplify; the per-action cap keeps it ~0). This is a prior measured finding on this
+> project ("offsets can't open fold-1.0 hands → table-selection"), and it's exactly why
+> the audit's Maniac capped at **32% VPIP, not 55%**. So the decision splits:
+> - **Tightening (Nit/Rock):** distortion works — you can always shift toward fold. No new table.
+> - **Loosening (LAG/Maniac/Station/loose personas):** needs a **wider base TABLE** — distortion
+>   can't get there. Tables already exist: `preflop_100bb_6max_tight_rfi.json` /
+>   `_6max.json` (standard) / `_wider_rfi.json`; add an even-wider maniac/station chart only
+>   if `wider_rfi` isn't loose enough (the acceptance-test table decides).
+> - **Postflop (sticky/aggression/the leaks):** distortion works — reshapes move mass between
+>   *existing legal* actions (fold→call etc.), so no new postflop tables. (sticky already did this.)
+>
+> **Architecture = a few (~3–4) width-tiered preflop tables SELECTED by archetype tier, +
+> the existing distortion on top for fine personality + the spot tendencies.** NOT 62
+> per-personality tables (unmaintainable / expensive to solve). NOT pure distortion (can't
+> reach the loose end). Tables carry the coarse VPIP *envelope*; distortion carries the flavor
+> *within* it. **Wiring needed:** table-selection is currently by stack (`depth_strategy_tables`)
+> and field size (`hu_strategy_table`) only — **add an archetype→width-tier map** alongside those
+> (small change in the controller's table picker + `make_controller`). Then widen scales/caps for
+> the per-archetype flavor and iterate the VPIP/PFR/AF table.
+
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
 2. **Multistreet flop+turn barrel-continuation** (`d1781b30`) — `enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}` (river leg dropped, measured −EV), H2 off. +3–12 bb/100 vs realistic opponents.
