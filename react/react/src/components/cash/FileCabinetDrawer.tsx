@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Search } from 'lucide-react';
 import { getFileCabinet } from './api';
 import type { FileCabinetPerson } from './types';
 import { logger } from '../../utils/logger';
@@ -139,6 +140,7 @@ export function FileCabinetDrawer({
   const [dossiersUnlocked, setDossiersUnlocked] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sort, setSort] = useState<SortKey>('most_played');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -158,7 +160,13 @@ export function FileCabinetDrawer({
     if (isOpen) load();
   }, [isOpen, refreshTick, load]);
 
-  const sorted = useMemo(() => sortPeople(people, sort), [people, sort]);
+  const sorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const matched = q
+      ? people.filter((p) => p.name.toLowerCase().includes(q))
+      : people;
+    return sortPeople(matched, sort);
+  }, [people, sort, search]);
 
   if (!isOpen) return null;
 
@@ -203,6 +211,29 @@ export function FileCabinetDrawer({
         </header>
 
         {people.length > 0 && (
+          <div className="archive__search">
+            <Search size={13} aria-hidden="true" className="archive__search-icon" />
+            <input
+              type="text"
+              className="archive__search-input"
+              placeholder="Search the files by name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="archive__search-clear"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
+        {people.length > 0 && (
           <div className="archive__index">
             <span className="archive__index-label">FILED BY</span>
             <div className="archive__index-tabs">
@@ -242,6 +273,11 @@ export function FileCabinetDrawer({
                 share builds a file on the table.
               </p>
             </div>
+          )}
+          {people.length > 0 && sorted.length === 0 && (
+            <p className="archive__no-match">
+              No files matching “{search.trim()}”.
+            </p>
           )}
         </div>
       </div>

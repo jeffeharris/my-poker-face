@@ -489,3 +489,58 @@
 .cash-entry__archive-tab svg {
   color: #6b4e1b;
 }
+
+/* ── Search: a typed query line on the paper ────────────────────── */
+.archive__search {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 5px 4px 6px;
+  border-bottom: 1.5px solid var(--gold-leaf);
+}
+.archive__search-icon {
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+.archive__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.archive__search-input::placeholder {
+  color: var(--ink-faint);
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+.archive__search-clear {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: 'Bodoni Moda', serif;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-faint);
+  padding: 0 2px 2px;
+}
+.archive__search-clear:hover {
+  color: var(--crimson);
+}
+
+.archive__no-match {
+  text-align: center;
+  padding: 1.6rem 1rem;
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
