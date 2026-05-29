@@ -93,8 +93,15 @@ class TestBotTypeDispatch(unittest.TestCase):
         for patcher in self._route_patchers:
             patcher.start()
 
+        # Unique user id per test: PRH-41 keys the rate limiter per authenticated
+        # user, and this suite POSTs /api/new-game (10/hr) many times — a shared
+        # id would accumulate into one bucket and 429. A per-test id gives each
+        # its own empty bucket.
         mock_auth = unittest.mock.MagicMock()
-        mock_auth.get_current_user.return_value = {'id': 'test-user-1', 'name': 'TestUser'}
+        mock_auth.get_current_user.return_value = {
+            'id': f'test-user-{self.id()}',
+            'name': 'TestUser',
+        }
         self._auth_patcher = patch('flask_app.extensions.auth_manager', mock_auth)
         self._auth_patcher.start()
 

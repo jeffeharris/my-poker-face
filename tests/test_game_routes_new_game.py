@@ -93,9 +93,20 @@ class TestNewGameDuplicatePlayerName(unittest.TestCase):
         os.unlink(self.test_db.name)
 
     def _mock_auth(self):
-        """Return a patch that provides a fake authenticated user."""
+        """Return a patch that provides a fake authenticated user.
+
+        The user id is unique per test: PRH-41 keys the rate limiter per
+        authenticated user, so a shared id would let sibling suites in an xdist
+        worker fill the `user:<id>` new-game bucket (10/hr) and this test would
+        429 instead of asserting its real status. A per-test id gives each test
+        its own empty bucket (the unique REMOTE_ADDR below covers the IP fallback,
+        and setUp also resets the limiter — this is the belt-and-suspenders that
+        survives an unreliable reset under xdist)."""
         mock_auth = unittest.mock.MagicMock()
-        mock_auth.get_current_user.return_value = {'id': 'test-user-1', 'name': 'TestUser'}
+        mock_auth.get_current_user.return_value = {
+            'id': f'test-user-{self.id()}',
+            'name': 'TestUser',
+        }
         return patch('flask_app.extensions.auth_manager', mock_auth)
 
     def test_duplicate_player_name_returns_400(self):
