@@ -7,22 +7,41 @@ last_updated: 2026-05-29
 
 # Run-Out Reveal Director (mobile)
 
-> **Status (2026-05-29) — Phase 1 shipped, Phase 2 not started.** Work lives on branch
-> `career-mode-v0_1`, **local and unpushed**, with `development` merged in. Relevant commits
-> (newest first):
+> **Status (2026-05-29) — Phase 1 shipped; Phase 2 per-card director shipped (option B); §E deferred.**
+> Work lives on branch `career-mode-v0_1`, **local and unpushed**, with `development` merged in.
+> Relevant commits (newest first):
+> - `abb53197` — **Phase 2: `useRunoutDirector`** — per-card avatar reactions on a client-owned
+>   beat + `runout_schedule` emit + socket-layer suppression of backend street reactions while
+>   directing. 8 hook tests.
+> - `83351e12` — per-card reaction **schedule** (`runout_reactions.py` `steps` + `runout_schedule_payload`)
+>   + 5 unit tests. The foundational backend input.
 > - `39a1f060` — sequential reveal cascade (per-card + per-opponent) + pre-flop reactions as
 >   their own beat + the dead `animation_sleep` removed on the reveal step + this doc's §D/§E.
 > - `b06371d4` — Phase 1 staggered reveal + this design note.
 > - `f910026b` — merge of `development` (brings `useInterhandDirector` + `interhandTiming.ts`).
-> - `11f1e414` — run-out reaction-delivery fix (`is_reaction`) + reveal-hold tune
->   (`config.RUNOUT_REVEAL_HOLD`) + `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`.
+> - `11f1e414` — run-out reaction-delivery fix (`is_reaction`) + reveal-hold tune.
 >
-> **Phase 1 is street-granular** (reactions at FLOP/TURN/RIVER boundaries). **Phase 2** (this
-> doc) is the client-owned director: per-card reactions (§D) and the human hole-card "commit"
-> animation (§E). **Two calls to make before building Phase 2:** (1) reconnection — persist
-> the schedule for resync vs. accept a silent skip; (2) §E's animation-variant set and
-> equity→variant thresholds. Companion doc: `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`
-> (the three emotion tracks this fits into).
+> **What shipped in Phase 2 — and why it diverged from §A/§C below.** The build picked
+> **option B** (see the new "Backend can't branch by client" note under §C). The crux: mobile vs
+> desktop is a **client-side** viewport choice (`ResponsiveGameLayout`), the `progress_game`
+> run-out loop is **client-agnostic**, and desktop's `PokerTable` has **no** director — so
+> "retire backend pacing for mobile, keep it for desktop" (the original §A/§C) is not
+> expressible from one loop. Option B keeps **one** backend path: the per-street states + sleeps
+> + reactions stay (desktop unchanged), and the backend *additionally* emits one
+> `runout_schedule` (reactions + per-card timing, no cards). Mobile's `useRunoutDirector` plays
+> the **per-card reactions (§D)** on a client beat aligned to the card cascade and suppresses the
+> backend's street-level reactions while it runs. **Because the board stays backend-paced, the
+> heavy §C machinery — board freeze, GATED-buffer bypass, `beginShuffle` gating, reconnect
+> persistence — was NOT needed** (those existed to support retiring pacing). The reconnect and
+> info-leak open questions are thereby **moot** (cards still arrive per-street from the backend;
+> nothing future-street ever ships early).
+>
+> **Honest limitation:** the director is bounded-below by backend pace *between* streets; the
+> real win is *within* the street (the per-card flop cascade + reactions on their own beats).
+> Full clock independence would need a client-type flag (rejected — duplicate paths) or retiring
+> pacing for all (breaks desktop). **Still deferred: §E** (human hole-card "commit" animation),
+> and its two open calls (variant set + equity→variant thresholds). Companion doc:
+> `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`.
 
 > **Reviewed 2026-05-29** (feature-dev:code-reviewer, against the live code). The
 > review surfaced two **Critical** issues now folded in below: (a) the existing
@@ -108,6 +127,17 @@ emission, computed at the hole-card reveal:
   separate frozen hold.
 
 ### C. The coordination seam (the crux)
+
+> **⚠️ Build-time finding (2026-05-29): the backend can't branch by client.**
+> The two tensions below were framed assuming the backend could "retire pacing for mobile,
+> keep it for desktop." It can't: mobile vs desktop is a **client-side** viewport decision
+> (`ResponsiveGameLayout` → `useViewport().isMobile`), the `progress_game` run-out loop is
+> **client-agnostic**, and both clients share `usePokerGame`'s GATED buffer. Desktop's
+> `PokerTable` has **no** director. So the shipped build chose **option B**: keep one backend
+> path (states + sleeps + reactions, desktop unchanged) and *add* a `runout_schedule`; mobile
+> overlays a **reaction-timing-only** director. Under option B the board stays backend-paced, so
+> **neither tension below actually arises** — they only mattered if the backend settled
+> immediately. Kept verbatim for the record / a future "full client-owned timeline" phase.
 
 Two tensions, **resolved per review**:
 
@@ -282,6 +312,24 @@ still backend-paced (so the "visible win" was smaller than advertised).
 - `b06371d4` — staggered, sequential hole-card reveal (per-card + per-opponent cascade,
   CSS + a `--reveal-index`), and the design note.
 - `11f1e414` — reaction-delivery fix (`is_reaction`) + reveal-hold tune.
-- (uncommitted at time of writing) backend pre-flop pacing: skip the dead `animation_sleep`
-  on the reveal step; surface pre-flop (`INITIAL`) reactions as their own beat after the
-  cards settle. Still **street-granular** — per-card reactions (§D) are the Phase 2 upgrade.
+- `39a1f060` — backend pre-flop pacing: skip the dead `animation_sleep` on the reveal step;
+  surface pre-flop (`INITIAL`) reactions as their own beat after the cards settle. Still
+  **street-granular** — per-card reactions (§D) are the Phase 2 upgrade.
+
+## Shipped (Phase 2 — per-card reaction director, option B, on `career-mode-v0_1`)
+
+- `83351e12` — **per-card schedule.** `compute_runout_reactions` now emits an ordered per-card
+  `steps` list (INITIAL → flop₁ → flop₂ → flop₃ → TURN → RIVER → SHOWDOWN) alongside the
+  unchanged street-granular `reactions_by_phase`; `runout_schedule_payload()` serializes
+  reactions + timing only (no board cards). `tests/test_runout_reactions.py` (5 tests).
+- `abb53197` — **`useRunoutDirector`.** Backend emits `runout_schedule` once at the all-in
+  reveal. Mobile walks it, applying each card's reaction on a client beat aligned to the
+  community-card cascade (`constants/runoutTiming.ts`); a reaction face is just
+  `/api/avatar/{name}/{emotion}`, so the director rewrites the URL's emotion segment. While
+  directing, a store flag (`runoutDirectorActive`) makes the socket layer drop the backend's
+  street-level `is_reaction` updates so they can't clobber the per-card faces. Desktop never
+  sets the flag → unchanged. `__tests__/mobile/useRunoutDirector.test.tsx` (8 tests).
+
+**Not built (deferred):** §E human hole-card "commit"; the "full client-owned timeline" (board
+freeze / `beginShuffle` gating / reconnect persistence) — see the §C build-time finding for why
+option B made those unnecessary rather than merely deferred.

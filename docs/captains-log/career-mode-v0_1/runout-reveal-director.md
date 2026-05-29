@@ -64,4 +64,37 @@ the holds. Full clock independence would need a client-type flag (rejected) or
 retiring pacing for all (breaks desktop). Worth revisiting only if the
 backend-paced street cadence feels wrong once the per-card cascade is in.
 
-(build notes to follow as I go)
+**What I built (option B, two commits).** `83351e12` — restructured
+`compute_runout_reactions` to walk the flop card-by-card and emit an ordered
+`steps` list, keeping `reactions_by_phase` byte-identical for the unchanged
+backend/desktop path; added `runout_schedule_payload` (reactions + timing, never
+a card). Tested with a mocked equity calculator so the per-card branching is
+deterministic (no eval7 MC variance): the headline assertion is the one in
+`test_legacy_street_view_collapses_the_flop` — a mid-flop swing the per-card
+steps capture is *correctly absent* from the street-level view, which is the
+whole point of going per-card. `abb53197` — `useRunoutDirector`, the
+`runout_schedule` emit, and the socket-layer suppression.
+
+**The nicest discovery.** I worried the emotion-only schedule wasn't enough to
+render a reaction face — faces are per-emotion backend images, and the client
+can't synthesize them. Then I found the existing code already rewrites the
+avatar URL's emotion segment client-side for the "thinking" highlight
+(`/api/avatar/{name}/{emotion}`, 404→fallback). So the director renders any
+reaction by the same trick — no avatar URLs in the payload, no backend change.
+That collapsed a whole sub-problem.
+
+**Why most of the doc's §C machinery evaporated.** I'd braced for the scary part
+— freezing `communityCards`, bypassing the GATED card buffer, gating
+`beginShuffle`, persisting the schedule for reconnect. Under option B none of it
+is needed: the board stays backend-paced, so the buffer/board/result-beat are
+untouched and the reconnect + info-leak open questions are simply moot (cards
+still arrive per-street; nothing future ships early). The one real coordination
+seam is the `runoutDirectorActive` flag so mobile's finer faces aren't clobbered
+by the backend's street-level reaction emits (which still fire for desktop).
+
+**State at end of session.** Green: 5 backend reaction tests, 8 director hook
+tests, all 160 mobile vitest, tsc clean, eslint clean on touched files. Backend
+imports verified. Not yet manually run in the app (next: an all-in to eyeball
+the per-card cascade timing — `runoutTiming.ts` offsets are educated guesses
+aligned to the 1.0s/card community cascade and will likely want a tuning pass).
+§E (human hole-card commit) untouched, as scoped.
