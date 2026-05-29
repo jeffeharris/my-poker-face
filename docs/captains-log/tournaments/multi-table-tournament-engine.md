@@ -224,3 +224,31 @@ artifacts removed, not committed.
 "The Circuit," so I renamed the multi-table lobby to "The Main Event" and hung a
 "Main Event (Beta)" entry off the existing single-table tournament menu rather
 than inventing a new top-level card — least-surprise wiring.
+
+## 2026-05-29 (night) — starting 2c by de-risking, not by diving in
+
+The live bridge is the hardest, highest-blast-radius step — it edits the
+production `game_handler`, the same hand-boundary machinery cash and single-table
+games run through. This project's scar tissue (ghost seats, cold-load divergence)
+is almost all from that surface. So I deliberately started 2c by building and
+testing the *brain* in isolation rather than rushing edits into the handler:
+
+- `apply_live_round(human_table_result)` on the session — the live analog of
+  `play_round`, where the human's hand is already played by the real game and we
+  just fold the result in, then pace the AI tables and settle. `_round` grew a
+  `human_result` branch so the headless and live paths share one settle/rebalance
+  body (no second implementation to drift).
+- `tournament_handler.coordinate_after_human_hand` — a *pure* classifier:
+  continue / relocated / human_out / complete. And `human_table_seat_specs` — the
+  seat contract the builder and the continue-sync will both consume. Pure means I
+  could unit-test relocation detection, the human-out guards, and conservation
+  across a whole simulated event with a real session and plain dicts — 16 tests,
+  no Flask, no browser.
+
+What I intentionally did **not** do yet: touch `handle_evaluating_hand_phase`, or
+write `_build_tournament_game`. Those need an *in-process integration test* (build
+a tournament game, drive human actions through `progress_game`, assert the
+boundary coordinates correctly) — not a browser, which this project can't drive
+headlessly anyway. Wiring them blind into the production handler and hoping is how
+the ghost-seat bugs got written; the tested brain + the seat contract are the
+foundation that makes the wiring safe to add next.
