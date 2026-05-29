@@ -104,6 +104,22 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         risk_scale=1.2,
         ego_fold_penalty=0.40,
     ),
+    # Weak fish: the weakest realistic player (the $2-tier trickle). Same passive
+    # caller shape as calling_station but pushed to the believable floor — the
+    # widest entry (weak_station table, via ARCHETYPE_WIDTH_TABLE), the strongest
+    # can't-fold (ego_fold_penalty 0.70), maximally passive (aggression_scale 1.5
+    # amplifies the negative agg_dev → raise→call), and TWO −EV leaks baked in
+    # (sticky pays off river value; over_bluff spews). The per-action cap + the
+    # math/defense floors keep even this realistic (a drunk tourist, not a bot).
+    'weak_fish': DeviationProfile(
+        max_kl=0.9,
+        max_per_action_shift=0.45,
+        aggression_scale=1.5,
+        looseness_scale=1.0,
+        risk_scale=0.3,
+        ego_fold_penalty=0.70,
+        spot_tendencies=(('sticky', 0.85), ('over_bluff', 0.55)),
+    ),
     # Maniac: the wildest — loose table + the highest aggression so its AF tops
     # the field (its VPIP shares the loose envelope with LAG; the wildness shows
     # in aggression). Cap held at 0.35 (the priced ceiling); aggression_scale
@@ -136,6 +152,12 @@ ARCHETYPE_WIDTH_TABLE: Dict[str, Optional[str]] = {
     'calling_station': 'preflop_100bb_6max_station.json',
     'lag': 'preflop_100bb_6max_loose_mid.json',  # between TAG and Maniac
     'maniac': 'preflop_100bb_6max_loose.json',
+    # weak_fish: the weakest realistic player (the $2-tier trickle). Same passive
+    # caller shape as calling_station but on the wider weak_station table (flats
+    # almost anything vs a raise) + a heavier can't-fold/pays-off loadout. NOT
+    # reachable via anchor classification (select_deviation_profile_key) — it's an
+    # explicit loadout assigned to $2 fish. See FISH_AS_CALLING_STATION.md.
+    'weak_fish': 'preflop_100bb_6max_weak_station.json',
 }
 
 

@@ -373,3 +373,40 @@ whale's absolute cycling already dwarfs the small calling-station fish (40k+ cli
 −68 bb/100 small fish), confirming stakes×rate is the lever. Complementary future channel:
 tournament buy-ins (tourists pad low-tier prize pools → cycle to winners) on the tournaments
 branch — see [[project_casino_economy_cycling]] in memory.
+
+### Weak $2 fish + the depth ceiling (2026-05-29)
+
+Built a `weak_fish` loadout for the $2 tier: `weak_station` table (station RFI + vs_open
+flat-call keep_fold 0.10 → flats ~anything with non-fold mass; pure trash still folds) +
+a `weak_fish` deviation profile (max passive aggression_scale 1.5, ego_fold_penalty 0.70,
+spot_tendencies sticky 0.85 + over_bluff 0.55). `weak_fish` is an explicit LOADOUT, not
+anchor-reachable — assign it to $2 fish.
+
+**Depth-precedence bug fixed in passing (important):** `_select_preflop_table` had the depth
+charts OVERRIDING the archetype width tables, so at the ~40bb casino buy-in the station table
+was being **silently bypassed** (`6max@50bb` returned, not `6max:calling_station`) — the
+fish-switch wasn't changing fish behavior at casino stakes in production. Flipped it: a
+width-tier archetype's table now wins at EVERY depth (its looseness is its identity; the
+math/defense floors handle pot-commitment shallow); TAG/Baseline (no width table) keep depth
+charts. Verified + 1368 strategy / 17 depth tests green. (full_sim never loaded depth tables,
+so the earlier economy/whale sims DID use the station table — but live prod would have bypassed
+it; now both agree.)
+
+**Drain @ 40bb casino depth (vs TAG grinders, 4500 hands):**
+
+| fish | VPIP/PFR | AF | bb/100 @40bb |
+|---|---|---|---|
+| RuleFish (old caricature) | 98/0 | 0.00 | −115 |
+| Calling Station | 40/16 | 0.31 | −9.6 |
+| WeakFish | 46/16 | 0.28 | −19.0 |
+
+**The big finding: the station bleeds −9.6 @40bb vs −68 @100bb — 7× less.** Shallow stacks
+cap the multi-street pay-off leak (low SPR → all-in-or-fold, not death-by-a-thousand-calls).
+The old rule fish's −115 only survived shallow because it's an unrealistic 98/0 call-everything
+caricature. **So realism vs bottom-tier drain is in tension BECAUSE of the 40bb buy-in, not the
+fish design — stack depth is the dominant cycling lever, not fish weakness** (which is why the
+deep-bankroll $200 whale cycled well). The weak fish doubles the realistic bottom trickle
+(−19 vs −9.6); for a *stronger* bottom trickle the highest-leverage knob is a **deeper buy-in
+at the bottom tables** (a realistic fish at 100bb drains −68, 7×), not a weaker fish. Perf
+bonus: the tiered fish is also ~10× cheaper per decision than the rule fish (table lookup vs
+`calculate_quick_equity`'s 300-iteration Monte Carlo on every postflop decision).

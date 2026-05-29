@@ -234,6 +234,23 @@ def build_station(base: dict) -> dict:
     return data
 
 
+def build_weak_station(base: dict) -> dict:
+    """The weakest realistic fish (the $2-tier trickle): the station shape pushed
+    to the believable floor — same tight-ish RFI (still not a wild opener) but
+    flatting almost everything that has any non-fold mass vs a raise (keep only
+    10% of the fold). Pure-fold trash (72o etc.) STAYS folded — the base chart's
+    zeros + the math/defense floors are what keep even this a 'drunk tourist who
+    can't fold,' not a call-anything bot. Pairs with the `weak_fish` deviation
+    profile (sticky + over_bluff + can't-fold). See docs/plans/FISH_AS_CALLING_STATION.md.
+    """
+    data = copy.deepcopy(base)
+    with open(_TIGHT) as f:
+        tight = json.load(f)
+    data['rfi'] = copy.deepcopy(tight['rfi'])
+    _transform_facing(data, _station_facing, {'vs_open': 0.10, 'vs_3bet': 0.35, 'vs_4bet': 0.65})
+    return data
+
+
 def _write(data: dict, name: str):
     out = os.path.join(_DATA_DIR, name)
     with open(out, 'w') as f:
@@ -256,6 +273,8 @@ def main():
     _write(build_loose_mid(base), 'preflop_100bb_6max_loose_mid.json')
     print("=== STATION (Calling Station) ===")
     _write(build_station(base), 'preflop_100bb_6max_station.json')
+    print("=== WEAK STATION ($2 weak fish) ===")
+    _write(build_weak_station(base), 'preflop_100bb_6max_weak_station.json')
 
 
 if __name__ == '__main__':
