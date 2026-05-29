@@ -333,6 +333,42 @@ class TestDispatchAppliesEmotionalReaction:
         )
         assert (psych.confidence, psych.composure, psych.energy) == snapshot
 
+    # Flattery rides vanity, not the jab/praise axis — valence flips per target.
+    VAIN = {"ego": 0.86, "adaptation_bias": 0.5}  # proud → laps it up
+    PERCEPTIVE = {"ego": 0.42, "adaptation_bias": 0.7}  # reads the ploy → backfires
+    OBLIVIOUS = {"ego": 0.40, "adaptation_bias": 0.30}  # unmoved
+
+    def test_flatter_charms_a_vain_target(self, opp_manager, repo):
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.VAIN)
+        before = psych.confidence
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="flatter", intensity=None
+        )
+        assert psych.confidence > before  # vain → flattered
+        # FLATTERY_LANDED: target warms to the flatterer (mirror likability up).
+        mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+        assert mirror is not None and mirror.likability > 0.5
+
+    def test_flatter_backfires_on_a_perceptive_target(self, opp_manager, repo):
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.PERCEPTIVE)
+        before = psych.composure
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="flatter", intensity=None
+        )
+        assert psych.composure < before  # sees through → bristles
+        # FLATTERY_BACKFIRED: target respects the manipulator less (mirror respect down).
+        mirror = repo.load_raw_relationship_state("bob_pid", "alice_pid")
+        assert mirror is not None and mirror.respect < 0.5
+
+    def test_flatter_washes_over_the_unmoved(self, opp_manager, repo):
+        game_data, psych = self._ai_game_data(opp_manager, "bob", self.OBLIVIOUS)
+        snapshot = (psych.confidence, psych.composure, psych.energy)
+        dispatch_chat_relationship_event(
+            game_data, "alice", ["bob"], tone="flatter", intensity=None
+        )
+        assert (psych.confidence, psych.composure, psych.energy) == snapshot  # no axis move
+        assert repo.load_raw_relationship_state("bob_pid", "alice_pid") is None  # no event
+
 
 class TestBroadcastFanOut:
     """A tone with no specific target (gloat after a win, or a 'to the

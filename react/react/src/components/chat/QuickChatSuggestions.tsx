@@ -58,15 +58,16 @@ interface ToneOption {
   label: string;
 }
 
-// NOTE: 'bait' is intentionally parked (not shown) — swapped out for
-// 'props'. Its type, tone→event mapping, and quick_chat_bait.yaml are all
-// kept so it can be restored by re-adding the entry below.
+// NOTE: 'bait' (→ 'props') and 'bluff' (→ 'flatter') are intentionally parked
+// (not shown). Their ChatTone entries, tone→event mappings, and YAML prompts
+// (quick_chat_bait.yaml / quick_chat_bluff.yaml) are all kept, so either is
+// restored by re-adding its entry below.
 const TONE_OPTIONS: ToneOption[] = [
   { id: 'tilt', icon: Flame, label: 'Tilt' },
   { id: 'props', icon: Award, label: 'Props' },
   { id: 'needle', icon: CircleDot, label: 'Needle' },
   { id: 'goad', icon: Zap, label: 'Goad' },
-  { id: 'bluff', icon: Sparkles, label: 'Bluff' },
+  { id: 'flatter', icon: Sparkles, label: 'Flatter' },
   { id: 'befriend', icon: Handshake, label: 'Befriend' },
 ];
 

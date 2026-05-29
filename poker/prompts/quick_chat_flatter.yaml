@@ -1,0 +1,24 @@
+name: quick_chat_flatter
+version: 1.0.0
+sections:
+  instruction: |-
+    Write 2 messages for {player_name} to say to {target_player} at a poker table.
+
+    GOAL: Flatter them. Lay it on thick — gushing, over-the-top praise of {target_first_name}'s skill, presence, or play. This is buttering-up, not sincere respect: a little too much, angling to charm them (or soften them up). A vain target eats it up; a sharp one will smell the ploy.
+
+    CONTEXT:
+    {context_str}
+    {chat_context}
+
+    {length_guidance}
+    {intensity_guidance}
+
+    EXAMPLES:
+    - "Honestly {target_first_name}, you're the best at this table by a mile."
+    - "I could watch you play all night — pure artistry."
+    - "A legend. Genuinely an honor to lose chips to you."
+    - "You've got a gift, {target_first_name}. The rest of us are just visiting."
+
+    Be EFFUSIVE and a touch much. Praise the person, not just one hand. Keep it charming, not sarcastic.
+
+    Return JSON: {{"suggestions": [{{"text": "...", "tone": "flatter"}}, {{"text": "...", "tone": "flatter"}}], "targetPlayer": "{target_player}"}}

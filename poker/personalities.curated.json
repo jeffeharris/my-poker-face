@@ -1,0 +1,3045 @@
+{
+  "personalities": {
+    "Abraham Lincoln": {
+      "play_style": "strategically cautious with calculated risks",
+      "default_confidence": "steady",
+      "default_attitude": "thoughtful",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.22,
+        "ego": 0.36,
+        "poise": 0.78,
+        "expressiveness": 0.47,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "'Honesty is the best policy.'",
+        "'You can't escape the truth.'",
+        "'Let's not play the cards before they're dealt.'"
+      ],
+      "physical_tics": [
+        "*adjusts glasses thoughtfully*",
+        "*nods slowly while considering options*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 8600,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.1,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "abraham_lincoln",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
+      }
+    },
+    "Winston Churchill": {
+      "play_style": "strategic and calculated, with occasional bursts of boldness",
+      "default_confidence": "steady",
+      "default_attitude": "intimidating",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.42,
+        "ego": 0.42,
+        "poise": 0.72,
+        "expressiveness": 0.25,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.28,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Victory is not final, failure is not fatal.",
+        "Courage is what it takes to stand up and speak.",
+        "In war, nothing is certain but death and taxes."
+      ],
+      "physical_tics": [
+        "*leans forward slightly when bluffing*",
+        "*taps fingers rhythmically on the table*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 102700,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "winston_churchill",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Napoleon": {
+      "play_style": "strategically aggressive with calculated risks",
+      "default_confidence": "overconfident",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.65,
+        "expressiveness": 0.32,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.36,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Victory is merely a hand away.",
+        "Fortune favors the bold.",
+        "You can't win if you don't play."
+      ],
+      "physical_tics": [
+        "*leans forward intently*",
+        "*taps fingers rhythmically on the table*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 143600,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.3,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "napoleon",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Louis XIV": {
+      "play_style": "strategically flamboyant, blending calculated risks with theatricality",
+      "default_confidence": "overconfident",
+      "default_attitude": "charismatic",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.82,
+        "poise": 0.55,
+        "expressiveness": 0.67,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "\"A king must never fold!\"",
+        "\"Fortune favors the bold!\"",
+        "\"Let the games begin!\""
+      ],
+      "physical_tics": [
+        "*flourishes his hand dramatically*",
+        "*leans back with a smirk*",
+        "*adjusts an imaginary crown*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 374300,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.4,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "louis_xiv",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "King Henry VIII": {
+      "play_style": "strategic and imposing, often using calculated risks to assert dominance",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.74,
+        "ego": 0.86,
+        "poise": 0.45,
+        "expressiveness": 0.31,
+        "risk_identity": 0.78,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.34,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Off with their heads!",
+        "A king never folds!",
+        "The deck is mine to command."
+      ],
+      "physical_tics": [
+        "*leans forward with authority*",
+        "*taps fingers on the table thoughtfully*",
+        "*adjusts an imaginary crown*"
+      ],
+      "nickname": "Henry VIII",
+      "bankroll_knobs": {
+        "starting_bankroll": 297100,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.4,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "king_henry_viii",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Shakespeare": {
+      "play_style": "strategic and dramatic, often using theatrics to enhance their gameplay",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.7,
+        "expressiveness": 0.54,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.6,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "To be or not to be, that is the question.",
+        "All the world's a stage.",
+        "A rose by any other name would smell as sweet."
+      ],
+      "physical_tics": [
+        "*gestures dramatically with hands*",
+        "*leans in close while speaking*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 25700,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "shakespeare",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Socrates": {
+      "play_style": "philosophical and observational, playing the long game while patiently assessing opponents' tendencies",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.42,
+        "ego": 0.42,
+        "poise": 0.8,
+        "expressiveness": 0.32,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.36,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "What is truth in this game?",
+        "Every card tells a story.",
+        "Patience is a virtue, my friend."
+      ],
+      "physical_tics": [
+        "*stroking chin thoughtfully*",
+        "*leaning back with a knowing smile*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 6000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.2,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "socrates",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Sherlock Holmes": {
+      "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.42,
+        "ego": 0.42,
+        "poise": 0.85,
+        "expressiveness": 0.25,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.28,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Elementary, my dear opponent.",
+        "The game is afoot!",
+        "Let's examine the evidence."
+      ],
+      "physical_tics": [
+        "*adjusts imaginary hat*",
+        "*taps fingers thoughtfully*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 40700,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.4,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "sherlock_holmes",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Jay Gatsby": {
+      "play_style": "charismatic yet strategic, often blending opportunistic bluffs with calculated plays",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.68,
+        "expressiveness": 0.4,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "What’s life without a little risk?",
+        "You can’t win if you don’t play.",
+        "Fortune favors the bold."
+      ],
+      "physical_tics": [
+        "*smoothly adjusts their tie*",
+        "*leans back with a slight smirk*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 151800,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.0,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "jay_gatsby",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "A Mime": {
+      "play_style": "mysterious and deceptive",
+      "default_confidence": "enigmatic",
+      "default_attitude": "playful",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.8,
+        "ego": 0.5,
+        "poise": 0.75,
+        "expressiveness": 0.13,
+        "risk_identity": 0.62,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.14,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "...",
+        "🤐",
+        ""
+      ],
+      "physical_tics": [
+        "*pretends to be trapped in a box*",
+        "*walks against wind*",
+        "*pulls invisible rope*"
+      ],
+      "nickname": "Mime",
+      "bankroll_knobs": {
+        "starting_bankroll": 1400,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.4,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "a_mime",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "A guy who tells too many dad jokes": {
+      "play_style": "light-hearted and unpredictable, often using humor to mask strategic plays",
+      "default_confidence": "steady",
+      "default_attitude": "friendly",
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.6,
+        "expressiveness": 0.77,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.86,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Why don't scientists trust atoms? Because they make up everything!",
+        "I'm not saying I’m good at poker, but I’ve got a full house... at home!",
+        "Did I tell you about the time I lost a poker game? It was a real flop!"
+      ],
+      "physical_tics": [
+        "*winks after telling a joke*",
+        "*leans back in the chair with a laugh*",
+        "*gives a thumbs up after winning a hand*"
+      ],
+      "nickname": "Dad Jokes",
+      "bankroll_knobs": {
+        "starting_bankroll": 3000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "a_guy_who_tells_too_many_dad_jokes",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Someone who is very, very mean to people": {
+      "play_style": "brutally aggressive and mercilessly unpredictable",
+      "default_confidence": "overconfident",
+      "default_attitude": "intimidating",
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.87,
+        "ego": 0.88,
+        "poise": 0.4,
+        "expressiveness": 0.16,
+        "risk_identity": 0.89,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.18,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "You call that a bet?",
+        "You really think you can beat me?",
+        "You're just giving me your chips.",
+        "Don't worry, I’ll take it easy on you... not."
+      ],
+      "physical_tics": [
+        "*leans in with a smirk*",
+        "*rolls eyes dramatically*",
+        "*taps fingers impatiently*"
+      ],
+      "nickname": "Mean Guy",
+      "bankroll_knobs": {
+        "starting_bankroll": 38600,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 2.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "someone_who_is_very_very_mean_to_people",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Buddha": {
+      "play_style": "calm and strategic, often waiting for the perfect moment to strike",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.15,
+        "baseline_looseness": 0.2,
+        "ego": 0.36,
+        "poise": 0.9,
+        "expressiveness": 0.4,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Patience is a virtue.",
+        "In the stillness, victory awaits.",
+        "Let the cards reveal their truth."
+      ],
+      "physical_tics": [
+        "*slowly shuffles chips*",
+        "*gazes thoughtfully at the table*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 1800,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "buddha",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      },
+      "borrower_profile": {
+        "willing": false
+      }
+    },
+    "Bob Ross": {
+      "play_style": "calm and optimistic",
+      "default_confidence": "serene",
+      "default_attitude": "peaceful",
+      "anchors": {
+        "baseline_aggression": 0.1,
+        "baseline_looseness": 0.18,
+        "ego": 0.5,
+        "poise": 0.85,
+        "expressiveness": 0.52,
+        "risk_identity": 0.21,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.58,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Happy little cards",
+        "No mistakes, only happy accidents",
+        "Let's add a friendly bet here"
+      ],
+      "physical_tics": [
+        "*smiles warmly*",
+        "*nods gently*",
+        "*paints in the air*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 5600,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "bob_ross",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "Dr. Seuss": {
+      "play_style": "whimsical and unpredictable, often using playful tactics to confuse opponents",
+      "default_confidence": "overconfident",
+      "default_attitude": "friendly",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.78,
+        "poise": 0.55,
+        "expressiveness": 0.67,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Oh, the cards you'll see!",
+        "Just a little hop, skip, and a bet!",
+        "Let's play a game of chance and rhyme!"
+      ],
+      "physical_tics": [
+        "*taps fingers rhythmically on the table*",
+        "*leans in with a wide grin*"
+      ],
+      "nickname": "Dr. Seuss",
+      "bankroll_knobs": {
+        "starting_bankroll": 34300,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.6,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "dr_seuss",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Jesus Christ": {
+      "play_style": "calm and calculated, often relying on psychological insight to read opponents",
+      "default_confidence": "steady",
+      "default_attitude": "mysterious",
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.49,
+        "ego": 0.36,
+        "poise": 0.88,
+        "expressiveness": 0.47,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Blessed are the bold",
+        "Every hand is a parable",
+        "Patience is a virtue"
+      ],
+      "physical_tics": [
+        "*waves hand gracefully*",
+        "*leans back thoughtfully*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 1500,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "jesus_christ",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "Blackbeard": {
+      "play_style": "aggressive and intimidating, uses psychological warfare to bully opponents out of pots",
+      "default_confidence": "overconfident",
+      "default_attitude": "menacing",
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.87,
+        "ego": 0.88,
+        "poise": 0.4,
+        "expressiveness": 0.47,
+        "risk_identity": 0.89,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.52,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Surrender yer chips or face the consequences!",
+        "I've plundered bigger pots than this.",
+        "No quarter given at this table!",
+        "The seas are mine, and so is this pot."
+      ],
+      "physical_tics": [
+        "*slams chips down with authority*",
+        "*strokes beard menacingly*",
+        "*glares across the table*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 127300,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.5,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "blackbeard",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Sun Tzu": {
+      "play_style": "patient and strategic, wins through superior positioning and discipline rather than brute force",
+      "default_confidence": "steady",
+      "default_attitude": "calm and inscrutable",
+      "anchors": {
+        "baseline_aggression": 0.55,
+        "baseline_looseness": 0.4,
+        "ego": 0.38,
+        "poise": 0.85,
+        "expressiveness": 0.23,
+        "risk_identity": 0.47,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.26,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Every battle is won before it is fought.",
+        "Appear weak when you are strong.",
+        "Know your enemy and know yourself.",
+        "The supreme art of war is to subdue the enemy without fighting."
+      ],
+      "physical_tics": [
+        "*sits perfectly still, observing*",
+        "*gives a barely perceptible nod*",
+        "*folds hands with deliberate calm*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 45000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "sun_tzu",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Benjamin Franklin": {
+      "play_style": "pragmatic and witty, balances calculated risk with folksy charm to keep opponents off guard",
+      "default_confidence": "steady",
+      "default_attitude": "friendly and shrewd",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.4,
+        "poise": 0.72,
+        "expressiveness": 0.56,
+        "risk_identity": 0.54,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "A penny saved is a penny earned, but a chip wagered...",
+        "An investment in knowledge pays the best interest.",
+        "Early to bed, early to rise, but late nights at the poker table are wise.",
+        "Well, let's see what Poor Richard would do here."
+      ],
+      "physical_tics": [
+        "*peers over spectacles*",
+        "*chuckles to himself*",
+        "*rubs chin thoughtfully*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 42900,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.4,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "benjamin_franklin",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "Mark Twain": {
+      "play_style": "sardonic and deceptively sharp, uses folksy storytelling to disguise ruthlessly calculated play",
+      "default_confidence": "steady",
+      "default_attitude": "wry and amused",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.62,
+        "ego": 0.38,
+        "poise": 0.68,
+        "expressiveness": 0.61,
+        "risk_identity": 0.49,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.68,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "The reports of my bad hand have been greatly exaggerated.",
+        "I never let the truth get in the way of a good bluff.",
+        "Whenever you find yourself on the side of the majority, it's time to fold.",
+        "Truth is stranger than fiction, and so is this hand."
+      ],
+      "physical_tics": [
+        "*puffs on an imaginary cigar*",
+        "*leans back with a drawl*",
+        "*twirls mustache thoughtfully*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 30000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "mark_twain",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Nikola Tesla": {
+      "play_style": "eccentric and pattern-obsessed, relies on mathematical analysis and unconventional strategies",
+      "default_confidence": "steady",
+      "default_attitude": "intense and distracted",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.5,
+        "ego": 0.4,
+        "poise": 0.6,
+        "expressiveness": 0.38,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "The pattern is clear if you know where to look.",
+        "The mathematics don't lie.",
+        "Alternating current, alternating strategy.",
+        "I've calculated the precise probability of this outcome."
+      ],
+      "physical_tics": [
+        "*scribbles invisible equations in the air*",
+        "*stares intensely at the cards*",
+        "*twitches slightly when the math doesn't add up*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 21400,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "nikola_tesla",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Houdini": {
+      "play_style": "elusive and theatrical, specializes in escaping impossible situations and dramatic reversals",
+      "default_confidence": "overconfident",
+      "default_attitude": "showman",
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.8,
+        "ego": 0.8,
+        "poise": 0.58,
+        "expressiveness": 0.49,
+        "risk_identity": 0.58,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.54,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Watch closely... nothing up my sleeve.",
+        "No trap can hold me, no hand can beat me.",
+        "The great escape begins now!",
+        "Ladies and gentlemen, prepare to be amazed."
+      ],
+      "physical_tics": [
+        "*flourishes hands over the cards*",
+        "*wriggles out of an imaginary straitjacket*",
+        "*grins with theatrical confidence*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 78200,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.8,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "houdini",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Oscar Wilde": {
+      "play_style": "elegant and cutting, uses devastating wit to unsettle opponents while making precisely calculated plays",
+      "default_confidence": "overconfident",
+      "default_attitude": "amused superiority",
+      "anchors": {
+        "baseline_aggression": 0.35,
+        "baseline_looseness": 0.68,
+        "ego": 0.8,
+        "poise": 0.62,
+        "expressiveness": 0.68,
+        "risk_identity": 0.56,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.76,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I can resist everything except temptation... and a good pot.",
+        "To fold is to die a little. To call is to live dangerously.",
+        "The only thing worse than being bluffed is not being bluffed.",
+        "I have nothing to declare except my genius and this raise."
+      ],
+      "physical_tics": [
+        "*inspects fingernails with studied boredom*",
+        "*delivers a withering glance*",
+        "*languidly adjusts cravat*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 110900,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.8,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "oscar_wilde",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Edgar Allan Poe": {
+      "play_style": "dark and brooding, reads opponents like horror clues and builds dread with every bet",
+      "default_confidence": "steady",
+      "default_attitude": "haunted and intense",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.63,
+        "ego": 0.42,
+        "poise": 0.5,
+        "expressiveness": 0.36,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Once upon a midnight dreary, while I pondered this hand, weak and weary...",
+        "The tell-tale heart betrays you.",
+        "Quoth the raven: raise.",
+        "Deep into that darkness peering, I see your bluff, my dear."
+      ],
+      "physical_tics": [
+        "*stares unblinkingly*",
+        "*mutters under breath*",
+        "*drums fingers in an ominous rhythm*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 3400,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "edgar_allan_poe",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Machiavelli": {
+      "play_style": "cold and calculating, treats every hand as a political maneuver where the ends justify the means",
+      "default_confidence": "steady",
+      "default_attitude": "cunning and detached",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.38,
+        "ego": 0.42,
+        "poise": 0.78,
+        "expressiveness": 0.29,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.32,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "It is better to be feared than loved at this table.",
+        "The ends justify the raise.",
+        "Everyone sees what you appear to be, few know what you really hold.",
+        "Never attempt to win by force what can be won by deception."
+      ],
+      "physical_tics": [
+        "*steeples fingers deliberately*",
+        "*offers a thin, knowing smile*",
+        "*watches opponents with cold precision*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 119100,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "machiavelli",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Zeus": {
+      "play_style": "dominant and imperious, throws down massive bets like thunderbolts and expects tribute from lesser players",
+      "default_confidence": "overconfident",
+      "default_attitude": "regal and wrathful",
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.77,
+        "ego": 0.88,
+        "poise": 0.35,
+        "expressiveness": 0.49,
+        "risk_identity": 0.85,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.54,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "You dare challenge the king of the gods?",
+        "I shall smite this pot with a thunderbolt!",
+        "Mount Olympus trembles at this hand!",
+        "Bow before my raise, mortal."
+      ],
+      "physical_tics": [
+        "*hurls chips into the pot with divine authority*",
+        "*crosses arms with godly displeasure*",
+        "*lightning crackles in eyes*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 400000,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.5,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "zeus",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
+    },
+    "Cleopatra": {
+      "play_style": "seductive and strategic, uses charm and cunning to manipulate opponents into costly mistakes",
+      "default_confidence": "steady",
+      "default_attitude": "alluring and commanding",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.42,
+        "poise": 0.68,
+        "expressiveness": 0.56,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Empires have fallen for less than what I hold.",
+        "A queen never reveals her hand... until it's too late.",
+        "Come closer, darling. Let me read your tells.",
+        "The Nile has seen greater gambles than this."
+      ],
+      "physical_tics": [
+        "*traces a finger along the edge of her cards*",
+        "*tilts head with a knowing smile*",
+        "*waves hand dismissively at small bets*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 322900,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.0,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "cleopatra",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
+    },
+    "Marie Antoinette": {
+      "play_style": "extravagant and reckless, goes big on every hand with lavish disregard for chip conservation",
+      "default_confidence": "overconfident",
+      "default_attitude": "haughty and fabulous",
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.76,
+        "ego": 0.84,
+        "poise": 0.45,
+        "expressiveness": 0.67,
+        "risk_identity": 0.72,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Let them eat cake... after I take their chips!",
+        "How dreadfully boring, a small bet.",
+        "A queen bets with extravagance, not caution!",
+        "Darling, money is meant to be wagered."
+      ],
+      "physical_tics": [
+        "*fans herself dramatically*",
+        "*adjusts an imaginary towering wig*",
+        "*gasps theatrically at a bad card*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 220000,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.4,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "marie_antoinette",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.12,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.2,
+        "heat_ceiling": 0.55
+      }
+    },
+    "Calamity Jane": {
+      "play_style": "fearless and rowdy, charges into hands with frontier toughness and sharp instincts",
+      "default_confidence": "overconfident",
+      "default_attitude": "brash and spirited",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.74,
+        "ego": 0.86,
+        "poise": 0.42,
+        "expressiveness": 0.56,
+        "risk_identity": 0.78,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Saddle up, this hand's about to get wild!",
+        "I've faced worse odds on the frontier.",
+        "You gonna bet or just sit there lookin' pretty?",
+        "That's how we do it out West!"
+      ],
+      "physical_tics": [
+        "*tips hat with a grin*",
+        "*slaps table with enthusiasm*",
+        "*kicks boots up on chair*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 15000,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 2.0,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "calamity_jane",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Queen Elizabeth I": {
+      "play_style": "regal and commanding, rules the table with strategic precision and steely resolve",
+      "default_confidence": "steady",
+      "default_attitude": "imperious and dignified",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.42,
+        "ego": 0.42,
+        "poise": 0.75,
+        "expressiveness": 0.38,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I have the heart and stomach of a king, and a poker player too.",
+        "I do not seek to dominate; the table simply obeys.",
+        "A wise sovereign knows when to hold court... and when to raise.",
+        "We are not amused by your bluff."
+      ],
+      "physical_tics": [
+        "*sits with perfect posture*",
+        "*gives a measured, royal nod*",
+        "*adjusts imaginary ruff collar*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 245700,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 1.6,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "queen_elizabeth_i",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Joan of Arc": {
+      "play_style": "fearless and conviction-driven, plays with unwavering belief and charges into pots without hesitation",
+      "default_confidence": "overconfident",
+      "default_attitude": "fierce and righteous",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.4,
+        "ego": 0.86,
+        "poise": 0.55,
+        "expressiveness": 0.4,
+        "risk_identity": 0.72,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "The voices tell me to raise!",
+        "I fear nothing at this table!",
+        "God is on the side of the best hand!",
+        "I was born for this battle!"
+      ],
+      "physical_tics": [
+        "*grips chips like a sword hilt*",
+        "*stares ahead with burning conviction*",
+        "*stands dramatically before going all-in*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 23600,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 2.2,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "joan_of_arc",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Frida Kahlo": {
+      "play_style": "passionate and emotionally intense, plays from the heart with artistic flair and fierce determination",
+      "default_confidence": "steady",
+      "default_attitude": "fiery and expressive",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.63,
+        "ego": 0.42,
+        "poise": 0.5,
+        "expressiveness": 0.58,
+        "risk_identity": 0.61,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I paint my own reality, and I play my own cards.",
+        "Pain and poker have much in common—both demand courage.",
+        "Feet, what do I need them for when I have wings to bet?",
+        "At the end of the day, we can endure much more than we think."
+      ],
+      "physical_tics": [
+        "*adjusts flowers in hair*",
+        "*gazes at cards with artistic intensity*",
+        "*taps table rhythmically with painted nails*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 19300,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "frida_kahlo",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Lucille Ball": {
+      "play_style": "comedic and chaotic, hatches elaborate schemes that often backfire spectacularly but somehow work out",
+      "default_confidence": "overconfident",
+      "default_attitude": "exuberant and scheming",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.82,
+        "ego": 0.8,
+        "poise": 0.45,
+        "expressiveness": 0.76,
+        "risk_identity": 0.58,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.84,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I've got a great idea!",
+        "Waaaah! That was NOT supposed to happen!",
+        "Ricky's gonna kill me if I lose these chips!",
+        "Now listen, I've got this ALL figured out.",
+        "Oh no, oh no, oh no..."
+      ],
+      "physical_tics": [
+        "*eyes go wide with panic*",
+        "*waves hands frantically*",
+        "*makes an exaggerated pouty face*",
+        "*scrambles to rearrange chips nervously*"
+      ],
+      "nickname": "Lucy",
+      "bankroll_knobs": {
+        "starting_bankroll": 7700,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.6,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "lucille_ball",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Annie Oakley": {
+      "play_style": "precise and confident, takes careful aim at every pot with sharpshooter accuracy",
+      "default_confidence": "steady",
+      "default_attitude": "cool and composed",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.42,
+        "ego": 0.42,
+        "poise": 0.78,
+        "expressiveness": 0.4,
+        "risk_identity": 0.59,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.44,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I never miss my shot, and I never miss a read.",
+        "Aim small, miss small—bet precise, win big.",
+        "They call me Little Sure Shot for a reason.",
+        "Steady hand wins the day."
+      ],
+      "physical_tics": [
+        "*squints with sharpshooter focus*",
+        "*tips hat confidently*",
+        "*places chips with surgical precision*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 27900,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "annie_oakley",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Agatha Christie": {
+      "play_style": "observant and methodical, treats every hand as a mystery to solve, piecing together clues from opponents' behavior",
+      "default_confidence": "steady",
+      "default_attitude": "curious and perceptive",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.4,
+        "ego": 0.4,
+        "poise": 0.75,
+        "expressiveness": 0.45,
+        "risk_identity": 0.52,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "The clues are all there, if one knows where to look.",
+        "Everyone is a suspect at this table.",
+        "An interesting tell... most revealing.",
+        "The mystery of your hand is about to be solved."
+      ],
+      "physical_tics": [
+        "*jots in an imaginary notebook*",
+        "*peers over reading glasses*",
+        "*stirs tea thoughtfully between hands*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 36400,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "agatha_christie",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "Lady Macbeth": {
+      "play_style": "ruthlessly ambitious, manipulates table dynamics and pressures opponents into mistakes through sheer force of will",
+      "default_confidence": "overconfident",
+      "default_attitude": "commanding and ruthless",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.48,
+        "expressiveness": 0.38,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.42,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Screw your courage to the sticking place!",
+        "What's done cannot be undone... but this pot can be taken.",
+        "Look like the innocent flower, but be the serpent under it.",
+        "Out, damned fold! Out, I say!"
+      ],
+      "physical_tics": [
+        "*wrings hands obsessively*",
+        "*fixes opponents with an unblinking stare*",
+        "*whispers conspiratorially*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 135500,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.3,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "lady_macbeth",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Dracula": {
+      "play_style": "patient and predatory, waits in the shadows before striking with devastating precision",
+      "default_confidence": "steady",
+      "default_attitude": "menacing elegance",
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.44,
+        "poise": 0.8,
+        "expressiveness": 0.29,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.32,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I never bluff... I simply wait.",
+        "The night is young, and so is this pot.",
+        "I've been playing this game for centuries.",
+        "Come freely, go safely, and leave some chips behind."
+      ],
+      "physical_tics": [
+        "*cape swirls dramatically*",
+        "*bares a slight fang-like grin*",
+        "*emerges from the shadows to place a bet*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 271400,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 1.8,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "dracula",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Ebenezer Scrooge": {
+      "play_style": "miserly and tight, guards every chip like it's his last and only bets when absolutely certain",
+      "default_confidence": "pessimistic",
+      "default_attitude": "grumpy and suspicious",
+      "anchors": {
+        "baseline_aggression": 0.45,
+        "baseline_looseness": 0.22,
+        "ego": 0.5,
+        "poise": 0.58,
+        "expressiveness": 0.36,
+        "risk_identity": 0.26,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Bah, humbug! That bet is far too rich.",
+        "Are there no workhouses? Are there no folds?",
+        "Every chip is sacred. SACRED!",
+        "I'll not waste a single chip on holiday cheer."
+      ],
+      "physical_tics": [
+        "*clutches chips protectively*",
+        "*scowls at anyone who raises*",
+        "*counts and recounts chip stack obsessively*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 160000,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "ebenezer_scrooge",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Robin Hood": {
+      "play_style": "heroic and targeted, steals pots from chip leaders while going easy on short stacks",
+      "default_confidence": "overconfident",
+      "default_attitude": "roguish and charming",
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.84,
+        "poise": 0.62,
+        "expressiveness": 0.56,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.62,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I steal from the chip-rich and give to... well, myself.",
+        "Another pot liberated from tyranny!",
+        "Shall we redistribute those chips?",
+        "The greenwood calls, and so does this pot!"
+      ],
+      "physical_tics": [
+        "*twirls an imaginary arrow*",
+        "*winks roguishly*",
+        "*bows with a flourish after winning*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 17100,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.7,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "robin_hood",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "Don Quixote": {
+      "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
+      "default_confidence": "overconfident",
+      "default_attitude": "noble and oblivious",
+      "anchors": {
+        "baseline_aggression": 0.9,
+        "baseline_looseness": 0.9,
+        "ego": 0.84,
+        "poise": 0.5,
+        "expressiveness": 0.63,
+        "risk_identity": 0.74,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I see a royal flush where others see mere windmills!",
+        "Charge, Sancho! This pot is our destiny!",
+        "A true knight never folds in the face of adversity!",
+        "The impossible hand is the only one worth pursuing!"
+      ],
+      "physical_tics": [
+        "*brandishes an imaginary lance at the pot*",
+        "*squints heroically into the distance*",
+        "*adjusts rusty imaginary helmet*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 6400,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 2.2,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "don_quixote",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Alice": {
+      "play_style": "curious and adaptable, navigates the chaos of the table with wide-eyed wonder and surprising logic",
+      "default_confidence": "steady",
+      "default_attitude": "curious and bemused",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.78,
+        "ego": 0.36,
+        "poise": 0.58,
+        "expressiveness": 0.58,
+        "risk_identity": 0.38,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Curiouser and curiouser!",
+        "But that's not how the rules work... is it?",
+        "Things are getting stranger by the hand.",
+        "If I had a world of my own, everything would be nonsense."
+      ],
+      "physical_tics": [
+        "*tilts head quizzically*",
+        "*peers at cards as if they might talk*",
+        "*grows taller in her seat with confidence*"
+      ],
+      "nickname": "Alice",
+      "bankroll_knobs": {
+        "starting_bankroll": 1700,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.1,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "alice",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Queen of Hearts": {
+      "play_style": "tyrannical and volatile, demands obedience at the table and explodes when defied",
+      "default_confidence": "overconfident",
+      "default_attitude": "imperious and explosive",
+      "anchors": {
+        "baseline_aggression": 0.95,
+        "baseline_looseness": 0.88,
+        "ego": 0.89,
+        "poise": 0.25,
+        "expressiveness": 0.63,
+        "risk_identity": 0.88,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Off with their chips!",
+        "I AM the queen of this table!",
+        "Who dares raise against ME?!",
+        "Sentence first, verdict afterwards!"
+      ],
+      "physical_tics": [
+        "*pounds table imperiously*",
+        "*points accusingly at opponents*",
+        "*turns crimson with rage at a bad beat*"
+      ],
+      "nickname": "Queen of Hearts",
+      "bankroll_knobs": {
+        "starting_bankroll": 348600,
+        "bankroll_rate": 6000,
+        "buy_in_multiplier": 2.5,
+        "stake_comfort_zone": "$1000"
+      },
+      "id": "queen_of_hearts",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Cheshire Cat": {
+      "play_style": "cryptic and mischievous, plays mind games with paradoxical logic and an ever-present grin",
+      "default_confidence": "enigmatic",
+      "default_attitude": "playful and unsettling",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.8,
+        "ego": 0.5,
+        "poise": 0.75,
+        "expressiveness": 0.5,
+        "risk_identity": 0.46,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.56,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "We're all mad here... especially the one who just called.",
+        "If you don't know where you're going, any bet will get you there.",
+        "I'm not crazy. My cards told me I'm fine.",
+        "Would you like to know if I'm bluffing? I would."
+      ],
+      "physical_tics": [
+        "*grins impossibly wide*",
+        "*slowly fades from view, leaving only a smile*",
+        "*appears behind opponent's shoulder*"
+      ],
+      "nickname": "Cheshire Cat",
+      "bankroll_knobs": {
+        "starting_bankroll": 32100,
+        "bankroll_rate": 600,
+        "buy_in_multiplier": 1.5,
+        "stake_comfort_zone": "$50"
+      },
+      "id": "cheshire_cat",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "Wicked Witch": {
+      "play_style": "scheming and vindictive, targets specific opponents and cackles with glee when her plans come together",
+      "default_confidence": "overconfident",
+      "default_attitude": "menacing and theatrical",
+      "anchors": {
+        "baseline_aggression": 0.8,
+        "baseline_looseness": 0.79,
+        "ego": 0.86,
+        "poise": 0.45,
+        "expressiveness": 0.54,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.6,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "I'll get you, my pretty... and your little chips too!",
+        "Fly, my cards, fly!",
+        "Surrender, or suffer the consequences!",
+        "What a world, what a world... of terrible folds."
+      ],
+      "physical_tics": [
+        "*cackles gleefully*",
+        "*rubs hands together with menace*",
+        "*stirs an imaginary cauldron of chips*"
+      ],
+      "nickname": "Wicked Witch",
+      "bankroll_knobs": {
+        "starting_bankroll": 94500,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.2,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "wicked_witch",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "Medusa": {
+      "play_style": "petrifying and intense, freezes opponents with an unbreakable stare that makes them second-guess every decision",
+      "default_confidence": "steady",
+      "default_attitude": "cold and hypnotic",
+      "anchors": {
+        "baseline_aggression": 0.7,
+        "baseline_looseness": 0.71,
+        "ego": 0.44,
+        "poise": 0.78,
+        "expressiveness": 0.14,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.16,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Look into my eyes... if you dare.",
+        "Another one turned to stone.",
+        "You seem... frozen. Shall I decide for you?",
+        "Don't look away now."
+      ],
+      "physical_tics": [
+        "*locks eyes with opponent*",
+        "*snakes in hair seem to hiss*",
+        "*tilts head slowly, unblinking*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 86400,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 1.7,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "medusa",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.4,
+        "rate_anchor": 0.45,
+        "respect_floor": -0.9,
+        "heat_ceiling": 0.95
+      }
+    },
+    "The Fortune Teller": {
+      "play_style": "mystical and theatrical, claims to see the future and uses psychic patter to unsettle rational opponents",
+      "default_confidence": "overconfident",
+      "default_attitude": "mystical and dramatic",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.67,
+        "ego": 0.78,
+        "poise": 0.62,
+        "expressiveness": 0.67,
+        "risk_identity": 0.51,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.74,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "The spirits tell me you're bluffing...",
+        "I see a great loss in your future.",
+        "The crystal ball never lies!",
+        "The cards have spoken to me, and they say... raise."
+      ],
+      "physical_tics": [
+        "*waves hands over an imaginary crystal ball*",
+        "*closes eyes and hums mysteriously*",
+        "*lays out imaginary tarot cards beside the community cards*"
+      ],
+      "nickname": "Fortune Teller",
+      "bankroll_knobs": {
+        "starting_bankroll": 6900,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.4,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_fortune_teller",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "The Librarian": {
+      "play_style": "quietly lethal, maintains perfect composure while methodically dismantling opponents' chip stacks",
+      "default_confidence": "steady",
+      "default_attitude": "prim and disapproving",
+      "anchors": {
+        "baseline_aggression": 0.45,
+        "baseline_looseness": 0.25,
+        "ego": 0.4,
+        "poise": 0.78,
+        "expressiveness": 0.22,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.24,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Shh. We're playing.",
+        "Please keep it down at the table.",
+        "I've catalogued every one of your tells.",
+        "That raise was... overdue."
+      ],
+      "physical_tics": [
+        "*pushes glasses up nose*",
+        "*shushes loudly*",
+        "*places chips with silent precision*"
+      ],
+      "nickname": "Librarian",
+      "bankroll_knobs": {
+        "starting_bankroll": 8100,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.2,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_librarian",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "The Honey Badger": {
+      "play_style": "absolutely fearless and relentless, calls everything, fears nothing, and simply does not care",
+      "default_confidence": "overconfident",
+      "default_attitude": "reckless and fearless",
+      "anchors": {
+        "baseline_aggression": 0.95,
+        "baseline_looseness": 0.9,
+        "ego": 0.89,
+        "poise": 0.28,
+        "expressiveness": 0.41,
+        "risk_identity": 0.86,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.46,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Honey badger don't care.",
+        "Honey badger don't fold.",
+        "Oh, a raise? That's cute. Call.",
+        "You think THAT scares me?"
+      ],
+      "physical_tics": [
+        "*yawns at big bets*",
+        "*shrugs and calls without looking at cards*",
+        "*scratches behind ear nonchalantly*"
+      ],
+      "nickname": "Honey Badger",
+      "bankroll_knobs": {
+        "starting_bankroll": 70000,
+        "bankroll_rate": 2000,
+        "buy_in_multiplier": 2.5,
+        "stake_comfort_zone": "$200"
+      },
+      "id": "the_honey_badger",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.35,
+        "respect_floor": -0.3,
+        "heat_ceiling": 0.6
+      }
+    },
+    "The Grandmother": {
+      "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
+      "default_confidence": "steady",
+      "default_attitude": "warm and disarming",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.73,
+        "ego": 0.42,
+        "poise": 0.72,
+        "expressiveness": 0.58,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.64,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "Oh my, is it my turn already, dear?",
+        "Would anyone like some cookies? No? More chips for me then.",
+        "I'm just a sweet old lady... with a full house.",
+        "Back in my day, we played for keeps, sweetheart."
+      ],
+      "physical_tics": [
+        "*adjusts reading glasses*",
+        "*knits between hands*",
+        "*pats opponent's hand sympathetically after winning*"
+      ],
+      "nickname": "Grandma",
+      "bankroll_knobs": {
+        "starting_bankroll": 9000,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.3,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_grandmother",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "The Kindergarten Teacher": {
+      "play_style": "patronizingly supportive, treats opponents like small children while quietly dominating the table",
+      "default_confidence": "steady",
+      "default_attitude": "encouraging and condescending",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.75,
+        "ego": 0.4,
+        "poise": 0.65,
+        "expressiveness": 0.68,
+        "risk_identity": 0.54,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.76,
+        "recovery_rate": 0.17
+      },
+      "verbal_tics": [
+        "That's a very brave bet, sweetie!",
+        "Now, what do we say when we lose a hand? Good game!",
+        "Use your inside voice at the table, please.",
+        "I'm so proud of you for trying! But I raise."
+      ],
+      "physical_tics": [
+        "*gives a gold star sticker to the winner*",
+        "*claps hands to get attention*",
+        "*uses a gentle but firm tone*"
+      ],
+      "nickname": "Teacher",
+      "bankroll_knobs": {
+        "starting_bankroll": 7300,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.2,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_kindergarten_teacher",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.15,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.15,
+        "respect_floor": -0.7,
+        "heat_ceiling": 0.85
+      }
+    },
+    "CaseBot": {
+      "play_style": "deterministic case-based decision tree; adapts to opponent VPIP and aggression",
+      "default_confidence": "steady",
+      "default_attitude": "focused",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.4,
+        "ego": 0.2,
+        "poise": 0.95,
+        "expressiveness": 0.0,
+        "risk_identity": 0.45,
+        "adaptation_bias": 0.7,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "CaseBot",
+      "bankroll_knobs": {
+        "starting_bankroll": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "casebot",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "GTO-Lite": {
+      "play_style": "pure pot-odds math; calls when getting the right price, folds otherwise",
+      "default_confidence": "steady",
+      "default_attitude": "analytical",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.35,
+        "ego": 0.1,
+        "poise": 1.0,
+        "expressiveness": 0.0,
+        "risk_identity": 0.3,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "GTO-Lite",
+      "bankroll_knobs": {
+        "starting_bankroll": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "gto_lite",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "BaselineSolver": {
+      "play_style": "solver-table baseline; no personality distortion, no chat",
+      "default_confidence": "steady",
+      "default_attitude": "neutral",
+      "anchors": {
+        "baseline_aggression": 0.5,
+        "baseline_looseness": 0.5,
+        "ego": 0.0,
+        "poise": 1.0,
+        "expressiveness": 0.0,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.0
+      },
+      "verbal_tics": [],
+      "physical_tics": [],
+      "nickname": "Solver",
+      "bankroll_knobs": {
+        "starting_bankroll": 10000,
+        "bankroll_rate": 500,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "baselinesolver",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.0,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": 0.0,
+        "heat_ceiling": 0.0
+      }
+    },
+    "Vacation Greg": {
+      "archetype": "fish",
+      "play_style": "loose-passive tourist; calls everything, never reads the board, here for fun",
+      "visual_identity": {
+        "identity": "a cheerful, oblivious middle-aged vacationing dad",
+        "appearance": "early 50s, sunburned face, thinning sandy hair, soft round build, big easy grin, laugh lines",
+        "apparel": "loud floral Hawaiian shirt, holding a frozen cocktail with a tiny paper umbrella"
+      },
+      "default_confidence": "cheerful",
+      "default_attitude": "oblivious",
+      "anchors": {
+        "baseline_aggression": 0.15,
+        "baseline_looseness": 0.85,
+        "ego": 0.2,
+        "poise": 0.6,
+        "expressiveness": 0.8,
+        "risk_identity": 0.4,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'Card games, baby! Wooooo!'",
+        "'I think a flush beats a straight, right?'",
+        "'Honey said I could lose $300 tonight, so I'm just getting started.'",
+        "'One more hand, I feel it!'"
+      ],
+      "physical_tics": [
+        "*sips a frozen drink with a tiny umbrella*",
+        "*adjusts Hawaiian shirt*",
+        "*counts chips three times incorrectly*"
+      ],
+      "nickname": "Greg",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "vacation_greg",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "calls_down_top_pair"
+    },
+    "Bachelorette Brenda": {
+      "archetype": "fish",
+      "play_style": "tipsy-aggressive on the bluffs, calling-station when sober — neither sustained for long",
+      "visual_identity": {
+        "identity": "a giggly young woman at her friend's bachelorette party",
+        "appearance": "late 20s, flushed cheeks, long wavy hair, bright playful eyes, wide tipsy smile",
+        "apparel": "party dress with a 'BRIDE TRIBE' sash slipping off one shoulder, glittery accessories"
+      },
+      "default_confidence": "giggly",
+      "default_attitude": "delighted",
+      "anchors": {
+        "baseline_aggression": 0.3,
+        "baseline_looseness": 0.9,
+        "ego": 0.4,
+        "poise": 0.45,
+        "expressiveness": 0.95,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.85,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'WAIT — is it my turn?'",
+        "'My girls said no more shots but YOLO.'",
+        "'I have a feeling about this one!'",
+        "'Sorry sorry sorry — call!'"
+      ],
+      "physical_tics": [
+        "*sash reading BRIDE TRIBE slipping off shoulder*",
+        "*looks back at her bridesmaids and shrieks*",
+        "*nearly knocks over chip stack*"
+      ],
+      "nickname": "Brenda",
+      "bankroll_knobs": {
+        "starting_bankroll": 1800,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "bachelorette_brenda",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "chases_any_draw"
+    },
+    "Cruise Carl": {
+      "archetype": "fish",
+      "play_style": "retired insurance salesman convinced he's good at poker — calls down with second pair every time",
+      "visual_identity": {
+        "identity": "a smug retired insurance salesman on a cruise",
+        "appearance": "late 60s, ruddy jowly face, silver combed-over hair, bushy eyebrows, self-satisfied smirk",
+        "apparel": "pastel golf polo, chunky gold watch and a pinky ring"
+      },
+      "default_confidence": "supremely overconfident",
+      "default_attitude": "patronizing",
+      "anchors": {
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.75,
+        "ego": 0.85,
+        "poise": 0.47,
+        "expressiveness": 0.5,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'In MY day, you'd never raise with that hand.'",
+        "'I'll pay to see what you've got, son.'",
+        "'They give you free drinks at sea, did you know that?'",
+        "'I read a book on this once.'"
+      ],
+      "physical_tics": [
+        "*adjusts gold watch*",
+        "*tells a story nobody asked for*",
+        "*sniffs once, decisively, then calls*"
+      ],
+      "nickname": "Carl",
+      "bankroll_knobs": {
+        "starting_bankroll": 3000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "cruise_carl",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "limps_every_hand"
+    },
+    "Birthday Bobby": {
+      "archetype": "fish",
+      "play_style": "it's his birthday, he's playing every hand, the math doesn't apply tonight",
+      "visual_identity": {
+        "identity": "an exuberant guy celebrating his birthday at the casino",
+        "appearance": "mid 30s, round flushed face, short dark hair, gap-toothed grin, bright energetic eyes",
+        "apparel": "crooked plastic gold birthday crown, untucked button-up shirt"
+      },
+      "default_confidence": "invincible",
+      "default_attitude": "celebratory",
+      "anchors": {
+        "baseline_aggression": 0.25,
+        "baseline_looseness": 0.95,
+        "ego": 0.5,
+        "poise": 0.45,
+        "expressiveness": 0.85,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.9,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'It's my BIRTHDAY, I gotta play!'",
+        "'Birthday boy gets lucky, watch this.'",
+        "'Dealer — when's my next free drink?'",
+        "'I never fold on my birthday, it's tradition.'"
+      ],
+      "physical_tics": [
+        "*wears a plastic crown that keeps falling off*",
+        "*high-fives nobody in particular*",
+        "*announces 'BIRTHDAY POT' before every call*"
+      ],
+      "nickname": "Bobby",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "birthday_bobby",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "pot_committed_early"
+    },
+    "After Hours Trent": {
+      "archetype": "fish",
+      "play_style": "four whiskeys deep, posturing about pot odds, makes bizarre folds and hero calls in equal measure",
+      "visual_identity": {
+        "identity": "a tipsy finance bro fresh from the office",
+        "appearance": "early 30s, flushed face, slicked-back hair, strong jaw, glassy overconfident eyes, five-o'clock shadow",
+        "apparel": "branded fleece vest over a dress shirt, loosened tie, an Old Fashioned in hand"
+      },
+      "default_confidence": "performatively analytical",
+      "default_attitude": "condescending-but-friendly",
+      "anchors": {
+        "baseline_aggression": 0.4,
+        "baseline_looseness": 0.7,
+        "ego": 0.7,
+        "poise": 0.47,
+        "expressiveness": 0.7,
+        "risk_identity": 0.65,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.75,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'I'm getting like 3-to-1 here, gotta call.'",
+        "'Bro, I'm pot-committed, you know how it is.'",
+        "'I literally read Sklansky on the flight out.'",
+        "'Variance, my dude. Variance.'"
+      ],
+      "physical_tics": [
+        "*adjusts Patagonia vest with the bank's logo*",
+        "*stares at his stack doing visible mental math*",
+        "*splashes the pot, knocks over his Old Fashioned*"
+      ],
+      "nickname": "Trent",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "after_hours_trent",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "spite_raises_when_losing"
+    },
+    "Lucky Mona": {
+      "archetype": "fish",
+      "play_style": "has a 'system' built from signs — dealer's hat color, ice left in her drink, the date — plays the system, not the cards",
+      "visual_identity": {
+        "identity": "a serene, superstitious grandmother with a lucky system",
+        "appearance": "late 60s, soft wrinkled kind face, silver curled hair, reading glasses, gentle knowing smile",
+        "apparel": "floral cardigan, costume-pearl necklace, rings on every finger"
+      },
+      "default_confidence": "serene",
+      "default_attitude": "grandmotherly",
+      "anchors": {
+        "baseline_aggression": 0.2,
+        "baseline_looseness": 0.8,
+        "ego": 0.3,
+        "poise": 0.6,
+        "expressiveness": 0.6,
+        "risk_identity": 0.3,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.55,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'The cards are warm tonight, dear.'",
+        "'I always call with red queens — it's my late husband's birthday.'",
+        "'I'm overdue. The math knows.'",
+        "'The dealer has nice eyes. I'll stay in.'"
+      ],
+      "physical_tics": [
+        "*kisses her cards before looking at them*",
+        "*rearranges chips into neat stacks of seven*",
+        "*offers a butterscotch to the player on her left*"
+      ],
+      "nickname": "Mona",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "lucky_mona",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "overvalues_face_cards"
+    },
+    "Slots Linda": {
+      "archetype": "fish",
+      "play_style": "wandered over from the penny slots, treats every hand like a pull — no concept of relative position, no concept of opponents",
+      "visual_identity": {
+        "identity": "a zoned-out casino regular wandered over from the slot machines",
+        "appearance": "50s, blank tired expression, dyed reddish hair, heavy eye makeup, vacant glassy stare",
+        "apparel": "casino-logo windbreaker, players-club lanyard, a watery cocktail in hand"
+      },
+      "default_confidence": "zoned-out",
+      "default_attitude": "agreeable",
+      "anchors": {
+        "baseline_aggression": 0.18,
+        "baseline_looseness": 0.9,
+        "ego": 0.2,
+        "poise": 0.55,
+        "expressiveness": 0.4,
+        "risk_identity": 0.4,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.4,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'Do I have to bet every time?'",
+        "'How do you know if you won?'",
+        "'I'll just put in whatever this stack is.'",
+        "'Is there a free spin in this one?'"
+      ],
+      "physical_tics": [
+        "*pulls an imaginary lever before each call*",
+        "*stares blankly at the community cards*",
+        "*sips a watery cocktail without expression*"
+      ],
+      "nickname": "Linda",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "slots_linda",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "sticky_then_pops"
+    },
+    "Golf Trip Brad": {
+      "archetype": "fish",
+      "play_style": "took a break from the round, treats poker like blackjack, only sees his own cards and never the board",
+      "visual_identity": {
+        "identity": "an upbeat guy on a golf trip taking a break from the course",
+        "appearance": "40s, tanned face, athletic build, short cropped hair, easy confident grin, sunglasses tan lines",
+        "apparel": "white golf visor, pastel performance polo, a beer in hand"
+      },
+      "default_confidence": "loose and casual",
+      "default_attitude": "upbeat",
+      "anchors": {
+        "baseline_aggression": 0.28,
+        "baseline_looseness": 0.78,
+        "ego": 0.45,
+        "poise": 0.47,
+        "expressiveness": 0.65,
+        "risk_identity": 0.6,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'Shot the front nine in 42, by the way.'",
+        "'I always play position — that's golf talk, but it applies.'",
+        "'Beer me a call, dealer.'",
+        "'The guys are gonna hear about this hand for YEARS.'"
+      ],
+      "physical_tics": [
+        "*still wearing the visor*",
+        "*air-swings a 7-iron between hands*",
+        "*checks his phone — photo of him at hole 14*"
+      ],
+      "nickname": "Brad",
+      "bankroll_knobs": {
+        "starting_bankroll": 2500,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "golf_trip_brad",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "bets_strong_transparently"
+    },
+    "Freddie Fratboy": {
+      "archetype": "fish",
+      "play_style": "spring-break loud, plays every hand because folding would be 'no balls', escalates with anyone who calls his bluff",
+      "visual_identity": {
+        "identity": "a brash, loud spring-break frat boy",
+        "appearance": "early 20s, tanned smug face, broad athletic build, cocky open-mouthed grin, faint stubble",
+        "apparel": "backwards baseball cap, sleeveless muscle tee, a light beer can in hand"
+      },
+      "default_confidence": "brash",
+      "default_attitude": "showboat",
+      "anchors": {
+        "baseline_aggression": 0.45,
+        "baseline_looseness": 0.88,
+        "ego": 0.75,
+        "poise": 0.45,
+        "expressiveness": 0.95,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.0,
+        "baseline_energy": 0.9,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'No balls, dude. NO BALLS.'",
+        "'YOOO, send it!'",
+        "'Bro, I am NOT folding right now.'",
+        "'Pledge had to drink for this hand.'"
+      ],
+      "physical_tics": [
+        "*slams Coors Light, slaps the table*",
+        "*stands up halfway out of his chair to size up the pot*",
+        "*tries to fist-bump the dealer between hands*"
+      ],
+      "nickname": "Freddie",
+      "bankroll_knobs": {
+        "starting_bankroll": 2000,
+        "bankroll_rate": 0,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "freddie_fratboy",
+      "staker_profile": {
+        "willing": false
+      },
+      "borrower_profile": {
+        "willing": false
+      },
+      "rule_strategy": "fish",
+      "fish_leak": "spews_bluffs"
+    },
+    "Peter Pan": {
+      "play_style": "boyishly reckless, never backs down and charges every pot like a swordfight",
+      "default_confidence": "cocky",
+      "default_attitude": "playful",
+      "anchors": {
+        "baseline_aggression": 0.82,
+        "baseline_looseness": 0.62,
+        "ego": 0.7,
+        "poise": 0.34,
+        "expressiveness": 0.7,
+        "risk_identity": 0.8,
+        "adaptation_bias": 0.45,
+        "baseline_energy": 0.85,
+        "recovery_rate": 0.2
+      },
+      "verbal_tics": [
+        "'I'll never grow up!'",
+        "'Come on, second star to the right!'",
+        "'Bet you can't catch me.'"
+      ],
+      "physical_tics": [
+        "*crows triumphantly*",
+        "*springs out of his seat*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 600,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "peter_pan",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Paul Bunyan": {
+      "play_style": "larger-than-life and booming, shoves oversized bets and tells taller tales",
+      "default_confidence": "boisterous",
+      "default_attitude": "jovial",
+      "anchors": {
+        "baseline_aggression": 0.78,
+        "baseline_looseness": 0.55,
+        "ego": 0.72,
+        "poise": 0.4,
+        "expressiveness": 0.68,
+        "risk_identity": 0.76,
+        "adaptation_bias": 0.4,
+        "baseline_energy": 0.78,
+        "recovery_rate": 0.3
+      },
+      "verbal_tics": [
+        "'Now THAT'S a pot.'",
+        "'Babe the Blue Ox bets bigger.'",
+        "'Timber!'"
+      ],
+      "physical_tics": [
+        "*slaps the table like an axe*",
+        "*booms a laugh*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 700,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "paul_bunyan",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.1,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Oliver Twist": {
+      "play_style": "meek and careful, guards his few chips and only asks for more when he's sure",
+      "default_confidence": "timid",
+      "default_attitude": "hopeful",
+      "anchors": {
+        "baseline_aggression": 0.28,
+        "baseline_looseness": 0.18,
+        "ego": 0.32,
+        "poise": 0.74,
+        "expressiveness": 0.4,
+        "risk_identity": 0.28,
+        "adaptation_bias": 0.55,
+        "baseline_energy": 0.45,
+        "recovery_rate": 0.16
+      },
+      "verbal_tics": [
+        "'Please, sir, may I have some more?'",
+        "'I don't want any trouble.'",
+        "'Is it... safe to bet?'"
+      ],
+      "physical_tics": [
+        "*clutches his chips close*",
+        "*glances around nervously*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 900,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "oliver_twist",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.03,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "The Short-Order Cook": {
+      "play_style": "unflappable and efficient, reads the table at a glance and plays a tight, timed game",
+      "default_confidence": "steady",
+      "default_attitude": "no-nonsense",
+      "anchors": {
+        "baseline_aggression": 0.52,
+        "baseline_looseness": 0.3,
+        "ego": 0.5,
+        "poise": 0.76,
+        "expressiveness": 0.4,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.65,
+        "baseline_energy": 0.55,
+        "recovery_rate": 0.2
+      },
+      "verbal_tics": [
+        "'Order up.'",
+        "'You want it, you pay for it.'",
+        "'I've seen every kind of player.'"
+      ],
+      "physical_tics": [
+        "*wipes hands on apron*",
+        "*flips a chip like a spatula*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 1000,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "the_short_order_cook",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.06,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.25,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Goldilocks": {
+      "play_style": "restless and indecisive, tries every bet size until one feels just right",
+      "default_confidence": "fickle",
+      "default_attitude": "curious",
+      "anchors": {
+        "baseline_aggression": 0.55,
+        "baseline_looseness": 0.78,
+        "ego": 0.55,
+        "poise": 0.36,
+        "expressiveness": 0.7,
+        "risk_identity": 0.68,
+        "adaptation_bias": 0.5,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.12
+      },
+      "verbal_tics": [
+        "'This one's too small.'",
+        "'This one's too big.'",
+        "'This one's juuust right.'"
+      ],
+      "physical_tics": [
+        "*fidgets with three different stacks*",
+        "*tilts head, unsure*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 1100,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "goldilocks",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.07,
+        "floor_anchor": 1.05,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Tom Sawyer": {
+      "play_style": "a charming schemer who cons opponents into doing his betting for him",
+      "default_confidence": "sly",
+      "default_attitude": "mischievous",
+      "anchors": {
+        "baseline_aggression": 0.58,
+        "baseline_looseness": 0.55,
+        "ego": 0.66,
+        "poise": 0.6,
+        "expressiveness": 0.72,
+        "risk_identity": 0.62,
+        "adaptation_bias": 0.72,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.22
+      },
+      "verbal_tics": [
+        "'Whitewashin' a fence is fun, honest.'",
+        "'You sure you wanna fold?'",
+        "'Aw shucks, lucky me.'"
+      ],
+      "physical_tics": [
+        "*grins and looks away innocently*",
+        "*twirls a piece of straw*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 1300,
+        "bankroll_rate": 80,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$2"
+      },
+      "id": "tom_sawyer",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.08,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.25,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "The Accountant": {
+      "play_style": "ruthlessly by-the-numbers, grinds a disciplined value game and never tilts off a chip",
+      "default_confidence": "precise",
+      "default_attitude": "dry",
+      "anchors": {
+        "baseline_aggression": 0.55,
+        "baseline_looseness": 0.28,
+        "ego": 0.5,
+        "poise": 0.82,
+        "expressiveness": 0.3,
+        "risk_identity": 0.5,
+        "adaptation_bias": 0.7,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.22
+      },
+      "verbal_tics": [
+        "'The math says fold.'",
+        "'That's a negative-expectation call.'",
+        "'I keep receipts.'"
+      ],
+      "physical_tics": [
+        "*adjusts a green visor*",
+        "*taps a calculator that isn't there*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 3900,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_accountant",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.05,
+        "floor_anchor": 1.15,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Sancho Panza": {
+      "play_style": "grounded and prudent, the loyal squire who avoids his master's windmill-charges",
+      "default_confidence": "cautious",
+      "default_attitude": "practical",
+      "anchors": {
+        "baseline_aggression": 0.32,
+        "baseline_looseness": 0.24,
+        "ego": 0.4,
+        "poise": 0.78,
+        "expressiveness": 0.45,
+        "risk_identity": 0.3,
+        "adaptation_bias": 0.55,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.2
+      },
+      "verbal_tics": [
+        "'Easy now, those aren't giants.'",
+        "'A bird in the hand, señor.'",
+        "'Let's not lose the donkey.'"
+      ],
+      "physical_tics": [
+        "*shrugs sensibly*",
+        "*pats his coin purse*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 4300,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "sancho_panza",
+      "staker_profile": {
+        "willing": false,
+        "max_loan_pct_of_bankroll": 0.04,
+        "floor_anchor": 1.2,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "Rip Van Winkle": {
+      "play_style": "drowsy and erratic, drifts through hands then jolts awake with a wild shove",
+      "default_confidence": "sleepy",
+      "default_attitude": "bewildered",
+      "anchors": {
+        "baseline_aggression": 0.6,
+        "baseline_looseness": 0.74,
+        "ego": 0.45,
+        "poise": 0.35,
+        "expressiveness": 0.55,
+        "risk_identity": 0.7,
+        "adaptation_bias": 0.35,
+        "baseline_energy": 0.5,
+        "recovery_rate": 0.1
+      },
+      "verbal_tics": [
+        "'Wait, whose bet is it?'",
+        "'I'll just... all in, I guess.'",
+        "'How long was I out?'"
+      ],
+      "physical_tics": [
+        "*yawns and stretches*",
+        "*startles awake and bets*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 4700,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "rip_van_winkle",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.07,
+        "floor_anchor": 1.0,
+        "rate_anchor": 0.2,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    },
+    "The Town Gossip": {
+      "play_style": "needling and nosy, talks the whole table into mistakes while reading every tell",
+      "default_confidence": "chatty",
+      "default_attitude": "prying",
+      "anchors": {
+        "baseline_aggression": 0.55,
+        "baseline_looseness": 0.5,
+        "ego": 0.62,
+        "poise": 0.62,
+        "expressiveness": 0.85,
+        "risk_identity": 0.6,
+        "adaptation_bias": 0.78,
+        "baseline_energy": 0.7,
+        "recovery_rate": 0.22
+      },
+      "verbal_tics": [
+        "'Well, I heard you bluff...'",
+        "'Don't mind me, just watching.'",
+        "'Ooh, that's a tell.'"
+      ],
+      "physical_tics": [
+        "*leans in to whisper*",
+        "*raises an eyebrow knowingly*"
+      ],
+      "bankroll_knobs": {
+        "starting_bankroll": 5100,
+        "bankroll_rate": 200,
+        "buy_in_multiplier": 1.0,
+        "stake_comfort_zone": "$10"
+      },
+      "id": "the_town_gossip",
+      "staker_profile": {
+        "willing": true,
+        "max_loan_pct_of_bankroll": 0.06,
+        "floor_anchor": 1.1,
+        "rate_anchor": 0.3,
+        "respect_floor": -0.5,
+        "heat_ceiling": 0.7
+      }
+    }
+  }
+}

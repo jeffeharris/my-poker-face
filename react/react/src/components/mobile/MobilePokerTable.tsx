@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from 'react';
 import toast from 'react-hot-toast';
 import { useGuestChatLimit } from '../../hooks/useGuestChatLimit';
 import { Check, X, MessageCircle, Bot, FastForward } from 'lucide-react';
@@ -35,6 +35,7 @@ import { useCardAnimation } from '../../hooks/useCardAnimation';
 import { useCommunityCardAnimation } from '../../hooks/useCommunityCardAnimation';
 import { useCoach } from '../../hooks/useCoach';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
+import { useRunoutDirector } from '../../hooks/useRunoutDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
 import { logger } from '../../utils/logger';
 import { gameAPI } from '../../utils/api';
@@ -54,6 +55,15 @@ interface MobilePokerTableProps {
 // How many world-ticker beats the interhand "meanwhile, elsewhere" strip
 // shows at once. A few of the biggest/rarest — not a full feed.
 const MAX_INTERHAND_TICKER = 3;
+
+// Repoint an avatar URL at a different per-emotion image. The backend serves
+// `/api/avatar/{name}/{emotion}` (with 404→fallback), so swapping the emotion
+// segment is enough to change the face — the same trick the "thinking" highlight
+// uses. Leaves a non-matching/empty URL untouched.
+function avatarUrlForEmotion(url: string | undefined, emotion: string): string | undefined {
+  if (!url) return url;
+  return url.replace(/\/api\/avatar\/(.+?)\/[^/]+(\/full)?$/, `/api/avatar/$1/${emotion}$2`);
+}
 
 export function MobilePokerTable({
   gameId: providedGameId,
@@ -147,6 +157,9 @@ export function MobilePokerTable({
   const newlyDealtCount = useGameStore((state) => state.newlyDealtCount);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
+  const runoutSchedule = useGameStore((state) => state.runoutSchedule);
+  const setRunoutDirectorActive = useGameStore((state) => state.setRunoutDirectorActive);
+  const updateStorePlayers = useGameStore((state) => state.updatePlayers);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -226,6 +239,35 @@ export function MobilePokerTable({
   const { isShuffling, beginShuffle } = useInterhandDirector({
     hasWinner: !!winnerInfo,
     handNumber,
+  });
+
+  // Run-out reaction director (mobile, all-in run-outs). Plays the backend's
+  // per-card reaction schedule on a client-owned beat so faces change card-by-
+  // card during the board run-out, instead of one lumped street reaction. The
+  // board itself stays backend-paced (option B); this only re-times reactions.
+  const applyRunoutReaction = useCallback(
+    (playerName: string, emotion: string) => {
+      updateStorePlayers((prev) => {
+        if (!prev) return prev;
+        return prev.map((p) =>
+          p.name === playerName
+            ? { ...p, avatar_emotion: emotion, avatar_url: avatarUrlForEmotion(p.avatar_url, emotion) }
+            : p
+        );
+      });
+    },
+    [updateStorePlayers]
+  );
+
+  useRunoutDirector({
+    schedule: runoutSchedule,
+    runItOut,
+    revealed: !!revealedCards,
+    communityCardCount: communityCards?.length ?? 0,
+    handNumber,
+    fastForward,
+    applyReaction: applyRunoutReaction,
+    setActive: setRunoutDirectorActive,
   });
 
   const handleResultComplete = useCallback(() => {
@@ -340,6 +382,22 @@ export function MobilePokerTable({
   // During showdown, move folded players to the ghost rail so active players have more room in the main row
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
+
+  // Run-out reveal cascade order: each revealed opponent reveals after the
+  // previous one finishes (and within an opponent, card 2 after card 1). The
+  // index is the opponent's position among revealed opponents in render order;
+  // the CSS turns it into a per-opponent animation-delay (var --reveal-index).
+  const revealOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    const cards = revealedCards?.players_cards;
+    if (!cards) return order;
+    const rendered = isInShowdown ? activeOpponents : opponents;
+    let idx = 0;
+    for (const p of rendered) {
+      if (cards[p.name]) order.set(p.name, idx++);
+    }
+    return order;
+  }, [revealedCards, isInShowdown, activeOpponents, opponents]);
 
   // Map of player name → avatar URL for FloatingChat. Accumulated across the
   // whole session (never pruned): a player who busts/leaves drops out of
@@ -751,7 +809,12 @@ export function MobilePokerTable({
                     {opponent.bet > 0 && <div className="opponent-bet">${opponent.bet}</div>}
                     {/* Revealed hole cards during run-it-out showdown */}
                     {revealedCards?.players_cards[opponent.name] && (
-                      <div className="opponent-revealed-cards">
+                      <div
+                        className="opponent-revealed-cards"
+                        style={
+                          { '--reveal-index': revealOrder.get(opponent.name) ?? 0 } as CSSProperties
+                        }
+                      >
                         {revealedCards.players_cards[opponent.name].map((card, i) => (
                           <Card key={i} card={card} faceDown={false} size="large" />
                         ))}

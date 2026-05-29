@@ -1183,7 +1183,6 @@
   transform: translateX(-50%);
   display: flex;
   z-index: 20;
-  animation: revealCardsSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Stack cards with heavy overlap */
@@ -1193,22 +1192,51 @@
     0 4px 12px rgba(0, 0, 0, 0.5),
     0 0 16px rgba(212, 165, 116, 0.3);
   border: 1px solid rgba(212, 165, 116, 0.4);
+  /* Sequential reveal cascade. Within an opponent: card 2 lands a clear beat
+     after card 1. Across opponents: each starts after the previous pair, via
+     --reveal-index (the opponent's position among revealed opponents, set
+     inline in render order). `both` holds each card hidden through its delay
+     and slight settle. Heads-up finishes ~1.05s (inside RUNOUT_REVEAL_HOLD's
+     1.5s); multiway finishes during the following street's animation and is
+     never cut off. */
+  --reveal-base: calc(var(--reveal-index, 0) * 1.05s);
+  transform-origin: center bottom;
+  opacity: 0;
+  animation: revealCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--reveal-base);
 }
 
 .opponent-revealed-cards .playing-card:first-child {
   margin-left: 0;
 }
 
+/* Second hole card lands a clear beat after the first. */
+.opponent-revealed-cards .playing-card:nth-child(2) {
+  animation-delay: calc(var(--reveal-base) + 0.5s);
+}
+
 /* Cards inherit size from Card.css - using 'large' (18vw) which is bigger than community cards (14vw) */
 
-@keyframes revealCardsSlideDown {
+@keyframes revealCardIn {
   0% {
     opacity: 0;
-    transform: translateX(-50%) translateY(-20px) scale(0.9);
+    transform: translateY(-26px) scale(0.82);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(3px) scale(1.04);
   }
   100% {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Respect reduced-motion: show the revealed cards immediately, no slide/settle. */
+@media (prefers-reduced-motion: reduce) {
+  .opponent-revealed-cards .playing-card {
+    animation: none;
+    opacity: 1;
   }
 }
 

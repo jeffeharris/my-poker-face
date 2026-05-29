@@ -17,6 +17,46 @@ from .repositories import PersonalityRepository
 logger = logging.getLogger(__name__)
 
 
+# Placeholder / test names that must never be persisted as public personas.
+# When a game or sim seats a player under one of these (or an empty / trivially
+# short name), `get_personality` auto-generated and saved a `visibility=public`
+# `ai_generated` row into the real DB — which then leaked into the cash-mode
+# eligible roster. That is how zombies like "Test Player", "Unknown Celebrity",
+# "A", and "Villain" got seeded. The guard below returns an in-memory config so
+# the caller still works, but skips the DB write so nothing leaks.
+RESERVED_PERSONA_NAMES = frozenset({
+    'test player', 'unknown celebrity', 'unknown', 'test', 'player', 'villain',
+    'hero', 'opponent', 'bot', 'ai', 'computer', 'cpu', 'npc', 'guest',
+})
+
+
+def _is_reserved_persona_name(name: Optional[str]) -> bool:
+    """True for placeholder/test names that must not be persisted.
+
+    Catches empty / whitespace-only names, trivially short names (<= 2
+    non-space chars), bare `Player N` / `Seat N` / `Villain N` patterns, and
+    the explicit reserved set above. Comparison is case- and
+    whitespace-insensitive.
+    """
+    if not name:
+        return True
+    # Normalize separators too: the re-seat path passes the personality_id
+    # ("test_player", "unknown_celebrity") as the name, so '_' / '-' must
+    # collapse to spaces or the reserved check misses the id form.
+    norm = ' '.join(name.replace('_', ' ').replace('-', ' ').split()).strip().lower()
+    if len(norm.replace(' ', '')) <= 2:
+        return True
+    if norm in RESERVED_PERSONA_NAMES:
+        return True
+    first = norm.split(' ', 1)[0]
+    if first in {'player', 'seat', 'villain', 'opponent', 'bot'} and (
+        len(norm.split()) <= 2
+    ):
+        # "Player", "Player 1", "Seat 3", "Villain 2", "Bot 4", etc.
+        return True
+    return False
+
+
 def _default_anchors() -> Dict[str, float]:
     """Balanced fallback anchors when the LLM omits the block.
 
@@ -349,6 +389,20 @@ Respond with ONLY a JSON object in this exact format:
         # Generate new personality via AI
         logger.info(f"[PERSONALITY] Generating new personality for {name}")
         generated = self._generate_personality(name, description)
+
+        # Guard: never persist auto-generated personas for placeholder/test
+        # names. Returning the in-memory config keeps the caller working
+        # (a sim seat, a transient game) but stops a public `ai_generated`
+        # zombie from leaking into the cash-mode roster. See
+        # RESERVED_PERSONA_NAMES for the why.
+        if _is_reserved_persona_name(name):
+            logger.warning(
+                "[PERSONALITY] Not persisting auto-generated persona for "
+                "reserved/placeholder name %r — returning in-memory config only.",
+                name,
+            )
+            self._cache[name] = generated
+            return generated
 
         # Save to database (private to owner if owner_id provided). The
         # repository computes a stable personality_id from the name when
