@@ -48,6 +48,7 @@ runs in Docker: `docker compose exec -T backend python ...`.
 3. **Value overbet** (`170a86ac`) — `enable_overbet_context=True`, `overbet_size=150`, classes `{nuts,strong_made}`, streets `{TURN,RIVER}`. **The big one: +40 HU / +77 6-max cumulative vs former self, no regression** (`2329d0eb`).
 4. **Spot-tendency variety system (item 3)** — `poker/strategy/spot_tendencies.py` (`apply_spot_tendencies`, general layer) + slow-play leak (priced **free**) + per-personality override hook (`spot_tendencies` key in personalities.json → `TieredBotController.deviation_profile` merge) + the `--a-disable/--b-disable` pricing-gate flag. Defaults OFF. Commits `bdf150fe`/`3973ab25`/`1f63f658`/`ba98183a`. See the catalog for what's next.
 5. **Give-up-turn leak (2026-05-29)** — second `spot_tendencies` handler (`_give_up_turn`), the **dual of the multistreet H1 barrel** (first leak whose exploiter is already built). Priced **free** (intrinsic −1.47, jeff −1.54, punisher +0.14; all CI∋0). Turn-only, disjoint from slow-play by hand class. See "Give-up turn" subsection below.
+6. **Fit-or-fold + auto-c-bet leaks (2026-05-29)** — `_fit_or_fold` / `_auto_cbet` on two new bounded reshapes (`_pump_fold`, `_pump_aggression`). Both priced **free/+EV** — and that surfaced a methodology finding: a *correct-spot* leak is recognizable flavor but **not exploitable**, so it doesn't close the loop. See "Fit-or-fold + auto-c-bet" subsection + the open design question.
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
@@ -381,6 +382,44 @@ without conflict (unit-tested). Priced on the same TAG carrier (cap 0.30), stren
   built, so this is the cleanest leak↔exploiter loop to demo: attach give-up-turn to one
   personality, turn on H1 for another, and the second extracts from the first.
 
+### Fit-or-fold + auto-c-bet — BUILT + PRICED, with a methodology finding (2026-05-29)
+
+Two more handlers (`_fit_or_fold`, `_auto_cbet`) on two new bounded reshapes
+(`_pump_fold` = non-fold mass → fold; `_pump_aggression` = check/call mass → bet, the
+inverse of `_dampen_aggression`). **fit_or_fold:** flop, `facing_bet`, `{weak_made,
+air_no_draw}` → over-fold the air the chart floats. **auto_cbet:** flop, `unopened`,
+initiative, thin classes → c-bet the checking range (the flop dual of give-up-turn).
+Both default OFF; 41 spot-tendency tests green. Priced on the TAG carrier (both on,
+disable one per arm to isolate), 24k HU:
+
+| Tendency | self-play (intrinsic) | jeff (over-folder) | punisher (reg) |
+|---|---|---|---|
+| fit_or_fold | +1.71 [−0.30, +3.72] | +0.28 [−0.32, +0.87] | **+1.89 [+0.79, +2.99]** |
+| auto_cbet | +0.34 [−3.96, +4.65] | +1.30 [−0.95, +3.54] | +0.08 [−1.05, +1.20] |
+
+**Both price free — even mildly +EV — and that is the finding, not a win.** A leak that's
+EV-neutral is *not exploitable*, which is the catalog's whole point (the loop + the
+human-learnable counter). Why they came out free:
+- **fit-or-fold (free*):** in **HU**, folding pure air/weak to a single flop c-bet is ~the
+  correct play (your equity is low, you have no initiative, floating needs later barrels to
+  pay) — vs the aggressive reg it's even CI-clear +EV (you stop paying off his barrels). The
+  textbook fit-or-fold leak bites when you fold hands **with equity/playability** (2nd pair,
+  draws) or **multiway / vs a floatable player** — none of which my narrow `{weak_made,
+  air_no_draw}` HU gate captures. So "barrel relentlessly" has nothing to punish: the folds
+  are correct.
+- **auto-c-bet (free*):** HU c-bet ranges are already very wide, so betting the marginal
+  checking range is ~EV-neutral. Its *exploitability* doesn't live in the flop bet (free) —
+  it lives in the **follow-through**: an auto-c-bettor who then abandons the turn is the
+  textbook "one-and-done," i.e. **auto_cbet + give_up_turn composed** (disjoint streets, so
+  they stack on one personality). Alone, auto-c-bet is just free flavor.
+
+**Open design question (the reason to pause — see "Roadmap / decision" below):** the cheap,
+*correct-spot* version of a leak is recognizable flavor but creates **no exploitable tell**.
+Making these genuine loop-closing leaks means deliberately gating them onto **−EV spots**
+(fit-or-fold also folding `medium_made`/`air_strong_draw`; the HU-regime caveat; etc.). That
+is a philosophy call — "free recognizable flavor" vs "priced, exploitable, teachable leak" —
+and it recurs for every remaining catalog leak, so it's worth settling before building more.
+
 ## Tendency & skill catalog (running list — single source of truth)
 
 This is a **symmetric skill system** with three move-types; a bot is composed from a
@@ -403,8 +442,8 @@ Status legend — leak: `shipped` / `priced` / `backlog`; exploiter: `built✅` 
 | slow-play / trap | strong made + initiative, unopened, flop/turn | value-bet thin vs the trapper | **priced (free)** | — |
 | give-up turn (one-and-done, no barrel) | turn, initiative, checked to | float flop → steal turn | **priced (free)** | **built✅** (multistreet H1) |
 | over-fold to 2nd barrel | turn facing bet, marginal made | double-barrel | backlog | partial (multistreet H2, off) |
-| fit-or-fold / over-fold to c-bet | flop facing c-bet, air | barrel relentlessly | backlog | partial (`exploitation.py`) |
-| auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | backlog | — |
+| fit-or-fold / over-fold to c-bet | flop facing c-bet, air | barrel relentlessly | **priced (free*, see below)** | partial (`exploitation.py`) |
+| auto-c-bet (c-bets 100% w/ initiative) | flop, initiative, unopened | float / raise their c-bets | **priced (free*, see below)** | — |
 | under-bluff river (no triple barrel) | river, air, as bettor | over-fold their river bets; call their turn bets | backlog | — |
 | sticky / pays off (can't fold) | facing river bet/raise, weak made | value-bet thin + overbet, never bluff | (≈station) | **built✅** (overbet, +42 vs payers) |
 | over-bluff (too many bluffs) | river, air, as bettor | over-call bluff-catchers | backlog | **built✅ as defense** (river guardrail) |
