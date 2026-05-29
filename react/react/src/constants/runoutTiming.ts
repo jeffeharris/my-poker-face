@@ -12,8 +12,10 @@
  * All values are milliseconds.
  */
 export const RUNOUT_TIMING = {
-  /** After the hole-card reveal cascade: when the matchup-read (INITIAL) faces fire. */
-  initialReactionDelayMs: 1200,
+  /** When the matchup-read (INITIAL) faces fire — timed to land while the human's
+   *  cards are held up presenting (the heroPresentUp hold), so it reads as
+   *  "you show your hand → they react"; the cards pull back when the run-out deals. */
+  initialReactionDelayMs: 700,
   /** Gap between consecutive flop cards — must match the community-card cascade (1.0s/card). */
   perCardStaggerMs: 1000,
   /** Within a single card's slide-in, how long until its reaction fires (so the
@@ -31,4 +33,21 @@ export const RUNOUT_TIMING = {
    *  board stalls (a deleted/abandoned game), so backend reactions are never
    *  suppressed forever. */
   safetyCapMs: 15000,
+  /** Hero card-commit gesture (the human "presents" their hole cards at the all-in
+   *  matchup reveal, then pulls them back when the run-out deals). These durations
+   *  feed the inline CSS `animation` shorthand in MobilePokerTable's hero cards via
+   *  `heroCardAnimation()`. The keyframe *shape* (reach/spread/tilt) lives in the
+   *  `heroPresentUp*`/`heroPullDown*` keyframes in MobilePokerTable.css — only the
+   *  timing is centralized here. Seconds (CSS units), not milliseconds.
+   *  Hand-tuned with the user; preserve the feel before changing. */
+  hero: {
+    /** Throw-up "present" duration (matches dealCardIn's slide). */
+    presentSec: 0.55,
+    /** Pull-back-down duration when the run-out starts dealing. */
+    retreatSec: 0.5,
+    /** Stagger before the right card follows the left (present only). */
+    card2StaggerSec: 0.15,
+    /** Shared easing — same curve as the deal-in so it reads smooth. */
+    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+  },
 } as const;

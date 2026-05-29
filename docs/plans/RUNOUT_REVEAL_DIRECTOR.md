@@ -7,7 +7,7 @@ last_updated: 2026-05-29
 
 # Run-Out Reveal Director (mobile)
 
-> **Status (2026-05-29) — Phase 1 shipped; Phase 2 per-card director shipped (option B); §E deferred.**
+> **Status (2026-05-29) — Phase 1 shipped; Phase 2 per-card director shipped (option B); §E hero-commit shipped (minimal); §E equity-picked variants deferred.**
 > Work lives on branch `career-mode-v0_1`, **local and unpushed**, with `development` merged in.
 > Relevant commits (newest first):
 > - `abb53197` — **Phase 2: `useRunoutDirector`** — per-card avatar reactions on a client-owned
@@ -39,9 +39,15 @@ last_updated: 2026-05-29
 > **Honest limitation:** the director is bounded-below by backend pace *between* streets; the
 > real win is *within* the street (the per-card flop cascade + reactions on their own beats).
 > Full clock independence would need a client-type flag (rejected — duplicate paths) or retiring
-> pacing for all (breaks desktop). **Still deferred: §E** (human hole-card "commit" animation),
-> and its two open calls (variant set + equity→variant thresholds). Companion doc:
-> `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`.
+> pacing for all (breaks desktop). **§E shipped (minimal):** the human hole-card "commit" — at
+> the matchup reveal the hero's cards throw up to *present* over the board and hold (opponents
+> read the matchup on the same beat), then pull back to their original dealt placement the
+> instant the run-out's first board card deals (so the board is clear as it runs). Client-only,
+> rides the existing schedule; `useRunoutDirector` exposes `heroCommitted`/`heroRetreating`,
+> `MobilePokerTable` drives per-card `heroPresentUp*`/`heroPullDown*` keyframes. **Still deferred:**
+> §E's *equity-picked gesture variants* (confident push vs. loose toss, keyed on the human's
+> equity — the schedule already computes it; surfacing it is a one-field add) and whether the
+> commit nudges the board/pot. Companion doc: `docs/technical/EMOTION_AND_PRESSURE_ARCHITECTURE.md`.
 
 > **Reviewed 2026-05-29** (feature-dev:code-reviewer, against the live code). The
 > review surfaced two **Critical** issues now folded in below: (a) the existing
@@ -330,6 +336,19 @@ still backend-paced (so the "visible win" was smaller than advertised).
   street-level `is_reaction` updates so they can't clobber the per-card faces. Desktop never
   sets the flag → unchanged. `__tests__/mobile/useRunoutDirector.test.tsx` (8 tests).
 
-**Not built (deferred):** §E human hole-card "commit"; the "full client-owned timeline" (board
-freeze / `beginShuffle` gating / reconnect persistence) — see the §C build-time finding for why
-option B made those unnecessary rather than merely deferred.
+## Shipped (§E hero card-commit, minimal — on `career-mode-v0_1`)
+
+- The human's hole cards now **present** at the all-in matchup: at reveal they throw up over the
+  board (left card, then right a beat later) and **hold** while the opponents read the matchup,
+  then **pull back to their original dealt placement** the instant the run-out's first board card
+  deals — so the board is unobscured as it runs. Client-only, no backend change (rides the
+  existing schedule + reveal). `useRunoutDirector` exposes `heroCommitted`/`heroRetreating`;
+  `MobilePokerTable` selects per-card animations via a `heroCardAnimation()` helper driving
+  `heroPresentUp*`/`heroPullDown*` keyframes. Gesture timing centralized in `RUNOUT_TIMING.hero`;
+  keyframe *shape* (reach/spread/tilt) in `MobilePokerTable.css`. Reduced-motion → no slam.
+  Hand-tuned with the user over several passes, then a `code-simplifier` cleanup (extracted the
+  helper, centralized timing). 9 director tests cover present→hold→retreat→reset.
+
+**Not built (deferred):** §E's *equity-picked gesture variants* + board/pot nudge; the "full
+client-owned timeline" (board freeze / `beginShuffle` gating / reconnect persistence) — see the
+§C build-time finding for why option B made those unnecessary rather than merely deferred.

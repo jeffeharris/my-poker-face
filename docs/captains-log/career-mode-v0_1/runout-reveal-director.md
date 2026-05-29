@@ -142,3 +142,44 @@ had the user reproduce). Findings, in order:
 right early; the failures were (a) a store-merge clobber the unit tests couldn't
 see, and (b) image availability/latency — an entire dependency the director sits
 on top of. Watching it live surfaced both; neither showed in tests.
+
+## 2026-05-29 (later still) — §E hero card-commit, tuned live
+
+User asked for the human's hole cards to be part of the matchup beat — "present
+my hand, they react." Built it minimal (client-only, rides the existing
+schedule): `useRunoutDirector` exposes `heroCommitted`, `MobilePokerTable` lifts
+the hero cards via a CSS keyframe. Then a genuinely useful back-and-forth on the
+*feel*, each round a real correction:
+
+1. First pass was a gentle container lift — "some movement, but I want a slam,
+   further out, even covering the community cards." Rebuilt as a per-card staggered
+   slam (up onto the board, impact squash). Rendered on top of the felt fine (no
+   stacking-context fight — good, since that's a known trap here).
+2. "Too far + not as smooth as the dealing motion." Pulled the reach in and
+   switched to the *exact* dealCardIn easing/curve (dropped the bouncy squash).
+3. "Can't see the community cards during the run-out." The real flaw: I was
+   *holding* the cards up on the board for the whole run-out, covering the board
+   you're there to watch. Reframed to up-and-back.
+4. "Hold the pull-back until just when the run-out starts." Made it data-driven,
+   not a timer: `heroRetreating` flips on the first run-out board card, so the
+   cards hold presented until the deal actually begins, then retreat. Self-syncs
+   to backend pace (and to flop/turn/river all-ins).
+5. "They pull back to 'even', not their original spot." The keyframe ended at a
+   flat translate(0,0); fixed by ending (and starting) at the card's real dealt
+   placement via the existing `--deal-*` vars, consistent transform-function order
+   for smooth interp.
+
+Then a maintainability review (my own + the `code-simplifier` agent): the live
+tuning had left a duplicated 4-deep `animation` ternary across both card divs and
+gesture timing scattered across JSX/CSS. Cleaned: extracted a pure
+`heroCardAnimation(side, flags)` helper (byte-identical output verified) and
+centralized durations/stagger/easing into `RUNOUT_TIMING.hero` (keyframe *shape*
+stays in CSS — moving it to JS would be over-engineering). Kept the 3 justified
+eslint-disables. 9 tests + tsc + lint green.
+
+**Lesson:** animation feel can't be unit-tested — every improvement here came
+from the user watching it, not from green tests. And "hold the cards up" felt
+dramatic in isolation but fought the run-out's actual purpose (seeing the board);
+the up-and-back reframe came from that. Deferred: equity-picked gesture variants
+(push-when-ahead / toss-when-behind) — the schedule already has the human's
+equity, so it's a one-field surface when wanted.
