@@ -287,6 +287,7 @@
       }
     },
     "Sherlock Holmes": {
+      "adaptive_overbet": true,
       "play_style": "analytical and strategic, often employing deductive reasoning to outsmart opponents",
       "default_confidence": "steady",
       "default_attitude": "mysterious",
@@ -1628,6 +1629,7 @@
       }
     },
     "Don Quixote": {
+      "spot_tendencies": [["sticky", 0.7]],
       "play_style": "delusionally confident, sees every hand as an epic quest and charges into pots that aren't there",
       "default_confidence": "overconfident",
       "default_attitude": "noble and oblivious",
@@ -2013,6 +2015,7 @@
       }
     },
     "The Grandmother": {
+      "spot_tendencies": [["slowplay", 0.8]],
       "play_style": "deceptively sweet, lures opponents into a false sense of security before ruthlessly taking their chips",
       "default_confidence": "steady",
       "default_attitude": "warm and disarming",

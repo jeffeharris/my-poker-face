@@ -361,6 +361,14 @@ class TieredBotController(AIPlayerController):
         # clamp keyed on a confident read. Default OFF = static behavior preserved
         # (byte-identical). Requires an attached opponent_model_manager to read.
         self.adaptive_overbet: bool = False
+        # Per-personality attack config (production): a character can carry
+        # `"adaptive_overbet": true` in personalities.json to enable the surgical
+        # overbet (the "skill" / attacker side of the gradient). Sims/tests set
+        # the flag directly after __new__ (bypassing __init__), so this read only
+        # affects the live path. psychology is set by super().__init__ above.
+        _pcfg = getattr(getattr(self, 'psychology', None), 'personality_config', None)
+        if isinstance(_pcfg, dict) and 'adaptive_overbet' in _pcfg:
+            self.adaptive_overbet = bool(_pcfg['adaptive_overbet'])
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
