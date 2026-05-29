@@ -28,6 +28,28 @@ class Elimination:
     eliminator: str | None = None
 
 
+def attribute_eliminators(
+    busted: list[tuple[str, int]],
+    table_of_player: dict[str, int],
+    gains_by_table: dict[int, dict[str, int]],
+) -> dict[str, str]:
+    """Best-effort eliminator per busted player: the biggest live chip-gainer at
+    their table (the player who won the pot they died in).
+
+    A heuristic — in a multiway pot the largest gainer is the most likely
+    knockout — but resolver-agnostic and good enough for v1 standings/prestige.
+    `gains_by_table[table_id][player_id]` is the net chip change over the round.
+    """
+    busted_ids = {pid for pid, _ in busted}
+    eliminators: dict[str, str] = {}
+    for pid, _ in busted:
+        gains = gains_by_table.get(table_of_player.get(pid), {})
+        winners = {p: g for p, g in gains.items() if p not in busted_ids and g > 0}
+        if winners:
+            eliminators[pid] = max(winners, key=lambda p: winners[p])
+    return eliminators
+
+
 @dataclass
 class TournamentField:
     """Authoritative chip counts + standings for the whole field."""

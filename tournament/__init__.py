@@ -30,6 +30,7 @@ from .director import (
 )
 from .field import Elimination, TournamentField
 from .seating import SeatMove, SeatingManager, Table, build_initial_seating
+from .session import TournamentSession
 
 __all__ = [
     'BlindLevel',
@@ -37,6 +38,7 @@ __all__ = [
     'TournamentConfig',
     'TournamentDirector',
     'TournamentResult',
+    'TournamentSession',
     'Standing',
     'HandResolver',
     'FakeHandResolver',

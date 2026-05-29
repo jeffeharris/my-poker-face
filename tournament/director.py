@@ -17,8 +17,25 @@ from typing import Protocol
 
 from .blinds import BlindLevel
 from .config import TournamentConfig
-from .field import Elimination, TournamentField
-from .seating import SeatMove, SeatingManager, build_initial_seating
+from .field import Elimination, TournamentField, attribute_eliminators
+from .seating import Seating, SeatMove, SeatingManager, build_initial_seating
+
+
+def build_initial_state(
+    config: TournamentConfig,
+) -> tuple[list[str], dict[str, str], TournamentField, Seating]:
+    """Build the starting field + seating for a tournament config.
+
+    Players are `P01..PNN`, each assigned an archetype cycled from
+    `config.field_archetypes`. Shared by the headless director and the live
+    `TournamentSession` so both start from an identical world.
+    """
+    player_ids = [f"P{i + 1:02d}" for i in range(config.field_size)]
+    archetypes = config.field_archetypes
+    entries = {pid: archetypes[i % len(archetypes)] for i, pid in enumerate(player_ids)}
+    field = TournamentField(starting_stack=config.starting_stack, entries=entries)
+    seating = build_initial_seating(player_ids, config.table_size)
+    return player_ids, entries, field, seating
 
 
 class HandResolver(Protocol):
@@ -128,15 +145,7 @@ class TournamentDirector:
         self.schedule = config.blind_schedule()
         self.seating_manager = SeatingManager()
 
-        player_ids = [f"P{i + 1:02d}" for i in range(config.field_size)]
-        archetypes = config.field_archetypes
-        self.entries = {
-            pid: archetypes[i % len(archetypes)] for i, pid in enumerate(player_ids)
-        }
-        self.field = TournamentField(
-            starting_stack=config.starting_stack, entries=self.entries
-        )
-        self.seating = build_initial_seating(player_ids, config.table_size)
+        _player_ids, self.entries, self.field, self.seating = build_initial_state(config)
         self.rounds_played = 0
         self.round_reports: list[RoundReport] = []
 
@@ -200,7 +209,7 @@ class TournamentDirector:
             for pid in self.field.active_ids()
             if self.field.stacks[pid] <= 0
         ]
-        eliminators = self._attribute_eliminators(busted, table_of_player, gains_by_table)
+        eliminators = attribute_eliminators(busted, table_of_player, gains_by_table)
         events = self.field.record_eliminations(busted, self.rounds_played, eliminators)
 
         busted_ids = {pid for pid, _ in busted}
@@ -209,28 +218,6 @@ class TournamentDirector:
                 for pid in [p for p in table.players if p in busted_ids]:
                     table.remove(pid)
         return events
-
-    def _attribute_eliminators(
-        self,
-        busted: list[tuple[str, int]],
-        table_of_player: dict[str, int],
-        gains_by_table: dict[int, dict[str, int]],
-    ) -> dict[str, str]:
-        """Best-effort: a busted player's eliminator is the biggest chip-gainer
-        at their table that hand (the player who won the pot they died in).
-
-        A heuristic — in a multiway pot the largest gainer is the most likely
-        knockout — but good enough for v1 standings/prestige, and it works for
-        any HandResolver without coupling to its internals.
-        """
-        busted_ids = {pid for pid, _ in busted}
-        eliminators: dict[str, str] = {}
-        for pid, _ in busted:
-            gains = gains_by_table.get(table_of_player.get(pid), {})
-            winners = {p: g for p, g in gains.items() if p not in busted_ids and g > 0}
-            if winners:
-                eliminators[pid] = max(winners, key=lambda p: winners[p])
-        return eliminators
 
     def _apply_table_result(self, before: dict[str, int], after: dict[str, int]) -> None:
         """Guard the resolver contract: same players, chips conserved per table."""
