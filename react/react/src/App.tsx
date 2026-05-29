@@ -51,6 +51,9 @@ const LandingPage = lazy(() =>
   import('./components/landing').then((m) => ({ default: m.LandingPage }))
 );
 const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
+const TrainingMenu = lazy(() =>
+  import('./components/training/TrainingMenu').then((m) => ({ default: m.TrainingMenu }))
+);
 const PrivacyPolicy = lazy(() =>
   import('./components/legal').then((m) => ({ default: m.PrivacyPolicy }))
 );
@@ -411,6 +414,32 @@ function App() {
     fetchSavedGamesCount();
   };
 
+  // Training mode: create a non-counting practice game vs difficulty-tiered
+  // opponents and drop into it. Reuses the standard /game/:id view.
+  const handleStartTraining = async (difficulty: string, opponentCount: number) => {
+    if (isCreatingGame) return;
+    setIsCreatingGame(true);
+    try {
+      const response = await fetch(`${config.API_URL}/api/training/start`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerName, difficulty, opponent_count: opponentCount }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        navigate(`/game/${data.game_id}`);
+      } else {
+        toast.error(data.error || 'Failed to start practice game. Please try again.');
+      }
+    } catch (error) {
+      logger.error('Failed to start training game:', error);
+      toast.error('Failed to start practice game. Please try again.');
+    } finally {
+      setIsCreatingGame(false);
+    }
+  };
+
   // Show loading state while checking auth
   if (authLoading) {
     return (
@@ -466,7 +495,22 @@ function App() {
                     playerName={playerName}
                     onCashMode={() => navigate('/cash')}
                     onTournament={() => navigate('/menu/tournament')}
+                    onTraining={() => navigate('/menu/training')}
                     onAdminDashboard={() => navigate('/admin')}
+                  />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/menu/training"
+              element={
+                <ProtectedRoute>
+                  <TrainingMenu
+                    playerName={playerName}
+                    onStart={handleStartTraining}
+                    onBack={() => navigate('/menu')}
+                    isCreating={isCreatingGame}
                   />
                 </ProtectedRoute>
               }

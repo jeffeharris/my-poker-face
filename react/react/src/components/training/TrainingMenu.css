@@ -1,0 +1,166 @@
+/* Training (Practice) menu — difficulty selection.
+ * Visual language mirrors HomeMenu's mode-card but scoped to training-*. */
+
+.training-menu__crest {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 0.5rem;
+  border-radius: 50%;
+  color: var(--color-emerald, #34d399);
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.training-menu__intro {
+  margin: 0.75rem auto 1.25rem;
+  max-width: 34rem;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+/* --- Table size segmented control --- */
+.training-menu__sizes {
+  border: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+}
+
+.training-menu__sizes-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-menu__size-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.training-menu__size {
+  flex: 1 1 0;
+  min-width: 6rem;
+  max-width: 10rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text, #e5e7eb);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.training-menu__size:hover:not(:disabled) {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.training-menu__size--active {
+  border-color: var(--color-emerald, #34d399);
+  background: rgba(52, 211, 153, 0.14);
+  color: #fff;
+}
+
+.training-menu__sizes:disabled .training-menu__size {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* --- Difficulty cards --- */
+.training-menu__difficulties {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.training-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1.1rem 1.25rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text, #e5e7eb);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.training-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.training-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.training-card__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.training-card__content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.training-card__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.training-card__blurb {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.training-card__arrow {
+  flex: 0 0 auto;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+/* Per-tier accent on the icon + hover border. */
+.training-card--easy:hover:not(:disabled) {
+  border-color: rgba(52, 211, 153, 0.45);
+}
+.training-card--easy .training-card__icon {
+  color: #34d399;
+}
+
+.training-card--medium:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.45);
+}
+.training-card--medium .training-card__icon {
+  color: #60a5fa;
+}
+
+.training-card--hard:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+.training-card--hard .training-card__icon {
+  color: #f87171;
+}
