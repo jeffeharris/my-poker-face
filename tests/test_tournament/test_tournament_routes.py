@@ -121,6 +121,33 @@ def test_leave_removes_tournament(client):
     assert client.get(f'/api/tournament/{tid}/standings').status_code == 404
 
 
+def test_sit_builds_a_live_game(client):
+    """The live path: register, then sit builds a real single-table game tagged
+    with the tournament session. Exercises the builder + tiered controllers +
+    memory wiring end to end."""
+    from flask_app.services import game_state_service
+
+    tid = _register(client).get_json()['tournament_id']
+    resp = client.post(f'/api/tournament/{tid}/sit')
+    assert resp.status_code in (200, 201)
+    game_id = resp.get_json()['game_id']
+    assert game_id.startswith('tourney-')
+
+    game_data = game_state_service.get_game(game_id)
+    assert game_data is not None
+    assert game_data['tournament_session'] is not None
+    assert game_data['tournament_id'] == tid
+    # exactly one human seat at the live table, plus AI controllers for the rest
+    players = game_data['state_machine'].game_state.players
+    assert sum(1 for p in players if p.is_human) == 1
+    ai_names = {p.name for p in players if not p.is_human}
+    assert set(game_data['ai_controllers']) == ai_names
+
+    # sitting again returns the same live game (idempotent)
+    again = client.post(f'/api/tournament/{tid}/sit')
+    assert again.get_json()['game_id'] == game_id
+
+
 def test_unauthenticated_is_rejected(app):
     mock_auth = MagicMock()
     mock_auth.get_current_user.return_value = None

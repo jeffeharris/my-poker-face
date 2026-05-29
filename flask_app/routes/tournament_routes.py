@@ -44,6 +44,15 @@ def _resolve_owner_id() -> str:
     raise ValueError("No owner_id resolvable from request")
 
 
+def _resolve_player_name() -> str:
+    from flask_app.extensions import auth_manager
+
+    user = auth_manager.get_current_user() if auth_manager else None
+    if user and user.get('name'):
+        return user['name']
+    return 'You'
+
+
 def _build_resolver(kind: str, entries: dict[str, str]):
     if kind == 'engine':
         from tournament.engine_resolver import EngineHandResolver
@@ -172,6 +181,39 @@ def get_standings(tournament_id):
     if rec is None:
         return jsonify({'error': 'not_found'}), 404
     return jsonify(rec['session'].standings_view())
+
+
+@tournament_bp.route('/api/tournament/<tournament_id>/sit', methods=['POST'])
+def sit_tournament(tournament_id):
+    """Build (or return) the human's LIVE single-table game for this tournament,
+    so they can play it through the normal game UI/action API. The boundary hook
+    in game_handler advances the field after each of the human's hands."""
+    try:
+        rec, owner_id = _owned_record(tournament_id)
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+    if rec is None:
+        return jsonify({'error': 'not_found'}), 404
+
+    session = rec['session']
+    if session.is_complete() or session.human_out:
+        return jsonify({'error': 'tournament is not joinable'}), 409
+
+    from flask_app.services import game_state_service
+
+    existing = rec.get('game_id')
+    if existing and game_state_service.get_game(existing) is not None:
+        return jsonify({'game_id': existing}), 200
+
+    from flask_app.handlers.tournament_game_builder import build_tournament_game
+
+    owner_name = _resolve_player_name()
+    with registry.get_lock(tournament_id):
+        game_id = build_tournament_game(
+            session, tournament_id=tournament_id, owner_id=owner_id, owner_name=owner_name
+        )
+        rec['game_id'] = game_id
+    return jsonify({'game_id': game_id}), 201
 
 
 @tournament_bp.route('/api/tournament/<tournament_id>/advance', methods=['POST'])

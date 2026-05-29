@@ -3481,6 +3481,30 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
         game_data.pop('cash_solo_paused', None)
         game_data.pop('cash_rejoin_candidates', None)
 
+    # Multi-table tournament: the human plays one table; at each hand boundary
+    # fold the result into the field, pace the AI tables, settle, and either
+    # reconcile this table's roster/blinds for the next hand (continue/relocated)
+    # or pause the game (human out / tournament complete). Gated on a key only
+    # multi-table tournament games carry, so cash + single-table games are
+    # untouched.
+    if game_data.get('tournament_session') is not None:
+        try:
+            from flask_app.handlers.tournament_game_builder import tournament_hand_boundary
+
+            tournament_stop = tournament_hand_boundary(game_id, game_data, state_machine)
+        except Exception as e:
+            logger.error(
+                f"[TOURNEY] hand-boundary failed for {game_id}: {e}", exc_info=True
+            )
+            tournament_stop = True  # pause rather than risk a runaway loop
+        if tournament_stop:
+            game_data['state_machine'] = state_machine
+            game_state_service.set_game(game_id, game_data)
+            update_and_emit_game_state(game_id)
+            owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
+            game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
+            return state_machine.game_state, True
+
     # Advance to next hand - run until player action needed (deals cards, posts blinds)
     try:
         state_machine.run_until_player_action()
