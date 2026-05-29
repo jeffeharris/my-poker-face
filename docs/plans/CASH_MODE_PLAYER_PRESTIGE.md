@@ -218,6 +218,58 @@ legendary moments) keeps pace regardless of the sim's volume; raw hand-count is
 deliberately *not* the spine, so the faster world doesn't make the race unwinnable
 — and the same denomination makes AI-vs-AI renown coherent in pure sim runs.
 
+## Money, debt & reputation
+
+### Player side hustle for chips — considered, shelved
+
+Idea: let the human work a side hustle (the AIs' off-grid earn mechanic) for
+chips at a regard cost. **Shelved**, because:
+
+- **Gameplay-thin.** For AIs the side hustle is an abstract off-grid timer that
+  returns a pool-funded lump (world flavor). For a human it'd be "tap, wait
+  wall-clock, get chips" — a money **faucet that competes with the core loop**
+  and erodes the bankroll pressure that makes stakes matter.
+- **Weak causal link to regard.** Off-table moonlighting doesn't plausibly change
+  how the room feels about you *at the table* unless it's framed as public
+  desperation — a stretch.
+- **Duplicates a richer path.** The human's "I'm broke, get me money" mechanic is
+  **sponsorship/backing** (hook 2) — relationship-driven and already built. The
+  grubby-money-for-standing tradeoff already exists organically: *take backing →
+  default* fires `STAKE_DEFAULTED` (+heat / −likability / −respect → regard
+  drops). No new faucet needed.
+
+The only niche it could fit is a broke **villain** whose backing has dried up
+(regard ≤ `VILLAIN_REGARD_FLOOR`) with no sponsor path — a last-resort grind back
+from zero — but "lose more regard while already at rock bottom" is a death
+spiral, so even there it's shaky. Revisit only if the unbacked-villain recovery
+loop proves to need it.
+
+### Debt-to-assets (leverage) → credit & standing
+
+A player's **leverage** — `outstanding / (chips + receivables)` — should be a
+first-class financial-health signal. Mostly a refinement of existing wiring:
+
+- **Net worth already nets debt** (`net_worth = chips + receivable −
+  outstanding`), so carry already drags down net-worth **standing** (and thus the
+  renown standing driver). Debt already hurts your rank, organically.
+- **Backing already keys off carry** (`staking_tier.resolve_tier` maps outstanding
+  carry load → premium/standard/restricted/house_only). The refinement: gate on
+  the **ratio**, not absolute carry — 50k debt against 500k assets is fine; 50k
+  against 5k is a drowning credit risk who can't get backed. AI-symmetric (every
+  entity has chips / receivables / outstanding).
+
+**Legibility line — keep two financial reputations distinct:**
+
+- **Carrying debt = creditworthiness.** Gates *backing* (hook 2) and lowers
+  *net-worth standing*. It must **not** tank *regard* — being over-leveraged
+  isn't the same as being disliked (a beloved legend can be deep in margin).
+- **Defaulting on debt = a behavioral betrayal.** *That's* the regard hit, and
+  it's already wired (`STAKE_DEFAULTED` → +heat / −likability / −respect).
+
+So leverage feeds **credit + standing**; only *stiffing someone* feeds **regard**.
+That preserves regard's meaning ("how the room feels about you"), separate from
+solvency.
+
 ## Storage & the legibility guardrail
 
 The hard-won lesson from the attractiveness work (Codex-confirmed): **do not
