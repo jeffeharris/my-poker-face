@@ -229,6 +229,12 @@ LOCAL_ROSTERS = {
     'lag': ['LAG'] * 5,
     'nit': ['Nit'] * 5,
     'rock': ['Rock'] * 5,
+    # Balanced tiered opponent — near-GTO TAG. Use as the carrier for an
+    # OPPONENT-side leak (--opp-spot-tendency) so an attacker hero can face a
+    # clean "balanced player + one leak" rather than an aggressive/tight profile
+    # that confounds the leak. (Baseline can't carry a spot tendency — it skips
+    # the personality layer.)
+    'tag': ['TAG'] * 5,
     # Self-play reference for personality pricing: the bare max-EV chart bot
     # (BaselineSolverBot, no personality, no overbet/multistreet hero-layers).
     # Pricing a personality vs THIS = its intrinsic "distance from optimal",
@@ -241,7 +247,7 @@ def _resolve_roster(name):
     return LOCAL_ROSTERS[name] if name in LOCAL_ROSTERS else ROSTERS[name]
 
 
-def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None, hero_spot_tendencies=None):
+def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack=STARTING_STACK, mode='off', h1_streets=None, overbet=False, disable_rules=None, hero_spot_tendencies=None, opp_spot_tendencies=None):
     """One hand for one arm; return (hero_delta, hero_trace). Mirrors
     run_passivity_matchup's per-hand setup exactly so both arms share deck +
     opponents and differ only in hero_table AND the multistreet `mode`
@@ -276,9 +282,15 @@ def _run_one_hand(hero_name, config_arch, hero_table, opponent_seats, opp_config
     # SAME chart — symmetric to the multistreet flag-flavor arm.
     controllers[0].enable_overbet_context = overbet
     for i, (seat, cfg) in enumerate(zip(opponent_seats, opp_configs, strict=False)):
-        controllers.append(
-            make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
-        )
+        opp = make_controller(seat, cfg, opp_table, sm, rng_seed=hand_seed + 1_000_000 * (i + 1))
+        # Opponent-side leak (attacker eval): configure a spot tendency on each
+        # opponent so an attacker hero can face a "balanced player + one leak".
+        # No-op on rule bots / Baseline (no spot layer); use a tiered roster
+        # carrier (e.g. `tag`).
+        if opp_spot_tendencies:
+            opp._spot_tendencies_override = opp_spot_tendencies
+            opp._spot_tendencies_resolved = True
+        controllers.append(opp)
     trace = []
     final_stacks, _ = run_passivity_hand(sm, controllers, hero_name, PassivityStats(), hero_trace=trace)
     delta = final_stacks.get(hero_name, starting_stack) - starting_stack
@@ -301,7 +313,7 @@ def _first_divergence(trace_a, trace_b):
 
 
 def _run_seed(args):
-    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable, hero_spot = args
+    roster_name, n_hands, seed, hero_arch, arm_a, arm_b, stack_bb, heads_up, a_mode, b_mode, h1_streets, a_overbet, b_overbet, adaptive_opp, a_hero, b_hero, a_disable, b_disable, hero_spot, opp_spot = args
     logging.getLogger('poker.bounded_options').setLevel(logging.ERROR)
     if roster_name in ROSTER_CLONE_PROFILE:
         # `adaptive_opp` registers the perfect-overbet-punisher clone variant under
@@ -334,8 +346,8 @@ def _run_seed(args):
     for hand_num in range(n_hands):
         hand_seed = seed + hand_num
         dealer_idx = hand_num % (1 + len(opponents))
-        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable, hero_spot)
-        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable, hero_spot)
+        da, ta = _run_one_hand(hero_name, config_arch_a, table_a, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, a_mode, h1_streets, a_overbet, a_disable, hero_spot, opp_spot)
+        db, tb = _run_one_hand(hero_name, config_arch_b, table_b, opponent_seats, opp_configs, opp_table, hand_seed, dealer_idx, starting_stack, b_mode, h1_streets, b_overbet, b_disable, hero_spot, opp_spot)
         paired = db - da
         div = _first_divergence(ta, tb)
         key = ('-', 'NO_DIVERGENCE') if div is None else div
@@ -441,6 +453,12 @@ def main():
                    "'give_up_turn:0.8' or 'fit_or_fold:0.8,auto_cbet:0.8'). Price one by "
                    "pairing with --a-disable spot_tendencies:<name> (OFF) vs ON. Requires a "
                    "non-Baseline --hero (e.g. TAG); Baseline skips the personality layer.")
+    p.add_argument('--opp-spot-tendency', default=None,
+                   help="configure spot tendencies on the OPPONENTS (both arms), same format. "
+                   "Attacker eval: put a leak on the opponent (use a tiered roster carrier like "
+                   "`tag`) and A/B an attacker layer on the hero (e.g. --overbet-b) to measure "
+                   "how much the attacker extracts from the leak. No-op on rule-bot/Baseline "
+                   "opponents (no personality layer).")
     p.add_argument('--adaptive-opp', action='store_true',
                    help="make a CLONE opponent (jeff/punisher rosters) the perfect-overbet-PUNISHER "
                    "(D1, SIZING_AWARE_OPPONENT_MODELING.md): it max-folds all but near-nuts vs a "
@@ -457,7 +475,8 @@ def main():
     a_disable = _parse_disables(args.a_disable)
     b_disable = _parse_disables(args.b_disable)
     hero_spot = _parse_hero_spot(args.hero_spot_tendency)
-    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable, hero_spot) for s in seeds]
+    opp_spot = _parse_hero_spot(args.opp_spot_tendency)
+    work = [(args.roster, args.hands, s, args.hero, args.a, args.b, args.stack_bb, args.heads_up, args.a_mode, args.b_mode, h1_streets, args.overbet_a, args.overbet_b, args.adaptive_opp, args.a_hero, args.b_hero, a_disable, b_disable, hero_spot, opp_spot) for s in seeds]
     merged = defaultdict(lambda: [0, 0.0, 0.0])
     if len(seeds) > 1:
         with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 1)) as ex:
@@ -482,6 +501,8 @@ def main():
     if args.overbet_b:
         b_label += "+overbet"
     roster_label = f"{args.roster}{'+oracle' if args.adaptive_opp else ''}"
+    if args.opp_spot_tendency:
+        roster_label += f" opp-spot[{args.opp_spot_tendency}]"
     if args.hero_spot_tendency:
         a_label += f" spot[{args.hero_spot_tendency}]"
         b_label += f" spot[{args.hero_spot_tendency}]"
