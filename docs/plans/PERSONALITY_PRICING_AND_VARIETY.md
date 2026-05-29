@@ -31,15 +31,22 @@ emergent **skill gradient** across the AI players.
 
 ---
 
-## Current state (handoff — what's true as of 2026-05-28)
+## Current state (handoff — what's true as of 2026-05-29)
 
 **Branch `lookup-tables`** (merged with `origin/development`, pushed). All Python
 runs in Docker: `docker compose exec -T backend python ...`.
+
+> **NEW-CONTEXT START HERE.** The live frontier is **item 3 — the spot-tendency
+> variety system** (the "Item 3 scope" + "Tendency & skill catalog" sections below).
+> Mechanism + first leak (slow-play) + per-personality hook are shipped; the catalog
+> is the running to-do. Maniac/personality-pricing (the "Results" table) is done. The
+> strength-side gameplay layers (1–3 below) are also done — don't re-open them.
 
 **Shipped this session (production gameplay changes, all eval-validated):**
 1. **Wider late-position RFI** (`4f5fb311`, pre-session) — CO/BTN/SB GTO-shaped opens.
 2. **Multistreet flop+turn barrel-continuation** (`d1781b30`) — `enable_multistreet_context=True`, `multistreet_h1_streets={FLOP,TURN}` (river leg dropped, measured −EV), H2 off. +3–12 bb/100 vs realistic opponents.
 3. **Value overbet** (`170a86ac`) — `enable_overbet_context=True`, `overbet_size=150`, classes `{nuts,strong_made}`, streets `{TURN,RIVER}`. **The big one: +40 HU / +77 6-max cumulative vs former self, no regression** (`2329d0eb`).
+4. **Spot-tendency variety system (item 3)** — `poker/strategy/spot_tendencies.py` (`apply_spot_tendencies`, general layer) + slow-play leak (priced **free**) + per-personality override hook (`spot_tendencies` key in personalities.json → `TieredBotController.deviation_profile` merge) + the `--a-disable/--b-disable` pricing-gate flag. Defaults OFF. Commits `bdf150fe`/`3973ab25`/`1f63f658`/`ba98183a`. See the catalog for what's next.
 
 **Key measured findings (don't re-litigate):**
 - The cheap chart frontier (frequency, sizing granularity, dimensional coverage) is **tapped**; the remaining strength lever is the **parked solver program** (HU/multiway, expensive).
@@ -50,11 +57,13 @@ runs in Docker: `docker compose exec -T backend python ...`.
 - `poker/strategy/personality_modifier.py` — `modify_strategy(base, anchors, emotional_state, deviation_profile)` distorts the baseline chart in logit space, **bounded** by `max_kl` / `max_per_action_shift`.
 - `poker/strategy/deviation_profiles.py` — `DEVIATION_PROFILES`: **`nit, rock, tag, calling_station, lag, maniac`**. Axes: `aggression_scale`, `looseness_scale`, `risk_scale`, `ego_fold_penalty`, + the KL bounds.
 - Sim wiring: `simulate_bb100.make_controller` sets `controller._deviation_profile = DEVIATION_PROFILES[profile_key]` (None for `Baseline`, which sets `skip_personality_distortion=True`). `ARCHETYPES[name]` carries `{kind, profile, anchors}`.
+- **Spot-specific extension (item 3):** `poker/strategy/spot_tendencies.py` adds *per-spot* tendencies on top of the global scalars (the layer is node/line-aware; the scalars are not). `DeviationProfile.spot_tendencies` (profile-level) + the personalities.json `spot_tendencies` key (per-character) drive it. See "Item 3 scope" + the catalog.
 
 **The eval gates (the pricing instruments):**
 - `experiments/ab_node_attribution.py` — **paired-CRN first-divergence per-node attribution** (the primary pricing tool). Already supports `--a-mode/--b-mode` (multistreet), `--overbet-a/-b`, `--adaptive-opp` (D1 oracle), `--h1-streets`, `--heads-up`, `--stack-bb`. **`--a-hero/--b-hero`** (per-arm hero archetype) — BUILT 2026-05-28; control `--a-hero Baseline --b-hero Baseline` = 100% NO_DIVERGENCE / +0.00, verified. Local self-play roster: `baseline` (= `['Baseline']*5`).
 - `experiments/measure_passivity.py` — Tier-A diagnostics + `--leak-report`.
-- `experiments/champion_challenger.py`, `experiments/sng_runner.py`, `experiments/exploit_bb100.py` — other gates (parallel session's; coordinate).
+- For pricing a **spot tendency**: `--a-disable/--b-disable layer:rule` (BUILT 2026-05-29) toggles one layer-rule per arm. Recipe: configure a carrier (a profile or a personality's `spot_tendencies`) with the tendency, then A/B `--a-disable spot_tendencies:<name>` (OFF) vs ON on the same `--hero`; the paired delta is the tendency's marginal cost. Control = identical disables → 100% NO_DIVERGENCE.
+- `experiments/champion_challenger.py`, `experiments/sng_runner.py`, `experiments/exploit_bb100.py` — other gates (now also ours; parallel session wrapped).
 
 ---
 
